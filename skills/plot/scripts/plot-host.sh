@@ -438,7 +438,26 @@
 #                                 found: <name>` on stderr, checked before any
 #                                 issue search is spent; a 404/5xx on that
 #                                 version-list check propagates its own exit
-#                                 code instead, never read as not-found.
+#                                 code instead, never read as not-found, and a
+#                                 200 that is not valid JSON exits 3, the same
+#                                 "cannot parse" failure `version-list` itself
+#                                 gives — never read as not-found either. THE
+#                                 EXISTENCE CHECK RUNS ONCE PER PROJECT PER
+#                                 READ, not once per page: it is skipped
+#                                 whenever `--page-token` is present, since
+#                                 `walk` (tracker-shell.ts) calls this op once
+#                                 per page and every page past the first
+#                                 carries that flag. A LATER `--state` THAT
+#                                 DISAGREES WITH `--fix-version` IS REFUSED
+#                                 (EXIT 2), in either argument order: the two
+#                                 flags are not independently meaningful
+#                                 (`--state version` alone has no name to
+#                                 search), so one silently winning would hide
+#                                 the other. EXIT 2 ALSO where an unpaged
+#                                 `--limit` is bounded away before the host is
+#                                 asked — a value of 16 or more digits refuses
+#                                 on its shape alone, since bash's own integer
+#                                 comparison cannot test it: see --limit above.
 #   version-list <project>        (jira only; exit 4 elsewhere) the versions of
 #                                 one project, one JSON line each:
 #                                 {"name":…,"released":bool,"releaseDate":…|null}.
@@ -5081,11 +5100,11 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""; paged=""; label=""; fix_version=""; title_has=""
+    limit=""; state="open"; since=""; page_token=""; paged=""; label=""; fix_version=""; title_has=""; state_explicit=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
-        --state) state="${2:?}"; shift 2 ;;
+        --state) state="${2:?}"; state_explicit="$state"; shift 2 ;;
         --since) since="${2:?}"; shift 2 ;;
         --page-token) page_token="${2:?}"; shift 2 ;;
         --paged) paged=1; shift ;;
@@ -5095,6 +5114,17 @@ case "$op" in
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
+    # `--fix-version` AND AN EXPLICIT `--state` ARE NOT INDEPENDENTLY MEANINGFUL
+    # (`--state version` alone has nowhere to get a name from), so one of two
+    # flags silently winning would hide the other. Refused regardless of
+    # argument order: the loop above always leaves `state=version` once
+    # `--fix-version` is seen, so order itself cannot distinguish the two
+    # un-refused outcomes a naive fix could produce. Exit 2, the same code the
+    # above-one-page `--limit` guard below uses, and for the same reason: both
+    # are usage errors this arm catches itself rather than `die`'s plain 1, so
+    # a caller can tell "this op's own contract" apart from every other
+    # argument mistake `die` reports across the whole script.
+    [ -z "$fix_version" ] || [ -z "$state_explicit" ] || [ "$state_explicit" = version ] || { echo "plot-host: issue-list: --fix-version and --state $state_explicit conflict; drop one" >&2; exit 2; }
     # `--since` is spliced into a JQL string and a search qualifier, so its shape
     # is checked here: a value outside it is a usage error, never a query.
     [[ "$state" =~ ^(open|closed|inbox|changed|version)$ ]] || die "issue-list: --state is open, closed, inbox, changed or version, not '$state'"
@@ -5149,7 +5179,21 @@ case "$op" in
       # THE CLOSED, CHANGED AND VERSION READS REQUIRE `Ticket prefixes`: an
       # unscoped `resolved >=`, `updated >=` or `fixVersion =` query reads every
       # project on the instance, the hazard `tracker_projects` measured.
-      [ -n "$scope" ] || ! [[ "$state" =~ ^(closed|changed|version)$ ]] || { echo "plot-host: $state Jira issues need 'Ticket prefixes' declared; an unscoped $state query reads the whole instance" >&2; exit 4; }; if [ "$state" = version ]; then found=""; for p in $projects; do vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; [ "$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" = true ] && found=1; done; [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
+      [ -n "$scope" ] || ! [[ "$state" =~ ^(closed|changed|version)$ ]] || { echo "plot-host: $state Jira issues need 'Ticket prefixes' declared; an unscoped $state query reads the whole instance" >&2; exit 4; }
+      # THE EXISTENCE CHECK RUNS ONCE PER QUESTION, NOT ONCE PER PAGE: `walk`
+      # (tracker-shell.ts) calls this script once per page of a multi-page
+      # `--fix-version` read, each call carrying `--page-token` from the second
+      # page on. Re-running the check on every one of those re-asks Jira
+      # `version-list` per `Ticket prefixes` project for a question already
+      # answered on page one — 6 extra calls for a 3-page/2-project read,
+      # measured 2026-10-21 (issue #2259). Gating on an absent `$page_token`
+      # keeps `versionRead`'s `pages: issues.value.pages + projects.length`
+      # (tracker-jira.ts) correct: one existence call per project, however many
+      # pages the read takes. A malformed version-list body exits 3 like
+      # `version-list`'s own parse failure does — "cannot parse" and "parsed,
+      # found nothing" are different outcomes, and only the second is
+      # version-not-found.
+      if [ "$state" = version ] && [ -z "$page_token" ]; then found=""; for p in $projects; do vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; match="$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" || exit 3; [ "$match" = true ] && found=1; done; [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
       # A VERSION READ EXISTS BEFORE IT IS SEARCHED: `fixVersion = "<name>"` alone
       # matches nothing for a name Jira has never heard of and still exits 0 with
       # no rows (measured 2026-10-21) — the exact silent empty answer this guard
@@ -5214,7 +5258,15 @@ case "$op" in
       # refuses. `-gt`, not `-ge`: a full single page (100) is still one page
       # and must still answer. A non-numeric `--limit` skips this guard and
       # reaches Jira as an invalid `maxResults` instead — not this guard's job.
-      if [ -n "$paged" ]; then max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; else [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ] && { echo "plot-host: issue-list: --limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time" >&2; exit 2; }; fi
+      # BOUNDED BEFORE `-gt` EVER RUNS: `[0-9]+` matches a value like
+      # `99999999999999999999` too, and bash's `-gt` only holds signed 64-bit
+      # integers — past that it prints "integer expected" to stderr and the
+      # whole `&&` chain reads as false, so the oversized value reached Jira's
+      # `maxResults` unbounded (measured by hand). A run of 16+ digits is
+      # outside that range regardless of value, so it refuses on digit count
+      # alone, never reaching a comparison `-gt` cannot make; 1-15 digits is
+      # always representable and falls through to the ordinary `-gt` check.
+      if [ -n "$paged" ]; then max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; else { [[ "$max" =~ ^[0-9]{16,}$ ]] || { [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ]; }; } && { echo "plot-host: issue-list: --limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time" >&2; exit 2; }; fi
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
       # jq builds the query string so a JQL with spaces/quotes is encoded once,
       # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
