@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2489 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/plot-deliver-and-plot-impl-status-repro`
+- **Started:** 2026-10-25, Jan Wloka, `bug/plot-deliver-and-plot-impl-status`
 
 ## Changelog
 
