@@ -15,6 +15,7 @@
 - **Started:** 2026-10-24, jwloka, `bug/sprint-release-gate-ignores-withdrawn-and-partial-reads`
 - **Started:** 2026-10-24, jwloka, `bug/sprint-readers-misread-goal-and-slug`
 - **Started:** 2026-10-24, jwloka, `bug/story-lint-reduces-link-form-story`
+- **Started:** 2026-10-25, jwloka, `bug/plot-sprint-verdict-reports-partial-comparison`
 
 ## Changelog
 
