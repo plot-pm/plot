@@ -68,7 +68,7 @@ Findings by slice:
 ### Fixes that touch no scan code
 
 - `bug/reconcile-config-and-plan-meta` — fix `get-raw` and the two `plot-plan-meta.sh` findings → #2575
-- `bug/reconcile-corpus-and-scan-tests` — make the corpus and double-link tests reach the code they name
+- `bug/reconcile-corpus-and-scan-tests` — make the corpus and double-link tests reach the code they name → #2671
 
 ### Scan sections
 
