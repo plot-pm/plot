@@ -182,6 +182,175 @@ jobs:
         timeout-minutes: 10
         run: pnpm --filter @plot-pm/domain run test:corpus
 
+  # ── Shipped shell under the bash macOS actually ships. ────────────────────
+  #
+  # `scripts/check-bash32-syntax.sh` (`corpus`-adjacent, runs on every job's
+  # `ubuntu-latest`) greps shipped shell for eight named bash-4+ constructs.
+  # It is a static scan and can only catch a construct on its own list. PR
+  # #2659's `${1^^}` was exactly that kind of hit; the next defect that slips
+  # bash 3.2 may be a construct not on the list, or a behaviour change with no
+  # syntax error at all — `bash -n` cannot see either. This job runs real
+  # shipped shell under a real `/bin/bash` 3.2.57, the version macOS ships and
+  # the version an operator's or an agent's machine runs. `macos-latest` is the
+  # only runner here that has one.
+  #
+  # ITS OWN JOB, NOT A STEP ON ONE OF THE FOUR ABOVE: all four run
+  # `ubuntu-latest`, and a macOS runner bills and schedules differently. A
+  # fifth job keeps the Linux jobs' timing untouched.
+  #
+  # NOT A REQUIRED CHECK. The branch ruleset names `validate` and
+  # `plot/review` (measured 2026-10-20, ruleset 24412719); this job reports
+  # independently and is not in `validate`'s `needs:`. Whether to require it,
+  # or to defer it until the static scan above has run a release unattended,
+  # is a judgement call for review — see the plan's Open Questions
+  # (`docs/plans/2026-10-25-ci-does-not-run-shipped-shell.md`).
+  #
+  # THE TEST SUBSET IS BOUNDED, DELIBERATELY. `test/reconcile/*.test.mjs` is
+  # 176 files and `CLAUDE.md` already measures that glob at "more than ten
+  # minutes" on Linux — macOS bills slower per minute and is not faster in
+  # wall time for the same work, so the full glob risks this job's own
+  # `timeout-minutes` for no proportional gain: most of those 176 files never
+  # start a shipped `.sh` script, and a file that starts none cannot catch a
+  # bash-3.2 regression no matter what shell `bash` resolves to. The subset
+  # run here is every `test/reconcile/*gate*.test.mjs` file that spawns a
+  # real `.sh` gate — under `scripts/` or `skills/` — against this
+  # repository's own tree; `main-checkout-gate.test.mjs` and
+  # `state-declaration-gate.test.mjs` spawn `git`/`node` directly and are the
+  # two files the glob excludes. That is the same pair of roots
+  # `check-bash32-syntax.sh` scans (`ROOTS='skills scripts'` in that script),
+  # so a file the static scan checks and this job's tests exercise stay in
+  # scope-agreement. Measured on this tree 2026-10-25: 17 files, 307 tests,
+  # 28 s locally on Linux-equivalent hardware — comfortably inside this job's
+  # bound even at several times that on a slower macOS runner. Most of
+  # `skills/**/*.sh` is scanned by the same static gate but is NOT exercised
+  # by this subset — only `bundle-commit-gate.test.mjs` reaches one
+  # (`skills/plot/scripts/plot-bundle-commit-gate.sh`); `test:contracts`' full
+  # `skills/`-touching suite is the only thing that runs the rest, and running
+  # it here would reopen the 25-minute-plus cost this job exists to avoid.
+  # That gap is real and is named rather than closed: a bash-3.2 regression in
+  # most of `skills/plot/scripts/` with no syntax hit on the static scan's
+  # list is still only caught by reading, same as PR #2659 was.
+  #
+  # `bash` RESOLVED BY NAME, NOT BY PATH, IS THE BUG THIS PLAN DOCUMENTS. Every
+  # test above calls `spawnSync('bash', [...])`, which resolves through `PATH`
+  # — and a macOS runner's Homebrew `bash` on `PATH` is bash 5, same as this
+  # machine's own `/opt/homebrew/bin/bash` ahead of `/bin/bash` in a typical
+  # operator shell. Editing 17 test files to hardcode `/bin/bash` is out of
+  # this branch's scope (it owns the CI job, not the gate tests), so this job
+  # instead puts a directory holding ONLY a `bash` -> `/bin/bash` symlink at
+  # the FRONT of `PATH` for the test step — every `spawnSync('bash', ...)`
+  # resolves through that symlink, and nothing else on `PATH` moves.
+  macos-shell-contract:
+    runs-on: macos-latest
+    # Guard first, same reason as every job above: a checkout ahead of it
+    # would clone an unpinned ref before anything refused.
+    timeout-minutes: 15
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # LOGGED, NOT ONLY ASSERTED — so a future image bump that ships a
+      # different `/bin/bash` is visible in this job's own output rather than
+      # silently testing nothing. Apple has shipped 3.2.57 as `/bin/bash`
+      # since Snow Leopard; the assertion is what turns a silent drift into a
+      # failing job instead of a green one that stopped meaning what it says.
+      - name: Confirm /bin/bash is the version this job exists to test
+        run: |
+          set -euo pipefail
+          /bin/bash --version
+          got="$(/bin/bash -c 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"')"
+          if [ "$got" != "3.2" ]; then
+            echo "::error::/bin/bash reports version ${got}, expected 3.2 — this runner's image changed what this job tests"
+            exit 1
+          fi
+          echo "/bin/bash is ${got}, as expected."
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the board bundles
+        run: pnpm run build:board
+
+      # THE SYMLINK, AHEAD OF EVERYTHING ELSE ON PATH. A directory holding
+      # only this one name means nothing other than `bash` can be shadowed by
+      # accident, and `command -v bash` right after proves the resolution
+      # this whole job exists to pin rather than assuming `GITHUB_PATH` took
+      # effect.
+      - name: Resolve bash to /bin/bash on PATH, not whatever Homebrew shipped
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bash32-path"
+          ln -sf /bin/bash "$RUNNER_TEMP/bash32-path/bash"
+          echo "$RUNNER_TEMP/bash32-path" >> "$GITHUB_PATH"
+
+      - name: bash on PATH now resolves to /bin/bash 3.2.57
+        run: |
+          set -euo pipefail
+          resolved="$(command -v bash)"
+          echo "bash resolves to: $resolved"
+          if [ "$resolved" != "$RUNNER_TEMP/bash32-path/bash" ]; then
+            echo "::error::bash on PATH resolved to $resolved, not the pinned symlink — a later PATH entry is winning"
+            exit 1
+          fi
+          got="$(bash -c 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"')"
+          if [ "$got" != "3.2" ]; then
+            echo "::error::bash on PATH reports version ${got}, expected 3.2 — the pin did not take"
+            exit 1
+          fi
+          echo "bash on PATH is ${got}."
+
+      # THE BOUNDED SUBSET: every gate test that spawns a real `scripts/*.sh`
+      # file against this repository's own tree. See the job header for why
+      # this subset and not the full `test/reconcile/*.test.mjs` glob.
+      - name: Shell contract tests under /bin/bash 3.2.57
+        timeout-minutes: 10
+        run: |
+          node --test --test-reporter=tap --test-timeout=120000 \
+            test/reconcile/ancestry-gate.test.mjs \
+            test/reconcile/bash32-gate.test.mjs \
+            test/reconcile/brief-name-gate.test.mjs \
+            test/reconcile/bundle-attribute-gate.test.mjs \
+            test/reconcile/bundle-commit-gate.test.mjs \
+            test/reconcile/bundle-resolution-gate.test.mjs \
+            test/reconcile/ci-suite-gate.test.mjs \
+            test/reconcile/claim-prefix-gate.test.mjs \
+            test/reconcile/controller-gate.test.mjs \
+            test/reconcile/desk-marker-gate.test.mjs \
+            test/reconcile/gate.test.mjs \
+            test/reconcile/gates-launcher.test.mjs \
+            test/reconcile/host-cli-gate.test.mjs \
+            test/reconcile/no-bundle-diff-gate.test.mjs \
+            test/reconcile/script-name-gate.test.mjs \
+            test/reconcile/state-gate.test.mjs \
+            test/reconcile/temp-paths-gate.test.mjs
+
   # ── Helper contract tests: its own job, ahead of `validate`. ──────────────
   #
   # Runs in parallel with `board-integration`; `validate` starts after both
