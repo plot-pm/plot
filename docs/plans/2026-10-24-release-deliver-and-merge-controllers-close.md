@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2505 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/shared-issue-close-reads-every-sibling`
 - **Started:** 2026-10-25, Jan Wloka, `bug/release-chain-reads-every-page-and-hop`
+- **Started:** 2026-10-25, Jan Wloka, `bug/merge-pins-only-resolvable-short-shas`
 
 ## Changelog
 
