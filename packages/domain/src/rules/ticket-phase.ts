@@ -62,33 +62,15 @@ export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null =>
 };
 
 /**
- * Whether every plan naming a ticket is `released` — a ticket in this state
- * has nothing left unfinished and should not keep appearing as waiting work.
+ * Whether a ticket has nothing left that *Waiting on you* shows: every plan
+ * naming it is `released`, or is in a state {@link ticketPhase} does not place
+ * (`rejected`, `superseded`, or any other word absent from `PLACED`).
  *
- * `[]` answers `false`: a ticket no plan names is unplanned, not
- * released-and-done, and that case belongs to the caller that decides what an
- * absent plan list means, not to this predicate.
- *
- * @param plans - the plans whose `Issue:` field names the ticket.
- * @returns whether every plan in the list is in the `released` state.
- */
-export const allReleased = (plans: readonly TicketPlan[]): boolean =>
-  plans.length > 0 && plans.every((plan) => plan.state === 'released');
-
-/**
- * Whether every plan naming a ticket is in a state {@link ticketPhase} cannot
- * place (`rejected`, `superseded`, or any other word absent from `PLACED`).
- *
- * `[]` answers `false`, for the same reason {@link allReleased} does: a ticket
- * no plan names is unplanned, not planned-and-dropped, and that distinction
- * belongs to the caller, not to this predicate. A ticket for which this
- * answers `true` is not unplanned — a plan does name it — but `ticketPhase`
- * has no label for it, so a caller that reads `ticketPhase(plans) === null`
- * as "unplanned" would wrongly sort and count it with tickets no plan names
- * at all.
+ * `[]` answers `false`: a ticket no plan names is unplanned, and the caller
+ * decides what an absent plan list means.
  *
  * @param plans - the plans whose `Issue:` field names the ticket.
- * @returns whether every plan in the list is in a state this rule does not place.
+ * @returns whether the list is non-empty and every plan in it is released or unplaceable.
  */
-export const allUnplaceable = (plans: readonly TicketPlan[]): boolean =>
-  plans.length > 0 && plans.every((plan) => PLACED[plan.state] === undefined);
+export const allFinished = (plans: readonly TicketPlan[]): boolean =>
+  plans.length > 0 && plans.every((plan) => plan.state === 'released' || PLACED[plan.state] === undefined);

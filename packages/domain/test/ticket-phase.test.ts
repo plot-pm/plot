@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allReleased, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
+import { allFinished, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
 
 const plan = (state: string, overrides: Partial<TicketPlan> = {}): TicketPlan => ({ state, total: 0, merged: null, ...overrides });
 
@@ -65,20 +65,25 @@ describe('ticketPhase', () => {
   });
 });
 
-describe('allReleased', () => {
-  it('answers false for an empty list — unplanned, not released-and-hidden', () => {
-    expect(allReleased([])).toBe(false);
-  });
-
-  it('answers true when the one plan is released', () => {
-    expect(allReleased([plan('released')])).toBe(true);
+describe('allFinished', () => {
+  it('answers false for an empty list — unplanned, not finished', () => {
+    expect(allFinished([])).toBe(false);
   });
 
   it('answers true when every plan is released', () => {
-    expect(allReleased([plan('released'), plan('released')])).toBe(true);
+    expect(allFinished([plan('released'), plan('released')])).toBe(true);
+  });
+
+  it('answers true when every plan is rejected or superseded', () => {
+    expect(allFinished([plan('rejected'), plan('superseded')])).toBe(true);
+  });
+
+  it('answers true when one plan is superseded and the other released', () => {
+    expect(allFinished([plan('superseded'), plan('released')])).toBe(true);
   });
 
   it('answers false when another plan is still unfinished', () => {
-    expect(allReleased([plan('released'), plan('approved')])).toBe(false);
+    expect(allFinished([plan('released'), plan('approved')])).toBe(false);
+    expect(allFinished([plan('rejected'), plan('draft')])).toBe(false);
   });
 });

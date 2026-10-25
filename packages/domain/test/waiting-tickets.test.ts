@@ -15,6 +15,8 @@ const row = (number: string, overrides: Partial<IssueIndexRow> = {}): IssueIndex
   ...overrides,
 });
 
+const plans = (entries: Record<string, TicketPlan[]>): Map<string, TicketPlan[]> => new Map(Object.entries(entries));
+
 const unassigned = (n: number): IssueIndexRow[] =>
   Array.from({ length: n }, (_, i) => row(`${i}`, { assignees: [] }));
 
@@ -246,8 +248,6 @@ describe('waitingTickets, the unmatched reader', () => {
 
 describe('waitingTickets, planned tickets', () => {
   const reader: Reader = { hostUser: 'jwloka' };
-  const plans = (entries: Record<string, TicketPlan[]>): Map<string, TicketPlan[]> => new Map(Object.entries(entries));
-
   it('shows the plan phase as status on a planned ticket and the tracker state on an unplanned one', () => {
     const rows = [
       row('1', { assignees: ['jwloka'], status: 'open' }),
@@ -286,7 +286,7 @@ describe('waitingTickets, planned tickets', () => {
     expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['JIRA-2', 'To Do'], ['JIRA-1', 'In Progress']]);
   });
 
-  it('excludes a row named only by released plans from tickets and counts it in hidden', () => {
+  it('leaves a row named only by released plans out of tickets, shown and hidden', () => {
     const rows = [
       row('1', { assignees: ['jwloka'], status: 'open' }),
       row('2', { assignees: ['jwloka'], status: 'closed' }),
@@ -294,7 +294,7 @@ describe('waitingTickets, planned tickets', () => {
     const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'released', total: 1, merged: 1 }] }));
     expect(result.tickets.map((t) => t.number)).toEqual(['1']);
     expect(result.shown).toBe(1);
-    expect(result.hidden).toBe(1);
+    expect(result.hidden).toBe(0);
   });
 
   it('still shows a row named by one released and one unfinished plan, labelled in progress', () => {
@@ -313,13 +313,54 @@ describe('waitingTickets, planned tickets', () => {
     expect(result.hidden).toBe(0);
   });
 
-  it('excludes a row named only by a rejected-state plan from tickets and counts it in hidden, same as an allReleased row', () => {
+  it('leaves a row named only by a rejected plan out of tickets, shown and hidden', () => {
     const rows = [
       row('1', { assignees: ['jwloka'], status: 'open' }),
       row('2', { assignees: ['jwloka'], status: 'closed' }),
     ];
     const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'rejected', total: 1, merged: null }] }));
     expect(result.tickets.map((t) => t.number)).toEqual(['1']);
+    expect(result.shown).toBe(1);
+    expect(result.hidden).toBe(0);
+  });
+
+  it('leaves a row named by one superseded and one released plan out of tickets, shown and hidden', () => {
+    const rows = [
+      row('1', { assignees: ['jwloka'], status: 'open' }),
+      row('2', { assignees: ['jwloka'], status: 'open' }),
+    ];
+    const result = waitingTickets(
+      rows,
+      undefined,
+      reader,
+      GITHUB,
+      true,
+      plans({ '2': [{ state: 'superseded', total: 1, merged: null }, { state: 'released', total: 1, merged: 1 }] }),
+    );
+    expect(result.tickets.map((t) => t.number)).toEqual(['1']);
+    expect(result.shown).toBe(1);
+    expect(result.hidden).toBe(0);
+  });
+
+  it('counts in hidden only the unfinished rows not assigned to the reader', () => {
+    const rows = [
+      row('mine', { assignees: ['jwloka'] }),
+      row('theirs-open', { assignees: ['someone-else'] }),
+      row('theirs-released', { assignees: ['someone-else'] }),
+      row('theirs-rejected', { assignees: ['someone-else'] }),
+    ];
+    const result = waitingTickets(
+      rows,
+      undefined,
+      reader,
+      GITHUB,
+      true,
+      plans({
+        'theirs-released': [{ state: 'released', total: 1, merged: 1 }],
+        'theirs-rejected': [{ state: 'rejected', total: 1, merged: null }],
+      }),
+    );
+    expect(result.tickets.map((t) => t.number)).toEqual(['mine']);
     expect(result.shown).toBe(1);
     expect(result.hidden).toBe(1);
   });
@@ -343,13 +384,12 @@ describe('waitingTickets, planned tickets', () => {
     );
     expect(result.tickets.map((t) => t.number)).toEqual(['unplanned', 'approved']);
     expect(result.shown).toBe(2);
-    expect(result.hidden).toBe(1);
+    expect(result.hidden).toBe(0);
   });
 });
 
 describe('waitingTickets, host-login and tracker-account readers agree on planned-ness', () => {
-  it('a tracker-account inbox row keeps its own state but is still excluded from shown/hidden the same way a host-login reader excludes it', () => {
-    const plans = (entries: Record<string, TicketPlan[]>): Map<string, TicketPlan[]> => new Map(Object.entries(entries));
+  it('leaves a row named only by a rejected plan out of shown and hidden for both a host-login and a tracker-account reader', () => {
     const rejectedOnly = plans({ shared: [{ state: 'rejected', total: 1, merged: null }] });
 
     const hostReader: Reader = { hostUser: 'jwloka' };
@@ -361,11 +401,11 @@ describe('waitingTickets, host-login and tracker-account readers agree on planne
     const jiraResult = waitingTickets([inboxRow], [inboxRow], jiraReader, JIRA, true, rejectedOnly);
 
     expect(hostResult.shown).toBe(0);
-    expect(hostResult.hidden).toBe(1);
+    expect(hostResult.hidden).toBe(0);
     expect(hostResult.tickets).toHaveLength(0);
 
     expect(jiraResult.shown).toBe(0);
-    expect(jiraResult.hidden).toBe(1);
+    expect(jiraResult.hidden).toBe(0);
     expect(jiraResult.tickets).toHaveLength(0);
   });
 });
