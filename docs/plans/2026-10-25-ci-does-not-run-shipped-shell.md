@@ -62,7 +62,7 @@ A test in `test/reconcile/` mutation-tests the gate: a fixture holding each of t
 
 ### macOS run
 
-- `bug/ci-does-not-run-shipped-shell-macos` — a CI job that runs the shell contract tests under `/bin/bash` 3.2.57 on a macOS runner <!-- builds: a macOS CI job running shipped shell under bash 3.2 --> <!-- waits: bug/ci-does-not-run-shipped-shell-scan -->
+- `bug/ci-does-not-run-shipped-shell-macos` — a CI job that runs the shell contract tests under `/bin/bash` 3.2.57 on a macOS runner <!-- builds: a macOS CI job running shipped shell under bash 3.2 --> <!-- waits: bug/ci-does-not-run-shipped-shell-scan --> → #2685
 
 ## Notes
 
