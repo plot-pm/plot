@@ -4196,6 +4196,23 @@ test('host: runs on Jenkins still exits 4 when the root itself does not answer (
   assert.equal(res.stdout.trim(), '');
 });
 
+test('host: runs refuses by branch name when Jenkins answers real JSON with no builds key and no container', () => {
+  // The branch path answers a real (parseable) JSON object with no `builds`
+  // key — Jenkins was reached and simply has no such branch indexed — and the
+  // root isn't a multibranch container either, so the generic "did not
+  // answer" refusal would be misleading: Jenkins DID answer. The refusal must
+  // name the branch instead.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = makeJenkinsRestBin('{"foo":"bar"}', { branchSeg: 'feature%2Fghost', branchAnswer: '{"foo":"bar"}' });
+  const res = runJenkinsAllowFail(['runs', 'feature/ghost'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 4, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /no branch 'feature\/ghost' indexed/, `must name the branch, got: ${res.stderr}`);
+});
+
 // `Default branch job` — the repository names a separate job for its default
 // branch. `origin/HEAD` must resolve for `jenkins_sha_runs` to apply it; these
 // tests set the symref directly, as `default-branch-repair.test.mjs` does —
@@ -4358,6 +4375,59 @@ test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when 
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/);
+  assert.match(res.stderr, /did not answer an 'Instance:' line/);
+});
+
+// `jenkins_resolve_host` directly: an `Instance:` LINE EXISTS but names no
+// parenthesized host — `jen`'s own `auth status` answered the slug with no
+// `(https://...)` suffix. `[ -n "$line" ] && sed ... || return 1` tests only
+// that the line is non-empty, not that the substitution matched, so this
+// shape used to fall through exit 0 with empty stdout — a bare empty host
+// reaching `jenkins_rest_credential ""` next, rather than the "cannot
+// resolve" refusal the caller already prints for a MISSING line. It exits 2,
+// not the missing line's 1, so the caller can name which of the two happened.
+// Sourced directly: no CLI op prints `jenkins_resolve_host`'s own exit code,
+// only what its caller does with it, and the caller's wording is pinned
+// above and below.
+function sourcedJenkinsResolveHost(line) {
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
+    + `jen() { printf '%s\\n' ${JSON.stringify(line)}; }\n`
+    + `jenkins_resolve_host ewz; printf 'exit:%s\\n' "$?"`;
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('host: jenkins_resolve_host refuses (non-zero, empty stdout) when the Instance line names no host', () => {
+  const res = sourcedJenkinsResolveHost('Instance: ewz (no-host-here)');
+  const lines = res.stdout.trim().split('\n');
+  assert.equal(lines.length, 1, `a host-less Instance line must print nothing but the exit marker, got: ${res.stdout}`);
+  assert.equal(lines[0], 'exit:2', `a host-less Instance line must exit 2, got stdout: ${res.stdout}`);
+});
+
+test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when the Instance line names no host', () => {
+  // The caller-level repro of the same defect: `jen auth status` answers an
+  // `Instance:` line, but it names no `(https://...)` host. Before the fix
+  // this fell through into a credential lookup keyed by an empty host rather
+  // than the same "cannot resolve" refusal a missing line already gets.
+  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: 'no-host-here' });
+  // Rewrite the jen stub's Instance line to omit the https:// host entirely,
+  // reusing makeJenStub for auth reachability/job-list plumbing and patching
+  // only the one line the fixture always prints with a parenthesized host.
+  const jenFile = path.join(jen.dir, 'jen');
+  const body = readFileSync(jenFile, 'utf8')
+    .replace(/printf '%s\\n' "Instance:[^\n]*"/, 'printf \'%s\\n\' "Instance:      $slug (no-host-here)"');
+  writeFileSync(jenFile, body);
+  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/,
+    'a host-less Instance line must refuse the same way a missing line does, not fall through to a credential lookup');
+  assert.match(res.stderr, /answered an 'Instance:' line that names no \(https:\/\/…\) host/,
+    'the refusal names the cause: the line exists and names no host');
+  assert.doesNotMatch(res.stderr, /did not answer an 'Instance:' line/,
+    'a line that exists must not be reported as missing');
 });
 
 // --- a build can carry more than one lastBuiltRevision action ------------
@@ -5188,6 +5258,52 @@ test('host: run-for-sha — neither the worktree nor the main checkout has a cre
   assert.match(res.stderr, /no Jenkins API credential/);
   assert.equal(res.stdout.trim(), '');
   assert.ok(!existsSync(rest.argvFile), 'curl must never be called with no credential');
+});
+
+test('host: run-for-sha — a worktree .env holding only half a pair falls through to the main checkout\'s complete pair', () => {
+  // The defect fix #2 targets: a worktree-local .env is readable but holds
+  // only ONE of the two vars. Reading file existence alone (the old
+  // plot_env_file) stopped there and never looked at the main checkout's
+  // complete pair underneath it.
+  const { worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+    worktreeEnv: `JENKINS_USER=worktree-only-user\n`,
+  });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: worktree,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`),
+    'the main checkout\'s complete pair must be used, skipping the worktree\'s partial one');
+  assert.match(res.stderr, /read from the main checkout's \.env/);
+});
+
+test('host: plot_env_file resolves the main checkout absolutely from a subdirectory of a worktree', () => {
+  // Fix #3: `--git-common-dir` with no `--path-format=absolute` can answer a
+  // path relative to cwd rather than to the repo root. Called from two levels
+  // below the worktree root, the main checkout's .env must still resolve.
+  const { main, worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+  });
+  const nested = path.join(worktree, 'a', 'b');
+  mkdirSync(nested, { recursive: true });
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
+    + `plot_env_file JENKINS_USER JENKINS_API_TOKEN`;
+  const res = spawnSync('bash', ['-c', script], { cwd: nested, encoding: 'utf8' });
+  assert.match(res.stdout, /\|the main checkout's $/, `must resolve the main checkout's .env, got: ${JSON.stringify(res.stdout)}`);
+  const envFile = res.stdout.split('|')[0];
+  assert.ok(path.isAbsolute(envFile), `the resolved .env path must be absolute, got: ${envFile}`);
+  assert.ok(envFile.endsWith(path.join(path.basename(main), '.env')),
+    `the path must point at the main checkout, not the worktree: ${envFile}`);
 });
 
 // --- runs-for-sha: every run for one sha --------------------------------------
