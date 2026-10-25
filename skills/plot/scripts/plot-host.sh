@@ -637,6 +637,15 @@ miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >
 miss_or_unknown() { if [ -z "$1" ] || is_lookup_miss "$1"; then echo "not-merged"; else echo "plot-host: $1" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
 
+# THE ONE MARKER LOOKUP, shared by `pr-comment` and `issue-comment` — GitHub's
+# REST comments endpoint is `issues/$num/comments` for both, since a PR is an
+# issue under the hood. Prints the id of the comment holding `$2` (a
+# substring), scoped to the comment's `.user.login` (the REST field) — so a PR
+# participant who pastes the same marker into their own comment is never
+# mistaken for this script's own prior post, read against the signed-in
+# identity the free way `budget_account` already does.
+gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(budget_account github)" '[.[][] | select(.user.login == $who) | select(.body | contains($m))][0].id // empty'; }
+
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
@@ -3790,46 +3799,43 @@ be="$(backend)" || exit $?
 route=""
 [ "$be" = "github" ] && route="$(gh_route "$op")"
 
-# A `--repo` NAMES WHERE THE PR LIVES, NOT WHERE THIS CHECKOUT LIVES — and
-# the two can differ under a split-home plan (#2158): a Bitbucket checkout
-# naming a PR in a GitHub repository. `backend()` resolved ONE backend for
-# the whole run, from the checkout's own declaration, so a cross-repo
-# reference still reaches the wrong CLI on its first try.
+# A `--repo` NAMES WHERE THE PR LIVES, NOT WHERE THIS CHECKOUT LIVES — a
+# Bitbucket checkout can name a GitHub PR (#2158), and `backend()` resolved
+# only the checkout's own backend, so a cross-repo reference misses on the
+# first try.
 #
-# THE PROBE, NOT A DECLARATION. No config key or prefix names which backend a
-# `--repo` belongs to (ruled out: the committed repro fixture names neither —
-# see `test/reconcile/cross-host-pr-reference.test.mjs`). Instead: try the
-# checkout's own backend first, and if THAT backend's answer is a clean
-# miss — the shape `host_miss_or_fail`/`miss_or_unknown` already emit for
-# "no such PR here", never for a transport failure — retry the same call
-# once against the other drivable backend, via the same self-re-exec
-# pattern `PLOT_HOST_FORCE_REST` already uses below for a rate refusal.
+# THE PROBE, NOT A DECLARATION: no config key or prefix names the backend
+# (ruled out — see `test/reconcile/cross-host-pr-reference.test.mjs`).
+# Instead, try the checkout's backend first, and on a CLEAN MISS only — never
+# a transport failure — retry once against the other `HOST_DRIVES` entry, via
+# the `PLOT_HOST_FORCE_REST` self-re-exec pattern used below for rate
+# refusals. Exactly one "other" exists, so this is one extra call, never
+# unbounded; a same-host reference answers on the first try and never
+# retries.
 #
-# BOUNDED BY `HOST_DRIVES`. Exactly one "other" backend exists, so this is
-# one extra call, never an unbounded search. A same-host reference never
-# triggers it: the first try already answers, and the shape check below
-# only recognises the NONE/not-merged payloads, never a populated one.
-#
-# UNREACHABLE STAYS UNKNOWN. A transport failure (missing/unauthenticated
-# CLI) exits 3 or prints `unknown` — neither shape matches the clean-miss
-# check below, so it is never retried into a false negative; it is reported
-# exactly as a single-backend run would report it.
+# UNREACHABLE STAYS UNKNOWN ON EITHER TRY, never collapsing into the other
+# side's clean miss. `pr-state` fails a transport error with exit 3;
+# `pr-merged` routes it through `miss_or_unknown`, which prints the literal
+# word `unknown` and still exits 0 — so the retry's exit code alone cannot
+# see it, and the literal output is checked too.
+# A clean miss, for either op's own payload shape.
+xrepo_miss() { { [ "$op" = "pr-state" ] && [[ "$1" == *'"state":"NONE"'* ]]; } || { [ "$op" = "pr-merged" ] && [ "$1" = "not-merged" ]; }; }
+# The retry's own failure, in either shape it can take (see above).
+xrepo_unreachable() { [ "$1" -eq 3 ] || { [ "$op" = "pr-merged" ] && [ "$2" = "unknown" ]; }; }
 if [ -z "${PLOT_HOST_XREPO_TRIED:-}" ] && { [ "$op" = "pr-state" ] || [ "$op" = "pr-merged" ]; } && printf '%s\n' "$*" | grep -q -- '--repo'; then
   other=""
   for _d in $HOST_DRIVES; do [ "$_d" != "$be" ] && other="$_d"; done
   if [ -n "$other" ]; then
     first_out="$(PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)"; first_rc=$?
-    is_clean_miss=0
-    case "$op" in
-      pr-state) [[ "$first_out" == *'"state":"NONE"'* ]] && is_clean_miss=1 ;;
-      pr-merged) [ "$first_out" = "not-merged" ] && is_clean_miss=1 ;;
-    esac
-    if [ "$first_rc" -eq 0 ] && [ "$is_clean_miss" -eq 1 ]; then
-      if retry_out="$(PLOT_HOST="$other" PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)" && [ -n "$retry_out" ]; then
-        case "$op" in
-          pr-state) [[ "$retry_out" != *'"state":"NONE"'* ]] && { printf '%s\n' "$retry_out"; exit 0; } ;;
-          pr-merged) [ "$retry_out" != "not-merged" ] && [ "$retry_out" != "unknown" ] && { printf '%s\n' "$retry_out"; exit 0; } ;;
-        esac
+    if [ "$first_rc" -eq 0 ] && xrepo_miss "$first_out"; then
+      retry_out="$(PLOT_HOST="$other" PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)"; retry_rc=$?
+      if xrepo_unreachable "$retry_rc" "$retry_out"; then
+        echo "plot-host: $other could not be asked for a cross-repo reference" >&2
+        [ "$op" = "pr-state" ] && exit 3
+        echo "unknown"; exit 0
+      fi
+      if [ "$retry_rc" -eq 0 ] && [ -n "$retry_out" ] && ! xrepo_miss "$retry_out" && [ "$retry_out" != "unknown" ]; then
+        printf '%s\n' "$retry_out"; exit 0
       fi
     fi
     printf '%s\n' "$first_out"
@@ -5577,7 +5583,7 @@ case "$op" in
       issue-label) add="${2:?issue-label needs a label}"; carried="$(gh issue view "$num" --json labels -q '.labels[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort) | paste -sd, -)"; gh label create "$add" --color ededed --description "Plot plan phase: ${add#plan:}" >/dev/null 2>"$HOST_ERR" || grep -qi 'already exists' "$HOST_ERR" || gh_fail; gh issue edit "$num" --add-label "$add" ${keep:+--remove-label "$keep"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
-        cid=""; [ -z "${2-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+        cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
         if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
         else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
     esac
@@ -5884,7 +5890,7 @@ case "$op" in
     # the signed-in CLI identity, so it needs no App credentials and no Node
     # helper.
     [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
-    [ -z "${3-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$3" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+    [ -z "${3-}" ] || cid="$(gh_marker_comment_id "$num" "$3")" || gh_fail
     if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi; rm -f "$HOST_ERR" ;;
 
   *)
