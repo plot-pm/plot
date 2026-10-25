@@ -57,7 +57,7 @@ A test in `test/reconcile/` mutation-tests the gate: a fixture holding each of t
 
 ### Static gate
 
-- `bug/ci-does-not-run-shipped-shell-scan` — `scripts/check-bash32-syntax.sh`, its mutation test, and its CI and `Local checks` registration <!-- builds: check-bash32-syntax.sh, a CI gate refusing bash-4-only syntax in shipped shell -->
+- `bug/ci-does-not-run-shipped-shell-scan` — `scripts/check-bash32-syntax.sh`, its mutation test, and its CI and `Local checks` registration <!-- builds: check-bash32-syntax.sh, a CI gate refusing bash-4-only syntax in shipped shell --> → #2679
 
 ### macOS run
 
