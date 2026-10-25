@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-25, Jan Wloka, plan-PR #2670 merged
 - **Started:** 2026-10-25, Jan Wloka, `bug/ci-does-not-run-shipped-shell-scan`
+- **Started:** 2026-10-25, Jan Wloka, `bug/ci-does-not-run-shipped-shell-macos`
 
 ## Changelog
 
