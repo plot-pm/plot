@@ -129,8 +129,7 @@ plot_nvmrc="$plot_root/.nvmrc"
 # Which init system supervises a user process here. `none` is a refusal rather
 # than a fallback: there is no unit to fill, and inventing a `nohup` path would
 # be Plot supervising a supervisor — the regress the OS terminates.
-platform() {
-  case "$(uname -s)" in
+platform() { case "$(uname -s)" in
     Darwin) command -v launchctl >/dev/null 2>&1 && { echo launchd; return; } ;;
     Linux)  command -v systemctl >/dev/null 2>&1 && { echo systemd; return; } ;;
   esac
@@ -171,8 +170,7 @@ running_major() {
 # and 113 for others, so the bug was reachable only from a label this machine
 # had never held — which is exactly the shape a test must use, and why it
 # survived until the label became overridable.
-supervisor_loaded() {
-  case "$(platform)" in
+supervisor_loaded() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 && return 0 ;;
     systemd) systemctl --user is-active --quiet "$UNIT_NAME" && return 0 ;;
   esac
@@ -181,8 +179,7 @@ supervisor_loaded() {
 
 # The supervisor's pid, or empty. Asked separately from liveness because a
 # loaded-but-not-running job is a real state and the two answers differ.
-supervisor_pid() {
-  case "$(platform)" in
+supervisor_pid() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1 ;;
     systemd) systemctl --user show "$UNIT_NAME" -p MainPID --value 2>/dev/null \
@@ -205,8 +202,7 @@ supervisor_pid() {
 #
 # Exit status is always 0. The pipeline ends in `head`, and the trailing
 # `return 0` keeps launchctl's 113 from reaching a caller.
-supervisor_workdir() {
-  case "$(platform)" in
+supervisor_workdir() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | sed -n 's/^[[:space:]]*working directory = \(.*\)$/\1/p' | head -1 ;;
     systemd) systemctl --user show "$UNIT_NAME" -p WorkingDirectory --value 2>/dev/null \
@@ -220,8 +216,7 @@ supervisor_workdir() {
 # reason `supervisor_workdir` reads the loaded job: a plist may not be what is
 # bootstrapped, and this answers what IS running, which is what a migration or
 # a missing-bundle report must act on.
-supervisor_bundle_path() {
-  case "$(platform)" in
+supervisor_bundle_path() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | awk '/^\targuments = \{/{f=1; next} f && /\.mjs$/{bundle=$0; sub(/^[ \t]+/, "", bundle); print bundle; exit} /^\t\}/{f=0}' ;;
     systemd) systemctl --user show "$UNIT_NAME" -p ExecStart --value 2>/dev/null \
@@ -1080,21 +1075,29 @@ if [ "$mode" = "start" ]; then
   #
   # THE REFUSAL NAMES WHOSE SUPERVISOR HOLDS THE LABEL, and it refuses on all
   # three answers. Only the text differs; nothing is unloaded or written.
-  if supervisor_loaded; then
-    served=$(supervisor_checkout)
-    case "$served" in
-      this\ *)
-        printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$LABEL" "${served#this }" >&2
-        ;;
-      another\ *)
-        printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$LABEL" "${served#another }" "$repo_root" >&2
-        ;;
-      *)
-        printf "plot-fleetctl: '%s' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout's.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n" "$LABEL" "$plat" "$(read_cmd)" >&2
-        ;;
-    esac
-    exit 1
-  fi
+  #
+  # THE DEFAULT LABEL IS CHECKED TOO, when a configured `Fleet label` resolved
+  # `$LABEL` away from it. A checkout that declared the key but still has a
+  # supervisor loaded under the default — e.g. right after the key was added
+  # but before anything unloaded that unit — is invisible to a check that only
+  # asks about `$LABEL`: `--start` would load a SECOND supervisor, and two
+  # supervisors would watch one estate's queue concurrently. The default label
+  # is asked in a subshell that sets `$LABEL` and `$UNIT_NAME` to the default,
+  # because every `supervisor_*` function reads those globals rather than
+  # taking a parameter — the same shadowing `retire_old_label` uses for the
+  # old default.
+  #
+  # ONLY `this <dir>` REFUSES for the default label. A default-label
+  # supervisor serving another checkout, or one whose checkout cannot be read,
+  # does not block this checkout's own label.
+  refuse_label() { case "$2" in # $1=the label this refusal names $2=supervisor_checkout's answer for it
+      this\ *) printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$1" "${2#this }" >&2 ;;
+      another\ *) printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$1" "${2#another }" "$repo_root" >&2 ;;
+      *) printf "plot-fleetctl: '%s' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout's.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n" "$1" "$plat" "$(read_cmd)" >&2 ;;
+  esac; }
+  supervisor_loaded && refuse_label "$LABEL" "$(supervisor_checkout)" && exit 1
+  [ "$LABEL" = com.plot-pm.fleetd ] || default_served=$(LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd; supervisor_loaded && supervisor_checkout)
+  case "${default_served:-}" in this\ *) refuse_label com.plot-pm.fleetd "$default_served"; exit 1 ;; esac
 
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"
