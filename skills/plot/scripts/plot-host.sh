@@ -4184,29 +4184,23 @@ case "$op" in
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
       limit=100
-      miss=0
       while :; do
         if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
           count="$(jq 'length' <<<"$out")"
-          [ "$count" -lt "$limit" ] && break
-          [ "$limit" -ge 6400 ] && break   # a page this large is reported, not chased forever
-          limit=$((limit * 2)); continue
+          [ "$count" -lt "$limit" ] || [ "$limit" -ge 6400 ] || { limit=$((limit * 2)); continue; }
+          # Every merged PR carrying a sha, earliest-first ordering left to the
+          # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
+          jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
+                 | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
+          break
         fi
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
         # nothing" — the caller distinguishes the two by the exit code.
-        miss_or_exit3 "$err"; miss=1; break
+        miss_or_exit3 "$err"; break
       done
-      # A lookup miss already printed nothing via `miss_or_exit3` returning;
-      # the final jq below must not run against a stale/failed `$out`.
-      if [ "$miss" -eq 0 ]; then
-        # Every merged PR carrying a sha, earliest-first ordering left to the
-        # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
-        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
-               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
-      fi
     else
       bb_require_json
       # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
