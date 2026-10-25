@@ -65,7 +65,7 @@ Each slice answers one group above and keeps the finding list in its own PR desc
 
 ### Merge path
 
-- `bug/merge-pins-only-resolvable-short-shas` — short sha accepted only where the host resolves one, `approve.ts` posts at the full head sha, `MergeDetail.sha` doc matches the value
+- `bug/merge-pins-only-resolvable-short-shas` — short sha accepted only where the host resolves one, `approve.ts` posts at the full head sha, `MergeDetail.sha` doc matches the value → #2691
 
 ### Cleanup
 
