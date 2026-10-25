@@ -65,7 +65,7 @@ The issue's LOW findings on `DeliveryFilters.tsx:163` (the dropped exempt count 
 
 ### Tests and text
 
-- `bug/chip-and-inbox-tests-can-fail` — fixtures where old and new behaviour disagree, pinned PLOT_REPO_ROOT, corrected comments and changesets, one declaration of NO_SPRINT and FilterOption
+- `bug/chip-and-inbox-tests-can-fail` — fixtures where old and new behaviour disagree, pinned PLOT_REPO_ROOT, corrected comments and changesets, one declaration of NO_SPRINT and FilterOption → #2667
 
 ## Notes
 
