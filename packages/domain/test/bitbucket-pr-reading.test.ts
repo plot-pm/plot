@@ -90,6 +90,21 @@ describe('bitbucketPrState', () => {
     expect(row.checks).toBe('green');
     expect(row.checksLookup).toBeUndefined();
   });
+
+  it('#2238: reads mergedAt from updated_on for a MERGED pull request, the same stand-in pr-list already uses', () => {
+    const row = bitbucketPrState(pr({ state: 'MERGED', updated_on: '2026-10-01T00:00:00.123456+00:00' }), null, null);
+    expect(row.mergedAt).toBe('2026-10-01T00:00:00.123456+00:00');
+  });
+
+  it('#2238: reads mergedAt as empty for anything other than MERGED, however recently updated_on moved', () => {
+    const row = bitbucketPrState(pr({ state: 'OPEN', updated_on: '2026-10-01T00:00:00Z' }), null, null);
+    expect(row.mergedAt).toBe('');
+  });
+
+  it('#2238: reads mergedAt as empty for a MERGED pull request with no updated_on at all', () => {
+    const row = bitbucketPrState(pr({ state: 'MERGED' }), null, null);
+    expect(row.mergedAt).toBe('');
+  });
 });
 
 describe('bitbucketReview', () => {

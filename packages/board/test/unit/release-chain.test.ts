@@ -3,7 +3,15 @@ import { answered, failed, type PortResult } from '@plot-pm/domain';
 import type { MergeDest } from '@plot-pm/domain/ports/host';
 import { resolveRelease, type ResolvePorts } from '../../src/server/entry/release-chain.js';
 
-const input = { pr: '3488', mergeCommit: 'absent', base: 'feature/x', defaultBranch: 'develop', prSource: 'bb' };
+const input = {
+  pr: '3488',
+  mergeCommit: 'absent',
+  mergedAt: '2026-10-01T00:00:00Z',
+  base: 'feature/x',
+  defaultBranch: 'develop',
+  prSource: 'bb',
+  noFetch: false,
+};
 
 const ports = (
   dests: Readonly<Record<string, readonly MergeDest[]>>,
@@ -51,5 +59,18 @@ describe('resolveRelease', () => {
   it('keeps the not-in-clone finding where the PR merged into the default branch', async () => {
     const line = await resolveRelease({ ...input, base: 'develop' }, ports({}, answered([])), () => {});
     expect(line).toMatch(/names merge commit absent, not in this clone → cannot resolve\\n {4}unreachable: /);
+  });
+
+  it('#2238/#2202 bullet 5: a --no-fetch run gets advice naming the flag, not the generic git-fetch suggestion', async () => {
+    const ghInput = { ...input, base: 'develop', prSource: 'gh', noFetch: true };
+    const line = await resolveRelease(ghInput, ports({}, answered([])), () => {});
+    expect(line).toMatch(/cannot resolve\\n {4}re-run without --no-fetch\/--offline: /);
+  });
+
+  it('a normal (non --no-fetch) run that still cannot resolve a commit gets different advice than the --no-fetch run', async () => {
+    const ghInput = { ...input, base: 'develop', prSource: 'gh', noFetch: false };
+    const line = await resolveRelease(ghInput, ports({}, answered([])), () => {});
+    expect(line).toMatch(/cannot resolve\\n {4}inspect: shallow clone, or a destination this remote never held/);
+    expect(line).not.toMatch(/--no-fetch/);
   });
 });

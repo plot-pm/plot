@@ -54,8 +54,8 @@ export type ReleaseChainHop =
 export interface ReleaseChainReading {
   /** The default branch; a hop whose PR merged into it ends the walk. */
   readonly defaultBranch: string;
-  /** The plan's PR's merge commit — the first commit a hop must carry. */
-  readonly planCommit: string;
+  /** The plan's PR's own merge commit and merge time — the first hop's `previous`. */
+  readonly planCommit: ReleaseChainPrevious;
   /** The branch the plan's PR merged into — the first branch to ask about. */
   readonly destination: string;
   /** The hops asked so far, in walk order. */
@@ -150,7 +150,7 @@ export const pickReleaseHop = (
 export const releaseChainStep = (reading: ReleaseChainReading): ReleaseChainStep => {
   const visited = new Set<string>();
   let branch = reading.destination;
-  let previous: ReleaseChainPrevious = { commit: reading.planCommit, mergedAt: '' };
+  let previous: ReleaseChainPrevious = reading.planCommit;
   for (let depth = 0; ; depth += 1) {
     const at = branch;
     const refuse = (reason: ReleaseChainRefusal, candidates = 0): ReleaseChainStep => ({

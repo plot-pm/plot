@@ -7,6 +7,8 @@ export interface BitbucketPr {
   merge_commit?: { hash?: string | null } | null;
   destination?: { branch?: { name?: string } };
   source?: { branch?: { name?: string }; commit?: { hash?: string } };
+  /** Bitbucket names no merge time; `pr-list` already reads this as the #2202 stand-in. */
+  updated_on?: string;
 }
 
 /** A check word for a branch; `checksSha` is present only where it was read by sha. */
@@ -29,6 +31,7 @@ export interface PrStateRow {
   checksSha?: string;
   mergeable?: string;
   checksLookup?: string;
+  mergedAt?: string;
 }
 
 /**
@@ -50,6 +53,13 @@ export interface PrStateRow {
  * (measured 2026-10-20 against the PR object, its diffstat, and its
  * statuses). `plot-host.sh` overlays a real reading from a local
  * `git merge-tree` check afterward, via `foldBitbucketMergeable`.
+ *
+ * `mergedAt` is `updated_on` for a `MERGED` pull request, `''` otherwise —
+ * the same stand-in `pr-list`'s Bitbucket arm already reads (#2238), because
+ * the endpoint names no real merge timestamp (#2202). `updated_on` can move
+ * after the merge (a later comment or label), so a caller ordering several
+ * hops by this field gets whatever order that implies; see the release-chain
+ * rule's own note on the same ceiling.
  *
  * @param pr - the payload, or `null` where the branch has no pull request.
  * @param colours - the branch-colour map, or `null` where it was not read.
@@ -84,6 +94,7 @@ export const bitbucketPrState = (
     checks,
     checksSha: brokenAsk ? '' : (entry?.checksSha ?? ''),
     mergeable: 'unknown',
+    mergedAt: pr.state === 'MERGED' ? (pr.updated_on ?? '') : '',
     ...(brokenAsk ? { checksLookup: 'broken' } : {}),
   };
 };

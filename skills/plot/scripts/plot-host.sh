@@ -2476,7 +2476,8 @@ rest_pr_to_state() {
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of }
+        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of,
+        mergedAt: (.merged_at // "") }
   '
 }
 
@@ -3970,9 +3971,9 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus 2>"$HOST_ERR")"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of}' <<<"$out"
+        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}' <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
@@ -4158,8 +4159,8 @@ case "$op" in
     # this only for a branch it has already been told merged, and the plan it
     # serves budgets one host call per branch either way.
     #
-    # `--state all` and `--limit 100` for `pr-merged`'s own two reasons: a
-    # merged PR reports CLOSED, and the newest PR is not the merge.
+    # `--state all` for `pr-merged`'s own two reasons: a merged PR reports
+    # CLOSED, and the newest PR is not the merge.
     #
     # PRINTS NOTHING AND EXITS 0 where no PR merged — an ANSWER, the same shape
     # `pr-state` gives for a missing PR. Exit 3 is the question failing.
@@ -4167,8 +4168,16 @@ case "$op" in
     # `pr-merge-dest` RUNS THE SAME QUERY and prints every merged PR instead of
     # the first sha: one `number<TAB>base<TAB>sha<TAB>mergedAt` line each, read
     # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
-    # release-chain walk. Bitbucket names no merge time, so `mergedAt` is
-    # `updated_on`, as in `pr-list`.
+    # release-chain walk — a WALK's single source of truth per hop, unlike
+    # `pr-merged`'s yes/no, so under-reading here is a silent wrong hop rather
+    # than a cheap prefilter (#2238). GitHub's `--limit` is grown and the query
+    # re-asked until a page returns short of its own limit, which PROVES
+    # completeness per `pr_list_report_truncation`'s own reasoning — never one
+    # fixed limit, which would just move the threshold. Bitbucket's arm already
+    # pages in full via `_bb_paged_walk` (#2484) and is untouched here.
+    # Bitbucket names no merge time, so `mergedAt` is `updated_on`, as in
+    # `pr-list` — Bitbucket's pull-requests endpoint carries no real merge
+    # timestamp, so this is the best available rather than a bug (#2202).
     ref="${1:?$op needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -4178,19 +4187,29 @@ case "$op" in
     done
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
-        # The FIRST merged PR carrying a sha. A branch may hold several merged
-        # PRs; each names its own merge commit, and any of them is a commit that
-        # landed this branch's work.
-        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
-               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
-      else
+      limit=100
+      miss=0
+      while :; do
+        if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
+          rm -f "$HOST_ERR"
+          count="$(jq 'length' <<<"$out")"
+          [ "$count" -lt "$limit" ] && break
+          [ "$limit" -ge 6400 ] && break   # a page this large is reported, not chased forever
+          limit=$((limit * 2)); continue
+        fi
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
         # nothing" — the caller distinguishes the two by the exit code.
-        miss_or_exit3 "$err"
+        miss_or_exit3 "$err"; miss=1; break
+      done
+      # A lookup miss already printed nothing via `miss_or_exit3` returning;
+      # the final jq below must not run against a stale/failed `$out`.
+      if [ "$miss" -eq 0 ]; then
+        # Every merged PR carrying a sha, earliest-first ordering left to the
+        # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
+               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
       fi
     else
       bb_require_json
