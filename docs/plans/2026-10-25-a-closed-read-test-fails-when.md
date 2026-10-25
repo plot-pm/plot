@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
-- **Sprint:**
+- **Sprint:** follow-ups-2-28-3
 - **Issue:** #2674
 - **Story:**
 - **Review:** pr
