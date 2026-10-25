@@ -1810,7 +1810,7 @@ jenkins_no_instance() {
 # that into exit 4, *cannot be asked*.
 jenkins_rest_credential() { # $1 = the bare host
   local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" src="the environment" found env_file
-  [ -n "$u" ] || [ -n "$t" ] || { found="$(plot_env_file)"; [ -n "$found" ] && env_file="${found%|*}" && src="${found#*|}.env" && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
+  [ -n "$u" ] || [ -n "$t" ] || { found="$(plot_env_file JENKINS_USER JENKINS_API_TOKEN)"; [ -n "$found" ] && env_file="${found%|*}" && src="${found#*|}.env" && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
   [ -n "$u" ] && [ -n "$t" ] && { echo "plot-host: JENKINS_USER and JENKINS_API_TOKEN read from $src" >&2; printf '%s:%s' "$u" "$t"; return 0; }
   command -v security >/dev/null 2>&1 || return 1; u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
   t=$(security find-generic-password -s jen -a "jenkins-token:$1" -w 2>/dev/null) || return 1
@@ -1837,11 +1837,15 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # like `ewz` into `jenkins-ci-ewz.internal.quatico.dev` and keys its stored
 # credential by that resolved host, so a literal slug sent to `curl` or to
 # `jenkins_rest_credential` can only fail. Prints nothing (exit 1) when `jen`
-# is missing, unparseable, or the line is absent — the caller decides what an
-# unresolved host means, same contract as every other helper here.
+# is missing, unparseable, the line is absent, or the line names no
+# parenthesized host — the caller decides what an unresolved host means,
+# same contract as every other helper here.
 jenkins_resolve_host() {
-  local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
-  [ -n "$line" ] && sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" || return 1
+  local line host; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
+  [ -n "$line" ] || return 1
+  host=$(sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line")
+  [ -n "$host" ] || return 1
+  printf '%s' "$host"
 }
 
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
@@ -1923,8 +1927,16 @@ jenkins_resolve_host() {
 # small enough that 3x of any realistic `--limit` stays well under what one
 # `tree=` query already returns today (measured 2026-09-10: 4855 bytes for
 # five builds).
+#
+# A BRANCH JENKINS HAS NOT INDEXED REFUSES BY NAME. The branch-specific path
+# is tried first; if it answers real JSON with no `builds` key, Jenkins
+# reached the job and simply has no such branch, and the refusal says so.
+# Only the root-path retry's container check (above) can turn that into an
+# empty-history read instead. A host that never answers at all — curl
+# failure, HTML, empty body — gets the generic "did not answer" refusal,
+# since nothing there proves Jenkins was even reached.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path branch_path branch_answered=""
   instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
@@ -1938,12 +1950,18 @@ jenkins_sha_runs() {
     exit 4
   }
   tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$((limit * 3))%7D"
-  body=""; root_path="$(jenkins_job_url_path "$job" "")"
-  for path in "$(jenkins_job_url_path "$job" "$branch")" "$root_path"; do
+  body=""; root_path="$(jenkins_job_url_path "$job" "")"; branch_path="$(jenkins_job_url_path "$job" "$branch")"
+  for path in "$branch_path" "$root_path"; do
     host_slot_take jenkins ''
     try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
     host_slot_give; budget_record_call jenkins ''
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
+    # A branch path that came back as REAL JSON (jq could parse and evaluate
+    # it, just found no `builds` key) means Jenkins answered and indexed no
+    # such branch — distinct from curl failing outright or answering HTML,
+    # where jq's own exit code is 4 (empty input) or 5 (parse error) rather
+    # than the 1 a successfully-evaluated `false` reports.
+    [ "$path" = "$branch_path" ] && printf '%s' "$try" | jq -e . >/dev/null 2>&1 && branch_answered=1
     # ONLY AT THE ROOT: a multibranch container that answered its OWN `_class`
     # and no `builds` has not indexed this branch at all — an empty history,
     # not a refusal. Checking this on the BRANCH path too would be wrong: a
@@ -1956,7 +1974,11 @@ jenkins_sha_runs() {
   done
   cred=""
   if [ -z "$body" ]; then
-    echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
+    if [ -n "$branch_answered" ]; then
+      echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2
+    else
+      echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
+    fi
     exit 4
   fi
   printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" --argjson limit "$limit" 'def headsha($records): ($records | map(select(any(.branches[]; . == $branch))) | first.sha) // (if [$records[].branches[]] | length == 0 then $records | last.sha // "" else "" end);
@@ -2914,7 +2936,12 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # desk or a scratch worktree under `Worktree root` has none of its own, and
 # `git rev-parse --show-toplevel` there answers with the WORKTREE, which never
 # holds one. Prints "<path>|" (worktree) or "<path>|the main checkout's" on a
-# readable candidate, or nothing when neither location has one.
+# candidate, or nothing when neither location has one.
+#
+# $1 and $2, if given, name the two vars a candidate must hold BOTH of —
+# every caller needs a pair, never a lone half, so a readable-but-incomplete
+# candidate is skipped in favour of the next one rather than returned anyway.
+# With neither argument, "readable" alone qualifies.
 #
 # NO UPWARD WALK past either location — the fallback is exactly one more
 # place to look, not a search. `--git-common-dir`'s parent is the main
@@ -2922,10 +2949,18 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # command fails, prints nothing, or its parent directory does not exist, this
 # falls through to "no main checkout .env" rather than inventing a path.
 plot_env_file() {
-  local root env_file common; root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
-  [ -r "$env_file" ] && { printf '%s|' "$env_file"; return 0; }
-  common="$(git rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
-  env_file="$(dirname "$common")/.env"; [ -r "$env_file" ] && printf "%s|the main checkout's " "$env_file"
+  local root env_file common main_cand cand
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || common=""
+  main_cand=""; [ -n "$common" ] && main_cand="$(dirname "$common")/.env|the main checkout's "
+  for cand in "$root/.env|" "$main_cand"; do
+    [ -n "$cand" ] || continue
+    env_file="${cand%|*}"; [ -r "$env_file" ] || continue
+    if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
+      [ -n "$(read_env_var "$1" "$env_file")" ] && [ -n "$(read_env_var "$2" "$env_file")" ] || continue
+    fi
+    printf '%s' "$cand"; return 0
+  done
 }
 
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
@@ -2941,20 +2976,18 @@ plot_env_file() {
 # `die3` exits the whole script only from there, not from inside a command
 # substitution where it would end only the subshell and leak a second error.
 #
-# WHERE BOTH ARE UNSET, `plot_env_file` IS READ, same order and both-or-neither
-# rule as `jenkins_rest_credential` — measured 2026-09-17, an operator holding
-# a working pair was sent to create a second token before this fallback
-# existed. THE VALUE IS NEVER PRINTED, only the source, so a 401 can be
-# debugged against the right one of two possible tokens.
+# WHERE BOTH ARE UNSET, `plot_env_file` IS READ, naming the two vars so it
+# skips a candidate holding only one — measured 2026-09-17, an operator
+# holding a working pair was sent to create a second token before this
+# fallback existed. THE VALUE IS NEVER PRINTED, only the source, so a 401 can
+# be debugged against the right one of two possible tokens.
 jira_load_env_file() {
-  local found env_file source email token
+  local found env_file source
   [ -z "${JIRA_EMAIL:-}" ] && [ -z "${JIRA_API_TOKEN:-}" ] || return 0
-  found="$(plot_env_file)"; [ -n "$found" ] || return 0; env_file="${found%|*}"; source="${found#*|}"
-  email="$(read_env_var JIRA_EMAIL "$env_file")"; token="$(read_env_var JIRA_API_TOKEN "$env_file")"
-  # BOTH OR NEITHER. Half a Basic credential authenticates nothing, and a
-  # partial pickup would turn today's honest refusal into a 401 further in.
-  [ -n "$email" ] && [ -n "$token" ] || return 0
-  export JIRA_EMAIL="$email" JIRA_API_TOKEN="$token"; echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
+  found="$(plot_env_file JIRA_EMAIL JIRA_API_TOKEN)"; [ -n "$found" ] || return 0
+  env_file="${found%|*}"; source="${found#*|}"
+  export JIRA_EMAIL="$(read_env_var JIRA_EMAIL "$env_file")" JIRA_API_TOKEN="$(read_env_var JIRA_API_TOKEN "$env_file")"
+  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
 }
 
 jira_require_config() {
