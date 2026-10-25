@@ -637,6 +637,30 @@ miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >
 miss_or_unknown() { if [ -z "$1" ] || is_lookup_miss "$1"; then echo "not-merged"; else echo "plot-host: $1" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
 
+# THE ONE MARKER LOOKUP, shared by `pr-comment` and `issue-comment` — GitHub's
+# REST comments endpoint is `issues/$num/comments` for both, since a PR is an
+# issue under the hood. Prints the id of the comment holding `$2` (a
+# substring), scoped to the comment's `.user.login` (the REST field; `gh pr
+# list --json` answers `.author.login` instead, but this is the REST path) —
+# so a PR participant who pastes the same marker into their own comment is
+# never mistaken for this script's own prior post. Prints empty on no match.
+#
+# SCOPED TO THE SIGNED-IN IDENTITY, read the same free way `budget_account`
+# already does (`hosts.yml`, not `gh api user`) — both ops write through that
+# identity (`host.ts:358`), never a minted App token, so it is also the only
+# login whose comment this call may edit.
+#
+# A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
+# pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
+# that cannot be read never falls through to "no marker found, post new".
+gh_marker_comment_id() {
+  local num="$1" marker="$2" who
+  who="$(budget_account github)"
+  gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" \
+    | jq -rs --arg m "$marker" --arg who "$who" \
+      '[.[][] | select(.user.login == $who) | select(.body | contains($m))][0].id // empty'
+}
+
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
@@ -5530,7 +5554,7 @@ case "$op" in
       issue-label) add="${2:?issue-label needs a label}"; carried="$(gh issue view "$num" --json labels -q '.labels[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort) | paste -sd, -)"; gh label create "$add" --color ededed --description "Plot plan phase: ${add#plan:}" >/dev/null 2>"$HOST_ERR" || grep -qi 'already exists' "$HOST_ERR" || gh_fail; gh issue edit "$num" --add-label "$add" ${keep:+--remove-label "$keep"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
-        cid=""; [ -z "${2-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+        cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
         if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
         else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
     esac
@@ -5837,7 +5861,7 @@ case "$op" in
     # the signed-in CLI identity, so it needs no App credentials and no Node
     # helper.
     [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
-    [ -z "${3-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$3" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+    [ -z "${3-}" ] || cid="$(gh_marker_comment_id "$num" "$3")" || gh_fail
     if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi; rm -f "$HOST_ERR" ;;
 
   *)

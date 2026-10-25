@@ -10182,6 +10182,13 @@ test('host: issue-list github closed records one extra call per 100 rows past th
 
 // --- issue-list --label and issue-comment: the review issue's lookup and append ---
 
+// The identity `gh_marker_comment_id` scopes a marker match to. Every test run
+// through `runAllowFail` sets `PLOT_BUDGET_ACCOUNT` (via `budgetEnvFor`) to
+// `BUDGET_ACCOUNT`, and `budget_account` reads that override before it ever
+// looks at `hosts.yml` — so a fixture comment's `user.login` must equal
+// `BUDGET_ACCOUNT` to be "ours", not some separate test identity.
+const ISSUE_COMMENT_LOGIN = BUDGET_ACCOUNT;
+
 /** A `gh` that appends every call's argv, so a test sees each call rather than the last. */
 const makeLoggingGh = (answer) => {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-log-')));
@@ -10228,13 +10235,23 @@ test('host: issue-comment with an empty marker always posts and never reads or e
 });
 
 test('host: issue-comment with a marker edits the comment holding it', () => {
-  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y"}]');
+  const gh = makeLoggingGh(`[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"${ISSUE_COMMENT_LOGIN}"}}]`);
   const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
     env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
     stubs: gh,
   });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
+test('host: issue-comment with a marker held only by another author’s comment posts instead of editing', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"a-tracker-participant"}}]');
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'new text'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['issue', 'comment', '12', '--body', 'new text']);
 });
 
 // --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------
