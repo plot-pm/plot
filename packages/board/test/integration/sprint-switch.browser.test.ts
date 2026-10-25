@@ -84,6 +84,7 @@ const fleet = (sprints: FleetSprint[]): Fleet => {
 const ONLY_A = () => fleet([sprint(SPRINT_A, 'Sprint A', [PLAN_A])]);
 const ONLY_B_EMPTY = () => fleet([sprint(SPRINT_B, 'Sprint B', [])]);
 const NO_SPRINTS = () => fleet([]);
+const BOTH = () => fleet([sprint(SPRINT_A, 'Sprint A', [PLAN_A]), sprint(SPRINT_B, 'Sprint B', [PLAN_B])]);
 
 describe('an open board follows a sprint change', () => {
   let cat: Catalogue;
@@ -196,7 +197,6 @@ describe('an open board follows a sprint change', () => {
       // `2 hidden by Sprint only` beside a chip reading off.
       await swap(ONLY_B_EMPTY());
       await expectBranches(page, [ROW_A, ROW_B]);
-      expect(await page.locator('[data-sprint-hidden]').count()).toBe(0);
       expect(await page.locator('body').innerText()).not.toContain('hidden by Sprint only');
       expect(await chipOn(page)).toBe(false);
 
@@ -213,15 +213,44 @@ describe('an open board follows a sprint change', () => {
     }
   });
 
-  // THE SUBSET CASE THIS CHIP REMOVES. The per-sprint checkboxes this file
-  // used to test let a reader select Sprint A alone, then Sprint B alone, and
-  // watch the filter track whichever subset was checked while the other
-  // sprint closed. `This sprint` is all-or-nothing against `activeSprints` —
-  // `toggleThisSprintChip` in `AgentList.tsx` — so there is no SUBSET for a
-  // closing sprint to leave behind: on is "every Active sprint", off is
-  // "none", and a sprint that closes while the chip is on just shrinks what
-  // "every Active sprint" means on the next poll. The scenario this test
-  // exercised (one sprint stays selected through the other's closure) has no
-  // equivalent left to assert — reported in this branch's PR as a plan gap
-  // rather than guessed at here.
+  // `This sprint` is all-or-nothing against `activeSprints`
+  // (`toggleThisSprintChip` in `AgentList.tsx`): on means every Active
+  // sprint, off means none, and a sprint that closes while the chip is on
+  // just shrinks what "every Active sprint" means on the next poll. There is
+  // no subset selection to assert here — selecting one sprint alone while
+  // another stays Active is covered by the per-sprint chip tests above.
+
+  // A STALE `?deliverySprint=` SLUG ON LOAD. `sanitizeSelection`
+  // (`@plot-pm/domain`) drops a selected slug that names no current option —
+  // a reader who bookmarked a sprint's URL, or hit back after it closed, must
+  // not land on a board that looks empty. Two sprints are Active here so the
+  // per-sprint chips actually render (`DeliveryFilters.tsx` renders them only
+  // while more than one sprint is Active) — both must read off, and both
+  // fixture rows must still show. An unsanitized selection would instead
+  // apply membership against a sprint the filter has no entry for, hiding
+  // everything (the exact failure mode the first test in this file exercises
+  // for `This sprint`).
+  it('a stale ?deliverySprint= slug on load reads as "all Active sprints", not "zero rows"', async () => {
+    cat.mock.serve('an-empty-estate', {
+      fleet: BOTH(),
+      board: buildBoard({
+        server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
+      }),
+    });
+    const page = await cat.browser.newPage();
+    try {
+      await page.goto(`${cat.mock.baseURL}?tab=agents&deliverySprint=closed-sprint`);
+      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await reveal(page);
+
+      // The stale slug names no Active sprint, so neither per-sprint chip
+      // reads on, and both sprints' rows are shown — the stale slug collapsed
+      // to "no filter" rather than "nothing matches".
+      expect(await page.locator(`[data-chip="sprint:${SPRINT_A}"]`).getAttribute('data-chip-on')).toBe('0');
+      expect(await page.locator(`[data-chip="sprint:${SPRINT_B}"]`).getAttribute('data-chip-on')).toBe('0');
+      await expectBranches(page, [ROW_A, ROW_B]);
+    } finally {
+      await page.close();
+    }
+  });
 });

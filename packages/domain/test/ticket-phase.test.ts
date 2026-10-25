@@ -51,12 +51,10 @@ describe('ticketPhase', () => {
     expect(ticketPhase([plan('design'), plan('draft')])?.label).toBe('planning');
   });
 
-  it('orders a less advanced phase below a more advanced one', () => {
-    const order = (state: string) => ticketPhase([plan(state)])?.order ?? NaN;
-    expect(order('draft')).toBeLessThan(order('design'));
-    expect(order('design')).toBeLessThan(order('approved'));
-    expect(order('approved')).toBeLessThan(order('delivered'));
-    expect(order('delivered')).toBeLessThan(order('released'));
+  it('picks the least advanced phase across the whole chain, in either order', () => {
+    const chain = [plan('released'), plan('delivered'), plan('approved'), plan('design'), plan('draft')];
+    expect(ticketPhase(chain)?.label).toBe('planning');
+    expect(ticketPhase([...chain].reverse())?.label).toBe('planning');
   });
 
   it('ignores a withdrawn plan', () => {

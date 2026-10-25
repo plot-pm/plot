@@ -10,12 +10,10 @@ export interface TicketPlan {
   readonly merged: number | null;
 }
 
-/** The phase word a ticket shows, and where it sits in the workflow. */
+/** The phase word a ticket shows. */
 export interface TicketPhase {
   /** `planning`, `design`, `in progress`, `in progress <merged>/<total>`, `delivered` or `released`. */
   readonly label: string;
-  /** Comparable position: lower is less advanced. */
-  readonly order: number;
 }
 
 interface Placed {
@@ -48,7 +46,7 @@ const PLACED: Readonly<Record<string, Placed>> = {
  * (`rejected`, `superseded`) is ignored.
  *
  * @param plans - the plans whose `Issue:` field names the ticket.
- * @returns the label and order key, or `null` when no plan names the ticket.
+ * @returns the label, or `null` when no plan names the ticket.
  */
 export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null => {
   let best: { plan: TicketPlan; placed: Placed; order: number } | null = null;
@@ -58,7 +56,7 @@ export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null =>
     const order = phaseOrder(placed.phase) * 10 + placed.rank;
     if (best === null || order < best.order) best = { plan, placed, order };
   }
-  return best === null ? null : { label: best.placed.label(best.plan), order: best.order };
+  return best === null ? null : { label: best.placed.label(best.plan) };
 };
 
 /**
