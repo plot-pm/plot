@@ -994,10 +994,7 @@ PR_LIST_BIND_FN=""
 # which are lower-case. One mapping, so a caller never spells a state twice.
 bb_query_state() { # $1=adapter state word → Bitbucket's
   case "$1" in
-    open)       printf 'OPEN' ;;
-    merged)     printf 'MERGED' ;;
-    declined)   printf 'DECLINED' ;;
-    superseded) printf 'SUPERSEDED' ;;
+    open|merged|declined|superseded) printf '%s' "${1^^}" ;;
     *) die "bb_query_state: unknown state '$1'" ;;
   esac
 }
