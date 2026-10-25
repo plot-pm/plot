@@ -7,7 +7,7 @@ const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
 const WAIT_MS = 3_600_000;
 /** Thirty minutes after the fixture reading's `askedAt`, inside `Checks wait`. */
-const CLOCK = { now: Date.parse('2026-10-10T00:30:00Z'), checksWaitMs: WAIT_MS, backend: 'bitbucket' };
+const CLOCK = { now: Date.parse('2026-10-10T00:30:00Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
 
 /** An open, ready PR whose green checks name its head — every refusal passes. */
 const pr = (over: Partial<Pr> = {}): Pr => ({
@@ -48,8 +48,8 @@ const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
   ...over,
 });
 
-const refusalOf = (r: MergeReadings, sha = HEAD, backend = CLOCK.backend) => {
-  const out = merge(r, { pr: 42, sha, ...CLOCK, backend });
+const refusalOf = (r: MergeReadings, sha = HEAD, minHexLen = CLOCK.minHexLen) => {
+  const out = merge(r, { pr: 42, sha, ...CLOCK, minHexLen });
   return out.outcome === 'refused' ? out.reason : out.outcome;
 };
 
@@ -75,25 +75,24 @@ describe('merge — the controller for a PR merge', () => {
     expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD }]);
   });
 
-  it('pins a short caller sha to the host’s full head on Bitbucket, never to the short form', () => {
-    // Bitbucket legitimately reports and accepts a head shorter than 40
-    // characters, so a 12-character caller sha still matches there, and the
-    // write still pins to the host's full-length head, never to the short form.
+  it('pins a short caller sha to the host’s full head at the 7+ floor, never to the short form', () => {
+    // A caller-chosen floor of 7 admits a short caller sha, and the write
+    // still pins to the host's full-length head, never to the short form.
     const out = merge(readings(), { pr: 42, sha: HEAD.slice(0, 12), ...CLOCK });
     expect(out.outcome).not.toBe('refused');
     if (out.outcome === 'refused') return;
     expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD }]);
   });
 
-  it('refuses a short caller sha on GitHub, whose head is always full-length', () => {
-    // GitHub's `headRefOid` is always 40 characters, so a 12-character caller
-    // sha is never a legitimate read there — the floor rises to 40 and this
-    // refuses head-moved instead of pinning to a cheap, collision-prone prefix.
-    expect(refusalOf({ ...readings() }, HEAD.slice(0, 12), 'github')).toBe('head-moved');
+  it('refuses a short caller sha at a raised floor', () => {
+    // A caller that raises the floor to 40 (because its host's head is always
+    // full-length) refuses a 12-character caller sha as head-moved instead of
+    // pinning to a cheap, collision-prone prefix.
+    expect(refusalOf({ ...readings() }, HEAD.slice(0, 12), 40)).toBe('head-moved');
   });
 
-  it('merges a full 40-character caller sha on GitHub', () => {
-    const out = merge(readings(), { pr: 42, sha: HEAD, ...CLOCK, backend: 'github' });
+  it('merges a full 40-character caller sha at a raised floor', () => {
+    const out = merge(readings(), { pr: 42, sha: HEAD, ...CLOCK, minHexLen: 40 });
     expect(out.outcome).not.toBe('refused');
   });
 
@@ -136,20 +135,20 @@ describe('merge — the controller for a PR merge', () => {
   });
 
   it('refuses a red reading older than Checks wait as stale', () => {
-    const late = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS, backend: 'bitbucket' };
+    const late = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
     const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD, ...late });
     expect(out.outcome === 'refused' && out.reason).toBe('default-branch-stale');
   });
 
   it('refuses a green reading older than Checks wait, and names its age', () => {
-    const days = { now: Date.parse('2026-10-13T00:00:00Z'), checksWaitMs: WAIT_MS, backend: 'bitbucket' };
+    const days = { now: Date.parse('2026-10-13T00:00:00Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
     const out = merge(readings({ defaultBranch: reading('green') }), { pr: 42, sha: HEAD, ...days });
     expect(out.outcome === 'refused' && out.reason).toBe('default-branch-stale');
     expect(out.outcome === 'refused' && out.detail).toContain('the reading of main is 259200 s old; Checks wait is 3600 s.');
   });
 
   it('merges on a green reading exactly at the Checks wait bound', () => {
-    const edge = { now: Date.parse('2026-10-10T01:00:00Z'), checksWaitMs: WAIT_MS, backend: 'bitbucket' };
+    const edge = { now: Date.parse('2026-10-10T01:00:00Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
     const out = merge(readings({ defaultBranch: reading('green') }), { pr: 42, sha: HEAD, ...edge });
     expect(out.outcome).not.toBe('refused');
   });
@@ -161,7 +160,7 @@ describe('merge — the controller for a PR merge', () => {
   });
 
   it('refuses on a red reading exactly at the Checks wait bound', () => {
-    const edge = { now: Date.parse('2026-10-10T01:00:00Z'), checksWaitMs: WAIT_MS, backend: 'bitbucket' };
+    const edge = { now: Date.parse('2026-10-10T01:00:00Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
     const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD, ...edge });
     expect(out.outcome === 'refused' && out.reason).toBe('default-branch-red');
   });
