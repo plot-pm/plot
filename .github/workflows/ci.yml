@@ -1220,6 +1220,18 @@ jobs:
       - name: One place talks to the host
         run: ./scripts/check-host-cli-callers.sh
 
+      # SHIPPED SHELL MUST RUN ON BASH 3.2, THE VERSION MACOS SHIPS. PR #2659
+      # added `${1^^}` to `bb_query_state` in `plot-host.sh`; every job here
+      # runs `ubuntu-latest` with bash 5, and `bash -n` passed on the broken
+      # head because a bad substitution is a run-time error, not a parse
+      # error — all three Bitbucket PR queries broke while CI stayed green. A
+      # reviewer found it by reading (#2660). This gate greps for eight
+      # bash-4+ constructs instead of installing a bash 3.2 binary to run
+      # against; the macOS job in wave 2 of this plan catches what the grep
+      # cannot.
+      - name: Shipped shell runs on bash 3.2
+        run: ./scripts/check-bash32-syntax.sh
+
       # ONE HELPER CREATES A SCRIPT'S TEMP PATHS, and it is `plot-tmp.sh`.
       # Measured 2026-09-30: five template-less `mktemp` sites wrote outside
       # `TMPDIR` on macOS, nine fixed-name `/tmp` paths bypassed it, and the
