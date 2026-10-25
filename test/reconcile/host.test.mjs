@@ -2596,6 +2596,20 @@ exit 0
 
 // gh/bb stubs live in a SEPARATE dir from the jen stub; a run needs both on
 // PATH. This merges two stub dirs into one PATH prefix.
+//
+// HOME AND PLOT_BUDGET_HOME ARE BOTH SET, and must be — `plot-budget.sh:74`
+// reads `PLOT_BUDGET_HOME` first and falls back to `$HOME/.plot/state`, so
+// `HOME` alone leaves `host_slot_take`/`budget_record_call` free to fall
+// through to whichever one is unset. These two helpers run outside
+// `owned-run.sh` (the suite wrapper that redirects both for the whole
+// process tree) whenever this file is run directly, which is exactly what
+// `plot-local-checks.mjs` tells an agent to do for a changed file — so a
+// private HOME here is this file's own responsibility, not the runner's.
+function jenkinsHome() {
+  const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenhome-')));
+  return { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state') };
+}
+
 function runJenkins(args, { repo, hostStubs, jen, extraEnv = {} }) {
   return execFileSync('bash', [adapter, ...args], {
     cwd: repo,
@@ -2604,6 +2618,7 @@ function runJenkins(args, { repo, hostStubs, jen, extraEnv = {} }) {
       ...process.env,
       PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
       PLOT_HOST: '',
+      ...jenkinsHome(),
       ...extraEnv,
     },
   });
@@ -2617,6 +2632,7 @@ function runJenkinsAllowFail(args, { repo, hostStubs, jen, extraEnv = {} }) {
       ...process.env,
       PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
       PLOT_HOST: '',
+      ...jenkinsHome(),
       ...extraEnv,
     },
   });
@@ -3737,6 +3753,27 @@ test('host: runs on a plain job emits a line rather than exiting 4', () => {
     'the job is named, because that is what a reader opens');
 });
 
+test('host: runs-for-sha on a plain job returns the matching build rather than exiting 4', () => {
+  // The plain-job match-key fix (slice 1, #2548) covers `jenkins_sha_runs` for
+  // every op, including `runs-for-sha` — but nothing exercised the sha-bound
+  // plural op against a plain job specifically. Without this, a regression
+  // that broke the plain-job arm only for the sha-bound path would pass every
+  // existing test, including the unbound `runs` one directly above.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const builds = jenkinsBuildsFor('some-sha', 'SUCCESS');
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['runs-for-sha', 'continuous-deploy', 'some-sha'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, `a readable plain job must not exit 4\n${res.stderr}`);
+  const rows = JSON.parse(res.stdout.trim());
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].conclusion, 'SUCCESS', 'the state Jenkins reported, not a refusal');
+  assert.equal(rows[0].workflow, 'quaweb/continuous-deploy',
+    'the job is named, because that is what a reader opens');
+});
+
 test('host: a shape nobody measured reports unknown, never failed', () => {
   // EXACTLY TWO SHAPES ARE READ, and the third answer is honest rather than
   // convenient. A `FreeStyleProject` HAS a `color` and would be readable — this
@@ -3963,7 +4000,7 @@ test('host: runs on Jenkins keeps a still-building row, which must not be mistak
   assert.deepEqual(rows.map((r) => r.conclusion), ['in_progress'], 'the building row survives, ABORTED does not');
 });
 
-test('host: run-for-sha and runs-for-sha still return an ABORTED build for the exact sha asked', () => {
+test('host: run-for-sha returns an ABORTED build for the exact sha asked', () => {
   // `ABORTED` means Jenkins cancelled a build of that exact sha — it did run,
   // partway. A caller that pinned a sha already knows the answer it wants to
   // see, including a cancelled state for that exact sha. `NOT_BUILT` has no
@@ -3978,7 +4015,16 @@ test('host: run-for-sha and runs-for-sha still return an ABORTED build for the e
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(singular.code, 0, singular.stderr);
   assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'ABORTED', 'run-for-sha still reports the cancelled build');
+});
 
+test('host: runs-for-sha returns an ABORTED build for the exact sha asked', () => {
+  // Same claim as run-for-sha above, for the plural op — both read the same
+  // filter-before-limit behaviour and must not diverge on it.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = jenkinsBuildsFor('sha-aborted', 'ABORTED');
+  const bin = makeJenkinsRestBin(builds);
   const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-aborted'],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(plural.code, 0, plural.stderr);
@@ -3987,7 +4033,7 @@ test('host: run-for-sha and runs-for-sha still return an ABORTED build for the e
   assert.equal(rows[0].conclusion, 'ABORTED', 'runs-for-sha still reports the cancelled build');
 });
 
-test('host: run-for-sha and runs-for-sha answer none/empty when the only build for a sha is NOT_BUILT', () => {
+test('host: run-for-sha answers none when the only build for a sha is NOT_BUILT', () => {
   // Nothing ran: `jenkinsConclusion` maps NOT_BUILT to `unknown` on the
   // TypeScript side, and no consumer reads a NOT_BUILT row. A sha-bound
   // lookup must not manufacture a build that never happened.
@@ -4000,7 +4046,15 @@ test('host: run-for-sha and runs-for-sha answer none/empty when the only build f
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(singular.code, 0, singular.stderr);
   assert.equal(singular.stdout.trim(), '', 'run-for-sha prints nothing for a sha with no surviving build');
+});
 
+test('host: runs-for-sha answers empty when the only build for a sha is NOT_BUILT', () => {
+  // Same claim as run-for-sha above, for the plural op.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = jenkinsBuildsFor('sha-not-built', 'NOT_BUILT');
+  const bin = makeJenkinsRestBin(builds);
   const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-not-built'],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(plural.code, 0, plural.stderr);
