@@ -648,15 +648,21 @@ host_err() { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; }
 # so a PR participant who pastes the same marker into their own comment is
 # never mistaken for this script's own prior post. Prints empty on no match.
 #
-# SCOPED TO THE SIGNED-IN IDENTITY, read the same free way `budget_account`
-# already does (`hosts.yml`, not `gh api user`) — both ops write through that
-# identity (`host.ts:358`), never a minted App token, so it is also the only
-# login whose comment this call may edit.
+# SCOPED TO THE LOGIN `gh api user` ANSWERS for the token this call writes
+# with (`host.ts:358`), asked once per lookup. Not `budget_account`: it reads
+# `hosts.yml` or `PLOT_BUDGET_ACCOUNT`, and neither names the author when
+# `GH_TOKEN` is set or the account is a grouping name, so every lookup missed
+# and posted a new comment.
+#
+# NO LOGIN, NO SCOPE. When `gh api user` fails or answers no valid login (an
+# App installation token gets 403 there), the match falls back to the marker
+# alone, as it was before #2661. A comment with no `user` field cannot be
+# attributed and also matches on the marker alone.
 #
 # A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
 # pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
 # that cannot be read never falls through to "no marker found, post new".
-gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(budget_account github)" '[.[][] | select(.user.login == $who) | select(.body | contains($m))][0].id // empty'; }
+gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
@@ -3819,6 +3825,12 @@ shift
 # answer at all" — the one code every caller reads as permanent rather than
 # transient. Collapsing it to 1 here would tell a GitLab repo to retry forever.
 be="$(backend)" || exit $?
+# PLOT_HOST_OTHER=1 ASKS THE OTHER DRIVABLE BACKEND, the `HOST_DRIVES` entry
+# that is not this checkout's own. `hostShell.prState` and `prMerged` set it to
+# retry a cross-repo `--repo` reference on a clean miss (#2158); the decision is
+# `rules/cross-repo-probe.ts`. The variable stays in the environment, so a
+# re-exec of this script asks the same backend.
+[ -z "${PLOT_HOST_OTHER:-}" ] || be="$(printf '%s\n' $HOST_DRIVES | awk -v be="$be" '$0 != be { o = $0 } END { print o }')"
 
 # EVERY GITHUB OP CONSULTS THE ROUTER, ONCE, HERE. `gh_route` is asked before
 # the op runs and its answer is read from `$route` by whichever arm needs it —

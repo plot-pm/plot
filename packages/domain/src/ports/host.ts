@@ -210,9 +210,13 @@ export interface Host {
    * @param opts - `withChecks: true` reads the PR's `checks` as well. A
    *   Bitbucket host under `CI: jenkins` asks Jenkins for them only then and
    *   otherwise answers `checks: 'unknown'`; GitHub reads them either way.
+   *   `repo` names the repository the PR lives in, for a cross-repo
+   *   `owner/repo#N` slice-line reference. The adapter asks the checkout's
+   *   own backend first and, on a clean miss only, the other drivable backend
+   *   once (`rules/cross-repo-probe.ts`). The port takes no backend argument.
    * @returns the PR, or null where the host holds none for this ref.
    */
-  prState(ref: string | number, opts?: { withChecks?: boolean }): Promise<PortResult<PrLookup>>;
+  prState(ref: string | number, opts?: { withChecks?: boolean; repo?: string }): Promise<PortResult<PrLookup>>;
 
   /**
    * Whether the host merged ANY PR for this branch.
@@ -223,9 +227,12 @@ export interface Host {
    * report the branch's work as unlanded.
    *
    * @param branch - the branch to ask about.
+   * @param opts - `repo` names the repository the branch lives in. The adapter
+   *   resolves its host as {@link Host.prState} does: a `not-merged` from the
+   *   checkout's own backend asks the other drivable backend once.
    * @returns `merged`, `not-merged`, or `unknown` where the host could not say.
    */
-  prMerged(branch: string): Promise<PortResult<MergedAnswer>>;
+  prMerged(branch: string, opts?: { repo?: string }): Promise<PortResult<MergedAnswer>>;
 
   /**
    * The merge commit of a branch's merged PR.

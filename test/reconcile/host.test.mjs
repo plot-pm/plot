@@ -10422,18 +10422,22 @@ test('host: issue-list github closed records one extra call per 100 rows past th
 
 // --- issue-list --label and issue-comment: the review issue's lookup and append ---
 
-// The identity `gh_marker_comment_id` scopes a marker match to. Every test run
-// through `runAllowFail` sets `PLOT_BUDGET_ACCOUNT` (via `budgetEnvFor`) to
-// `BUDGET_ACCOUNT`, and `budget_account` reads that override before it ever
-// looks at `hosts.yml` — so a fixture comment's `user.login` must equal
-// `BUDGET_ACCOUNT` to be "ours", not some separate test identity.
-const ISSUE_COMMENT_LOGIN = BUDGET_ACCOUNT;
+// The identity `gh_marker_comment_id` scopes a marker match to: the login the
+// stub answers for `gh api user -q .login`. It differs from `BUDGET_ACCOUNT`,
+// which `runAllowFail` sets as `PLOT_BUDGET_ACCOUNT`, so a lookup that read the
+// budget account would miss its own comment.
+const ISSUE_COMMENT_LOGIN = 'plot-issue-login';
 
-/** A `gh` that appends every call's argv, so a test sees each call rather than the last. */
-const makeLoggingGh = (answer) => {
+/**
+ * A `gh` that appends every call's argv, so a test sees each call rather than
+ * the last. `gh api user` answers `login`; with `login` null it fails with a
+ * 403. Every other call answers `answer`.
+ */
+const makeLoggingGh = (answer, login = ISSUE_COMMENT_LOGIN) => {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-log-')));
   const log = path.join(dir, 'gh.log');
-  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s\\n' "--- call" "$@" >> "${log}"\nprintf '%s' '${answer}'\n`);
+  const user = login === null ? `{ echo 'HTTP 403' >&2; exit 1; }` : `{ printf '%s\\n' '${login}'; exit 0; }`;
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s\\n' "--- call" "$@" >> "${log}"\n[ "$1 $2" = "api user" ] && ${user}\nprintf '%s' '${answer}'\n`);
   chmodSync(path.join(dir, 'gh'), 0o755);
   const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').split('--- call\n').filter(Boolean).map((c) => c.trim().split('\n')) : []);
   return { dir, calls };
@@ -10535,6 +10539,26 @@ test('host: issue-comment with a marker held only by another author’s comment 
   });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(gh.calls().at(-1), ['issue', 'comment', '12', '--body', 'new text']);
+});
+
+test('host: issue-comment with no login from gh api user edits another author’s comment holding the marker', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"a-tracker-participant"}}]', null);
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
+test('host: issue-comment with a marker comment that has no user field edits it', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y"}]');
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
 });
 
 // --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------
@@ -10676,6 +10700,17 @@ test('host: pr-merged answers unknown when bb is absent from PATH', () => {
   });
   assert.equal(res.status, 0);
   assert.equal(res.stdout.trim(), 'unknown', 'an absent CLI is not a lookup miss');
+});
+
+// THE CROSS-REPO PROBE (#2158) lives in the host adapter
+// (`packages/domain/test/host-shell.test.ts`, "a cross-repo reference"). The
+// script's part is the switch: `PLOT_HOST_OTHER=1` asks the drivable backend
+// that is not the checkout's own.
+test('host: PLOT_HOST_OTHER asks the other drivable backend', () => {
+  const stubs = makeStubs();
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'bitbucket', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'github');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'bitbucket');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '' }, stubs }).trim(), 'github');
 });
 
 test('host: pr-merged reads a full 50-row page with no next as complete, not truncated', () => {

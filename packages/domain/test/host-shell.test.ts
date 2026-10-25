@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1015,5 +1015,119 @@ describe('the signed-in account', () => {
   it('reads a host that stores no free username (exit 4) as unaskable', async () => {
     const answer = await hostShell(hostThat('exit 4')).account();
     expect(answer).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
+/**
+ * A cross-repo `--repo` reference over the REAL `plot-host.sh`, with only `gh`
+ * and `bb` stubbed on PATH (#2158). The checkout's own backend answers first;
+ * only a clean miss asks the other drivable backend, once.
+ */
+describe('a cross-repo reference finds the host it lives on', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** What one stubbed CLI does: print a payload, or fail with a message. */
+  type Cli = { json: string } | { fail: string };
+
+  /** The shell body of one stubbed CLI; `bb` also answers its capability probe. */
+  const cliBody = (cli: Cli, argvFile: string, probes: boolean): string =>
+    [
+      '#!/usr/bin/env bash',
+      ...(probes
+        ? [
+            'if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi',
+            'if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi',
+          ]
+        : []),
+      `printf '%s\\n' "$@" > '${argvFile}'`,
+      'json' in cli ? `printf '%s' '${cli.json}'` : `printf '%s\\n' '${cli.fail}' >&2\nexit 1`,
+    ].join('\n');
+
+  /** A checkout declaring `backend`, whose `gh` and `bb` behave as given. */
+  const checkoutWhose = (backend: 'github' | 'bitbucket', gh: Cli, bb: Cli) => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-host-xrepo-'));
+    shells.push(root);
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    const argv = { gh: join(root, 'gh.argv'), bb: join(root, 'bb.argv') };
+    writeFileSync(join(bin, 'gh'), cliBody(gh, argv.gh, false));
+    writeFileSync(join(bin, 'bb'), cliBody(bb, argv.bb, true));
+    chmodSync(join(bin, 'gh'), 0o755);
+    chmodSync(join(bin, 'bb'), 0o755);
+    execFileSync('git', ['init', '-q', '.'], { cwd: root });
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    vi.stubEnv('PLOT_HOST', backend);
+    vi.stubEnv('PLOT_BUDGET_HOME', join(root, 'budget'));
+    vi.stubEnv('PLOT_BUDGET_ACCOUNT', 'octo-reader');
+    vi.stubEnv('PLOT_HOST_OTHER', '');
+    const context: ShellContext = { repoRoot: root, scriptDir: realScriptDir };
+    return { host: hostShell(context), argv };
+  };
+
+  const REPO = 'quatico/the-github-side';
+  const MERGED_PR = { json: '{"number":4711,"state":"MERGED","isDraft":false,"url":"https://github.test/pr/4711","mergeCommit":{"oid":"abc1234"}}' };
+  const NO_PR = { fail: 'no pull requests found for 4711' };
+  const DOWN = { fail: 'error connecting to api.github.com: 503 Service Unavailable' };
+
+  it('asks the other backend on a clean miss, and answers what it holds', async () => {
+    const { host } = checkoutWhose('bitbucket', MERGED_PR, NO_PR);
+    const answer = await host.prState(4711, { repo: REPO });
+    expect(answer).toMatchObject({ ok: true, value: { number: 4711, state: 'MERGED' } });
+    // The retry answered, so no refusal is left from the first backend's miss.
+    expect(host.lastRefusal()).toBeNull();
+  });
+
+  it('stays a clean miss when neither backend holds the PR', async () => {
+    const { host } = checkoutWhose('bitbucket', NO_PR, NO_PR);
+    expect(await host.prState(4711, { repo: REPO })).toEqual({ ok: true, value: null });
+  });
+
+  it('fails, never a false miss, when the other backend is unreachable', async () => {
+    // `503`, not `command not found`: the latter is `is_lookup_miss`'s own
+    // carve-out for "not a miss", so it cannot tell a correct retry from one
+    // that discards a transport failure.
+    const { host } = checkoutWhose('bitbucket', DOWN, NO_PR);
+    expect(await host.prState(4711, { repo: REPO })).toEqual({ ok: false, why: 'failed' });
+  });
+
+  it('never asks the other backend when the checkout’s own holds the PR', async () => {
+    const { host, argv } = checkoutWhose('github', MERGED_PR, { fail: 'bash: bb: command not found' });
+    expect(await host.prState(4711, { repo: 'quatico/the-same-side' })).toMatchObject({
+      ok: true,
+      value: { state: 'MERGED' },
+    });
+    expect(existsSync(argv.bb)).toBe(false);
+  });
+
+  it('keeps the first backend’s own reason when that call fails, and never retries', async () => {
+    const { host, argv } = checkoutWhose('bitbucket', MERGED_PR, {
+      fail: 'error connecting to bitbucket.org: 503 Service Unavailable',
+    });
+    expect(await host.prState(4711, { repo: 'quatico/the-bitbucket-side' })).toEqual({ ok: false, why: 'failed' });
+    expect(host.lastRefusal()?.said).toMatch(/503 Service Unavailable/);
+    expect(existsSync(argv.gh)).toBe(false);
+  });
+
+  it('asks the other backend for a merged branch on a clean not-merged', async () => {
+    // `pr-merged`'s GitHub arm reads `gh pr list --head … --json mergedAt`, an array.
+    const { host } = checkoutWhose(
+      'bitbucket',
+      { json: '[{"mergedAt":"2026-10-20T00:00:00Z"}]' },
+      { fail: 'no pull requests found for feature/lives-on-github' },
+    );
+    expect(await host.prMerged('feature/lives-on-github', { repo: REPO })).toEqual({ ok: true, value: 'merged' });
+  });
+
+  it('answers unknown, never not-merged, when the other backend is unreachable', async () => {
+    const { host } = checkoutWhose('bitbucket', DOWN, { fail: 'no pull requests found for feature/lives-on-github' });
+    expect(await host.prMerged('feature/lives-on-github', { repo: REPO })).toEqual({ ok: true, value: 'unknown' });
+  });
+
+  it('asks only the checkout’s own backend where no repo is named', async () => {
+    const { host, argv } = checkoutWhose('bitbucket', MERGED_PR, NO_PR);
+    expect(await host.prState(4711)).toEqual({ ok: true, value: null });
+    expect(existsSync(argv.gh)).toBe(false);
   });
 });
