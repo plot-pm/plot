@@ -1841,11 +1841,9 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # parenthesized host — the caller decides what an unresolved host means,
 # same contract as every other helper here.
 jenkins_resolve_host() {
-  local line host; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
+  local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
   [ -n "$line" ] || return 1
-  host=$(sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line")
-  [ -n "$host" ] || return 1
-  printf '%s' "$host"
+  sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" | grep .
 }
 
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
