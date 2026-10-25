@@ -256,7 +256,7 @@ second: it **names them and leaves them running**.
 
 ```
   2 free agent(s) hold no branch and are LEFT RUNNING:
-    plot-wt-free-3 (pid 71200)
+    desk-5e49b509 (pid 71200)
 ```
 
 Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.

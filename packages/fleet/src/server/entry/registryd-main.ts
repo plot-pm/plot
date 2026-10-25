@@ -2239,10 +2239,21 @@ export const run = async (
         checksWaitMs: await checksWaitMs(),
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
+  // WARNS ONCE PER CAUSE: `refreshDefaultBranch` is asked every tick, and a
+  // lasting read failure would otherwise repeat the same line every tick
+  // forever. `lastDefaultBranchWarning` holds the last line passed through;
+  // an identical line is dropped, a changed one (a new cause, or the
+  // reading recovering to no warning at all) passes and replaces it.
+  let lastDefaultBranchWarning: string | null = null;
+  const warnDefaultBranchOnce = (line: string): void => {
+    if (line === lastDefaultBranchWarning) return;
+    lastDefaultBranchWarning = line;
+    warn(line);
+  };
   const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
     if (defaultBranchWorld === null) return;
     try {
-      await refreshDefaultBranch(defaultBranchWorld, warn);
+      await refreshDefaultBranch(defaultBranchWorld, warnDefaultBranchOnce);
     } catch (e) {
       warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -2645,11 +2656,13 @@ export const reportTick = (
       if (looping && HOLD_SCOPE[hold] === 'estate') continue;
       const named = looping ? branches.slice(0, KEPT_HOLD_NAMES) : branches;
       // THE `waits` HOLD NAMES EVERY STILL-UNMERGED PREREQUISITE, IN THIS EXACT
-      // FORM — IT IS GREPPED. Every other hold prints the branch alone; this one
-      // carries the facts a reader needs to act, which are not the branch
-      // itself. ONE `waitHeld` WORD FOR THE WHOLE LIST: `prerequisiteAnswer`
-      // answers `unmerged` or `unreachable` from the single flag `listingWhole`,
-      // so it reads the same for every prerequisite this branch still holds on.
+      // FORM — IT IS GREPPED. Every other hold but `refused` prints the branch
+      // alone; `waits` carries the facts a reader needs to act, which are not
+      // the branch itself. ONE `waitHeld` WORD FOR THE WHOLE LIST:
+      // `prerequisiteAnswer` answers `unmerged` or `unreachable` from the single
+      // flag `listingWhole`, so it reads the same for every prerequisite this
+      // branch still holds on. THE `refused` HOLD PRINTS ITS REASON TOO, through
+      // `refusalText` — who refused, why and when, where the record names them.
       for (const slice of named) {
         write(
           hold === 'waits'

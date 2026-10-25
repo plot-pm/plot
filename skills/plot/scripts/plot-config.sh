@@ -106,6 +106,13 @@
 #                       carry no prefix; `plot-wt-*` desks an older dispatch made
 #                       beside the repo stay there. Every "which worktree holds
 #                       this branch" read asks `git worktree list` instead.
+#   Fleet label         the launchd/systemd label this checkout's supervisor
+#                       loads under. Read by `plot-fleetctl.sh --start`, which
+#                       checks `PLOT_FLEET_LABEL` first when set and non-empty,
+#                       then this key, then the default `com.plot-pm.fleetd` —
+#                       so a second checkout can declare the key instead of
+#                       exporting the env var. Absent or empty = the default,
+#                       unaffecting a single-checkout project.
 # Agent-runner keys (optional; Plot hardcodes no agent tooling, Principle 5):
 #   Worker command      how /plot-dispatch runs an agent headless on a worktree.
 #                       /plot-init writes `PLOT_UNATTENDED=1 plot-worker-loop.sh`;
