@@ -60,7 +60,7 @@ Each slice answers one group above and keeps the finding list in its own PR desc
 
 ### Release chain
 
-- `bug/release-chain-reads-every-page-and-hop` — `pr-merge-dest` pages fully and uses the Bitbucket merge time, the first hop compares with the plan PR's merge time, and the missing-merge-commit advice follows `--no-fetch` and shallow clones
+- `bug/release-chain-reads-every-page-and-hop` — `pr-merge-dest` pages fully and uses the Bitbucket merge time, the first hop compares with the plan PR's merge time, and the missing-merge-commit advice follows `--no-fetch` and shallow clones → #2686
 
 ### Merge path
 
