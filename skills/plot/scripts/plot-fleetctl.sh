@@ -634,7 +634,6 @@ retire_old_label() {
   echo "  unloaded and removed"
 }
 
-
 # THE TWO READINGS, RESOLVED TOGETHER — which is what settles the fresh-clone
 # case. `.plot/state/` is machine-local and gitignored, so a machine that never
 # ran `--start` has no marker either; the marker ALONE cannot tell that machine
@@ -1082,16 +1081,15 @@ if [ "$mode" = "start" ]; then
   # supervisor loaded under the default — e.g. right after the key was added
   # but before anything unloaded that unit — is invisible to a check that only
   # asks about `$LABEL`: `--start` would load a SECOND supervisor, and two
-  # supervisors now watch one estate's queue concurrently. Both labels are
-  # asked through the SAME loop body, shadowing `$LABEL`/`$UNIT_NAME` per
-  # iteration — same shape `retire_old_label` shadows for the old default, and
-  # the same reason: every `supervisor_*` function reads the global `$LABEL`
-  # rather than taking a parameter.
+  # supervisors would watch one estate's queue concurrently. The default label
+  # is asked in a subshell that sets `$LABEL` and `$UNIT_NAME` to the default,
+  # because every `supervisor_*` function reads those globals rather than
+  # taking a parameter — the same shadowing `retire_old_label` uses for the
+  # old default.
   #
-  # ONLY `this <dir>` REFUSES for the default label. It serving another
-  # checkout, or nobody, is not this checkout's problem — same reasoning
-  # `supervisor_checkout`'s three-way split already carries for `$LABEL`
-  # itself; this just reuses the `this \*` arm rather than a second shape.
+  # ONLY `this <dir>` REFUSES for the default label. A default-label
+  # supervisor serving another checkout, or one whose checkout cannot be read,
+  # does not block this checkout's own label.
   refuse_label() { case "$2" in # $1=the label this refusal names $2=supervisor_checkout's answer for it
       this\ *) printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$1" "${2#this }" >&2 ;;
       another\ *) printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$1" "${2#another }" "$repo_root" >&2 ;;

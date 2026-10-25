@@ -1,1 +1,0 @@
-../2026-10-24-a-mixed-reset-leaves-the-main.md

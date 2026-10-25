@@ -1907,10 +1907,9 @@ test('label: a default-label supervisor cannot be determined and does not block 
 });
 
 test('label: with no configured Fleet label, a default-label supervisor elsewhere still refuses under ordinary refusal 4', () => {
-  // THE ORDINARY SINGLE-LABEL PATH MUST NOT REGRESS: with no `Fleet label` key,
-  // `$LABEL` already IS `com.plot-pm.fleetd`, so this slice's new check never
-  // runs (`default_label_checkout`'s own guard) — the refusal below is
-  // refusal 4's EXISTING branch, asking about `$LABEL` itself, not the new one.
+  // With no `Fleet label` key, `$LABEL` is `com.plot-pm.fleetd`, so the
+  // default-label check never runs (its `[ "$LABEL" != com.plot-pm.fleetd ]`
+  // guard) — the refusal below comes from refusal 4 asking about `$LABEL`.
   const { r } = startAndReadLabel('label-default-no-key', {}, {
     defaultLoaded: { workdir: (root) => root },
     expectRefusal: true,
