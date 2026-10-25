@@ -21,6 +21,7 @@ import {
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
 import { claimTip, orphanedClaims, type ClaimReading } from '@plot-pm/domain/rules/claim';
+import { deadClaims, type DeadClaimReading } from '@plot-pm/domain/rules/dead-claim';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { PlanRecord, PlanRecordSlice, PortResult } from '@plot-pm/domain';
 import type { SliceRefusal } from '@plot-pm/domain/ports/refused-slices';
@@ -419,7 +420,7 @@ export const readQueue = async (
     });
   }
 
-  const orphaned = await orphanedClaimsOf(plans, merged, assigned, world);
+  const { orphaned, dead } = await claimReadingsOf(plans, merged, assigned, world);
 
   // THE LISTING'S STATE TRAVELS WITH THE SLICES IT EXPLAINS. Every `unknown`
   // landing and every slice held behind one came from this answer, and the tick
@@ -429,6 +430,7 @@ export const readQueue = async (
     agents,
     mergedSet: mergedSetOf(listing),
     orphanedClaims: orphaned,
+    deadClaims: dead,
     defaultBranchRed: world.defaultBranchRed ? await world.defaultBranchRed() : false,
     verifying: world.verifying ? world.verifying() : 0,
     specRunning: world.specRunning ? world.specRunning() : 0,
@@ -444,30 +446,38 @@ export const readQueue = async (
 
 /**
  * Which plan-named branches carry a claim ref nobody is working and nobody is
- * coming back for.
+ * coming back for — two readings of the same per-branch pass.
  *
  * **ASKED ONLY FOR A REF-BEARING, UNMERGED BRANCH A PLAN NAMES**, and never a
  * deferred one — the plan gave that branch up, so a claim ref left on it is
- * not work waiting for anybody. The reading is the domain's own, through
- * {@link claimTip} and {@link orphanedClaims}; this only joins the plans, the
- * merged set and the `assigned` map this pass already read against the two
- * remaining git calls per branch.
+ * not work waiting for anybody. The readings are the domain's own, through
+ * {@link claimTip}, {@link orphanedClaims} and {@link deadClaims}; this only
+ * joins the plans, the merged set and the `assigned` map this pass already
+ * read against the two remaining git calls per branch.
+ *
+ * **`orphanedClaims` AND `deadClaims` NAME THE SAME BRANCHES.** Both read
+ * the same ref, commits and holder, and both apply
+ * {@link import('@plot-pm/domain/rules/claim').ORPHANED_CLAIM_AGE_MS}, so a
+ * claim inside a dispatch's claim-then-manifest window is named by neither.
+ * `deadClaims` answers in `claimAnswer`'s vocabulary; `orphanedClaims` is the
+ * list the tick prints.
  *
  * @param plans - every plan on the estate.
  * @param merged - the branches the merged listing (and its fallback) named.
  * @param assigned - branch to agent id, from a live manifest.
  * @param world - what to read the estate through.
- * @returns the branches to name, in plan order.
+ * @returns the branches each rule names, in plan order.
  */
-const orphanedClaimsOf = async (
+const claimReadingsOf = async (
   plans: readonly PlanRecord[],
   merged: ReadonlySet<string>,
   assigned: ReadonlyMap<string, string>,
   world: QueueWorld,
-): Promise<readonly string[]> => {
+): Promise<{ orphaned: readonly string[]; dead: readonly string[] }> => {
   const base = await world.defaultBranch();
   const tickStartedAt = world.now();
   const readings: ClaimReading[] = [];
+  const deadCandidates: DeadClaimReading[] = [];
   const seen = new Set<string>();
   for (const plan of plans) {
     for (const slice of plan.slices as readonly PlanRecordSlice[]) {
@@ -484,16 +494,25 @@ const orphanedClaimsOf = async (
             : ({ ok: false, why: 'unaskable' } as PortResult<readonly CommitSubject[]>);
         const claim = claimTip(ref, commits);
         const newest = commits.ok ? commits.value[0] : undefined;
+        const holder = assigned.get(line.branch) ?? '';
         readings.push({
           branch: line.branch,
           claim,
           newestClaimAt: newest?.at ?? 0,
-          assignedTo: assigned.get(line.branch) ?? '',
+          assignedTo: holder,
+        });
+        deadCandidates.push({
+          branch: line.branch,
+          readings: { ref, commits, holders: holder === '' ? [] : [holder] },
+          newestClaimAt: newest?.at ?? 0,
         });
       }
     }
   }
-  return orphanedClaims(readings, tickStartedAt);
+  return {
+    orphaned: orphanedClaims(readings, tickStartedAt),
+    dead: deadClaims(deadCandidates, tickStartedAt),
+  };
 };
 
 /**

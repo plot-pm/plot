@@ -2672,6 +2672,9 @@ export const reportTick = (
   // surface rather than to drain.
   //
   // IT NAMES, AND NEVER RELEASES: the command is the repair a PERSON runs.
+  //
+  // `deadClaims` IS NOT PRINTED: it names the same branches as `orphanedClaims`
+  // on the same readings, so this one line per branch is the whole report.
   for (const branch of report.handOver?.detail?.orphanedClaims ?? []) {
     write(`  ${branch}: claim with no agent — plot-dispatch.sh --release ${branch}\n`);
   }
