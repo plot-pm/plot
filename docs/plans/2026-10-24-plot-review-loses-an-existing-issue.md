@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2542 merged
 - **Started:** 2026-10-24, jwloka, `bug/plot-review-keeps-an-issue-when-its-comment-fails`
+- **Started:** 2026-10-25, Jan Wloka, `bug/plot-host-pr-comment-reads-only-the-apps-comments`
 
 ## Changelog
 
