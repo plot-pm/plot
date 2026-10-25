@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2674
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-25, Jan Wloka, plan-PR #2675 merged
 - **Started:** 2026-10-25, Jan Wloka, `bug/a-closed-read-test-fails-when`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
