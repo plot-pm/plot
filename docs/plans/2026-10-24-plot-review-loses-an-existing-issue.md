@@ -51,7 +51,7 @@ Issue #2488 collects follow-up findings from `plot-review` runs on #2135, #2357 
 
 ### Marker lookup
 
-- `bug/plot-host-pr-comment-reads-only-the-apps-comments` — filter the `pr-comment` marker lookup by author, share one lookup with the issue-comment arm, test a failed listing, and extend the port's marker doc
+- `bug/plot-host-pr-comment-reads-only-the-apps-comments` — filter the `pr-comment` marker lookup by author, share one lookup with the issue-comment arm, test a failed listing, and extend the port's marker doc → #2661
 
 ### Shell tests
 
