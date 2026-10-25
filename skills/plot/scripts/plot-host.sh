@@ -636,6 +636,9 @@ miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >
 # rather than exiting — the caller already branches on this word, not a code.
 miss_or_unknown() { if [ -z "$1" ] || is_lookup_miss "$1"; then echo "not-merged"; else echo "plot-host: $1" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
+# Reads the last host call's stderr into `err` and removes the file, so the
+# next call starts empty. Every failed-call branch below starts with it.
+host_err() { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; }
 
 # THE ONE MARKER LOOKUP, shared by `pr-comment` and `issue-comment` — GitHub's
 # REST comments endpoint is `issues/$num/comments` for both, since a PR is an
@@ -3942,7 +3945,7 @@ case "$op" in
             rm -f "$HOST_ERR"
             rest_pr_to_state <<<"$out"
           else
-            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+            host_err
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3963,7 +3966,7 @@ case "$op" in
               jq -c '.[0]' <<<"$out" | rest_pr_to_state
             fi
           else
-            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+            host_err
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3975,7 +3978,7 @@ case "$op" in
         rm -f "$HOST_ERR"
         jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}' <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
         # this coming — `rate_limit` does not report the secondary limit — so the
         # cheap path was chosen and then declined. The second path is the one
@@ -4018,7 +4021,7 @@ case "$op" in
           state_row="$(bb_state_row "$out" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       else
@@ -4081,7 +4084,7 @@ case "$op" in
           state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       fi
@@ -4118,7 +4121,7 @@ case "$op" in
           rm -f "$HOST_ERR"
           jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           miss_or_unknown "$err"
         fi
       else
@@ -4137,7 +4140,7 @@ case "$op" in
           # the host's own answer rather than a page boundary (#2484).
           jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           miss_or_unknown "$err"
         fi
       fi
@@ -4184,22 +4187,27 @@ case "$op" in
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
       limit=100
-      while :; do
-        if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
-          rm -f "$HOST_ERR"
-          [ "$(jq 'length' <<<"$out")" -lt "$limit" ] || { limit=$((limit * 2)); continue; }
-          # Every merged PR carrying a sha, earliest-first ordering left to the
-          # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
-          jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
-                 | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
-          break
-        fi
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+      # A page as long as `--limit` may have been cut, so the limit doubles and
+      # the query re-asks. The loop ends one of two ways: a short page, after
+      # which `$HOST_ERR` is gone, or a failed call, which leaves `$HOST_ERR`
+      # in place because the redirect creates it before `gh` runs.
+      while out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; do
+        rm -f "$HOST_ERR"
+        [ "$(jq 'length' <<<"$out")" -lt "$limit" ] && break
+        limit=$((limit * 2))
+      done
+      if [ -e "$HOST_ERR" ]; then
+        host_err
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
         # nothing" — the caller distinguishes the two by the exit code.
-        miss_or_exit3 "$err"; break
-      done
+        miss_or_exit3 "$err"
+      else
+        # Every merged PR carrying a sha, earliest-first ordering left to the
+        # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
+               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
+      fi
     else
       bb_require_json
       # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
@@ -4210,7 +4218,7 @@ case "$op" in
         jq -r 'map(select(.merge_commit.hash != null)
                | {n: .id, b: (.destination.branch.name // ""), s: .merge_commit.hash, t: (.updated_on // "")}) | '"$pick" <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         miss_or_exit3 "$err"
       fi
     fi
@@ -4239,7 +4247,7 @@ case "$op" in
         rm -f "$HOST_ERR"
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-gh pr list failed}" >&2; exit 3; }
       fi
     else
@@ -4251,7 +4259,7 @@ case "$op" in
         rm -f "$HOST_ERR"
         jq -r '.[] | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-the branch query failed}" >&2; exit 3; }
       fi
     fi
@@ -4324,7 +4332,7 @@ case "$op" in
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
-    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
       echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
       exit 1
@@ -5648,7 +5656,7 @@ case "$op" in
           }
         }' <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         # The host could not be asked. Report unknown rather than failing outright,
         # because this is informational — a caller that cannot read the budget
         # should proceed with the default path, not error out.
