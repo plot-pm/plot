@@ -5193,8 +5193,12 @@ case "$op" in
       # pages the read takes. A malformed version-list body exits 3 like
       # `version-list`'s own parse failure does — "cannot parse" and "parsed,
       # found nothing" are different outcomes, and only the second is
-      # version-not-found.
-      if [ "$state" = version ] && [ -z "$page_token" ]; then found=""; for p in $projects; do vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; match="$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" || exit 3; [ "$match" = true ] && found=1; done; [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
+      # version-not-found. `jq -e` ON A BOOLEAN RESULT IS THE THREE-WAY SWITCH:
+      # exit 0 is a match (`found=1`), exit 1 is a clean no-match (the loop
+      # moves on), and anything else is a parse failure jq itself could not
+      # complete — `[ $? = 1 ]` is the one case that is NOT that failure, so
+      # the `||` chain only reaches `exit 3` when the code is neither.
+      if [ "$state" = version ] && [ -z "$page_token" ]; then found=""; for p in $projects; do vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; jq -e --arg n "$fix_version" 'any(.[]; .name == $n)' >/dev/null <<<"$vbody" && found=1 || [ $? = 1 ] || exit 3; done; [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
       # A VERSION READ EXISTS BEFORE IT IS SEARCHED: `fixVersion = "<name>"` alone
       # matches nothing for a name Jira has never heard of and still exits 0 with
       # no rows (measured 2026-10-21) — the exact silent empty answer this guard
