@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2487
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2540 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/the-main-checkout-write-gate-misses`
 - **Started:** 2026-10-25, Jan Wloka, `bug/the-main-checkout-writers-test-asserts`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
