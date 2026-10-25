@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2488
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-24, jwloka, `bug/plot-review-keeps-an-issue-when-its-comment-fails`
 - **Started:** 2026-10-25, Jan Wloka, `bug/plot-host-pr-comment-reads-only-the-apps-comments`
 - **Started:** 2026-10-25, Jan Wloka, `bug/plot-host-title-has-has-tests`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
