@@ -63,7 +63,7 @@ The slices group the findings by the code they touch, so each branch has one rev
 
 ### Log and wording
 
-- `bug/fleet-review-followups-wording` — log a lasting default-branch cause once, and correct the comments, changeset, plist, `plot-config.sh` header and `plot-fleet/SKILL.md` wording
+- `bug/fleet-review-followups-wording` — log a lasting default-branch cause once, and correct the comments, changeset, plist, `plot-config.sh` header and `plot-fleet/SKILL.md` wording → #2673
 
 ## Notes
 
