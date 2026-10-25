@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2480
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-25, Jan Wloka, `bug/merge-pins-only-resolvable-short-shas`
 - **Started:** 2026-10-25, Jan Wloka, `bug/remove-dead-pin-and-approve-branches`
 - **Started:** 2026-10-25, Jan Wloka, `bug/one-remote-url-parser`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
