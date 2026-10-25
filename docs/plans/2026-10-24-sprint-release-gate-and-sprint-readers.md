@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2482
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-24, jwloka, `bug/sprint-readers-misread-goal-and-slug`
 - **Started:** 2026-10-24, jwloka, `bug/story-lint-reduces-link-form-story`
 - **Started:** 2026-10-25, jwloka, `bug/plot-sprint-verdict-reports-partial-comparison`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
