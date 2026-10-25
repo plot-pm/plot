@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2476
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-24, Jan Wloka, `bug/delivery-chips-decided-in-the-domain`
 - **Started:** 2026-10-24, Jan Wloka, `bug/waiting-on-you-counts-visible-rows`
 - **Started:** 2026-10-25, Jan Wloka, `bug/chip-and-inbox-tests-can-fail`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
