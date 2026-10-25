@@ -56,7 +56,7 @@ Issue #2488 collects follow-up findings from `plot-review` runs on #2135, #2357 
 
 ### Shell tests
 
-- `bug/plot-host-title-has-has-tests` — test the `--title-has` paths (the `gh` search text, the open-only refusal, the Bitbucket/Jira exit 4), document the search-index lag at `review.ts:227`, and make the 250-row backlog test unable to pass on its own stub
+- `bug/plot-host-title-has-has-tests` — test the `--title-has` paths (the `gh` search text, the open-only refusal, the Bitbucket/Jira exit 4), document the search-index lag at `review.ts:227`, and make the 250-row backlog test unable to pass on its own stub → #2665
 
 ## Notes
 
