@@ -3,10 +3,23 @@
 // touch the operator's main checkout, with evidence rather than a reading
 // of the source alone.
 //
-// BOTH HALVES ARE ASSERTED FOR EVERY CANDIDATE, because the plan's two
-// defects have different symptoms: `git status --porcelain` empty catches a
-// stray file, `git diff HEAD --quiet` catches a moved HEAD whose tree was
-// left behind. One assertion alone would pass the other defect's failure.
+// NOT EVERY TEST BELOW RUNS AGAINST A SANDBOX. Two run `makeEstate` and the
+// two-half `assertCleanAndConsistent(main, ...)` check: "scratch writer:
+// plot_repo_root from inside a desk answers the MAIN checkout..." and "HEAD
+// mover: plot-push-main.sh never touches the main checkout...". The rest
+// read the candidate's own source text and assert on it directly — "scratch
+// writer: no plot-*.sh under skills/plot/scripts/ writes a scratch file",
+// "HEAD mover: ladder.ts's commitAndPush retry shape...", "HEAD mover:
+// plot-dispatch.sh's Started-record booking...", and "HEAD mover:
+// plot-open-pr.sh never writes to the plan file...". The ladder.ts test
+// names its external proof in its own comment: packages/board/test/unit/ladder-real-repo.test.ts
+// already runs that retry loop against a real repository and worktree.
+//
+// BOTH HALVES ARE ASSERTED FOR EVERY SANDBOX CANDIDATE, because the plan's
+// two defects have different symptoms: `git status --porcelain` empty
+// catches a stray file, `git diff HEAD --quiet` catches a moved HEAD whose
+// tree was left behind. One assertion alone would pass the other defect's
+// failure.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -78,7 +91,12 @@ const assertCleanAndConsistent = (main, label) => {
 // of writing anything itself; what remains unnamed is the process that used
 // its answer as a write target.
 test('scratch writer: no plot-*.sh under skills/plot/scripts/ writes a .tmp/.new/.final/.after/.orig scratch file', () => {
-  const files = fs.readdirSync(scripts).filter((f) => f.endsWith('.sh'));
+  // Node 20+ (this repo pins Node 24): walk nested scripts too, so a
+  // scratch-file write under e.g. skills/plot/scripts/board/*.sh is not
+  // invisible to this test.
+  const files = fs
+    .readdirSync(scripts, { recursive: true })
+    .filter((f) => f.endsWith('.sh'));
   const scratchSuffixes = /\.(tmp\d*|new|final|after|orig)(["'`\s)]|$)/;
   const offenders = [];
   for (const f of files) {
@@ -89,9 +107,15 @@ test('scratch writer: no plot-*.sh under skills/plot/scripts/ writes a .tmp/.new
       // write that is `mv`'d (on the same line via `&&`, or within the next
       // few lines) into the real path, which never leaves litter behind. The
       // scratch files in the issue were never moved into place; they sat
-      // beside the real file.
+      // beside the real file. Requiring the SAME scratch path as an `mv`
+      // argument — not just the word `mv` anywhere in the window — keeps an
+      // unrelated comment or a different variable's rewrite from hiding a
+      // real offender.
+      const scratchPath = line.match(/"([^"]*\.(?:tmp\d*|new|final|after|orig))"/)?.[1];
       const window = [line, ...lines.slice(i + 1, i + 4)].join('\n');
-      const isAtomicRewrite = /\bmv\b/.test(window);
+      const isAtomicRewrite = scratchPath
+        ? new RegExp(`\\bmv\\b.*"${scratchPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`).test(window)
+        : /\bmv\b/.test(window);
       if (!isAtomicRewrite) offenders.push(`${f}: ${line.trim()}`);
     });
   }
@@ -185,6 +209,16 @@ test('HEAD mover: plot-open-pr.sh never writes to the plan file or resets any br
   // section is a manual step this slice's own brief performs by hand on the
   // main checkout after the PR exists — not something plot-open-pr.sh does.
   const text = fs.readFileSync(path.join(scripts, 'plot-open-pr.sh'), 'utf8');
-  assert.doesNotMatch(text, /git reset|git commit|update-ref|branch -f/, 'plot-open-pr.sh must perform no local git writes');
-  assert.match(text, /plot-host\.sh.*pr-create/, 'plot-open-pr.sh must only ask plot-host.sh to open the PR');
+  // Strip comment lines first: the real call is `bash ".../plot-host.sh" "${args[@]}"`
+  // with `pr-create` assigned to `args` several lines earlier, and the script
+  // also mentions `plot-host.sh pr-create` in prose comments describing what it
+  // does. A regex run over the raw text would pass on the comment alone even if
+  // the real call were deleted — matching only a mention, not the call itself.
+  const nonCommentText = text
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+  assert.doesNotMatch(nonCommentText, /git\b.*\bcommit\b|git reset|update-ref|branch -f/, 'plot-open-pr.sh must perform no local git writes');
+  assert.match(nonCommentText, /plot-host\.sh/, 'plot-open-pr.sh must call plot-host.sh outside of comments');
+  assert.match(nonCommentText, /args=\(pr-create\b|plot-host\.sh.*pr-create/, 'plot-open-pr.sh must ask plot-host.sh to open the PR, not merely mention pr-create in prose');
 });
