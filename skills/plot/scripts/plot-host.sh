@@ -5549,8 +5549,8 @@ case "$op" in
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
         cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
-        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
-        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
+        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR"
+        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail ;;
     esac
     rm -f "$HOST_ERR" ;;
 
@@ -5856,7 +5856,7 @@ case "$op" in
     # helper.
     [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
     [ -z "${3-}" ] || cid="$(gh_marker_comment_id "$num" "$3")" || gh_fail
-    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi; rm -f "$HOST_ERR" ;;
+    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
     die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
