@@ -49,7 +49,7 @@ The same file's other substring assertions get the same check: any `not.toContai
 
 ### Make the assertion independent of the temp path
 
-- `bug/a-closed-read-test-fails-when` — replace the `u8` URL with one no temp path can contain, or assert on the issue and waiting fields only
+- `bug/a-closed-read-test-fails-when` — replace the `u8` URL with one no temp path can contain, or assert on the issue and waiting fields only → #2678
 
 ## Notes
 
