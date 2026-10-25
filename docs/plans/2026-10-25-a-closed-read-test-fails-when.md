@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-25, Jan Wloka, plan-PR #2675 merged
+- **Started:** 2026-10-25, Jan Wloka, `bug/a-closed-read-test-fails-when`
 
 ## Changelog
 
