@@ -2974,12 +2974,12 @@ plot_env_file_qualifies() {
 # fallback existed. THE VALUE IS NEVER PRINTED, only the source, so a 401 can
 # be debugged against the right one of two possible tokens.
 jira_load_env_file() {
-  local found env_file source
+  local found env_file
   [ -z "${JIRA_EMAIL:-}" ] && [ -z "${JIRA_API_TOKEN:-}" ] || return 0
   found="$(plot_env_file JIRA_EMAIL JIRA_API_TOKEN)"; [ -n "$found" ] || return 0
-  env_file="${found%|*}"; source="${found#*|}"
+  env_file="${found%|*}"
   export JIRA_EMAIL="$(read_env_var JIRA_EMAIL "$env_file")" JIRA_API_TOKEN="$(read_env_var JIRA_API_TOKEN "$env_file")"
-  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
+  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${found#*|}.env" >&2
 }
 
 jira_require_config() {
