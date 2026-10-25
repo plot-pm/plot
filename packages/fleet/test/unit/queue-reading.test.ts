@@ -13,6 +13,7 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 import { VIEWS_PER_PASS } from '@plot-pm/domain/rules/known-pr';
+import { ORPHANED_CLAIM_AGE_MS } from '@plot-pm/domain/rules/claim';
 import type { AgentEntry } from '../../src/shared/registry.js';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { shellContext } from '@plot-pm/domain/adapters/scripts';
@@ -1304,14 +1305,17 @@ describe('a branch-line `waits:` holds the slice through the parser', () => {
 });
 
 /**
- * `deadClaims` NAMES A REF WITH ONLY A STARTED-RECORD COMMIT AND NO LIVE
- * AGENT, REUSING THE SAME PER-BRANCH READ `orphanedClaims` ALREADY MAKES.
+ * `deadClaims` NAMES A REF WITH ONLY A STARTED-RECORD COMMIT, NO LIVE AGENT,
+ * AND A CLAIM OLDER THAN `ORPHANED_CLAIM_AGE_MS`, FROM THE SAME PER-BRANCH
+ * READ `orphanedClaims` MAKES.
  *
  * No new git call: both lists are built from the one `remoteHead` /
- * `commitSubjects` pass `claimReadingsOf` already runs for `orphanedClaims`.
+ * `commitSubjects` pass `claimReadingsOf` runs.
  */
 describe('deadClaims names a dead claim from the same per-branch read orphanedClaims uses', () => {
   const STARTED_RECORD_SUBJECT = 'plot: claim bug/dead-one';
+  const CLAIMED_AT = 1_000_000;
+  const PAST_BOUND = CLAIMED_AT + ORPHANED_CLAIM_AGE_MS + 1;
 
   const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
     plans: async () => [plan([['bug/dead-one']])],
@@ -1329,16 +1333,28 @@ describe('deadClaims names a dead claim from the same per-branch read orphanedCl
     remoteHead: async () => 'present',
     commitSubjects: async () => ({
       ok: true,
-      value: [{ subject: STARTED_RECORD_SUBJECT, at: 0, tree: 't1', parentTree: 't1' }],
+      value: [{ subject: STARTED_RECORD_SUBJECT, at: CLAIMED_AT, tree: 't1', parentTree: 't1' }],
     }),
-    now: () => 0,
+    now: () => PAST_BOUND,
     defaultBranch: async () => 'main',
     ...over,
   });
 
-  it('names a Started-record-only branch with no live agent as a dead claim', async () => {
+  it('does not name a claim pushed this instant — its agent may still be starting', async () => {
+    const readings = await readQueue([], world({ now: () => CLAIMED_AT }));
+    expect(readings.deadClaims).toEqual([]);
+  });
+
+  it('names a Started-record-only branch with no live agent once its claim is older than the bound', async () => {
     const readings = await readQueue([], world());
     expect(readings.deadClaims).toEqual(['bug/dead-one']);
+  });
+
+  it('names the same branches orphanedClaims names, inside and past the bound', async () => {
+    for (const now of [CLAIMED_AT, PAST_BOUND]) {
+      const readings = await readQueue([], world({ now: () => now }));
+      expect(readings.deadClaims).toEqual(readings.orphanedClaims);
+    }
   });
 
   it('does not name the same branch dead once a running agent holds it', async () => {
@@ -1355,7 +1371,7 @@ describe('deadClaims names a dead claim from the same per-branch read orphanedCl
       world({
         commitSubjects: async () => ({
           ok: true,
-          value: [{ subject: 'implement the thing', at: 0, tree: 't2', parentTree: 't1' }],
+          value: [{ subject: 'implement the thing', at: CLAIMED_AT, tree: 't2', parentTree: 't1' }],
         }),
       }),
     );

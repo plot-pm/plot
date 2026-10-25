@@ -1,42 +1,61 @@
-import { claimAnswer, type ClaimAnswerReadings } from './claim.js';
+import { claimAnswer, ORPHANED_CLAIM_AGE_MS, type ClaimAnswerReadings } from './claim.js';
 
 /**
- * Whether a claimed branch is a dead claim — no live agent, and no commit
- * beyond the default branch that is not itself an empty claim marker.
+ * Whether a claimed branch is a dead claim — no live agent, no commit beyond
+ * the default branch that is not itself an empty claim marker, and a newest
+ * claim commit older than {@link ORPHANED_CLAIM_AGE_MS}.
  *
- * **THIS IS THE SWEEP `claimAnswer` HAS NO SHAPE FOR.** `claimAnswer`
- * (`rules/claim.ts`) answers one branch's claim at ask-time — read when a
- * push is rejected, or a person asks about one named branch. This rule reads
- * the SAME readings, but for a different question: of every branch the fleet
- * already holds claimed, which ones are dead and safe to release without
- * being asked? It never re-derives `claimAnswer`'s commit-emptiness or
- * holder logic — `stale-claim` (nobody holds it, ref carries only claim
- * markers) already names exactly the dead-claim shape this rule selects, and
- * `held-by-agent`/`work-on-ref` already name the two cases that must not be
- * released: a live holder, or real work with nobody watching it right now.
+ * **`claimAnswer` DECIDES THE SHAPE.** A dead claim is a branch `claimAnswer`
+ * (`rules/claim.ts`) answers `stale-claim` for: nobody holds it, and the ref
+ * carries only claim markers. `held-by-agent` and `work-on-ref` are never
+ * dead.
  *
- * **THIS NAMES CANDIDATES; IT RELEASES NOTHING.** Once a branch answers true
- * here, `releaseClaim`/`gatherReadingsAndRelease`
- * (`fleet/src/shared/release-claim-reader.ts`) is still the mechanism that
- * performs the release — it already holds the live-holder and open-PR checks
- * this rule does not re-test, so a caller runs this rule to SELECT branches
- * and `releaseClaim` to act on each one.
+ * **THE AGE BOUND EXCLUDES A CLAIM STILL INSIDE ITS LAUNCH WINDOW.** A
+ * dispatch pushes its claim commit before its manifest names the branch, so a
+ * claim younger than {@link ORPHANED_CLAIM_AGE_MS} reads as held by nobody
+ * while its agent is starting. The bound is the one `orphanedClaims` uses, so
+ * on the same readings both rules name the same branches.
  *
- * @param readings - the same readings `claimAnswer` takes for this branch:
- *   its ref, its commits ahead of the default branch, and its live holders.
- * @returns true where `claimAnswer` would say `stale-claim` — the ref exists
- *   but carries nothing beyond claim markers, and nobody live holds it.
+ * **THIS NAMES CANDIDATES; IT RELEASES NOTHING.** `releaseClaim` and
+ * `gatherReadingsAndRelease` (`fleet/src/shared/release-claim-reader.ts`)
+ * perform a release, with their own live-holder and open-PR checks.
+ *
+ * @param readings - the readings `claimAnswer` takes for this branch: its
+ *   ref, its commits ahead of the default branch, and its live holders.
+ * @param newestClaimAt - the newest claim commit's committer time, epoch
+ *   milliseconds; `0` where the ref carries no commit ahead.
+ * @param tickStartedAt - the reading's own clock, epoch milliseconds.
+ * @returns true where `claimAnswer` says `stale-claim` and the newest claim
+ *   commit is older than {@link ORPHANED_CLAIM_AGE_MS}.
  */
-export const deadClaim = (readings: ClaimAnswerReadings): boolean =>
-  claimAnswer(readings) === 'stale-claim';
+export const deadClaim = (
+  readings: ClaimAnswerReadings,
+  newestClaimAt: number,
+  tickStartedAt: number,
+): boolean =>
+  claimAnswer(readings) === 'stale-claim' && tickStartedAt - newestClaimAt > ORPHANED_CLAIM_AGE_MS;
+
+/** One claimed branch, for {@link deadClaims} to judge. */
+export interface DeadClaimReading {
+  /** The branch, as the plan names it. */
+  branch: string;
+  /** What `claimAnswer` reads for this branch. */
+  readings: ClaimAnswerReadings;
+  /** The newest claim commit's committer time, epoch milliseconds. */
+  newestClaimAt: number;
+}
 
 /**
  * The branches among a claimed set that are dead claims.
  *
- * @param branches - one `claimAnswer` reading per branch the fleet holds
- *   claimed, each paired with its name.
+ * @param branches - one reading per branch the fleet holds claimed.
+ * @param tickStartedAt - the reading's own clock, epoch milliseconds.
  * @returns the branch names that are dead claims, in the order given.
  */
 export const deadClaims = (
-  branches: readonly { branch: string; readings: ClaimAnswerReadings }[],
-): readonly string[] => branches.filter((b) => deadClaim(b.readings)).map((b) => b.branch);
+  branches: readonly DeadClaimReading[],
+  tickStartedAt: number,
+): readonly string[] =>
+  branches
+    .filter((b) => deadClaim(b.readings, b.newestClaimAt, tickStartedAt))
+    .map((b) => b.branch);

@@ -51,14 +51,13 @@ export interface AssignDetail {
    */
   orphanedClaims: readonly string[] | null;
   /**
-   * The branches carrying a claim ref that is a dead claim right now — no
-   * live holder, no commit beyond the default branch — or `null` where
-   * nobody asked.
+   * The branches carrying a dead claim — no live holder, no commit beyond the
+   * default branch, and a newest claim commit older than
+   * `ORPHANED_CLAIM_AGE_MS` — or `null` where nobody asked.
    *
    * **CARRIED, NEVER READ, FOR THE SAME REASON {@link
-   * AssignDetail.orphanedClaims} IS.** It overlaps that field on purpose:
-   * this one carries no age test, so it names a branch before {@link
-   * AssignDetail.orphanedClaims} counts it.
+   * AssignDetail.orphanedClaims} IS.** It names the same branches as that
+   * field, which is the one the tick prints.
    */
   deadClaims: readonly string[] | null;
 }

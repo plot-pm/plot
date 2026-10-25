@@ -2672,17 +2672,11 @@ export const reportTick = (
   // surface rather than to drain.
   //
   // IT NAMES, AND NEVER RELEASES: the command is the repair a PERSON runs.
-  const orphaned = new Set(report.handOver?.detail?.orphanedClaims ?? []);
-  for (const branch of orphaned) {
+  //
+  // `deadClaims` IS NOT PRINTED: it names the same branches as `orphanedClaims`
+  // on the same readings, so this one line per branch is the whole report.
+  for (const branch of report.handOver?.detail?.orphanedClaims ?? []) {
     write(`  ${branch}: claim with no agent — plot-dispatch.sh --release ${branch}\n`);
-  }
-  // A DEAD CLAIM NAMES THE SAME SHAPE WITH NO AGE TEST, so it can surface a
-  // branch before `orphanedClaims` counts it. A branch `orphanedClaims`
-  // already named above is skipped here — the same repair, same line, and
-  // printing it twice on one tick would teach a reader to stop reading both.
-  for (const branch of report.handOver?.detail?.deadClaims ?? []) {
-    if (orphaned.has(branch)) continue;
-    write(`  ${branch}: dead claim, no agent — plot-dispatch.sh --release ${branch}\n`);
   }
   return 0;
 };

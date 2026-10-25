@@ -21,7 +21,7 @@ import {
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
 import { claimTip, orphanedClaims, type ClaimReading } from '@plot-pm/domain/rules/claim';
-import { deadClaims } from '@plot-pm/domain/rules/dead-claim';
+import { deadClaims, type DeadClaimReading } from '@plot-pm/domain/rules/dead-claim';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { PlanRecord, PlanRecordSlice, PortResult } from '@plot-pm/domain';
 import type { SliceRefusal } from '@plot-pm/domain/ports/refused-slices';
@@ -455,14 +455,12 @@ export const readQueue = async (
  * joins the plans, the merged set and the `assigned` map this pass already
  * read against the two remaining git calls per branch.
  *
- * **`orphanedClaims` AND `deadClaims` NAME OVERLAPPING SETS ON PURPOSE.**
- * `orphanedClaims` adds a one-tick-interval debounce
- * ({@link import('@plot-pm/domain/rules/claim').ORPHANED_CLAIM_AGE_MS}) a
- * dispatch's own claim-then-manifest race needs; `deadClaims` carries no age
- * test, so a branch this pass finds dead right now may not yet be old enough
- * for `orphanedClaims` to count it. A caller reading both sees the same
- * branch in `deadClaims` first and in `orphanedClaims` roughly one tick
- * later — not a bug in either list.
+ * **`orphanedClaims` AND `deadClaims` NAME THE SAME BRANCHES.** Both read
+ * the same ref, commits and holder, and both apply
+ * {@link import('@plot-pm/domain/rules/claim').ORPHANED_CLAIM_AGE_MS}, so a
+ * claim inside a dispatch's claim-then-manifest window is named by neither.
+ * `deadClaims` answers in `claimAnswer`'s vocabulary; `orphanedClaims` is the
+ * list the tick prints.
  *
  * @param plans - every plan on the estate.
  * @param merged - the branches the merged listing (and its fallback) named.
@@ -479,12 +477,7 @@ const claimReadingsOf = async (
   const base = await world.defaultBranch();
   const tickStartedAt = world.now();
   const readings: ClaimReading[] = [];
-  const deadCandidates: {
-    branch: string;
-    holders: readonly string[];
-    ref: RemoteHeadAnswer;
-    commits: PortResult<readonly CommitSubject[]>;
-  }[] = [];
+  const deadCandidates: DeadClaimReading[] = [];
   const seen = new Set<string>();
   for (const plan of plans) {
     for (const slice of plan.slices as readonly PlanRecordSlice[]) {
@@ -508,18 +501,17 @@ const claimReadingsOf = async (
           newestClaimAt: newest?.at ?? 0,
           assignedTo: holder,
         });
-        deadCandidates.push({ branch: line.branch, holders: holder === '' ? [] : [holder], ref, commits });
+        deadCandidates.push({
+          branch: line.branch,
+          readings: { ref, commits, holders: holder === '' ? [] : [holder] },
+          newestClaimAt: newest?.at ?? 0,
+        });
       }
     }
   }
   return {
     orphaned: orphanedClaims(readings, tickStartedAt),
-    dead: deadClaims(
-      deadCandidates.map((c) => ({
-        branch: c.branch,
-        readings: { ref: c.ref, commits: c.commits, holders: c.holders },
-      })),
-    ),
+    dead: deadClaims(deadCandidates, tickStartedAt),
   };
 };
 
