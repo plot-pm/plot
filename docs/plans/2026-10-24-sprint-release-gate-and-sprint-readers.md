@@ -77,7 +77,7 @@ Four slices, grouped by the code each touches, so each PR stays reviewable and n
 
 ### Sprint skill
 
-- `bug/plot-sprint-verdict-reports-partial-comparison` — The verdict table reports a partial comparison, the owner check runs through the launcher, and the sprint-gate eval covers the two missing owner cases.
+- `bug/plot-sprint-verdict-reports-partial-comparison` — The verdict table reports a partial comparison, the owner check runs through the launcher, and the sprint-gate eval covers the two missing owner cases. → #2683
 
 ## Notes
 
