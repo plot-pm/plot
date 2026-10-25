@@ -645,15 +645,24 @@ gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_E
 # so a PR participant who pastes the same marker into their own comment is
 # never mistaken for this script's own prior post. Prints empty on no match.
 #
-# SCOPED TO THE SIGNED-IN IDENTITY, read the same free way `budget_account`
-# already does (`hosts.yml`, not `gh api user`) — both ops write through that
-# identity (`host.ts:358`), never a minted App token, so it is also the only
-# login whose comment this call may edit.
+# SCOPED TO THE LOGIN `gh api user` ANSWERS for the token this call writes
+# with (`host.ts:358`), asked once per lookup. Not `budget_account`: it reads
+# `hosts.yml` or `PLOT_BUDGET_ACCOUNT`, and neither names the author when
+# `GH_TOKEN` is set or the account is a grouping name, so every lookup missed
+# and posted a new comment.
+#
+# NO LOGIN, NO SCOPE. When `gh api user` fails or answers no valid login (an
+# App installation token gets 403 there), the match falls back to the marker
+# alone, as it was before #2661. A comment with no `user` field cannot be
+# attributed and also matches on the marker alone.
 #
 # A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
 # pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
 # that cannot be read never falls through to "no marker found, post new".
-gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(budget_account github)" '[.[][] | select(.user.login == $who) | select(.body | contains($m))][0].id // empty'; }
+gh_marker_comment_id() {
+  local who="$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')"
+  gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$who" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'
+}
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
@@ -3860,7 +3869,7 @@ if [ -z "${PLOT_HOST_XREPO_TRIED:-}" ] && { [ "$op" = "pr-state" ] || [ "$op" = 
   other=""
   for _d in $HOST_DRIVES; do [ "$_d" != "$be" ] && other="$_d"; done
   if [ -n "$other" ]; then
-    first_out="$(PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)"; first_rc=$?
+    first_out="$(PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>"$HOST_ERR")"; first_rc=$?
     if [ "$first_rc" -eq 0 ] && xrepo_miss "$first_out"; then
       retry_out="$(PLOT_HOST="$other" PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)"; retry_rc=$?
       if xrepo_unreachable "$retry_rc" "$retry_out"; then
@@ -3872,6 +3881,8 @@ if [ -z "${PLOT_HOST_XREPO_TRIED:-}" ] && { [ "$op" = "pr-state" ] || [ "$op" = 
         printf '%s\n' "$retry_out"; exit 0
       fi
     fi
+    # The first answer is final here, so its own reason reaches the caller.
+    cat "$HOST_ERR" >&2
     printf '%s\n' "$first_out"
     exit "$first_rc"
   fi
