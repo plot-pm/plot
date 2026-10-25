@@ -70,7 +70,7 @@ Each slice answers one group above and keeps the finding list in its own PR desc
 
 ### Cleanup
 
-- `bug/remove-dead-pin-and-approve-branches` — remove the dead `approve.ts` and `gate.ts` code, correct the #2407 changeset and the test names and comments the findings list
+- `bug/remove-dead-pin-and-approve-branches` — remove the dead `approve.ts` and `gate.ts` code, correct the #2407 changeset and the test names and comments the findings list → #2693
 
 ### One parser
 
