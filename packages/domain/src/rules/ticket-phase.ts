@@ -62,15 +62,15 @@ export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null =>
 };
 
 /**
- * Whether every plan naming a ticket is `released` — a ticket in this state
- * has nothing left unfinished and should not keep appearing as waiting work.
+ * Whether a ticket has nothing left that *Waiting on you* shows: every plan
+ * naming it is `released`, or is in a state {@link ticketPhase} does not place
+ * (`rejected`, `superseded`, or any other word absent from `PLACED`).
  *
- * `[]` answers `false`: a ticket no plan names is unplanned, not
- * released-and-done, and that case belongs to the caller that decides what an
- * absent plan list means, not to this predicate.
+ * `[]` answers `false`: a ticket no plan names is unplanned, and the caller
+ * decides what an absent plan list means.
  *
  * @param plans - the plans whose `Issue:` field names the ticket.
- * @returns whether every plan in the list is in the `released` state.
+ * @returns whether the list is non-empty and every plan in it is released or unplaceable.
  */
-export const allReleased = (plans: readonly TicketPlan[]): boolean =>
-  plans.length > 0 && plans.every((plan) => plan.state === 'released');
+export const allFinished = (plans: readonly TicketPlan[]): boolean =>
+  plans.length > 0 && plans.every((plan) => plan.state === 'released' || PLACED[plan.state] === undefined);
