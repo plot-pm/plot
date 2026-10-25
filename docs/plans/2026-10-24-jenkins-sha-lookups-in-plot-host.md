@@ -74,7 +74,7 @@ The defects fall into five groups.
 
 ### Test hygiene
 
-- `bug/jenkins-sha-tests-run-in-a-private-home` — run the `jenkins_sha_runs` sourcing tests in a private `HOME` and `cwd`; retitle the two `runs-for-sha` tests; add a `runs-for-sha` test on a plain job <!-- waits: bug/jenkins-refusals-and-credential-fallback -->
+- `bug/jenkins-sha-tests-run-in-a-private-home` — run the `jenkins_sha_runs` sourcing tests in a private `HOME` and `cwd`; retitle the two `runs-for-sha` tests; add a `runs-for-sha` test on a plain job <!-- waits: bug/jenkins-refusals-and-credential-fallback --> → #2680
 
 ## Notes
 
