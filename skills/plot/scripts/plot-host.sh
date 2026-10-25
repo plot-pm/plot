@@ -1973,14 +1973,7 @@ jenkins_sha_runs() {
     plain=1
   done
   cred=""
-  if [ -z "$body" ]; then
-    if [ -n "$branch_answered" ]; then
-      echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2
-    else
-      echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
-    fi
-    exit 4
-  fi
+  [ -n "$body" ] || { [ -n "$branch_answered" ] && echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2 || echo "plot-host: $op — Jenkins did not answer for '$host'" >&2; exit 4; }
   printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" --argjson limit "$limit" 'def headsha($records): ($records | map(select(any(.branches[]; . == $branch))) | first.sha) // (if [$records[].branches[]] | length == 0 then $records | last.sha // "" else "" end);
     [ .builds[]
       | { records: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision
@@ -2949,18 +2942,19 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # command fails, prints nothing, or its parent directory does not exist, this
 # falls through to "no main checkout .env" rather than inventing a path.
 plot_env_file() {
-  local root env_file common main_cand cand
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."
-  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || common=""
-  main_cand=""; [ -n "$common" ] && main_cand="$(dirname "$common")/.env|the main checkout's "
-  for cand in "$root/.env|" "$main_cand"; do
-    [ -n "$cand" ] || continue
-    env_file="${cand%|*}"; [ -r "$env_file" ] || continue
-    if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
-      [ -n "$(read_env_var "$1" "$env_file")" ] && [ -n "$(read_env_var "$2" "$env_file")" ] || continue
-    fi
-    printf '%s' "$cand"; return 0
-  done
+  local root env_file common
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
+  plot_env_file_qualifies "$env_file" "${1:-}" "${2:-}" && { printf '%s|' "$env_file"; return 0; }
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
+  env_file="$(dirname "$common")/.env"
+  plot_env_file_qualifies "$env_file" "${1:-}" "${2:-}" && printf "%s|the main checkout's " "$env_file"
+}
+
+# A candidate qualifies when it is readable and, if two var names are given,
+# holds both — never a lone half of a pair.
+plot_env_file_qualifies() {
+  [ -r "$1" ] || return 1
+  [ -z "$2" ] || [ -z "$3" ] || { [ -n "$(read_env_var "$2" "$1")" ] && [ -n "$(read_env_var "$3" "$1")" ]; }
 }
 
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
