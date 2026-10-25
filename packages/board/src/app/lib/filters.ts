@@ -1,7 +1,7 @@
 import type { Board, Card, FleetSprint, SprintCard } from '../../contract/schema.js';
-import { NO_SPRINT } from '@plot-pm/domain';
+import { NO_SPRINT, type FilterOption } from '@plot-pm/domain';
 
-export { NO_SPRINT };
+export { NO_SPRINT, type FilterOption };
 /** Sentinel for "plans with no story assigned". */
 export const NO_STORY = '__no_story__';
 
@@ -38,12 +38,6 @@ export function sprintMembershipLookup(
     lookup.set(sprint.slug, memberSlugs);
   }
   return lookup;
-}
-
-/** A single option in a multi-select filter. */
-export interface FilterOption {
-  value: string;
-  label: string;
 }
 
 /** A filter option annotated with how many plans fall in its bucket. */

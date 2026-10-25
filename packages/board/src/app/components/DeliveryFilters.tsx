@@ -160,7 +160,20 @@ export function DeliveryFilters({
           THE SPRINT NAME IS NOT A LINK. The plan's own Open Questions leaves
           "does the sprint line link to the sprint file on the board, or to a
           sprint view?" unresolved — the board has no sprint page today — so
-          this renders plain text rather than guessing a destination. */}
+          this renders plain text rather than guessing a destination.
+
+          NO AGGREGATE "shown without a plan" COUNT. The old `SprintFilter`
+          printed `N rows hidden · M shown without a plan` beside the late-
+          timebox signal below; this line carries only the hidden count (via
+          the chip) and the timebox. Checked against issue #2476/#2086: the
+          drop was never a settled decision, it is a gap neither merged slice
+          of this plan closed. It stays dropped here rather than restored,
+          because the ESTATE-WIDE figure the old control summed has no
+          equivalent left to sum FROM — `rowIsSprintExempt` still marks each
+          exempt row individually (`AgentList.tsx`'s `sprintExempt` prop), so
+          the per-row fact survived; only the aggregate did not. Restoring it
+          needs a new domain-level count alongside `chipRow()`'s hidden count,
+          which is a chip-row change and out of this branch's scope. */}
       {sprints.map((sprint) => (
         <div key={sprint.slug} data-sprint-report={sprint.slug} className="px-1 text-xs text-slate-500 dark:text-slate-400">
           <span className="font-medium text-slate-700 dark:text-slate-200">Sprint:</span>{' '}

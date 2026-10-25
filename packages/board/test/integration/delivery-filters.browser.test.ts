@@ -45,6 +45,8 @@ function fleet(): Fleet {
   const rows: AgentRow[] = [
     row({ branch: 'feature/mine', pr: pr(11, ME) } as Partial<AgentRow>),
     row({ branch: 'feature/theirs', pr: pr(12, 'neighbour') } as Partial<AgentRow>),
+    // Under a plan the sprint does not list — the one row `This sprint` hides.
+    row({ branch: 'feature/outside', plan: 'other-plan', planFile: '2026-09-01-other-plan.md', pr: pr(13, 'neighbour') } as Partial<AgentRow>),
   ];
   return {
     generatedAt: new Date().toISOString(),
@@ -101,9 +103,9 @@ describe('the delivery tab renders one chip row', () => {
 
       await chip(page, 'This sprint').click();
       await expect.poll(() => chip(page, 'This sprint').getAttribute('data-chip-on')).toBe('1');
-      // A filled chip states its hidden count — one row (`feature/theirs`) sits
-      // under a different plan than the sprint names.
-      expect(await chip(page, 'This sprint').textContent()).toContain('hidden');
+      // A filled chip states its hidden count — one row (`feature/outside`)
+      // sits under a plan the sprint does not list.
+      expect(await chip(page, 'This sprint').textContent()).toContain('1 hidden');
 
       const sprintLine = page.locator(`[data-sprint-report="${SPRINT}"]`);
       await expect.poll(() => sprintLine.count()).toBe(1);

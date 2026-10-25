@@ -169,9 +169,23 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     // filtered against `issueKey`, which never coerces a Jira key to a
     // number — a regression collapsing it through `Number()` would show here
     // without ever touching a GitHub-shaped fixture.
-    const page = await open(fleet({ issues: [issue({ number: 228, url: '' })] }));
+    //
+    // A FIXTURE THAT CAN FAIL: `EWZKUS-3893` is never served at all here, so
+    // its absence alone proves nothing — a typo in the assertion, or a
+    // renderer that drops every Jira-keyed row regardless of filtering,
+    // would pass the same way. `EWZKUS-9001` IS served and asserted present,
+    // proving the page renders a Jira-keyed row at all when nothing filters
+    // it; only against that baseline does `EWZKUS-3893`'s absence mean the
+    // plan-reference filter ran, rather than "Jira rows never render here".
+    const page = await open(fleet({
+      issues: [
+        issue({ number: 228, url: '' }),
+        issue({ number: 'EWZKUS-9001', title: 'Not referenced by any plan', url: '' }),
+      ],
+    }));
     try {
       await expect.poll(() => issueRow(page, 228).count()).toBe(1);
+      await expect.poll(() => issueRow(page, 'EWZKUS-9001').count()).toBe(1);
       await expect.poll(() => issueRow(page, 'EWZKUS-3893').count()).toBe(0);
     } finally {
       await page.close();
