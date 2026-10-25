@@ -56,7 +56,7 @@ Constraints from `CLAUDE.md` that Design has settled:
 
 ### Shared reader
 
-- `feature/one-pr-reader-per-machine-and` → #2436 — one locked reader per host account and repository, with a cache every other process reads
+- `feature/one-pr-reader-per-machine-and` → #2436 — one locked reader per host account and repository, with a cache every other process reads <!-- deferred: 2026-10-25, PR #2436 closed unmerged at the operator's request. The shared reader writes the real PR index from the board, and one-pr-index-writer.test.ts refuses any board-side write to that index (commit a1355bfec). The branch keeps 4 commits of work. -->
 
 ## Notes
 
