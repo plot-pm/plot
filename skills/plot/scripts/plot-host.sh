@@ -1988,7 +1988,9 @@ jenkins_sha_runs() {
 # where the caller holds no index — every row then sorts exactly as before.
 # `jenkins_sha_runs` reads each named row by sha, the bundle binds them. A
 # lookup that cannot ask Jenkins ends the pass, and the rows it did not reach
-# get no bound entry.
+# get no bound entry. A failing `rows` call itself (the bundle crashes or
+# prints nothing) empties $4 and returns with no stdout at all, so every
+# ambiguous row this pass reads unknown rather than some subset of them.
 jenkins_bind_rows() {
   local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; jq -c . <<<"${5:-null}"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
   : >"${4:-/dev/null}"; [ -z "$_named" ] && return; cut -f1 <<<"$_named" >"${4:-/dev/null}"
