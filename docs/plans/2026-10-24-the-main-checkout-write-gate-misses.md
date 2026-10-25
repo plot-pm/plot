@@ -58,7 +58,7 @@ Step 1 changes a rule the gate and the shell share. A duplicated rule joins the 
 
 ### Writers
 
-- `bug/the-main-checkout-writers-test-asserts` — the worker prompt records the PR number through the controller, the writers test asserts its claims, and the Approved plan's candidate list is corrected
+- `bug/the-main-checkout-writers-test-asserts` — the worker prompt records the PR number through the controller, the writers test asserts its claims, and the Approved plan's candidate list is corrected → #2689
 
 ## Notes
 
