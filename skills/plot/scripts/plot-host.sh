@@ -994,7 +994,7 @@ PR_LIST_BIND_FN=""
 # which are lower-case. One mapping, so a caller never spells a state twice.
 bb_query_state() { # $1=adapter state word → Bitbucket's
   case "$1" in
-    open|merged|declined|superseded) printf '%s' "${1^^}" ;;
+    open|merged|declined|superseded) printf '%s' "$1" | tr '[:lower:]' '[:upper:]' ;;
     *) die "bb_query_state: unknown state '$1'" ;;
   esac
 }
@@ -1833,14 +1833,14 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # `Instance:` line rather than reinvented here — `jen` already turns a slug
 # like `ewz` into `jenkins-ci-ewz.internal.quatico.dev` and keys its stored
 # credential by that resolved host, so a literal slug sent to `curl` or to
-# `jenkins_rest_credential` can only fail. Prints nothing (exit 1) when `jen`
-# is missing, unparseable, the line is absent, or the line names no
-# parenthesized host — the caller decides what an unresolved host means,
-# same contract as every other helper here.
+# `jenkins_rest_credential` can only fail. Prints nothing and exits 1 when
+# `jen` is missing, unparseable, or the line is absent; exits 2 when the line
+# names no parenthesized host. The caller decides what an unresolved host
+# means, same contract as every other helper here.
 jenkins_resolve_host() {
   local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
   [ -n "$line" ] || return 1
-  sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" | grep .
+  sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" | grep . || return 2
 }
 
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
@@ -1938,7 +1938,9 @@ jenkins_sha_runs() {
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"; [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
   # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
-  case "$slug" in *.*) host="$slug" ;; *) host="$(jenkins_resolve_host "$slug")" || { echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2; echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2; exit 4; } ;; esac
+  case "$slug" in *.*) host="$slug" ;; *) host="$(jenkins_resolve_host "$slug")" || {
+      [ $? = 2 ] && printf '%s\n' "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" "  \`jen -I $slug auth status\` answered an 'Instance:' line that names no (https://…) host; run it directly to see what it names." >&2 || printf '%s\n' "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2
+      exit 4; } ;; esac
   cred="$(jenkins_rest_credential "$host")" || {
     echo "plot-host: $op — no Jenkins API credential for '$host'" >&2
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
@@ -2926,10 +2928,9 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # holds one. Prints "<path>|" (worktree) or "<path>|the main checkout's" on a
 # candidate, or nothing when neither location has one.
 #
-# $1 and $2, if given, name the two vars a candidate must hold BOTH of —
-# every caller needs a pair, never a lone half, so a readable-but-incomplete
-# candidate is skipped in favour of the next one rather than returned anyway.
-# With neither argument, "readable" alone qualifies.
+# $1 and $2 name the two vars a candidate must hold BOTH of — every caller
+# needs a pair, never a lone half, so a readable-but-incomplete candidate is
+# skipped in favour of the next one rather than returned anyway.
 #
 # NO UPWARD WALK past either location — the fallback is exactly one more
 # place to look, not a search. `--git-common-dir`'s parent is the main
@@ -2939,16 +2940,16 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 plot_env_file() {
   local root env_file common
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
-  plot_env_file_qualifies "$env_file" "${1:-}" "${2:-}" && { printf '%s|' "$env_file"; return 0; }
+  plot_env_file_qualifies "$env_file" "$1" "$2" && { printf '%s|' "$env_file"; return 0; }
   common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
   env_file="$(dirname "$common")/.env"
-  plot_env_file_qualifies "$env_file" "${1:-}" "${2:-}" && printf "%s|the main checkout's " "$env_file"
+  plot_env_file_qualifies "$env_file" "$1" "$2" && printf "%s|the main checkout's " "$env_file"
 }
 
-# A candidate qualifies when it is readable and, if two var names are given,
-# holds both — never a lone half of a pair.
+# A candidate qualifies when it is readable and holds both named vars —
+# never a lone half of a pair.
 plot_env_file_qualifies() {
-  [ -r "$1" ] || return 1; [ -n "${2:-}" ] || return 0
+  [ -r "$1" ] || return 1
   [ -n "$(read_env_var "$2" "$1")" ] && [ -n "$(read_env_var "$3" "$1")" ]
 }
 

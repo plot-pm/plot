@@ -4305,6 +4305,7 @@ test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when 
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/);
+  assert.match(res.stderr, /did not answer an 'Instance:' line/);
 });
 
 // `jenkins_resolve_host` directly: an `Instance:` LINE EXISTS but names no
@@ -4313,9 +4314,11 @@ test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when 
 // that the line is non-empty, not that the substitution matched, so this
 // shape used to fall through exit 0 with empty stdout — a bare empty host
 // reaching `jenkins_rest_credential ""` next, rather than the "cannot
-// resolve" refusal the caller already prints for a MISSING line. Sourced
-// directly: no CLI op prints `jenkins_resolve_host`'s own exit code, only
-// what its caller does with it, and the caller's wording is pinned above.
+// resolve" refusal the caller already prints for a MISSING line. It exits 2,
+// not the missing line's 1, so the caller can name which of the two happened.
+// Sourced directly: no CLI op prints `jenkins_resolve_host`'s own exit code,
+// only what its caller does with it, and the caller's wording is pinned
+// above and below.
 function sourcedJenkinsResolveHost(line) {
   const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
     + `jen() { printf '%s\\n' ${JSON.stringify(line)}; }\n`
@@ -4328,7 +4331,7 @@ test('host: jenkins_resolve_host refuses (non-zero, empty stdout) when the Insta
   const res = sourcedJenkinsResolveHost('Instance: ewz (no-host-here)');
   const lines = res.stdout.trim().split('\n');
   assert.equal(lines.length, 1, `a host-less Instance line must print nothing but the exit marker, got: ${res.stdout}`);
-  assert.equal(lines[0], 'exit:1', `a host-less Instance line must exit non-zero, got stdout: ${res.stdout}`);
+  assert.equal(lines[0], 'exit:2', `a host-less Instance line must exit 2, got stdout: ${res.stdout}`);
 });
 
 test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when the Instance line names no host', () => {
@@ -4351,6 +4354,10 @@ test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when 
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/,
     'a host-less Instance line must refuse the same way a missing line does, not fall through to a credential lookup');
+  assert.match(res.stderr, /answered an 'Instance:' line that names no \(https:\/\/…\) host/,
+    'the refusal names the cause: the line exists and names no host');
+  assert.doesNotMatch(res.stderr, /did not answer an 'Instance:' line/,
+    'a line that exists must not be reported as missing');
 });
 
 // --- a build can carry more than one lastBuiltRevision action ------------
