@@ -10752,6 +10752,20 @@ test('host: pr-state --repo keeps the first backend’s own reason when that cal
   assert.match(res.stderr, /503 Service Unavailable/);
 });
 
+test('host: pr-state --repo prints nothing on stderr when a clean miss is answered by the retry', () => {
+  const stubs = makeStubs({
+    bbFail: 'no pull requests found for 4711',
+    ghJson: '{"number":4711,"state":"MERGED","isDraft":false,"url":"https://github.test/pr/4711","mergeCommit":{"oid":"abc1234"}}',
+  });
+  const res = spawnSync('bash', [adapter, 'pr-state', '4711', '--repo', 'quatico/the-github-side'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).state, 'MERGED');
+  assert.equal(res.stderr, '');
+});
+
 test('host: pr-merged reads a full 50-row page with no next as complete, not truncated', () => {
   // A single, exactly-full page with no `next` is the brief's done-when #5: the
   // server-side state filter makes every row a true match, so a full page with

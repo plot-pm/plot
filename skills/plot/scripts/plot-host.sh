@@ -659,10 +659,7 @@ gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_E
 # A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
 # pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
 # that cannot be read never falls through to "no marker found, post new".
-gh_marker_comment_id() {
-  local who="$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')"
-  gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$who" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'
-}
+gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
@@ -3861,6 +3858,11 @@ route=""
 # `pr-merged` routes it through `miss_or_unknown`, which prints the literal
 # word `unknown` and still exits 0 — so the retry's exit code alone cannot
 # see it, and the literal output is checked too.
+#
+# THE FIRST CALL'S STDERR PASSES THROUGH. It writes there only when its answer
+# is a failure, and a failure is final and never retried, so the caller reads
+# the first backend's own reason. The retry's stderr is replaced by the line
+# below that names the backend.
 # A clean miss, for either op's own payload shape.
 xrepo_miss() { { [ "$op" = "pr-state" ] && [[ "$1" == *'"state":"NONE"'* ]]; } || { [ "$op" = "pr-merged" ] && [ "$1" = "not-merged" ]; }; }
 # The retry's own failure, in either shape it can take (see above).
@@ -3869,7 +3871,7 @@ if [ -z "${PLOT_HOST_XREPO_TRIED:-}" ] && { [ "$op" = "pr-state" ] || [ "$op" = 
   other=""
   for _d in $HOST_DRIVES; do [ "$_d" != "$be" ] && other="$_d"; done
   if [ -n "$other" ]; then
-    first_out="$(PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>"$HOST_ERR")"; first_rc=$?
+    first_out="$(PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@")"; first_rc=$?
     if [ "$first_rc" -eq 0 ] && xrepo_miss "$first_out"; then
       retry_out="$(PLOT_HOST="$other" PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)"; retry_rc=$?
       if xrepo_unreachable "$retry_rc" "$retry_out"; then
@@ -3881,8 +3883,6 @@ if [ -z "${PLOT_HOST_XREPO_TRIED:-}" ] && { [ "$op" = "pr-state" ] || [ "$op" = 
         printf '%s\n' "$retry_out"; exit 0
       fi
     fi
-    # The first answer is final here, so its own reason reaches the caller.
-    cat "$HOST_ERR" >&2
     printf '%s\n' "$first_out"
     exit "$first_rc"
   fi
