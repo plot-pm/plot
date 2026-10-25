@@ -75,7 +75,7 @@ Each slice answers one group above and keeps the finding list in its own PR desc
 
 ### One parser
 
-- `bug/one-remote-url-parser` — one parser behind `remoteSlug`, `branchUrlBase` and `pathOf`, the same-commit corpus test over the shipped `plot-host.sh`, and `#N` in code spans kept as code in the CHANGELOG
+- `bug/one-remote-url-parser` — one parser behind `remoteSlug`, `branchUrlBase` and `pathOf`, the same-commit corpus test over the shipped `plot-host.sh`, and `#N` in code spans kept as code in the CHANGELOG → #2695
 
 ## Notes
 
