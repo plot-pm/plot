@@ -4187,7 +4187,7 @@ case "$op" in
       while :; do
         if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          [ "$(jq 'length' <<<"$out")" -lt "$limit" ] || [ "$limit" -ge 6400 ] || { limit=$((limit * 2)); continue; }
+          [ "$(jq 'length' <<<"$out")" -lt "$limit" ] || { limit=$((limit * 2)); continue; }
           # Every merged PR carrying a sha, earliest-first ordering left to the
           # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
           jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
