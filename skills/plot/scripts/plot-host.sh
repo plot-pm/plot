@@ -5114,17 +5114,18 @@ case "$op" in
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
+    # THIS ARM'S OWN USAGE CONTRACT EXITS 2, never `die`'s plain 1: both the
+    # `--fix-version`/`--state` conflict below and the above-one-page `--limit`
+    # guard further down are usage errors `issue-list` catches on itself rather
+    # than a generic argument mistake, so a caller can tell the two apart.
+    usage_refused() { echo "plot-host: issue-list: $*" >&2; exit 2; }
     # `--fix-version` AND AN EXPLICIT `--state` ARE NOT INDEPENDENTLY MEANINGFUL
     # (`--state version` alone has nowhere to get a name from), so one of two
     # flags silently winning would hide the other. Refused regardless of
     # argument order: the loop above always leaves `state=version` once
     # `--fix-version` is seen, so order itself cannot distinguish the two
-    # un-refused outcomes a naive fix could produce. Exit 2, the same code the
-    # above-one-page `--limit` guard below uses, and for the same reason: both
-    # are usage errors this arm catches itself rather than `die`'s plain 1, so
-    # a caller can tell "this op's own contract" apart from every other
-    # argument mistake `die` reports across the whole script.
-    [ -z "$fix_version" ] || [ -z "$state_explicit" ] || [ "$state_explicit" = version ] || { echo "plot-host: issue-list: --fix-version and --state $state_explicit conflict; drop one" >&2; exit 2; }
+    # un-refused outcomes a naive fix could produce.
+    [ -z "$fix_version" ] || [ -z "$state_explicit" ] || [ "$state_explicit" = version ] || usage_refused "--fix-version and --state $state_explicit conflict; drop one"
     # `--since` is spliced into a JQL string and a search qualifier, so its shape
     # is checked here: a value outside it is a usage error, never a query.
     [[ "$state" =~ ^(open|closed|inbox|changed|version)$ ]] || die "issue-list: --state is open, closed, inbox, changed or version, not '$state'"
@@ -5266,7 +5267,9 @@ case "$op" in
       # outside that range regardless of value, so it refuses on digit count
       # alone, never reaching a comparison `-gt` cannot make; 1-15 digits is
       # always representable and falls through to the ordinary `-gt` check.
-      if [ -n "$paged" ]; then max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; else { [[ "$max" =~ ^[0-9]{16,}$ ]] || { [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ]; }; } && { echo "plot-host: issue-list: --limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time" >&2; exit 2; }; fi
+      if [ -n "$paged" ]; then max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"
+      elif [[ "$max" =~ ^[0-9]{16,}$ ]] || { [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ]; }; then usage_refused "--limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time"
+      fi
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
       # jq builds the query string so a JQL with spaces/quotes is encoded once,
       # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
