@@ -92,18 +92,20 @@ describe('isChainedHeading agrees with plot-slice-chain.mjs', () => {
     expect(found.map(report)).toEqual([]);
   });
 
-  it('reads the manifest-retry-and-race-findings heading as chained, on both sides', () => {
-    // THE CASE THAT MOTIVATED THIS BRANCH, reached here through the real wire
-    // rather than a hand-built fixture. `### Continuation` from the unit
-    // test's fixture has since been resliced into two single-branch waves —
-    // `/plot-reslice` landed while this branch was in flight — so `Start and
-    // stop` is the one multi-branch heading this plan still carries on `main`.
-    const named = headings.filter((h) => h.file.includes('manifest-retry-and-race-findings'));
-    expect(named.length).toBeGreaterThanOrEqual(1);
-    for (const heading of named) {
-      expect(isChainedHeading(heading.branches)).toBe(true);
-      expect(shellAnswer(heading.branches)).toBe('chained');
-    }
+  it('reads a waits-chained heading as chained, on both sides', () => {
+    // A fixed heading rather than a live plan's: `manifest-retry-and-race-findings`'s
+    // `### Continuation` heading motivated this rule and was chained when this
+    // test was written, but a later `/plot-reslice` split it into two
+    // single-branch waves — a live heading only stays chained until the next
+    // reslice, which is the fragility the fixture-vs-live-plan question named.
+    // This fixture holds the shape that matters: two branches under one
+    // heading, the second `waits:` on the first.
+    const chained: WireBranch[] = [
+      { branch: 'bug/a-first-slice' },
+      { branch: 'bug/a-second-slice', waits_on: ['bug/a-first-slice'] },
+    ];
+    expect(isChainedHeading(chained)).toBe(true);
+    expect(shellAnswer(chained)).toBe('chained');
   });
 
   it('reports a disagreement naming the subject and both answers', () => {
