@@ -39,12 +39,13 @@ export type MergeResult =
 export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promise<MergeResult> => {
   const lookup = await ports.host.prState(pr, { withChecks: true });
   const reading = await ports.defaultBranch.read();
+  const backend = await ports.host.backend();
   const outcome = merge(
     {
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
     },
-    { pr, sha, now: ports.now(), checksWaitMs: ports.checksWaitMs },
+    { pr, sha, now: ports.now(), checksWaitMs: ports.checksWaitMs, backend: backend.ok ? backend.value : '' },
   );
   if (outcome.outcome === 'refused') {
     return { merged: false, reason: outcome.reason, detail: outcome.detail };

@@ -5,6 +5,7 @@
  */
 
 import { fencedLines } from './fences.js';
+import { sameCommit } from './same-commit.js';
 
 /** What a Delivered plan's verification record answers. */
 export type Verification = 'unverified' | 'supported' | 'refuted' | 'stale';
@@ -104,9 +105,6 @@ export const refutedClaims = (text: string): readonly RefutedClaim[] => {
   }
   return claims;
 };
-
-/** True when `a` and `b` name one commit, whichever is the abbreviation. */
-const sameCommit = (a: string, b: string): boolean => a.startsWith(b) || b.startsWith(a);
 
 /**
  * Answers the verification state of a Delivered plan from its text.
