@@ -49,7 +49,6 @@ interface RawBranch {
   waits_on?: string | readonly string[];
   spike?: boolean;
   commits?: readonly string[];
-  pr_ref?: { repo?: string; number?: number };
 }
 
 /**
@@ -79,9 +78,6 @@ export const branchOf = (raw: RawBranch): PlanRecordBranch => ({
       : [],
   ...(raw.spike === true ? { spike: true } : {}),
   ...(raw.commits !== undefined && raw.commits.length > 0 ? { commits: raw.commits } : {}),
-  ...(raw.pr_ref?.repo !== undefined && raw.pr_ref.number !== undefined
-    ? { prRef: { repo: raw.pr_ref.repo, number: raw.pr_ref.number } }
-    : {}),
 });
 
 const sliceOf = (raw: RawSlice): PlanRecordSlice => ({

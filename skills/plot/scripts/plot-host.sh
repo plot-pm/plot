@@ -3821,6 +3821,12 @@ shift
 # answer at all" — the one code every caller reads as permanent rather than
 # transient. Collapsing it to 1 here would tell a GitLab repo to retry forever.
 be="$(backend)" || exit $?
+# PLOT_HOST_OTHER=1 ASKS THE OTHER DRIVABLE BACKEND, the `HOST_DRIVES` entry
+# that is not this checkout's own. `hostShell.prState` and `prMerged` set it to
+# retry a cross-repo `--repo` reference on a clean miss (#2158); the decision is
+# `rules/cross-repo-probe.ts`. The variable stays in the environment, so a
+# re-exec of this script asks the same backend.
+[ -z "${PLOT_HOST_OTHER:-}" ] || be="$(printf '%s\n' $HOST_DRIVES | awk -v be="$be" '$0 != be { o = $0 } END { print o }')"
 
 # EVERY GITHUB OP CONSULTS THE ROUTER, ONCE, HERE. `gh_route` is asked before
 # the op runs and its answer is read from `$route` by whichever arm needs it —
@@ -3838,55 +3844,6 @@ be="$(backend)" || exit $?
 # emptiness is the honest value — there is no route where there is no fork.
 route=""
 [ "$be" = "github" ] && route="$(gh_route "$op")"
-
-# A `--repo` NAMES WHERE THE PR LIVES, NOT WHERE THIS CHECKOUT LIVES — a
-# Bitbucket checkout can name a GitHub PR (#2158), and `backend()` resolved
-# only the checkout's own backend, so a cross-repo reference misses on the
-# first try.
-#
-# THE PROBE, NOT A DECLARATION: no config key or prefix names the backend
-# (ruled out — see `test/reconcile/cross-host-pr-reference.test.mjs`).
-# Instead, try the checkout's backend first, and on a CLEAN MISS only — never
-# a transport failure — retry once against the other `HOST_DRIVES` entry, via
-# the `PLOT_HOST_FORCE_REST` self-re-exec pattern used below for rate
-# refusals. Exactly one "other" exists, so this is one extra call, never
-# unbounded; a same-host reference answers on the first try and never
-# retries.
-#
-# UNREACHABLE STAYS UNKNOWN ON EITHER TRY, never collapsing into the other
-# side's clean miss. `pr-state` fails a transport error with exit 3;
-# `pr-merged` routes it through `miss_or_unknown`, which prints the literal
-# word `unknown` and still exits 0 — so the retry's exit code alone cannot
-# see it, and the literal output is checked too.
-#
-# THE FIRST CALL'S STDERR PASSES THROUGH. It writes there only when its answer
-# is a failure, and a failure is final and never retried, so the caller reads
-# the first backend's own reason. The retry's stderr is replaced by the line
-# below that names the backend.
-# A clean miss, for either op's own payload shape.
-xrepo_miss() { { [ "$op" = "pr-state" ] && [[ "$1" == *'"state":"NONE"'* ]]; } || { [ "$op" = "pr-merged" ] && [ "$1" = "not-merged" ]; }; }
-# The retry's own failure, in either shape it can take (see above).
-xrepo_unreachable() { [ "$1" -eq 3 ] || { [ "$op" = "pr-merged" ] && [ "$2" = "unknown" ]; }; }
-if [ -z "${PLOT_HOST_XREPO_TRIED:-}" ] && { [ "$op" = "pr-state" ] || [ "$op" = "pr-merged" ]; } && printf '%s\n' "$*" | grep -q -- '--repo'; then
-  other=""
-  for _d in $HOST_DRIVES; do [ "$_d" != "$be" ] && other="$_d"; done
-  if [ -n "$other" ]; then
-    first_out="$(PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@")"; first_rc=$?
-    if [ "$first_rc" -eq 0 ] && xrepo_miss "$first_out"; then
-      retry_out="$(PLOT_HOST="$other" PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)"; retry_rc=$?
-      if xrepo_unreachable "$retry_rc" "$retry_out"; then
-        echo "plot-host: $other could not be asked for a cross-repo reference" >&2
-        [ "$op" = "pr-state" ] && exit 3
-        echo "unknown"; exit 0
-      fi
-      if [ "$retry_rc" -eq 0 ] && [ -n "$retry_out" ] && ! xrepo_miss "$retry_out" && [ "$retry_out" != "unknown" ]; then
-        printf '%s\n' "$retry_out"; exit 0
-      fi
-    fi
-    printf '%s\n' "$first_out"
-    exit "$first_rc"
-  fi
-fi
 
 case "$op" in
   backend)

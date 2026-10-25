@@ -10648,122 +10648,15 @@ test('host: pr-merged answers unknown when bb is absent from PATH', () => {
   assert.equal(res.stdout.trim(), 'unknown', 'an absent CLI is not a lookup miss');
 });
 
-// THE CROSS-REPO PROBE (#2158). `--repo` names where the PR LIVES, which can
-// differ from the checkout's own declared backend. A Bitbucket checkout
-// naming a GitHub PR must try its own backend first, and on a CLEAN MISS
-// retry once against the other drivable backend — never on a transport
-// failure, which must still read `unknown`.
-test('host: pr-state --repo retries the other backend on a clean miss', () => {
-  const stubs = makeStubs({
-    bbFail: 'no pull requests found for 4711',
-    ghJson: '{"number":4711,"state":"MERGED","isDraft":false,"url":"https://github.test/pr/4711","mergeCommit":{"oid":"abc1234"}}',
-  });
-  const out = run(['pr-state', '4711', '--repo', 'quatico/the-github-side'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
-  const json = JSON.parse(out);
-  assert.equal(json.state, 'MERGED', 'the checkout declared bitbucket, but the reference lives on github');
-});
-
-test('host: pr-state --repo stays a clean miss when neither backend holds the PR', () => {
-  const stubs = makeStubs({
-    bbFail: 'no pull requests found for 4711',
-    ghFail: 'no pull requests found for 4711',
-  });
-  const out = run(['pr-state', '4711', '--repo', 'quatico/the-github-side'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
-  const json = JSON.parse(out);
-  assert.equal(json.state, 'NONE', 'neither backend holds this PR, and the probe must not invent one');
-});
-
-test('host: pr-state --repo answers unknown, never a false miss, when the other backend is unreachable', () => {
-  // THE DANGER OF A NAIVE RETRY: a clean miss on bitbucket followed by an
-  // UNREACHABLE github (a transport failure, not "github also has no such
-  // PR") must not collapse into the SAME clean-miss shape the checkout's own
-  // answer already reported — that would silently lose the distinction this
-  // probe exists to preserve, reporting NONE when the truth is "the second
-  // backend could not be asked at all". `503 Service Unavailable` is used,
-  // not `command not found`: the latter is `is_lookup_miss`'s OWN carve-out
-  // for "not a miss", so it alone cannot tell a correct retry from a retry
-  // that silently discards a transport failure.
-  const stubs = makeStubs({
-    bbFail: 'no pull requests found for 4711',
-    ghFail: 'error connecting to api.github.com: 503 Service Unavailable',
-  });
-  const res = spawnSync('bash', [adapter, 'pr-state', '4711', '--repo', 'quatico/the-github-side'], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
-  });
-  assert.notEqual(res.status, 0, 'a transport failure on the retried backend must not exit 0 as a clean miss');
-  assert.equal(res.stdout.trim(), '', 'no fabricated state payload on a transport failure');
-});
-
-test('host: pr-merged --repo retries the other backend on a clean miss', () => {
-  // UNLIKE `pr-state` (`gh pr view`, one object), `pr-merged`'s GitHub arm
-  // calls `gh pr list --head ... --json mergedAt` and reads an ARRAY — the
-  // shape its own `jq -e 'any(.[]; .mergedAt != null)'` expects.
-  const stubs = makeStubs({
-    bbFail: 'no pull requests found for feature/lives-on-github',
-    ghJson: '[{"mergedAt":"2026-10-20T00:00:00Z"}]',
-  });
-  const out = run(
-    ['pr-merged', 'feature/lives-on-github', '--repo', 'quatico/the-github-side'],
-    { env: { PLOT_HOST: 'bitbucket' }, stubs },
-  );
-  assert.equal(out.trim(), 'merged', 'the checkout declared bitbucket, but the branch merged on github');
-});
-
-test('host: pr-merged --repo answers unknown, never not-merged, when the other backend is unreachable', () => {
-  // THE SAME DANGER AS `pr-state` ABOVE, ON THE OTHER OP. `pr-merged`'s own
-  // `miss_or_unknown` already distinguishes "not-merged" from "unknown" on a
-  // SINGLE backend; the probe must not flatten that distinction back out when
-  // the retried backend is the one that fails to answer.
-  const stubs = makeStubs({
-    bbFail: 'no pull requests found for feature/lives-on-github',
-    ghFail: 'error connecting to api.github.com: 503 Service Unavailable',
-  });
-  const out = run(
-    ['pr-merged', 'feature/lives-on-github', '--repo', 'quatico/the-github-side'],
-    { env: { PLOT_HOST: 'bitbucket' }, stubs },
-  );
-  assert.equal(out.trim(), 'unknown', 'a transport failure on the retried backend must not read as not-merged');
-});
-
-test('host: pr-state --repo on a same-host reference never retries', () => {
-  // BOUNDED BY ONE EXTRA CALL, AND ZERO WHEN UNNEEDED. A reference that
-  // already lives on the checkout's own backend must answer on the first
-  // try — proven here by making the OTHER backend fail outright: if the
-  // probe retried anyway, this would read unknown or NONE instead of MERGED.
-  const stubs = makeStubs({
-    ghJson: '{"number":4711,"state":"MERGED","isDraft":false,"url":"https://github.test/pr/4711","mergeCommit":{"oid":"abc1234"}}',
-    bbFail: 'bash: bb: command not found',
-  });
-  const out = run(['pr-state', '4711', '--repo', 'quatico/the-same-side'], { env: { PLOT_HOST: 'github' }, stubs });
-  const json = JSON.parse(out);
-  assert.equal(json.state, 'MERGED');
-});
-
-test('host: pr-state --repo keeps the first backend’s own reason when that call fails', () => {
-  // A failing first call is the final answer and is never retried, so its
-  // stderr is the only reason the caller can see.
-  const stubs = makeStubs({ bbFail: 'error connecting to bitbucket.org: 503 Service Unavailable' });
-  const res = spawnSync('bash', [adapter, 'pr-state', '4711', '--repo', 'quatico/the-bitbucket-side'], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
-  });
-  assert.equal(res.status, 3, res.stderr);
-  assert.match(res.stderr, /503 Service Unavailable/);
-});
-
-test('host: pr-state --repo prints nothing on stderr when a clean miss is answered by the retry', () => {
-  const stubs = makeStubs({
-    bbFail: 'no pull requests found for 4711',
-    ghJson: '{"number":4711,"state":"MERGED","isDraft":false,"url":"https://github.test/pr/4711","mergeCommit":{"oid":"abc1234"}}',
-  });
-  const res = spawnSync('bash', [adapter, 'pr-state', '4711', '--repo', 'quatico/the-github-side'], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(JSON.parse(res.stdout).state, 'MERGED');
-  assert.equal(res.stderr, '');
+// THE CROSS-REPO PROBE (#2158) lives in the host adapter
+// (`packages/domain/test/host-shell.test.ts`, "a cross-repo reference"). The
+// script's part is the switch: `PLOT_HOST_OTHER=1` asks the drivable backend
+// that is not the checkout's own.
+test('host: PLOT_HOST_OTHER asks the other drivable backend', () => {
+  const stubs = makeStubs();
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'bitbucket', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'github');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'bitbucket');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '' }, stubs }).trim(), 'github');
 });
 
 test('host: pr-merged reads a full 50-row page with no next as complete, not truncated', () => {
