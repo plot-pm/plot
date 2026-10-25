@@ -5,6 +5,7 @@ import { listingSpend, type LimitBasis } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
+import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
 
 /** The scan Plot ships, streamed one plan at a time. */
 export const FLEET_SCAN = 'plot-fleet-scan.sh';
@@ -213,14 +214,10 @@ const BITBUCKET_CLOUD_HOSTS: ReadonlySet<string> = new Set([
 export const branchUrlBase = (origin: string): string => {
   const trimmed = origin.trim();
   if (!trimmed) return '';
-  // Three shapes: `https://[user@]host[:port]/path`, `ssh://user@host[:port]/path`
-  // (the port is dropped, so `altssh.bitbucket.org:443` reads as a host and not
-  // as a path segment), and scp-style `user@host:path`.
-  const m = /^(?:https?:\/\/(?:[^@/]*@)?([^/]+)\/|ssh:\/\/(?:[^@/]+@)([^:/]+)(?::\d+)?\/|(?:[^@/:]+@)([^:/]+):)(.+?)(?:\.git)?\/?$/
-    .exec(trimmed);
-  if (!m) return '';
-  const host = (m[1] ?? m[2] ?? m[3]).replace(/:\d+$/, '');
-  const repoPath = m[4];
+  const parsed = hostAndPathOfRemote(trimmed);
+  if (parsed === null) return '';
+  const host = parsed.host;
+  const repoPath = parsed.path.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/, '');
   if (!repoPath || repoPath.includes('..')) return '';
   if (host === 'github.com' || /(^|\.)github\./.test(host)) {
     return `https://${host}/${repoPath}/tree/`;

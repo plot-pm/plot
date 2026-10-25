@@ -1,3 +1,5 @@
+import { hostAndPathOfRemote } from './remote-url.js';
+
 /**
  * The `<owner>/<repo>` slug a remote URL names on one git host, or `null` where it names none.
  *
@@ -17,7 +19,7 @@
  */
 export const remoteSlug = (url: string, domain: string): string | null => {
   const trimmed = url.trim().replace(/\/+$/, '').replace(/\.git$/, '').replace(/\/+$/, '');
-  const parsed = hostAndPath(trimmed);
+  const parsed = hostAndPathOfRemote(trimmed);
   if (parsed === null || !isHostOf(parsed.host, domain)) return null;
   const match = /^([^/]+)\/(.+)$/.exec(parsed.path.replace(/^\/+/, ''));
   return match === null ? null : `${match[1]}/${match[2]}`;
@@ -33,17 +35,4 @@ const isHostOf = (host: string, domain: string): boolean => {
   const h = host.toLowerCase();
   const d = domain.toLowerCase();
   return h === d || h.endsWith(`.${d}`);
-};
-
-/**
- * Splits a remote URL into its host and path.
- *
- * @param url - a remote URL with `.git` and trailing slashes already removed.
- * @returns the host without user or port, and the path after it; `null` for a local path.
- */
-const hostAndPath = (url: string): { host: string; path: string } | null => {
-  const scheme = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:]+)(?::\d+)?(\/.*)$/i.exec(url);
-  if (scheme !== null) return { host: scheme[1], path: scheme[2] };
-  const scp = /^(?:[^@/:]*@)?([^/:]+):(.*)$/.exec(url);
-  return scp === null ? null : { host: scp[1], path: scp[2] };
 };

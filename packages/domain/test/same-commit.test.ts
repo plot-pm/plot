@@ -44,4 +44,12 @@ describe('sameCommit', () => {
   it('matches a full 40-character pin at a raised floor', () => {
     expect(sameCommit(HEAD40, HEAD40, 40)).toBe(true);
   });
+
+  it('refuses an empty pin against a real head', () => {
+    expect(sameCommit(HEAD40, '')).toBe(false);
+  });
+
+  it('refuses two empty shas', () => {
+    expect(sameCommit('', '')).toBe(false);
+  });
 });
