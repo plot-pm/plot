@@ -3451,7 +3451,7 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   # "cannot tell" or "cannot resolve", never silence. `PR_SOURCE` picks advice
   # the operator can run: `gh`, `bb`, or the adapter.
   if [ -z "$sha" ] || ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
-    chain=$(node "$script_dir/board/plot-release-chain.mjs" resolve "$last_pr" "$MAIN" "$PR_SOURCE" <<<"$pr_state_row")
+    chain=$(node "$script_dir/board/plot-release-chain.mjs" resolve "$last_pr" "$MAIN" "$PR_SOURCE" "$((1 - do_fetch))" <<<"$pr_state_row")
     IFS=$'\t' read -r chain_verb tag <<<"$chain"
     case "$chain_verb" in
       unreleased) continue ;;
