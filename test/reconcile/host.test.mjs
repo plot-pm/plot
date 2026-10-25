@@ -10294,6 +10294,49 @@ test('host: issue-list --label exits 4 on jira and runs no curl', () => {
   assert.ok(!existsSync(stub.argvFile), 'curl must not run');
 });
 
+// --- issue-list --title-has: the duplicate-follow-up lookup's search term --
+
+// `--search 'in:title "<text>"'` ANDS with `--label` rather than replacing it
+// — both are qualifiers `gh` combines in one `--search` string, so a backlog's
+// label stays the safety net while the title cuts the read to the one PR
+// asked about (plot-host.sh:5269-5271).
+test('host: issue-list --title-has asks gh for in:title and keeps --label riding along', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runGh(['issue-list', '--title-has', 'PR #42', '--label', 'ai-generated'], stubs);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[argv.indexOf('--search') + 1], 'in:title "PR #42"');
+  assert.equal(argv[argv.indexOf('--label') + 1], 'ai-generated');
+});
+
+// `gh` keeps only its LAST `--search` flag rather than ANDing several, so a
+// state that already uses one here (changed/closed) is refused instead of
+// silently losing the title filter — the lookup's only use is open issues.
+test('host: issue-list --title-has with --state closed dies and never calls gh', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runGh(['issue-list', '--title-has', 'PR #42', '--state', 'closed', '--since', '2026-01-01'], stubs);
+  assert.notEqual(res.status, 0, res.stderr);
+  assert.match(res.stderr, /--title-has only works with --state open/);
+  assert.ok(!existsSync(stubs.ghArgv), 'gh must not run');
+});
+
+test('host: issue-list --title-has exits 4 on jira and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--title-has', 'PR #42'], stub);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /jira cannot list issues by label or search by title/);
+  assert.equal(res.stdout, '');
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-list --title-has exits 4 on bitbucket and runs no bb', () => {
+  const stubs = makeStubs();
+  const res = runBb(['issue-list', '--title-has', 'PR #42'], stubs);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /by title/);
+  assert.ok(!existsSync(stubs.bbArgv), 'bb must not run');
+});
+
 test('host: issue-comment with an empty marker always posts and never reads or edits a comment', () => {
   const gh = makeLoggingGh('[{"id":7,"body":"a comment that holds anything"}]');
   const res = runAllowFail(['issue-comment', '12', '', 'the new head'], {
