@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2158
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2489 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/plot-deliver-and-plot-impl-status-repro`
 - **Started:** 2026-10-25, Jan Wloka, `bug/plot-deliver-and-plot-impl-status`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
