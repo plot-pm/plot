@@ -235,6 +235,17 @@ export interface QueueReadings {
    */
   orphanedClaims?: readonly string[];
   /**
+   * The branches carrying a dead claim — no live holder, no commit beyond the
+   * default branch that is not itself a claim marker, and a newest claim
+   * commit older than `ORPHANED_CLAIM_AGE_MS` — where they were asked about.
+   *
+   * **OPTIONAL FOR THE SAME REASON {@link QueueReadings.orphanedClaims} IS.**
+   * It applies the same age bound to the same readings, so it names the same
+   * branches, answered through `claimAnswer`'s `stale-claim`. Absent means
+   * nobody asked; an asked pass that found none is `[]`.
+   */
+  deadClaims?: readonly string[];
+  /**
    * Whether the default branch's newest settled CI reading is red.
    *
    * **A PASS-LEVEL READING, NOT A SLICE'S.** It is one fact about the branch

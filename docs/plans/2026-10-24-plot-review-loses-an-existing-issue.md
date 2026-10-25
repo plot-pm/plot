@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2488
@@ -12,6 +12,9 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2542 merged
 - **Started:** 2026-10-24, jwloka, `bug/plot-review-keeps-an-issue-when-its-comment-fails`
+- **Started:** 2026-10-25, Jan Wloka, `bug/plot-host-pr-comment-reads-only-the-apps-comments`
+- **Started:** 2026-10-25, Jan Wloka, `bug/plot-host-title-has-has-tests`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -50,11 +53,11 @@ Issue #2488 collects follow-up findings from `plot-review` runs on #2135, #2357 
 
 ### Marker lookup
 
-- `bug/plot-host-pr-comment-reads-only-the-apps-comments` — filter the `pr-comment` marker lookup by author, share one lookup with the issue-comment arm, test a failed listing, and extend the port's marker doc
+- `bug/plot-host-pr-comment-reads-only-the-apps-comments` — filter the `pr-comment` marker lookup by author, share one lookup with the issue-comment arm, test a failed listing, and extend the port's marker doc → #2661
 
 ### Shell tests
 
-- `bug/plot-host-title-has-has-tests` — test the `--title-has` paths (the `gh` search text, the open-only refusal, the Bitbucket/Jira exit 4), document the search-index lag at `review.ts:227`, and make the 250-row backlog test unable to pass on its own stub
+- `bug/plot-host-title-has-has-tests` — test the `--title-has` paths (the `gh` search text, the open-only refusal, the Bitbucket/Jira exit 4), document the search-index lag at `review.ts:227`, and make the 250-row backlog test unable to pass on its own stub → #2665
 
 ## Notes
 

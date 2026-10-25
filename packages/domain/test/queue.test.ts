@@ -984,17 +984,6 @@ describe('handOverCheck — a hand-over is checked before it is made', () => {
   });
 });
 
-/**
- * A SLICE AN AGENT WAS HANDED AND REFUSED.
- *
- * Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
- * wrote `PLOT-BLOCKED.md` and stopped. `rules/queue.ts` had no hold for that, so
- * the next pass read the slice as queued and handed it to another free agent,
- * which met the same refusal — 250 desks from one slice, at 17 to 19 an hour.
- *
- * The hold never ends on a timer: it is a reading the caller takes fresh each
- * pass, and it clears the moment that reading does.
- */
 describe('matchQueue — a refused hold carries the refusal beside the branch', () => {
   const refusal = { session: 'sess-1', reason: 'reset refused', at: '2026-10-18T10:00:00.000Z' };
 
@@ -1012,6 +1001,17 @@ describe('matchQueue — a refused hold carries the refusal beside the branch', 
   });
 });
 
+/**
+ * A SLICE AN AGENT WAS HANDED AND REFUSED.
+ *
+ * Measured 2026-10-03: an agent handed `bug/the-queue-reads-the-scans-order`
+ * wrote `PLOT-BLOCKED.md` and stopped. `rules/queue.ts` had no hold for that, so
+ * the next pass read the slice as queued and handed it to another free agent,
+ * which met the same refusal — 250 desks from one slice, at 17 to 19 an hour.
+ *
+ * The hold never ends on a timer: it is a reading the caller takes fresh each
+ * pass, and it clears the moment that reading does.
+ */
 describe('whyNotReady — a refused slice is held rather than handed to another agent', () => {
   it('holds a claimable, briefed slice an agent refused, with agents free', () => {
     // CATCHES A HOLD THAT IS COUNTED AND NOT ENFORCED: the assertion is on

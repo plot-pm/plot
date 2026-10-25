@@ -370,10 +370,14 @@ export interface Host {
    *
    * @param pr - the PR number to comment on.
    * @param body - the comment text, verbatim.
-   * @param marker - when given, the PR comment holding this substring is edited
-   *   to `body`, and a comment is posted only where none holds it — so a repeated
-   *   call with the same marker leaves one comment. A failed edit fails and posts
-   *   nothing. Absent, every call posts.
+   * @param marker - when given, the PR comment holding this substring, posted by
+   *   the same identity this call writes through, is edited to `body`, and a
+   *   comment is posted only where none holds it — so a repeated call with the
+   *   same marker leaves one comment. A marker held only by another
+   *   participant's comment does not match, and a comment is posted instead. A
+   *   failed edit fails and posts nothing. A failed listing — the marker search
+   *   itself could not be read — fails and posts nothing, the same as a failed
+   *   edit; it is never read as "no marker found". Absent, every call posts.
    * @returns `true` once written; `unaskable` where this host cannot be asked
    *   to comment on a PR; `failed` otherwise, with the reason in
    *   {@link lastRefusal}.

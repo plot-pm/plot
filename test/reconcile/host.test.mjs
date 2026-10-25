@@ -3358,6 +3358,36 @@ test('host: pr-list bitbucket under jenkins reads checksLookup broken for a name
   assert.equal(out.get('feature/broken').checksLookup, 'broken', 'named, and the ask broke — not the same fact as a cap-skipped row');
 });
 
+test('host: pr-list --state all reads checksLookup broken for a named OPEN row whose ask fails, across several states in the same pass', () => {
+  // `--state all` runs one bind call per state, and only the OPEN call ever
+  // names an ambiguous row. A broken ask on that named row must read 'broken'
+  // in the same pass where MERGED/DECLINED rows are never asked at all —
+  // proving the two states do not share one verdict.
+  const open = bbRowsFor([{ id: 1, head: 'feature/broken', sha: 'sha-broken', updatedAt: '2026-10-17T09:00:00Z' }]);
+  const merged = bbRowsFor([{ id: 2, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T08:00:00Z' }]);
+  const declined = bbRowsFor([{ id: 3, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T07:00:00Z' }]);
+  const bb = makeStrictBbStub({ perState: { open, merged, declined } });
+  const jobs = JSON.stringify(['feature/broken', 'm0', 'd0'].map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: jobs });
+  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+  };
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), `settled rows are never asked:\n${asked.join('\n')}`);
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/broken').checks, 'unknown');
+  assert.equal(rows.get('feature/broken').checksSha, '');
+  assert.equal(rows.get('feature/broken').checksLookup, 'broken', 'named for this pass, and the ask broke — distinct from skipped');
+  assert.equal(rows.get('m0').checksLookup, undefined, 'a MERGED row is never a candidate, broken ask or not');
+  assert.equal(rows.get('d0').checksLookup, undefined, 'a DECLINED row is never a candidate, broken ask or not');
+});
+
 test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {
   // The sha lookup costs one Jenkins call per row; the cap bounds a pass against
   // Jenkins' predicted limit of 60 whatever the number of open PRs.
@@ -3384,6 +3414,46 @@ test('host: a refresh reads at most five rows by sha, the most recently updated 
   assert.equal(rows.get('b1').checks, 'unknown', 'same for the other row past the cap');
   assert.equal(rows.get('b1').checksSha, '');
   assert.equal(rows.get('b1').checksLookup, 'skipped');
+});
+
+test('host: --bound-shas rotates past rows already bound to their current head, even when they are newest', () => {
+  // Traces the chain `pr-refresh.ts` builds: `boundShasFor(stored)` names every
+  // OPEN row's stored checksSha, `--bound-shas <json>` carries it to this
+  // adapter, `jenkins_bind_rows`'s fifth argument forwards it, and
+  // `rowsToBind`'s ROTATION sorts a row already bound to its current head
+  // last. Seven green rows, newest (b6) to oldest (b0) by updatedAt; b2..b6
+  // are already bound to their current head via --bound-shas, so with a cap
+  // of five the two NEVER-bound rows (b0, b1) must win slots over b5 and b6,
+  // which the plain newest-first order (tested above) would pick instead.
+  const heads = Array.from({ length: 7 }, (_, i) => `b${i}`);
+  const pairs = heads.map((head, i) => [head, `sha-${i}`, `2026-10-17T0${i}:00:00Z`]);
+  const jobs = JSON.stringify(heads.map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-0', 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs) });
+  const jen = makeJenStub({ jobsJson: jobs });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  // b2..b6 already read their current head's sha last pass; b0 and b1 never
+  // did. With a cap of five, rotation fills b0 and b1's slots first (the two
+  // never-bound rows), then the three remaining slots go to the newest of the
+  // bound group (b6, b5, b4) — leaving b2 and b3 (the two OLDEST bound rows)
+  // the ones skipped, not b0/b1 as plain newest-first order would skip.
+  const boundShas = JSON.stringify({ b2: 'sha-2', b3: 'sha-3', b4: 'sha-4', b5: 'sha-5', b6: 'sha-6' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--bound-shas', boundShas],
+    { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.equal(asked.length, 5, `rotation still spends the same cap of five:\n${asked.join('\n')}`);
+  assert.ok(asked.some((u) => u.includes('/job/b0/')), 'b0 was never bound, so rotation asks it ahead of a bound row');
+  assert.ok(asked.some((u) => u.includes('/job/b1/')), 'b1 was never bound, so rotation asks it ahead of a bound row');
+  assert.ok(!asked.some((u) => u.includes('/job/b2/')), 'b2 is already bound and the oldest of the bound group — loses its slot');
+  assert.ok(!asked.some((u) => u.includes('/job/b3/')), 'b3 is already bound and the second-oldest of the bound group — loses its slot');
+  const rows = rowsByHead(res.stdout);
+  assert.notEqual(rows.get('b0').checksLookup, 'skipped', 'b0 was asked this pass, rotated ahead of the bound rows');
+  assert.notEqual(rows.get('b1').checksLookup, 'skipped', 'b1 was asked this pass, rotated ahead of the bound rows');
+  assert.equal(rows.get('b2').checksLookup, 'skipped', 'b2 lost its slot to the never-bound rows despite being bound and newer than b0/b1');
+  assert.equal(rows.get('b3').checksLookup, 'skipped', 'b3 lost its slot to the never-bound rows despite being bound and newer than b0/b1');
 });
 
 test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {
@@ -4126,6 +4196,23 @@ test('host: runs on Jenkins still exits 4 when the root itself does not answer (
   assert.equal(res.stdout.trim(), '');
 });
 
+test('host: runs refuses by branch name when Jenkins answers real JSON with no builds key and no container', () => {
+  // The branch path answers a real (parseable) JSON object with no `builds`
+  // key — Jenkins was reached and simply has no such branch indexed — and the
+  // root isn't a multibranch container either, so the generic "did not
+  // answer" refusal would be misleading: Jenkins DID answer. The refusal must
+  // name the branch instead.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = makeJenkinsRestBin('{"foo":"bar"}', { branchSeg: 'feature%2Fghost', branchAnswer: '{"foo":"bar"}' });
+  const res = runJenkinsAllowFail(['runs', 'feature/ghost'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 4, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /no branch 'feature\/ghost' indexed/, `must name the branch, got: ${res.stderr}`);
+});
+
 // `Default branch job` — the repository names a separate job for its default
 // branch. `origin/HEAD` must resolve for `jenkins_sha_runs` to apply it; these
 // tests set the symref directly, as `default-branch-repair.test.mjs` does —
@@ -4288,6 +4375,59 @@ test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when 
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/);
+  assert.match(res.stderr, /did not answer an 'Instance:' line/);
+});
+
+// `jenkins_resolve_host` directly: an `Instance:` LINE EXISTS but names no
+// parenthesized host — `jen`'s own `auth status` answered the slug with no
+// `(https://...)` suffix. `[ -n "$line" ] && sed ... || return 1` tests only
+// that the line is non-empty, not that the substitution matched, so this
+// shape used to fall through exit 0 with empty stdout — a bare empty host
+// reaching `jenkins_rest_credential ""` next, rather than the "cannot
+// resolve" refusal the caller already prints for a MISSING line. It exits 2,
+// not the missing line's 1, so the caller can name which of the two happened.
+// Sourced directly: no CLI op prints `jenkins_resolve_host`'s own exit code,
+// only what its caller does with it, and the caller's wording is pinned
+// above and below.
+function sourcedJenkinsResolveHost(line) {
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
+    + `jen() { printf '%s\\n' ${JSON.stringify(line)}; }\n`
+    + `jenkins_resolve_host ewz; printf 'exit:%s\\n' "$?"`;
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('host: jenkins_resolve_host refuses (non-zero, empty stdout) when the Instance line names no host', () => {
+  const res = sourcedJenkinsResolveHost('Instance: ewz (no-host-here)');
+  const lines = res.stdout.trim().split('\n');
+  assert.equal(lines.length, 1, `a host-less Instance line must print nothing but the exit marker, got: ${res.stdout}`);
+  assert.equal(lines[0], 'exit:2', `a host-less Instance line must exit 2, got stdout: ${res.stdout}`);
+});
+
+test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when the Instance line names no host', () => {
+  // The caller-level repro of the same defect: `jen auth status` answers an
+  // `Instance:` line, but it names no `(https://...)` host. Before the fix
+  // this fell through into a credential lookup keyed by an empty host rather
+  // than the same "cannot resolve" refusal a missing line already gets.
+  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: 'no-host-here' });
+  // Rewrite the jen stub's Instance line to omit the https:// host entirely,
+  // reusing makeJenStub for auth reachability/job-list plumbing and patching
+  // only the one line the fixture always prints with a parenthesized host.
+  const jenFile = path.join(jen.dir, 'jen');
+  const body = readFileSync(jenFile, 'utf8')
+    .replace(/printf '%s\\n' "Instance:[^\n]*"/, 'printf \'%s\\n\' "Instance:      $slug (no-host-here)"');
+  writeFileSync(jenFile, body);
+  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/,
+    'a host-less Instance line must refuse the same way a missing line does, not fall through to a credential lookup');
+  assert.match(res.stderr, /answered an 'Instance:' line that names no \(https:\/\/…\) host/,
+    'the refusal names the cause: the line exists and names no host');
+  assert.doesNotMatch(res.stderr, /did not answer an 'Instance:' line/,
+    'a line that exists must not be reported as missing');
 });
 
 // --- a build can carry more than one lastBuiltRevision action ------------
@@ -5118,6 +5258,52 @@ test('host: run-for-sha — neither the worktree nor the main checkout has a cre
   assert.match(res.stderr, /no Jenkins API credential/);
   assert.equal(res.stdout.trim(), '');
   assert.ok(!existsSync(rest.argvFile), 'curl must never be called with no credential');
+});
+
+test('host: run-for-sha — a worktree .env holding only half a pair falls through to the main checkout\'s complete pair', () => {
+  // The defect fix #2 targets: a worktree-local .env is readable but holds
+  // only ONE of the two vars. Reading file existence alone (the old
+  // plot_env_file) stopped there and never looked at the main checkout's
+  // complete pair underneath it.
+  const { worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+    worktreeEnv: `JENKINS_USER=worktree-only-user\n`,
+  });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: worktree,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`),
+    'the main checkout\'s complete pair must be used, skipping the worktree\'s partial one');
+  assert.match(res.stderr, /read from the main checkout's \.env/);
+});
+
+test('host: plot_env_file resolves the main checkout absolutely from a subdirectory of a worktree', () => {
+  // Fix #3: `--git-common-dir` with no `--path-format=absolute` can answer a
+  // path relative to cwd rather than to the repo root. Called from two levels
+  // below the worktree root, the main checkout's .env must still resolve.
+  const { main, worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+  });
+  const nested = path.join(worktree, 'a', 'b');
+  mkdirSync(nested, { recursive: true });
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
+    + `plot_env_file JENKINS_USER JENKINS_API_TOKEN`;
+  const res = spawnSync('bash', ['-c', script], { cwd: nested, encoding: 'utf8' });
+  assert.match(res.stdout, /\|the main checkout's $/, `must resolve the main checkout's .env, got: ${JSON.stringify(res.stdout)}`);
+  const envFile = res.stdout.split('|')[0];
+  assert.ok(path.isAbsolute(envFile), `the resolved .env path must be absolute, got: ${envFile}`);
+  assert.ok(envFile.endsWith(path.join(path.basename(main), '.env')),
+    `the path must point at the main checkout, not the worktree: ${envFile}`);
 });
 
 // --- runs-for-sha: every run for one sha --------------------------------------
@@ -10182,6 +10368,13 @@ test('host: issue-list github closed records one extra call per 100 rows past th
 
 // --- issue-list --label and issue-comment: the review issue's lookup and append ---
 
+// The identity `gh_marker_comment_id` scopes a marker match to. Every test run
+// through `runAllowFail` sets `PLOT_BUDGET_ACCOUNT` (via `budgetEnvFor`) to
+// `BUDGET_ACCOUNT`, and `budget_account` reads that override before it ever
+// looks at `hosts.yml` — so a fixture comment's `user.login` must equal
+// `BUDGET_ACCOUNT` to be "ours", not some separate test identity.
+const ISSUE_COMMENT_LOGIN = BUDGET_ACCOUNT;
+
 /** A `gh` that appends every call's argv, so a test sees each call rather than the last. */
 const makeLoggingGh = (answer) => {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-log-')));
@@ -10217,6 +10410,49 @@ test('host: issue-list --label exits 4 on jira and runs no curl', () => {
   assert.ok(!existsSync(stub.argvFile), 'curl must not run');
 });
 
+// --- issue-list --title-has: the duplicate-follow-up lookup's search term --
+
+// `--search 'in:title "<text>"'` ANDS with `--label` rather than replacing it
+// — both are qualifiers `gh` combines in one `--search` string, so a backlog's
+// label stays the safety net while the title cuts the read to the one PR
+// asked about (plot-host.sh:5269-5271).
+test('host: issue-list --title-has asks gh for in:title and keeps --label riding along', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runGh(['issue-list', '--title-has', 'PR #42', '--label', 'ai-generated'], stubs);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[argv.indexOf('--search') + 1], 'in:title "PR #42"');
+  assert.equal(argv[argv.indexOf('--label') + 1], 'ai-generated');
+});
+
+// `gh` keeps only its LAST `--search` flag rather than ANDing several, so a
+// state that already uses one here (changed/closed) is refused instead of
+// silently losing the title filter — the lookup's only use is open issues.
+test('host: issue-list --title-has with --state closed dies and never calls gh', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runGh(['issue-list', '--title-has', 'PR #42', '--state', 'closed', '--since', '2026-01-01'], stubs);
+  assert.notEqual(res.status, 0, res.stderr);
+  assert.match(res.stderr, /--title-has only works with --state open/);
+  assert.ok(!existsSync(stubs.ghArgv), 'gh must not run');
+});
+
+test('host: issue-list --title-has exits 4 on jira and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--title-has', 'PR #42'], stub);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /jira cannot list issues by label or search by title/);
+  assert.equal(res.stdout, '');
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-list --title-has exits 4 on bitbucket and runs no bb', () => {
+  const stubs = makeStubs();
+  const res = runBb(['issue-list', '--title-has', 'PR #42'], stubs);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /by title/);
+  assert.ok(!existsSync(stubs.bbArgv), 'bb must not run');
+});
+
 test('host: issue-comment with an empty marker always posts and never reads or edits a comment', () => {
   const gh = makeLoggingGh('[{"id":7,"body":"a comment that holds anything"}]');
   const res = runAllowFail(['issue-comment', '12', '', 'the new head'], {
@@ -10228,13 +10464,23 @@ test('host: issue-comment with an empty marker always posts and never reads or e
 });
 
 test('host: issue-comment with a marker edits the comment holding it', () => {
-  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y"}]');
+  const gh = makeLoggingGh(`[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"${ISSUE_COMMENT_LOGIN}"}}]`);
   const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
     env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
     stubs: gh,
   });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
+test('host: issue-comment with a marker held only by another author’s comment posts instead of editing', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"a-tracker-participant"}}]');
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'new text'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['issue', 'comment', '12', '--body', 'new text']);
 });
 
 // --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------

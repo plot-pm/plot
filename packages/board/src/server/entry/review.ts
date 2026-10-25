@@ -215,6 +215,11 @@ const LOOKUP_LIMIT = 200;
  * lookup, so the answer is no issue and the caller opens one, as before the
  * lookup existed.
  *
+ * The search index this reads can lag a just-opened issue (GitHub's and
+ * Jira's both can), so a duplicate guard that reads it right after opening
+ * can still miss the row it just wrote. That is a known, named risk here —
+ * not a bug the read is expected to catch.
+ *
  * @param deps - the tracker.
  * @param pr - the PR number.
  * @returns the issue, or null where the complete read found none or no lookup is

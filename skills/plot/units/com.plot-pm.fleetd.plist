@@ -4,7 +4,8 @@
   plot-fleetd, kept alive by launchd — macOS.
 
   Replace the four placeholders before installing:
-    __LABEL__       the launchd label (`plot-fleetctl.sh` fills PLOT_FLEET_LABEL,
+    __LABEL__       the launchd label (`plot-fleetctl.sh` fills PLOT_FLEET_LABEL
+                    when set, else the `Fleet label` config key, else the
                     default com.plot-pm.fleetd)
     __REPO_ROOT__   absolute path to the repository this daemon supervises
     __NODE__        absolute path to node 24 (`which node` under `nvm use`)
@@ -19,9 +20,11 @@
 
   <!-- ONE DAEMON PER REPOSITORY. The default label carries no repository name,
        so a second checkout sets PLOT_FLEET_LABEL before `plot-fleetctl.sh
-       --start`, which fills it here and names the file after it — see the
-       README. launchd keys a job by this Label, not by the filename: two files
-       sharing one Label are ONE job, and the second bootstrap fails. -->
+       --start` — or declares a `Fleet label` config key instead, read when the
+       variable is unset — which fills it here and names the file after it —
+       see the README. launchd keys a job by this Label, not by the filename:
+       two files sharing one Label are ONE job, and the second bootstrap
+       fails. -->
 
   <!-- `--start-agents` IS WHAT MAKES THIS A SUPERVISOR. The flag defaults off so
        that `/plot-fleet --once` can run against a live estate for free — a tick

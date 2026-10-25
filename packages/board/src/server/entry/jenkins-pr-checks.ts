@@ -81,7 +81,7 @@ export const run = (
     warn('plot-jenkins-pr-checks: usage: plot-jenkins-pr-checks.mjs <rows|bind|state|review> < readings\n');
     return EXIT.usage;
   }
-  const lines = stdin.split('\n').filter((l) => l !== '');
+  const lines = stdin.split('\n');
   if (verb === 'state') {
     const [pr, colours, bound] = [0, 1, 2].map((i) => parseLine(lines[i] ?? ''));
     const head = pr as { source?: { branch?: { name?: string }; commit?: { hash?: string } } } | null;
@@ -116,6 +116,7 @@ export const run = (
   }
   const bound: Record<string, BoundChecks> = {};
   for (const line of lines) {
+    if (line === '') continue;
     const [branch, sha, job, runs] = line.split('\t');
     const parsed = parseLine(runs ?? '');
     if (branch === undefined || sha === undefined || job === undefined) continue;

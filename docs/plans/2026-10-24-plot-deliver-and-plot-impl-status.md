@@ -63,7 +63,7 @@ Trade-offs to settle in review:
 
 ### Resolution
 
-- `bug/plot-deliver-and-plot-impl-status` — per-reference host selection in `plot-host.sh` and the callers, per the option chosen in review
+- `bug/plot-deliver-and-plot-impl-status` — per-reference host selection in `plot-host.sh` and the callers, per the option chosen in review → #2663
 
 ## Notes
 

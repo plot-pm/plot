@@ -20,6 +20,12 @@ after(() => {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
 
+// The identity `gh_marker_comment_id` scopes a marker match to — read, like
+// `budget_account`, from a `hosts.yml` beside the sandbox rather than a real
+// `gh api user` call. A fixture comment whose `user.login` is this value is
+// "ours"; any other login is a PR participant's own comment.
+const PLOT_LOGIN = 'plot-bot';
+
 /** A scratch repo whose `gh` and `bb` log their argv to `calls` and run `ghTail`/`bbTail`. */
 const sandbox = ({ ghTail = 'exit 0', bbTail = 'exit 0' } = {}) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-host-pr-comment-'));
@@ -34,14 +40,17 @@ const sandbox = ({ ghTail = 'exit 0', bbTail = 'exit 0' } = {}) => {
   };
   stub('gh', ghTail);
   stub('bb', bbTail);
-  return { root, bin, calls };
+  const ghConfigDir = path.join(root, 'gh-config');
+  fs.mkdirSync(ghConfigDir);
+  fs.writeFileSync(path.join(ghConfigDir, 'hosts.yml'), `github.com:\n    user: ${PLOT_LOGIN}\n`);
+  return { root, bin, calls, ghConfigDir };
 };
 
 const prComment = (box, backend, args) =>
   new Promise((resolve) => {
     const child = spawn('bash', [adapter, 'pr-comment', ...args], {
       cwd: box.root,
-      env: { ...process.env, PATH: `${box.bin}:${process.env.PATH}`, PLOT_HOST: backend },
+      env: { ...process.env, PATH: `${box.bin}:${process.env.PATH}`, PLOT_HOST: backend, GH_CONFIG_DIR: box.ghConfigDir },
     });
     let err = '';
     child.stderr.on('data', (d) => {
@@ -80,15 +89,26 @@ const listing = (comments) => ({
 });
 
 test('pr-comment: a marker held by an earlier comment edits that comment and posts nothing', async () => {
-  const box = sandbox(listing([{ id: 11, body: 'other' }, { id: 12, body: 'old <!-- m -->' }]));
+  const box = sandbox(listing([
+    { id: 11, body: 'other', user: { login: PLOT_LOGIN } },
+    { id: 12, body: 'old <!-- m -->', user: { login: PLOT_LOGIN } },
+  ]));
   const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 0, got.err);
   assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
   assert.doesNotMatch(callLog(box), /^gh pr comment/m);
 });
 
+test('pr-comment: a marker held only by another author’s comment does not match — posts instead of editing', async () => {
+  const box = sandbox(listing([{ id: 12, body: 'old <!-- m -->', user: { login: 'a-pr-participant' } }]));
+  const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
+  assert.equal(got.code, 0, got.err);
+  assert.match(callLog(box), /^gh pr comment 7 --body new <!-- m -->$/m);
+  assert.doesNotMatch(callLog(box), /PATCH/);
+});
+
 test('pr-comment: a marker no comment holds posts, and so does a PR with no comments', async () => {
-  for (const comments of [[{ id: 11, body: 'other' }], []]) {
+  for (const comments of [[{ id: 11, body: 'other', user: { login: PLOT_LOGIN } }], []]) {
     const box = sandbox(listing(comments));
     const got = await prComment(box, 'github', ['7', 'first <!-- m -->', '<!-- m -->']);
     assert.equal(got.code, 0, got.err);
@@ -99,10 +119,20 @@ test('pr-comment: a marker no comment holds posts, and so does a PR with no comm
 
 test('pr-comment: a failed edit exits 3 and posts nothing beside it', async () => {
   const box = sandbox({
-    ghTail: `[ "$1 $2" = "api --paginate" ] && echo '[{"id":12,"body":"<!-- m -->"}]' && exit 0\n[ "$2" = "-X" ] && { echo "HTTP 403" >&2; exit 1; }\nexit 0`,
+    ghTail: `[ "$1 $2" = "api --paginate" ] && echo '[{"id":12,"body":"<!-- m -->","user":{"login":"${PLOT_LOGIN}"}}]' && exit 0\n[ "$2" = "-X" ] && { echo "HTTP 403" >&2; exit 1; }\nexit 0`,
   });
   const got = await prComment(box, 'github', ['7', 'b <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 3);
+  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+});
+
+test('pr-comment: a failed listing exits 3 and posts nothing — never "no marker found"', async () => {
+  const box = sandbox({
+    ghTail: `[ "$1 $2" = "api --paginate" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }\nexit 0`,
+  });
+  const got = await prComment(box, 'github', ['7', 'b <!-- m -->', '<!-- m -->']);
+  assert.equal(got.code, 3);
+  assert.match(got.err, /HTTP 502: Bad Gateway/);
   assert.doesNotMatch(callLog(box), /^gh pr comment/m);
 });
 
