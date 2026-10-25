@@ -23,7 +23,7 @@ no sprint, runs no collector and calls no tracker, so a broken collector
 cannot stop `create`:
 
 ```bash
-printf '{}' | node ../plot/scripts/board/plot-sprint-release-gate.mjs --stdin >/dev/null
+printf '{}' | ../plot/scripts/plot-sprint-release-gate.sh --stdin >/dev/null
 status=$?
 ```
 
@@ -840,10 +840,20 @@ Read the sprint file and display:
   |---|---|
   | no `sprints[]` entry for this slug | nothing — no `Release:` target, or a tracker with no Release to read; this sprint's line is unchanged from today |
   | `checked: false, unreachable: true` | `⚠ Release <version>: <reason>` — a wrong `Release:` field (`unaskable`) and an unreachable Jira (`failed`) are different facts, so print the gate's own `reason` rather than a generic line |
-  | `checked: true`, both lists empty | `Release <version>: in sync with Jira.` |
-  | `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue, …>` |
-  | `checked: true`, `missingFromSprint` non-empty | `⚠ Jira <version> carries <n> issue(s) this sprint does not list: <key, …>` |
-  | `checked: true`, `notCompared` non-empty | `⚠ <n> Must Have(s) named no Jira key, not compared: <text, …>` — named by item text, never folded into `missingFromRelease`: an unresolved key is not evidence the Release lacks it |
+
+  `checked: true` carries `missingFromRelease`, `missingFromSprint` and
+  `notCompared` as three independent lists — a sprint can land in more than
+  one row below at once (a Must-have naming a key the Release lacks,
+  alongside a different Must-have naming no key at all). Print every row
+  below whose list is non-empty, not just the first match; print
+  `Release <version>: in sync with Jira.` only when all three are empty:
+
+  | list | Report when non-empty |
+  |---|---|
+  | all three empty | `Release <version>: in sync with Jira.` |
+  | `missingFromRelease` | `⚠ <n> Must Have(s) not in Jira <version>: <issue, …>` |
+  | `missingFromSprint` | `⚠ Jira <version> carries <n> issue(s) this sprint does not list: <key, …>` |
+  | `notCompared` | `⚠ <n> Must Have(s) named no Jira key, not compared: <text, …>` — named by item text, never folded into `missingFromRelease`: an unresolved key is not evidence the Release lacks it |
 
   Exit 3 (`externalOwner`) from the gate means this repository's sprints are
   not plot-owned — status should not reach that state normally (Status
