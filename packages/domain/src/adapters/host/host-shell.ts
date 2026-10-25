@@ -308,7 +308,13 @@ export const hostShell = (context: ShellContext): Host => {
     },
 
     prState: async (ref, opts): Promise<PortResult<PrLookup>> => {
-      const args = [host, 'pr-state', String(ref), ...(opts?.withChecks === true ? ['--with-checks'] : [])];
+      const args = [
+        host,
+        'pr-state',
+        String(ref),
+        ...(opts?.withChecks === true ? ['--with-checks'] : []),
+        ...(opts?.repo !== undefined ? ['--repo', opts.repo] : []),
+      ];
       const run = await runProcess('bash', args, inRepo);
       const answer = record(run, (stdout) => {
         const raw = asJson<RawPr & { state?: string }>(stdout);

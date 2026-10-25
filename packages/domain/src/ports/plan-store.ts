@@ -87,6 +87,11 @@ export interface PlanRecordBranch {
    * Absent where the line names none.
    */
   commits?: readonly string[];
+  /**
+   * The cross-repo PR the slice line names (`→ owner/repo#N`), repo retained.
+   * Absent where the line names none, or names a same-repo `→ #N` instead.
+   */
+  prRef?: { repo: string; number: number };
 }
 
 /**

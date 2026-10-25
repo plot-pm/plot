@@ -42,6 +42,8 @@ interface NamedBranch {
   deferred: boolean;
   /** Commits the slice line names as its completion; empty where it names none. */
   commits: readonly string[];
+  /** The cross-repo PR the slice line names (`→ owner/repo#N`), or undefined where it names none. */
+  prRef?: { repo: string; number: number };
 }
 
 /**
@@ -63,7 +65,16 @@ interface NamedBranch {
  * @returns one reading per branch, merge state left for the host to fill
  */
 const branchesOf = (
-  plan: { slices: readonly { branches: readonly { branch: string; deferred: boolean; commits?: readonly string[] }[] }[] },
+  plan: {
+    slices: readonly {
+      branches: readonly {
+        branch: string;
+        deferred: boolean;
+        commits?: readonly string[];
+        prRef?: { repo: string; number: number };
+      }[];
+    }[];
+  },
 ): NamedBranch[] => {
   const seen = new Map<string, NamedBranch>();
   for (const slice of plan.slices) {
@@ -76,6 +87,7 @@ const branchesOf = (
         branch: b.branch,
         deferred: (held?.deferred ?? true) && b.deferred,
         commits: [...new Set([...(held?.commits ?? []), ...(b.commits ?? [])])],
+        prRef: held?.prRef ?? b.prRef,
       });
     }
   }
@@ -148,7 +160,7 @@ const mergedBranches = async (
   const held = read.ok ? read.value : null;
 
   const states = new Map<string, BranchMergeState>();
-  for (const { branch, commits } of branches) {
+  for (const { branch, commits, prRef } of branches) {
     // A SLICE THAT NAMES COMMITS IS DECIDED BY THEM, and by nothing else. The
     // PR store and the host answer for a PR that carried the work; this slice
     // was completed by a direct push, so a PR under its name, merged or not,
@@ -160,6 +172,17 @@ const mergedBranches = async (
     }
     if (held !== null && mergedRowByHead(held, branch) !== undefined) {
       states.set(branch, 'merged');
+      continue;
+    }
+    // A CROSS-REPO REFERENCE NAMES A PR ON A DIFFERENT HOST THAN THIS
+    // CHECKOUT'S OWN. `Host.prMerged` asks only this checkout's backend for a
+    // PR keyed by branch, which cannot locate a PR in another repository —
+    // `Host.prState` takes the PR's own number and a `repo` to probe the other
+    // drivable backend when the checkout's own answers a clean miss.
+    if (prRef !== undefined) {
+      const answer = await ports.host.prState(prRef.number, { repo: prRef.repo });
+      if (!answer.ok) states.set(branch, 'unknown');
+      else states.set(branch, answer.value !== null && answer.value.state === 'MERGED' ? 'merged' : 'not-merged');
       continue;
     }
     const answer = await ports.host.prMerged(branch);

@@ -3790,6 +3790,53 @@ be="$(backend)" || exit $?
 route=""
 [ "$be" = "github" ] && route="$(gh_route "$op")"
 
+# A `--repo` NAMES WHERE THE PR LIVES, NOT WHERE THIS CHECKOUT LIVES — and
+# the two can differ under a split-home plan (#2158): a Bitbucket checkout
+# naming a PR in a GitHub repository. `backend()` resolved ONE backend for
+# the whole run, from the checkout's own declaration, so a cross-repo
+# reference still reaches the wrong CLI on its first try.
+#
+# THE PROBE, NOT A DECLARATION. No config key or prefix names which backend a
+# `--repo` belongs to (ruled out: the committed repro fixture names neither —
+# see `test/reconcile/cross-host-pr-reference.test.mjs`). Instead: try the
+# checkout's own backend first, and if THAT backend's answer is a clean
+# miss — the shape `host_miss_or_fail`/`miss_or_unknown` already emit for
+# "no such PR here", never for a transport failure — retry the same call
+# once against the other drivable backend, via the same self-re-exec
+# pattern `PLOT_HOST_FORCE_REST` already uses below for a rate refusal.
+#
+# BOUNDED BY `HOST_DRIVES`. Exactly one "other" backend exists, so this is
+# one extra call, never an unbounded search. A same-host reference never
+# triggers it: the first try already answers, and the shape check below
+# only recognises the NONE/not-merged payloads, never a populated one.
+#
+# UNREACHABLE STAYS UNKNOWN. A transport failure (missing/unauthenticated
+# CLI) exits 3 or prints `unknown` — neither shape matches the clean-miss
+# check below, so it is never retried into a false negative; it is reported
+# exactly as a single-backend run would report it.
+if [ -z "${PLOT_HOST_XREPO_TRIED:-}" ] && { [ "$op" = "pr-state" ] || [ "$op" = "pr-merged" ]; } && printf '%s\n' "$*" | grep -q -- '--repo'; then
+  other=""
+  for _d in $HOST_DRIVES; do [ "$_d" != "$be" ] && other="$_d"; done
+  if [ -n "$other" ]; then
+    first_out="$(PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)"; first_rc=$?
+    is_clean_miss=0
+    case "$op" in
+      pr-state) [[ "$first_out" == *'"state":"NONE"'* ]] && is_clean_miss=1 ;;
+      pr-merged) [ "$first_out" = "not-merged" ] && is_clean_miss=1 ;;
+    esac
+    if [ "$first_rc" -eq 0 ] && [ "$is_clean_miss" -eq 1 ]; then
+      if retry_out="$(PLOT_HOST="$other" PLOT_HOST_XREPO_TRIED=1 "$0" "$op" "$@" 2>/dev/null)" && [ -n "$retry_out" ]; then
+        case "$op" in
+          pr-state) [[ "$retry_out" != *'"state":"NONE"'* ]] && { printf '%s\n' "$retry_out"; exit 0; } ;;
+          pr-merged) [ "$retry_out" != "not-merged" ] && [ "$retry_out" != "unknown" ] && { printf '%s\n' "$retry_out"; exit 0; } ;;
+        esac
+      fi
+    fi
+    printf '%s\n' "$first_out"
+    exit "$first_rc"
+  fi
+fi
+
 case "$op" in
   backend)
     echo "$be"

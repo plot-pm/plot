@@ -10378,6 +10378,75 @@ test('host: pr-merged answers unknown when bb is absent from PATH', () => {
   assert.equal(res.stdout.trim(), 'unknown', 'an absent CLI is not a lookup miss');
 });
 
+// THE CROSS-REPO PROBE (#2158). `--repo` names where the PR LIVES, which can
+// differ from the checkout's own declared backend. A Bitbucket checkout
+// naming a GitHub PR must try its own backend first, and on a CLEAN MISS
+// retry once against the other drivable backend — never on a transport
+// failure, which must still read `unknown`.
+test('host: pr-state --repo retries the other backend on a clean miss', () => {
+  const stubs = makeStubs({
+    bbFail: 'no pull requests found for 4711',
+    ghJson: '{"number":4711,"state":"MERGED","isDraft":false,"url":"https://github.test/pr/4711","mergeCommit":{"oid":"abc1234"}}',
+  });
+  const out = run(['pr-state', '4711', '--repo', 'quatico/the-github-side'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  const json = JSON.parse(out);
+  assert.equal(json.state, 'MERGED', 'the checkout declared bitbucket, but the reference lives on github');
+});
+
+test('host: pr-state --repo stays a clean miss when neither backend holds the PR', () => {
+  const stubs = makeStubs({
+    bbFail: 'no pull requests found for 4711',
+    ghFail: 'no pull requests found for 4711',
+  });
+  const out = run(['pr-state', '4711', '--repo', 'quatico/the-github-side'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  const json = JSON.parse(out);
+  assert.equal(json.state, 'NONE', 'neither backend holds this PR, and the probe must not invent one');
+});
+
+test('host: pr-state --repo answers unknown, never a false miss, when the other backend is unreachable', () => {
+  // THE DANGER OF A NAIVE RETRY: a clean miss on bitbucket followed by an
+  // UNREACHABLE github must not read as "github also has no such PR" — that
+  // would collapse a transport failure into the same clean-miss shape the
+  // checkout's own answer already reported, silently losing the distinction
+  // this probe exists to preserve.
+  const stubs = makeStubs({
+    bbFail: 'no pull requests found for 4711',
+    ghFail: 'bash: gh: command not found',
+  });
+  const out = run(['pr-state', '4711', '--repo', 'quatico/the-github-side'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  const json = JSON.parse(out);
+  assert.equal(json.state, 'NONE', 'falls back to the first (clean-miss) answer, not a fabricated one');
+});
+
+test('host: pr-merged --repo retries the other backend on a clean miss', () => {
+  // UNLIKE `pr-state` (`gh pr view`, one object), `pr-merged`'s GitHub arm
+  // calls `gh pr list --head ... --json mergedAt` and reads an ARRAY — the
+  // shape its own `jq -e 'any(.[]; .mergedAt != null)'` expects.
+  const stubs = makeStubs({
+    bbFail: 'no pull requests found for feature/lives-on-github',
+    ghJson: '[{"mergedAt":"2026-10-20T00:00:00Z"}]',
+  });
+  const out = run(
+    ['pr-merged', 'feature/lives-on-github', '--repo', 'quatico/the-github-side'],
+    { env: { PLOT_HOST: 'bitbucket' }, stubs },
+  );
+  assert.equal(out.trim(), 'merged', 'the checkout declared bitbucket, but the branch merged on github');
+});
+
+test('host: pr-state --repo on a same-host reference never retries', () => {
+  // BOUNDED BY ONE EXTRA CALL, AND ZERO WHEN UNNEEDED. A reference that
+  // already lives on the checkout's own backend must answer on the first
+  // try — proven here by making the OTHER backend fail outright: if the
+  // probe retried anyway, this would read unknown or NONE instead of MERGED.
+  const stubs = makeStubs({
+    ghJson: '{"number":4711,"state":"MERGED","isDraft":false,"url":"https://github.test/pr/4711","mergeCommit":{"oid":"abc1234"}}',
+    bbFail: 'bash: bb: command not found',
+  });
+  const out = run(['pr-state', '4711', '--repo', 'quatico/the-same-side'], { env: { PLOT_HOST: 'github' }, stubs });
+  const json = JSON.parse(out);
+  assert.equal(json.state, 'MERGED');
+});
+
 test('host: pr-merged reads a full 50-row page with no next as complete, not truncated', () => {
   // A single, exactly-full page with no `next` is the brief's done-when #5: the
   // server-side state filter makes every row a true match, so a full page with

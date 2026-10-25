@@ -210,9 +210,15 @@ export interface Host {
    * @param opts - `withChecks: true` reads the PR's `checks` as well. A
    *   Bitbucket host under `CI: jenkins` asks Jenkins for them only then and
    *   otherwise answers `checks: 'unknown'`; GitHub reads them either way.
+   *   `repo` names the repository the PR lives in when it differs from this
+   *   checkout's own — a cross-repo `owner/repo#N` slice-line reference. The
+   *   adapter resolves which HOST that repository lives on by probing the
+   *   checkout's own backend first and falling back to the other drivable one
+   *   on a clean miss; this port takes no backend or host argument because
+   *   that resolution belongs entirely behind the adapter.
    * @returns the PR, or null where the host holds none for this ref.
    */
-  prState(ref: string | number, opts?: { withChecks?: boolean }): Promise<PortResult<PrLookup>>;
+  prState(ref: string | number, opts?: { withChecks?: boolean; repo?: string }): Promise<PortResult<PrLookup>>;
 
   /**
    * Whether the host merged ANY PR for this branch.

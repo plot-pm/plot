@@ -730,6 +730,15 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       # names as its completion, `abc1234` or `owner/repo@abc1234`, in line order.
       # Hex and owner/repo characters need no escaping.
       if (commits_of[i] != "") { cm = commits_of[i]; gsub(/,/, "\",\"", cm); out = out ",\"commits\":[\"" cm "\"]" }
+      # ABSENT, NOT EMPTY, as the fields above: a branch whose slice line names
+      # no cross-repo PR gets no key. `pr_ref_of[i]` is `owner/repo#N`; the repo
+      # name is free-form, so the split anchors on the trailing `#N` rather than
+      # on any slash inside it.
+      if ((i in pr_ref_of) && pr_ref_of[i] != "") {
+        pr_repo = pr_ref_of[i]; pr_num = pr_ref_of[i]
+        sub(/#[0-9]+$/, "", pr_repo); sub(/^.*#/, "", pr_num)
+        out = out ",\"pr_ref\":{\"repo\":\"" jesc(pr_repo) "\",\"number\":" pr_num "}"
+      }
       out = out "}"
       first = 0
     }
@@ -974,6 +983,22 @@ function commit_list(s,   out, m, h) {
   }
   return out
 }
+# The ONE cross-repo PR reference a slice line names, repo retained: `→
+# owner/repo#N`. Unlike `extract_prs` (which discards the repo because its
+# callers only ask which PRs are evidence, per the comment above it), THIS
+# caller, `mergedBranches` in `deliverability.ts`, asks a different question:
+# which HOST does this PR live on, which the bare number cannot answer. A bare
+# `→ #N` names no repo and is not a cross-repo reference, so it yields nothing
+# there (today behaviour is unchanged for it). Only the first such reference
+# on a line is kept, matching how `commit_list` keeps one per branch.
+function pr_ref(s,   m) {
+  if (match(s, /→ [A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+/)) {
+    m = substr(s, RSTART, RLENGTH)
+    sub(/^→ /, "", m)
+    return m
+  }
+  return ""
+}
 # Stores the annotations read_notes() found, and the commits the line names,
 # against branch n (named b).
 #
@@ -1011,6 +1036,10 @@ function keep_branch(n, b, overlay,   is_deferred, c) {
   # Commits merge like waits: a list item adds its own to those of the heading.
   c = commit_list($0)
   commits_of[n] = (overlay && commits_of[n] != "") ? commits_of[n] (c != "" ? "," c : "") : c
+  # A cross-repo PR reference, kept once per branch like commits -- a list
+  # item reference wins over the heading one, since `!overlay` already means
+  # this is the first (and for the list shape, only) line that can claim it.
+  if (!overlay || pr_ref($0) != "") pr_ref_of[n] = pr_ref($0)
 }
 # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
 # implementers to write the second for `Impl: other repo` plans, and a parser
