@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2478
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2497 merged
 - **Started:** 2026-10-24, Claude, `bug/jenkins-sha-runs-bind-by-action`
 - **Started:** 2026-10-25, Jan Wloka, `bug/jenkins-sha-tests-run-in-a-private-home`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
