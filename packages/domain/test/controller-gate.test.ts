@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   controllerRefusal,
   mayRunController,
-  pinUnavailable,
-  UNPINNABLE_NOTE,
   unpinnedMerges,
   unpinnedMergeRefusal,
   withoutMessageSinks,
@@ -252,18 +250,6 @@ describe('unpinnedMerges', () => {
 
   it('leaves controllerInvocation null for a merge', () => {
     expect(controllerInvocation('gh pr merge 123 --squash')).toBeNull();
-  });
-});
-
-describe('pinUnavailable', () => {
-  it('lets an unpinned plot-host.sh pr-merge through only where the host cannot pin', () => {
-    expect(pinUnavailable('plot-host', false)).toBe(true);
-    expect(pinUnavailable('plot-host', true)).toBe(false);
-    expect(pinUnavailable('gh', false)).toBe(false);
-  });
-
-  it('says nothing pins there', () => {
-    expect(UNPINNABLE_NOTE).toContain('cannot pin a merge');
   });
 });
 

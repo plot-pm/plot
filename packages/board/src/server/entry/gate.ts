@@ -2,14 +2,11 @@ import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlink
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { hostPinsMerges } from './host-pin.js';
 import { MANAGED_PROCESS_MARKERS, controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
   carriesSpikeFlag,
   controllerRefusal,
   mayRunController,
-  pinUnavailable,
-  UNPINNABLE_NOTE,
   unpinnedMergeRefusal,
   unpinnedMerges,
   withoutMessageSinks,
@@ -628,10 +625,10 @@ export interface ControllerReadings {
  * worktree holding `.plot-worker.pid` or `.plot-verify.pid`. After the prefilter: no git allows and says it went
  * UNVERIFIED; a linked worktree (a desk) is a worker's own call and is
  * allowed; then `controllerInvocation`, `unpinnedMerges` and the action
- * receipt, which is read and left in place. Every backend pins a merge
- * ({@link hostPinsMerges}), so an unpinned `plot-host.sh pr-merge` always
- * refuses here. No `.plot/state/` allows the action and says it went
- * UNVERIFIED.
+ * receipt, which is read and left in place. Every backend pins a merge, so
+ * an unpinned `gh pr merge` or `plot-host.sh pr-merge` always refuses here,
+ * with no backend read needed to tell. No `.plot/state/` allows the action
+ * and says it went UNVERIFIED.
  *
  * A git reading that throws allows the call and says so, unless the command
  * runs a controller-owned action or an unpinned merge: that refuses, because
@@ -679,14 +676,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
     if (linked) return null;
 
     const action = controllerInvocation(stripped);
-    const refusals: string[] = [];
-    for (const program of unpinnedMerges(stripped)) {
-      if (pinUnavailable(program, hostPinsMerges(await readings.backend(cwd, scriptDir)))) {
-        process.stderr.write(`${UNPINNABLE_NOTE}\n`);
-      } else {
-        refusals.push(unpinnedMergeRefusal(scriptDir, program));
-      }
-    }
+    const refusals = unpinnedMerges(stripped).map((program) => unpinnedMergeRefusal(scriptDir, program));
     if (action !== null) {
       if (!existsSync(join(root.value, '.plot', 'state'))) {
         process.stderr.write(`plot-controller-gate: no .plot/state/ — controller routing went UNVERIFIED for ${action}.\n`);
