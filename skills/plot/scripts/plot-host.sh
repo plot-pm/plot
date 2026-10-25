@@ -653,13 +653,7 @@ gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_E
 # A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
 # pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
 # that cannot be read never falls through to "no marker found, post new".
-gh_marker_comment_id() {
-  local num="$1" marker="$2" who
-  who="$(budget_account github)"
-  gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" \
-    | jq -rs --arg m "$marker" --arg who "$who" \
-      '[.[][] | select(.user.login == $who) | select(.body | contains($m))][0].id // empty'
-}
+gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(budget_account github)" '[.[][] | select(.user.login == $who) | select(.body | contains($m))][0].id // empty'; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
