@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2486
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2536 merged
 - **Started:** 2026-10-24, Claude, `bug/fleet-supervisor-liveness-bounds`
 - **Started:** 2026-10-25, Jan Wloka, `bug/fleet-review-followups-wording`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
