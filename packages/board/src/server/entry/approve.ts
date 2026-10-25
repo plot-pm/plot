@@ -995,20 +995,6 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         ? `${verdict.detail}\n  Nothing was merged and nothing was written.`
         : `${verdict.detail}\n  Name the reviewer: plot-approve.mjs --spike --who <handle> ${slug}`);
     }
-    // A held host refusal wins only over a refusal reached FROM the placeholder
-    // PR reading (`pr-closed`/`pr-absent`/`pr-ambiguous`) — that placeholder is
-    // not a fact about the plan, and a refusal computed from it would discard
-    // the one true reason nothing could be decided. Every earlier reason (the
-    // phase, the review channel, the slice headings, the spike confirm) is
-    // read from the plan itself, independent of `pr`, and keeps its existing
-    // precedence over a host that could not answer. The substitution above
-    // always reads `state: 'OPEN'` with no rivals, so none of these three
-    // reasons can fire while `hostRefusal` is held today — this guards the
-    // precedence rule if that substitution ever changes.
-    if (hostRefusal !== undefined
-      && (verdict.reason === 'pr-closed' || verdict.reason === 'pr-absent' || verdict.reason === 'pr-ambiguous')) {
-      throw hostRefusal;
-    }
     throw new Refused(refusalText(verdict.reason, verdict.detail, {
       slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number,
     }));

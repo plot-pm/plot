@@ -65,7 +65,7 @@ describe('mergeAt', () => {
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
   });
 
-  it('pins on bitbucket too, which now honours --match-head via a re-read', async () => {
+  it('pins on bitbucket too, via a head re-read', async () => {
     const { p, calls } = ports(pr(), 'answered', { ok: true, value: null }, 'bitbucket');
     expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD, unpinned: false });
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);

@@ -371,17 +371,3 @@ export const unpinnedMergeRefusal = (scriptDir: string, program: MergeProgram): 
     '',
   ].join('\n');
 
-/**
- * Whether an unpinned merge is allowed because the git host cannot pin one:
- * `plot-host.sh pr-merge` on a host whose `pr-merge --match-head` cannot pin.
- *
- * @param program - the merge program the command runs.
- * @param hostPins - whether the resolved git host pins a merge to a commit.
- * @returns whether the merge goes through unpinned.
- */
-export const pinUnavailable = (program: MergeProgram, hostPins: boolean): boolean =>
-  program === 'plot-host' && !hostPins;
-
-/** The note for a merge {@link pinUnavailable} lets through. */
-export const UNPINNABLE_NOTE =
-  'plot-controller-gate: the Git host cannot pin a merge to a commit — this pr-merge runs unpinned.';
