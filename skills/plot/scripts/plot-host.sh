@@ -2951,8 +2951,8 @@ plot_env_file() {
 # A candidate qualifies when it is readable and, if two var names are given,
 # holds both — never a lone half of a pair.
 plot_env_file_qualifies() {
-  [ -r "$1" ] || return 1
-  [ -z "$2" ] || [ -z "$3" ] || { [ -n "$(read_env_var "$2" "$1")" ] && [ -n "$(read_env_var "$3" "$1")" ]; }
+  [ -r "$1" ] || return 1; [ -n "${2:-}" ] || return 0
+  [ -n "$(read_env_var "$2" "$1")" ] && [ -n "$(read_env_var "$3" "$1")" ]
 }
 
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
