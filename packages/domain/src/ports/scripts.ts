@@ -41,9 +41,14 @@ export interface StartedRun {
  * nothing was printed. A caller that cannot produce a partial answer is
  * unaffected: `answer !== 'answered'` stays true for this variant, so an
  * existing refusal path keeps refusing.
+ *
+ * `answered` carries `stderr` alongside `stdout` because `plot-host.sh`
+ * prints its own diagnostic notices (a page-complete claim, a sweep-complete
+ * claim) on stderr even where the call exits 0 — a caller deciding from a
+ * notice, not only from a refusal, needs that stream on the clean path too.
  */
 export type HostAnswer =
-  | { answer: 'answered'; stdout: string }
+  | { answer: 'answered'; stdout: string; stderr: string }
   | { answer: 'partial'; stdout: string; said: string }
   | { answer: 'failed'; said: string }
   | { answer: 'unaskable'; said: string };

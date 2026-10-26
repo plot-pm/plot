@@ -77,6 +77,24 @@ export const indexMergedHeads = (rows: readonly PrIndexRow[]): ReadonlySet<strin
  */
 export const MERGED_DELTA_OVERLAP_MS = 60_000;
 
+/**
+ * A watermark minus {@link MERGED_DELTA_OVERLAP_MS}, in the host's own stamp
+ * format.
+ *
+ * Shared by every delta read that narrows against a watermark, so the
+ * subtraction and the format-back-to-ISO-with-`Z` shape exist in one place.
+ *
+ * @param watermark - the watermark to narrow from, ISO-8601.
+ * @returns the `since` stamp to send the host, or null where the watermark is
+ *   missing, empty, or fails to parse.
+ */
+export const sinceWatermark = (watermark: string | null): string | null => {
+  if (watermark === null || watermark === '') return null;
+  const watermarkMs = Date.parse(watermark);
+  if (Number.isNaN(watermarkMs)) return null;
+  return new Date(watermarkMs - MERGED_DELTA_OVERLAP_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
+};
+
 /** What a merged-set read may ask the host for. */
 export type MergedSetWindow = { kind: 'delta'; since: string } | { kind: 'full' };
 
@@ -109,11 +127,10 @@ export type MergedSetWindow = { kind: 'delta'; since: string } | { kind: 'full' 
 export const mergedSetWindowFor = (held: PrIndex | null): MergedSetWindow => {
   const full: MergedSetWindow = { kind: 'full' };
   if (held === null) return full;
-  if (held.watermark === null || held.watermark === '') return full;
   if (!held.complete) return full;
-  const watermarkMs = Date.parse(held.watermark);
-  if (Number.isNaN(watermarkMs)) return full;
-  return { kind: 'delta', since: new Date(watermarkMs - MERGED_DELTA_OVERLAP_MS).toISOString().replace(/\.\d{3}Z$/, 'Z') };
+  const since = sinceWatermark(held.watermark);
+  if (since === null) return full;
+  return { kind: 'delta', since };
 };
 
 /**

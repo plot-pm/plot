@@ -43,6 +43,7 @@ describe('the host answer keeps three outcomes apart', () => {
     await expect(at(dir).hostSaid(['backend'])).resolves.toEqual({
       answer: 'answered',
       stdout: 'github',
+      stderr: '',
     });
   });
 
