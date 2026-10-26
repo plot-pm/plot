@@ -14,6 +14,7 @@ import {
   treesGit,
   machineSystem,
   planStoreShell,
+  planStoreRef,
   prIndexFile,
   issueIndexFile,
   issueWriteSpoolOver,
@@ -46,12 +47,13 @@ import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { HeldSlice, PortResult } from '@plot-pm/domain';
+import { answered } from '@plot-pm/domain';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
-import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
+import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
@@ -71,7 +73,7 @@ import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js'
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
-import { freshScanState } from '../../shared/fleet-scan.js';
+import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading } from '../../shared/worker-question.js';
@@ -482,8 +484,8 @@ export const worldForRepo = (
   const processes = processesShell(context);
   const trees = treesGit(context);
   const machine = machineSystem(context);
-  const plans = planStoreShell(context);
   const refs = refsGit(context);
+  const plans = fleetPlanStore(context, refs);
 
   // THE MEMO'S LIFETIME IS ONE TICK, and `readTick` is what ends it: the world
   // is built once and `beginTick` clears the memo at the top of each pass, so a
@@ -745,8 +747,8 @@ export const queueWorldForRepo = (
     checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
-  const plans = planStoreShell(context);
   const refs = refsGit(context);
+  const plans = fleetPlanStore(context, refs);
   const host = hostShell(context);
   // NO MEMO GIVEN, NO MEMO BUILT. This world has no `beginTick`, so a memo it
   // built for itself would never be cleared and would freeze every merge answer
@@ -1134,6 +1136,56 @@ const dirtyCountOf = async (
 };
 
 /**
+ * The queue, supervisor and index monitor's own plan store: `origin/<default>`,
+ * never the checkout's working tree.
+ *
+ * A plan approved on the host moves `origin/<default>` and nothing else — the
+ * daemon's checkout is not fast-forwarded by anything but an operator's own
+ * `git fetch` + merge, so a store reading the working tree could stay behind a
+ * host-side approval indefinitely (measured 2026-10-26: a 17-minute gap between
+ * approval and the queue noticing). `refs.defaultBranch()` is asked fresh on
+ * every call rather than once at construction, so a ref that starts resolvable
+ * and later is not (a detached fixture, a deleted remote) answers the empty
+ * list the brief requires instead of the ref this function resolved at
+ * start-up.
+ *
+ * Every OTHER `PlanStore` operation on the adapters this function builds
+ * (`config`, `listDir`, `readText`, `writeText`) still reads the working
+ * tree — unrelated callers (`approve.ts`, `deliver.ts`, …) read the checkout
+ * they are about to act on, and this function's callers only ever reach
+ * `listPlans`/`readPlans`.
+ *
+ * @param context - where the scripts live and which repository to parse in.
+ * @param refs - the ref reader, already constructed by the caller.
+ * @returns a `PlanStore` whose `listPlans`/`readPlans` read `origin/<default>`.
+ */
+const fleetPlanStore = (context: { repoRoot: string; scriptDir: string }, refs: Refs): PlanStore => {
+  const scripts = scriptsShell(context);
+  const storeFor = async (): Promise<Pick<PlanStore, 'listPlans' | 'readPlans'> | null> => {
+    const base = await refs.defaultBranch();
+    if (!base.ok) return null;
+    const planDir = await planDirectory(scripts);
+    return planStoreRef(refs, context, `origin/${base.value}`, planDir);
+  };
+  const shell = planStoreShell(context);
+  return {
+    listPlans: async () => {
+      const store = await storeFor();
+      return store === null ? answered([]) : store.listPlans();
+    },
+    readPlans: async (files) => {
+      const store = await storeFor();
+      return store === null ? answered([]) : store.readPlans(files);
+    },
+    readPlan: shell.readPlan,
+    config: shell.config,
+    listDir: shell.listDir,
+    readText: shell.readText,
+    writeText: shell.writeText,
+  };
+};
+
+/**
  * Every plan line the estate holds, keyed by branch.
  *
  * **READ ONCE PER TICK, NOT ONCE PER AGENT, and the difference was measured.**
@@ -1149,7 +1201,7 @@ const dirtyCountOf = async (
  * @returns branch to its plan line; empty where the plans cannot be read.
  */
 const planLinesFor = async (
-  plans: ReturnType<typeof planStoreShell>,
+  plans: Pick<PlanStore, 'listPlans' | 'readPlans'>,
 ): Promise<ReadonlyMap<string, PlanBranchLine & { plan: string }>> => {
   const lines = new Map<string, PlanBranchLine & { plan: string }>();
   const files = await plans.listPlans();
@@ -2053,7 +2105,8 @@ export const indexMonitorOver = (
   write: (s: string) => void,
 ): (() => Promise<void>) => {
   const host = hostShell(context);
-  const plans = planStoreShell(context);
+  const refs = refsGit(context);
+  const plans = fleetPlanStore(context, refs);
   const index = prIndexFile({ cwd: context.repoRoot });
   const defaultBranch = defaultBranchFile(context.repoRoot);
   return () =>
