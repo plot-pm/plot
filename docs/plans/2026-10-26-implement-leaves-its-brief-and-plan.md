@@ -74,7 +74,7 @@ A fix in the board or fleetd bundle reaches a machine only after a restart of th
 
 ### Brief Booking
 
-- `bug/implement-books-the-brief-in-a-worktree` — a `--brief-only` run books the brief and `Started:` record from a disposable worktree; a fixture repo test runs it with `PLOT_UNATTENDED=1` and no writer marker, with the main checkout behind `origin` and an untracked operator file present, and asserts the checkout's `git status --porcelain`, `HEAD` and branch are unchanged and `origin/<default>` holds the brief; SKILL.md steps 4-5 and Model Guidance changed; changeset package `plot`, `plot-implement: minor`
+- `bug/implement-books-the-brief-in-a-worktree` — a `--brief-only` run books the brief and `Started:` record from a disposable worktree; a fixture repo test runs it with `PLOT_UNATTENDED=1` and no writer marker, with the main checkout behind `origin` and an untracked operator file present, and asserts the checkout's `git status --porcelain`, `HEAD` and branch are unchanged and `origin/<default>` holds the brief; SKILL.md steps 4-5 and Model Guidance changed; changeset package `plot`, `plot-implement: minor` → #2740
 
 ### Fleetd Plan Source
 
