@@ -404,6 +404,12 @@ export interface CacheEntry {
    * this pulse fetched its own. What the board reports rather than implies.
    */
   listingReusedAgeMs: number | null;
+  /**
+   * Epoch ms the GitHub listing was last read in full (no `--since`), or null
+   * before the first one. Read by `scanListingWindowFor` alone; the Bitbucket
+   * arm never sets it, since the shell still sweeps for itself.
+   */
+  listingFullReadAt: number | null;
   pulse: FleetReading | null;
   ages: Map<string, number | null>;
   /**
@@ -2651,7 +2657,7 @@ export function freshCacheEntry(): CacheEntry {
     // Empty and null: no listing has been made, which is what lets the first
     // scan spend one whatever the account's rate says.
     listing: '', listingAt: null, listingIntervalMs: REFRESH_MS,
-    listingBranches: 0, listingReusedAgeMs: null,
+    listingBranches: 0, listingReusedAgeMs: null, listingFullReadAt: null,
     approvedAt: new Map(),
     ideaPlans: new Map(),
     versions: new Map(),

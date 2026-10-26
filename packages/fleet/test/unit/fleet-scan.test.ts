@@ -162,6 +162,82 @@ describe('scanOnce carries streamed terminal:/listing: lines forward on a kill',
   });
 });
 
+describe('scanOnce reads the GitHub listing itself rather than leaving PLOT_PR_LISTING empty', () => {
+  /** One GitHub PR row, as both `--rich` and plain `pr-list` JSON carry it. */
+  const row = (number: number, state: string, head: string, updatedAt: string) =>
+    JSON.stringify({ number, state, headRefName: head, updatedAt });
+
+  const WHOLE_OPEN = 'plot-host: github pr-list state=open page complete (0 rows below requested limit 500)'
+    + ' — this page holds every pull request the host has in this state';
+  const WHOLE_ALL = 'plot-host: github pr-list state=all page complete (0 rows below requested limit 500)'
+    + ' — this page holds every pull request the host has in this state';
+
+  /** A `hostSaid` stub answering realistic `pr-list --state open/all` NDJSON. */
+  const hostSaidWith = (openRows: string, allRows: string): Scripts['hostSaid'] => async (args) => {
+    const joined = args.join(' ');
+    if (joined.includes('--state open')) return { answer: 'answered', stdout: openRows, stderr: WHOLE_OPEN };
+    if (joined.includes('--state all')) return { answer: 'answered', stdout: allRows, stderr: WHOLE_ALL };
+    throw new Error(`unexpected hostSaid call: ${joined}`);
+  };
+
+  const worldReadingHost = (hostSaid: Scripts['hostSaid'], stream: Scripts['stream']): ScanWorld => ({
+    ...worldWith(stream),
+    scripts: { ...worldWith(stream).scripts, hostSaid } as unknown as Scripts,
+  });
+
+  it('gives the same readings as the equivalent fetched listing when the shell carries a delta-folded one', async () => {
+    const state = freshScanState();
+    const hostSaid = hostSaidWith(
+      `${row(1, 'OPEN', 'feature/a', '2026-10-26T10:00:00Z')}\n`,
+      `${row(2, 'MERGED', 'feature/b', '2026-10-25T09:00:00Z')}\n`,
+    );
+    const seenEnv: Array<Record<string, string> | undefined> = [];
+    const clean: Scripts['stream'] = async (_s, _a, onLine, options) => {
+      seenEnv.push(options?.env);
+      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
+    };
+    await scanOnce(worldReadingHost(hostSaid, clean), state, OPTIONS);
+
+    const handed = seenEnv[0]?.PLOT_PR_LISTING ?? '';
+    expect(handed).not.toBe('');
+    expect(handed).toContain('feature_a\tOPEN');
+    expect(handed).toContain('feature_b\tMERGED');
+    expect(handed).toContain('.list-arrived\t1');
+  });
+
+  it('never reads a no-ref merged branch as open when the handed listing carries no .list-complete', async () => {
+    const state = freshScanState();
+    // The open call claims its page whole; the all call answers no rows at
+    // all for a no-ref branch, so a fold with no carried listing reports
+    // `complete: false` (foldScanListing: `carried?.complete ?? false`) and
+    // the rendered listing carries no `.list-complete` line.
+    const hostSaid = hostSaidWith('', '');
+    const seenEnv: Array<Record<string, string> | undefined> = [];
+    const clean: Scripts['stream'] = async (_s, _a, onLine, options) => {
+      seenEnv.push(options?.env);
+      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
+    };
+    await scanOnce(worldReadingHost(hostSaid, clean), state, OPTIONS);
+
+    const handed = seenEnv[0]?.PLOT_PR_LISTING ?? '';
+    expect(handed).not.toContain('.list-complete');
+    expect(handed).not.toContain('\tOPEN\t');
+  });
+
+  it('falls back to handing the shell an empty PLOT_PR_LISTING, as today, when the full read also fails', async () => {
+    const state = freshScanState();
+    const hostSaid: Scripts['hostSaid'] = async () => ({ answer: 'unaskable', stdout: '' });
+    const seenEnv: Array<Record<string, string> | undefined> = [];
+    const clean: Scripts['stream'] = async (_s, _a, onLine, options) => {
+      seenEnv.push(options?.env);
+      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
+    };
+    await scanOnce(worldReadingHost(hostSaid, clean), state, OPTIONS);
+
+    expect(seenEnv[0]?.PLOT_PR_LISTING).toBe('');
+  });
+});
+
 describe('scanListingCost on GitHub', () => {
   // gh pr list pages at 100 rows: one --state open call plus the --state all
   // pages. 100 rows is 1 page, 101 is 2 — the off-by-one at the boundary.
