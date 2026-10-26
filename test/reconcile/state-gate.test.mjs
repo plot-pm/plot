@@ -645,3 +645,143 @@ test('state gate: removing a Spike approved record is refused and no command own
   assert.equal(r.status, 2);
   assert.match(r.stderr, /No command removes/);
 });
+
+// A merge commit carries no receipt of its own — the receipt was spent on the
+// branch that made the change. `MERGE_HEAD` is the gate's only way to tell a
+// merge from a plain commit, so these build a real diverging-branch merge
+// with `git merge --no-commit` and run the gate against the live `MERGE_HEAD`
+// it leaves behind, rather than passing `otherParents` as a fixture value.
+//
+// `mergeFixture` returns the merge left staged, not yet committed — the same
+// state the gate's PreToolUse hook always sees before `git commit` runs.
+function mergeFixture({ path: rel, base, ours, theirs, receiptForTheirs }) {
+  const dir = repo({ committed: { [rel]: base } });
+  const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
+  sh('git checkout -qb side');
+  writeFileSync(path.join(dir, rel), theirs);
+  if (receiptForTheirs !== undefined) recordReceipt(dir, rel, receiptForTheirs);
+  sh('git add -A && git commit -qm side --no-verify');
+  sh('git checkout -q main');
+  if (ours !== undefined && ours !== base) {
+    writeFileSync(path.join(dir, rel), ours);
+    sh('git add -A && git commit -qm ours --no-verify');
+  }
+  sh('git merge --no-commit --no-ff side || true');
+  return dir;
+}
+
+test('state gate: a merge staging a receipted delivery from the other parent passes with no receipt on the merge itself', () => {
+  const dir = mergeFixture({
+    path: 'docs/plans/2026-01-01-x.md',
+    base: plan('Approved'),
+    theirs: plan('Delivered'),
+    receiptForTheirs: 'Delivered',
+  });
+  const r = run(dir);
+  assert.equal(r.status, 0, `a merge carrying an already-receipted change must pass (stderr: ${r.stderr})`);
+});
+
+test('state gate: a merge whose staged text matches the other parent passes even with no receipt ever recorded', () => {
+  // The brief's rule is text equality with another parent, not "a receipt
+  // exists somewhere" — the other branch's commit already passed the gate
+  // (or was itself a merge that passed), so the state change already landed
+  // once. This case never calls recordReceipt at all.
+  const dir = mergeFixture({
+    path: 'docs/plans/2026-01-01-x.md',
+    base: plan('Approved'),
+    theirs: plan('Delivered'),
+  });
+  const r = run(dir);
+  assert.equal(r.status, 0, `text equality with the other parent is enough (stderr: ${r.stderr})`);
+});
+
+test('state gate: a merge that hand-edits the State line beyond the other parent is still refused', () => {
+  const dir = mergeFixture({
+    path: 'docs/plans/2026-01-01-x.md',
+    base: plan('Approved'),
+    theirs: plan('Delivered'),
+  });
+  // Hand-edit the merge result before committing — now the staged text
+  // matches neither HEAD nor the other parent.
+  writeFileSync(path.join(dir, 'docs/plans/2026-01-01-x.md'), plan('Released'));
+  execSync('git add -A', { cwd: dir, stdio: 'pipe' });
+  const r = run(dir);
+  assert.equal(r.status, 2, `a hand edit on top of a merge must still be refused (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Approved -> Released/);
+});
+
+test('state gate: a merge whose staged text differs from the other parent by prose, with State also changed, is refused', () => {
+  const otherParent = plan('Delivered') + '\n## Notes\n\noriginal\n';
+  const dir = mergeFixture({
+    path: 'docs/plans/2026-01-01-x.md',
+    base: plan('Approved') + '\n## Notes\n\noriginal\n',
+    theirs: otherParent,
+  });
+  writeFileSync(path.join(dir, 'docs/plans/2026-01-01-x.md'), plan('Delivered') + '\n## Notes\n\nhand-edited\n');
+  execSync('git add -A', { cwd: dir, stdio: 'pipe' });
+  const r = run(dir);
+  assert.equal(r.status, 2, `the State value alone matching is not enough — whole-file text must match (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Approved -> Delivered/);
+});
+
+test('state gate: a merge can never clear a removed State line via the other-parent bypass', () => {
+  const noState = '# P\n\n## Status\n\n- **Type:** feature\n';
+  const dir = mergeFixture({
+    path: 'docs/plans/2026-01-01-x.md',
+    base: plan('Draft'),
+    theirs: noState,
+  });
+  const r = run(dir);
+  assert.equal(r.status, 2, `a removal must never clear with no receipt, even from a matching other parent (stderr: ${r.stderr})`);
+});
+
+test('state gate: a merge is refused the same as a plain commit when the other parent is the initial commit (no divergent State there)', () => {
+  // `ours` never diverges from base, so the "other parent" is the branch
+  // that changed State — matching the main-line case above. This case
+  // instead pins that an unrelated, non-matching other-parent content keeps
+  // the refusal, i.e. the bypass requires an actual text match.
+  const dir = mergeFixture({
+    path: 'docs/plans/2026-01-01-x.md',
+    base: plan('Approved'),
+    theirs: plan('Approved') + '\n## Notes\n\nunrelated\n',
+  });
+  writeFileSync(path.join(dir, 'docs/plans/2026-01-01-x.md'), plan('Delivered') + '\n## Notes\n\nunrelated\n');
+  execSync('git add -A', { cwd: dir, stdio: 'pipe' });
+  const r = run(dir);
+  assert.equal(r.status, 2, `no parent carries the Delivered text, so a receipt is still required (stderr: ${r.stderr})`);
+});
+
+test('state gate: an octopus merge matching only the second other parent still passes', () => {
+  const rel = 'docs/plans/2026-01-01-x.md';
+  const dir = repo({ committed: { [rel]: plan('Approved') } });
+  const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
+
+  // side-a touches an unrelated file only, so the three-way merge of `rel`
+  // resolves to exactly side-b's text — the second other parent, not the
+  // first — and `MERGE_HEAD` still carries both parents' shas.
+  sh('git checkout -qb side-a');
+  writeFileSync(path.join(dir, 'docs/plans/unrelated.md'), 'unrelated\n');
+  sh('git add -A && git commit -qm side-a --no-verify');
+
+  sh('git checkout -q main');
+  sh('git checkout -qb side-b');
+  writeFileSync(path.join(dir, rel), plan('Delivered'));
+  sh('git add -A && git commit -qm side-b --no-verify');
+
+  sh('git checkout -q main');
+  sh('git merge --no-commit --no-ff side-a side-b');
+  const mergeHead = readFileSync(path.join(dir, '.git', 'MERGE_HEAD'), 'utf8').trim().split('\n');
+  assert.equal(mergeHead.length, 2, 'both other parents must be present for this to be an octopus case');
+  const r = run(dir);
+  assert.equal(r.status, 0, `the second parent's matching text must still clear it (stderr: ${r.stderr})`);
+});
+
+test('state gate: a plain non-merge commit reads no other parents and keeps requiring a receipt', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Delivered') },
+  });
+  assert.ok(!existsSync(path.join(dir, '.git', 'MERGE_HEAD')), 'no merge is in progress for this case');
+  const r = run(dir);
+  assert.equal(r.status, 2, `no MERGE_HEAD means no other-parent bypass is available (stderr: ${r.stderr})`);
+});

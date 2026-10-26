@@ -1,6 +1,7 @@
 import { deliver, refused, type DeliverBranchReading } from '@plot-pm/domain';
 import type { Host, PlanStore, Refs } from '@plot-pm/domain';
 import { commitVerdict, isForeignCommit } from '@plot-pm/domain/rules/commit-evidence';
+import { crossRepoReferences, type CrossRepoReference } from '@plot-pm/domain/rules/cross-repo-reference';
 import { mergedRowByHead } from '@plot-pm/domain/rules/merged-row';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 
@@ -42,6 +43,8 @@ interface NamedBranch {
   deferred: boolean;
   /** Commits the slice line names as its completion; empty where it names none. */
   commits: readonly string[];
+  /** The cross-repo PR the slice line names (`→ owner/repo#N`), or undefined where it names none. */
+  prRef?: CrossRepoReference;
 }
 
 /**
@@ -60,10 +63,12 @@ interface NamedBranch {
  * A branch named twice keeps every commit either mention names.
  *
  * @param meta the parsed plan, as `plot-plan-meta.sh` emitted it
+ * @param refs the cross-repo PR reference each branch's slice line names
  * @returns one reading per branch, merge state left for the host to fill
  */
 const branchesOf = (
   plan: { slices: readonly { branches: readonly { branch: string; deferred: boolean; commits?: readonly string[] }[] }[] },
+  refs: ReadonlyMap<string, CrossRepoReference>,
 ): NamedBranch[] => {
   const seen = new Map<string, NamedBranch>();
   for (const slice of plan.slices) {
@@ -76,6 +81,7 @@ const branchesOf = (
         branch: b.branch,
         deferred: (held?.deferred ?? true) && b.deferred,
         commits: [...new Set([...(held?.commits ?? []), ...(b.commits ?? [])])],
+        prRef: refs.get(b.branch),
       });
     }
   }
@@ -148,7 +154,7 @@ const mergedBranches = async (
   const held = read.ok ? read.value : null;
 
   const states = new Map<string, BranchMergeState>();
-  for (const { branch, commits } of branches) {
+  for (const { branch, commits, prRef } of branches) {
     // A SLICE THAT NAMES COMMITS IS DECIDED BY THEM, and by nothing else. The
     // PR store and the host answer for a PR that carried the work; this slice
     // was completed by a direct push, so a PR under its name, merged or not,
@@ -160,6 +166,17 @@ const mergedBranches = async (
     }
     if (held !== null && mergedRowByHead(held, branch) !== undefined) {
       states.set(branch, 'merged');
+      continue;
+    }
+    // A CROSS-REPO REFERENCE NAMES A PR ON A DIFFERENT HOST THAN THIS
+    // CHECKOUT'S OWN. `Host.prMerged` asks only this checkout's backend for a
+    // PR keyed by branch, which cannot locate a PR in another repository —
+    // `Host.prState` takes the PR's own number and a `repo` to probe the other
+    // drivable backend when the checkout's own answers a clean miss.
+    if (prRef !== undefined) {
+      const answer = await ports.host.prState(prRef.number, { repo: prRef.repo });
+      if (!answer.ok) states.set(branch, 'unknown');
+      else states.set(branch, answer.value !== null && answer.value.state === 'MERGED' ? 'merged' : 'not-merged');
       continue;
     }
     const answer = await ports.host.prMerged(branch);
@@ -289,7 +306,10 @@ export const deliverabilityOf = async (
   }
   const plan = read.value;
 
-  const named = branchesOf(plan);
+  // The slice lines' cross-repo references come from the plan text. A plan
+  // whose text cannot be read names none, and its branches ask `prMerged`.
+  const text = await ports.planStore.readText(planFile);
+  const named = branchesOf(plan, crossRepoReferences(text.ok && text.value !== null ? text.value : ''));
   // THE CONNECTOR IS THE HOST'S OWN WORD, the same string `pr-index-lookup.ts`
   // takes — `pr-index-file`'s store is kept one file per connector, and asking
   // under the wrong name would read (or write) a different host's rows.

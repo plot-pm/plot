@@ -32,3 +32,14 @@ tests:
       config: "- **Sprint directory:** docs/sprints/"
     assert:
       - { type: regex, value: "sprint: *proceed" }
+  - description: Sprint owner plot overrides Tracker jira -> proceed
+    vars:
+      config: "- **Sprint owner:** plot\n- **Tracker:** jira https://example.test\n- **Sprint directory:** docs/sprints/"
+    assert:
+      - { type: regex, value: "sprint: *proceed" }
+  - description: Sprint owner jira beside Tracker jira decides nothing -> decline
+    vars:
+      config: "- **Sprint owner:** jira\n- **Tracker:** jira https://example.test\n- **Sprint directory:** docs/sprints/"
+    assert:
+      - { type: regex, value: "sprint: *decline" }
+      - { type: icontains, value: "jira" }

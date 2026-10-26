@@ -178,8 +178,8 @@ export interface Trees {
   commitBeyondClaim(path: string): Promise<PortResult<CommitReading>>;
 
   /**
-   * Whether a checkout's HEAD would merge cleanly into the local
-   * `origin/<default>` ref, without touching the worktree or the index.
+   * Whether a checkout's HEAD would merge cleanly into the local ref for the
+   * PR's own base, without touching the worktree or the index.
    *
    * `git merge-tree --write-tree` runs the merge entirely in git's object
    * database; nothing it does is visible in `git status`. For a host that
@@ -187,11 +187,14 @@ export interface Trees {
    * REST API has none — this is the desk's other way to learn the same fact.
    *
    * @param path - the checkout's absolute path.
+   * @param base - the PR's own base branch, as the host names it (`Pr.base`)
+   *   — never the repository's default branch, which may differ from a PR
+   *   opened against another target.
    * @returns `mergeable` where the merge has no conflict, `conflicting` where
-   *   it does, and `unknown` where no local `origin/<default>` ref exists or
-   *   git cannot run the merge.
+   *   it does, and `unknown` where no local ref for `base` exists or git
+   *   cannot run the merge.
    */
-  mergeConflict(path: string): Promise<PortResult<Mergeability>>;
+  mergeConflict(path: string, base: string): Promise<PortResult<Mergeability>>;
 
   /**
    * How many commits a checkout's HEAD holds that its configured upstream does

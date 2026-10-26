@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { prIndexFile } from '@plot-pm/domain/adapters';
+import { SHA_LOOKUPS_PER_PASS, rowsToBind } from '@plot-pm/domain/rules/jenkins-pr-checks';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
@@ -49,9 +50,8 @@ afterEach(() => {
   rmTree(home);
 });
 
-const worldOf = (f: Fake, clock: { t: number }, checksWaitMs?: number): PrWorld => ({
+const worldOf = (f: Fake, clock: { t: number }): PrWorld => ({
   scripts: f.scripts, host: hostFake, store: prIndexFile({ cwd: home }), now: () => clock.t,
-  ...(checksWaitMs === undefined ? {} : { checksWaitMs }),
 });
 
 const stored = async (w: PrWorld) => {
@@ -151,19 +151,19 @@ describe('the fold stores the commit fields each arm answers', () => {
 });
 
 describe('the re-ask is bounded by time and covers failing', () => {
-  const seeded = async (checks: string, checksWaitMs = 3_600_000) => {
+  const seeded = async (checks: string) => {
     const clock = { t: T0 };
     const f = fake(() => [], () => [base(1, { checks, headSha: SHA })]);
     // Seed the store with one open PR of this colour, then switch the primary
     // listing to a quiet delta.
     const seed = fake(() => [base(1, { checks, headSha: SHA })], () => []);
-    const w0 = worldOf(seed, clock, checksWaitMs);
+    const w0 = worldOf(seed, clock);
     await pass(w0, freshPrState());
-    const w = worldOf(f, clock, checksWaitMs);
+    const w = worldOf(f, clock);
     return { clock, f, w, state: freshPrState() };
   };
 
-  it('re-asks a pending PR past the count while its head is younger than Checks wait', async () => {
+  it('re-asks a pending PR past the count, however old its head', async () => {
     const { clock, f, w, state } = await seeded('pending');
     for (let i = 0; i < PR_PENDING_REASK_LIMIT; i += 1) {
       clock.t += 60_000;
@@ -193,12 +193,18 @@ describe('the re-ask is bounded by time and covers failing', () => {
     expect(reasks(f)).toHaveLength(after + 1);
   });
 
-  it('stops re-asking once headSince is older than Checks wait', async () => {
-    const { clock, f, w, state } = await seeded('pending', 600_000);
+  it('keeps re-asking at the slow cadence once headSince is older than Checks wait (#2560)', async () => {
+    // THE #2560 SHAPE: a PR open long enough that its head predates `Checks
+    // wait` by the time the streak alone is spent. The old slow path also
+    // gated on `headSince` being younger than `Checks wait`, so a long-open
+    // PR whose checks finished without moving `updatedAt` stopped being
+    // re-asked for good, falling back to the next whole read (up to 24h).
+    // The slow cadence must keep running regardless of head age.
+    const { clock, f, w, state } = await seeded('pending');
     for (let i = 0; i < PR_PENDING_REASK_LIMIT; i += 1) { clock.t += 60_000; await pass(w, state); }
-    clock.t = T0 + 600_000 + PR_PENDING_REASK_SLOW_MS;
+    clock.t = T0 + 3_600_000 + PR_PENDING_REASK_SLOW_MS;
     await pass(w, state);
-    expect(reasks(f)).toHaveLength(PR_PENDING_REASK_LIMIT);
+    expect(reasks(f)).toHaveLength(PR_PENDING_REASK_LIMIT + 1);
   });
 
   it('grows the streak for a failing PR so it is not re-asked on every refresh', async () => {
@@ -241,5 +247,168 @@ describe('a draft PR is re-asked like any open PR', () => {
     await pass(worldOf(f, clock), freshPrState());
 
     expect(reasks(f)).toHaveLength(0);
+  });
+});
+
+describe('a lookup that did not reach a row carries the stored colour only for the same head', () => {
+  /** Ages the store's `wholeAt` so the next pass is a full read. */
+  const ageWhole = async (w: PrWorld) => {
+    const held = await w.store.read('github');
+    if (!held.ok || held.value === null) throw new Error('no store to age');
+    await w.store.write('github', { ...held.value, wholeAt: '2026-01-01T00:00:00Z' });
+  };
+
+  it('shows the carried green on the board after a full read', async () => {
+    const clock = { t: T0 };
+    let answer: Record<string, unknown> = { checks: 'green', headSha: SHA, checksSha: SHA };
+    const f = fake(() => [base(1, answer)], () => []);
+    const w = worldOf(f, clock);
+    const state = freshPrState();
+    await pass(w, state);
+    answer = { checks: 'unknown', headSha: SHA, checksLookup: 'skipped' };
+    await ageWhole(w);
+    clock.t = T0 + 120_000;
+    await pass(w, state);
+    expect((await stored(w))[0]).toMatchObject({ checks: 'green', checksSha: SHA });
+    expect(state.prsByNumber?.get(1)?.checks).toBe('green');
+    expect(state.prs?.get('feature/p1')?.checks).toBe('green');
+    expect(state.prsByHead?.get('feature/p1')?.checksSha).toBe(SHA);
+  });
+
+  for (const lookup of ['skipped', 'broken'] as const) {
+    it(`reads unknown for a ${lookup} lookup on a moved head`, async () => {
+      const clock = { t: T0 };
+      let answer: Record<string, unknown> = { checks: 'green', headSha: SHA, checksSha: SHA };
+      const f = fake(() => [base(1, answer)], () => []);
+      const w = worldOf(f, clock);
+      const state = freshPrState();
+      await pass(w, state);
+      answer = { checks: 'unknown', headSha: SHA2, checksLookup: lookup };
+      clock.t = T0 + 120_000;
+      await pass(w, state);
+      const row = (await stored(w))[0];
+      expect(row.checks).toBe('unknown');
+      expect('checksSha' in row).toBe(false);
+      expect(state.prsByNumber?.get(1)?.checks).toBe('unknown');
+    });
+
+    it(`carries the stored colour and its failing jobs for a ${lookup} lookup on an unmoved head`, async () => {
+      const clock = { t: T0 };
+      let answer: Record<string, unknown> = {
+        checks: 'failing', headSha: SHA, checksSha: SHA, failing_checks: ['build', 'lint'],
+      };
+      const f = fake(() => [base(1, answer)], () => []);
+      const w = worldOf(f, clock);
+      const state = freshPrState();
+      await pass(w, state);
+      answer = { checks: 'unknown', headSha: SHA, checksLookup: lookup, failing_checks: [] };
+      clock.t = T0 + 120_000;
+      await pass(w, state);
+      expect((await stored(w))[0]).toMatchObject({
+        checks: 'failing', checksSha: SHA, failing_checks: ['build', 'lint'],
+      });
+      expect(state.prsByNumber?.get(1)?.checks).toBe('failing');
+      expect(state.prsByNumber?.get(1)?.failing_checks).toEqual(['build', 'lint']);
+    });
+  }
+});
+
+describe('the Jenkins rotation reads every ambiguous row while a carried colour shows', () => {
+  const N = 12;
+  const PASSES = Math.ceil(N / SHA_LOOKUPS_PER_PASS);
+  const shaOf = (n: number) => n.toString(16).padStart(2, '0').repeat(20);
+
+  /**
+   * A Jenkins-backed host: every branch colour is ambiguous, `rowsToBind` with
+   * the call's `--bound-shas` picks the rows read by sha, and every other open
+   * row answers `skipped` with `unknown`, as `plot-host.sh` does.
+   */
+  const jenkins = (truth: (n: number) => string) => {
+    const reads: number[][] = [];
+    const calls: string[][] = [];
+    const rows = Array.from({ length: N }, (_, i) => i + 1);
+    const updatedAt = (n: number) => `2026-10-10T09:${String(59 - n).padStart(2, '0')}:00Z`;
+    const scripts = {
+      hostSaid: async (args: readonly string[]) => {
+        calls.push([...args]);
+        if (args[0] !== 'pr-list') return { answer: 'unaskable', stdout: '' };
+        const at = args.indexOf('--bound-shas');
+        const bound = at >= 0 ? JSON.parse(args[at + 1]) as Record<string, string> : {};
+        const heads = rows.map((n) => ({ headRefName: `feature/p${n}`, headRefOid: shaOf(n), updatedAt: updatedAt(n) }));
+        const colours = Object.fromEntries(heads.map((h) => [h.headRefName, { checks: 'green' }]));
+        const picked = new Set(rowsToBind(heads, colours, SHA_LOOKUPS_PER_PASS, bound).map((r) => r.branch));
+        const read = rows.filter((n) => picked.has(`feature/p${n}`));
+        reads.push(read);
+        const out = rows.map((n) => base(n, {
+          updatedAt: updatedAt(n),
+          headSha: shaOf(n),
+          ...(picked.has(`feature/p${n}`)
+            ? { checks: truth(n), checksSha: shaOf(n) }
+            : { checks: 'unknown', checksLookup: 'skipped', failing_checks: [] }),
+        }));
+        return { answer: 'answered', stdout: out.map((r) => JSON.stringify(r)).join('\n') };
+      },
+    } as unknown as Scripts;
+    return { reads, calls, scripts };
+  };
+
+  const run = async (f: ReturnType<typeof jenkins>, passes: number) => {
+    const clock = { t: T0 };
+    const w: PrWorld = { scripts: f.scripts, host: hostFake, store: prIndexFile({ cwd: home }), now: () => clock.t };
+    const state = freshPrState();
+    for (let i = 0; i < passes; i += 1) {
+      clock.t = T0 + i * 120_000;
+      await pass(w, state);
+    }
+    return { w, state };
+  };
+
+  it(`reads all ${N} rows within ceil(n / limit) passes and shows no unknown afterwards`, async () => {
+    const f = jenkins(() => 'green');
+    const { w, state } = await run(f, 2 * PASSES);
+    const seen = new Set(f.reads.slice(0, PASSES).flat());
+    expect([...seen].sort((a, b) => a - b)).toEqual(Array.from({ length: N }, (_, i) => i + 1));
+    // Between reads the carried green shows: no row reads unknown.
+    expect((await stored(w)).map((r) => r.checks)).toEqual(Array(N).fill('green'));
+    expect([...(state.prsByNumber?.values() ?? [])].every((pr) => pr.checks === 'green')).toBe(true);
+  });
+
+  it('sends the re-ask a bound map that ranks the carried pending row first', async () => {
+    const clock = { t: T0 };
+    let second: Record<string, unknown> = { checks: 'pending', headSha: SHA, checksSha: SHA };
+    const f = fake(() => [base(1, { headSha: SHA2, checksSha: SHA2 }), base(2, second)], () => []);
+    const w = worldOf(f, clock);
+    const state = freshPrState();
+    await pass(w, state);
+    second = { checks: 'unknown', headSha: SHA, checksLookup: 'skipped', failing_checks: [] };
+    clock.t = T0 + 120_000;
+    await pass(w, state);
+    expect((await stored(w)).find((r) => r.number === 2)).toMatchObject({ checks: 'pending', checksLookup: 'skipped' });
+    clock.t = T0 + 240_000;
+    await pass(w, state);
+    const last = reasks(f).at(-1)!;
+    expect(JSON.parse(last[last.indexOf('--bound-shas') + 1])).toEqual({ 'feature/p1': SHA2 });
+  });
+
+  it('reads a carried pending again, so it turns green once Jenkins says so', async () => {
+    let oldest = 'pending';
+    const f = jenkins((n) => (n === N ? oldest : 'green'));
+    const clock = { t: T0 };
+    const w: PrWorld = { scripts: f.scripts, host: hostFake, store: prIndexFile({ cwd: home }), now: () => clock.t };
+    const state = freshPrState();
+    for (let i = 0; i < 2 * PASSES; i += 1) {
+      clock.t = T0 + i * 120_000;
+      await pass(w, state);
+    }
+    expect((await stored(w)).find((r) => r.number === N)?.checks).toBe('pending');
+    oldest = 'green';
+    const before = f.reads.length;
+    for (let i = 2 * PASSES; i < 3 * PASSES; i += 1) {
+      clock.t = T0 + i * 120_000;
+      await pass(w, state);
+    }
+    expect(f.reads.slice(before).flat()).toContain(N);
+    expect((await stored(w)).find((r) => r.number === N)?.checks).toBe('green');
+    expect(state.prsByNumber?.get(N)?.checks).toBe('green');
   });
 });

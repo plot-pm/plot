@@ -25,7 +25,17 @@ import {
   EXIT_SECONDARY,
   EXIT_UNASKABLE,
 } from '../host-exit.js';
-import { asJson, asJsonLines, asLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
+import { asksOtherHost, crossRepoAnswer } from '../../rules/cross-repo-probe.js';
+import {
+  asJson,
+  asJsonLines,
+  asLines,
+  asText,
+  runProcess,
+  resultOf,
+  type RunOptions,
+  type ScriptRun,
+} from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
@@ -63,6 +73,12 @@ const PR_STATES: readonly string[] = ['OPEN', 'MERGED', 'CLOSED'];
 const MERGEABILITY: readonly string[] = ['mergeable', 'conflicting', 'unknown'];
 const CHECKS: readonly string[] = ['green', 'pending', 'failing', 'none', 'unknown'];
 const REVIEWS: readonly string[] = ['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED', ''];
+
+/** A clean `pr-state` miss: the host holds no PR for the ref. */
+const isNoPr = (value: PrLookup): boolean => value === null;
+
+/** A clean `pr-merged` miss: the host merged no PR for the branch. */
+const isNotMerged = (value: MergedAnswer): boolean => value === 'not-merged';
 
 /**
  * Reads a host value against the set the entity allows.
@@ -269,6 +285,50 @@ export const hostShell = (context: ShellContext): Host => {
   /** The readings this session last saw, so an observation knows what to lower. */
   let lastRead: readonly LimitReading[] = [];
 
+  /** Asks the other drivable backend: `plot-host.sh` switches on `PLOT_HOST_OTHER`. */
+  const onOtherHost: RunOptions = { ...inRepo, env: { PLOT_HOST_OTHER: '1' } };
+
+  /** Asks `pr-state` once, on the backend `where` selects. */
+  const prStateOn = async (args: readonly string[], where: RunOptions): Promise<PortResult<PrLookup>> => {
+    const run = await runProcess('bash', [host, ...args], where);
+    const answer = record(run, (stdout) => {
+      const raw = asJson<RawPr & { state?: string }>(stdout);
+      return raw.state === 'NONE' ? null : prOf(raw);
+    });
+    // Exit 4 keeps its words: a caller refusing on `unaskable` prints what
+    // the script said, and `record` clears the refusal for that code.
+    if (run.code === EXIT_UNASKABLE && run.stderr.trim() !== '') {
+      refusal = { kind: 'failed', said: run.stderr.trim() };
+    }
+    return answer;
+  };
+
+  /** Asks `pr-merged` once, on the backend `where` selects. */
+  const prMergedOn = async (args: readonly string[], where: RunOptions): Promise<PortResult<MergedAnswer>> => {
+    const run = await runProcess('bash', [host, ...args], where);
+    if (run.code === 3) {
+      // NOT A REFUSAL. `pr-merged` exits 3 to SAY `unknown` — a contract
+      // answer, not a broken call — and it is answered below. Clearing the
+      // refusal keeps `lastRefusal` about the last call rather than the last
+      // non-zero exit.
+      refusal = null;
+      return answered<MergedAnswer>('unknown');
+    }
+    return record(run, (stdout) => {
+      const value = asText(stdout);
+      if (value !== 'merged' && value !== 'not-merged' && value !== 'unknown') {
+        throw new Error(`plot-host: unrecognised merge answer ${value}`);
+      }
+      return value as MergedAnswer;
+    });
+  };
+
+  /** Clears the retry's refusal where the first answer stands. */
+  const settled = <T>(first: PortResult<T>, answer: PortResult<T>): PortResult<T> => {
+    if (answer === first) refusal = null;
+    return answer;
+  };
+
   return {
     // THIS ADAPTER JUDGES NO VENDOR. It asks, and it passes on the word the
     // script printed — `HostBackend` is any string, and there is no list here
@@ -307,18 +367,16 @@ export const hostShell = (context: ShellContext): Host => {
       return read.ok && (read.value === '' || read.value === 'unknown') ? failed() : read;
     },
 
-    prState: async (ref): Promise<PortResult<PrLookup>> => {
-      const run = await runProcess('bash', [host, 'pr-state', String(ref)], inRepo);
-      const answer = record(run, (stdout) => {
-        const raw = asJson<RawPr & { state?: string }>(stdout);
-        return raw.state === 'NONE' ? null : prOf(raw);
-      });
-      // Exit 4 keeps its words: a caller refusing on `unaskable` prints what
-      // the script said, and `record` clears the refusal for that code.
-      if (run.code === EXIT_UNASKABLE && run.stderr.trim() !== '') {
-        refusal = { kind: 'failed', said: run.stderr.trim() };
-      }
-      return answer;
+    prState: async (ref, opts): Promise<PortResult<PrLookup>> => {
+      const args = [
+        'pr-state',
+        String(ref),
+        ...(opts?.withChecks === true ? ['--with-checks'] : []),
+        ...(opts?.repo !== undefined ? ['--repo', opts.repo] : []),
+      ];
+      const first = await prStateOn(args, inRepo);
+      if (opts?.repo === undefined || !asksOtherHost(first, isNoPr)) return first;
+      return settled(first, crossRepoAnswer(first, await prStateOn(args, onOtherHost), isNoPr));
     },
 
     prReady: async (pr): Promise<PortResult<void>> => {
@@ -326,23 +384,11 @@ export const hostShell = (context: ShellContext): Host => {
       return record(run, () => undefined);
     },
 
-    prMerged: async (branch): Promise<PortResult<MergedAnswer>> => {
-      const run = await runProcess('bash', [host, 'pr-merged', branch], inRepo);
-      if (run.code === 3) {
-        // NOT A REFUSAL. `pr-merged` exits 3 to SAY `unknown` — a contract
-        // answer, not a broken call — and it is answered below. Clearing the
-        // refusal keeps `lastRefusal` about the last call rather than the last
-        // non-zero exit.
-        refusal = null;
-        return answered<MergedAnswer>('unknown');
-      }
-      return record(run, (stdout) => {
-        const value = asText(stdout);
-        if (value !== 'merged' && value !== 'not-merged' && value !== 'unknown') {
-          throw new Error(`plot-host: unrecognised merge answer ${value}`);
-        }
-        return value as MergedAnswer;
-      });
+    prMerged: async (branch, opts): Promise<PortResult<MergedAnswer>> => {
+      const args = ['pr-merged', branch, ...(opts?.repo !== undefined ? ['--repo', opts.repo] : [])];
+      const first = await prMergedOn(args, inRepo);
+      if (opts?.repo === undefined || !asksOtherHost(first, isNotMerged)) return first;
+      return settled(first, crossRepoAnswer(first, await prMergedOn(args, onOtherHost), isNotMerged));
     },
 
     prMergeCommit: async (branch): Promise<PortResult<string>> => {

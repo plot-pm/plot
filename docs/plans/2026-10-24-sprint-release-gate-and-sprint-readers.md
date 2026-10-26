@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2482
@@ -13,6 +13,10 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2513 merged
 - **Started:** 2026-10-24, jwloka, `bug/sprint-release-gate-ignores-withdrawn-and-partial-reads`
+- **Started:** 2026-10-24, jwloka, `bug/sprint-readers-misread-goal-and-slug`
+- **Started:** 2026-10-24, jwloka, `bug/story-lint-reduces-link-form-story`
+- **Started:** 2026-10-25, jwloka, `bug/plot-sprint-verdict-reports-partial-comparison`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -66,15 +70,15 @@ Four slices, grouped by the code each touches, so each PR stays reviewable and n
 
 ### Sprint readers
 
-- `bug/sprint-readers-misread-goal-and-slug` — `sprintGoal` reads the typed `>` goal first; `plot-review-status.sh` handles an unknown slug and the `[x]` checkbox.
+- `bug/sprint-readers-misread-goal-and-slug` → #2596 — `plot-review-status.sh` handles an unknown slug and the `[x]` checkbox. Does not change `sprintGoal`'s order: `sprint-goal.test.ts` pins bold-before-quote on purpose (PR #2043's re-review, 16 of 20 sprint files read motivation in the `>` block), so this line's original "reads the typed `>` goal first" was stale and was not implemented.
 
 ### Story lint
 
-- `bug/story-lint-reduces-link-form-story` — `plot-story-lint.sh` reduces a Markdown link in `Story:` so check S5 covers link-form plans.
+- `bug/story-lint-reduces-link-form-story` → #2602 — `plot-story-lint.sh` reduces a Markdown link in `Story:` so check S5 covers link-form plans.
 
 ### Sprint skill
 
-- `bug/plot-sprint-verdict-reports-partial-comparison` — The verdict table reports a partial comparison, the owner check runs through the launcher, and the sprint-gate eval covers the two missing owner cases.
+- `bug/plot-sprint-verdict-reports-partial-comparison` — The verdict table reports a partial comparison, the owner check runs through the launcher, and the sprint-gate eval covers the two missing owner cases. → #2683
 
 ## Notes
 

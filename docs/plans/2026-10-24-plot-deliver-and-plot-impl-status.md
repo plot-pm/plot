@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2158
@@ -12,6 +12,8 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2489 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/plot-deliver-and-plot-impl-status-repro`
+- **Started:** 2026-10-25, Jan Wloka, `bug/plot-deliver-and-plot-impl-status`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -43,7 +45,7 @@ Trade-offs to settle in review:
 
 - A config key keeps slice lines unchanged and matches how `Implementation home` already names repositories. It needs a new key and a lookup in `plot-host.sh`.
 - A prefix is local to the line and visible to the reader. It changes the reference grammar that `plot-impl-status.sh`, `plot-deliver.sh`, the reconcile scan and the board parser all read.
-- Whichever option is chosen, the per-reference backend choice belongs inside `plot-host.sh` (the one place that talks to a host CLI, enforced by `scripts/check-host-cli-callers.sh`) and the domain's `host` port, not in each caller.
+- The per-reference backend choice lives in the `host` port's adapter, `hostShell` in `packages/domain/src/adapters/host/host-shell.ts`, not in each caller. For a `--repo` reference, `prState` and `prMerged` ask the checkout's own backend first and, on a clean miss only, the other drivable backend once. The decision is the domain rule `rules/cross-repo-probe.ts`. `plot-host.sh` stays the one place that talks to a host CLI (`scripts/check-host-cli-callers.sh`) and holds only the switch: `PLOT_HOST_OTHER=1` selects the `HOST_DRIVES` entry that is not the checkout's own. `plot-impl-status.sh` asks `board/plot-pr-state.mjs` for a cross-repo reference, and `deliverability.ts` reads the references from the plan text through `rules/cross-repo-reference.ts`.
 - A reference with no mapping or prefix keeps today's behaviour: the plan repository's host.
 - A reference whose host CLI is missing or unauthenticated reports `unknown`, not `not merged`. The same rule as *An unasked host is not an absent PR* applies.
 
@@ -62,7 +64,7 @@ Trade-offs to settle in review:
 
 ### Resolution
 
-- `bug/plot-deliver-and-plot-impl-status` — per-reference host selection in `plot-host.sh` and the callers, per the option chosen in review
+- `bug/plot-deliver-and-plot-impl-status` — per-reference host selection in `plot-host.sh` and the callers, per the option chosen in review → #2663
 
 ## Notes
 

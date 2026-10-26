@@ -11,7 +11,7 @@ set -euo pipefail
 
 SLUG="${1:?Usage: plot-review-status.sh <sprint-slug>}"
 
-SPRINT_FILE=$(ls docs/sprints/*-"${SLUG}".md 2>/dev/null | head -1)
+SPRINT_FILE=$( (ls docs/sprints/*-"${SLUG}".md 2>/dev/null || true) | head -1)
 if [ -z "$SPRINT_FILE" ]; then
   echo '{"error": "Sprint file not found", "items": []}'
   exit 0
@@ -35,8 +35,10 @@ while IFS= read -r line; do
   [[ "$line" =~ ^[[:space:]]*-\ \[[\ xX]\] ]] || continue
 
   # [slug] when present, else the item's own key/text (after the checkbox,
-  # before the first annotation comment, trimmed).
-  ITEM_SLUG=$(echo "$line" | grep -oE '\[([a-z0-9-]+)\]' | head -1 | tr -d '[]' || true)
+  # before the first annotation comment, trimmed). Each reads the line with
+  # the checkbox already stripped, so its own `[ ]`/`[x]` brackets can never
+  # be read as the item's [slug].
+  ITEM_SLUG=$(echo "$line" | sed -E 's/^[[:space:]]*-\ \[[ xX]\][[:space:]]*//' | grep -oE '\[([a-z0-9-]+)\]' | head -1 | tr -d '[]' || true)
   [ -z "$ITEM_SLUG" ] && ITEM_SLUG=$(echo "$line" | sed -E 's/^[[:space:]]*- \[[ xX]\][[:space:]]*//; s/<!--.*//; s/[[:space:]]+$//')
   [ -z "$ITEM_SLUG" ] && continue
 

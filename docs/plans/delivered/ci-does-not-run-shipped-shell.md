@@ -1,0 +1,1 @@
+../2026-10-25-ci-does-not-run-shipped-shell.md

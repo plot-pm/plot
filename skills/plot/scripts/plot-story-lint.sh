@@ -98,8 +98,12 @@ plan_phases=""
 if [ -d "$PLAN_DIR" ]; then
   plan_phases=$(awk '
     function flush() { if (story != "" && phase != "") print story, phase; story=""; phase="" }
+    # Ported from reduce_story_link() (plot-plan-meta.sh:452): a well-formed
+    # [text](target) reduces to text; a malformed link ("[text](" unclosed,
+    # "[]()") is left raw, matching that function'"'"'s documented behavior.
+    function reduce_link(s,   t) { if (s !~ /^\[[^]]+\]\([^)]+\)$/) return s; t = s; sub(/^\[/, "", t); sub(/\]\([^)]*\)$/, "", t); gsub(/`/, "", t); return t }
     FNR==1 { flush() }
-    /^- \*\*Story:\*\*/ { s=$0; sub(/^[^:]*:\*\*[ \t]*/, "", s); gsub(/[ \t]+$/, "", s); story=s }
+    /^- \*\*Story:\*\*/ { s=$0; sub(/^[^:]*:\*\*[ \t]*/, "", s); gsub(/[ \t]+$/, "", s); story=reduce_link(s) }
     /^- \*\*(State|Phase):\*\*/ { s=$0; sub(/^[^:]*:\*\*[ \t]*/, "", s); gsub(/[ \t]+$/, "", s); phase=tolower(s) }
     END { flush() }
   ' "$PLAN_DIR"/*.md 2>/dev/null)
@@ -150,8 +154,7 @@ for home in $homes; do
     # The duplication that mattered was the VOCABULARY — six statuses declared
     # twice and a seventh derived against a `string` type. This check names no
     # status but `done`, so it cannot drift by gaining one.
-    if [ "${status_lc%% *}" = "done" ] && [ "$in_archived" = 0 ] \
-       && ! grep -qi '^archived:' "$story"; then
+    if [ "${status_lc%% *}" = "done" ] && [ "$in_archived" = 0 ] && ! grep -qi '^archived:' "$story"; then
       gate "S3 $story — status done but not archived (no archived/ location, no archived: date)"
     fi
     home_index="$(index_for_home "$home")"

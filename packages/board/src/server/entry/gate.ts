@@ -2,20 +2,26 @@ import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlink
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { hostPinsMerges } from './host-pin.js';
 import { MANAGED_PROCESS_MARKERS, controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
   carriesSpikeFlag,
   controllerRefusal,
   mayRunController,
-  pinUnavailable,
-  UNPINNABLE_NOTE,
   unpinnedMergeRefusal,
   unpinnedMerges,
   withoutMessageSinks,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
-import { gatesMainCheckout, gitWriteDirs, mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
+import { briefPushRefusal, gatesBriefPush, pushesBriefBranch } from '@plot-pm/domain/rules/brief-push';
+import {
+  gatesMainCheckout,
+  gatesStrandingReset,
+  gitWriteDirs,
+  mainCheckoutWriteRefusal,
+  mutatesGitState,
+  strandsTree,
+  treeStrandingResetDirs,
+} from '@plot-pm/domain/rules/main-checkout-write';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -194,11 +200,15 @@ const briefNameGate: Gate = {
  * runs after this hook). For each path under the plan or sprint directory, and
  * for the old path of each rename git paired, it reads `HEAD`'s version and
  * the version the commit takes, each with whether it is a symbolic link (the
- * mode git holds, or `lstat` for a working copy, which is never followed);
- * `stateTransitionsOf` finds the transitions, and only then is a path's
- * receipt spent. A failed config read
- * throws, which `onError: 'allow'` reports as UNVERIFIED; an unreadable `HEAD`
- * or index allows. A transition seen with no clearing receipt refuses.
+ * mode git holds, or `lstat` for a working copy, which is never followed).
+ * It also reads `MERGE_HEAD` (worktree-aware, octopus included) and, for each
+ * path, every other parent's version the same way; a plain commit reads
+ * `MERGE_HEAD` as absent and so reads no other parents. `stateTransitionsOf`
+ * finds the transitions — a merge whose staged text equals another parent's
+ * clears with no receipt — and only then is a path's receipt spent. A failed
+ * config read throws, which `onError: 'allow'` reports as UNVERIFIED; an
+ * unreadable `HEAD` or index allows. A transition seen with no clearing
+ * receipt refuses.
  */
 const stateGate: Gate = {
   name: 'state',
@@ -239,13 +249,20 @@ const stateGate: Gate = {
     // `ls-tree` reads its pathspec against the cwd, so `HEAD`'s mode is read
     // from the repository root.
     const atRoot = refsGit({ repoRoot: root.value, scriptDir });
-    const headOf = async (path: string) => {
-      const text = await refs.showFile('HEAD', path);
+    const versionAt = async (ref: string, path: string) => {
+      const text = await refs.showFile(ref, path);
       if (!text.ok) return null;
-      const blobs = await atRoot.listBlobs('HEAD', path);
+      const blobs = await atRoot.listBlobs(ref, path);
       const link = blobs.ok && blobs.value.some((blob) => blob.path === path && blob.mode === SYMLINK_MODE);
       return { text: text.value, link };
     };
+    const headOf = (path: string) => versionAt('HEAD', path);
+    // `MERGE_HEAD` exists only between a merge that did not fast-forward and
+    // the commit that completes it, so a plain commit reads no other parents.
+    const mergeParents = await refs.mergeParents();
+    const otherParentShas = mergeParents.ok ? mergeParents.value : [];
+    const otherParentsOf = async (path: string) =>
+      Promise.all(otherParentShas.map((sha) => versionAt(sha, path)));
     const indexModes = new Map(staged.value.map((entry) => [entry.path, entry.indexMode]));
     const readings = [];
     for (const { path, carries } of carried) {
@@ -265,14 +282,22 @@ const stateGate: Gate = {
         const index = await refs.showFile(':0', path);
         if (index.ok) committed = { text: index.value, link: indexModes.get(path) === SYMLINK_MODE };
       }
-      readings.push({ path, kind, head: await headOf(path), committed });
+      readings.push({ path, kind, head: await headOf(path), committed, otherParents: await otherParentsOf(path) });
     }
     // Git pairs a staged rename into one entry under its new path, so the
     // path it left is read here.
     for (const entry of staged.value) {
       if (entry.from === undefined || readings.some((reading) => reading.path === entry.from)) continue;
       const kind = lifecycleKindOf(entry.from, planDir.value.trim(), sprintDir.value.trim());
-      if (kind !== null) readings.push({ path: entry.from, kind, head: await headOf(entry.from), committed: null });
+      if (kind !== null) {
+        readings.push({
+          path: entry.from,
+          kind,
+          head: await headOf(entry.from),
+          committed: null,
+          otherParents: await otherParentsOf(entry.from),
+        });
+      }
     }
 
     const receipts = stateReceiptsFile(root.value, gitBlobOid);
@@ -450,7 +475,16 @@ export interface Where {
   readonly linked: boolean;
 }
 
-/** Reads {@link Where} through the refs port: `--show-toplevel`, then `--absolute-git-dir` against `--git-common-dir`. */
+/**
+ * Reads {@link Where} through the refs port: `--show-toplevel`, then
+ * `--absolute-git-dir` against `--git-common-dir`.
+ *
+ * A failed `linkedWorktree()` read reads as `linked: false`, the same as a
+ * confirmed main checkout: with `root.ok`, the gate cannot tell a broken read
+ * from the main checkout, and refusing is the safer default. A failed
+ * `repoRoot()` read is the one case that allows — without a root, the gate
+ * cannot place the command in any checkout at all.
+ */
 const gitWhere = async (cwd: string, scriptDir: string): Promise<Where> => {
   const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
   const refs = refsGit({ repoRoot: cwd, scriptDir });
@@ -478,15 +512,24 @@ export interface MainCheckoutReadings {
  * command never reads git. `ask` reads, for each mutating call, the directory
  * its `cd` and `-C` arguments name (or the working directory) and refuses where that is
  * not a linked worktree. A root read that fails allows: without git this gate
- * cannot tell a desk from the main checkout.
+ * cannot tell a desk from the main checkout. A linked-worktree read that fails
+ * refuses instead ({@link gitWhere}): with a root, passing a broken read would
+ * hide it behind a silent allow.
+ *
+ * A second arm ignores the marker: a mixed `git reset` in the main checkout is
+ * refused for every unattended caller ({@link gatesStrandingReset}), because it
+ * leaves the working tree behind `HEAD`.
  */
 export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
   name: 'main-checkout',
-  wants: (command) => gatesMainCheckout(process.env) && mutatesGitState(command),
+  wants: (command) =>
+    (gatesMainCheckout(process.env) && mutatesGitState(command)) || (gatesStrandingReset(process.env) && strandsTree(command)),
   ask: async (command) => {
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    for (const dir of gitWriteDirs(command)) {
+    // A marked writer is exempt from the gate but not from the mixed-reset refusal.
+    const dirs = gatesMainCheckout(process.env) ? gitWriteDirs(command) : treeStrandingResetDirs(command);
+    for (const dir of dirs) {
       const where = await readings.where(dir === null ? cwd : resolve(cwd, dir), scriptDir);
       if (where.root.ok && !where.linked) return mainCheckoutWriteRefusal(scriptDir);
     }
@@ -496,6 +539,40 @@ export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
 });
 
 const mainCheckoutGate = mainCheckoutGateOf({ where: gitWhere });
+
+/** What the brief-push gate reads from the world, so a test can replace it. */
+export interface BriefPushReadings {
+  readonly currentBranch: (cwd: string, scriptDir: string) => Promise<string>;
+}
+
+/** The branch `cwd` is on, `''` where git does not answer or HEAD is detached. */
+const gitCurrentBranch = async (cwd: string, scriptDir: string): Promise<string> => {
+  const { treesGit } = await import('@plot-pm/domain/adapters/trees/trees-git');
+  const read = treesGit({ repoRoot: cwd, scriptDir }).currentBranchSync(cwd);
+  return read.ok ? read.value : '';
+};
+
+/**
+ * `brief-push`: refuses a `git push` that writes the branch a `--brief-only`
+ * implement run briefs (`PLOT_BRIEF_ONLY=1`, `PLOT_BRIEF_BRANCH`). A remote
+ * branch is a claim, so the push holds the slice with no agent behind it.
+ *
+ * Outside a brief-only run, or with no brief branch named, it allows and reads
+ * nothing. `ask` reads the current branch only where the push names no branch.
+ */
+export const briefPushGateOf = (readings: BriefPushReadings): Gate => ({
+  name: 'brief-push',
+  wants: (command) => gatesBriefPush(process.env) && !!process.env.PLOT_BRIEF_BRANCH && /\bpush\b/.test(command),
+  ask: async (command) => {
+    const branch = process.env.PLOT_BRIEF_BRANCH ?? '';
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const current = await readings.currentBranch(process.cwd(), scriptDir);
+    return pushesBriefBranch(command, branch, current) ? briefPushRefusal(branch) : null;
+  },
+  onError: 'allow',
+});
+
+const briefPushGate = briefPushGateOf({ currentBranch: gitCurrentBranch });
 
 /** The backend `plot-host.sh` resolves, or `''` where it does not answer. */
 const hostBackend = async (cwd: string, scriptDir: string): Promise<string> => {
@@ -548,10 +625,10 @@ export interface ControllerReadings {
  * worktree holding `.plot-worker.pid` or `.plot-verify.pid`. After the prefilter: no git allows and says it went
  * UNVERIFIED; a linked worktree (a desk) is a worker's own call and is
  * allowed; then `controllerInvocation`, `unpinnedMerges` and the action
- * receipt, which is read and left in place. Every backend pins a merge
- * ({@link hostPinsMerges}), so an unpinned `plot-host.sh pr-merge` always
- * refuses here. No `.plot/state/` allows the action and says it went
- * UNVERIFIED.
+ * receipt, which is read and left in place. Every backend pins a merge, so
+ * an unpinned `gh pr merge` or `plot-host.sh pr-merge` always refuses here,
+ * with no backend read needed to tell. No `.plot/state/` allows the action
+ * and says it went UNVERIFIED.
  *
  * A git reading that throws allows the call and says so, unless the command
  * runs a controller-owned action or an unpinned merge: that refuses, because
@@ -599,14 +676,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
     if (linked) return null;
 
     const action = controllerInvocation(stripped);
-    const refusals: string[] = [];
-    for (const program of unpinnedMerges(stripped)) {
-      if (pinUnavailable(program, hostPinsMerges(await readings.backend(cwd, scriptDir)))) {
-        process.stderr.write(`${UNPINNABLE_NOTE}\n`);
-      } else {
-        refusals.push(unpinnedMergeRefusal(scriptDir, program));
-      }
-    }
+    const refusals = unpinnedMerges(stripped).map((program) => unpinnedMergeRefusal(scriptDir, program));
     if (action !== null) {
       if (!existsSync(join(root.value, '.plot', 'state'))) {
         process.stderr.write(`plot-controller-gate: no .plot/state/ — controller routing went UNVERIFIED for ${action}.\n`);
@@ -624,7 +694,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 const controllerGate = controllerGateOf({ desk: underDesk, where: gitWhere, backend: hostBackend });
 
 /** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate, mainCheckoutGate];
+export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate, mainCheckoutGate, briefPushGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;

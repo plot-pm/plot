@@ -2,7 +2,9 @@ import {
   SLOT_POLL_MS,
   answerKind,
   boundFromLimit,
+  boundShasFor,
   cadenceRateOf,
+  carriedChecks,
   concurrencyBound,
   foldPrIndex,
   heldSlots,
@@ -131,8 +133,6 @@ export interface PrWorld {
   store: PrIndexStore;
   /** Runs after a pass the host answered, with the open PRs that pass listed. */
   afterAnswer?: (open: Map<string, PrRecord>) => Promise<void>;
-  /** The `Checks wait` bound in ms; defaults to `PR_CHECKS_WAIT_MS`. */
-  checksWaitMs?: number;
   /**
    * Reads the issue gate's last cadence reading, or null where there is none.
    * Absent entirely where no issue gate runs alongside this PR pass.
@@ -251,20 +251,17 @@ export const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
 
 /**
  * How many consecutive re-asks a stuck-`pending` open PR survives before the
- * delta stops asking about it by number.
+ * delta slows down to asking about it by number once per
+ * `PR_PENDING_REASK_SLOW_MS` instead of every delta.
  *
  * A check queue that never runs would otherwise be re-asked every delta
  * forever — one more request per refresh with no answer ever arriving. 5
  * consecutive no-progress answers, at the GitHub cadence this table prices
  * above (one delta roughly every 60 s), is on the order of five minutes of
- * asking before the bound gives up; the PR falls back to being caught by the
- * next full read, the same ceiling every OPEN PR already had before this
- * slice.
+ * asking before the cadence slows; the PR is still asked, just at the slower
+ * rate, however long it stays open (#2560).
  */
 export const PR_PENDING_REASK_LIMIT = 5;
-
-/** The `Checks wait` default, in ms — `plot-config.sh get "Checks wait"` is 3600 s. */
-export const PR_CHECKS_WAIT_MS = 3_600_000;
 
 /** The shortest gap between re-asks once `PR_PENDING_REASK_LIMIT` is spent, in ms. */
 export const PR_PENDING_REASK_SLOW_MS = 300_000;
@@ -429,11 +426,14 @@ export interface PrRecord {
   /** The commit `checks` was computed for; the rollup arm only. */
   checksSha?: string;
   /**
-   * `'skipped'` where a Jenkins-backed pass did not look this row up this
-   * pass — the cap, or an ask that broke early — never where Jenkins itself
-   * answered. Absent everywhere else; never a value `checks` already reports.
+   * `'skipped'` where the cap left this row out — never named for a sha
+   * lookup this pass. `'broken'` where the row WAS named and the lookup then
+   * broke early (Jenkins unreachable mid-pass) — a different fact, kept
+   * distinct rather than collapsed into `'skipped'`. Neither is where Jenkins
+   * itself answered. Absent everywhere else; never a value `checks` already
+   * reports.
    */
-  checksLookup?: string;
+  checksLookup?: 'skipped' | 'broken';
   /** The host's merge time; absent on an open PR. */
   mergedAt?: string;
 }
@@ -1103,12 +1103,17 @@ export const prStoreFor = (repoRoot: string): PrIndexStore => {
 const storeRow = (
   pr: PrRecord, predecessor?: PrIndexRow, now: number = Date.now(),
 ): PrIndexRow => {
+  // `carriedChecks` decides the colour: the host's answer, or the stored one
+  // where this pass's Jenkins lookup did not reach the row and the head has
+  // not moved. Idempotent, so a `pr` that `withCarriedChecks` already carried
+  // stores the same reading.
+  const reading = carriedChecks(pr, predecessor);
   const row: PrIndexRow = {
     number: pr.number,
     head: pr.head,
     state: pr.state,
     draft: pr.draft,
-    checks: pr.checks,
+    checks: reading.checks,
     review: pr.review,
     url: pr.url,
   };
@@ -1118,8 +1123,9 @@ const storeRow = (
   if (Array.isArray(pr.failing_checks)) row.failing_checks = pr.failing_checks;
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
-  if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
-  if (typeof pr.checksLookup === 'string' && pr.checksLookup !== '') row.checksLookup = pr.checksLookup;
+  if (reading.checksSha !== undefined) row.checksSha = reading.checksSha;
+  if (reading.failing_checks !== undefined) row.failing_checks = reading.failing_checks;
+  if (pr.checksLookup === 'skipped' || pr.checksLookup === 'broken') row.checksLookup = pr.checksLookup;
   // A MERGED row is terminal: while the host answers MERGED, the first stored
   // `mergedAt` stands. Bitbucket reads it from `updated_on`, which moves on
   // every later comment, so a merged row with no stored predecessor takes the
@@ -1136,6 +1142,20 @@ const storeRow = (
       : new Date(now).toISOString();
   }
   return row;
+};
+
+/**
+ * Applies `carriedChecks` to a host record before it enters the board's maps,
+ * so the maps and the store show the same colour on every kind of pass.
+ *
+ * @param pr - the normalized host record; its `checks` and `checksSha` change in place.
+ * @param predecessor - the stored row with the same number, if any.
+ */
+const withCarriedChecks = (pr: PrRecord, predecessor: PrIndexRow | undefined): void => {
+  const reading = carriedChecks(pr, predecessor);
+  pr.checks = reading.checks;
+  if (reading.checksSha !== undefined) pr.checksSha = reading.checksSha;
+  if (reading.failing_checks !== undefined) pr.failing_checks = reading.failing_checks;
 };
 
 /**
@@ -1487,11 +1507,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // Jenkins' colour map on branch name, the same key `rowsToBind` reads.
     // Built from `stored`, already read above for the seed and the window;
     // a second read would be a second file for one answer the first already
-    // gave.
-    const boundShas: Record<string, string> = {};
-    for (const row of stored?.rows ?? []) {
-      if (row.state === 'OPEN' && row.head !== '' && row.checksSha) boundShas[row.head] = row.checksSha;
-    }
+    // gave. A row holding a CARRIED colour is left out (`boundShasFor`), so the
+    // rotation reads it again rather than ranking it with the rows read.
+    const boundShas = boundShasFor(stored);
     if (Object.keys(boundShas).length > 0) args.push('--bound-shas', JSON.stringify(boundShas));
     const said = await withHostSlot(entry, () => scripts.hostSaid(args));
     // A refusal is thrown so the catch below keeps owning the backoff. It is one
@@ -1542,6 +1560,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // Its absent value is "", the one `url` has: an unknown owner. The store
       // keeps no "" — `storeRow` omits it — so a stored row stays unanswered.
       if (typeof pr.author !== 'string') pr.author = '';
+      // BEFORE THE MAPS: a full read serves `map`/`byNumber`/`byHead` directly,
+      // so a colour carried only into the store would not reach the board.
+      withCarriedChecks(pr, storedByNumber.get(pr.number));
       // A merged or declined PR must NOT reach `classify` by head: it would
       // answer for a branch whose git state has already answered, and reopen a
       // question the merge closed. Numbers are indexed regardless — a link to a
@@ -1580,27 +1601,34 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     if (window.since !== null) {
       const pending = pendingOpenPrNumbers(stored);
       // STUCK-PENDING BOUND: a PR whose check queue never runs would be
-      // re-asked every delta forever. A number is asked again only while its
-      // streak of "still pending, same updatedAt" answers is under the limit;
-      // re-asked only while its streak (below) is under the limit.
+      // re-asked every delta forever. A number is asked again every delta
+      // while its streak of "still pending, same updatedAt" answers is under
+      // the limit.
       //
-      // AFTER THE COUNT IS SPENT, TIME BOUNDS IT: a PR whose head is younger than
-      // `Checks wait` is re-asked at most once per `PR_PENDING_REASK_SLOW_MS`,
-      // because CI outlasts five minutes. `failing` is included — a re-run can
-      // turn it green.
-      const waitMs = world.checksWaitMs ?? PR_CHECKS_WAIT_MS;
-      const askable = pending.filter((n) => {
-        if ((entry.prPendingReaskStreak.get(n) ?? 0) < PR_PENDING_REASK_LIMIT) return true;
-        const since = Date.parse(storedByNumber.get(n)?.headSince ?? '');
-        return Number.isFinite(since) && startedAt - since < waitMs
-          && startedAt - (entry.prReaskAt.get(n) ?? 0) >= PR_PENDING_REASK_SLOW_MS;
-      });
+      // AFTER THE COUNT IS SPENT, THE CADENCE SLOWS BUT DOES NOT STOP: a PR is
+      // re-asked at most once per `PR_PENDING_REASK_SLOW_MS`, with no cutoff on
+      // how long it has been open. `Checks wait` used to end the slow path once
+      // the PR's HEAD outaged that bound, which answers "is this branch old?"
+      // rather than "are its checks still running?" — unrelated questions a
+      // long-open PR with a just-finished check run (#2560) conflated: its
+      // `headSince` was older than `Checks wait` by the time the streak alone
+      // was spent, so the slow path never got to run at all, and the row sat
+      // `pending` until the next full read, as long as `PR_FULL_READ_MS` (24h).
+      // `failing` is included — a re-run can turn it green.
+      const askable = pending.filter((n) => (
+        (entry.prPendingReaskStreak.get(n) ?? 0) < PR_PENDING_REASK_LIMIT
+        || startedAt - (entry.prReaskAt.get(n) ?? 0) >= PR_PENDING_REASK_SLOW_MS
+      ));
       if (askable.length > 0) {
         try {
           for (const n of askable) entry.prReaskAt.set(n, startedAt);
-          const reasked = await withHostSlot(
-            entry, () => scripts.hostSaid(['pr-list', '--rich', '--state', 'open']),
-          );
+          // THE LOOKUPS GO TO THE ASKED ROWS: every other open row ranks as
+          // bound, and an asked row holding a carried colour ranks first, so a
+          // carried `pending` is read again rather than carried on every re-ask.
+          const reaskArgs = ['pr-list', '--rich', '--state', 'open'];
+          const reaskBound = boundShasFor(stored, new Set(askable));
+          if (Object.keys(reaskBound).length > 0) reaskArgs.push('--bound-shas', JSON.stringify(reaskBound));
+          const reasked = await withHostSlot(entry, () => scripts.hostSaid(reaskArgs));
           // A REFUSAL OR A PARTIAL ANSWER IS TREATED AS NO ANSWER HERE, not as
           // the outer catch's failure. The primary call already answered this
           // pass; a re-ask that cannot be trusted simply leaves the stored
@@ -1616,6 +1644,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
               if (typeof pr.mergeable !== 'string' || !pr.mergeable) pr.mergeable = 'unknown';
               if (!Array.isArray(pr.failing_checks)) pr.failing_checks = [];
               if (typeof pr.author !== 'string') pr.author = '';
+              withCarriedChecks(pr, storedByNumber.get(pr.number));
               if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
               byNumber.set(pr.number, pr);
               rows.push(storeRow(pr, storedByNumber.get(pr.number), clock()));

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2478
@@ -13,6 +13,8 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2497 merged
 - **Started:** 2026-10-24, Claude, `bug/jenkins-sha-runs-bind-by-action`
+- **Started:** 2026-10-25, Jan Wloka, `bug/jenkins-sha-tests-run-in-a-private-home`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -69,11 +71,11 @@ The defects fall into five groups.
 
 ### Refusals and credentials
 
-- `bug/jenkins-refusals-and-credential-fallback` — refuse a missing multibranch branch and a host-less `Instance` line by name; make the `.env` fallback read a credential pair and resolve the main checkout absolutely; correct the loader comments and the Jira hint <!-- waits: bug/jenkins-sha-runs-bind-by-action -->
+- `bug/jenkins-refusals-and-credential-fallback` — refuse a missing multibranch branch and a host-less `Instance` line by name; make the `.env` fallback read a credential pair and resolve the main checkout absolutely; correct the loader comments and the Jira hint <!-- waits: bug/jenkins-sha-runs-bind-by-action --> → #2659
 
 ### Test hygiene
 
-- `bug/jenkins-sha-tests-run-in-a-private-home` — run the `jenkins_sha_runs` sourcing tests in a private `HOME` and `cwd`; retitle the two `runs-for-sha` tests; add a `runs-for-sha` test on a plain job <!-- waits: bug/jenkins-refusals-and-credential-fallback -->
+- `bug/jenkins-sha-tests-run-in-a-private-home` — run the `jenkins_sha_runs` sourcing tests in a private `HOME` and `cwd`; retitle the two `runs-for-sha` tests; add a `runs-for-sha` test on a plain job <!-- waits: bug/jenkins-refusals-and-credential-fallback --> → #2680
 
 ## Notes
 

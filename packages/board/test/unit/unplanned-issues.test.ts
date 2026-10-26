@@ -470,7 +470,11 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
   }): string => {
     const dir = fixture({});
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), opts.claudeMd);
-    fs.writeFileSync(path.join(dir, 'plot-config.sh'), `#!/usr/bin/env bash\nexec bash ${JSON.stringify(path.join(REAL_SCRIPTS, 'plot-config.sh'))} "$@"\n`);
+    // `PLOT_REPO_ROOT` is pinned here rather than left to the real script's own
+    // fallback (`git rev-parse --show-toplevel`), which reads whatever the test
+    // RUNNER's ambient environment carries — making the config answer depend on
+    // the surrounding process rather than only on this fixture.
+    fs.writeFileSync(path.join(dir, 'plot-config.sh'), `#!/usr/bin/env bash\nexport PLOT_REPO_ROOT=${JSON.stringify(dir)}\nexec bash ${JSON.stringify(path.join(REAL_SCRIPTS, 'plot-config.sh'))} "$@"\n`);
     fs.chmodSync(path.join(dir, 'plot-config.sh'), 0o755);
     fs.writeFileSync(path.join(dir, 'plot-plan-meta.sh'), `#!/usr/bin/env bash\nexec bash ${JSON.stringify(path.join(REAL_SCRIPTS, 'plot-plan-meta.sh'))} "$@"\n`);
     fs.chmodSync(path.join(dir, 'plot-plan-meta.sh'), 0o755);
@@ -530,12 +534,10 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
   ].join('\n');
 
   it('a Jira key the real plan parser extracts leaves the inbox', async () => {
-    // The production report: an Approved plan's `Issue: EWZKUS-3893` shows on
-    // the plan card, yet `EWZKUS-3893` stayed in `tickets.open` alongside two
-    // genuinely unplanned siblings. `Tracker: jira` must come from a real
-    // CLAUDE.md read by the real `plot-config.sh` and `plot-plan-meta.sh` —
-    // the other fixtures in this file stub both scripts to answer `Tracker`
-    // with `''`, which never exercises the Jira key-extraction branch at all.
+    // `Tracker: jira` must come from a real CLAUDE.md read by the real
+    // `plot-config.sh` and `plot-plan-meta.sh` — the other fixtures in this
+    // file stub both scripts to answer `Tracker` with `''`, which never
+    // exercises the Jira key-extraction branch at all.
     const dir = jiraFixture({
       claudeMd: JIRA_CLAUDE_MD,
       openKeys: ['EWZKUS-3893', 'EWZKUS-3894', 'EWZKUS-3895'],
@@ -603,14 +605,11 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
   });
 
   it('a lowercase key is not extracted at all — the parser refuses it on purpose, so the ticket is never linked', async () => {
-    // Brief: "the parser matches uppercase only... Do not widen the parser:
-    // it refuses `WONT-FIX`-shaped words on purpose." This is the decision
-    // record for what that refusal means here: a plan writing a lowercase
-    // key names no ticket the parser can see (`issues:[]`, confirmed by
-    // running the real script directly), so the matching open ticket stays
+    // The parser matches uppercase keys only, so a plan writing a lowercase
+    // key names no ticket it can see (`issues:[]`, confirmed by running the
+    // real script directly). The matching open ticket therefore stays
     // unplanned — present in both the inbox AND Waiting on you, with no
-    // phase — exactly as an unrelated unplanned ticket would. This is
-    // accepted current behaviour, not a bug this branch fixes.
+    // phase — exactly as an unrelated unplanned ticket would.
     const dir = jiraFixture({
       claudeMd: JIRA_CLAUDE_MD,
       openKeys: ['EWZKUS-5'],

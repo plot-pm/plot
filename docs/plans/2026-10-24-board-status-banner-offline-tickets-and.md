@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2477
@@ -12,6 +12,10 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2498 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/board-status-banner-states`
+- **Started:** 2026-10-24, Jan Wloka, `bug/board-build-joins-honour-opts`
+- **Started:** 2026-10-24, Jan Wloka, `bug/board-estate-runs-once-per-head`
+- **Started:** 2026-10-24, Jan Wloka, `bug/board-client-fetch-bound-and-click`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -55,19 +59,19 @@ The slices touch disjoint files except `fleet.ts` (slices 1 and 2). Slice 2 ther
 
 ### Offline tickets
 
-- `bug/board-offline-tickets-age-and-rows` — issue age, failed-poll clearing and typed fallback, plus the CLAUDE.md and comment corrections (#2384, #2372) <!-- waits: bug/board-status-banner-states -->
+- `bug/board-offline-tickets-age-and-rows` — issue age, failed-poll clearing and typed fallback, plus the CLAUDE.md and comment corrections (#2384, #2372) → #2610 <!-- waits: bug/board-status-banner-states -->
 
 ### Shared build
 
-- `bug/board-build-joins-honour-opts` — opts-keyed shared build, post-change start and failed-build rejection (#2097)
+- `bug/board-build-joins-honour-opts` — opts-keyed shared build, post-change start and failed-build rejection (#2097) → #2615
 
 ### Estate cost
 
-- `bug/board-estate-runs-once-per-head` — `--no-optional-locks`, no untracked files, once-per-head plan estate and pinned ancestry tests (#2318, #2450, #2453)
+- `bug/board-estate-runs-once-per-head` — `--no-optional-locks`, no untracked files, once-per-head plan estate and pinned ancestry tests (#2318, #2450, #2453) → #2626
 
 ### Board client
 
-- `bug/board-client-fetch-bound-and-click` — fetch bound, immediate feedback on an unreachable board and click tests (#2088, #2113)
+- `bug/board-client-fetch-bound-and-click` — fetch bound, immediate feedback on an unreachable board and click tests (#2088, #2113) → #2641
 
 ## Notes
 

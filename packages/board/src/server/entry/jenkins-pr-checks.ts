@@ -33,12 +33,16 @@ import { pathToFileURL } from 'node:url';
  * printf '<sha>\n<statuses json>\n<comments json>\n' | plot-jenkins-pr-checks.mjs review
  * ```
  *
+ * `state` reads the row as named for a sha lookup where `rowsToBind` names it
+ * from `colours` alone — the same answer `rows` gave the shell for this one
+ * row — so a named row with no `bound` entry reads `checksLookup: 'broken'`.
+ *
  * The shell keeps the transport: it makes the Jenkins call per listed row and
  * the branch-colour map. This entry reads stdin only and spawns nothing.
  *
  * `bind` answers only the rows whose `<runs json>` is a JSON array. A row whose
- * lookup could not ask Jenkins is left out or carries anything else, and the
- * branch colour stands for it.
+ * lookup could not ask Jenkins is left out or carries anything else, and gets
+ * no bound entry; the caller decides what that row reads.
  */
 
 /** The exit codes the caller reads. */
@@ -77,10 +81,16 @@ export const run = (
     warn('plot-jenkins-pr-checks: usage: plot-jenkins-pr-checks.mjs <rows|bind|state|review> < readings\n');
     return EXIT.usage;
   }
-  const lines = stdin.split('\n').filter((l) => l !== '');
+  const lines = stdin.split('\n');
   if (verb === 'state') {
     const [pr, colours, bound] = [0, 1, 2].map((i) => parseLine(lines[i] ?? ''));
-    write(`${JSON.stringify(bitbucketPrState(pr as never, colours as never, bound as never))}\n`);
+    const head = pr as { source?: { branch?: { name?: string }; commit?: { hash?: string } } } | null;
+    const wasNamed = head !== null && colours !== null && typeof colours === 'object'
+      && rowsToBind(
+        [{ headRefName: head.source?.branch?.name ?? '', headRefOid: head.source?.commit?.hash ?? '' }],
+        colours as Record<string, { checks?: string; job?: string }>,
+      ).length > 0;
+    write(`${JSON.stringify(bitbucketPrState(pr as never, colours as never, bound as never, wasNamed))}\n`);
     return EXIT.ok;
   }
   if (verb === 'review') {
@@ -106,6 +116,7 @@ export const run = (
   }
   const bound: Record<string, BoundChecks> = {};
   for (const line of lines) {
+    if (line === '') continue;
     const [branch, sha, job, runs] = line.split('\t');
     const parsed = parseLine(runs ?? '');
     if (branch === undefined || sha === undefined || job === undefined) continue;

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2395
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2396 merged
 - **Started:** 2026-10-23, Claude, `bug/recording-a-slice-pr-number-writes`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
@@ -30,7 +31,7 @@ A process wrote the plan file into the operator's checkout and committed and pus
 
 ### Approach
 
-1. Measure first: identify which process writes the file. Candidates are the PR append in `plot-open-pr.sh`, the board's `record-pr` path, and fleetd. For each, record whether it writes through `$PLOT_REPO_ROOT` or the repository root instead of the worktree it commits from.
+1. Measure first: identify which process writes the file. The confirmed writer is the dispatched agent's own worktree session: `.plot/worker-prompt.sh`'s prose (pre-#2468) instructed it to append the PR number to the plan file and commit "from elsewhere," splitting the write from the commit across two trees. `test/reconcile/main-checkout-writers.test.mjs` is the regression guard that proves `plot-open-pr.sh` performs no such append.
 2. Reproduce the dirty main checkout in a sandbox repo with a worktree, using the identified writer.
 3. Change the writer so the file write and the commit use the same tree.
 4. Add a test that fails while the main checkout's tree differs from its `HEAD` after a record-PR run.

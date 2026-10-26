@@ -416,10 +416,10 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown',
+    headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
-    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus']);
+    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt']);
 });
 
 // The desk's early merge reads `pr-state`'s `mergeable` (worker-loop.ts
@@ -812,7 +812,7 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(out, {
     number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', headSha: '', base: 'develop',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
 });
 
@@ -860,11 +860,8 @@ test('host: pr-state bitbucket does not infer mergeable from state or merge_comm
 
 // The three keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
-// arm leaves them out and a reader takes absent as not known. `mergeable` is
-// excluded for a different reason: both backends always carry the key, but
-// Bitbucket's value is always the literal `unknown` while GitHub's is a real
-// fold, so the two are not comparable key-for-key the way the others are.
-const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'mergeable']);
+// arm leaves them out and a reader takes absent as not known.
+const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
 test('host: pr-state returns the same key set on both backends — merged PR', () => {
@@ -1010,7 +1007,7 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
     number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergeableReason: 'no head commit for this pull request',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergeableReason: 'no head commit for this pull request', mergedAt: '',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
@@ -2140,6 +2137,17 @@ test('host: issue-view returns one issue object, body included', () => {
   }
 });
 
+for (const [ghState, want] of [['CLOSED', 'closed'], ['OPEN', 'open']]) {
+  test(`host: issue-view github maps state ${ghState} to ${want}`, () => {
+    const gh = makeStubs({ ghJson: JSON.stringify({ number: 4, title: 't', body: 'b', url: 'u', state: ghState }) });
+    const out = JSON.parse(execFileSync('bash', [adapter, 'issue-view', '4'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+    }));
+    assert.equal(out.state, want);
+  });
+}
+
 test('host: issue-view fills absent fields rather than emitting null', () => {
   // An issue with no body is a real case — a title-only issue — and it must
   // arrive as "" so a consumer renders nothing rather than the word "null".
@@ -2429,6 +2437,18 @@ test('host: issue-view bitbucket returns {number,title,body,url} from bb view te
   assert.equal(out.url, 'https://bitbucket.org/acme/widget/issues/3');
 });
 
+for (const [badge, want] of [
+  ['RESOLVED', 'closed'], ['CLOSED', 'closed'], ['INVALID', 'closed'], ['DUPLICATE', 'closed'], ['WONTFIX', 'closed'],
+  ['ON HOLD', 'open'], ['NEW', 'open'], ['OPEN', 'open'],
+]) {
+  test(`host: issue-view bitbucket maps badge ${badge} to ${want}`, () => {
+    const out = BB_VIEW_ANSI.replace(' OPEN ', ` ${badge} `);
+    const res = runBb(['issue-view', '3'], makeBbIssueStub({ out }));
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(JSON.parse(res.stdout).state, want);
+  });
+}
+
 test('host: issue-view bitbucket exits 4 when the tracker is disabled', () => {
   const stub = makeBbIssueStub({ out: bbError('404 Not Found'), code: 1 });
   const res = runBb(['issue-view', '5'], stub);
@@ -2576,6 +2596,20 @@ exit 0
 
 // gh/bb stubs live in a SEPARATE dir from the jen stub; a run needs both on
 // PATH. This merges two stub dirs into one PATH prefix.
+//
+// HOME AND PLOT_BUDGET_HOME ARE BOTH SET, and must be — `plot-budget.sh:74`
+// reads `PLOT_BUDGET_HOME` first and falls back to `$HOME/.plot/state`, so
+// `HOME` alone leaves `host_slot_take`/`budget_record_call` free to fall
+// through to whichever one is unset. These two helpers run outside
+// `owned-run.sh` (the suite wrapper that redirects both for the whole
+// process tree) whenever this file is run directly, which is exactly what
+// `plot-local-checks.mjs` tells an agent to do for a changed file — so a
+// private HOME here is this file's own responsibility, not the runner's.
+function jenkinsHome() {
+  const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenhome-')));
+  return { HOME: home, PLOT_BUDGET_HOME: path.join(home, '.plot', 'state') };
+}
+
 function runJenkins(args, { repo, hostStubs, jen, extraEnv = {} }) {
   return execFileSync('bash', [adapter, ...args], {
     cwd: repo,
@@ -2584,6 +2618,7 @@ function runJenkins(args, { repo, hostStubs, jen, extraEnv = {} }) {
       ...process.env,
       PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
       PLOT_HOST: '',
+      ...jenkinsHome(),
       ...extraEnv,
     },
   });
@@ -2597,6 +2632,7 @@ function runJenkinsAllowFail(args, { repo, hostStubs, jen, extraEnv = {} }) {
       ...process.env,
       PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
       PLOT_HOST: '',
+      ...jenkinsHome(),
       ...extraEnv,
     },
   });
@@ -2957,7 +2993,7 @@ const BB_RED_PR = {
 };
 
 test('host: pr-state bitbucket under jenkins reads unknown for a head no build carries, by number', () => {
-  const out = bbJenkinsPrState(['5'], {
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
     build: jenkinsBuildsFor('sha-older-head', 'FAILURE'),
     bbJson: JSON.stringify(BB_RED_PR),
   });
@@ -2967,7 +3003,7 @@ test('host: pr-state bitbucket under jenkins reads unknown for a head no build c
 });
 
 test('host: pr-state bitbucket under jenkins reads unknown for a head no build carries, by branch', () => {
-  const out = bbJenkinsPrState(['feature/red'], {
+  const out = bbJenkinsPrState(['feature/red', '--with-checks'], {
     build: jenkinsBuildsFor('sha-older-head', 'FAILURE'),
     bbJson: JSON.stringify([BB_RED_PR]),
   });
@@ -2976,7 +3012,7 @@ test('host: pr-state bitbucket under jenkins reads unknown for a head no build c
 });
 
 test('host: pr-state bitbucket under jenkins reads the build of the head, bound to it', () => {
-  const out = bbJenkinsPrState(['5'], {
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
     build: jenkinsBuildsFor('sha-new-head', 'SUCCESS'),
     bbJson: JSON.stringify(BB_RED_PR),
   });
@@ -2993,7 +3029,7 @@ const BB_SHORT_PR = { ...BB_RED_PR, source: { branch: { name: 'feature/red' }, c
 test('host: pr-state bitbucket under jenkins binds a short head hash to the full Jenkins sha it begins', () => {
   assert.equal(BB_SHORT.length, 12);
   assert.equal(JENKINS_FULL.length, 40);
-  const out = bbJenkinsPrState(['5'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
+  const out = bbJenkinsPrState(['5', '--with-checks'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
   assert.equal(out.headSha, BB_SHORT);
   assert.equal(out.checks, 'green', 'the build of this head says SUCCESS, and the colour says red');
   assert.equal(out.checksSha, BB_SHORT, 'bound to the head the row names');
@@ -3001,13 +3037,13 @@ test('host: pr-state bitbucket under jenkins binds a short head hash to the full
 
 test('host: pr-state bitbucket under jenkins does not bind a short head hash to a full sha it does not begin', () => {
   const other = `0${JENKINS_FULL.slice(1)}`;
-  const out = bbJenkinsPrState(['5'], { build: jenkinsBuildsFor(other, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
+  const out = bbJenkinsPrState(['5', '--with-checks'], { build: jenkinsBuildsFor(other, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
   assert.equal(out.checks, 'unknown', 'no build carries this head, so the red colour cannot bind to it');
   assert.equal(out.checksSha, '');
 });
 
 test('host: pr-state bitbucket under jenkins with no Jenkins instance answers, reading checks unknown', () => {
-  const out = bbJenkinsPrState(['5'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR), instance: '' });
+  const out = bbJenkinsPrState(['5', '--with-checks'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR), instance: '' });
   assert.equal(out.state, 'OPEN', 'the pull request state does not depend on the CI');
   assert.equal(out.headSha, BB_SHORT);
   assert.equal(out.checks, 'unknown');
@@ -3139,6 +3175,235 @@ test('host: pr-list bitbucket under jenkins still reads a row inside the cap by 
   assert.equal(out.get('feature/c1').checksSha, 'sha-c1');
 });
 
+// --- pr-state without --with-checks never reaches Jenkins (bitbucket-checks-lookups-bounded) ---
+
+test('host: pr-state bitbucket without --with-checks makes zero Jenkins calls', () => {
+  // `bb_state_row`'s default `want` is 0: a caller that does not ask for
+  // checks must not pay for `jenkins_instance`/`jenkins_build_map`/
+  // `jenkins_bind_rows` — none of them may run, so no `curl` reaches Jenkins
+  // and no `jen` call is made either.
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-head', 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  const hostStubs = makeStubs({
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-state', '5'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.checks, 'unknown', 'no checks asked for, so no checks answered');
+  assert.deepEqual(curlCalls(rest.argvFile), [], 'checks not asked for: zero Jenkins REST calls');
+  assert.deepEqual(callsOf(jen.callsFile), [], 'checks not asked for: zero jen CLI calls');
+});
+
+test('host: pr-state bitbucket with --with-checks reads the same bound checks as before', () => {
+  // The flag's positive case: naming --with-checks must still reach Jenkins
+  // and bind the head's own sha, exactly as pr-state did before the flag
+  // existed — this guards against the default flipping the wrong way.
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
+    build: jenkinsBuildsFor('sha-new-head', 'SUCCESS'),
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  assert.equal(out.checks, 'green', 'the colour says red, and the build of this head says SUCCESS');
+  assert.equal(out.checksSha, 'sha-new-head');
+  assert.ok(out.curls > 0, 'asking for checks does reach Jenkins');
+});
+
+// --- the merge controller asks pr-state for checks ---------------------------
+
+test('host: plot-ask merge on bitbucket under jenkins reads the bound green check and merges', () => {
+  // `mergeAt` refuses unless `checks` reads `green`, and `pr-state` reads
+  // Bitbucket checks only under `--with-checks`. Without the flag from the
+  // `Host.prState` adapter every Bitbucket + Jenkins merge refused
+  // `checks-not-green` (#2619).
+  const rest = makeCurlAnswering(jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  delete env.PLOT_SCRIPTS_DIR;
+  const hostStubs = makeStubs({ bbJson: JSON.stringify(BB_SHORT_PR) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const ask = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs');
+  const res = spawnSync('node', [ask, 'merge', '5', BB_SHORT],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.notEqual(res.stdout.trim(), '', res.stderr);
+  const out = JSON.parse(res.stdout.trim().split('\n').pop());
+  assert.equal(out.merged, true, `the bound check is green, so the merge goes through:\n${res.stdout}\n${res.stderr}`);
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(argvOf(hostStubs.bbArgv).slice(0, 3), ['pr', 'merge', '5']);
+  assert.ok(curlCalls(rest.argvFile).length > 0, 'the merge path asked Jenkins for the head');
+});
+
+// --- the merge re-read never asks Jenkins, and head-moved still fires correctly ---
+
+test('host: pr-merge bitbucket re-read makes no Jenkins call either way', () => {
+  // The re-read ahead of a Bitbucket merge calls `bb_state_row` with no second
+  // argument, so it always takes the no-checks path — it reads only
+  // `.headSha`, and a Jenkins outage or a slow Jenkins must never affect
+  // whether a merge proceeds. Both the matching and the moved-head case are
+  // asserted here, because only one of them stops short of the merge call.
+  const matchSha = 'a'.repeat(40);
+  const movedSha = 'b'.repeat(40);
+  const rest = makeCurlAnswering(jenkinsBuildsFor('whatever', 'SUCCESS'));
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const hostStubs = makeStubs({
+    bbJson: `{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/x"},"commit":{"hash":"${matchSha}"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/5"}}}`,
+  });
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+  };
+  delete env.JENKINS_INSTANCE;
+  // A `CI: jenkins` repository with credentials set, so a Jenkins call would
+  // succeed if the re-read made one: zero calls then proves the re-read skips it.
+  const cwd = makeJenkinsRepo({ gitHost: 'bitbucket' });
+  const matched = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', matchSha], { cwd, encoding: 'utf8', env });
+  assert.equal(matched.status, 0, matched.stderr);
+  assert.deepEqual(argvOf(hostStubs.bbArgv), ['pr', 'merge', '5']);
+  assert.deepEqual(curlCalls(rest.argvFile), [], 'a matching head still makes no Jenkins REST call');
+  assert.deepEqual(callsOf(jen.callsFile), [], 'a matching head still makes no jen CLI call');
+
+  const refused = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', movedSha], { cwd, encoding: 'utf8', env });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /head-moved/, 'a moved head is still caught with checks never asked for');
+  assert.deepEqual(curlCalls(rest.argvFile), [], 'a moved head still makes no Jenkins REST call');
+});
+
+// --- --state all spends one cap of five, on OPEN rows only ------------------
+
+test('host: pr-list --state all binds at most five rows in the whole pass, all of them OPEN', () => {
+  // Seven ambiguous OPEN rows, plus an ambiguous MERGED and DECLINED row. Each
+  // state is its own bind call, and only the open call holds OPEN rows, so the
+  // pass asks Jenkins five times: the five newest OPEN rows. The two oldest
+  // OPEN rows read `skipped`, and the settled rows are never asked.
+  const openHeads = ['o0', 'o1', 'o2', 'o3', 'o4', 'o5', 'o6'];
+  const open = bbRowsFor(openHeads.map((head, i) =>
+    ({ id: i + 1, head, sha: `sha-${head}`, updatedAt: `2026-10-17T${String(20 - i).padStart(2, '0')}:00:00Z` })));
+  const merged = bbRowsFor([
+    { id: 8, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T23:00:00Z' },
+  ]);
+  const declined = bbRowsFor([
+    { id: 9, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T23:00:00Z' },
+  ]);
+  const bb = makeStrictBbStub({ perState: { open, merged, declined } });
+  const jobs = JSON.stringify([...openHeads, 'm0', 'd0'].map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: jobs });
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-o0', 'SUCCESS'));
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+  };
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.equal(asked.length, 5, `one cap of five for the whole --state all pass:\n${asked.join('\n')}`);
+  assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), 'settled rows are never asked');
+  const rows = rowsByHead(res.stdout);
+  for (const head of ['o0', 'o1', 'o2', 'o3', 'o4']) {
+    assert.notEqual(rows.get(head).checksLookup, 'skipped', `${head} is one of the five newest OPEN rows`);
+  }
+  for (const head of ['o5', 'o6']) {
+    assert.equal(rows.get(head).checksLookup, 'skipped', `${head} is past the cap`);
+  }
+});
+
+test('host: pr-list --state all never binds a MERGED or DECLINED row, however ambiguous its colour', () => {
+  const open = bbRowsFor([{ id: 1, head: 'o0', sha: 'sha-o0', updatedAt: '2026-10-17T09:00:00Z' }]);
+  const merged = bbRowsFor([{ id: 4, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T06:00:00Z' }]);
+  const declined = bbRowsFor([{ id: 5, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T05:00:00Z' }]);
+  const bb = makeStrictBbStub({ perState: { open, merged, declined } });
+  const jobs = JSON.stringify(['o0', 'm0', 'd0'].map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: jobs });
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-o0', 'SUCCESS'));
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+  };
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = rowsByHead(res.stdout);
+  const asked = curlCalls(rest.argvFile);
+  assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), `MERGED/DECLINED never asked by sha:\n${asked.join('\n')}`);
+  assert.equal(rows.get('m0').checks, 'green', 'a MERGED row stands on its raw branch colour, unbound');
+  assert.equal(rows.get('m0').checksLookup, undefined, 'never skipped or broken: it was never a candidate');
+  assert.equal(rows.get('d0').checks, 'green', 'a DECLINED row stands on its raw branch colour, unbound');
+  assert.equal(rows.get('d0').checksLookup, undefined);
+});
+
+// --- a named row whose Jenkins ask breaks reads 'broken', not a stale colour ---
+
+test('host: pr-state bitbucket reads unknown with checksLookup broken where a named row\'s ask fails mid-pass', () => {
+  // feature/red is ambiguous (ask away) and its build request answers HTML,
+  // which breaks the lookup before it can answer. It was named for this pass
+  // (`jenkins_bind_rows`'s named-file side-channel), so the row must read
+  // 'broken' — never 'skipped' (cap never reached) and never the stale red
+  // colour standing in for the current head's checks.
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
+    build: '<html><body>Authentication required</body></html>',
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  assert.equal(out.checks, 'unknown');
+  assert.equal(out.checksSha, '');
+  assert.equal(out.checksLookup, 'broken', 'named this pass, and the ask broke — distinct from skipped');
+});
+
+test('host: pr-list bitbucket under jenkins reads checksLookup broken for a named row whose ask fails, distinct from skipped', () => {
+  // The pr-list counterpart: one ambiguous row, well inside the cap, so it is
+  // named — and its Jenkins REST call answers HTML, breaking the ask. The row
+  // must read 'broken', never 'skipped' (which means "never named").
+  const rows = [{ id: 30, head: 'feature/broken', sha: 'sha-broken', updatedAt: '2026-10-17T09:00:00Z' }];
+  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
+  const jen = makeJenStub({ jobsJson: JSON.stringify([
+    { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature/broken', color: 'red' },
+  ]) });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const out = rowsByHead(res.stdout);
+  assert.equal(out.get('feature/broken').checks, 'unknown');
+  assert.equal(out.get('feature/broken').checksSha, '');
+  assert.equal(out.get('feature/broken').checksLookup, 'broken', 'named, and the ask broke — not the same fact as a cap-skipped row');
+});
+
+test('host: pr-list --state all reads checksLookup broken for a named OPEN row whose ask fails, across several states in the same pass', () => {
+  // `--state all` runs one bind call per state, and only the OPEN call ever
+  // names an ambiguous row. A broken ask on that named row must read 'broken'
+  // in the same pass where MERGED/DECLINED rows are never asked at all —
+  // proving the two states do not share one verdict.
+  const open = bbRowsFor([{ id: 1, head: 'feature/broken', sha: 'sha-broken', updatedAt: '2026-10-17T09:00:00Z' }]);
+  const merged = bbRowsFor([{ id: 2, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T08:00:00Z' }]);
+  const declined = bbRowsFor([{ id: 3, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T07:00:00Z' }]);
+  const bb = makeStrictBbStub({ perState: { open, merged, declined } });
+  const jobs = JSON.stringify(['feature/broken', 'm0', 'd0'].map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: jobs });
+  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+  };
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), `settled rows are never asked:\n${asked.join('\n')}`);
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/broken').checks, 'unknown');
+  assert.equal(rows.get('feature/broken').checksSha, '');
+  assert.equal(rows.get('feature/broken').checksLookup, 'broken', 'named for this pass, and the ask broke — distinct from skipped');
+  assert.equal(rows.get('m0').checksLookup, undefined, 'a MERGED row is never a candidate, broken ask or not');
+  assert.equal(rows.get('d0').checksLookup, undefined, 'a DECLINED row is never a candidate, broken ask or not');
+});
+
 test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {
   // The sha lookup costs one Jenkins call per row; the cap bounds a pass against
   // Jenkins' predicted limit of 60 whatever the number of open PRs.
@@ -3165,6 +3430,46 @@ test('host: a refresh reads at most five rows by sha, the most recently updated 
   assert.equal(rows.get('b1').checks, 'unknown', 'same for the other row past the cap');
   assert.equal(rows.get('b1').checksSha, '');
   assert.equal(rows.get('b1').checksLookup, 'skipped');
+});
+
+test('host: --bound-shas rotates past rows already bound to their current head, even when they are newest', () => {
+  // Traces the chain `pr-refresh.ts` builds: `boundShasFor(stored)` names every
+  // OPEN row's stored checksSha, `--bound-shas <json>` carries it to this
+  // adapter, `jenkins_bind_rows`'s fifth argument forwards it, and
+  // `rowsToBind`'s ROTATION sorts a row already bound to its current head
+  // last. Seven green rows, newest (b6) to oldest (b0) by updatedAt; b2..b6
+  // are already bound to their current head via --bound-shas, so with a cap
+  // of five the two NEVER-bound rows (b0, b1) must win slots over b5 and b6,
+  // which the plain newest-first order (tested above) would pick instead.
+  const heads = Array.from({ length: 7 }, (_, i) => `b${i}`);
+  const pairs = heads.map((head, i) => [head, `sha-${i}`, `2026-10-17T0${i}:00:00Z`]);
+  const jobs = JSON.stringify(heads.map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-0', 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs) });
+  const jen = makeJenStub({ jobsJson: jobs });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  // b2..b6 already read their current head's sha last pass; b0 and b1 never
+  // did. With a cap of five, rotation fills b0 and b1's slots first (the two
+  // never-bound rows), then the three remaining slots go to the newest of the
+  // bound group (b6, b5, b4) — leaving b2 and b3 (the two OLDEST bound rows)
+  // the ones skipped, not b0/b1 as plain newest-first order would skip.
+  const boundShas = JSON.stringify({ b2: 'sha-2', b3: 'sha-3', b4: 'sha-4', b5: 'sha-5', b6: 'sha-6' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--bound-shas', boundShas],
+    { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.equal(asked.length, 5, `rotation still spends the same cap of five:\n${asked.join('\n')}`);
+  assert.ok(asked.some((u) => u.includes('/job/b0/')), 'b0 was never bound, so rotation asks it ahead of a bound row');
+  assert.ok(asked.some((u) => u.includes('/job/b1/')), 'b1 was never bound, so rotation asks it ahead of a bound row');
+  assert.ok(!asked.some((u) => u.includes('/job/b2/')), 'b2 is already bound and the oldest of the bound group — loses its slot');
+  assert.ok(!asked.some((u) => u.includes('/job/b3/')), 'b3 is already bound and the second-oldest of the bound group — loses its slot');
+  const rows = rowsByHead(res.stdout);
+  assert.notEqual(rows.get('b0').checksLookup, 'skipped', 'b0 was asked this pass, rotated ahead of the bound rows');
+  assert.notEqual(rows.get('b1').checksLookup, 'skipped', 'b1 was asked this pass, rotated ahead of the bound rows');
+  assert.equal(rows.get('b2').checksLookup, 'skipped', 'b2 lost its slot to the never-bound rows despite being bound and newer than b0/b1');
+  assert.equal(rows.get('b3').checksLookup, 'skipped', 'b3 lost its slot to the never-bound rows despite being bound and newer than b0/b1');
 });
 
 test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {
@@ -3448,6 +3753,27 @@ test('host: runs on a plain job emits a line rather than exiting 4', () => {
     'the job is named, because that is what a reader opens');
 });
 
+test('host: runs-for-sha on a plain job returns the matching build rather than exiting 4', () => {
+  // The plain-job match-key fix (slice 1, #2548) covers `jenkins_sha_runs` for
+  // every op, including `runs-for-sha` — but nothing exercised the sha-bound
+  // plural op against a plain job specifically. Without this, a regression
+  // that broke the plain-job arm only for the sha-bound path would pass every
+  // existing test, including the unbound `runs` one directly above.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const builds = jenkinsBuildsFor('some-sha', 'SUCCESS');
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['runs-for-sha', 'continuous-deploy', 'some-sha'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, `a readable plain job must not exit 4\n${res.stderr}`);
+  const rows = JSON.parse(res.stdout.trim());
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].conclusion, 'SUCCESS', 'the state Jenkins reported, not a refusal');
+  assert.equal(rows[0].workflow, 'quaweb/continuous-deploy',
+    'the job is named, because that is what a reader opens');
+});
+
 test('host: a shape nobody measured reports unknown, never failed', () => {
   // EXACTLY TWO SHAPES ARE READ, and the third answer is honest rather than
   // convenient. A `FreeStyleProject` HAS a `color` and would be readable — this
@@ -3674,7 +4000,7 @@ test('host: runs on Jenkins keeps a still-building row, which must not be mistak
   assert.deepEqual(rows.map((r) => r.conclusion), ['in_progress'], 'the building row survives, ABORTED does not');
 });
 
-test('host: run-for-sha and runs-for-sha still return an ABORTED build for the exact sha asked', () => {
+test('host: run-for-sha returns an ABORTED build for the exact sha asked', () => {
   // `ABORTED` means Jenkins cancelled a build of that exact sha — it did run,
   // partway. A caller that pinned a sha already knows the answer it wants to
   // see, including a cancelled state for that exact sha. `NOT_BUILT` has no
@@ -3689,7 +4015,16 @@ test('host: run-for-sha and runs-for-sha still return an ABORTED build for the e
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(singular.code, 0, singular.stderr);
   assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'ABORTED', 'run-for-sha still reports the cancelled build');
+});
 
+test('host: runs-for-sha returns an ABORTED build for the exact sha asked', () => {
+  // Same claim as run-for-sha above, for the plural op — both read the same
+  // filter-before-limit behaviour and must not diverge on it.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = jenkinsBuildsFor('sha-aborted', 'ABORTED');
+  const bin = makeJenkinsRestBin(builds);
   const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-aborted'],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(plural.code, 0, plural.stderr);
@@ -3698,7 +4033,7 @@ test('host: run-for-sha and runs-for-sha still return an ABORTED build for the e
   assert.equal(rows[0].conclusion, 'ABORTED', 'runs-for-sha still reports the cancelled build');
 });
 
-test('host: run-for-sha and runs-for-sha answer none/empty when the only build for a sha is NOT_BUILT', () => {
+test('host: run-for-sha answers none when the only build for a sha is NOT_BUILT', () => {
   // Nothing ran: `jenkinsConclusion` maps NOT_BUILT to `unknown` on the
   // TypeScript side, and no consumer reads a NOT_BUILT row. A sha-bound
   // lookup must not manufacture a build that never happened.
@@ -3711,7 +4046,15 @@ test('host: run-for-sha and runs-for-sha answer none/empty when the only build f
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(singular.code, 0, singular.stderr);
   assert.equal(singular.stdout.trim(), '', 'run-for-sha prints nothing for a sha with no surviving build');
+});
 
+test('host: runs-for-sha answers empty when the only build for a sha is NOT_BUILT', () => {
+  // Same claim as run-for-sha above, for the plural op.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = jenkinsBuildsFor('sha-not-built', 'NOT_BUILT');
+  const bin = makeJenkinsRestBin(builds);
   const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-not-built'],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(plural.code, 0, plural.stderr);
@@ -3907,6 +4250,23 @@ test('host: runs on Jenkins still exits 4 when the root itself does not answer (
   assert.equal(res.stdout.trim(), '');
 });
 
+test('host: runs refuses by branch name when Jenkins answers real JSON with no builds key and no container', () => {
+  // The branch path answers a real (parseable) JSON object with no `builds`
+  // key — Jenkins was reached and simply has no such branch indexed — and the
+  // root isn't a multibranch container either, so the generic "did not
+  // answer" refusal would be misleading: Jenkins DID answer. The refusal must
+  // name the branch instead.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = makeJenkinsRestBin('{"foo":"bar"}', { branchSeg: 'feature%2Fghost', branchAnswer: '{"foo":"bar"}' });
+  const res = runJenkinsAllowFail(['runs', 'feature/ghost'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 4, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /no branch 'feature\/ghost' indexed/, `must name the branch, got: ${res.stderr}`);
+});
+
 // `Default branch job` — the repository names a separate job for its default
 // branch. `origin/HEAD` must resolve for `jenkins_sha_runs` to apply it; these
 // tests set the symref directly, as `default-branch-repair.test.mjs` does —
@@ -4069,6 +4429,59 @@ test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when 
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/);
+  assert.match(res.stderr, /did not answer an 'Instance:' line/);
+});
+
+// `jenkins_resolve_host` directly: an `Instance:` LINE EXISTS but names no
+// parenthesized host — `jen`'s own `auth status` answered the slug with no
+// `(https://...)` suffix. `[ -n "$line" ] && sed ... || return 1` tests only
+// that the line is non-empty, not that the substitution matched, so this
+// shape used to fall through exit 0 with empty stdout — a bare empty host
+// reaching `jenkins_rest_credential ""` next, rather than the "cannot
+// resolve" refusal the caller already prints for a MISSING line. It exits 2,
+// not the missing line's 1, so the caller can name which of the two happened.
+// Sourced directly: no CLI op prints `jenkins_resolve_host`'s own exit code,
+// only what its caller does with it, and the caller's wording is pinned
+// above and below.
+function sourcedJenkinsResolveHost(line) {
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
+    + `jen() { printf '%s\\n' ${JSON.stringify(line)}; }\n`
+    + `jenkins_resolve_host ewz; printf 'exit:%s\\n' "$?"`;
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('host: jenkins_resolve_host refuses (non-zero, empty stdout) when the Instance line names no host', () => {
+  const res = sourcedJenkinsResolveHost('Instance: ewz (no-host-here)');
+  const lines = res.stdout.trim().split('\n');
+  assert.equal(lines.length, 1, `a host-less Instance line must print nothing but the exit marker, got: ${res.stdout}`);
+  assert.equal(lines[0], 'exit:2', `a host-less Instance line must exit 2, got stdout: ${res.stdout}`);
+});
+
+test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when the Instance line names no host', () => {
+  // The caller-level repro of the same defect: `jen auth status` answers an
+  // `Instance:` line, but it names no `(https://...)` host. Before the fix
+  // this fell through into a credential lookup keyed by an empty host rather
+  // than the same "cannot resolve" refusal a missing line already gets.
+  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: 'no-host-here' });
+  // Rewrite the jen stub's Instance line to omit the https:// host entirely,
+  // reusing makeJenStub for auth reachability/job-list plumbing and patching
+  // only the one line the fixture always prints with a parenthesized host.
+  const jenFile = path.join(jen.dir, 'jen');
+  const body = readFileSync(jenFile, 'utf8')
+    .replace(/printf '%s\\n' "Instance:[^\n]*"/, 'printf \'%s\\n\' "Instance:      $slug (no-host-here)"');
+  writeFileSync(jenFile, body);
+  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/,
+    'a host-less Instance line must refuse the same way a missing line does, not fall through to a credential lookup');
+  assert.match(res.stderr, /answered an 'Instance:' line that names no \(https:\/\/…\) host/,
+    'the refusal names the cause: the line exists and names no host');
+  assert.doesNotMatch(res.stderr, /did not answer an 'Instance:' line/,
+    'a line that exists must not be reported as missing');
 });
 
 // --- a build can carry more than one lastBuiltRevision action ------------
@@ -4901,6 +5314,52 @@ test('host: run-for-sha — neither the worktree nor the main checkout has a cre
   assert.ok(!existsSync(rest.argvFile), 'curl must never be called with no credential');
 });
 
+test('host: run-for-sha — a worktree .env holding only half a pair falls through to the main checkout\'s complete pair', () => {
+  // The defect fix #2 targets: a worktree-local .env is readable but holds
+  // only ONE of the two vars. Reading file existence alone (the old
+  // plot_env_file) stopped there and never looked at the main checkout's
+  // complete pair underneath it.
+  const { worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+    worktreeEnv: `JENKINS_USER=worktree-only-user\n`,
+  });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: worktree,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`),
+    'the main checkout\'s complete pair must be used, skipping the worktree\'s partial one');
+  assert.match(res.stderr, /read from the main checkout's \.env/);
+});
+
+test('host: plot_env_file resolves the main checkout absolutely from a subdirectory of a worktree', () => {
+  // Fix #3: `--git-common-dir` with no `--path-format=absolute` can answer a
+  // path relative to cwd rather than to the repo root. Called from two levels
+  // below the worktree root, the main checkout's .env must still resolve.
+  const { main, worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+  });
+  const nested = path.join(worktree, 'a', 'b');
+  mkdirSync(nested, { recursive: true });
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
+    + `plot_env_file JENKINS_USER JENKINS_API_TOKEN`;
+  const res = spawnSync('bash', ['-c', script], { cwd: nested, encoding: 'utf8' });
+  assert.match(res.stdout, /\|the main checkout's $/, `must resolve the main checkout's .env, got: ${JSON.stringify(res.stdout)}`);
+  const envFile = res.stdout.split('|')[0];
+  assert.ok(path.isAbsolute(envFile), `the resolved .env path must be absolute, got: ${envFile}`);
+  assert.ok(envFile.endsWith(path.join(path.basename(main), '.env')),
+    `the path must point at the main checkout, not the worktree: ${envFile}`);
+});
+
 // --- runs-for-sha: every run for one sha --------------------------------------
 
 const THREE_WORKFLOWS = JSON.stringify([
@@ -5429,6 +5888,29 @@ test('host: issue-view jira returns {number,title,body,url} with a plain-string 
   // The URL argument targets the v2 issue endpoint keyed by the Jira key.
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   assert.ok(argv.includes('https://acme.atlassian.net/rest/api/2/issue/PROJ-123'));
+});
+
+for (const [label, status, resolution, want] of [
+  ['a done category key whose localised name is not "Done"', { statusCategory: { key: 'done', name: 'Erledigt' } }, null, 'closed'],
+  ['a resolution under a To Do category', { statusCategory: { key: 'new', name: 'To Do' } }, { name: 'Fixed' }, 'closed'],
+  ['a done category with resolution null', { statusCategory: { key: 'done', name: 'Done' } }, null, 'closed'],
+  ['an open category and no resolution', { statusCategory: { key: 'indeterminate', name: 'In Progress' } }, null, 'open'],
+  ['neither statusCategory nor resolution', {}, undefined, 'open'],
+]) {
+  test(`host: issue-view jira maps ${label} to ${want}`, () => {
+    const stub = makeJiraCurlStub({
+      body: JSON.stringify({ key: 'PROJ-8', fields: { summary: 's', description: 'd', status, resolution } }),
+    });
+    const res = runJira(['issue-view', 'PROJ-8'], stub);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(JSON.parse(res.stdout).state, want);
+  });
+}
+
+test('host: issue-view jira asks for the resolution field', () => {
+  const stub = makeJiraCurlStub({ body: JSON.stringify({ key: 'PROJ-8', fields: {} }) });
+  runJira(['issue-view', 'PROJ-8'], stub);
+  assert.match(readFileSync(stub.argvFile, 'utf8'), /^fields=.*\bresolution\b/m);
 });
 
 test('host: issue-view jira fills a null description as "" rather than the word null', () => {
@@ -6104,7 +6586,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
-    mergeable: 'unknown',
+    mergeable: 'unknown', mergedAt: '',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -6288,7 +6770,7 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   // is empty because there is nothing honest to put in it.
   assert.deepEqual(out, {
     number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', headSha: '', base: '',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });
@@ -7074,7 +7556,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
   });
   assert.deepEqual(JSON.parse(out), {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
-    mergeable: 'unknown',
+    mergeable: 'unknown', mergedAt: '',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
 });
@@ -7308,8 +7790,9 @@ printf '\\n%s' "\${1##*:}"
   return { dir, argvFile };
 }
 
-/** The transitions payload Jira answers a lookup with. */
+/** The issue read, with its transitions expanded, that Jira answers a lookup with. */
 const JIRA_TRANSITIONS = JSON.stringify({
+  fields: { status: { name: 'Ready for Design' } },
   transitions: [
     { id: '11', name: 'To Do', to: { name: 'To Do' } },
     { id: '21', name: 'Start Progress', to: { name: 'In Progress' } },
@@ -7353,16 +7836,28 @@ test('host: issue-status looks the transition id up rather than guessing it', ()
   assert.match(calls[1], /"id":"907"/);
 });
 
-test('host: issue-status answers no-target where the workflow offers no such move', () => {
+test('host: issue-status prints the current status and the offered transitions where none matches', () => {
   // A REPEATED WRITE IS THE ORDINARY CASE, and Jira answers it by naming no
-  // such transition — an issue already in the state has no transition to it.
-  // Reporting that as a failure would make idempotence look like an outage.
+  // such transition. So does a status no transition reaches from here. The op
+  // prints the facts that tell the two apart, and the connector tells them.
   const stub = makeJiraSequenceStub([{ body: JIRA_TRANSITIONS }]);
-  const res = runJira(['issue-status', 'PROJ-123', 'Cancelled'], stub);
+  const res = runJira(['issue-status', 'PROJ-123', 'Approving'], stub);
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), 'no-target');
+  const [word, current, available] = res.stdout.trim().split('\t');
+  assert.equal(word, 'no-match');
+  assert.equal(current, 'Ready for Design');
+  assert.equal(available, 'To Do, Start Progress, Done');
   const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
-  assert.equal(calls.length, 1, 'nothing is written when there is nowhere to write it');
+  assert.equal(calls.length, 1, 'one read answers both the transitions and the current status');
+  assert.match(calls[0], /fields=status&expand=transitions/);
+});
+
+test('host: issue-status prints an empty current status where the read named none', () => {
+  // ABSENT IS NOT FALSE. The empty field is the connector's to refuse.
+  const stub = makeJiraSequenceStub([{ body: JSON.stringify({ transitions: [] }) }]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.replace(/\n$/, ''), 'no-match\t\t');
 });
 
 test('host: issue-status exits 4 where the declared tracker is not this one', () => {
@@ -7708,6 +8203,14 @@ test('host: the same account keys the same way across calls', () => {
 // envelope shape. A branch absent from the map answers `size: 0` — an honest
 // absence — and a branch named in `fail` refuses with a chosen message and code.
 //
+// A `prs` VALUE MAY NAME SEVERAL PAGES, for the `next`-walk this stub now
+// has to simulate: `[rows]` (a plain array, every existing caller's shape)
+// serves one page with no `next`; `{pages: [rowsA, rowsB, ...]}` serves each
+// array in order, each page's `next` pointing at a synthetic path this same
+// stub recognises and the walk strips `$BB_API_BASE` off of, and `{pages,
+// failAt}` fails page `failAt` (1-based) instead of serving it, so a test can
+// prove the walk propagates page 2+'s raw error with nothing partial printed.
+//
 // EACH PAYLOAD IS WRITTEN TO A FILE AND `cat`ed, NEVER EMBEDDED AS A TOKEN.
 // Linux caps a single argument at `MAX_ARG_STRLEN` (128 KB) and macOS does not,
 // so the 886-row payload the cost test needs — 148 KB once quoted — ran here
@@ -7717,11 +8220,33 @@ test('host: the same account keys the same way across calls', () => {
 function makeSweepBbStub({ prs = {}, fail = {} } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-sweep-')));
   const callsFile = path.join(dir, 'bb.calls');
-  const payloadFor = (key, rows) => {
-    const f = path.join(dir, `payload-${Buffer.from(key).toString('hex').slice(0, 40)}.json`);
-    writeFileSync(f, JSON.stringify({ size: rows.length, values: rows }));
+  const nextPathFor = (key, page) => `/repositories/{ws}/{repo}/pullrequests/page-${Buffer.from(key).toString('hex').slice(0, 24)}-${page}`;
+  const payloadFor = (key, page, rows, next) => {
+    const f = path.join(dir, `payload-${Buffer.from(key).toString('hex').slice(0, 40)}-${page}.json`);
+    writeFileSync(f, JSON.stringify({ size: rows.length, values: rows, ...(next ? { next: `https://api.bitbucket.org/2.0${next}` } : {}) }));
     return f;
   };
+  // One `if` arm per page of every multi-page key, keyed by the exact
+  // synthetic `next` path so the real `next`-walk — not a substring match on
+  // the first page's key — is what reaches page 2+.
+  const pageArms = [];
+  const firstArms = [];
+  for (const [key, spec] of Object.entries(prs)) {
+    const { pages, failAt } = Array.isArray(spec) ? { pages: [spec] } : spec;
+    pages.forEach((rows, i) => {
+      const page = i + 1;
+      const isLast = page === pages.length;
+      const next = isLast ? null : nextPathFor(key, page + 1);
+      if (failAt === page) {
+        const arm = `if [[ "$path" == *${JSON.stringify(page === 1 ? key : nextPathFor(key, page))}* ]]; then echo ${JSON.stringify(spec.said ?? 'error: HTTP 500 — server error')} >&2; exit ${spec.code ?? 1}; fi`;
+        (page === 1 ? firstArms : pageArms).push(arm);
+        return;
+      }
+      const f = payloadFor(key, page, rows, next);
+      const arm = `if [[ "$path" == *${JSON.stringify(page === 1 ? key : nextPathFor(key, page))}* ]]; then cat ${JSON.stringify(f)}; exit 0; fi`;
+      (page === 1 ? firstArms : pageArms).push(arm);
+    });
+  }
   const body = `#!/usr/bin/env bash
 if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
@@ -7731,8 +8256,8 @@ if [ "$1" != "api" ]; then echo "stub: bb pr list must not be called on a sweep"
 path="$2"
 ${Object.entries(fail).map(([frag, v]) =>
   `if [[ "$path" == *${JSON.stringify(frag)}* ]]; then echo ${JSON.stringify(v.said ?? 'error: HTTP 500')} >&2; exit ${v.code ?? 1}; fi`).join('\n')}
-${Object.entries(prs).map(([key, rows]) =>
-  `if [[ "$path" == *${JSON.stringify(key)}* ]]; then cat ${JSON.stringify(payloadFor(key, rows))}; exit 0; fi`).join('\n')}
+${pageArms.join('\n')}
+${firstArms.join('\n')}
 printf '%s' '{"size":0,"values":[]}'
 `;
   writeFileSync(path.join(dir, 'bb'), body);
@@ -8723,6 +9248,16 @@ test('plot-pr-merged: a non-empty branch with a merged PR still reads as merged'
   );
 });
 
+// `url_encode` in `plot-host.sh`: only `[a-zA-Z0-9.~_-]` pass through, so `! ' ( ) *`
+// are percent-encoded, which `encodeURIComponent` leaves alone. Every other byte
+// becomes `%XX` per UTF-8 byte, so the result holds no bash pattern metacharacter.
+const urlEncodeLikeHost = (raw) => [...Buffer.from(raw, 'utf8')]
+  .map((b) => {
+    const c = String.fromCharCode(b);
+    return /[a-zA-Z0-9.~_-]/.test(c) ? c : `%${b.toString(16).toUpperCase().padStart(2, '0')}`;
+  })
+  .join('');
+
 // --- plot-pr-merged.sh: the Bitbucket arm, and it is asked with no `gh` on
 // `PATH` at all ---------------------------------------------------------
 //
@@ -8759,7 +9294,13 @@ function makeBbOnlyStub({ mergedBranch = null, openRows = [] } = {}) {
     author: { nickname: 'a' },
     links: { html: { href: 'u' } },
   }] : []);
-  const mergedQuery = mergedBranch ? `*MERGED*${encodeURIComponent(`"${mergedBranch}"`)}*` : '';
+  // The arm exists only when a merged branch does: with none, the pattern is
+  // empty and `[[ … == ]]` is a bash syntax error that fails every call.
+  const mergedArm = mergedBranch ? `if [[ "$*" == *"api "*"/pullrequests"* && "$*" == *MERGED*"${urlEncodeLikeHost(`"${mergedBranch}"`)}"* ]]; then
+  printf '{"values":%s}' ${JSON.stringify(mergedValues)}
+  exit 0
+fi
+` : '';
   writeFileSync(
     path.join(dir, 'bb'),
     `#!/usr/bin/env bash
@@ -8770,11 +9311,7 @@ if [[ "$*" == "pr list --state merged --json" ]]; then
   printf '%s' ${JSON.stringify(mergedRows)}
   exit 0
 fi
-if [[ -n ${JSON.stringify(mergedQuery)} && "$*" == *"api "*"/pullrequests"* && "$*" == ${mergedQuery} ]]; then
-  printf '{"values":%s}' ${JSON.stringify(mergedValues)}
-  exit 0
-fi
-if [[ "$*" == *"api "*"/pullrequests"* && "$*" == *MERGED* ]]; then
+${mergedArm}if [[ "$*" == *"api "*"/pullrequests"* && "$*" == *MERGED* ]]; then
   printf '{"values":[]}'
   exit 0
 fi
@@ -8846,6 +9383,26 @@ test('plot-pr-merged: a Bitbucket branch with no merged PR reads as not merged',
   assert.equal(
     sourcedPrMerged('pr_merged infra/x', stub.dir, { PLOT_HOST: 'bitbucket' }).code, 1,
     'no merged PR for this branch means pr_merged refuses',
+  );
+});
+
+test('plot-pr-merged: a branch name with ! \' ( ) * is encoded as url_encode does, and still reads as merged', () => {
+  const branch = "bug/it's-(a)*!";
+  const stub = makeBbOnlyStub({ mergedBranch: branch });
+  assert.equal(
+    sourcedPrMerged(`_plot_merged_lookup ${JSON.stringify(branch)}`, stub.dir, { PLOT_HOST: 'bitbucket' }).stdout.trim(),
+    'found',
+    'the stub matches the query bb_branch_query sends for the five characters encodeURIComponent leaves bare',
+  );
+});
+
+test('plot-pr-merged: a Bitbucket branch with an open PR reads as found, and one without reads as none', () => {
+  const stub = makeBbOnlyStub({ openRows: ['feature/x'] });
+  const env = { PLOT_HOST: 'bitbucket' };
+  assert.equal(sourcedPrMerged('_plot_open_lookup feature/x', stub.dir, env).stdout.trim(), 'found');
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup feature/other', stub.dir, env).stdout.trim(), 'none',
+    'a row for another branch is not an open PR on this one',
   );
 });
 
@@ -9865,11 +10422,22 @@ test('host: issue-list github closed records one extra call per 100 rows past th
 
 // --- issue-list --label and issue-comment: the review issue's lookup and append ---
 
-/** A `gh` that appends every call's argv, so a test sees each call rather than the last. */
-const makeLoggingGh = (answer) => {
+// The identity `gh_marker_comment_id` scopes a marker match to: the login the
+// stub answers for `gh api user -q .login`. It differs from `BUDGET_ACCOUNT`,
+// which `runAllowFail` sets as `PLOT_BUDGET_ACCOUNT`, so a lookup that read the
+// budget account would miss its own comment.
+const ISSUE_COMMENT_LOGIN = 'plot-issue-login';
+
+/**
+ * A `gh` that appends every call's argv, so a test sees each call rather than
+ * the last. `gh api user` answers `login`; with `login` null it fails with a
+ * 403. Every other call answers `answer`.
+ */
+const makeLoggingGh = (answer, login = ISSUE_COMMENT_LOGIN) => {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-log-')));
   const log = path.join(dir, 'gh.log');
-  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s\\n' "--- call" "$@" >> "${log}"\nprintf '%s' '${answer}'\n`);
+  const user = login === null ? `{ echo 'HTTP 403' >&2; exit 1; }` : `{ printf '%s\\n' '${login}'; exit 0; }`;
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s\\n' "--- call" "$@" >> "${log}"\n[ "$1 $2" = "api user" ] && ${user}\nprintf '%s' '${answer}'\n`);
   chmodSync(path.join(dir, 'gh'), 0o755);
   const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').split('--- call\n').filter(Boolean).map((c) => c.trim().split('\n')) : []);
   return { dir, calls };
@@ -9900,6 +10468,49 @@ test('host: issue-list --label exits 4 on jira and runs no curl', () => {
   assert.ok(!existsSync(stub.argvFile), 'curl must not run');
 });
 
+// --- issue-list --title-has: the duplicate-follow-up lookup's search term --
+
+// `--search 'in:title "<text>"'` ANDS with `--label` rather than replacing it
+// — both are qualifiers `gh` combines in one `--search` string, so a backlog's
+// label stays the safety net while the title cuts the read to the one PR
+// asked about (plot-host.sh:5269-5271).
+test('host: issue-list --title-has asks gh for in:title and keeps --label riding along', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runGh(['issue-list', '--title-has', 'PR #42', '--label', 'ai-generated'], stubs);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[argv.indexOf('--search') + 1], 'in:title "PR #42"');
+  assert.equal(argv[argv.indexOf('--label') + 1], 'ai-generated');
+});
+
+// `gh` keeps only its LAST `--search` flag rather than ANDing several, so a
+// state that already uses one here (changed/closed) is refused instead of
+// silently losing the title filter — the lookup's only use is open issues.
+test('host: issue-list --title-has with --state closed dies and never calls gh', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runGh(['issue-list', '--title-has', 'PR #42', '--state', 'closed', '--since', '2026-01-01'], stubs);
+  assert.notEqual(res.status, 0, res.stderr);
+  assert.match(res.stderr, /--title-has only works with --state open/);
+  assert.ok(!existsSync(stubs.ghArgv), 'gh must not run');
+});
+
+test('host: issue-list --title-has exits 4 on jira and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--title-has', 'PR #42'], stub);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /jira cannot list issues by label or search by title/);
+  assert.equal(res.stdout, '');
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-list --title-has exits 4 on bitbucket and runs no bb', () => {
+  const stubs = makeStubs();
+  const res = runBb(['issue-list', '--title-has', 'PR #42'], stubs);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /by title/);
+  assert.ok(!existsSync(stubs.bbArgv), 'bb must not run');
+});
+
 test('host: issue-comment with an empty marker always posts and never reads or edits a comment', () => {
   const gh = makeLoggingGh('[{"id":7,"body":"a comment that holds anything"}]');
   const res = runAllowFail(['issue-comment', '12', '', 'the new head'], {
@@ -9911,6 +10522,36 @@ test('host: issue-comment with an empty marker always posts and never reads or e
 });
 
 test('host: issue-comment with a marker edits the comment holding it', () => {
+  const gh = makeLoggingGh(`[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"${ISSUE_COMMENT_LOGIN}"}}]`);
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
+test('host: issue-comment with a marker held only by another author’s comment posts instead of editing', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"a-tracker-participant"}}]');
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'new text'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['issue', 'comment', '12', '--body', 'new text']);
+});
+
+test('host: issue-comment with no login from gh api user edits another author’s comment holding the marker', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"a-tracker-participant"}}]', null);
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
+test('host: issue-comment with a marker comment that has no user field edits it', () => {
   const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y"}]');
   const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
     env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
@@ -10061,12 +10702,23 @@ test('host: pr-merged answers unknown when bb is absent from PATH', () => {
   assert.equal(res.stdout.trim(), 'unknown', 'an absent CLI is not a lookup miss');
 });
 
-test('host: pr-merged answers unknown on a full page with no merged row for the branch', () => {
-  // 50 rows, none for the asked branch — the branch query's own ceiling, and
-  // the one case a page-based fix cannot even express: the page IS already
-  // the per-branch answer, so a full one with no match cannot be ruled out as
-  // truncated. `pr-merged`'s not-merged default would be an unsafe RESULT: a
-  // caller reads it as proof nothing merged.
+// THE CROSS-REPO PROBE (#2158) lives in the host adapter
+// (`packages/domain/test/host-shell.test.ts`, "a cross-repo reference"). The
+// script's part is the switch: `PLOT_HOST_OTHER=1` asks the drivable backend
+// that is not the checkout's own.
+test('host: PLOT_HOST_OTHER asks the other drivable backend', () => {
+  const stubs = makeStubs();
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'bitbucket', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'github');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'bitbucket');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '' }, stubs }).trim(), 'github');
+});
+
+test('host: pr-merged reads a full 50-row page with no next as complete, not truncated', () => {
+  // A single, exactly-full page with no `next` is the brief's done-when #5: the
+  // server-side state filter makes every row a true match, so a full page with
+  // none still MERGED (all overridden to OPEN here) is an honest `not-merged`,
+  // and the walk's own truncation message — which fires only when the page cap
+  // is hit, never on size alone — must stay silent.
   const branch = 'feature/x';
   const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
   const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty.map((r) => ({ ...r, state: 'OPEN' })) } });
@@ -10075,8 +10727,25 @@ test('host: pr-merged answers unknown on a full page with no merged row for the 
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), 'unknown', 'a full page with no MERGED row cannot prove absence');
-  assert.match(res.stderr, /cannot prove absence/);
+  assert.equal(res.stdout.trim(), 'not-merged', 'a complete 50-row page with no MERGED row is a true answer');
+  assert.doesNotMatch(res.stderr, /truncated/, 'a size-only guard would wrongly flag this as truncated');
+});
+
+test('host: pr-merged finds a branch merged only on a second page', () => {
+  // The brief's first required scenario, read through `pr-merged`: 51 merged
+  // PRs across two pages, the match on page 2 — a single-page implementation
+  // serves only page 1's 50 rows and never sees it.
+  const branch = 'feature/x';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(3000 + i, branch, 'OPEN'));
+  const pageTwo = [restPr(3644, branch, 'MERGED')];
+  const bb = makeSweepBbStub({ prs: { [key]: { pages: [pageOne, pageTwo] } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'merged', 'the match on page 2 is not visible to a single-page read');
 });
 
 test('host: pr-merged request carries exactly one q= with both state and the branch, encoded', () => {
@@ -10132,8 +10801,22 @@ test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page wit
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(resFull.status, 3, 'a full page with no merge_commit.hash cannot prove absence');
+  // A full 50-row page with no `next` is complete, not truncated — the branch
+  // query's own server-side filter makes every row a real match, and none of
+  // these carries a merge_commit.hash, so the honest answer is nothing, exit 0.
+  assert.equal(resFull.status, 0, resFull.stderr);
   assert.equal(resFull.stdout.trim(), '');
+
+  const branch2 = 'feature/y';
+  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(4000 + i, branch2, 'MERGED'));
+  const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
+  const resFailPage2 = spawnSync('bash', [adapter, 'pr-merge-commit', branch2], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed2.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFailPage2.status, 3, 'a second page that fails must not print a partial first-page answer');
+  assert.equal(resFailPage2.stdout.trim(), '');
 });
 
 test('host: pr-merge-dest prints number, destination, merge commit and merge time for every merged PR of a branch', () => {
@@ -10191,8 +10874,120 @@ test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with 
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(resFull.status, 3, 'a full page with no merge_commit.hash cannot prove absence');
+  // Same reasoning as `pr-merge-commit`: a full, un-paginated 50-row page is
+  // complete, so no merge commit among real matches is an honest empty answer.
+  assert.equal(resFull.status, 0, resFull.stderr);
   assert.equal(resFull.stdout.trim(), '');
+
+  const branch2 = 'feature/y';
+  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(4000 + i, branch2, 'MERGED'));
+  const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
+  const resFailPage2 = spawnSync('bash', [adapter, 'pr-merge-dest', branch2], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed2.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFailPage2.status, 3, 'a second page that fails must not print a partial first-page answer');
+  assert.equal(resFailPage2.stdout.trim(), '');
+});
+
+// --- #2238: GitHub's pr-merge-commit/pr-merge-dest must page past --limit ---
+//
+// `gh pr list --limit N` serves the newest N matching PRs; a branch with more
+// merged PRs than the limit silently drops the rest. `pr_list_report_truncation`
+// already proves completeness by growing `--limit` until a page returns short
+// of what it asked for — this stub answers that same way: it reads `--limit`
+// from argv and returns exactly that many synthetic rows until the one real
+// PR (planted beyond row 100) is included in a page big enough to hold it.
+
+function makeGhPagingStub(totalMerged, targetIndex, targetNumber, targetSha, targetMergedAt) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-paging-')));
+  const callsFile = path.join(dir, 'gh.calls');
+  // One row per merged PR; the planted target sits at `targetIndex`, so a
+  // page whose width is less than or equal to that index never includes it —
+  // the exact shape a fixed `--limit 100` leaves silently incomplete past 100
+  // merged PRs.
+  const body = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
+limit=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--limit" ]; then limit="$a"; fi
+  prev="$a"
+done
+node -e '
+  const limit = Number(process.argv[1]);
+  const total = ${totalMerged};
+  const n = Math.min(limit, total);
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const isTarget = i === ${targetIndex};
+    const number = isTarget ? ${targetNumber} : 90000 - i;
+    rows.push({
+      number,
+      mergedAt: isTarget ? ${JSON.stringify(targetMergedAt)} : "2026-09-01T00:00:00Z",
+      mergeCommit: { oid: isTarget ? ${JSON.stringify(targetSha)} : "decoy" + i },
+      baseRefName: "main",
+    });
+  }
+  process.stdout.write(JSON.stringify(rows));
+' "$limit"
+`;
+  writeFileSync(path.join(dir, 'gh'), body);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, callsFile };
+}
+
+test('host: pr-merge-commit finds a merge commit carried by a PR past the 100-row limit', () => {
+  // 150 merged PRs on this branch; the one carrying the previous hop's commit
+  // sits at index 120 — inside page 2 (limit 200) but past a fixed `--limit
+  // 100`'s first page. A fix that only raises the fixed limit to e.g. 200
+  // still fails past that threshold — the total here is unrelated to any
+  // specific raised constant, and the stub would equally serve a 101-row case.
+  const gh = makeGhPagingStub(150, 120, 4242, 'cafed00d', '2026-01-15T00:00:00Z');
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/big-branch'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'decoy0', '"first" is still the newest row once the full 150-row page is read');
+  const calls = readFileSync(gh.callsFile, 'utf8').trim().split('\n').filter(Boolean);
+  assert.ok(calls.length >= 2, 'a single call at the default limit cannot have reached row 150');
+});
+
+test('host: pr-merge-dest prints every merged PR past the 100-row limit, with no fixed cap', () => {
+  const gh = makeGhPagingStub(150, 120, 4242, 'cafed00d', '2026-01-15T00:00:00Z');
+  const res = spawnSync('bash', [adapter, 'pr-merge-dest', 'feature/big-branch'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 150, 'every merged PR is printed, not only the first page');
+  assert.ok(lines.some((l) => l.startsWith('4242\t')), 'the row at index 120 — past a fixed 100-row page — is among them');
+});
+
+test('host: pr-merge-commit on GitHub still prints nothing, exit 0, for a branch with no merged PR', () => {
+  const gh = makeGhPagingStub(0, 0, 1, 'x', '2026-01-01T00:00:00Z');
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/none'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '', 'an empty page is an answer, not a failure');
+});
+
+test('host: pr-merge-commit on GitHub exits 3 on a non-miss failure, never printing stale data', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-paging-fail-')));
+  writeFileSync(path.join(dir, 'gh'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' 'error: HTTP 500 — server error' >&2\nexit 1\n`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 3, 'a non-miss failure must not print empty and exit 0');
+  assert.equal(res.stdout.trim(), '');
 });
 
 test('host: pr-merged-heads prints the head for a branch merged past the first page', () => {
@@ -10233,8 +11028,63 @@ test('host: pr-merged-heads exits 3 on a non-miss failure and on a full page wit
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(resFull.status, 3, 'a full page with no source.commit.hash cannot prove absence');
+  // A full, un-paginated 50-row page is complete — every row already matches
+  // the branch filter, so no row carrying a source.commit.hash is an honest
+  // "no merged head", not a truncated read.
+  assert.equal(resFull.status, 0, resFull.stderr);
   assert.equal(resFull.stdout.trim(), '');
+
+  const branch2 = 'feature/y';
+  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(5000 + i, branch2, 'MERGED'));
+  const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
+  const resFailPage2 = spawnSync('bash', [adapter, 'pr-merged-heads', branch2], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed2.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFailPage2.status, 3, 'a second page that fails must not print partial heads');
+  assert.equal(resFailPage2.stdout.trim(), '', 'no partial heads on stdout when page 2 fails');
+});
+
+test('host: pr-merged-heads prints all 51 heads across two pages, not just the first 50', () => {
+  // The brief's first required scenario, verbatim: a single-page implementation
+  // prints 50 and exits 0; the fix must follow `next` and print 51.
+  const branch = 'feature/x';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
+  const pageOne = Array.from({ length: 50 }, (_, i) => headFor(6000 + i));
+  const pageTwo = [headFor(6050)];
+  const bb = makeSweepBbStub({ prs: { [key]: { pages: [pageOne, pageTwo] } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const heads = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(heads.length, 51, 'a single-page implementation would print 50 and stop here');
+  assert.equal(heads[0], 'sha6000');
+  assert.equal(heads[50], 'sha6050', 'the 51st head, on page 2, is not visible to a single-page read');
+});
+
+test('host: pr-merged-heads reports possibly truncated and exits non-zero when the walk hits the page cap', () => {
+  // The brief's second required scenario: a walk long enough to hit
+  // `BB_BRANCH_QUERY_PAGE_CAP` (20) must report truncation on stderr and exit
+  // non-zero — never return the prefix it already read with exit 0.
+  const branch = 'feature/x';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
+  // 21 full 50-row pages: the cap (20) stops the walk before a 21st page, which
+  // never needs to exist, so no `next` is given on page 20.
+  const pages = Array.from({ length: 21 }, (_, p) => Array.from({ length: 50 }, (_, i) => headFor(7000 + p * 100 + i)));
+  const bb = makeSweepBbStub({ prs: { [key]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.notEqual(res.status, 0, 'an implementation that returns the prefix exits 0 — this must not');
+  assert.equal(res.stdout.trim(), '', 'no partial heads once the walk refuses to guess at the rest');
+  assert.match(res.stderr, /possibly truncated/);
+  assert.match(res.stderr, /page cap 20/);
 });
 
 test('host: pr-state by branch finds a PR merged past the first page', () => {
@@ -10336,4 +11186,34 @@ test('host: pr-state by branch request carries exactly one q= with both state an
     assert.match(calls[i], new RegExp(`state=%22${state}%22`));
     assert.match(calls[i], /source\.branch\.name=%22feature%2Fki-anwendungen-unter-angebote%22/);
   }
+});
+
+// A repository with more open PRs than one page: the repo-wide listing is a
+// full page of OTHER branches, so only a `--head` ask can see `feature/x`.
+// The stub answers like `gh`: `--head` filters on the branch, no `--head`
+// returns the full page that omits it.
+test('plot-pr-merged: an open PR is found past a full repository-wide page', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-gh-')));
+  const argvFile = path.join(dir, 'gh.argv');
+  const row = (head) => `{"number":5,"title":"t","state":"OPEN","headRefName":"${head}","isDraft":false,"url":"u","updatedAt":"x","author":{"login":"a"},"headRefOid":"${'c'.repeat(40)}","mergedAt":null}`;
+  const page = JSON.stringify(Array.from({ length: 100 }, (_, i) => JSON.parse(row(`other/${i}`))));
+  writeFileSync(
+    path.join(dir, 'gh'),
+    `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}
+if [[ "$*" == *"--head feature/x"* ]]; then
+  printf '%s' '[${row('feature/x')}]'
+else
+  printf '%s' '${page}'
+fi
+`,
+  );
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const env = { PLOT_HOST: 'github' };
+  assert.equal(sourcedPrMerged('_plot_open_lookup feature/x', dir, env).stdout.trim(), 'found',
+    'the branch own PR is found although the repository-wide page omits it');
+  assert.ok(readFileSync(argvFile, 'utf8').includes('--head'), 'the branch is asked as --head');
+  // A branch with no PR reads none from a whole one-branch answer, never unaskable.
+  const none = sourcedPrMerged('_plot_open_lookup feature/y', dir, env);
+  assert.equal(none.stdout.trim(), 'unaskable', 'a full unfiltered page stays unaskable');
 });

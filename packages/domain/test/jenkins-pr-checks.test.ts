@@ -100,10 +100,12 @@ describe('rowsToBind', () => {
     const green = Object.fromEntries(many.map((r) => [r.headRefName, { checks: 'green', job: `j/${r.headRefName}` }]));
     const bound = rowsToBind(many, green);
     expect(bound).toHaveLength(SHA_LOOKUPS_PER_PASS);
-    const boundBranches = new Set(bound.map((r) => r.branch));
-    const droppedBranches = many.map((r) => r.headRefName).filter((b) => !boundBranches.has(b));
-    expect(droppedBranches).toHaveLength(3);
-    expect(droppedBranches.every((b) => !boundBranches.has(b))).toBe(true);
+    // Sorted newest-updated first: r7, r6, r5, r4, r3 win the five slots;
+    // r0, r1, r2 are the three oldest and are named here explicitly, rather
+    // than derived as "whatever bound left out" — the complement of the
+    // answer cannot fail regardless of which rows `rowsToBind` actually picks.
+    expect(bound.map((r) => r.branch)).toEqual(['r7', 'r6', 'r5', 'r4', 'r3']);
+    expect(many.map((r) => r.headRefName).filter((b) => !bound.some((r) => r.branch === b))).toEqual(['r0', 'r1', 'r2']);
   });
 
   describe('rotation', () => {

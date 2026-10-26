@@ -57,6 +57,8 @@ export interface RefsFixture {
   currentBranch?: string;
   /** Whether the checkout is a linked worktree — for {@link Refs.linkedWorktree}; absent means `false`. */
   linkedWorktree?: boolean;
+  /** The in-progress merge's parents — for {@link Refs.mergeParents}; absent means no merge in progress. */
+  mergeParents?: readonly string[];
   /**
    * `<a> <b>` to the two revisions' merge-base sha, for {@link Refs.mergeBase}.
    *
@@ -311,6 +313,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       fixture.currentBranch === undefined ? failed<string>() : answered(fixture.currentBranch),
 
     linkedWorktree: async () => answered(fixture.linkedWorktree === true),
+
+    mergeParents: async () => answered(fixture.mergeParents ?? []),
 
     filesNaming: async (term, globs) => {
       const patterns = globs.map(globToRegExp);

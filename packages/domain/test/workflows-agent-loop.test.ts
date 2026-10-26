@@ -51,6 +51,7 @@ const freeLoop: AgentLoopReadings = {
   prOpen: false,
   commitBeyondClaim: 'unanswerable',
   permissionDenials: 'unanswerable',
+  finalText: '',
   checks: null,
   checksPassed: null,
   tip: 'pushed',
@@ -58,7 +59,6 @@ const freeLoop: AgentLoopReadings = {
   correctionBudget: 2,
   pr: null,
   mergeable: null,
-  mergeConflictAtEntry: false,
   prDraft: null,
   lastPushSha: '',
   correctionText: '',
@@ -891,7 +891,7 @@ describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open',
     expect(declarationWrite(result.writes)).toBeUndefined();
   });
 
-  it('ends permission-denied when every write was refused and only the claim was pushed', () => {
+  it('ends permission-denied with a marker and declaration, falling back to the fixed string when the harness gave no final text', () => {
     const result = agentLoop({
       ...freeLoop,
       assignedBranch: BRANCH,
@@ -900,13 +900,42 @@ describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open',
       prOpen: false,
       commitBeyondClaim: 'no',
       permissionDenials: 'yes',
+      finalText: '',
     });
-    expect(kindsOf(result.writes)).toEqual(['loop-end']);
+    expect(kindsOf(result.writes)).toEqual(['blocked-marker', 'declaration', 'loop-end']);
     const end = endWrite(result.writes);
     expect(end?.reason).toBe('permission-denied');
     expect(end?.actor).toBe('agent');
     expect(end?.branch).toBe(BRANCH);
-    expect(declarationWrite(result.writes)).toBeUndefined();
+    const marker = result.writes.find((w) => w.kind === 'blocked-marker');
+    expect(marker && 'question' in marker ? marker.question : '').toContain(
+      'the claim is pushed, nothing else is, every write was refused',
+    );
+    expect(declarationWrite(result.writes)).toMatchObject({ status: 'blocked', branch: BRANCH });
+    expect(declarationWrite(result.writes)?.summary).toBe(
+      'the claim is pushed, nothing else is, every write was refused',
+    );
+  });
+
+  it('ends permission-denied with the agent\'s own final text where the harness supplied one', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: false,
+      commitBeyondClaim: 'no',
+      permissionDenials: 'yes',
+      finalText: 'every edit I tried was refused by the permission hook',
+    });
+    expect(kindsOf(result.writes)).toEqual(['blocked-marker', 'declaration', 'loop-end']);
+    const marker = result.writes.find((w) => w.kind === 'blocked-marker');
+    expect(marker && 'question' in marker ? marker.question : '').toContain(
+      'every edit I tried was refused by the permission hook',
+    );
+    expect(declarationWrite(result.writes)?.summary).toBe(
+      'every edit I tried was refused by the permission hook',
+    );
   });
 
   it('does not end permission-denied when a denial is beside a commit beyond the claim', () => {
@@ -918,9 +947,14 @@ describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open',
       prOpen: false,
       commitBeyondClaim: 'yes',
       permissionDenials: 'yes',
+      finalText: 'this final text must not leak into any write here',
     });
     expect(endWrite(result.writes)?.reason).not.toBe('permission-denied');
     expect(result.detail.note).toBe('no PR open, no checks wait');
+    expect(kindsOf(result.writes)).not.toContain('blocked-marker');
+    for (const write of result.writes) {
+      expect(JSON.stringify(write)).not.toContain('this final text must not leak into any write here');
+    }
   });
 
   it('still ends holding-work first when the desk holds unlanded work', () => {
@@ -984,7 +1018,7 @@ describe('agentLoop — row 12a applies before the CI wait only', () => {
   });
 });
 
-describe("agentLoop — row 12a': the PR conflicts with the default branch at wait entry", () => {
+describe("agentLoop — row 12a': the PR conflicts with its base at wait entry", () => {
   it('resumes the agent with a merge-main-and-push correction and raises correctionAttempts, never entering the wait', () => {
     const result = agentLoop({
       ...freeLoop,
@@ -993,7 +1027,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
       resumeId: 'resume-abc',
@@ -1016,7 +1050,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 2,
       correctionBudget: 2,
       pr: 1249,
@@ -1038,7 +1072,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 2,
       correctionBudget: 2,
       pr: null,
@@ -1055,7 +1089,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
       sliceRuns: 12,
@@ -1075,7 +1109,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
       sliceCostUsd: 5,
@@ -1095,7 +1129,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
     });
@@ -1111,7 +1145,6 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
         pushed: true,
         prOpen: true,
         checks: null,
-        mergeConflictAtEntry: false,
         mergeable,
       });
       expect(result.writes).toEqual([]);

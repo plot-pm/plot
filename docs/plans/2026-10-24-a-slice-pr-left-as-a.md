@@ -45,7 +45,7 @@ The draft comes from the brief template ("Open the PR with `skills/plot/scripts/
 
 ### Fix
 
-- `bug/a-slice-pr-left-as-a` — domain rule for marking a finished agent's draft ready, and the worker loop step that performs it <!-- builds: markReadyDecision, a domain rule for finished agents' draft PRs -->
+- `bug/a-slice-pr-left-as-a` — domain rule for marking a finished agent's draft ready, and the worker loop step that performs it <!-- builds: markReadyDecision, a domain rule for finished agents' draft PRs --> → #2587
 
 ## Notes
 

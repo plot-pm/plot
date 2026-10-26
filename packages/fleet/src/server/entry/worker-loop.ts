@@ -57,7 +57,7 @@ import {
   type TakeUpRefusal,
 } from '@plot-pm/domain/workflows/agent-loop';
 import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
-import type { Mergeability } from '@plot-pm/domain/entities/pr';
+import type { Mergeability, Pr } from '@plot-pm/domain/entities/pr';
 import { readSliceSpend, recordSliceRun, recordSliceSpend, type RunWriteRefusal } from '@plot-pm/domain/workflows/slice-spend';
 import { recordRunLimits } from '@plot-pm/domain/workflows/run-limits';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
@@ -117,6 +117,32 @@ export const PASS_INTERVAL_MS = 60_000;
 /** The idle window `idleNow` judges a transcript's silence against — the shipped default. */
 export const IDLE_WINDOW_SECONDS = 900;
 
+/**
+ * A host PR's mergeability, falling back to a local `git merge-tree` read
+ * against the PR's own base where the host cannot answer.
+ *
+ * A HOST THAT CANNOT ANSWER MERGEABLE IS ASKED A SECOND WAY. Bitbucket Cloud
+ * has no field or endpoint for this, so `pr.mergeable` reads `unknown` on
+ * every Bitbucket PR; `trees.mergeConflict` reads the same fact from a `git
+ * merge-tree` run against the local checkout instead of the host. On GitHub
+ * this only fires in the host's own gap between a push landing and its
+ * mergeable field settling.
+ *
+ * @param ports - where `trees.mergeConflict` is asked.
+ * @param worktree - the checkout to read the merge in.
+ * @param pr - the PR as the host answered it this ask.
+ * @returns the mergeability, never `null` — `unknown` where neither side could tell.
+ */
+const mergeabilityOf = async (
+  ports: Pick<WorkerLoopPorts, 'trees'>,
+  worktree: string,
+  pr: Pick<Pr, 'mergeable' | 'base'>,
+): Promise<Mergeability> => {
+  if (pr.mergeable !== 'unknown') return pr.mergeable;
+  const mergeConflictAnswer = await ports.trees.mergeConflict(worktree, pr.base);
+  return mergeConflictAnswer.ok ? mergeConflictAnswer.value : 'unknown';
+};
+
 /** The CURRENT wait (free, or checks): its start, and what the checks wait read on entry. */
 interface WaitClock {
   /** The wait's start, epoch ms; `null` outside one. */
@@ -128,14 +154,23 @@ interface WaitClock {
    */
   pr: number | null;
   /**
-   * The open PR's mergeability, read once on entry to the checks wait
-   * alongside {@link pr} — not re-asked inside the wait, the same as `pr`.
+   * The open PR's mergeability, read on entry to the checks wait alongside
+   * {@link pr} and re-read on every later pass of the wait — the base a
+   * later merge on the default branch can turn a mergeable PR conflicting
+   * mid-wait, which {@link pr} itself cannot (a PR number does not change).
    */
   mergeable: Mergeability | null;
   /** The open PR's draft flag, read once on entry to the checks wait alongside {@link pr}. */
   draft: boolean | null;
   /** The open PR's head commit, read once on entry to the checks wait alongside {@link pr}. */
   headSha: string | undefined;
+  /**
+   * The open PR's own base branch, read once on entry alongside {@link pr}
+   * and held for every later re-read — the base a PR targets does not
+   * change while it is open, so re-asking it every pass would cost a host
+   * call the re-read does not need.
+   */
+  base: string;
 }
 
 /** Every port this entry reads or writes through, composed once at start. */
@@ -745,6 +780,8 @@ export interface PromptState {
   readonly exit: AgentLoopReadings['exit'];
   /** Whether the harness refused every write this pass's prompt attempted; `unanswerable` on the `command` runner, which sees no structured result. */
   readonly permissionDenials: AgentLoopReadings['permissionDenials'];
+  /** The run's own final text, from `AgentRunResult.finalText`; `''` where the harness answered none. */
+  readonly finalText: string;
   /**
    * The commit pushed for this pass's claim, once the desk has pushed —
    * `''` before a push has happened this slice. The caller holds this because
@@ -824,6 +861,7 @@ export const readPass = async (
     running: prompt.running,
     exit: prompt.exit,
     permissionDenials: prompt.permissionDenials,
+    finalText: prompt.finalText,
     startRetries: manifest.attempts,
     maxStartRetries: config.maxStartRetries,
     markerWritten: false,
@@ -850,7 +888,6 @@ export const readPass = async (
     correctionBudget: config.correctionBudget,
     pr: null,
     mergeable: null,
-    mergeConflictAtEntry: false,
     prDraft: null,
     prHeadSha: undefined,
     lastPushSha: prompt.pushedSha,
@@ -934,6 +971,7 @@ export const readPass = async (
   // ROW 12a — before the wait starts: is the head pushed, and is a PR open?
   // ASKED ONCE PER WAIT. Inside the wait the answers read on entry hold, so a
   // host that fails one poll cannot seal the slice as if its PR had closed.
+  const enteringWait = clock.since === null;
   if (clock.since === null) {
     const [pushedAnswer, prAnswer] = await Promise.all([
       ports.refs.remoteHead(branch),
@@ -958,38 +996,49 @@ export const readPass = async (
         commitBeyondClaim: commitBeyondClaim !== null && commitBeyondClaim.ok ? commitBeyondClaim.value : 'unanswerable',
       };
     }
-    // A HOST THAT CANNOT ANSWER MERGEABLE IS ASKED A SECOND WAY. Bitbucket
-    // Cloud has no field or endpoint for this, so `pr.mergeable` reads
-    // `unknown` on every Bitbucket PR; `trees.mergeConflict` reads the same
-    // fact from a `git merge-tree` run against the local checkout instead of
-    // the host. On GitHub this only fires in the host's own gap between a
-    // push landing and its mergeable field settling.
-    const mergeConflictAnswer = pr.mergeable === 'unknown' ? await ports.trees.mergeConflict(worktree) : null;
-    const mergeable =
-      mergeConflictAnswer !== null ? (mergeConflictAnswer.ok ? mergeConflictAnswer.value : 'unknown') : pr.mergeable;
+    const mergeable = await mergeabilityOf(ports, worktree, pr);
     // THE CLOCK DOES NOT START ON A CONFLICTING PR. GitHub starts no
     // `pull_request` run for a merge ref that conflicts, so waiting
     // `Checks wait` here would wait for a build that cannot happen —
     // returned before `clock.since` is set, so neither this pass nor any
     // later one reaches `checksFromRuns` for this reading.
     if (mergeable === 'conflicting') {
-      return { ...base, pushed, prOpen, pr: prNumber, mergeable, mergeConflictAtEntry: true };
+      return { ...base, pushed, prOpen, pr: prNumber, mergeable };
     }
     clock.since = Date.now();
     clock.pr = prNumber;
     clock.mergeable = mergeable;
     clock.draft = pr.draft;
     clock.headSha = pr.headSha;
+    clock.base = pr.base;
   }
 
   // ROWS 12-18 — work is pushed and a PR is open: the CI wait.
   const pushed = true;
   const prOpen = true;
   const prNumber = clock.pr;
-  const mergeable = clock.mergeable;
   const prDraft = clock.draft;
   const prHeadSha = clock.headSha;
   const waitedSeconds = Math.floor((Date.now() - clock.since) / 1000);
+
+  // THE WAIT RE-READS MERGEABILITY EVERY LATER PASS, not on the entry pass
+  // that just read it above: someone else's merge landing on the base during
+  // the wait can turn a mergeable PR conflicting, and the host starts no
+  // `pull_request` run for a merge ref that conflicts — so a conflict that
+  // appears mid-wait must still be caught rather than waited out for a build
+  // that will never start. Read through `trees.mergeConflict` against the
+  // PR's own base, the same local git answer ROW 12a falls back to — not a
+  // second `host.prState` ask, which stays ONCE PER WAIT as it already was.
+  // ONLY A FRESH `conflicting` READING OVERRIDES: a local merge-tree run that
+  // still answers `mergeable` or `unknown` must not downgrade a mergeability
+  // the host already settled on entry, since the local ref may simply be
+  // behind the host's own view.
+  const midWaitMerge = enteringWait || clock.base === '' ? null : await ports.trees.mergeConflict(worktree, clock.base);
+  const mergeable = midWaitMerge !== null && midWaitMerge.ok && midWaitMerge.value === 'conflicting' ? 'conflicting' : clock.mergeable ?? 'unknown';
+  clock.mergeable = mergeable;
+  if (mergeable === 'conflicting') {
+    return { ...base, pushed, prOpen, pr: prNumber, mergeable, waitedSeconds };
+  }
 
   if (config.checksWaitSeconds <= 0) {
     return { ...base, pushed, prOpen, pr: prNumber, mergeable, prDraft, prHeadSha, checks: 'none', waitedSeconds };
@@ -1387,6 +1436,8 @@ interface Held {
   exit: AgentLoopReadings['exit'];
   /** Whether the last prompt's harness refused every write; `unanswerable` on the `command` runner. */
   permissionDenials: AgentLoopReadings['permissionDenials'];
+  /** The last prompt's own final text, from `AgentRunResult.finalText`; `''` where the harness answered none. */
+  finalText: string;
   pushedSha: string;
   afterWait: boolean;
   aheadAtWait: number;
@@ -1405,6 +1456,7 @@ interface Held {
 const FRESH: Held = {
   exit: null,
   permissionDenials: 'unanswerable',
+  finalText: '',
   pushedSha: '',
   afterWait: false,
   aheadAtWait: 0,
@@ -1424,6 +1476,7 @@ type RunOutcome =
       status: number;
       exit: NonNullable<AgentLoopReadings['exit']>;
       permissionDenials: AgentLoopReadings['permissionDenials'];
+      finalText: string;
       handBack: AgentHandBack | null;
       sessionId: string;
     };
@@ -1492,7 +1545,7 @@ const runPrompt = async (
   // needs the prompt file the resolution names.
   if (verb === 'refused' || (file === '' && sdk === undefined)) {
     deps.log(`plot-worker-loop: refusing to launch — ${why ?? 'no prompt'}`);
-    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', handBack: null, sessionId: '' };
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: '' };
   }
 
   const manifest = await readManifestFields(deps.manifestFile);
@@ -1508,7 +1561,7 @@ const runPrompt = async (
   // the start-retry budget bounds it instead of nothing.
   if ((await raiseSliceRuns(deps.manifestFile)) === null) {
     deps.log(`plot-worker-loop: could not count this run in ${deps.manifestFile}; Slice max runs cannot hold, so no run starts`);
-    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', handBack: null, sessionId: handle };
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: handle };
   }
   const spoken = await deps.idle.transcript.spoken(worktree, handle);
   const env: Record<string, string> = {
@@ -1577,7 +1630,7 @@ const runPrompt = async (
       return { ended: 'idle' };
     }
     ended = true;
-    if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', handBack: null, sessionId: handle };
+    if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: handle };
     const result = raced.run.value;
     if (result.end.answer !== 'unstarted') await consumeContinuation(resume, worktree);
     await recordRunRecords(deps, worktree, manifest.branch, result);
@@ -1590,6 +1643,7 @@ const runPrompt = async (
       status: outcome.exit.answer === 'unstarted' ? 1 : 0,
       exit: outcome.exit,
       permissionDenials: result.permissionDenials,
+      finalText: result.finalText ?? '',
       handBack: outcome.handBack,
       sessionId: result.sessionId || handle,
     };
@@ -1648,7 +1702,7 @@ const runPrompt = async (
     HARNESS_LIMIT_LINES[deps.harness],
   );
   if (exit.answer !== 'unstarted') await consumeContinuation(resume, worktree);
-  return { ended: 'exit', status, permissionDenials: 'unanswerable', handBack: null, sessionId: handle, exit };
+  return { ended: 'exit', status, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: handle, exit };
 };
 
 /**
@@ -1664,7 +1718,7 @@ const runPrompt = async (
  * @returns the process exit code the decision named.
  */
 export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
-  const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null, mergeable: null, draft: null, headSha: undefined };
+  const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null, mergeable: null, draft: null, headSha: undefined, base: '' };
   let held: Held = { ...FRESH };
   // A carried hop names the branch the last prompt ran on, so it seeds
   // `previousBranch` too: a clear before the next prompt keeps the hop.
@@ -1686,6 +1740,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       running: null,
       exit: held.exit,
       permissionDenials: held.permissionDenials,
+      finalText: held.finalText,
       pushedSha: held.pushedSha,
       handBack: held.handBack,
       sessionId: held.sessionId,
@@ -1909,6 +1964,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       ...held,
       exit: ran.exit,
       permissionDenials: ran.permissionDenials,
+      finalText: ran.finalText,
       status: ran.status,
       pushedSha: head.ok ? head.value : held.pushedSha,
       handBack: ran.handBack,

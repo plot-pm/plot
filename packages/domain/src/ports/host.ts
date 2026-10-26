@@ -207,9 +207,16 @@ export interface Host {
    * Reads one PR, by number or by branch.
    *
    * @param ref - a PR number, or the branch a PR would belong to.
+   * @param opts - `withChecks: true` reads the PR's `checks` as well. A
+   *   Bitbucket host under `CI: jenkins` asks Jenkins for them only then and
+   *   otherwise answers `checks: 'unknown'`; GitHub reads them either way.
+   *   `repo` names the repository the PR lives in, for a cross-repo
+   *   `owner/repo#N` slice-line reference. The adapter asks the checkout's
+   *   own backend first and, on a clean miss only, the other drivable backend
+   *   once (`rules/cross-repo-probe.ts`). The port takes no backend argument.
    * @returns the PR, or null where the host holds none for this ref.
    */
-  prState(ref: string | number): Promise<PortResult<PrLookup>>;
+  prState(ref: string | number, opts?: { withChecks?: boolean; repo?: string }): Promise<PortResult<PrLookup>>;
 
   /**
    * Takes a PR out of draft.
@@ -228,9 +235,12 @@ export interface Host {
    * report the branch's work as unlanded.
    *
    * @param branch - the branch to ask about.
+   * @param opts - `repo` names the repository the branch lives in. The adapter
+   *   resolves its host as {@link Host.prState} does: a `not-merged` from the
+   *   checkout's own backend asks the other drivable backend once.
    * @returns `merged`, `not-merged`, or `unknown` where the host could not say.
    */
-  prMerged(branch: string): Promise<PortResult<MergedAnswer>>;
+  prMerged(branch: string, opts?: { repo?: string }): Promise<PortResult<MergedAnswer>>;
 
   /**
    * The merge commit of a branch's merged PR.
@@ -369,10 +379,14 @@ export interface Host {
    *
    * @param pr - the PR number to comment on.
    * @param body - the comment text, verbatim.
-   * @param marker - when given, the PR comment holding this substring is edited
-   *   to `body`, and a comment is posted only where none holds it — so a repeated
-   *   call with the same marker leaves one comment. A failed edit fails and posts
-   *   nothing. Absent, every call posts.
+   * @param marker - when given, the PR comment holding this substring, posted by
+   *   the same identity this call writes through, is edited to `body`, and a
+   *   comment is posted only where none holds it — so a repeated call with the
+   *   same marker leaves one comment. A marker held only by another
+   *   participant's comment does not match, and a comment is posted instead. A
+   *   failed edit fails and posts nothing. A failed listing — the marker search
+   *   itself could not be read — fails and posts nothing, the same as a failed
+   *   edit; it is never read as "no marker found". Absent, every call posts.
    * @returns `true` once written; `unaskable` where this host cannot be asked
    *   to comment on a PR; `failed` otherwise, with the reason in
    *   {@link lastRefusal}.

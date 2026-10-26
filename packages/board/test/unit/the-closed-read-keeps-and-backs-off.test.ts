@@ -349,11 +349,11 @@ describe('/api/fleet carries no closed issue', () => {
       rows: [{ number: '7', title: 'open seven', url: 'u7' }], complete: true,
       closed: {
         since: new Date(0).toISOString(), answer: 'answered', complete: true,
-        rows: [{ number: '8', title: 'closed eight', url: 'u8', closedAt: new Date().toISOString() }],
+        rows: [{ number: '8', title: 'closed eight', url: 'https://example.invalid/closed-row-8', closedAt: new Date().toISOString() }],
       },
     };
     const fleet = JSON.stringify(await buildFleet(opts));
     expect(fleet).not.toContain('closed eight');
-    expect(fleet).not.toContain('u8');
+    expect(fleet).not.toContain('https://example.invalid/closed-row-8');
   });
 });

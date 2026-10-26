@@ -96,7 +96,9 @@ export const rowsToBind = (
  * An answer with no build of the commit is `unknown` and unbound: the colour
  * cannot bind to the head, and `pending` would hold the merge queue on a head
  * Jenkins may never report. A lookup that could not ask Jenkins is not an
- * answer, and returns `null` so the branch colour stands.
+ * answer, and returns `null`: the row gets no bound entry, and the caller
+ * decides what it reads. GitHub's `pr-list` lets the branch colour stand;
+ * Bitbucket's `pr-list` and `pr-state` read `checksLookup: 'broken'`.
  *
  * @param runs - builds of the commit, in any order, or `null` where the lookup
  *   could not ask.

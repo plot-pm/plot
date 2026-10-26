@@ -1460,8 +1460,9 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   const start = startMatch ? startMatch[1].trim() : '';
   const endMatch = statusBody.match(/^- \*\*End:\*\* (.+)$/m);
   const end = endMatch ? endMatch[1].trim() : '';
-  // Sprint goal — the domain reads the `> ` line under the title first, then
-  // the first prose paragraph of `## Sprint Goal`, and never a `<…>` slot.
+  // Sprint goal — the domain reads a bold label opening a paragraph under
+  // `## Sprint Goal` first, then the `> ` line under the title, then that
+  // section's first prose paragraph, and never a `<…>` slot.
   const goal = sprintGoal(content);
   // The timebox is NOT decided here: this parse has no clock, and reading one
   // would make the answer untestable. `collectSprints` stamps it against one
@@ -2098,30 +2099,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
           stageDir = makeStageDir('plot-board-plans-');
         }
         for (const plan of branchPlans) {
-          // THE JOIN, AND IT IS A JOIN RATHER THAN A PRECEDENCE RULE. Both
-          // readings are legitimate — a plan may live only in the working tree,
-          // and a plan may live only on a branch — so neither arm may be
-          // removed. What was missing is that this reader did not know what the
-          // working-tree reader already supplied, and a plan visible to both
-          // entered staging twice and reached `readPlanMeta` as two cards.
-          //
-          // `readBranchPlans` already performs exactly this exclusion at its own
-          // level, against `origin/<default>` and against other branches. A
-          // local-only path is in neither population, which is why that rule is
-          // right and simply was never asked about this third source.
-          //
-          // HERE RATHER THAN INSIDE THE COLLECTOR, and the reason is the cache:
-          // `branchPlanCache` is keyed on the repo plus the branch tip SHAs, and
-          // the working tree changes without any SHA moving. Filtering inside
-          // `collectBranchPlans` would write a working-tree-dependent answer
-          // into a ref-keyed cache and then serve it stale in exactly the
-          // direction that brings the duplicate back. This loop runs per build
-          // and has `localOnlyPaths` in scope; the collector has neither.
-          //
-          // Skipped BEFORE the counter is read, so a skipped plan consumes no
-          // staging directory and the numbering stays dense.
-          if (localOnlyPaths.has(plan.path)) continue;
-          // THE LAST GUARD, AND IT IS NOT A SUBSTITUTE FOR `readBranchPlans`'s
+          // THE ONE GUARD, AND IT IS NOT A SUBSTITUTE FOR `readBranchPlans`'s
           // OWN EXCLUSION. That one runs inside the cached call and can only
           // compare the paths the cache was built from; it cannot see a path the
           // default branch gained AFTER the cache was warmed, because the cache
@@ -2129,10 +2107,9 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
           // (#2410: a merge lands a plan on the default branch while the idea
           // branch's tip — and so the cache key, before this change — stays
           // put). `planSourcePaths` was read fresh this call, so it reflects the
-          // default branch as it is NOW — the default-branch reading wins,
-          // matching `localOnlyPaths`'s working-tree-wins rule immediately above
-          // for the same reason: both keep the fresher-read source and drop the
-          // one a stale cache could still be holding.
+          // default branch as it is NOW — the default-branch reading wins.
+          // `planSources` includes every working-tree-only plan, so this set also
+          // covers what a separate `localOnlyPaths` check once did.
           if (planSourcePaths.has(plan.path)) continue;
           // Numbered off the same counter as the ref plans above, so the two
           // staged populations cannot collide on a shared basename.
@@ -2658,6 +2635,14 @@ export interface PlanOwnerFields {
   approver: string;
 }
 
+/** The answers one plan-estate parse yields; see {@link planEstate}. */
+export interface PlanEstate {
+  statusBySlug: Map<string, PlanStatus>;
+  fieldsBySlug: Map<string, PlanOwnerFields>;
+  draftPlans: DraftPlan[];
+  approvedSpikes: Set<string>;
+}
+
 /**
  * The plan estate, parsed once: every plan's status keyed by slug, every
  * plan's owner fields keyed by slug, and every plan at `Draft` with its
@@ -2675,16 +2660,11 @@ export interface PlanOwnerFields {
  * counts, its Draft plan list and its rows' owner fields cannot read two
  * versions of one plan.
  */
-export async function planEstate(
+async function readPlanEstate(
   opts: BuildBoardOptions,
   pulse: FleetReading | null,
   complete: boolean,
-): Promise<{
-  statusBySlug: Map<string, PlanStatus>;
-  fieldsBySlug: Map<string, PlanOwnerFields>;
-  draftPlans: DraftPlan[];
-  approvedSpikes: Set<string>;
-}> {
+): Promise<PlanEstate> {
   const refs = refsFor(opts);
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
@@ -2791,6 +2771,75 @@ export async function planEstate(
   }
   return { statusBySlug: bySlug, fieldsBySlug, draftPlans, approvedSpikes };
 }
+
+const planEstateCache = new Map<string, {
+  key: string;
+  pulse: FleetReading | null;
+  complete: boolean;
+  estate: Promise<PlanEstate>;
+}>();
+
+/**
+ * Everything a plan-estate parse reads that can change without the default
+ * branch moving: the prefixed branch tips and the working-tree plan files.
+ */
+const estateInputsKey = async (
+  opts: BuildBoardOptions,
+  refs: Refs,
+  planDir: string,
+  defaultBranch: string,
+): Promise<string> => {
+  const prefixes = (await readConfigAsync(opts, 'Branch prefixes', ''))
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const branches = prefixes.length === 0
+    ? []
+    : await prefixedBranches(refs, resolvedRepoRoot(opts), prefixes, defaultBranch);
+  const files = [...workingTreePlans(resolvedRepoRoot(opts), planDir)].map(([rel, entry]) => {
+    const st = fs.statSync(entry.absPath, { throwIfNoEntry: false });
+    return `${rel}:${st?.mtimeMs ?? ''}:${st?.size ?? ''}`;
+  });
+  return `${branches.map((b) => `${b.branch}@${b.sha}`).join(' ')} | ${files.join(' ')}`;
+};
+
+/**
+ * The plan estate for the default branch's current tip, parsed once per head
+ * change rather than once per call.
+ *
+ * A repeat call with the same tip, the same `pulse` object and `complete`, and
+ * unchanged branch tips and working-tree plan files returns the earlier parse.
+ * Any difference, or an unresolvable default branch, parses again. A parse that
+ * rejects is not kept.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @param pulse - merge and claim state for the plan statuses; compared by identity.
+ * @param complete - whether `pulse` covers every plan.
+ * @returns the parsed estate; see {@link readPlanEstate}.
+ */
+export const planEstate = async (
+  opts: BuildBoardOptions,
+  pulse: FleetReading | null,
+  complete: boolean,
+): Promise<PlanEstate> => {
+  const refs = refsFor(opts);
+  const repoRoot = resolvedRepoRoot(opts);
+  const defaultBranch = await defaultBranchOf(opts, refs);
+  const tip = await refs.resolve(`origin/${defaultBranch}`);
+  if (!tip.ok) return readPlanEstate(opts, pulse, complete);
+  const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
+  const key = `${tip.value} ${await estateInputsKey(opts, refs, planDir, defaultBranch)}`;
+  const cached = planEstateCache.get(repoRoot);
+  if (cached && cached.key === key && cached.pulse === pulse && cached.complete === complete) {
+    return cached.estate;
+  }
+  const estate = readPlanEstate(opts, pulse, complete);
+  planEstateCache.set(repoRoot, { key, pulse, complete, estate });
+  estate.catch(() => {
+    if (planEstateCache.get(repoRoot)?.estate === estate) planEstateCache.delete(repoRoot);
+  });
+  return estate;
+};
 
 // ─── Plan viewer: render a single plan file to HTML ──────────────────────────
 

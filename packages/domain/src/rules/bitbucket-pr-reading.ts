@@ -7,6 +7,8 @@ export interface BitbucketPr {
   merge_commit?: { hash?: string | null } | null;
   destination?: { branch?: { name?: string } };
   source?: { branch?: { name?: string }; commit?: { hash?: string } };
+  /** Bitbucket names no merge time; `pr-list` already reads this as the #2202 stand-in. */
+  updated_on?: string;
 }
 
 /** A check word for a branch; `checksSha` is present only where it was read by sha. */
@@ -28,16 +30,23 @@ export interface PrStateRow {
   checks?: string;
   checksSha?: string;
   mergeable?: string;
+  checksLookup?: string;
+  mergedAt?: string;
 }
 
 /**
  * The `pr-state` row of a Bitbucket pull request, with its check.
  *
  * `checks` is absent, never guessed: `unknown` where no Jenkins reading exists
- * (`colours` is `null`, because `CI: jenkins` is not set or Jenkins could not
- * answer), and `none` where Jenkins answered and has no job for the branch. A
- * `bound` entry, read for the head commit by sha, outranks the branch colour,
- * which carries no commit. A branch colour stands unbound with `checksSha: ''`.
+ * (`colours` is `null`, because `CI: jenkins` is not set, the caller did not
+ * ask for checks, or Jenkins could not answer), and `none` where Jenkins
+ * answered and has no job for the branch. A `bound` entry, read for the head
+ * commit by sha, outranks the branch colour, which carries no commit. A
+ * branch colour stands unbound with `checksSha: ''` UNLESS `wasNamed` is true
+ * and no `bound` entry exists for the branch — that combination means the row
+ * was picked for a sha lookup this pass and the lookup then broke early, so
+ * the colour may belong to a commit this PR no longer carries. That case
+ * reads `unknown` with `checksLookup` set, rather than the stale colour.
  *
  * `mergeable` is always `unknown` here: Bitbucket Cloud's REST API has no
  * field or endpoint that reports merge-conflict status for a pull request
@@ -45,20 +54,35 @@ export interface PrStateRow {
  * statuses). `plot-host.sh` overlays a real reading from a local
  * `git merge-tree` check afterward, via `foldBitbucketMergeable`.
  *
+ * `mergedAt` is `updated_on` for a `MERGED` pull request, `''` otherwise —
+ * the same stand-in `pr-list`'s Bitbucket arm already reads (#2238), because
+ * the endpoint names no real merge timestamp (#2202). `updated_on` can move
+ * after the merge (a later comment or label), so a caller ordering several
+ * hops by this field gets whatever order that implies; see the release-chain
+ * rule's own note on the same ceiling.
+ *
  * @param pr - the payload, or `null` where the branch has no pull request.
  * @param colours - the branch-colour map, or `null` where it was not read.
  * @param bound - the sha-bound readings keyed by branch, or `null`.
+ * @param wasNamed - true where this row's branch was picked for a sha lookup
+ *   this pass (ambiguous colour, known head). Ignored unless `bound` has no
+ *   entry for the branch.
  * @returns the row; a missing pull request reads `NONE` with no check.
  */
 export const bitbucketPrState = (
   pr: BitbucketPr | null,
   colours: Readonly<Record<string, Reading>> | null,
   bound: Readonly<Record<string, Reading>> | null,
+  wasNamed = false,
 ): PrStateRow => {
   if (pr === null) return { number: 0, state: 'NONE', draft: false, url: '', mergeCommit: '' };
   const branch = pr.source?.branch?.name ?? '';
-  const entry = bound?.[branch] ?? colours?.[branch] ?? null;
-  const checks = colours === null ? 'unknown' : (entry?.checks ?? 'none');
+  const boundEntry = bound?.[branch] ?? null;
+  const colourEntry = colours?.[branch] ?? null;
+  const ambiguous = colourEntry?.checks === 'green' || colourEntry?.checks === 'failing';
+  const brokenAsk = wasNamed && boundEntry === null && ambiguous;
+  const entry = boundEntry ?? colourEntry;
+  const checks = colours === null ? 'unknown' : brokenAsk ? 'unknown' : (entry?.checks ?? 'none');
   return {
     number: pr.id,
     state: pr.state === 'DECLINED' ? 'CLOSED' : pr.state,
@@ -68,8 +92,10 @@ export const bitbucketPrState = (
     headSha: pr.source?.commit?.hash ?? '',
     base: pr.destination?.branch?.name ?? '',
     checks,
-    checksSha: entry?.checksSha ?? '',
+    checksSha: brokenAsk ? '' : (entry?.checksSha ?? ''),
     mergeable: 'unknown',
+    mergedAt: pr.state === 'MERGED' ? (pr.updated_on ?? '') : '',
+    ...(brokenAsk ? { checksLookup: 'broken' } : {}),
   };
 };
 

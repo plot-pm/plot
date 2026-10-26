@@ -77,8 +77,9 @@ test('a plain item with no [slug] sitting before an annotated item does not abor
   assert.equal(r.status, 0, r.stderr);
   const j = JSON.parse(r.stdout);
 
-  // plan-one carries no annotation and must be skipped, not merely absent
-  // because the script died before reaching it.
+  // plan-one carries no annotation, so it is skipped on that ground alone —
+  // the die this test guards against would instead have stopped the loop one
+  // line earlier, at the slug-less plain item, before plan-two is ever read.
   assert.equal(j.items.some((i) => i.slug === 'plan-one'), false,
     'an un-annotated item must be skipped, not listed');
 
@@ -173,7 +174,49 @@ test('a non-checklist line carrying bracket characters that look like a slug is 
   assert.equal(j.items.length, 1, 'only the real checklist item must be reported');
 });
 
-test('the test fails against the unfixed script, read as exit code 1 with empty stdout', () => {
+test('an unknown sprint slug prints the error JSON rather than dying under set -e', () => {
+  const repo = sandboxRepo(SPRINT_BODY);
+  const r = spawnSync('bash', [script, 'no-such-sprint'], {
+    encoding: 'utf8',
+    cwd: repo,
+    env: { ...process.env, PLOT_UNATTENDED: undefined, PLOT_REPO_ROOT: undefined },
+  });
+
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.error, 'Sprint file not found');
+  assert.deepEqual(j.items, []);
+});
+
+test('a checked or unchecked checkbox is never read as the item\'s [slug]', () => {
+  const body = [
+    '# A sprint',
+    '',
+    '## Items',
+    '',
+    '- [x] a checked item with an annotation <!-- pr: #9, branch: feature/foo -->',
+    '- [ ] [plan-two] a plan item with an annotation <!-- pr: #1, branch: feature/plan-two -->',
+    '',
+  ].join('\n');
+
+  const repo = sandboxRepo(body);
+  const r = run(repo);
+
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+
+  assert.equal(j.items.some((i) => i.slug === 'x'), false,
+    'the checkbox mark must never be read as a [slug]');
+  const checked = j.items.find((i) => i.pr === '9');
+  assert.ok(checked, 'the checked item must still be reported');
+  assert.equal(checked.slug, 'a checked item with an annotation',
+    'with no [slug], the checked item falls back to its own text, same as an unchecked one');
+
+  const planTwo = j.items.find((i) => i.slug === 'plan-two');
+  assert.ok(planTwo, 'an explicit [slug] on an unchecked item must still work');
+});
+
+test('the test passes against the unfixed script, which exits 1 with empty stdout', () => {
   const repo = sandboxRepo(SPRINT_BODY);
 
   const broken = tmp('unfixed-script');

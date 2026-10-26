@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allReleased, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
+import { allFinished, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
 
 const plan = (state: string, overrides: Partial<TicketPlan> = {}): TicketPlan => ({ state, total: 0, merged: null, ...overrides });
 
@@ -51,12 +51,10 @@ describe('ticketPhase', () => {
     expect(ticketPhase([plan('design'), plan('draft')])?.label).toBe('planning');
   });
 
-  it('orders a less advanced phase below a more advanced one', () => {
-    const order = (state: string) => ticketPhase([plan(state)])?.order ?? NaN;
-    expect(order('draft')).toBeLessThan(order('design'));
-    expect(order('design')).toBeLessThan(order('approved'));
-    expect(order('approved')).toBeLessThan(order('delivered'));
-    expect(order('delivered')).toBeLessThan(order('released'));
+  it('picks the least advanced phase across the whole chain, in either order', () => {
+    const chain = [plan('released'), plan('delivered'), plan('approved'), plan('design'), plan('draft')];
+    expect(ticketPhase(chain)?.label).toBe('planning');
+    expect(ticketPhase([...chain].reverse())?.label).toBe('planning');
   });
 
   it('ignores a withdrawn plan', () => {
@@ -65,20 +63,25 @@ describe('ticketPhase', () => {
   });
 });
 
-describe('allReleased', () => {
-  it('answers false for an empty list — unplanned, not released-and-hidden', () => {
-    expect(allReleased([])).toBe(false);
-  });
-
-  it('answers true when the one plan is released', () => {
-    expect(allReleased([plan('released')])).toBe(true);
+describe('allFinished', () => {
+  it('answers false for an empty list — unplanned, not finished', () => {
+    expect(allFinished([])).toBe(false);
   });
 
   it('answers true when every plan is released', () => {
-    expect(allReleased([plan('released'), plan('released')])).toBe(true);
+    expect(allFinished([plan('released'), plan('released')])).toBe(true);
+  });
+
+  it('answers true when every plan is rejected or superseded', () => {
+    expect(allFinished([plan('rejected'), plan('superseded')])).toBe(true);
+  });
+
+  it('answers true when one plan is superseded and the other released', () => {
+    expect(allFinished([plan('superseded'), plan('released')])).toBe(true);
   });
 
   it('answers false when another plan is still unfinished', () => {
-    expect(allReleased([plan('released'), plan('approved')])).toBe(false);
+    expect(allFinished([plan('released'), plan('approved')])).toBe(false);
+    expect(allFinished([plan('rejected'), plan('draft')])).toBe(false);
   });
 });

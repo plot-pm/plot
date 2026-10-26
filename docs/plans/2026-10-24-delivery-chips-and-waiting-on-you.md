@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2476
@@ -13,6 +13,9 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2490 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/delivery-chips-decided-in-the-domain`
+- **Started:** 2026-10-24, Jan Wloka, `bug/waiting-on-you-counts-visible-rows`
+- **Started:** 2026-10-25, Jan Wloka, `bug/chip-and-inbox-tests-can-fail`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -59,11 +62,11 @@ The issue's LOW findings on `DeliveryFilters.tsx:163` (the dropped exempt count 
 
 ### Waiting on you
 
-- `bug/waiting-on-you-counts-visible-rows` — waitingTickets and the unknown-phase ticket count only what the view renders
+- `bug/waiting-on-you-counts-visible-rows` — waitingTickets and the unknown-phase ticket count only what the view renders → #2638
 
 ### Tests and text
 
-- `bug/chip-and-inbox-tests-can-fail` — fixtures where old and new behaviour disagree, pinned PLOT_REPO_ROOT, corrected comments and changesets, one declaration of NO_SPRINT and FilterOption
+- `bug/chip-and-inbox-tests-can-fail` — fixtures where old and new behaviour disagree, pinned PLOT_REPO_ROOT, corrected comments and changesets, one declaration of NO_SPRINT and FilterOption → #2667
 
 ## Notes
 

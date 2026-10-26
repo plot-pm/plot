@@ -43,6 +43,15 @@ export interface ProcessProbe {
   startedAt(pid: number): number | null;
 
   /**
+   * The parent of the process holding the pid.
+   *
+   * @param pid - the process id to ask about.
+   * @returns the parent's pid; `null` where no process holds the pid or its
+   *   parent cannot be read.
+   */
+  parentPid(pid: number): number | null;
+
+  /**
    * This process's pid, start time and group leadership.
    *
    * @returns the reading.

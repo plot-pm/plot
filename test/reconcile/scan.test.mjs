@@ -4385,6 +4385,12 @@ test('scan: a GitHub merge commit outside this clone keeps the fetch advice', ()
   // `--no-fetch` fixture (`scan: a merge commit this clone lacks is reported,
   // not skipped`), re-asserted for the fetch line specifically so a change
   // to that test cannot silently drop this guard's coverage.
+  //
+  // #2238/#2202 bullet 5: this scan itself ran `--no-fetch`, so the honest
+  // advice names the flag rather than suggesting a fetch that was never
+  // attempted — the generic "git fetch --tags origin" line would claim a
+  // fetch might have found the sha, when the real reason it is missing is
+  // that no fetch ran at all.
   const absent = '0'.repeat(39) + '1';
   s6Bin = scratch('plot-scan-s6-gh-');
   makeSection6Stub(s6Bin, absent);
@@ -4394,8 +4400,8 @@ test('scan: a GitHub merge commit outside this clone keeps the fetch advice', ()
     env: { ...process.env, PATH: `${s6Bin}:${process.env.PATH}` },
   });
   const sections = splitSections(out);
-  assert.match(sections['6'], /git fetch --tags origin, then re-run/,
-    `a --no-fetch GitHub miss is fetchable, and must say so:\n${sections['6']}`);
+  assert.match(sections['6'], /re-run without --no-fetch\/--offline: this scan skipped git fetch/,
+    `a --no-fetch GitHub miss must name the flag, not suggest a fetch that never ran:\n${sections['6']}`);
 });
 
 test('scan: a free section-6 finding survives --offline', () => {

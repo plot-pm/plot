@@ -154,7 +154,6 @@ function runScript(script, args, { cwd, path: binPath }) {
 
 test(
   'plot-impl-status.sh lists a GitHub PR a cross-repo reference names, on a Bitbucket checkout',
-  { todo: 'bug/plot-deliver-and-plot-impl-status (Resolution): resolve a cross-repo reference through the host its repository names, not the checkout\'s single backend' },
   () => {
     const repo = makeRepo();
     const gh = stubGh();
@@ -176,7 +175,6 @@ test(
 
 test(
   'plot-deliver.sh accepts a slice whose cross-repo reference names a merged GitHub PR, on a Bitbucket checkout',
-  { todo: 'bug/plot-deliver-and-plot-impl-status (Resolution): resolve a cross-repo reference through the host its repository names, not the checkout\'s single backend' },
   () => {
     const repo = makeRepo();
     const gh = stubGh();

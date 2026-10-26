@@ -20,9 +20,18 @@ export type MergeResult =
   | { merged: false; reason: MergeRefusal | 'host-refused'; detail: string };
 
 /**
+ * The hex-prefix floor {@link merge} enforces for a given host backend.
+ * GitHub's `headRefOid` is always a full 40-character sha, so a shorter
+ * caller sha is never legitimate there and the floor rises to close the
+ * collision window; Bitbucket can legitimately report a shorter head, so it
+ * keeps the 7+ default, and so does an unresolved backend.
+ */
+const minHexLenFor = (backend: string): number => (backend === 'github' ? 40 : 7);
+
+/**
  * Merges a PR at the head commit the caller read, or refuses.
  *
- * Re-asks the host through `pr-state` and never the PR index: the index decides
+ * Re-asks the host through `pr-state --with-checks` and never the PR index: the index decides
  * only whether to try, and a merge cannot be undone. On a pass the merge goes
  * through `plot-host.sh pr-merge --match-head <sha>`, so a push between the
  * reading and the merge fails at the host; a host that cannot pin merges with no
@@ -37,14 +46,15 @@ export type MergeResult =
  *   the host's own words.
  */
 export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promise<MergeResult> => {
-  const lookup = await ports.host.prState(pr);
+  const lookup = await ports.host.prState(pr, { withChecks: true });
   const reading = await ports.defaultBranch.read();
+  const backend = await ports.host.backend();
   const outcome = merge(
     {
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
     },
-    { pr, sha, now: ports.now(), checksWaitMs: ports.checksWaitMs },
+    { pr, sha, now: ports.now(), checksWaitMs: ports.checksWaitMs, minHexLen: minHexLenFor(backend.ok ? backend.value : '') },
   );
   if (outcome.outcome === 'refused') {
     return { merged: false, reason: outcome.reason, detail: outcome.detail };

@@ -37,6 +37,12 @@ describe('processProbeSystem', () => {
     expect(probe.startedAt(-3)).toBeNull();
   });
 
+  it('reads this process\'s parent, and none for an exited or invalid pid', () => {
+    expect(probe.parentPid(process.pid)).toBe(process.ppid);
+    expect(probe.parentPid(deadPid())).toBeNull();
+    expect(probe.parentPid(-3)).toBeNull();
+  });
+
   it('answers a group question only for a group id above 1', () => {
     expect(probe.groupAlive(0)).toBe(false);
     expect(probe.groupAlive(1)).toBe(false);

@@ -1118,7 +1118,7 @@ describe('runWorkerLoop — after the prompt', () => {
   it('seals without a checks wait when the PR state cannot be read on entry, as the shell does', async () => {
     const r = rig(ASSIGNED, [{}]);
     const ports = { ...r.ports, host: { prState: async () => ({ ok: false, why: 'failed' }) } as WorkerLoopPorts['host'] };
-    const clock = { since: null, pr: null };
+    const clock = { since: null, pr: null, mergeable: null, base: '' };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const readings = await readPass(ports, r.manifestFile, ran, rigConfig(), clock);
     expect(readings).toMatchObject({ pushed: true, prOpen: false, checks: null });
@@ -1131,20 +1131,32 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(124);
   });
 
-  it('never starts the checks-wait clock on a conflicting PR, reading mergeConflictAtEntry instead (#2122)', async () => {
+  it('catches a conflicting PR before sealing through, even with Checks wait at 0', async () => {
+    // ROW 12b would otherwise seal the slice as `the checks wait is disabled`
+    // before mergeability is ever read — the zero-wait short-circuit must not
+    // run ahead of the conflict check.
+    const conflicting: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'conflicting' } as Pr;
+    const r = rig(ASSIGNED, [{}, {}, {}], {}, { host: hostFixture({ prs: [conflicting] }) });
+    r.deps = { ...r.deps, config: { ...rigConfig(), checksWaitSeconds: 0 } };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.deskCalls.corrections.length).toBeGreaterThan(0);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('corrections-spent');
+  });
+
+  it('never starts the checks-wait clock on a conflicting PR (#2122)', async () => {
     const conflicting: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'conflicting' } as Pr;
     const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [conflicting] }) });
-    const clock = { since: null, pr: null, mergeable: null };
+    const clock = { since: null, pr: null, mergeable: null, base: '' };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const readings = await readPass(r.ports, r.manifestFile, ran, rigConfig(), clock);
-    expect(readings).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'conflicting', mergeConflictAtEntry: true, checks: null });
+    expect(readings).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'conflicting', checks: null });
     // THE CLOCK NEVER STARTS: a later pass would otherwise read a
     // `waitedSeconds` ticking up toward `Checks wait` for a build GitHub
     // never starts a run for.
     expect(clock.since).toBeNull();
   });
 
-  it('reads mergeConflictAtEntry from trees.mergeConflict when the host cannot answer mergeable (#2167)', async () => {
+  it('reads mergeable from trees.mergeConflict when the host cannot answer it (#2167)', async () => {
     // Bitbucket Cloud carries no field or endpoint for a PR's merge-conflict
     // status, so its `pr-state` answers `mergeable: 'unknown'` on every PR.
     // The desk falls back to a local `git merge-tree` reading through the
@@ -1152,7 +1164,7 @@ describe('runWorkerLoop — after the prompt', () => {
     // but `unknown` there.
     const unknownMergeable: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'unknown' } as Pr;
     const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [unknownMergeable] }) });
-    const clock = { since: null, pr: null, mergeable: null };
+    const clock = { since: null, pr: null, mergeable: null, base: '' };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const readings = await readPass(
       { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, mergeConflicts: { [r.wt]: 'conflicting' } }) },
@@ -1161,8 +1173,37 @@ describe('runWorkerLoop — after the prompt', () => {
       rigConfig(),
       clock,
     );
-    expect(readings).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'conflicting', mergeConflictAtEntry: true, checks: null });
+    expect(readings).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'conflicting', checks: null });
     expect(clock.since).toBeNull();
+  });
+
+  it('re-reads mergeability on a later pass of the wait, catching a conflict that starts mid-wait', async () => {
+    // The host settled `mergeable` at entry, so the clock started; a later
+    // merge onto the PR's own base (someone else's PR landing first) turns it
+    // conflicting mid-wait, which only a re-read of `trees.mergeConflict`
+    // during the wait — not the entry-time reading alone — can catch.
+    const mergeableAtEntry: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'mergeable', base: 'main' } as Pr;
+    const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [mergeableAtEntry] }) });
+    let asked = 0;
+    const trees: Trees = {
+      ...r.ports.trees,
+      mergeConflict: async () => {
+        asked += 1;
+        return { ok: true, value: 'conflicting' as const };
+      },
+    };
+    const ports = { ...r.ports, trees };
+    const clock = { since: null, pr: null, mergeable: null, base: '' };
+    const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
+
+    const entry = await readPass(ports, r.manifestFile, ran, rigConfig(), clock);
+    expect(entry).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'mergeable' });
+    expect(clock.since).not.toBeNull();
+    expect(asked).toBe(0);
+
+    const midWait = await readPass(ports, r.manifestFile, ran, rigConfig(), clock);
+    expect(midWait).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'conflicting' });
+    expect(asked).toBe(1);
   });
 
   it('reads mergeable as unknown when trees.mergeConflict itself cannot answer', async () => {
@@ -1173,7 +1214,7 @@ describe('runWorkerLoop — after the prompt', () => {
     const unknownMergeable: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'unknown' } as Pr;
     const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [unknownMergeable] }) });
     const trees = { ...r.ports.trees, mergeConflict: async () => ({ ok: false as const, why: 'failed' as const }) };
-    const clock = { since: null, pr: null, mergeable: null };
+    const clock = { since: null, pr: null, mergeable: null, base: '' };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const readings = await readPass({ ...r.ports, trees }, r.manifestFile, ran, rigConfig(), clock);
     expect(readings).toMatchObject({ mergeable: 'unknown' });
@@ -1185,7 +1226,7 @@ describe('runWorkerLoop — after the prompt', () => {
     const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [mergeable] }) });
     let asked = false;
     const trees = { ...r.ports.trees, mergeConflict: async () => { asked = true; return { ok: true, value: 'conflicting' as const }; } };
-    const clock = { since: null, pr: null, mergeable: null };
+    const clock = { since: null, pr: null, mergeable: null, base: '' };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const readings = await readPass({ ...r.ports, trees }, r.manifestFile, ran, rigConfig(), clock);
     expect(asked).toBe(false);
@@ -1201,7 +1242,7 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(r.deskCalls.corrections).toHaveLength(2);
     expect(r.deskCalls.corrections[0]?.text).toContain(BRANCH);
-    expect(r.deskCalls.corrections[0]?.text).toContain('Merge the default branch');
+    expect(r.deskCalls.corrections[0]?.text).toContain('Merge that branch');
     expect(r.calls.corrections.map((c) => c.correctionAttempts)).toEqual([1, 2]);
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('corrections-spent');
   });
@@ -1761,7 +1802,7 @@ describe('readPass — unreadable host readings', () => {
       ...r.ports,
       host: { ...r.ports.host, prState: fail } as WorkerLoopPorts['host'],
     };
-    const clock = { since: null, pr: null };
+    const clock = { since: null, pr: null, mergeable: null, base: '' };
     const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
     const a = await readPass(ports, r.manifestFile, ran, rigConfig(), clock);
     expect(a.prOpen).toBe(false);
@@ -1770,7 +1811,7 @@ describe('readPass — unreadable host readings', () => {
       r.manifestFile,
       ran,
       rigConfig(),
-      { since: null, pr: null },
+      { since: null, pr: null, mergeable: null, base: '' },
     );
     expect(b.tip).toBe('unknown');
     expect(b.checks).toBeDefined();
@@ -2085,5 +2126,41 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
     ]);
     expect(atSecondStart).toHaveLength(1);
     expect(atSecondStart[0]).toContain('use undici instead');
+  });
+
+  it('does not re-append an identical second answer in the same slice — correctionHasContinuation de-dups by heading', async () => {
+    const r = rig(
+      { ...ASSIGNED, resumeId: 'h-1' },
+      [{ status: 1 }, { status: 1 }, {}],
+      { config: { ...rigConfig(), maxStartRetries: 1 } },
+    );
+    const baseDesk = r.ports.desk;
+    Object.assign(r.ports, {
+      trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'no' }, branches: { [r.wt]: BRANCH } }),
+      desk: {
+        ...baseDesk,
+        appendCorrection: async (worktree: string, correction: string) => {
+          fs.appendFileSync(path.join(worktree, 'PLOT-CORRECTION.md'), `${correction}\n`);
+          return baseDesk.appendCorrection(worktree, correction);
+        },
+      },
+    });
+    r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) } };
+    const file = path.join(r.wt, '.plot-worker.continue.md');
+    fs.writeFileSync(file, 'use fetch');
+
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: continuationEntry('use fetch') }]);
+
+    // The same text again — `PLOT-CORRECTION.md` already carries this heading,
+    // so `correctionHasContinuation` must skip the append rather than
+    // duplicating it.
+    fs.writeFileSync(file, 'use fetch');
+    r.write({ ...r.read(), attempts: 0 });
+    r.runs.length = 0;
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: continuationEntry('use fetch') }]);
   });
 });

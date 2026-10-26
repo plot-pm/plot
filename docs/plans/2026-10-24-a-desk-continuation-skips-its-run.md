@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2475
@@ -12,6 +12,11 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2491 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/continuation-reads-the-loops-run-limits`
+- **Started:** 2026-10-24, Jan Wloka, `bug/a-failed-continuation-leaves-the-desk-as-found`
+- **Started:** 2026-10-24, Jan Wloka, `bug/drop-reads-the-boards-branch`
+- **Started:** 2026-10-24, Jan Wloka, `bug/mergeability-uses-the-prs-own-base`
+- **Started:** 2026-10-24, Jan Wloka, `bug/continuation-tests-assert-their-names`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
@@ -62,12 +67,12 @@ The `agent-loop.ts:584` refusal reason needs the worker loop to read the claim f
 
 ### Independent
 
-- `bug/drop-reads-the-boards-branch` — `deskBranchMerged` reads the checked-out branch
-- `bug/mergeability-uses-the-prs-own-base` — PR base, re-read during the Checks wait, honest conflict correction
+- `bug/drop-reads-the-boards-branch` — `deskBranchMerged` reads the checked-out branch → #2612
+- `bug/mergeability-uses-the-prs-own-base` — PR base, re-read during the Checks wait, honest conflict correction → #2618
 
 ### Tests and comments
 
-- `bug/continuation-tests-assert-their-names` — test fixes and comments that state current behaviour <!-- waits: bug/a-failed-continuation-leaves-the-desk-as-found, bug/mergeability-uses-the-prs-own-base -->
+- `bug/continuation-tests-assert-their-names` — test fixes and comments that state current behaviour → #2627 <!-- waits: bug/a-failed-continuation-leaves-the-desk-as-found, bug/mergeability-uses-the-prs-own-base -->
 
 ## Notes
 

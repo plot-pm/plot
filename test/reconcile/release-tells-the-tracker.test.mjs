@@ -143,11 +143,11 @@ ${extra.issue !== undefined ? `- **Issue:** ${extra.issue}\n` : ''}
 `;
 
 /** A second plan, written into the active index, sharing an issue and not yet Released. */
-const OTHER_PLAN = (issue) => `# Other plan
+const OTHER_PLAN = (issue, phase = 'Approved') => `# Other plan
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** ${phase}
 - **Type:** feature
 - **Approved:** 2026-09-01, jwloka, plan-PR #42 merged
 - **Issue:** ${issue}
@@ -158,7 +158,7 @@ const OTHER_PLAN = (issue) => `# Other plan
 - \`feature/beta\` — in flight
 `;
 
-function makeRepo(planBody = PLAN({ issue: '#7' }), { otherPlan } = {}) {
+function makeRepo(planBody = PLAN({ issue: '#7' }), { otherPlan, otherPlanActive = true } = {}) {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-release-tracker-'));
   issueCalls = path.join(tmp, 'issue.calls');
@@ -178,7 +178,7 @@ function makeRepo(planBody = PLAN({ issue: '#7' }), { otherPlan } = {}) {
   fs.writeFileSync(path.join(repo, 'docs', 'plans', '2026-09-01-release-me.md'), planBody);
   if (otherPlan !== undefined) {
     fs.writeFileSync(path.join(repo, 'docs', 'plans', '2026-09-01-other.md'), otherPlan);
-    fs.symlinkSync('../2026-09-01-other.md', path.join(repo, 'docs', 'plans', 'active', 'other.md'));
+    if (otherPlanActive) fs.symlinkSync('../2026-09-01-other.md', path.join(repo, 'docs', 'plans', 'active', 'other.md'));
   }
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'plan');
@@ -243,6 +243,64 @@ test('release: a shared issue stays open while another plan has not released yet
   assert.equal(r.code, 0, `should succeed:\n${r.out}\n${r.err}`);
   assert.match(r.out, /summary: issues closed=0 left-open=1 \(another-plan-unfinished=1\)\n/, r.out);
   assert.deepEqual(issueCallLines(), [], 'a shared, unfinished issue must never be asked of the tracker');
+});
+
+// #2374 (1): a Delivered-but-not-released sibling is invisible to the Active
+// index (it carries no active/ symlink) — the sibling read must still see it
+// through the flat plan directory, or the shared issue closes early.
+test('release: a shared issue stays open while a Delivered sibling is not yet released, though it carries no Active-index symlink', () => {
+  const { shippedSha } = makeRepo(PLAN({ issue: '#7' }), { otherPlan: OTHER_PLAN('#7', 'Delivered'), otherPlanActive: false });
+  process.env.GH_STUB_SHA = shippedSha;
+  execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'v1.0.0', shippedSha], { cwd: repo });
+  git(repo, 'push', '-q', 'origin', 'v1.0.0');
+
+  const r = run(['--release', '1.0.0', 'release-me']);
+  assert.equal(r.code, 0, `should succeed:\n${r.out}\n${r.err}`);
+  assert.match(r.out, /summary: issues closed=0 left-open=1 \(another-plan-unfinished=1\)\n/, r.out);
+  assert.deepEqual(issueCallLines(), [], 'a Delivered sibling with no Active-index entry must still hold the issue open');
+});
+
+// #2374 (2): the skip list must reach every tracker write, not just the close
+// decision. This fixture configures no Jira status word, so
+// `plot-issue-status.sh` owes nothing regardless of the skip list and reports
+// `tracker=none` — `plot-plan-state.sh` is the write this fixture's GitHub
+// labels actually exercise, and its own `--skip-issue` must be the SAME list
+// the close decision used, never asked of `gh` for a shared, unfinished issue.
+test('release: the skip list reaches the plan-state write as --skip-issue, never just the close decision', () => {
+  const { shippedSha } = makeRepo(PLAN({ issue: '#7' }), { otherPlan: OTHER_PLAN('#7') });
+  process.env.GH_STUB_SHA = shippedSha;
+  execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'v1.0.0', shippedSha], { cwd: repo });
+  git(repo, 'push', '-q', 'origin', 'v1.0.0');
+
+  const r = run(['--release', '1.0.0', 'release-me']);
+  assert.equal(r.code, 0, `should succeed:\n${r.out}\n${r.err}`);
+  assert.deepEqual(issueCallLines(), [], 'the write itself must never reach the tracker for a skipped issue');
+  assert.match(r.out, /plan-state: 7\tskipped\tanother plan unfinished/, r.out);
+});
+
+// #2374 (3): a sibling read that fails outright (not "no sibling found") must
+// never behave like an empty read — every issue named by this release stays
+// open, and the release itself still succeeds. Only the SIBLING file is made
+// unreadable (not the plan directory itself, and not the released plan): the
+// directory listing that finds it still succeeds — `plot-plan-meta.sh` is
+// what fails, on that one file, mid-batch (exit 2) — so the primary plan
+// lookup, which never reads this file, is unaffected.
+test('release: a sibling read that fails outright leaves every issue open, and the release still succeeds', () => {
+  const { shippedSha } = makeRepo(PLAN({ issue: '#7' }), { otherPlan: OTHER_PLAN('#7') });
+  process.env.GH_STUB_SHA = shippedSha;
+  execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'v1.0.0', shippedSha], { cwd: repo });
+  git(repo, 'push', '-q', 'origin', 'v1.0.0');
+
+  const otherPlanFile = path.join(repo, 'docs', 'plans', '2026-09-01-other.md');
+  fs.chmodSync(otherPlanFile, 0o000);
+  try {
+    const r = run(['--release', '1.0.0', 'release-me']);
+    assert.equal(r.code, 0, `an unreadable sibling read must not fail the release:\n${r.out}\n${r.err}`);
+    assert.match(r.out, /summary: issues closed=0 left-open=1 \(unreadable=1\)\n/, r.out);
+    assert.deepEqual(issueCallLines(), [], 'an unreadable sibling read must never let a write through');
+  } finally {
+    fs.chmodSync(otherPlanFile, 0o644);
+  }
 });
 
 test('release: a plan naming no issue reports nothing to close and never asks the tracker', () => {

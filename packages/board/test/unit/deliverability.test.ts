@@ -415,3 +415,36 @@ describe('deliverabilityOf reads the commits a slice names', () => {
     expect(asked).toEqual(['abc1234 in origin/trunk']);
   });
 });
+
+describe('deliverabilityOf reads a cross-repo reference from the plan text', () => {
+  const branch = 'feature/lives-elsewhere';
+  const text = ['# X', '', '## Slices', '', `- \`${branch}\` — the work → quatico/the-github-side#4711`, ''].join('\n');
+  const portsWithText = (host: Host): DeliverabilityPorts => ({
+    planStore: planStoreFixture({ plans: [plan([branch])], files: { [FILE]: text } }),
+    host,
+    refs: { commitFiles: async () => ({ ok: true, value: [] }) } as never,
+    prIndex: prIndexFixture(null),
+  });
+
+  it('asks Host.prState with the repo the reference names, never prMerged', async () => {
+    const asked: unknown[] = [];
+    const host: Host = {
+      ...throwingHostExceptMergeCommit(),
+      prState: async (ref, opts) => {
+        asked.push([ref, opts]);
+        return { ok: true, value: { state: 'MERGED' } } as never;
+      },
+    };
+    const answer = await deliverabilityOf(portsWithText(host), SLUG, FILE);
+
+    expect(asked).toEqual([[4711, { repo: 'quatico/the-github-side' }]]);
+    expect(answer.deliverable).toBe(true);
+  });
+
+  it('refuses as cannot-tell when the host that reference names cannot be asked', async () => {
+    const host: Host = { ...throwingHostExceptMergeCommit(), prState: async () => ({ ok: false, why: 'failed' }) };
+    const answer = await deliverabilityOf(portsWithText(host), SLUG, FILE);
+
+    expect(answer.reason).toBe('cannot-tell');
+  });
+});

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   gatesMainCheckout,
+  gatesStrandingReset,
+  gitPushCalls,
   gitWriteDirs,
   MAIN_CHECKOUT_WRITER_ENV,
   mainCheckoutWriteRefusal,
   mutatesGitState,
+  strandsTree,
+  treeStrandingResetDirs,
 } from '../src/rules/main-checkout-write.js';
 
 describe('mutatesGitState', () => {
@@ -86,6 +90,78 @@ describe('mutatesGitState', () => {
     'echo `git commit`',
     '(git commit -m y)',
   ])('reads a git call inside a substitution or subshell: %s', (command) => expect(mutatesGitState(command)).toBe(true));
+
+  it.each([
+    'if git commit -m x; then echo ok; fi',
+    'for i in a b; do git checkout $i; done',
+    '{ git reset --hard; }',
+    '! git commit -m x',
+    'time git commit -m x',
+    '! time git commit -m x',
+    'a & git commit -m x',
+  ])('reads a git call behind a leading shell keyword or a backgrounding &: %s', (command) =>
+    expect(mutatesGitState(command)).toBe(true));
+
+  it.each([
+    'if git status; then echo ok; fi',
+    'for i in a b; do git status; done',
+    '{ git status; }',
+    '! git status',
+    'time git status',
+  ])('reads a read-only call behind a leading shell keyword as a non-mutating read: %s', (command) =>
+    expect(mutatesGitState(command)).toBe(false));
+
+  it('splits a single & as a separator without breaking && splitting', () => {
+    expect(mutatesGitState('echo a && echo b & git commit -m x')).toBe(true);
+    expect(mutatesGitState('echo a & git commit -m x')).toBe(true);
+  });
+
+  it.each([
+    'git tag -l',
+    'git tag --list',
+    'git notes list',
+    'git notes show abc123',
+    'git clean -n',
+    'git clean --dry-run',
+    'git fetch origin main',
+    'git fetch origin',
+    'git fetch',
+  ])('reads %s as a non-mutating read', (command) => expect(mutatesGitState(command)).toBe(false));
+
+  it.each([
+    'git tag v1.0',
+    'git tag -d v1.0',
+    'git notes add -m x',
+    'git notes remove abc123',
+    'git clean -f',
+    'git clean -fd',
+    'git clean -fx',
+    'git fetch origin src:dst',
+    'git fetch src:dst',
+  ])('reads %s as mutating', (command) => expect(mutatesGitState(command)).toBe(true));
+
+  it('reads a dry-run clean as a non-mutating read even combined with a force flag', () => {
+    expect(mutatesGitState('git clean -nf')).toBe(false);
+    expect(mutatesGitState('git clean -fn')).toBe(false);
+  });
+
+  it('does not read a mutating git call written into an unquoted heredoc body', () => {
+    expect(mutatesGitState('cat <<EOF\ngit checkout x\nEOF')).toBe(false);
+  });
+
+  it('reads a mutating git call on the line right after the heredoc terminator', () => {
+    expect(mutatesGitState('cat <<EOF\ngit checkout x\nEOF\ngit commit -m y')).toBe(true);
+  });
+
+  it.each([
+    "cat <<'EOF'\ngit checkout x\nEOF",
+    'cat <<"EOF"\ngit checkout x\nEOF',
+  ])('does not read a mutating git call inside a quoted heredoc delimiter: %s', (command) =>
+    expect(mutatesGitState(command)).toBe(false));
+
+  it('does not read a mutating git call inside an indented (<<-) heredoc body', () => {
+    expect(mutatesGitState('cat <<-EOF\n  git checkout x\n  EOF')).toBe(false);
+  });
 });
 
 describe('gitWriteDirs', () => {
@@ -214,5 +290,74 @@ describe('mainCheckoutWriteRefusal', () => {
   it('names the main checkout and PLOT_UNATTENDED as the reasons', () => {
     expect(text).toContain('MAIN checkout');
     expect(text).toContain('PLOT_UNATTENDED=1');
+  });
+});
+
+describe('treeStrandingResetDirs', () => {
+  it.each([
+    'git reset',
+    'git reset origin/main',
+    'git reset -q',
+    'git reset --mixed HEAD~1',
+    'git reset -- file.txt',
+    'git reset origin/main -- file.txt',
+  ])('reads %s as stranding', (command) => expect(strandsTree(command)).toBe(true));
+
+  it.each(['git reset --hard', 'git reset --hard origin/main', 'git reset --soft HEAD~1', 'git reset --keep HEAD~1', 'git reset --merge'])(
+    'reads %s as tree-consistent',
+    (command) => expect(strandsTree(command)).toBe(false),
+  );
+
+  it('ignores other mutating calls and reads', () => {
+    expect(strandsTree('git commit -m x')).toBe(false);
+    expect(strandsTree('git status')).toBe(false);
+  });
+
+  it('places the call by -C and cd', () => {
+    expect(treeStrandingResetDirs('git -C /abs/main reset')).toEqual(['/abs/main']);
+    expect(treeStrandingResetDirs('cd /abs/main && git reset')).toEqual(['/abs/main']);
+    expect(treeStrandingResetDirs('cd "$desk" && git reset')).toEqual([]);
+  });
+});
+
+describe('gitPushCalls', () => {
+  it('reads a push with no leading option', () => {
+    expect(gitPushCalls('git push origin main')).toEqual([['origin', 'main']]);
+  });
+
+  it('skips a value-taking global option (value as the next word) before push', () => {
+    expect(gitPushCalls('git -C /repo push origin main')).toEqual([['origin', 'main']]);
+    expect(gitPushCalls('git --git-dir /repo/.git push origin main')).toEqual([['origin', 'main']]);
+  });
+
+  it('skips a boolean global option, and a value-taking one given as --opt=value, before push', () => {
+    expect(gitPushCalls('git --no-pager push origin main')).toEqual([['origin', 'main']]);
+    expect(gitPushCalls('git --git-dir=/repo/.git push origin main')).toEqual([['origin', 'main']]);
+  });
+
+  it('answers no calls for a git command with no push', () => {
+    expect(gitPushCalls('git commit -m x')).toEqual([]);
+  });
+
+  it('answers no calls for a non-git command', () => {
+    expect(gitPushCalls('pnpm test')).toEqual([]);
+  });
+
+  it('reads one entry per push across a chained command', () => {
+    expect(gitPushCalls('git push origin main && git push origin --tags')).toEqual([
+      ['origin', 'main'],
+      ['origin', '--tags'],
+    ]);
+  });
+});
+
+describe('gatesStrandingReset', () => {
+  it('applies to an unattended agent, marked as a writer or not', () => {
+    expect(gatesStrandingReset({ PLOT_UNATTENDED: '1' })).toBe(true);
+    expect(gatesStrandingReset({ PLOT_UNATTENDED: '1', [MAIN_CHECKOUT_WRITER_ENV]: '1' })).toBe(true);
+  });
+
+  it('leaves an attended session free', () => {
+    expect(gatesStrandingReset({})).toBe(false);
   });
 });

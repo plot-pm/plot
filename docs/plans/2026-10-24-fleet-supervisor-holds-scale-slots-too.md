@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2486
@@ -13,6 +13,8 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2536 merged
 - **Started:** 2026-10-24, Claude, `bug/fleet-supervisor-liveness-bounds`
+- **Started:** 2026-10-25, Jan Wloka, `bug/fleet-review-followups-wording`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -58,11 +60,11 @@ The slices group the findings by the code they touch, so each branch has one rev
 
 ### Label
 
-- `bug/fleetctl-start-checks-configured-label` — `--start` checks the default and the configured label, and the fleetctl tests share one helper
+- `bug/fleetctl-start-checks-configured-label` — `--start` checks the default and the configured label, and the fleetctl tests share one helper → #2642
 
 ### Log and wording
 
-- `bug/fleet-review-followups-wording` — log a lasting default-branch cause once, and correct the comments, changeset, plist, `plot-config.sh` header and `plot-fleet/SKILL.md` wording
+- `bug/fleet-review-followups-wording` — log a lasting default-branch cause once, and correct the comments, changeset, plist, `plot-config.sh` header and `plot-fleet/SKILL.md` wording → #2673
 
 ## Notes
 

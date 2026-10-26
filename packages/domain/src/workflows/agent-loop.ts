@@ -209,6 +209,15 @@ export interface AgentLoopReadings {
    * cannot see denials must not manufacture one.
    */
   readonly permissionDenials: PermissionDenialReading;
+  /**
+   * The run's own final text, read only where {@link permissionDenials} is
+   * `'yes'` — the one ending this reaches with no agent-written marker and no
+   * hand-back to carry a summary. `''` where the harness answered none:
+   * `AgentRun.finalText` is absent on every SDK result subtype but `success`,
+   * so a run that ended on an API error mid-denial carries no text here even
+   * though it carries a denial.
+   */
+  readonly finalText: string;
 
   /**
    * What the build connector and the tip reading answer for the pushed
@@ -228,25 +237,16 @@ export interface AgentLoopReadings {
   /** The PR number the checks are about, for a `blocked-marker` naming it. */
   readonly pr: number | null;
   /**
-   * Whether the open PR merges cleanly, read once on entry to the checks wait
-   * alongside {@link pr} — `null` outside the wait, where no PR has been read
-   * yet. Read only so a `no-answer` ending's marker can name the host's own
-   * `mergeable` reading rather than a generic "check the build connector"
-   * when the real cause was a conflicting PR GitHub never started a run for.
+   * Whether the open PR merges cleanly, read on entry to the checks wait
+   * alongside {@link pr} and re-read on every later pass of the wait —
+   * `null` outside the wait, where no PR has been read yet. A `conflicting`
+   * reading, at entry or mid-wait, ends the slice with a correction naming
+   * the host's own `mergeable` reading rather than a generic "check the
+   * build connector": GitHub starts no `pull_request` run for a merge ref
+   * that conflicts, so entering or remaining in the wait is pointless once
+   * the host has said it will build nothing.
    */
   readonly mergeable: Mergeability | null;
-  /**
-   * Whether {@link mergeable} read `conflicting` at the same moment it was
-   * read, before the checks wait's clock started. `false` everywhere else,
-   * including inside an already-running wait — `mergeable` is read once on
-   * entry and not re-asked, so this is a ROW 12a-adjacent reading rather than
-   * something the wait itself re-derives. Checked before {@link ciWait} is
-   * called at all: GitHub starts no `pull_request` run for a merge ref that
-   * conflicts, so entering the wait (starting its clock, later computing
-   * {@link checks} from the runs) is pointless when the host already said it
-   * will build nothing.
-   */
-  readonly mergeConflictAtEntry: boolean;
   /**
    * Whether the open PR is still a draft, read once on entry to the checks
    * wait alongside {@link pr} — `null` outside the wait, where no PR has been
@@ -510,11 +510,11 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
 };
 
 /**
- * ROW 12a' — the PR conflicts with the default branch at the moment the
- * checks wait would begin. Resumes the agent with a merge-main-and-push
- * correction while `correctionBudget` has room left, the same budget a
- * failed build spends; once it is spent, the next conflicting reading ends
- * the slice for a person rather than resuming forever.
+ * ROW 12a'/12-18 — the PR conflicts with its own base, at entry to the
+ * checks wait or on a later re-read during it. Resumes the agent with a
+ * merge-and-push correction while `correctionBudget` has room left, the
+ * same budget a failed build spends; once it is spent, the next conflicting
+ * reading ends the slice for a person rather than resuming forever.
  *
  * @param readings - this pass's readings.
  * @param branch - the branch the slice is on.
@@ -902,9 +902,15 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     !readings.prOpen &&
     readings.commitBeyondClaim === 'no'
   ) {
-    return readings.permissionDenials === 'yes'
-      ? end(worktree, branch, 'permission-denied', 'agent', 'the claim is pushed, nothing else is, every write was refused', 0)
-      : end(worktree, branch, 'nothing-done', 'agent', 'the claim is pushed, nothing else is, no checks wait', 0);
+    if (readings.permissionDenials === 'yes') {
+      const summary = readings.finalText || 'the claim is pushed, nothing else is, every write was refused';
+      const question = `PLOT-BLOCKED: the worker on \`${branch}\` was refused every write it tried (${summary}) — a person decides what to fix.`;
+      return end(worktree, branch, 'permission-denied', 'agent', summary, 0, [
+        { kind: 'blocked-marker', worktree, branch, question },
+        blockedDeclaration(worktree, branch, summary),
+      ]);
+    }
+    return end(worktree, branch, 'nothing-done', 'agent', 'the claim is pushed, nothing else is, no checks wait', 0);
   }
   if (
     exit !== null &&
@@ -920,16 +926,19 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     );
   }
 
-  // ROW 12a' — the PR conflicts with the default branch at the same moment
-  // the checks wait would begin. GitHub starts no `pull_request` run for a
-  // merge ref that conflicts, so entering the wait is pointless; the agent is
-  // resumed with a merge-main-and-push correction instead, bounded by the
-  // same `correctionBudget` a failed build spends (`#2122`'s second open
+  // ROW 12a' — the PR conflicts with its own base at the same moment the
+  // checks wait would begin. GitHub starts no `pull_request` run for a merge
+  // ref that conflicts, so entering the wait is pointless; the agent is
+  // resumed with a merge-and-push correction instead, bounded by the same
+  // `correctionBudget` a failed build spends (`#2122`'s second open
   // question: reused rather than a new counter, since a conflict resumed
   // unboundedly repeats the #1274-shaped failure mode a bound already exists
   // to prevent). Checked before {@link ciWait} so its switch gains no case
-  // for a value `ChecksFromRuns` has no slot for.
-  if (readings.mergeConflictAtEntry) return mergeConflictCorrectionEnding(readings, branch);
+  // for a value `ChecksFromRuns` has no slot for. `readings.checks === null`
+  // scopes this to the wait's first pass: once a real `checks` reading
+  // exists, a `conflicting` mid-wait re-read is ROW 16's `no-answer` case to
+  // read, not a reason to re-enter this correction on every later pass.
+  if (readings.checks === null && readings.mergeable === 'conflicting') return mergeConflictCorrectionEnding(readings, branch);
 
   return ciWait(readings, branch);
 };

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2162
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2471 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/implement-restores-the-checkout`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -54,11 +55,11 @@ Files likely touched: `packages/fleet/src/shared/implement-run.ts`, `packages/bo
 
 ### Ref
 
-- `bug/implement-pushes-no-held-ref` — the Started record never leaves a ref the queue reads as held <!-- waits: bug/implement-restores-the-checkout -->
+- `bug/implement-pushes-no-held-ref` — the Started record never leaves a ref the queue reads as held <!-- waits: bug/implement-restores-the-checkout --> → #2646
 
 ### Release
 
-- `bug/dead-claim-releases` — a claim with no agent and no commits beyond the default branch is released by the fleet or offered on the row <!-- builds: a domain rule naming an empty claim ref releasable -->
+- `bug/dead-claim-releases` — a claim with no agent and no commits beyond the default branch is released by the fleet or offered on the row <!-- builds: a domain rule naming an empty claim ref releasable --> → #2657
 
 ## Notes
 

@@ -1,4 +1,5 @@
-import { buildBoard, type BuildBoardOptions } from '../board.js';
+import { isAnswered } from '@plot-pm/domain';
+import { buildBoard, refsFor, type BuildBoardOptions } from '../board.js';
 import { buildFleet } from '../fleet.js';
 import type { Board, Column, Fleet } from '../../contract/schema.js';
 
@@ -77,16 +78,89 @@ export const realEstateSource: EstateSource = {
 };
 
 /**
- * The build `boardState` is already running, keyed by nothing — one board, one
- * estate, one build at a time. A second caller awaits the FIRST caller's
- * promise rather than starting its own.
+ * Identity tags for injected ports, so two different fixture objects for the
+ * same `repoRoot` never collapse into the same key.
+ *
+ * A fixture `Refs`/`Trees`/etc. can't be used as a `Map` key directly (two
+ * structurally-identical fixtures built by two different tests are two
+ * different objects, and a key must tell them apart), so each object seen is
+ * assigned a stable tag on first sight and the tag — not the object — joins
+ * the string key below.
+ */
+const portTags = new WeakMap<object, number>();
+let nextPortTag = 0;
+
+const tagFor = (port: object | undefined): string => {
+  if (!port) return '-';
+  let tag = portTags.get(port);
+  if (tag === undefined) {
+    tag = nextPortTag++;
+    portTags.set(port, tag);
+  }
+  return String(tag);
+};
+
+/**
+ * The key that says whether two callers' `opts` describe the SAME estate.
+ *
+ * `repoRoot` alone is not enough: a caller can also inject `refs`, `trees` and
+ * the other {@link BuildBoardOptions} ports, and two callers with the same
+ * `repoRoot` but different injected ports must never share a build — one
+ * would read a fixture and the other would read real git, so joining them
+ * would hand one caller the other's answer. Every port that participates in
+ * `buildBoard`'s read joins the key; a port left out would make this slice's
+ * own fix invisible to a test built with that port injected.
+ */
+const keyFor = (opts: BuildBoardOptions): string =>
+  [
+    opts.repoRoot,
+    opts.scriptsDir,
+    tagFor(opts.refs),
+    tagFor(opts.trees),
+    tagFor(opts.planStore),
+    tagFor(opts.hostAdapter),
+    tagFor(opts.buildAdapter),
+    tagFor(opts.spendRecord),
+    tagFor(opts.defaultBranchStore),
+  ].join(' ');
+
+/**
+ * An opaque token over every ref's SHA, read the way `signals.ts:refsSignal`
+ * reads it for the `BranchMonitor` — but through the ASYNC `Refs.refState`,
+ * never the sync twin. `boardState` runs on the read route's own stack
+ * (`a-read-route-spawns-nothing.test.ts` gates exactly that), so the
+ * synchronous spawn `refStateSync` makes would land on this request's thread;
+ * the async port yields instead.
+ *
+ * Empty means "could not be read" and never matches another empty token —
+ * the same rule `signals.ts:unchanged` applies, so an unreadable ref state
+ * never falsely joins a stale build.
+ */
+const refsToken = async (opts: BuildBoardOptions): Promise<string> => {
+  const read = await refsFor(opts).refState('both');
+  if (!isAnswered(read)) return '';
+  return read.value.map(({ ref, sha }) => `${ref} ${sha}`).join('\n');
+};
+
+/** One estate's in-flight build, and the refs token read when it started. */
+interface InFlightBuild {
+  promise: Promise<Board>;
+  startedAt: string;
+}
+
+/**
+ * The builds `boardState` is already running, keyed by the estate each is
+ * building — one build per estate at a time. A second caller for the SAME
+ * estate awaits the FIRST caller's promise rather than starting its own; a
+ * caller for a DIFFERENT estate (a different repo, or different injected
+ * ports) gets its own slot and never waits on another estate's build.
  *
  * Module-level and not per-call: the whole point is for two concurrent HTTP
  * requests (two browser tabs, a poll overtaking a slow previous one) to share
  * one `buildBoard`, which is a module-wide fact about how many are running
  * right now, not a per-request one.
  */
-let inFlight: Promise<Board> | null = null;
+const inFlight = new Map<string, InFlightBuild>();
 
 /**
  * Fleet state: the question `/api/board` and `/api/fleet` both serve.
@@ -142,10 +216,25 @@ export const boardState = async ({
   // get its own answer every time.
   let built: Board;
   if (estate === realEstateSource) {
-    inFlight ??= buildBoard(opts).finally(() => {
-      inFlight = null;
-    });
-    built = await inFlight;
+    const key = keyFor(opts);
+    const now = await refsToken(opts);
+    const current = inFlight.get(key);
+    // A joiner arriving after something changed does not await the stale
+    // build — refs moved since it started, so its answer is already wrong for
+    // this caller. Start (and key) a fresh one instead.
+    if (current && (!now || current.startedAt !== now)) {
+      inFlight.delete(key);
+    }
+    const existing = inFlight.get(key);
+    if (existing) {
+      built = await existing.promise;
+    } else {
+      const promise = buildBoard(opts).finally(() => {
+        if (inFlight.get(key)?.promise === promise) inFlight.delete(key);
+      });
+      inFlight.set(key, { promise, startedAt: now });
+      built = await promise;
+    }
   } else {
     built = await buildBoard(opts);
   }

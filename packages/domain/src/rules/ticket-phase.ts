@@ -10,12 +10,10 @@ export interface TicketPlan {
   readonly merged: number | null;
 }
 
-/** The phase word a ticket shows, and where it sits in the workflow. */
+/** The phase word a ticket shows. */
 export interface TicketPhase {
   /** `planning`, `design`, `in progress`, `in progress <merged>/<total>`, `delivered` or `released`. */
   readonly label: string;
-  /** Comparable position: lower is less advanced. */
-  readonly order: number;
 }
 
 interface Placed {
@@ -48,7 +46,7 @@ const PLACED: Readonly<Record<string, Placed>> = {
  * (`rejected`, `superseded`) is ignored.
  *
  * @param plans - the plans whose `Issue:` field names the ticket.
- * @returns the label and order key, or `null` when no plan names the ticket.
+ * @returns the label, or `null` when no plan names the ticket.
  */
 export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null => {
   let best: { plan: TicketPlan; placed: Placed; order: number } | null = null;
@@ -58,19 +56,19 @@ export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null =>
     const order = phaseOrder(placed.phase) * 10 + placed.rank;
     if (best === null || order < best.order) best = { plan, placed, order };
   }
-  return best === null ? null : { label: best.placed.label(best.plan), order: best.order };
+  return best === null ? null : { label: best.placed.label(best.plan) };
 };
 
 /**
- * Whether every plan naming a ticket is `released` — a ticket in this state
- * has nothing left unfinished and should not keep appearing as waiting work.
+ * Whether a ticket has nothing left that *Waiting on you* shows: every plan
+ * naming it is `released`, or is in a state {@link ticketPhase} does not place
+ * (`rejected`, `superseded`, or any other word absent from `PLACED`).
  *
- * `[]` answers `false`: a ticket no plan names is unplanned, not
- * released-and-done, and that case belongs to the caller that decides what an
- * absent plan list means, not to this predicate.
+ * `[]` answers `false`: a ticket no plan names is unplanned, and the caller
+ * decides what an absent plan list means.
  *
  * @param plans - the plans whose `Issue:` field names the ticket.
- * @returns whether every plan in the list is in the `released` state.
+ * @returns whether the list is non-empty and every plan in it is released or unplaceable.
  */
-export const allReleased = (plans: readonly TicketPlan[]): boolean =>
-  plans.length > 0 && plans.every((plan) => plan.state === 'released');
+export const allFinished = (plans: readonly TicketPlan[]): boolean =>
+  plans.length > 0 && plans.every((plan) => plan.state === 'released' || PLACED[plan.state] === undefined);

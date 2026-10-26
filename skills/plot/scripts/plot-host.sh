@@ -31,10 +31,21 @@
 #                                 where GitHub's `hosts.yml` names no user;
 #                                 exit 4 on Bitbucket, which stores no username
 #                                 for free. Never prints `unknown`.
-#   pr-state <number|branch> [--repo <owner/repo>]   one JSON object:
+#   pr-state <number|branch> [--repo <owner/repo>] [--with-checks]
+#                                 one JSON object:
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
 #                                    "draft":true|false,"url":"...",
 #                                    "mergeable":"mergeable|conflicting|unknown"}
+#                                 ON BITBUCKET, `checks` and the Jenkins lookup
+#                                 it costs are read ONLY with `--with-checks`;
+#                                 without the flag `checks` reads `unknown`
+#                                 and no Jenkins call is made. GitHub reads
+#                                 `checks` either way. No caller under
+#                                 skills/plot/scripts/ reads `.checks` from
+#                                 this op (surveyed 2026-10-24, #2481); the
+#                                 merge controller (`mergeAt`) passes the
+#                                 flag, because it refuses unless `checks`
+#                                 reads `green`.
 #                                 Bitbucket Cloud's REST API has no field or
 #                                 endpoint that reports merge-conflict status
 #                                 for a pull request (measured 2026-10-20), so
@@ -50,9 +61,13 @@
 #                                 PER BRANCH (`bb_branch_query`'s `q=` filter),
 #                                 never a repository-wide page — a PR merged
 #                                 before a page's newest 50 used to read as
-#                                 NONE. A page full at that filter's own
-#                                 ceiling without a match exits 3, the same as
-#                                 any other unanswerable question.
+#                                 NONE. `bb_branch_query` follows `next`, so a
+#                                 branch with more than 50 matches is still
+#                                 read whole; only a refused call or a walk the
+#                                 page cap stopped exits 3 — not an empty match
+#                                 on a full page, which this arm's own branch
+#                                 filter makes impossible (every row already
+#                                 matches, so a short answer is a true NONE).
 #   pr-merged <branch>            has ANY PR for this branch merged? prints one
 #                                 word: merged|not-merged|unknown
 #                                 READS `mergedAt`, NEVER `state`: a merged PR
@@ -463,11 +478,14 @@
 #                                 credentials and through a different API — the
 #                                 reason the tracker port has two connectors.
 #                                 Prints `written` where the transition was
-#                                 performed and `no-target` where the workflow
-#                                 offers no such transition from the issue's
-#                                 current state — which is also what a repeated
-#                                 write reports, because the same status twice
-#                                 is the same status.
+#                                 performed. Where none matches, prints
+#                                 `no-match<TAB>current<TAB>available`: the
+#                                 issue's current status and the names of the
+#                                 transitions offered from it, both read in the
+#                                 same lookup. The connector decides from them
+#                                 whether the issue already holds the status or
+#                                 no transition reaches it; this op decides
+#                                 nothing.
 #                                 The transition id is LOOKED UP, never guessed:
 #                                 ids are per workflow and per issue, so a
 #                                 hardcoded one writes to the wrong column.
@@ -618,6 +636,33 @@ miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >
 # rather than exiting — the caller already branches on this word, not a code.
 miss_or_unknown() { if [ -z "$1" ] || is_lookup_miss "$1"; then echo "not-merged"; else echo "plot-host: $1" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
+# Reads the last host call's stderr into `err` and removes the file, so the
+# next call starts empty. Every failed-call branch below starts with it.
+host_err() { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; }
+
+# THE ONE MARKER LOOKUP, shared by `pr-comment` and `issue-comment` — GitHub's
+# REST comments endpoint is `issues/$num/comments` for both, since a PR is an
+# issue under the hood. Prints the id of the comment holding `$2` (a
+# substring), scoped to the comment's `.user.login` (the REST field; `gh pr
+# list --json` answers `.author.login` instead, but this is the REST path) —
+# so a PR participant who pastes the same marker into their own comment is
+# never mistaken for this script's own prior post. Prints empty on no match.
+#
+# SCOPED TO THE LOGIN `gh api user` ANSWERS for the token this call writes
+# with (`host.ts:358`), asked once per lookup. Not `budget_account`: it reads
+# `hosts.yml` or `PLOT_BUDGET_ACCOUNT`, and neither names the author when
+# `GH_TOKEN` is set or the account is a grouping name, so every lookup missed
+# and posted a new comment.
+#
+# NO LOGIN, NO SCOPE. When `gh api user` fails or answers no valid login (an
+# App installation token gets 403 there), the match falls back to the marker
+# alone, as it was before #2661. A comment with no `user` field cannot be
+# attributed and also matches on the marker alone.
+#
+# A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
+# pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
+# that cannot be read never falls through to "no marker found, post new".
+gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
@@ -976,10 +1021,7 @@ PR_LIST_BIND_FN=""
 # which are lower-case. One mapping, so a caller never spells a state twice.
 bb_query_state() { # $1=adapter state word → Bitbucket's
   case "$1" in
-    open)       printf 'OPEN' ;;
-    merged)     printf 'MERGED' ;;
-    declined)   printf 'DECLINED' ;;
-    superseded) printf 'SUPERSEDED' ;;
+    open|merged|declined|superseded) printf '%s' "$1" | tr '[:lower:]' '[:upper:]' ;;
     *) die "bb_query_state: unknown state '$1'" ;;
   esac
 }
@@ -1008,11 +1050,12 @@ url_encode() { # $1=raw → percent-encoded on stdout
   printf '%s' "$_out"
 }
 
-# Ask Bitbucket about ONE branch in ONE state, and print the `values` array.
+# Ask Bitbucket about ONE branch in ONE state, and print the combined `values`
+# array across every page the host offers.
 #
-# WHAT IT PRINTS is the endpoint's `values` — a JSON array of 0 or 1 pull
-# request objects, in the SAME shape `bb pr list --json` emits, which is what
-# lets the existing jq programs consume it unchanged. The `--rich` field set
+# WHAT IT PRINTS is the endpoint's `values` — a JSON array of pull request
+# objects, in the SAME shape `bb pr list --json` emits, which is what lets the
+# existing jq programs consume it unchanged. The `--rich` field set
 # (`plot-host.sh:3247`) reads `.id`, `.title`, `.state`, `.source.branch.name`,
 # `.draft` and `.links.html.href`; the REST object carries all six.
 #
@@ -1024,12 +1067,24 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # happening from the other side: a host exiting 0 while printing nothing once
 # read as "this repo has no PRs".
 #
-# `pagelen=50` rather than 1. A branch may legitimately carry several pull
-# requests in one state — a merged attempt and a merged successor — and the
-# consumers rank them (`fleet.ts`'s `prOutranks`, the scan's OPEN-before-MERGED
-# sort). Asking for one would silently hand them whichever the host listed
-# first, which no adapter promises. Fifty is the endpoint's ceiling and costs
-# the same as one.
+# THE QUERY FILTERS ON STATE, SO A FULL PAGE IS NEVER A SHORT NON-MATCH. Every
+# row this walk reads already matches `$_st` — Bitbucket filters server-side —
+# so a branch carrying more than 50 pull requests in one state (#2484) used to
+# truncate silently at the first page. This now follows `next` until the host
+# stops offering one, or until `BB_BRANCH_QUERY_PAGE_CAP` pages have been read,
+# whichever comes first — see that constant for why no narrower cap exists to
+# reuse.
+#
+# A STOPPED WALK REPORTS ITSELF, ON STDERR, IN `pr_list_report_truncation`'s
+# OWN WORDING ("possibly truncated") — `plot-host.sh:3093` is the precedent
+# this follows rather than inventing a second phrase for the same fact — and
+# RETURNS EXIT 3, the code `pr-merged`, `pr-merge-commit`/`pr-merge-dest` and
+# `pr-merged-heads` already read as "the question failed, not merely empty".
+# A caller reading the exit code sees one vocabulary for "the answer may be
+# short" whether the cause is a refused call or a walk the cap stopped.
+#
+# `pagelen=50` rather than 1 — the endpoint's ceiling, and the same per-page
+# cost whether this reads one page or several.
 # THE HOST'S OWN FAILURE TEXT LEAVES HERE UNCLASSIFIED, and that is the whole
 # reason this does not call `pr_list_call`. That wrapper classifies a failure
 # ONCE — throttled, burst, or everything else — and composes the sentence a
@@ -1038,12 +1093,43 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # message: measured here, a `429` became *"the host failed the request and said
 # nothing"* because `Rate limit … exceeded` was no longer in the text being
 # matched. So the raw stderr and the raw exit code travel out of this function
-# untouched, and the single `pr_list_call` that `pr_list_states` already wraps
-# the whole sweep in does the one classification — exactly the layering
-# `bb pr list` has always had.
+# untouched on the FIRST page; a later page's failure returns the same raw code
+# with no partial array printed — a caller cannot tell "zero rows" from "the
+# walk broke before it saw any", so printing a prefix here would manufacture an
+# answer this function never had.
+#
+# THE SAME `next`-WALK SHAPE AS `bb_window_listing` (`:1200`), which strips
+# `BB_API_BASE` from an absolute `next` URL to keep asking `bb api` with a
+# relative path — `bb api` concatenates `${BB_API}${path}` itself. That helper
+# has no page cap because its own completeness check is the server's `size`
+# field; this one has no `size` to check against (the endpoint's envelope here
+# carries it too, but a state-filtered count racing concurrent merges is not
+# the guard this slice adds), so the cap is the only bound on the walk.
+#
+# SHARED BY `bb_branch_query` AND `pr-review`'s statuses/comments reads: the
+# same walk, cap and failure rule serve a branch-filtered query and a bare
+# path alike, so the loop lives once. $1=first path $2=truncation label
+# $3=truncation detail; rest=global bb args → combined values[] on stdout.
+_bb_paged_walk() {
+  local _path="$1" _label="$2" _detail="$3" _out _spool _next _page=0; shift 3
+  # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
+  # `rm` on an early return; the walk only ever runs a handful of times per
+  # process, so the file outliving one call costs nothing a caller can see.
+  plot_tmpfile _spool host-paged-walk || return 3; while [ -n "$_path" ]; do
+    [ "$((++_page))" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
+    # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
+    # would turn the host's exit code into jq's, and a parse error and a spent
+    # quota are not the same fact. A failure on page 2+ returns the same raw
+    # code the first page would have — see the header above.
+    _out="$(bb "$@" api "$_path")" || return $?
+    printf '%s\n' "$_out" | jq -c '.values // []' >> "$_spool" && _next="$(jq -r '.next // empty' <<<"$_out")" || return 3
+    if [ -z "$_next" ]; then _path=""; elif [[ "$_next" == "$BB_API_BASE"/* ]]; then _path="${_next#"$BB_API_BASE"}"
+    else echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3; fi
+  done; jq -c -s 'add // []' < "$_spool"
+}
+
 bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]
-  local _br="$1" _st="$2"; shift 2
-  local _q _path _out _rc
+  local _br="$1" _st="$2" _q; shift 2
   _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND source.branch.name=$(url_encode "\"$_br\"")"
   # THE WINDOW COMPOSES WITH THE STATE FILTER AND NEVER REPLACES IT. Bitbucket
   # takes ONE `q=` parameter, so a second one would silently win or lose
@@ -1061,27 +1147,31 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
   # so an exclusive comparison against a truncated stamp would drop a PR updated
   # inside the same second. Re-reading one row the caller already holds costs a
   # row; missing one costs a change nobody ever sees again.
-  [ -n "$PR_LIST_SINCE" ] \
-    && _q="$_q AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
-  # The space between the two terms is encoded too; `bb api` passes the path to
-  # curl verbatim and an unencoded space would truncate the request line.
-  _q="${_q// /%20}"
-  # THE LEADING SLASH. See the block header — without it this is a 403 that
-  # reads as a scope error.
-  _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50"
-  # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
-  # would turn the host's exit code into jq's, and a parse error and a spent
-  # quota are not the same fact.
-  _out="$(bb "$@" api "$_path")" || return $?
-  printf '%s' "$_out" | jq -c '.values // []'
+  [ -n "$PR_LIST_SINCE" ] && _q="$_q AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
+  # The space between the two terms is encoded too, inline below; `bb api`
+  # passes the path to curl verbatim and an unencoded space would truncate the
+  # request line. THE LEADING SLASH on the path: see the block header above —
+  # without it this is a 403 that reads as a scope error.
+  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?q=${_q// /%20}&pagelen=50" "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" "$@"
 }
 
-# A FULL `bb_branch_query` PAGE WITH NO MATCHING ROW CANNOT PROVE ABSENCE.
-# $1=the JSON array, $2=a jq `any(.[]; …)` predicate naming the field that
-# would carry the answer. True only at the 50-row ceiling with the predicate
-# finding nothing — the one condition `pr-merged`, `pr-merge-commit` and
-# `pr-merged-heads` each guard against before reading silence as a negative.
-bb_full_page_lacks() { [ "$(jq 'length' <<<"$1")" -ge 50 ] && ! jq -e "$2" >/dev/null 2>&1 <<<"$1"; }
+# HOW MANY PAGES `bb_branch_query` WILL WALK BEFORE REPORTING "possibly
+# truncated" AND REFUSING TO GUESS AT THE REST.
+#
+# THERE WAS NO EXISTING CAP TO REUSE. `bb_window_listing` (`:1200`) walks
+# `next` with no cap at all — its own completeness proof is the server's
+# `size` field, read once the whole walk finishes — and nothing else in this
+# file bounds a `next`-walk by page count. The plan that commissioned this
+# change ("bounded by the existing page cap") named one that does not exist;
+# this constant is new, not reused, and that is reported in the branch's PR.
+#
+# 20, CHOSEN RATHER THAN MEASURED: at `pagelen=50` it reaches 1000 pull
+# requests for one branch in one state, an order of magnitude past the
+# largest number of pull requests measured for any single tracked branch on
+# this estate (`a-pr-list-reads-every-page.md`: 886 MERGED pull requests
+# across an entire repository, not one branch). A branch that still exceeds
+# it gets the truncation report rather than a silent prefix.
+BB_BRANCH_QUERY_PAGE_CAP=20
 
 # Ask about EVERY tracked branch in one state, printing one combined array.
 #
@@ -1744,7 +1834,7 @@ jenkins_no_instance() {
 # that into exit 4, *cannot be asked*.
 jenkins_rest_credential() { # $1 = the bare host
   local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" src="the environment" found env_file
-  [ -n "$u" ] || [ -n "$t" ] || { found="$(plot_env_file)"; [ -n "$found" ] && env_file="${found%|*}" && src="${found#*|}.env" && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
+  [ -n "$u" ] || [ -n "$t" ] || { found="$(plot_env_file JENKINS_USER JENKINS_API_TOKEN)"; [ -n "$found" ] && env_file="${found%|*}" && src="${found#*|}.env" && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
   [ -n "$u" ] && [ -n "$t" ] && { echo "plot-host: JENKINS_USER and JENKINS_API_TOKEN read from $src" >&2; printf '%s:%s' "$u" "$t"; return 0; }
   command -v security >/dev/null 2>&1 || return 1; u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
   t=$(security find-generic-password -s jen -a "jenkins-token:$1" -w 2>/dev/null) || return 1
@@ -1770,12 +1860,14 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # `Instance:` line rather than reinvented here — `jen` already turns a slug
 # like `ewz` into `jenkins-ci-ewz.internal.quatico.dev` and keys its stored
 # credential by that resolved host, so a literal slug sent to `curl` or to
-# `jenkins_rest_credential` can only fail. Prints nothing (exit 1) when `jen`
-# is missing, unparseable, or the line is absent — the caller decides what an
-# unresolved host means, same contract as every other helper here.
+# `jenkins_rest_credential` can only fail. Prints nothing and exits 1 when
+# `jen` is missing, unparseable, or the line is absent; exits 2 when the line
+# names no parenthesized host. The caller decides what an unresolved host
+# means, same contract as every other helper here.
 jenkins_resolve_host() {
   local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
-  [ -n "$line" ] && sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" || return 1
+  [ -n "$line" ] || return 1
+  sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" | grep . || return 2
 }
 
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
@@ -1857,27 +1949,43 @@ jenkins_resolve_host() {
 # small enough that 3x of any realistic `--limit` stays well under what one
 # `tree=` query already returns today (measured 2026-09-10: 4855 bytes for
 # five builds).
+#
+# A BRANCH JENKINS HAS NOT INDEXED REFUSES BY NAME. The branch-specific path
+# is tried first; if it answers real JSON with no `builds` key, Jenkins
+# reached the job and simply has no such branch, and the refusal says so.
+# Only the root-path retry's container check (above) can turn that into an
+# empty-history read instead. A host that never answers at all — curl
+# failure, HTML, empty body — gets the generic "did not answer" refusal,
+# since nothing there proves Jenkins was even reached.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path branch_path branch_answered=""
   instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"; [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
   # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
-  case "$slug" in *.*) host="$slug" ;; *) host="$(jenkins_resolve_host "$slug")" || { echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2; echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2; exit 4; } ;; esac
+  case "$slug" in *.*) host="$slug" ;; *) host="$(jenkins_resolve_host "$slug")" || {
+      [ $? = 2 ] && printf '%s\n' "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" "  \`jen -I $slug auth status\` answered an 'Instance:' line that names no (https://…) host; run it directly to see what it names." >&2 || printf '%s\n' "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2
+      exit 4; } ;; esac
   cred="$(jenkins_rest_credential "$host")" || {
     echo "plot-host: $op — no Jenkins API credential for '$host'" >&2
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
     exit 4
   }
   tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$((limit * 3))%7D"
-  body=""; root_path="$(jenkins_job_url_path "$job" "")"
-  for path in "$(jenkins_job_url_path "$job" "$branch")" "$root_path"; do
+  body=""; root_path="$(jenkins_job_url_path "$job" "")"; branch_path="$(jenkins_job_url_path "$job" "$branch")"
+  for path in "$branch_path" "$root_path"; do
     host_slot_take jenkins ''
     try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
     host_slot_give; budget_record_call jenkins ''
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
+    # A branch path that came back as REAL JSON (jq could parse and evaluate
+    # it, just found no `builds` key) means Jenkins answered and indexed no
+    # such branch — distinct from curl failing outright or answering HTML,
+    # where jq's own exit code is 4 (empty input) or 5 (parse error) rather
+    # than the 1 a successfully-evaluated `false` reports.
+    [ "$path" = "$branch_path" ] && printf '%s' "$try" | jq -e . >/dev/null 2>&1 && branch_answered=1
     # ONLY AT THE ROOT: a multibranch container that answered its OWN `_class`
     # and no `builds` has not indexed this branch at all — an empty history,
     # not a refusal. Checking this on the BRANCH path too would be wrong: a
@@ -1889,10 +1997,7 @@ jenkins_sha_runs() {
     plain=1
   done
   cred=""
-  if [ -z "$body" ]; then
-    echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
-    exit 4
-  fi
+  [ -n "$body" ] || { [ -n "$branch_answered" ] && echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2 || echo "plot-host: $op — Jenkins did not answer for '$host'" >&2; exit 4; }
   printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" --argjson limit "$limit" 'def headsha($records): ($records | map(select(any(.branches[]; . == $branch))) | first.sha) // (if [$records[].branches[]] | length == 0 then $records | last.sha // "" else "" end);
     [ .builds[]
       | { records: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision
@@ -1910,16 +2015,21 @@ jenkins_sha_runs() {
 # settle the head: a JSON object keyed by branch, or nothing where no lookup
 # was needed. $1 = the op's name, $4 = optional path to also receive the
 # branches `rowsToBind` named this pass (one per line), so a caller can tell
-# "named but the ask broke early" (the colour must still stand, per "absent is
-# not false") from "never named because the row is past the cap" (the colour
-# must not stand) without a second, duplicate run of the same `rows` verb.
+# "named but the ask broke early" from "never named because the row is past
+# the cap" without a second, duplicate run of the same `rows` verb. A row past
+# the cap never stands on its colour. A named row whose ask broke stands on it
+# in GitHub's `pr-list`, and reads `checksLookup: broken` in Bitbucket's
+# `pr-list` and `pr-state`.
 # $5 = optional JSON object, branch -> the checksSha the caller's PR index
 # already has on record; a branch bound there to its CURRENT head costs the
 # pass nothing to re-confirm, so `rowsToBind` (rotation) spends the cap's
 # lookups on branches that are absent or stale there first. Absent entirely
 # where the caller holds no index — every row then sorts exactly as before.
 # `jenkins_sha_runs` reads each named row by sha, the bundle binds them. A
-# lookup that cannot ask Jenkins ends the pass, and the colour stands.
+# lookup that cannot ask Jenkins ends the pass, and the rows it did not reach
+# get no bound entry. A failing `rows` call itself (the bundle crashes or
+# prints nothing) empties $4 and returns with no stdout at all, so every
+# ambiguous row this pass reads unknown rather than some subset of them.
 jenkins_bind_rows() {
   local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; jq -c . <<<"${5:-null}"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
   : >"${4:-/dev/null}"; [ -z "$_named" ] && return; cut -f1 <<<"$_named" >"${4:-/dev/null}"
@@ -2010,6 +2120,12 @@ bb_fold_mergeable_stream() { local wantrepo="${1:-}" line; while IFS= read -r li
 
 # Prints the `pr-state` row of the Bitbucket PR payload $1 (`null` for no PR).
 #
+# $2 = "1" to ask Jenkins for the check at all; anything else (including
+# absent) skips `jenkins_instance`/`jenkins_build_map`/`jenkins_bind_rows`
+# entirely and reads `checks: unknown` with no Jenkins call made — the shell
+# side of `pr-state --with-checks`. The merge controller passes the flag;
+# `pr-merge`'s head re-read does not, because it reads only `headSha`.
+#
 # Without `CI: jenkins` the check is `unknown`, absent and not false, as in
 # `pr-list`'s plain Bitbucket arm. Under it the branch colour from
 # `jenkins_build_map` settles `none` and `pending`, and a head whose colour is
@@ -2018,9 +2134,14 @@ bb_fold_mergeable_stream() { local wantrepo="${1:-}" line; while IFS= read -r li
 # `headSha` is `source.commit.hash`, a short hash `jenkins_sha_runs` prefix-matches.
 # `mergeable` is `unknown` here; `pr-state` folds the real reading on top with
 # `bb_fold_mergeable`, and `pr-merge --match-head` reads only `headSha`.
+#
+# A row `rowsToBind` names for a sha lookup whose `jenkins_sha_runs` call then
+# broke early (Jenkins unreachable mid-pass) must not stand on its stale branch
+# colour. The `state` verb asks `rowsToBind` itself whether this one row was
+# named, from the same colours, and reads it `checksLookup: broken`.
 bb_state_row() {
   local colours=null bound=null inst
-  if jq -e '.id' >/dev/null 2>&1 <<<"$1" && [ "$(ci_scheme)" = "jenkins" ]; then
+  if [ "${2:-0}" = 1 ] && jq -e '.id' >/dev/null 2>&1 <<<"$1" && [ "$(ci_scheme)" = "jenkins" ]; then
     inst="$(jenkins_instance)"
     [ -z "$inst" ] || colours="$(jenkins_build_map "$inst" | jq -c 'if .status == "ok" then (.map // {}) else null end' 2>/dev/null)" || colours=null
     [ "$colours" = null ] || bound="$(jenkins_bind_rows pr-state "$colours" "$(jq -c '[{headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"
@@ -2364,7 +2485,8 @@ rest_pr_to_state() {
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of }
+        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of,
+        mergedAt: (.merged_at // "") }
   '
 }
 
@@ -2834,7 +2956,11 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # desk or a scratch worktree under `Worktree root` has none of its own, and
 # `git rev-parse --show-toplevel` there answers with the WORKTREE, which never
 # holds one. Prints "<path>|" (worktree) or "<path>|the main checkout's" on a
-# readable candidate, or nothing when neither location has one.
+# candidate, or nothing when neither location has one.
+#
+# $1 and $2 name the two vars a candidate must hold BOTH of — every caller
+# needs a pair, never a lone half, so a readable-but-incomplete candidate is
+# skipped in favour of the next one rather than returned anyway.
 #
 # NO UPWARD WALK past either location — the fallback is exactly one more
 # place to look, not a search. `--git-common-dir`'s parent is the main
@@ -2842,10 +2968,19 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # command fails, prints nothing, or its parent directory does not exist, this
 # falls through to "no main checkout .env" rather than inventing a path.
 plot_env_file() {
-  local root env_file common; root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
-  [ -r "$env_file" ] && { printf '%s|' "$env_file"; return 0; }
-  common="$(git rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
-  env_file="$(dirname "$common")/.env"; [ -r "$env_file" ] && printf "%s|the main checkout's " "$env_file"
+  local root env_file common
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
+  plot_env_file_qualifies "$env_file" "$1" "$2" && { printf '%s|' "$env_file"; return 0; }
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
+  env_file="$(dirname "$common")/.env"
+  plot_env_file_qualifies "$env_file" "$1" "$2" && printf "%s|the main checkout's " "$env_file"
+}
+
+# A candidate qualifies when it is readable and holds both named vars —
+# never a lone half of a pair.
+plot_env_file_qualifies() {
+  [ -r "$1" ] || return 1
+  [ -n "$(read_env_var "$2" "$1")" ] && [ -n "$(read_env_var "$3" "$1")" ]
 }
 
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
@@ -2861,20 +2996,18 @@ plot_env_file() {
 # `die3` exits the whole script only from there, not from inside a command
 # substitution where it would end only the subshell and leak a second error.
 #
-# WHERE BOTH ARE UNSET, `plot_env_file` IS READ, same order and both-or-neither
-# rule as `jenkins_rest_credential` — measured 2026-09-17, an operator holding
-# a working pair was sent to create a second token before this fallback
-# existed. THE VALUE IS NEVER PRINTED, only the source, so a 401 can be
-# debugged against the right one of two possible tokens.
+# WHERE BOTH ARE UNSET, `plot_env_file` IS READ, naming the two vars so it
+# skips a candidate holding only one — measured 2026-09-17, an operator
+# holding a working pair was sent to create a second token before this
+# fallback existed. THE VALUE IS NEVER PRINTED, only the source, so a 401 can
+# be debugged against the right one of two possible tokens.
 jira_load_env_file() {
-  local found env_file source email token
+  local found env_file
   [ -z "${JIRA_EMAIL:-}" ] && [ -z "${JIRA_API_TOKEN:-}" ] || return 0
-  found="$(plot_env_file)"; [ -n "$found" ] || return 0; env_file="${found%|*}"; source="${found#*|}"
-  email="$(read_env_var JIRA_EMAIL "$env_file")"; token="$(read_env_var JIRA_API_TOKEN "$env_file")"
-  # BOTH OR NEITHER. Half a Basic credential authenticates nothing, and a
-  # partial pickup would turn today's honest refusal into a 401 further in.
-  [ -n "$email" ] && [ -n "$token" ] || return 0
-  export JIRA_EMAIL="$email" JIRA_API_TOKEN="$token"; echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
+  found="$(plot_env_file JIRA_EMAIL JIRA_API_TOKEN)"; [ -n "$found" ] || return 0
+  env_file="${found%|*}"
+  export JIRA_EMAIL="$(read_env_var JIRA_EMAIL "$env_file")" JIRA_API_TOKEN="$(read_env_var JIRA_API_TOKEN "$env_file")"
+  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${found#*|}.env" >&2
 }
 
 jira_require_config() {
@@ -3692,6 +3825,12 @@ shift
 # answer at all" — the one code every caller reads as permanent rather than
 # transient. Collapsing it to 1 here would tell a GitLab repo to retry forever.
 be="$(backend)" || exit $?
+# PLOT_HOST_OTHER=1 ASKS THE OTHER DRIVABLE BACKEND, the `HOST_DRIVES` entry
+# that is not this checkout's own. `hostShell.prState` and `prMerged` set it to
+# retry a cross-repo `--repo` reference on a clean miss (#2158); the decision is
+# `rules/cross-repo-probe.ts`. The variable stays in the environment, so a
+# re-exec of this script asks the same backend.
+[ -z "${PLOT_HOST_OTHER:-}" ] || be="$(printf '%s\n' $HOST_DRIVES | awk -v be="$be" '$0 != be { o = $0 } END { print o }')"
 
 # EVERY GITHUB OP CONSULTS THE ROUTER, ONCE, HERE. `gh_route` is asked before
 # the op runs and its answer is read from `$route` by whichever arm needs it —
@@ -3791,10 +3930,11 @@ case "$op" in
 
   pr-state)
     ref="${1:?pr-state needs a PR number or branch}"; shift || true
-    repo_args=(); repo_slug=""
+    repo_args=(); repo_slug=""; with_checks=0
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); repo_slug="${2:?}"; shift 2 ;;
+        --with-checks) with_checks=1; shift ;;
         *) die "pr-state: unknown arg $1" ;;
       esac
     done
@@ -3817,7 +3957,7 @@ case "$op" in
             rm -f "$HOST_ERR"
             rest_pr_to_state <<<"$out"
           else
-            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+            host_err
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3838,7 +3978,7 @@ case "$op" in
               jq -c '.[0]' <<<"$out" | rest_pr_to_state
             fi
           else
-            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+            host_err
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3846,11 +3986,11 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus 2>"$HOST_ERR")"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of}' <<<"$out"
+        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}' <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
         # this coming — `rate_limit` does not report the secondary limit — so the
         # cheap path was chosen and then declined. The second path is the one
@@ -3888,13 +4028,12 @@ case "$op" in
           # `$(bb_state_row ...)` RUNS IN A SUBSHELL, so a failure inside it
           # (a bad Jenkins answer, an unreadable row) was lost the moment its
           # stdout was captured — `bb_fold_mergeable` always saw success. The
-          # row is captured first and the exit status read immediately after,
-          # before `bb_fold_mergeable` (which cannot fail this op) can reset it.
-          state_row="$(bb_state_row "$out")"; state_rc=$?
-          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          # assignment's status is the substitution's, so `|| exit $?` ends the
+          # op with it before `bb_fold_mergeable` (which cannot fail) runs.
+          state_row="$(bb_state_row "$out" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       else
@@ -3954,11 +4093,10 @@ case "$op" in
           #
           # The exit status is kept through the command substitution the same
           # way the numeric-ref arm above does — see its comment.
-          state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")")"; state_rc=$?
-          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       fi
@@ -3995,7 +4133,7 @@ case "$op" in
           rm -f "$HOST_ERR"
           jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           miss_or_unknown "$err"
         fi
       else
@@ -4010,16 +4148,11 @@ case "$op" in
         # ceiling (see `bb_branch_sweep`'s header).
         if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          # A FULL PAGE CANNOT PROVE ABSENCE. `bb_branch_query` asks pagelen=50,
-          # and a branch carrying more than 50 merged PRs could hide a MERGED row
-          # past it — so 50 rows with none matching answers `unknown`, not
-          # `not-merged`, the same rule a failed call follows below.
-          if jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out"; then echo "merged"
-          elif bb_full_page_lacks "$out" 'any(.[]; .state == "MERGED")'; then echo "plot-host: pr-merged: the branch query for '$ref' returned a full page with no merged PR; cannot prove absence" >&2; echo "unknown"
-          else echo "not-merged"
-          fi
+          # `bb_branch_query` now follows every page, so a row's absence here is
+          # the host's own answer rather than a page boundary (#2484).
+          jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           miss_or_unknown "$err"
         fi
       fi
@@ -4041,8 +4174,8 @@ case "$op" in
     # this only for a branch it has already been told merged, and the plan it
     # serves budgets one host call per branch either way.
     #
-    # `--state all` and `--limit 100` for `pr-merged`'s own two reasons: a
-    # merged PR reports CLOSED, and the newest PR is not the merge.
+    # `--state all` for `pr-merged`'s own two reasons: a merged PR reports
+    # CLOSED, and the newest PR is not the merge.
     #
     # PRINTS NOTHING AND EXITS 0 where no PR merged — an ANSWER, the same shape
     # `pr-state` gives for a missing PR. Exit 3 is the question failing.
@@ -4050,8 +4183,12 @@ case "$op" in
     # `pr-merge-dest` RUNS THE SAME QUERY and prints every merged PR instead of
     # the first sha: one `number<TAB>base<TAB>sha<TAB>mergedAt` line each, read
     # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
-    # release-chain walk. Bitbucket names no merge time, so `mergedAt` is
-    # `updated_on`, as in `pr-list`.
+    # release-chain walk, where under-reading is a silent wrong hop rather than
+    # a cheap prefilter (#2238) — so GitHub's `--limit` grows and the query
+    # re-asks until a page returns short of it, same proof as
+    # `pr_list_report_truncation`. Bitbucket's arm already pages in full via
+    # `_bb_paged_walk` (#2484); its `mergedAt` is `updated_on` as in `pr-list`,
+    # since the endpoint carries no real merge timestamp (#2202).
     ref="${1:?$op needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -4061,19 +4198,27 @@ case "$op" in
     done
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
+      limit=100
+      # A page as long as `--limit` may have been cut, so the limit doubles and
+      # the query re-asks. The loop ends one of two ways: a short page, after
+      # which `$HOST_ERR` is gone, or a failed call, which leaves `$HOST_ERR`
+      # in place because the redirect creates it before `gh` runs.
+      while out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; do
         rm -f "$HOST_ERR"
-        # The FIRST merged PR carrying a sha. A branch may hold several merged
-        # PRs; each names its own merge commit, and any of them is a commit that
-        # landed this branch's work.
-        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
-               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
-      else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        [ "$(jq 'length' <<<"$out")" -lt "$limit" ] && break
+        limit=$((limit * 2))
+      done
+      if [ -e "$HOST_ERR" ]; then
+        host_err
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
         # nothing" — the caller distinguishes the two by the exit code.
         miss_or_exit3 "$err"
+      else
+        # Every merged PR carrying a sha, earliest-first ordering left to the
+        # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
+               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
       fi
     else
       bb_require_json
@@ -4082,11 +4227,10 @@ case "$op" in
       # `merge_commit.hash` on a merged PR.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: $op: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
         jq -r 'map(select(.merge_commit.hash != null)
                | {n: .id, b: (.destination.branch.name // ""), s: .merge_commit.hash, t: (.updated_on // "")}) | '"$pick" <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         miss_or_exit3 "$err"
       fi
     fi
@@ -4115,7 +4259,7 @@ case "$op" in
         rm -f "$HOST_ERR"
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-gh pr list failed}" >&2; exit 3; }
       fi
     else
@@ -4125,10 +4269,9 @@ case "$op" in
       # `source.commit.hash`.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        bb_full_page_lacks "$out" 'any(.[]; .source.commit.hash != null)' && { echo "plot-host: pr-merged-heads: the branch query for '$ref' returned a full page with no merged head; cannot prove absence" >&2; exit 3; }
         jq -r '.[] | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-the branch query failed}" >&2; exit 3; }
       fi
     fi
@@ -4136,13 +4279,20 @@ case "$op" in
 
   pr-review)
     if [ "$be" != "github" ]; then
-      pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"
+      pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"; detail="a bypass or check recorded only on a later page would be missed"
+      # `_bb_paged_walk` (its own header has the cap/failure rule) follows
+      # `next` for both reads, so a `review-bypass:` comment or a status
+      # recorded only on a later page is not missed (#2484). THE WRAP GOES
+      # THROUGH STDIN, NOT `--argjson`: that flag passes its value through
+      # argv, which Linux caps at 128 KB (`MAX_ARG_STRLEN`) — a large enough
+      # page would die silently and read as "no rows" on CI while passing on
+      # macOS, the exact fabricated-absence bug this slice removes.
       out="$(bb api "$pr")" && sha="$(jq -re '.source.commit.hash' <<<"$out")" \
-        && st="$(bb api "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50")" && cm="$(bb api "$pr/comments?pagelen=100")" \
-        && printf '%s\n%s\n%s\n' "$sha" "$(jq -c . <<<"$st")" "$(jq -c . <<<"$cm")" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
+        && st="$(_bb_paged_walk "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
+        && cm="$(_bb_paged_walk "$pr/comments?pagelen=100" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
+        && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
         || { echo "plot-host: pr-review: the read failed" >&2; exit 3; }
-      exit 0
-    fi
+      exit 0; fi
     out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
       && jq -c --argjson st "$st" '{sha: .headRefOid, state: ([$st[] | select(.context == "plot/review")][0].state // "absent"), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
       || { echo "plot-host: pr-review: the read failed" >&2; exit 3; } ;;
@@ -4194,7 +4344,7 @@ case "$op" in
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
-    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
       echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
       exit 1
@@ -4315,6 +4465,8 @@ case "$op" in
     # travel to GitHub as part of the term and match nothing.
     search_args=()
     [ -n "$since" ] && search_args=(--search "updated:>$since")
+    # One named branch is asked as one: `--head` filters server-side in the same single list call.
+    head_args=(); [ "$(wc -w <<<"$branches")" -eq 1 ] && head_args=(--head "$branches")
 
     # --- Jenkins CI integration (orthogonal to Git host) ---
     # When `CI: jenkins` is configured, build status comes from Jenkins rather
@@ -4482,7 +4634,7 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
             --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -4527,7 +4679,7 @@ case "$op" in
               } + (if $jstatus == "ok" and $ambiguous and $eff == null then {checksLookup:"skipped"} else {} end)'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
             --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -4559,7 +4711,7 @@ case "$op" in
         # advances its watermark by. Without it a split full read would leave
         # the store unable to narrow and the daily full read would never fall
         # due against anything but a cold window.
-        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
+        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
           --json number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -4667,19 +4819,37 @@ case "$op" in
           # `unknown`: its colour may belong to a commit this PR no longer
           # carries. A row `$named` lists but `$shamap` has no entry for is one
           # `jenkins_sha_runs` never reached because an earlier ask in the same
-          # pass broke early — "a lookup that cannot ask is not an answer",
-          # carried over unchanged from #2053/#2075, so its colour stands.
+          # pass broke early. It reads `unknown` with `checksLookup: broken`
+          # for the same reason: its colour may belong to an older commit.
           # `updatedAt` travels too: `rowsToBind` sorts by it to pick the most
           # recently updated rows, and a row list that never carries it sorts
           # as a no-op, leaving the cap keyed on array order instead.
-          _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file" "$_bound_shas")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
+          # A MERGED or DECLINED row is settled; binding it spends a cap slot
+          # on a row nobody acts on, the same waste `bb_fold_mergeable` was
+          # fixed to skip for `mergeable` (wave 1, #2546). Filtered OUT before
+          # `jenkins_bind_rows` ever sees the row, so it cannot be `$named`
+          # either — a settled row reads its plain colour, never `skipped` or
+          # `broken`.
+          #
+          # ONE CAP COVERS `--state all`. `pr_list_states` calls
+          # `$PR_LIST_BIND_FN` once per state (open, merged, declined), and
+          # each call starts at `SHA_LOOKUPS_PER_PASS`. Bitbucket's `state=`
+          # filter returns only rows of that state, so only the open call holds
+          # OPEN rows and only it can name any: the pass spends at most 5.
+          _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | select(.state == "OPEN") | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file" "$_bound_shas")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
           PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |
-                ($jmap[.source.branch.name]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.source.branch.name) as $head | ((.source.commit.hash // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($shamap[.source.branch.name] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $jentry |
+                (.state == "OPEN") as $open | ($jmap[.source.branch.name]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.source.branch.name) as $head | ((.source.commit.hash // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($open and $ambiguous and $hasSha and ($wasNamed | not)) as $capped | ($open and $ambiguous and $wasNamed and ($shamap[.source.branch.name] == null)) as $broken | ($shamap[.source.branch.name] // (if ($capped or $broken) then null else $colour end) // null) as $jentry |
                 # A ROW `$jentry == null` WITH `$ambiguous` NEVER GOT A JENKINS
-                # ANSWER THIS PASS — past the cap, or a lookup that broke early.
-                # Distinct from Jenkins naming "unknown" itself — own field
-                # rather than the same `checks` word (`bitbucket-jenkins-a-pr-list-row`).
+                # ANSWER THIS PASS — `$capped` (past the cap, never named this
+                # pass) or `$broken` (named, but `jenkins_sha_runs` broke early
+                # before reaching it). Distinct from Jenkins naming "unknown"
+                # itself — own field rather than the same `checks` word
+                # (`bitbucket-jenkins-a-pr-list-row`). A `$broken` row must not
+                # stand on `$colour`: that colour may belong to a commit this
+                # PR no longer carries, the same reason `$capped` already
+                # refuses it — only the reason differs between `$capped` and
+                # `$broken`.
                 {
                   number:.id, title:.title,
                   state:(if .state=="DECLINED" then "CLOSED" else .state end),
@@ -4696,7 +4866,7 @@ case "$op" in
                   updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),checksSha:($jentry.checksSha // ""),
                   author:(.author.nickname // ""),
                   failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end), base:(.destination.branch.name // "")
-                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" | bb_fold_mergeable_stream "$repo_slug" || exit $?
+                } + (if $jstatus == "ok" and $jentry == null then (if $broken then {checksLookup:"broken"} elif $capped then {checksLookup:"skipped"} else {} end) else {} end)' "${bb_cmd[@]}" | bb_fold_mergeable_stream "$repo_slug" || exit $?
           PR_LIST_BIND_FN=""
         else
           # Bitbucket without Jenkins: checks remain unknown
@@ -4914,7 +5084,10 @@ case "$op" in
     # ONE MORE CALL, ONLY FOR A CONCLUDED FAILURE (#1295): `gh run view --json
     # jobs` is the only place a 0-step job (no runner ever picked up the run)
     # shows up, apart from a real failure. A run still going or that
-    # succeeded costs no extra call.
+    # succeeded costs no extra call. A second consumer reads the same `jobs`
+    # field since 2026-10-20: `checks-verdict.ts`'s `runWasNotAcquired` and its
+    # cancellation-fingerprint logic tell a genuine timeout from a near-instant
+    # supersession by reading these same per-job step conclusions.
     _gh_db_id=$(printf '%s' "$_gh_match" | jq -r 'if (.conclusion == "failure" or .conclusion == "cancelled") then .databaseId else "" end')
     _gh_match=$(printf '%s' "$_gh_match" | jq -c 'del(.databaseId)') || exit 4
     [ -z "$_gh_db_id" ] && { printf '%s' "$_gh_match"; exit 0; }
@@ -5263,16 +5436,15 @@ case "$op" in
       # the board. jira_check turns that 404 into exit 3 with empty stdout.
       jira_require_config
       body_json="$(jira_ask "/rest/api/2/issue/$num" \
-               -G --data-urlencode "fields=summary,description,status")" || exit $?
-      # `state` FOLLOWS issue-list's OWN WORD: `statusCategory.name == "Done"`
-      # is closed, same mapping as the list's open/closed reader — a second
-      # vocabulary here would drift from the one issue-list already keeps.
+               -G --data-urlencode "fields=summary,description,status,resolution")" || exit $?
+      # `state`: closed when `statusCategory.key` is `done` (`name` is localised)
+      # or a resolution is set; absent is open.
       printf '%s' "$body_json" | jq -c --arg base "$(tracker_base_url)" '{
           number: .key,
           title: (.fields.summary // ""),
           body: (.fields.description // ""),
           url: ($base + "/browse/" + .key),
-          state: (if .fields.status.statusCategory.name == "Done" then "closed" else "open" end)
+          state: (if .fields.status.statusCategory.key == "done" or .fields.resolution != null then "closed" else "open" end)
         }'
     elif [ "$be" = "github" ]; then
       if out="$(gh issue view "$num" --json number,title,body,url,state 2>"$HOST_ERR")"; then
@@ -5314,11 +5486,10 @@ case "$op" in
       url="$(grep -oE 'https?://[^[:space:]]+' <<<"$(grep -F 'View this issue on Bitbucket' <<<"$raw")" | head -1)"
       # Line 2 is `<STATE> • <reporter> opened <createdOn>` — the same badge
       # word `issue-list` strips from its own row, read here instead of
-      # discarded. RESOLVED/CLOSED close it; everything else (including states
-      # this vocabulary has no word for) stays open, the same default
-      # issue-list's mapping leaves for an unmapped badge.
-      bb_state="$(sed -n '2p' <<<"$raw" | sed -E 's/^([A-Z ]+)[[:space:]]*•.*$/\1/; s/[[:space:]]+$//')"
-      case "$bb_state" in RESOLVED|CLOSED) state=closed ;; *) state=open ;; esac
+      # discarded. The five finished words close it; ON HOLD, NEW, OPEN and any
+      # state this vocabulary has no word for stay open, as issue-list leaves them.
+      bb_state="$(sed -n '2p' <<<"$raw" | sed -E 's/^[[:space:]]*([A-Z ]+)[[:space:]]*•.*$/\1/; s/[[:space:]]+$//')"
+      case "$bb_state" in RESOLVED|CLOSED|INVALID|DUPLICATE|WONTFIX) state=closed ;; *) state=open ;; esac
       # Body is the block between the metadata head and the footer. The head is
       # the title + the two fixed meta lines (state, Type:) plus an optional
       # Component/Milestone/Version line; the tail is the footer. This is the
@@ -5363,8 +5534,10 @@ case "$op" in
     #
     # IDEMPOTENT BY NATURE. The same status written twice is the same status,
     # and Jira answers a transition to the state an issue already holds by
-    # naming no such transition — which this reports as `no-target` rather than
-    # as a failure.
+    # naming no such transition. A no-match also covers the other case — the
+    # status exists but the workflow has no transition to it from here — so the
+    # no-match line carries the facts that tell the two apart, and the
+    # connector (`tracker-jira.ts`) tells them apart.
     key="${1:?issue-status needs an issue key}"; want="${2:?issue-status needs a status}"
     [ "$(tracker_scheme)" = "jira" ] || exit 4
     jira_require_config
@@ -5372,17 +5545,21 @@ case "$op" in
     # workflow and per issue: the id for "In Progress" differs between projects
     # and the transition may not be available from the issue's current state at
     # all. A hardcoded id writes a status to the wrong column silently.
-    body_json="$(jira_ask "/rest/api/2/issue/$key/transitions")" || exit $?
+    # ONE READ, TWO FACTS. The issue read with `expand=transitions` answers the
+    # same transitions as `/transitions` and the current status beside them, so
+    # a no-match costs no second call.
+    body_json="$(jira_ask "/rest/api/2/issue/$key?fields=status&expand=transitions")" || exit $?
     tid="$(printf '%s' "$body_json" | jq -r --arg want "$want" \
       '[.transitions[]? | select((.name // "" | ascii_downcase) == ($want | ascii_downcase)
                                  or ((.to.name // "" | ascii_downcase) == ($want | ascii_downcase)))]
        | .[0].id // ""')"
     if [ -z "$tid" ]; then
-      # NO SUCH TRANSITION IS AN ANSWER, not a failure. The tracker was reached
-      # and holds nowhere to put this status — either the workflow has no such
-      # state or the issue is already in it. Reporting it as a failure would
-      # make a repeated write look like an outage.
-      printf '%s\n' 'no-target'
+      # NO MATCH IS NOT YET AN ANSWER. It covers two different facts — the
+      # issue already holds the status (harmless), or the status exists but no
+      # transition from here reaches it (the tracker is behind). The current
+      # status and the offered transitions are printed as read; an absent
+      # status prints as an empty field, which the connector reads as a failure.
+      printf '%s' "$body_json" | jq -r '"no-match\t\(.fields.status.name // "")\t\([.transitions[]?.name] | join(", "))"'
       exit 0
     fi
     jira_ask "/rest/api/2/issue/$key/transitions" \
@@ -5424,9 +5601,9 @@ case "$op" in
       issue-label) add="${2:?issue-label needs a label}"; carried="$(gh issue view "$num" --json labels -q '.labels[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort) | paste -sd, -)"; gh label create "$add" --color ededed --description "Plot plan phase: ${add#plan:}" >/dev/null 2>"$HOST_ERR" || grep -qi 'already exists' "$HOST_ERR" || gh_fail; gh issue edit "$num" --add-label "$add" ${keep:+--remove-label "$keep"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
-        cid=""; [ -z "${2-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
-        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
-        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
+        cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
+        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR"
+        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail ;;
     esac
     rm -f "$HOST_ERR" ;;
 
@@ -5491,7 +5668,7 @@ case "$op" in
           }
         }' <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         # The host could not be asked. Report unknown rather than failing outright,
         # because this is informational — a caller that cannot read the budget
         # should proceed with the default path, not error out.
@@ -5731,8 +5908,8 @@ case "$op" in
     # the signed-in CLI identity, so it needs no App credentials and no Node
     # helper.
     [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
-    [ -z "${3-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$3" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
-    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi; rm -f "$HOST_ERR" ;;
+    [ -z "${3-}" ] || cid="$(gh_marker_comment_id "$num" "$3")" || gh_fail
+    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
     die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"

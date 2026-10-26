@@ -69,7 +69,7 @@ read_declared_bundles() { # <root> <fail-fn>
     }
   ')
   if [ -z "$out" ]; then
-    "$fail_fn" "$build at HEAD declares no bundle this gate can parse, so the declarations cannot serve as evidence. Fix the parser in this script, not the build."
+    "$fail_fn" "$build at HEAD declares no bundle this gate can parse, so the declarations cannot serve as evidence. Fix the parser in lib-declared-bundles.sh, not the build."
     return 1
   fi
   printf '%s\n' "$out"

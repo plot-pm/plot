@@ -144,7 +144,7 @@ describe('approve perform — plan-PR merge ordering', () => {
     });
   };
 
-  it('refuses a plan-PR with no head SHA on bitbucket too, which now pins like every host', async () => {
+  it('refuses a plan-PR with no head SHA on bitbucket too, which pins like every host', async () => {
     const statuses: CommitStatusWrite[] = [];
     const calls: string[][] = [];
     const ctx = ctxFor(statuses, calls);
@@ -251,12 +251,11 @@ describe('approve perform — a refused open-PR listing is reported as a host re
   });
 
   /**
-   * A domain refusal reached from the plan ITSELF — never from the
-   * placeholder `pr` reading a held host refusal substitutes — keeps its
-   * precedence. `slice-unnamed` runs ahead of the PR-state switch and is
-   * computed from `readings.slices`, not `readings.pr`, so it must still
-   * surface even while `hostRefusal` is held: the plan carries this one
-   * true reason, independent of what the host could or couldn't answer.
+   * `slice-unnamed` is computed from `readings.slices`, not `readings.pr`,
+   * and the domain reaches it before `perform()` ever checks `hostRefusal`.
+   * So it still surfaces first even while a host refusal is held — the one
+   * true reason nothing could be decided comes after a plan-intrinsic
+   * refusal, never ahead of it.
    */
   it('reports slice-unnamed, not a held host refusal, when a plan fact refuses first', async () => {
     const calls: string[][] = [];

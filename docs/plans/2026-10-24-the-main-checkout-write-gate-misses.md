@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2487
@@ -13,6 +13,8 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2540 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/the-main-checkout-write-gate-misses`
+- **Started:** 2026-10-25, Jan Wloka, `bug/the-main-checkout-writers-test-asserts`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -57,7 +59,7 @@ Step 1 changes a rule the gate and the shell share. A duplicated rule joins the 
 
 ### Writers
 
-- `bug/the-main-checkout-writers-test-asserts` — the worker prompt records the PR number through the controller, the writers test asserts its claims, and the Approved plan's candidate list is corrected
+- `bug/the-main-checkout-writers-test-asserts` — the worker prompt records the PR number through the controller, the writers test asserts its claims, and the Approved plan's candidate list is corrected → #2689
 
 ## Notes
 

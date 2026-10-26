@@ -265,6 +265,28 @@ await esbuild.build({
 fs.copyFileSync(oldLabelArtifact, shippedOldLabel);
 fs.chmodSync(shippedOldLabel, 0o755);
 
+// One PR's state through `Host.prState`, reachable from plot-impl-status.sh. A
+// cross-repo `owner/repo#N` reference resolves the host it lives on in the host
+// adapter (`rules/cross-repo-probe.ts`), so the shell keeps no copy of the probe.
+// It runs once per annotated slice line of one operator command.
+const prStateArtifact = path.join(here, 'dist/plot-pr-state.mjs');
+const shippedPrState = path.join(here, '../../skills/plot/scripts/board/plot-pr-state.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/pr-state.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: prStateArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(prStateArtifact, shippedPrState);
+fs.chmodSync(shippedPrState, 0o755);
+
 // The lifecycle transition, reachable from the two scripts that write it.
 //
 // A FIFTH artifact, for the reason the third and fourth ones give: plot-ask.mjs
@@ -1424,6 +1446,47 @@ await esbuild.build({
 fs.copyFileSync(bitbucketMergeableArtifact, shippedBitbucketMergeable);
 fs.chmodSync(shippedBitbucketMergeable, 0o755);
 
+// Which plan names a branch, and under which slice heading — asked by
+// `plot-open-pr.sh`; `record-pr.ts` runs the same lookup (`entry/plan-lookup.ts`).
+const planForBranchArtifact = path.join(here, 'dist/plot-plan-for-branch.mjs');
+const shippedPlanForBranch = path.join(here, '../../skills/plot/scripts/board/plot-plan-for-branch.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/plan-for-branch.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: planForBranchArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(planForBranchArtifact, shippedPlanForBranch);
+fs.chmodSync(shippedPlanForBranch, 0o755);
+
+// `plot-record-pr.sh`'s mechanical half: appends `→ #<number>` to a slice's
+// line in the plan that names it, and writes, commits and pushes that edit in
+// one disposable worktree. `plot-record-pr.sh` is a launcher over this.
+const recordPrArtifact = path.join(here, 'dist/plot-record-pr.mjs');
+const shippedRecordPr = path.join(here, '../../skills/plot/scripts/board/plot-record-pr.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/record-pr.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: recordPrArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(recordPrArtifact, shippedRecordPr);
+fs.chmodSync(shippedRecordPr, 0o755);
+
 // `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
 // operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
 // readings-in/decision-out bundle like the others above: this one creates the
@@ -1691,6 +1754,8 @@ const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
 const gateKb = (fs.statSync(shippedGate).size / 1024).toFixed(1);
 const bitbucketMergeableKb = (fs.statSync(shippedBitbucketMergeable).size / 1024).toFixed(1);
+const planForBranchKb = (fs.statSync(shippedPlanForBranch).size / 1024).toFixed(1);
+const recordPrKb = (fs.statSync(shippedRecordPr).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1735,4 +1800,6 @@ console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/s
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-gate.mjs (${gateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-bitbucket-mergeable.mjs (${bitbucketMergeableKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-plan-for-branch.mjs (${planForBranchKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-record-pr.mjs (${recordPrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

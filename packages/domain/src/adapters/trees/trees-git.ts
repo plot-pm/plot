@@ -43,6 +43,18 @@ const defaultBase = async (git: GitIn): Promise<string> => {
 };
 
 /**
+ * The local `origin/<branch>` ref for a PR's own named base, verified to exist.
+ *
+ * @returns `origin/<branch>`, or `''` where no local ref for it exists.
+ */
+const remoteBase = async (git: GitIn, branch: string): Promise<string> => {
+  if (branch === '') return '';
+  const ref = `origin/${branch}`;
+  const verified = await git(['rev-parse', '--verify', '--quiet', ref]);
+  return verified.code === 0 ? ref : '';
+};
+
+/**
  * Every commit `git log` lists for `range`, each with its subject, its tree
  * and its first parent's tree, in the shape `isEmptyClaim` reads.
  *
@@ -198,7 +210,14 @@ export const treesGit = (context: ShellContext): Trees => {
   };
 
   const isClean = async (path: string): Promise<PortResult<boolean>> => {
-    const run = await runProcess('git', ['-C', path, 'status', '--porcelain'], inRepo);
+    // `--untracked-files=no` is deliberate and differs from `changedUnder`'s `=all`: an
+    // untracked scratch file does not make a checkout unclean here. `--no-optional-locks`
+    // keeps concurrent fleet reads off git's index lock.
+    const run = await runProcess(
+      'git',
+      ['--no-optional-locks', '-C', path, 'status', '--porcelain', '--untracked-files=no'],
+      inRepo,
+    );
     return run.code === 0 ? answered(run.stdout.trim().length === 0) : failed();
   };
 
@@ -400,7 +419,7 @@ export const treesGit = (context: ShellContext): Trees => {
     // disturbed by asking this. Exit 0 is a clean merge, exit 1 is a real
     // conflict; any other outcome (no base ref, git itself failing) answers
     // `unknown` rather than guessing a side.
-    mergeConflict: async (path): Promise<PortResult<Mergeability>> => {
+    mergeConflict: async (path, base): Promise<PortResult<Mergeability>> => {
       const unknown = answered<Mergeability>('unknown');
       let directory = false;
       try {
@@ -410,9 +429,9 @@ export const treesGit = (context: ShellContext): Trees => {
       }
       if (path === '' || !directory) return unknown;
       const git: GitIn = (args) => runProcess('git', ['-C', path, ...args], inRepo);
-      const base = await defaultBase(git);
-      if (base === '') return unknown;
-      const merge = await git(['merge-tree', '--write-tree', base, 'HEAD']);
+      const ref = await remoteBase(git, base);
+      if (ref === '') return unknown;
+      const merge = await git(['merge-tree', '--write-tree', ref, 'HEAD']);
       if (merge.code === 0) return answered<Mergeability>('mergeable');
       if (merge.code === 1) return answered<Mergeability>('conflicting');
       return unknown;

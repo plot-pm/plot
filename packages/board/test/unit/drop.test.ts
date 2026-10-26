@@ -26,7 +26,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import { handleDrop, type DropOptions, type DropResult } from '../../src/server/drop.js';
-import { AGENT_MANIFEST_DIR, type LivenessResolver } from '@plot-pm/fleet/shared/registry';
+import { AGENT_MANIFEST_DIR, type LivenessResolver, type WorktreeLister } from '@plot-pm/fleet/shared/registry';
 import type { PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { rmTree } from '../helpers.mjs';
 
@@ -112,6 +112,11 @@ function fixedLiveness(state: string): LivenessResolver {
   return (worktrees) => worktrees.map(() => state);
 }
 
+/** A worktree lister that reports exactly one path checked out on `branch`. */
+function fixedWorktrees(path: string, branch: string): WorktreeLister {
+  return () => [{ path, branch, isMain: false }];
+}
+
 /** Run `handleDrop` with the given options and body, returning the captured response. */
 async function drop(
   session: string,
@@ -130,6 +135,7 @@ async function drop(
     // must pass `undefined` through rather than substituting a stub.
     ...(opts.pidAlive === undefined ? {} : { pidAlive: opts.pidAlive }),
     ...(opts.prIndex === undefined ? {} : { prIndex: opts.prIndex }),
+    ...(opts.worktrees === undefined ? {} : { worktrees: opts.worktrees }),
     manifestDir: opts.manifestDir,
   };
   await handleDrop(request({ session }), res, full);
@@ -513,6 +519,36 @@ describe('#1564 — a waiting desk whose branch already merged is droppable', ()
     assert.equal(body.dropped, false, 'a throwing index read must not be read as "confirmed not merged"');
     assert.match(body.reason, /still running/);
     assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
+  it('a waiting desk whose manifest branch was cleared still resolves from the worktree — the divergence this fixes', async () => {
+    // `clearAssignment` writes `manifest.branch = ''` once a desk is freed. A
+    // desk that is still `waiting` (a PLOT-BLOCKED marker) but whose
+    // assignment was already cleared has `entry.branch === ''`, and
+    // `deskBranchMerged(index, '')` is `false` by construction — never mind
+    // what the PR index says about the branch actually checked out on disk.
+    // Before the fix, `classifyState` asked `deskBranchMerged` about
+    // `entry.branch` directly and this desk stayed `waiting` forever.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-sealed-waiting');
+    fs.mkdirSync(wt, { recursive: true });
+    // The manifest's own branch field is empty — sealed by `clearAssignment`.
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-sealed-waiting', wt, '');
+
+    const got = await drop('sess-sealed-waiting', {
+      repoRoot: root,
+      liveness: fixedLiveness('waiting'),
+      // The worktree is still checked out on the branch that merged — the
+      // registry's `branchOf` reading, which this resolves the same way.
+      worktrees: fixedWorktrees(wt, 'bug/merged-already'),
+      prIndex: () => mergedIndex('bug/merged-already'),
+      pidAlive: () => false,
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, true, 'the worktree\'s own branch, not the cleared manifest field, decides the merge');
+    assert.ok(!fs.existsSync(file), 'the manifest is removed');
   });
 
   it('the default PR-index reader answers null with no scriptsDir, leaving a waiting desk waiting', async () => {

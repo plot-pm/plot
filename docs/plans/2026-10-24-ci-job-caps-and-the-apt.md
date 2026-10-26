@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2485
@@ -13,6 +13,8 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2534 merged
 - **Started:** 2026-10-24, Claude, `infra/ci-job-caps-exceed-their-step-caps`
+- **Started:** 2026-10-24, Jan Wloka, `infra/ci-comments-state-current-behaviour`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
@@ -61,7 +63,7 @@ Three slices, split by file and by risk, so a reviewer reads each diff against o
 
 ### Comments and gates
 
-- `infra/ci-comments-state-current-behaviour` — CI, `checks-verdict.ts`, `plot-host.sh` and `check-helper-table.sh` comments and messages state current behaviour; the helper-table gate reads one source
+- `infra/ci-comments-state-current-behaviour` — CI, `checks-verdict.ts`, `plot-host.sh` and `check-helper-table.sh` comments and messages state current behaviour; the helper-table gate reads one source → #2629
 
 ## Notes
 

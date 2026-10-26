@@ -103,6 +103,14 @@ describe('resolveItemKey', () => {
     expect(resolveItemKey([], '', 'ship it (A.B-1)', ['A.B'])).toBe('A.B-1');
     expect(resolveItemKey([], '', 'ship it (AXB-1)', ['A.B'])).toBe('');
   });
+
+  it('takes the matched key out of a ticket frontmatter value that is a URL, not the whole string', () => {
+    expect(resolveItemKey([], 'https://x/browse/ABC-12', '', ['ABC'])).toBe('ABC-12');
+  });
+
+  it('takes the matched key out of a quoted ticket frontmatter value, not the whole string', () => {
+    expect(resolveItemKey([], '"ABC-12"', '', ['ABC'])).toBe('ABC-12');
+  });
 });
 
 describe('releaseIsRead', () => {

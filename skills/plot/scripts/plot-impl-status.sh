@@ -21,8 +21,8 @@ set -euo pipefail
 
 SLUG="${1:?Usage: plot-impl-status.sh <slug>}"
 
-_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLAN_DIR="$(bash "$_HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLAN_DIR="$(bash "$HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
 PLAN_DIR="${PLAN_DIR%/}"
 
 # Read plan file from main (not CWD) so PR links are always current.
@@ -51,7 +51,6 @@ if [ -z "$PLAN_CONTENT" ]; then
   exit 0
 fi
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # The ## Branches section, one branch per line. Each line is
 #   - `feature/name` — description [→ #12 | → owner/repo#12]
@@ -264,8 +263,7 @@ done
 # branch the STORE could not answer remains, so a fully merged plan skips this
 # call along with every pr-state below it.
 MERGED_HEADS=""
-ANY_UNANNOTATED="$UNRESOLVED_UNANNOTATED"
-if [ "$ANY_UNANNOTATED" = 1 ]; then
+if [ "$UNRESOLVED_UNANNOTATED" = 1 ]; then
   # --limit 500: the host CLI pages at 30 by default, too shallow to reach an
   # old plan's merge; the same headroom plot-reconcile-scan.sh uses.
   MERGED_HEADS=$(bash "$HERE/plot-host.sh" pr-list --state merged --limit 500 2>/dev/null \
@@ -313,11 +311,13 @@ for BR in $BRANCH_LINES; do
   fi
 
   if [ -n "$REF" ]; then
-    # Annotated line: resolve by number, honoring a cross-repo prefix.
+    # Annotated line: resolve by number. A cross-repo prefix asks
+    # `board/plot-pr-state.mjs`, whose host adapter finds the host that
+    # repository lives on (#2158); a same-repo number asks the host directly.
     NUM="${REF##*#}"
     REPO="${REF%#*}"
     if [ -n "$REPO" ]; then
-      PR_JSON=$(bash "$HERE/plot-host.sh" pr-state "$NUM" --repo "$REPO" 2>/dev/null || echo '{"state":"NONE"}')
+      PR_JSON=$(node "$HERE/board/plot-pr-state.mjs" "$NUM" "$REPO" 2>/dev/null || echo '{"state":"NONE"}')
     else
       PR_JSON=$(bash "$HERE/plot-host.sh" pr-state "$NUM" 2>/dev/null || echo '{"state":"NONE"}')
     fi

@@ -31,14 +31,14 @@ const reading = { phase: 'delivered', issues: ['A-1'], words: { approved: '', de
 describe('a status write hands its row to the issue index', () => {
   it('hands the issue and the status the tracker took, tagged with its connector', async () => {
     const { spool, held } = memorySpool();
-    await writeStatuses(reading, trackerFixture({ spender: spend }), spool);
+    await writeStatuses(reading, trackerFixture({ spender: spend }), new Set(), spool);
     expect(held).toEqual([{ ...spend, number: 'A-1', status: 'Delivered' }]);
   });
 
   it('hands nothing for a write the tracker refused or failed', async () => {
     const { spool, held } = memorySpool();
-    await writeStatuses(reading, trackerFixture({ spender: spend, outcome: 'no-target' }), spool);
-    await writeStatuses(reading, trackerFixture({ spender: spend, statusWriteFails: true }), spool);
+    await writeStatuses(reading, trackerFixture({ spender: spend, outcome: 'no-target' }), new Set(), spool);
+    await writeStatuses(reading, trackerFixture({ spender: spend, statusWriteFails: true }), new Set(), spool);
     expect(held).toEqual([]);
   });
 });

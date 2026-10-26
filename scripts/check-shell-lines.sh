@@ -6,11 +6,17 @@
 # 85 commits on `main` that touched shipped shell in the 14 days to 2026-10-03
 # made it longer. Nothing counted it. This counts it.
 #
-# THE COUNT is the non-comment, non-blank lines of every `.sh` file under
-# `skills/` in a git tree. Slice 2 of `the-shell-shrinks-into-the-domain` and
-# the inventory quote the same definition. It measures size, not where decisions
-# live: a rule moved into a `node -e` heredoc lowers nothing here, and a reviewer
-# reads that, not this script.
+# THE COUNT is the commands in the non-comment, non-blank lines of every `.sh`
+# file under `skills/` in a git tree. A line counts once per command: `a; b`,
+# `a && b`, `a || b` and `x; fi` count two, so joining statements never lowers
+# it. A separator inside quotes or after a backslash does not split. A keyword
+# that starts a body (`then`, `do`, `else`, `{`) and a case pattern (`a)`) each
+# count one more when a command follows on the same line, and `;;` counts one,
+# because each of those is a line of its own when written out. Where a line is
+# ambiguous (a heredoc body, a quote that spans lines) the count errs high.
+# It measures size, not where decisions live: a rule moved into a `node -e`
+# heredoc lowers nothing here, and a reviewer reads that, not this script.
+# NOT COUNTED: a backslash continuation and a pipeline split over lines.
 #
 # IT STORES NO NUMBER. A stored baseline drifts, makes two PRs that each shrink
 # the shell conflict on one line, and invites a switch that turns it off. The
@@ -37,10 +43,40 @@
 # and would refuse everything; a count compared with nothing is not a pass.
 set -euo pipefail
 
+# The one definition of the unit: reads shell on stdin, prints its command count.
+read -r -d '' COUNT_AWK <<'AWK' || true
+function flush() {
+  sub(/^[ \t]+/, "", piece)
+  if (piece == "") return
+  total++
+  if (piece ~ /^(then|do|else|\{)[ \t]+[^ \t]/ || piece ~ /^[^ \t()=$"']*\)[ \t]+[^ \t;]/) total++
+  piece = ""
+}
+/^[ \t]*(#|$)/ { next }
+{
+  q = ""; piece = ""; n = length($0)
+  for (i = 1; i <= n; i++) {
+    c = substr($0, i, 1); d = substr($0, i + 1, 1)
+    if (c == "\\" && q != "'") { piece = piece c d; i++; continue }
+    if (q != "") { if (c == q) q = ""; piece = piece c; continue }
+    if (c == "'" || c == "\"") { q = c; piece = piece c; continue }
+    if (c == "#" && (i == 1 || substr($0, i - 1, 1) ~ /[ \t]/)) break
+    if (c == ";" && d == ";") { flush(); total++; i++; continue }
+    if (c == ";" || (c == "&" && d == "&") || (c == "|" && d == "|")) { flush(); if (c != ";") i++; continue }
+    piece = piece c
+  }
+  flush()
+}
+END { print total + 0 }
+AWK
+
+# LC_ALL=C: a byte that is not valid UTF-8 aborts BSD awk mid-file and lowers the count.
+count_stdin() { LC_ALL=C awk "$COUNT_AWK"; }
+
 count_rev() {
   local rev=$1 f c total=0
   while IFS= read -r f; do
-    c=$(git show "$rev:$f" | grep -vcE '^[[:space:]]*(#|$)' || true)
+    c=$(git show "$rev:$f" | count_stdin)
     total=$((total + c))
   done < <(git ls-tree -r --name-only "$rev" -- skills | grep '\.sh$' || true)
   echo "$total"
@@ -78,6 +114,7 @@ report() { # <label> <before-rev> <before-desc> <named-in-failure>
   echo "check-shell-lines: $1: $after lines now, $before at $3"
   if [ "$after" -gt "$before" ]; then
     echo "check-shell-lines: $((after - before)) lines over $3 ($4)." >&2
+    echo "  A line counts once per command. Joining statements with ';' or '&&', or folding 'fi' or 'done' onto the line before, is not a payment." >&2
     echo "  The shell under skills/ may shrink and may not grow. Pay for the growth in one of two ways:" >&2
     echo "    - remove at least $((after - before)) lines of shell elsewhere in this same change, or" >&2
     echo "    - write the rule in packages/domain and ask it through a bundle (docs/shell-and-domain.md)." >&2
@@ -88,11 +125,12 @@ report() { # <label> <before-rev> <before-desc> <named-in-failure>
 mode=${1:-}
 case "$mode" in
   --per-file)
-    for f in $(git ls-files 'skills/*.sh'); do
-      printf '%6d %s\n' "$(grep -vcE '^[[:space:]]*(#|$)' "$f" || true)" "$f"
-    done | sort -rn
-    echo "total: $(git ls-files 'skills/*.sh' | xargs cat | grep -vcE '^[[:space:]]*(#|$)') lines"
-    echo "scripts/*.sh (CI and local tooling, not counted above): $(git ls-files 'scripts/*.sh' | xargs cat | grep -vcE '^[[:space:]]*(#|$)') lines"
+    while IFS= read -r f; do
+      c=$(count_stdin < "$f")
+      printf '%6d %s\n' "$c" "$f"
+    done < <(git ls-files 'skills/*.sh') | sort -rn
+    echo "total: $(git ls-files 'skills/*.sh' | xargs cat | count_stdin) lines"
+    echo "scripts/*.sh (CI and local tooling, not counted above): $(git ls-files 'scripts/*.sh' | xargs cat | count_stdin) lines"
     ;;
   pr)
     ref=$(default_ref)

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2565
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2566 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/check-decision-count-sh-text-says`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
@@ -47,7 +48,7 @@ The refusal text is tested if `test/reconcile/` asserts on it. The slice greps f
 
 ### Gate text
 
-- `bug/check-decision-count-sh-text-says` — correct the header and the refusal text in `scripts/check-decision-count.sh`
+- `bug/check-decision-count-sh-text-says` — correct the header and the refusal text in `scripts/check-decision-count.sh` → #2583
 
 ## Notes
 

@@ -307,16 +307,45 @@ describe('a status reaches the tracker it was told about', () => {
   });
 
   it('reads the script’s word rather than its exit code', async () => {
-    // `no-target` and `written` are both clean exits. Collapsing them reports a
+    // `no-match` and `written` are both clean exits. Collapsing them reports a
     // status the workflow refused as one it recorded — and a repeated write,
     // which the tracker answers by offering no such transition, would read as
     // having moved the ticket a second time.
-    const refused = scriptsThat({ 'plot-host.sh': 'echo no-target' });
-    const result = await trackerJira(refused).statusWrite({
-      prUrl: 'PROJ-1',
-      status: 'Done',
+    const refused = scriptsThat({ 'plot-host.sh': String.raw`printf 'no-match\tDone\tTo Do\n'` });
+    const result = await trackerJira(refused).statusWrite({ prUrl: 'PROJ-1', status: 'Done' });
+    expect(answer<StatusOutcome>(result)).not.toBe('written');
+  });
+
+  it('reports already where the issue already held the wanted status', async () => {
+    // THE HARMLESS CASE: a repeated write finds no transition because the
+    // issue is already there, compared without regard to case.
+    const already = scriptsThat({ 'plot-host.sh': String.raw`printf 'no-match\tDONE\tTo Do, Reopen\n'` });
+    const tracker = trackerJira(already);
+    const result = await tracker.statusWrite({ prUrl: 'PROJ-1', status: 'Done' });
+    expect(answer<StatusOutcome>(result)).toBe('already');
+    expect(tracker.lastRefusal()).toBeNull();
+  });
+
+  it('reports unreachable with the current status and transitions in the refusal', async () => {
+    // THE TRACKER-IS-BEHIND CASE: the status exists but nothing from the
+    // issue's current state reaches it. The detail travels as the refusal a
+    // caller without its own sentence reads.
+    const unreachable = scriptsThat({
+      'plot-host.sh': String.raw`printf 'no-match\tReady for Design\tAccept Issue, Reject\n'`,
     });
-    expect(answer<StatusOutcome>(result)).toBe('no-target');
+    const tracker = trackerJira(unreachable);
+    const result = await tracker.statusWrite({ prUrl: 'PROJ-1', status: 'Approving' });
+    expect(answer<StatusOutcome>(result)).toBe('unreachable');
+    expect(tracker.lastRefusal()).toContain('Ready for Design');
+    expect(tracker.lastRefusal()).toContain('Accept Issue, Reject');
+  });
+
+  it('reports a no-match naming no current status as a failure, never as already or unreachable', async () => {
+    // ABSENT IS NOT FALSE. A read that named no current status is neither fact.
+    const blank = trackerJira(scriptsThat({ 'plot-host.sh': String.raw`printf 'no-match\t\tTo Do\n'` }));
+    expect((await blank.statusWrite({ prUrl: 'PROJ-1', status: 'Done' })).ok).toBe(false);
+    const unknown = trackerJira(scriptsThat({ 'plot-host.sh': 'echo something-else' }));
+    expect((await unknown.statusWrite({ prUrl: 'PROJ-1', status: 'Done' })).ok).toBe(false);
   });
 
   it('answers no-target for a pull request naming no issue, never a failure', async () => {

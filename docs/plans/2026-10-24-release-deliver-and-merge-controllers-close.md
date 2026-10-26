@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2480
@@ -12,6 +12,11 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2505 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/shared-issue-close-reads-every-sibling`
+- **Started:** 2026-10-25, Jan Wloka, `bug/release-chain-reads-every-page-and-hop`
+- **Started:** 2026-10-25, Jan Wloka, `bug/merge-pins-only-resolvable-short-shas`
+- **Started:** 2026-10-25, Jan Wloka, `bug/remove-dead-pin-and-approve-branches`
+- **Started:** 2026-10-25, Jan Wloka, `bug/one-remote-url-parser`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -59,19 +64,19 @@ Each slice answers one group above and keeps the finding list in its own PR desc
 
 ### Release chain
 
-- `bug/release-chain-reads-every-page-and-hop` — `pr-merge-dest` pages fully and uses the Bitbucket merge time, the first hop compares with the plan PR's merge time, and the missing-merge-commit advice follows `--no-fetch` and shallow clones
+- `bug/release-chain-reads-every-page-and-hop` — `pr-merge-dest` pages fully and uses the Bitbucket merge time, the first hop compares with the plan PR's merge time, and the missing-merge-commit advice follows `--no-fetch` and shallow clones → #2686
 
 ### Merge path
 
-- `bug/merge-pins-only-resolvable-short-shas` — short sha accepted only where the host resolves one, `approve.ts` posts at the full head sha, `MergeDetail.sha` doc matches the value
+- `bug/merge-pins-only-resolvable-short-shas` — short sha accepted only where the host resolves one, `approve.ts` posts at the full head sha, `MergeDetail.sha` doc matches the value → #2691
 
 ### Cleanup
 
-- `bug/remove-dead-pin-and-approve-branches` — remove the dead `approve.ts` and `gate.ts` code, correct the #2407 changeset and the test names and comments the findings list
+- `bug/remove-dead-pin-and-approve-branches` — remove the dead `approve.ts` and `gate.ts` code, correct the #2407 changeset and the test names and comments the findings list → #2693
 
 ### One parser
 
-- `bug/one-remote-url-parser` — one parser behind `remoteSlug`, `branchUrlBase` and `pathOf`, the same-commit corpus test over the shipped `plot-host.sh`, and `#N` in code spans kept as code in the CHANGELOG
+- `bug/one-remote-url-parser` — one parser behind `remoteSlug`, `branchUrlBase` and `pathOf`, the same-commit corpus test over the shipped `plot-host.sh`, and `#N` in code spans kept as code in the CHANGELOG → #2695
 
 ## Notes
 
