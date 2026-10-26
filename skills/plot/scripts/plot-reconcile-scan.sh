@@ -3256,11 +3256,9 @@ if [ -n "$plan_json" ]; then
     [ -n "$f" ] || continue
     base=$(basename "$f")
     unread_out+="  $base — heading '$heading' names a branch the parser did not read\n"
-    if printf '%s' "$heading" | grep -Eq "Branch:[[:space:]]*\`?($PREFIX_RE)/[^[:space:],)\`]+"; then
-      unread_out+="    repair: #1042 — the section's first ### heading carries no (Branch:, so this one routes to the list reader; move a branched heading first\n"
-    else
-      unread_out+="    rewrite: the value as Branch: <prefix>/<name>, with a configured prefix ($PREFIX_RE)\n"
-    fi
+    uh_note="rewrite: the value as Branch: <prefix>/<name>, with a configured prefix ($PREFIX_RE)"
+    printf '%s' "$heading" | grep -Eq "Branch:[[:space:]]*\`?($PREFIX_RE)/[^[:space:],)\`]+" && uh_note="repair: #1042 — the section's first ### heading carries no (Branch:, so this one routes to the list reader; move a branched heading first"
+    unread_out+="    $uh_note\n"
     n_unread=$((n_unread + 1))
   done < <(printf '%s\n' "$plan_json" \
     | jq -r 'select(.phase != "NONE") | .file as $f
