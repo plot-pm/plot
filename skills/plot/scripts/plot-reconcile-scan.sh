@@ -283,25 +283,27 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$script_dir/plot-tmp.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
-# Prints one line (+ a rewrite hint) per `{k1,k2}` pair a `plot-plan-meta.sh`
-# field reports, and sets REPORT_UNREAD_PAIRS_N to the count. $1=field name,
-# $2=jq keys "k1,k2", $3=printf format (gets basename, k1, k2 and a fourth
-# argument, in that order), $4=none-message, $5=the fourth argument (k2 when
-# absent). Every value is an argument: none is read as a printf directive.
-# Shared by 24a (unread_waits) and 24b (unread_heading_items) — same shape, different field and wording. Sets a global rather than
+# Prints one line (+ a rewrite hint) per entry a `plot-plan-meta.sh` field
+# reports, and sets REPORT_UNREAD_PAIRS_N to the count. $1=field name,
+# $2=jq keys "k1, k2[, k3]", read against each entry with its plan bound as
+# $p, $3=printf format (gets basename, k1, k2 and a fourth argument, in that
+# order), $4=none-message, $5=the fourth argument (k3 when absent). Every
+# value is an argument: none is read as a printf directive.
+# Shared by 24a (unread_waits, a literal fourth argument) and 24b
+# (unread_heading_items, a k3 note computed from $p.waves). Sets a global rather than
 # returning the count on stdout: the per-item lines ARE this function's
 # printed report, so a caller cannot capture the count with $(...) without
 # swallowing them too.
 report_unread_pairs() {
-  local field=$1 keys=$2 fmt=$3 none_msg=$4 f k1 k2
+  local field=$1 keys=$2 fmt=$3 none_msg=$4 f k1 k2 k3
   REPORT_UNREAD_PAIRS_N=0
   if [ -n "$plan_json" ]; then
-    while IFS="$US" read -r f k1 k2; do
+    while IFS="$US" read -r f k1 k2 k3; do
       [ -n "$f" ] || continue
-      printf "$fmt" "$(basename "$f")" "$k1" "$k2" "${5-$k2}"
+      printf "$fmt" "$(basename "$f")" "$k1" "$k2" "${5-$k3}"
       REPORT_UNREAD_PAIRS_N=$((REPORT_UNREAD_PAIRS_N + 1))
     done < <(printf '%s\n' "$plan_json" \
-      | jq -r "select(.phase != \"NONE\") | .file as \$f | .$field[]? | [\$f, $keys] | join(\"\")")
+      | jq -r "select(.phase != \"NONE\") as \$p | .file as \$f | .$field[]? | [\$f, $keys] | join(\"\")")
   fi
   [ "$REPORT_UNREAD_PAIRS_N" -gt 0 ] || echo "  $none_msg"
 }
@@ -2985,14 +2987,14 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # sweep cross-checking every open ticket against the plan estate, not by
 # anything in Plot. Both sides of that comparison were already readable here:
 # the phase and `issues[]` come from the parse this sweep already holds, and
-# the open list is one host call.
+# each distinct key names one `issue-view` call.
 #
-# ONE CALL PER KEY, NEVER A WINDOW. `issue-view <key>` answers any issue
-# regardless of state and fails only when the key does not exist — the same
-# read the Jira-only branch below already made per key. Cost is constant in
-# the count of DISTINCT keys finished plans name, not in how many issues the
-# tracker holds, so a plan that finished long ago is checked exactly as
-# cheaply as one that finished yesterday.
+# ONE CALL PER DISTINCT KEY, NEVER A WINDOW, NEVER PER PLAN. `issue-view
+# <key>` answers any issue regardless of state and fails only when the key
+# does not exist. Cost is constant in the count of DISTINCT keys finished
+# plans name, not in how many issues the tracker holds and not in how many
+# plans name the same key, so a plan that finished long ago is checked
+# exactly as cheaply as one that finished yesterday.
 #
 # A WINDOWED LIST CANNOT TELL ABSENT FROM CLOSED. `issue-list` is bounded —
 # `gh issue list` defaults to 30 without `--limit` — so an issue outside the
@@ -3057,15 +3059,15 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # still decides.
 n_open_issues=0; n_issue_unread=0
 n_unread=0
-n_unread_waits=0
-n_unread_heading_items=0
 # The finished plans that name an issue, read from the parse already in memory
 # (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
 # cannot tell a signal from a citation, and plans here cite issues constantly.
 oi_claims=""; oi_keyless=""
-# KEY RESOLUTION MIRRORS `resolveItemKey` (sprint-release.ts): the first
-# Jira-shaped `issues[]` entry wins, else a Jira-shaped `ticket:` stands in.
+# KEY RESOLUTION: if any `issues[]` entry is Jira-shaped, every entry is kept
+# (not just the first); otherwise a Jira-shaped `ticket:` stands in. The regex
+# is ANCHORED (`^...$`), stricter than `sprint-release.ts`'s unanchored
+# `JIRA_KEY` (`.test()`/`.exec()` match anywhere) — not the same pattern.
 if [ -n "$plan_json" ]; then
   oi_tagged=$(printf '%s\n' "$plan_json" | jq -r --arg re '^[A-Z][A-Z0-9]*-[0-9]+$' '
     select(.phase == "delivered" or .phase == "released") | (.issues // []) as $issues | (.ticket // "") as $ticket
@@ -3089,28 +3091,22 @@ ask_issue_source() {
   local declared backend out rc
   declared=$(cfg "Tracker" "" 2>/dev/null)
   backend=$(bash "$script_dir/plot-host.sh" backend 2>/dev/null </dev/null)
-  [ -f "$oi_entry" ] && command -v node >/dev/null 2>&1 || {
-    oi_ask=unaskable
-    oi_reason="board/plot-issue-source.mjs could not be run"
-    return 0
-  }
+  # UNASKABLE UNTIL A STEP ANSWERS: each step sets the reason it would fail
+  # with, and a step that fails returns with `oi_ask=unaskable` and that reason.
+  oi_ask=unaskable
+  oi_reason="board/plot-issue-source.mjs could not be run"
+  [ -f "$oi_entry" ] && command -v node >/dev/null 2>&1 || return 0
   out=$(printf '%s' "$declared" | node "$oi_entry" "$backend" 2>/dev/null); rc=$?
-  if [ "$rc" -ne 0 ]; then
-    oi_ask=unaskable
-    oi_reason="board/plot-issue-source.mjs exited $rc"
-    return 0
-  fi
+  oi_reason="board/plot-issue-source.mjs exited $rc"
+  [ "$rc" -eq 0 ] || return 0
   # EXIT CODE FIRST, THEN THE WORD. A word outside the three means the entry
   # answered something this section cannot act on, which is the same answer as
-  # a failure: ask nobody, and say so.
+  # a failure: no arm matches, and `oi_ask` stays unaskable with this reason.
+  oi_reason="board/plot-issue-source.mjs answered '${out}', which is not one of tracker/git-host/nobody"
   case "${out%%	*}" in
     tracker)   oi_ask=tracker; oi_scheme=$(printf '%s' "$out" | cut -f2) ;;
     git-host)  oi_ask=git-host ;;
     nobody)    oi_ask=nobody; oi_reason=$(printf '%s' "$out" | cut -f2-) ;;
-    *)
-      oi_ask=unaskable
-      oi_reason="board/plot-issue-source.mjs answered '${out}', which is not one of tracker/git-host/nobody"
-      ;;
   esac
 }
 
@@ -3147,6 +3143,12 @@ else
   # than a status that does not exist.
   oi_released_status=$(cfg "Tracker released status" "" 2>/dev/null)
   oi_host_failed=0; oi_out=""
+  # ONCE PER DISTINCT KEY, NOT PER PLAN·KEY PAIR: `oi_view_cache` holds one
+  # `key<TAB>tag<TAB>payload` line per key already asked (tag open/closed/err),
+  # so a key two plans name — directly, or via the `ticket:` fallback — reads
+  # the cache on its second encounter. NO ASSOCIATIVE ARRAY (bash 3.2, no
+  # `declare -A`), per section 1's index reader.
+  oi_view_cache=""
   # THE CLAIMS ARE READ ON FD 3, and the reason is a measured defect rather
   # than style: a nested `while read` inside a loop fed by `<<<` drains the
   # OUTER loop's stdin. Measured while writing this section — the first plan
@@ -3162,23 +3164,37 @@ else
     IFS=','
     for oi_key in $oi_keys; do
       IFS="$oi_IFS_saved"; [ -n "$oi_key" ] || continue
-      oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
-      oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
-      oi_view_err=""; [ -n "$oi_view_err_file" ] && oi_view_err=$(head -1 "$oi_view_err_file" 2>/dev/null) && /bin/rm -f "$oi_view_err_file" 2>/dev/null
-      if [ "$oi_view_rc" -eq 4 ]; then
+      oi_line=$(awk -F'\t' -v k="$oi_key" '$1 == k {print; exit}' <<< "$oi_view_cache")
+      if [ -z "$oi_line" ]; then
+        plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
+        oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
+        oi_view_err=$(head -1 "${oi_view_err_file:-/dev/null}" 2>/dev/null); /bin/rm -f "$oi_view_err_file" 2>/dev/null
+        if [ "$oi_view_rc" -eq 4 ]; then
+          oi_line="$oi_key	hostdead	${oi_view_err:-tracker unavailable}"
+        elif [ "$oi_view_rc" -eq 0 ]; then
+          oi_line="$oi_key	$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)	"
+        else
+          oi_line="$oi_key	err	${oi_view_err:-plot-host.sh exited $oi_view_rc}"
+        fi
+        oi_view_cache+="$oi_line
+"
+      fi
+      IFS=$'\t' read -r _ oi_tag oi_err <<< "$oi_line"
+      if [ "$oi_tag" = hostdead ]; then
         # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to
         # ask, and it will answer the same for every remaining key — said once.
-        [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: ${oi_view_err:-tracker unavailable})"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
+        [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: $oi_err)"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
         oi_host_failed=1; break 2
-      elif [ "$oi_view_rc" -ne 0 ]; then
+      elif [ "$oi_tag" = err ]; then
         # ONE KEY'S LOOKUP FAILING is that key's own failure, not evidence of
         # anything — reported unchecked for this key alone, never dropped and
-        # never read as closed.
-        oi_out+="  $oi_base — $oi_phase, $oi_key not checked: ${oi_view_err:-plot-host.sh exited $oi_view_rc}\n"
+        # never read as closed. A DE-DUPLICATED key still takes this branch on
+        # every plan that names it: the cache remembers the failure, not a
+        # silence that would read as "checked, and clean".
+        oi_out+="  $oi_base — $oi_phase, $oi_key not checked: $oi_err\n"
         n_issue_unread=$((n_issue_unread + 1)); continue
       fi
-      oi_state=$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)
-      [ "$oi_state" = closed ] && continue || oi_hits+="${oi_hits:+,}$oi_key"
+      [ "$oi_tag" = closed ] && continue || oi_hits+="${oi_hits:+,}$oi_key"
     done
     IFS="$oi_IFS_saved"; [ -n "$oi_hits" ] || continue
     # A NUMBER PRINTS AS `#N` AND A JIRA KEY AS ITSELF: `#PROJ-101` finds
@@ -3203,18 +3219,6 @@ else
   if [ "$oi_host_failed" -eq 0 ]; then
     if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
     [ "$oi_scheme" != jira ] || [ -z "$oi_keyless" ] || echo "  not checked: $(printf '%s' "$oi_keyless" | awk -F', ' '{print NF}') finished plan(s) name no Jira key — $oi_keyless"
-    # JIRA'S OPEN READ IS AN INBOX, NOT A PROJECT LIST, with no `Ticket
-    # prefixes` declared (`plot-host.sh` issue-list, the jira arm's `scope`/
-    # `person` split): `assignee = currentUser() AND resolution = EMPTY`. A
-    # finished plan's key that is open but assigned to someone else reads
-    # "closed" here — not absent because it closed, but absent because the
-    # list never asked about it. Declaring `Ticket prefixes` widens the read
-    # to every project named there, the scope every other backend has for free.
-    # The note reads what `plot-host.sh` reads: `PLOT_TICKET_PREFIXES` scopes the
-    # read ahead of the key (`tracker_projects`), and `PLOT_JIRA_JQL` replaces
-    # the query whole, so either one makes the note false.
-    [ "$oi_scheme" = jira ] && [ -z "${PLOT_TICKET_PREFIXES:-}${PLOT_JIRA_JQL:-}$(cfg "Ticket prefixes" "" 2>/dev/null)" ] && \
-      echo "  note: Tracker: jira with no 'Ticket prefixes' declared asks only the caller's own open tickets — an issue assigned to someone else reads as closed here."
   fi
 fi
 echo
@@ -3246,11 +3250,9 @@ if [ -n "$plan_json" ]; then
     [ -n "$f" ] || continue
     base=$(basename "$f")
     unread_out+="  $base — heading '$heading' names a branch the parser did not read\n"
-    if printf '%s' "$heading" | grep -Eq "Branch:[[:space:]]*\`?($PREFIX_RE)/[^[:space:],)\`]+"; then
-      unread_out+="    repair: #1042 — the section's first ### heading carries no (Branch:, so this one routes to the list reader; move a branched heading first\n"
-    else
-      unread_out+="    rewrite: the value as Branch: <prefix>/<name>, with a configured prefix ($PREFIX_RE)\n"
-    fi
+    uh_note="rewrite: the value as Branch: <prefix>/<name>, with a configured prefix ($PREFIX_RE)"
+    printf '%s' "$heading" | grep -Eq "Branch:[[:space:]]*\`?($PREFIX_RE)/[^[:space:],)\`]+" && uh_note="repair: #1042 — the section's first ### heading carries no (Branch:, so this one routes to the list reader; move a branched heading first"
+    unread_out+="    $uh_note\n"
     n_unread=$((n_unread + 1))
   done < <(printf '%s\n' "$plan_json" \
     | jq -r 'select(.phase != "NONE") | .file as $f
@@ -3282,8 +3284,16 @@ n_unread_waits=$REPORT_UNREAD_PAIRS_N
 echo
 
 echo "== 24b. Unread heading items (a list item under a heading names a branch no heading claims) =="
-report_unread_pairs unread_heading_items '.wave, .branch' \
-  "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or give this wave a (Branch: %s) heading\n" \
+# TWO CAUSES, TWO REPAIRS, told apart by `waves[].branches` — the roster the
+# heading handler already attributed per wave — rather than a third field on
+# `unread_heading_items[]`, which `branch-heading.test.mjs` asserts whole and
+# this slice does not own. Zero entries: the wave's heading never read a
+# `Branch:`. One or more: it already claims a different branch than this item.
+# The third jq key computes the repair note from the first wave of that name.
+report_unread_pairs unread_heading_items '.wave, .branch, (.wave as $w | .branch as $b | ([$p.waves[]? | select(.name == $w)] | .[0].branches // [] | length > 0) as $has
+  | if $has then "give \u0027\($b)\u0027 its own (Branch: \($b)) heading — this wave\u0027s heading already claims a different branch" else
+  "give this wave a (Branch: \($b)) heading — it carries none yet" end)' \
+  "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or %s\n" \
   "(none — every heading-shape list item was attributed)"
 n_unread_heading_items=$REPORT_UNREAD_PAIRS_N
 echo

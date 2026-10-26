@@ -181,7 +181,7 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
 ```
-summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 unread_headings=0 unread_waits=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=gh main=main
+summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 unread_headings=0 unread_waits=0 unread_heading_items=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=gh main=main
 ```
 
 `uncut_slices` is the count from section 7 — slices carrying more than one
@@ -194,6 +194,8 @@ label. Non-blocking for the same reason: the fix is to rename the heading in
 the plan, and a cosmetic name must not gate a delivery.
 
 `unread_headings` is the count from section 24 — a slice heading that carries `Branch:` and whose wave holds no branch, so no consumer ever sees that slice. Each finding names its repair: `#1042` where the value is a readable branch, and a rewrite to `Branch: <prefix>/<name>` otherwise. **The first arm reports nothing on this estate since 2026-09-28**: it named the 5 slices the first-heading latch lost, and #1042 removed the latch, so a readable value now reads. It stays because the shape can recur — a heading whose branch is readable and unread is still the finding, and the arm names the fix rather than asserting a count. An empty wave whose heading carries no `Branch:` is narrative and is not counted. Non-blocking: the plan is not broken, its slice is invisible, and the repair is one edit.
+
+Section 24b reports the opposite direction: a heading-shape list item naming a branch no heading in its wave claims, read from `unread_heading_items`. Each finding names which of two repairs applies, by checking whether the wave's own heading read a `Branch:` at all — a wave with none gets "give this wave a `(Branch: <name>)` heading", and a wave whose heading already claims a different branch gets "this wave's heading already claims a different branch" instead. Non-blocking: the item is simply invisible to anything that reads the heading's claim, and the repair is one edit.
 
 `unread_waits` is the count from section 24a — a `<!-- waits: … -->` marker on a branch line whose value the parser could not read as a branch, read from the parser field `unread_waits`. A typo or a syntax example written on the branch's own line reaches here; the same marker written as prose on a line with no branch claim stays silent, since reporting that would fire on every plan that documents the annotation. Non-blocking: the slice carries one fewer prerequisite than intended, not a broken plan, and the repair is to fix the value.
 
@@ -211,13 +213,11 @@ Non-blocking for a reason the others do not share: a tracker is a **copy** of
 Plot's state, so an open ticket must never stop a delivery. It stays out of
 `attention=` like the rest.
 
-**Absence is not a closed issue.** The section asks the tracker once for its
-open issues and tests membership, so an issue outside the returned window is
-absent for a reason that has nothing to do with its state. The window is
-printed; when it is full, the section says what it may have missed. A tracker
-that cannot be asked, or a failed question, prints `(not evaluated — …)` and
-never `(none)` — and on a Jira tracker it refuses outright, because a plan's
-`Issue: #N` number can never match a Jira key.
+**Absence is not a closed issue.** The section asks `issue-view <key>` once per
+distinct key a finished plan names, across the whole sweep — never `issue-list`,
+so there is no page or window to exceed and no count a key could fall outside
+of. A tracker that cannot be asked, or a failed question, prints
+`(not evaluated — …)` for that key and never `(none)`.
 
 `double_claims` is the count from section 12 — branches listed by more than one
 plan, each finding naming both plans and the wave each lists it under. Only
