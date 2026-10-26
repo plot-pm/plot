@@ -1054,22 +1054,31 @@ $base	"
   # --- Drift: phase says one thing, symlink location says another ---
   # emit_drift <note> [fix-src] [fix-dst-dir]: one line, an optional fix line,
   # one n_drift count. Folds what each arm below used to repeat on its own.
-  emit_drift() { drift_out+="  $base — $1\n"; [ -n "${2-}" ] && drift_out+="    fix: git rm $2 && ln -s ../$base $3/${2##*/} && git add -A\n"; n_drift=$((n_drift + 1)); }
+  # With fix-dst-dir omitted, the fix removes fix-src and re-links nothing —
+  # the both-links case below, where the correct link already exists.
+  emit_drift() {
+    drift_out+="  $base — $1\n"
+    if [ -n "${2-}" ]; then
+      if [ -n "${3-}" ]; then
+        drift_out+="    fix: git rm $2 && ln -s ../$base $3/${2##*/} && git add -A\n"
+      else
+        drift_out+="    fix: git rm $2 && git add -A\n"
+      fi
+    fi
+    n_drift=$((n_drift + 1))
+  }
   if [ -n "$in_active" ] && [ -n "$in_delivered" ]; then
     # --- Both links present: the phase names which one is stale (issue #2284).
     # Each arm below requires exactly one link, so a plan with both matches
     # none of them — this case must stay exclusive with them, hence `elif`.
     case "$st" in
       delivered|released|superseded|rejected)
-        drift_out+="  $base — phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/\n"
-        drift_out+="    fix: git rm $in_active && git add -A\n"
-        n_drift=$((n_drift + 1)) ;;
+        emit_drift "phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/" "$in_active" ;;
       draft|approved)
-        drift_out+="  $base — phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/\n"
-        drift_out+="    fix: git rm $in_delivered && git add -A\n"
-        n_drift=$((n_drift + 1)) ;;
-      *) drift_out+="  $base — phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/\n"
-         n_drift=$((n_drift + 1)) ;;
+        emit_drift "phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/" "$in_delivered" ;;
+      # A phase this case doesn't name (e.g. design) has no unambiguous link to
+      # drop — report-only, like the dangling-link finding above.
+      *) emit_drift "phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/ (no unambiguous fix — $raw_phase names neither index)" ;;
     esac
   elif [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
     case "$st" in
@@ -1512,14 +1521,36 @@ echo
 echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
 unsliced_out=""
 if [ -n "$plan_json" ] && [ -f "$script_dir/board/plot-slice-chain.mjs" ] && command -v node >/dev/null 2>&1; then
-    # One record per multi-branch wave: file, heading, branch count, and the
-    # wave's `branches` (each `{branch, waits_on}`) as its own JSON document —
+    # Collect every multi-branch wave first — file, heading, branch count, and
+    # the wave's `branches` (each `{branch, waits_on}`) — into parallel arrays,
     # joined with US (0x1f), not tab: an empty heading plus IFS-whitespace tabs
     # would collapse and shift fields (same reason plan_rows uses US above).
     # Phase-less files (phase == "NONE") are dropped: no Phase:, no plan.
+    _uc_f=(); _uc_wname=(); _uc_wcount=(); _uc_wbranches=()
     while IFS="$US" read -r f wname wcount wbranches; do
       [ -n "$f" ] || continue
-      [ "$(printf '{"branches":%s}\n' "$wbranches" | node "$script_dir/board/plot-slice-chain.mjs")" = "chained" ] && continue
+      _uc_f+=("$f"); _uc_wname+=("$wname"); _uc_wcount+=("$wcount"); _uc_wbranches+=("$wbranches")
+    done < <(printf '%s\n' "$plan_json" \
+      | jq -r 'select(.phase != "NONE") | .file as $f
+               | .waves[]? | select((.branches | length) > 1)
+               | [$f, .name, (.branches | length | tostring), (.branches | tojson)] | join("")')
+    # One `node` start for the whole pass, not one per wave (docs/shell-and-
+    # domain.md: once per reconcile pass) — every wave's branches go in as one
+    # line each, and `plot-slice-chain.mjs` answers them back in the same order.
+    _uc_verdicts=""
+    if [ "${#_uc_f[@]}" -gt 0 ]; then
+      _uc_input=""
+      for _uc_i in "${!_uc_f[@]}"; do
+        _uc_input+="$(printf '{"branches":%s}\n' "${_uc_wbranches[$_uc_i]}")"$'\n'
+      done
+      _uc_verdicts=$(printf '%s' "$_uc_input" | node "$script_dir/board/plot-slice-chain.mjs")
+    fi
+    _uc_idx=0
+    while [ "$_uc_idx" -lt "${#_uc_f[@]}" ]; do
+      f=${_uc_f[$_uc_idx]}; wname=${_uc_wname[$_uc_idx]}; wcount=${_uc_wcount[$_uc_idx]}
+      verdict=$(printf '%s\n' "$_uc_verdicts" | sed -n "$((_uc_idx + 1))p")
+      _uc_idx=$((_uc_idx + 1))
+      [ "$verdict" = "chained" ] && continue
       base=$(basename "$f"); slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
       # An unnamed wave (branches before any `### `) has no heading to name; say so
       # rather than print an empty token.
@@ -1529,10 +1560,7 @@ if [ -n "$plan_json" ] && [ -f "$script_dir/board/plot-slice-chain.mjs" ] && com
       # decide, exactly as the index-drift section's is `optional:`.
       unsliced_out+="    reslice: /plot-reslice ${slug%.md}\n"
       n_unsliced=$((n_unsliced + 1))
-    done < <(printf '%s\n' "$plan_json" \
-      | jq -r 'select(.phase != "NONE") | .file as $f
-               | .waves[]? | select((.branches | length) > 1)
-               | [$f, .name, (.branches | length | tostring), (.branches | tojson)] | join("")')
+    done
 elif [ -n "$plan_json" ]; then echo "  (not evaluated — board/plot-slice-chain.mjs or node is missing)"
 fi
 if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every slice holds a single branch)"; fi
