@@ -1393,24 +1393,26 @@ describe('run — a failed tick must not end the daemon', () => {
   // `mine=0/hr`, exactly as tick 1 did.
   it('counts only the completing tick\'s own calls, even after a tick in between threw', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-reset-'));
-    const worktree = join(dir, 'desk');
-    mkdirSync(worktree, { recursive: true });
-    writeFileSync(
-      join(worktree, '.plot-worker.ending.json'),
-      JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch: 'feature/x', detail: '' }),
-    );
-    // A real git tree whose only commit beyond `origin/main` is an empty
-    // claim marker — `commitBeyondClaim` (real git, not the stubbed host)
-    // reads that as `'no'`, which is what makes the step go on to ask
-    // `prOpen` at all.
-    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
-    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
-    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'plot: claim feature/x'], { cwd: worktree });
-    const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
-    execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
-    writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"NONE"}\'\nexit 0\n');
-    chmodSync(join(dir, 'plot-host.sh'), 0o755);
     try {
+      const worktree = join(dir, 'desk');
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(
+        join(worktree, '.plot-worker.ending.json'),
+        JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch: 'feature/x', detail: '' }),
+      );
+      // A real git tree whose only commit beyond `origin/main` is an empty
+      // claim marker — `commitBeyondClaim` (real git, not the stubbed host)
+      // reads that as `'no'`, which is what makes the step go on to ask
+      // `prOpen` at all.
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+      execFileSync('git', ['config', 'user.email', 't@t.example'], { cwd: worktree });
+      execFileSync('git', ['config', 'user.name', 't'], { cwd: worktree });
+      execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
+      execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'plot: claim feature/x'], { cwd: worktree });
+      const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
+      execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
+      writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"NONE"}\'\nexit 0\n');
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
       const desk = {
         path: worktree,
         branch: 'feature/x',
@@ -1493,6 +1495,8 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
           JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch, detail: '' }),
         );
         execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.email', 't@t.example'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.name', 't'], { cwd: worktree });
         execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
         execFileSync('git', ['commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`], { cwd: worktree });
         const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
@@ -1507,6 +1511,8 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
           JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch, detail: '' }),
         );
         execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.email', 't@t.example'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.name', 't'], { cwd: worktree });
         execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
         writeFileSync(join(worktree, 'a-file.txt'), 'real work');
         execFileSync('git', ['add', 'a-file.txt'], { cwd: worktree });
