@@ -134,7 +134,7 @@ Slice 2 adds one paragraph to *A Decision Reads The Index*, next to the paragrap
 
 ### Listing Delta
 
-- `feature/the-scan-listing-is-a-host-delta` — on GitHub fleetd reads the scan listing as a full read or as the carried whole listing plus `pr-list --state open --rich` and `pr-list --state all --since <watermark − 60 s>`, through a pure rule in `rules/scan-listing.ts` that writes the markers only from host listings and answers a full read on any doubt, with a corpus test, the CLAUDE.md paragraph and the regenerated `AGENTS.md` <!-- waits: bug/the-scan-listing-is-priced-in-pages, feature/the-tick-reads-merged-prs-as-an-index-delta -->
+- `feature/the-scan-listing-is-a-host-delta` — on GitHub fleetd reads the scan listing as a full read or as the carried whole listing plus `pr-list --state open --rich` and `pr-list --state all --since <watermark − 60 s>`, through a pure rule in `rules/scan-listing.ts` that writes the markers only from host listings and answers a full read on any doubt, with a corpus test, the CLAUDE.md paragraph and the regenerated `AGENTS.md` <!-- waits: bug/the-scan-listing-is-priced-in-pages, feature/the-tick-reads-merged-prs-as-an-index-delta --> → #2744
 
 ### Bitbucket Settled Sweep
 
