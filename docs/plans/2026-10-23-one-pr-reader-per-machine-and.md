@@ -9,6 +9,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2401 merged
 - **Started:** 2026-10-23, Jan Wloka, `feature/one-pr-reader-per-machine-and`
 - **Started:** 2026-10-26, Jan Wloka, `feature/pr-reader-lock-elects-one-writer`
+- **Started:** 2026-10-26, Jan Wloka, `feature/pr-index-lock-beside-the-index`
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #2386
 - **Rounds:** 2
