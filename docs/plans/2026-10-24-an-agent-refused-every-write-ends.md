@@ -62,7 +62,7 @@ Slices 1 and 2 stay inside the layering rule (controller → domain → port ←
 
 ### Probe
 
-- `bug/fleet-start-probes-worker-writes` — one scratch-desk write probe at `--start` and `--once` <!-- builds: worker write probe -->
+- `bug/fleet-start-probes-worker-writes` — one scratch-desk write probe at `--start` and `--once` <!-- builds: worker write probe --> → #2737
 
 ### Self-heal
 
