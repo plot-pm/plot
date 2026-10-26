@@ -649,7 +649,7 @@ ISSUE_PAGE_ROWS=100
 # Reports the host CLI's own words from the last call and exits 3 — a question
 # that failed, as opposed to exit 4 (cannot be asked) or an answered empty list.
 # An empty message or a recognised lookup miss is an answer; anything else exits 3.
-miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >&2; exit 3; }; }
+miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || die3 "$1"; }
 # `pr-merged`'s own third value for a failed call: a lookup miss still means
 # not-merged, anything else prints the host's words and answers `unknown`
 # rather than exiting — the caller already branches on this word, not a code.
@@ -905,7 +905,7 @@ pr_list_failed() { # $1=stderr text
 pr_list_call() { # "$@"=the host command → payload on stdout, or dies
   local out rc err tmp=""
   plot_tmpfile tmp host-prlist-err \
-    || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+    || die3 "no temp file could be made under ${TMPDIR:-/tmp}"
   out="$("$@" 2>"$tmp")"; rc=$?
   err="$(cat "$tmp" 2>/dev/null)"; rm -f "$tmp"
   [ "$rc" -eq 0 ] || pr_list_failed "$err"
@@ -4279,7 +4279,7 @@ case "$op" in
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
         host_err
-        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-gh pr list failed}" >&2; exit 3; }
+        [ -n "$err" ] && is_lookup_miss "$err" || die3 "${err:-gh pr list failed}"
       fi
     else
       bb_require_json
@@ -4291,7 +4291,7 @@ case "$op" in
         jq -r '.[] | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
         host_err
-        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-the branch query failed}" >&2; exit 3; }
+        [ -n "$err" ] && is_lookup_miss "$err" || die3 "${err:-the branch query failed}"
       fi
     fi
     ;;
@@ -4310,11 +4310,11 @@ case "$op" in
         && st="$(_bb_paged_walk "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
         && cm="$(_bb_paged_walk "$pr/comments?pagelen=100" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
         && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
-        || { echo "plot-host: pr-review: the read failed" >&2; exit 3; }
+        || die3 "pr-review: the read failed"
       exit 0; fi
     out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
       && jq -c --argjson st "$st" '{sha: .headRefOid, state: ([$st[] | select(.context == "plot/review")][0].state // "absent"), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
-      || { echo "plot-host: pr-review: the read failed" >&2; exit 3; } ;;
+      || die3 "pr-review: the read failed" ;;
 
   pr-create)
     title=""; body=""; base=""; head=""; draft=0
@@ -4356,14 +4356,14 @@ case "$op" in
       # answers 5 with its one-line notice where no key is declared: the merge
       # then runs as the signed-in `gh` identity. The token goes straight into
       # GH_TOKEN — never into argv, a file, or a log line.
-      merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null) || { echo "plot-host: pr-merge: gh repo view could not resolve owner/repo from the current checkout" >&2; exit 3; }
+      merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null) || die3 "pr-merge: gh repo view could not resolve owner/repo from the current checkout"
       merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || { mc=$?; [ "$mc" = 5 ] || exit "$mc"; }
       args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge); [ "$delbranch" = 1 ] && args+=(--delete-branch)
       if [ -n "$merger_token" ]; then GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"; else gh "${args[@]}" --match-head-commit "$pin"; fi
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
-    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; die3 "$err"; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
       echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
       exit 1
