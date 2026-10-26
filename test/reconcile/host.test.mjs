@@ -416,10 +416,10 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown',
+    headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
-    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus']);
+    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt']);
 });
 
 // The desk's early merge reads `pr-state`'s `mergeable` (worker-loop.ts
@@ -812,7 +812,7 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(out, {
     number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', headSha: '', base: 'develop',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
 });
 
@@ -1007,7 +1007,7 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
     number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergeableReason: 'no head commit for this pull request',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergeableReason: 'no head commit for this pull request', mergedAt: '',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
@@ -6586,7 +6586,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
-    mergeable: 'unknown',
+    mergeable: 'unknown', mergedAt: '',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -6770,7 +6770,7 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   // is empty because there is nothing honest to put in it.
   assert.deepEqual(out, {
     number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', headSha: '', base: '',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });
@@ -7556,7 +7556,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
   });
   assert.deepEqual(JSON.parse(out), {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
-    mergeable: 'unknown',
+    mergeable: 'unknown', mergedAt: '',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
 });
@@ -10516,18 +10516,22 @@ test('host: issue-list github closed records one extra call per 100 rows past th
 
 // --- issue-list --label and issue-comment: the review issue's lookup and append ---
 
-// The identity `gh_marker_comment_id` scopes a marker match to. Every test run
-// through `runAllowFail` sets `PLOT_BUDGET_ACCOUNT` (via `budgetEnvFor`) to
-// `BUDGET_ACCOUNT`, and `budget_account` reads that override before it ever
-// looks at `hosts.yml` — so a fixture comment's `user.login` must equal
-// `BUDGET_ACCOUNT` to be "ours", not some separate test identity.
-const ISSUE_COMMENT_LOGIN = BUDGET_ACCOUNT;
+// The identity `gh_marker_comment_id` scopes a marker match to: the login the
+// stub answers for `gh api user -q .login`. It differs from `BUDGET_ACCOUNT`,
+// which `runAllowFail` sets as `PLOT_BUDGET_ACCOUNT`, so a lookup that read the
+// budget account would miss its own comment.
+const ISSUE_COMMENT_LOGIN = 'plot-issue-login';
 
-/** A `gh` that appends every call's argv, so a test sees each call rather than the last. */
-const makeLoggingGh = (answer) => {
+/**
+ * A `gh` that appends every call's argv, so a test sees each call rather than
+ * the last. `gh api user` answers `login`; with `login` null it fails with a
+ * 403. Every other call answers `answer`.
+ */
+const makeLoggingGh = (answer, login = ISSUE_COMMENT_LOGIN) => {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-log-')));
   const log = path.join(dir, 'gh.log');
-  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s\\n' "--- call" "$@" >> "${log}"\nprintf '%s' '${answer}'\n`);
+  const user = login === null ? `{ echo 'HTTP 403' >&2; exit 1; }` : `{ printf '%s\\n' '${login}'; exit 0; }`;
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s\\n' "--- call" "$@" >> "${log}"\n[ "$1 $2" = "api user" ] && ${user}\nprintf '%s' '${answer}'\n`);
   chmodSync(path.join(dir, 'gh'), 0o755);
   const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').split('--- call\n').filter(Boolean).map((c) => c.trim().split('\n')) : []);
   return { dir, calls };
@@ -10629,6 +10633,26 @@ test('host: issue-comment with a marker held only by another author’s comment 
   });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(gh.calls().at(-1), ['issue', 'comment', '12', '--body', 'new text']);
+});
+
+test('host: issue-comment with no login from gh api user edits another author’s comment holding the marker', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"a-tracker-participant"}}]', null);
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
+test('host: issue-comment with a marker comment that has no user field edits it', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y"}]');
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
 });
 
 // --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------
@@ -10770,6 +10794,17 @@ test('host: pr-merged answers unknown when bb is absent from PATH', () => {
   });
   assert.equal(res.status, 0);
   assert.equal(res.stdout.trim(), 'unknown', 'an absent CLI is not a lookup miss');
+});
+
+// THE CROSS-REPO PROBE (#2158) lives in the host adapter
+// (`packages/domain/test/host-shell.test.ts`, "a cross-repo reference"). The
+// script's part is the switch: `PLOT_HOST_OTHER=1` asks the drivable backend
+// that is not the checkout's own.
+test('host: PLOT_HOST_OTHER asks the other drivable backend', () => {
+  const stubs = makeStubs();
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'bitbucket', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'github');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '1' }, stubs }).trim(), 'bitbucket');
+  assert.equal(run(['backend'], { env: { PLOT_HOST: 'github', PLOT_HOST_OTHER: '' }, stubs }).trim(), 'github');
 });
 
 test('host: pr-merged reads a full 50-row page with no next as complete, not truncated', () => {
@@ -10948,6 +10983,105 @@ test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with 
   });
   assert.equal(resFailPage2.status, 3, 'a second page that fails must not print a partial first-page answer');
   assert.equal(resFailPage2.stdout.trim(), '');
+});
+
+// --- #2238: GitHub's pr-merge-commit/pr-merge-dest must page past --limit ---
+//
+// `gh pr list --limit N` serves the newest N matching PRs; a branch with more
+// merged PRs than the limit silently drops the rest. `pr_list_report_truncation`
+// already proves completeness by growing `--limit` until a page returns short
+// of what it asked for — this stub answers that same way: it reads `--limit`
+// from argv and returns exactly that many synthetic rows until the one real
+// PR (planted beyond row 100) is included in a page big enough to hold it.
+
+function makeGhPagingStub(totalMerged, targetIndex, targetNumber, targetSha, targetMergedAt) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-paging-')));
+  const callsFile = path.join(dir, 'gh.calls');
+  // One row per merged PR; the planted target sits at `targetIndex`, so a
+  // page whose width is less than or equal to that index never includes it —
+  // the exact shape a fixed `--limit 100` leaves silently incomplete past 100
+  // merged PRs.
+  const body = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
+limit=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--limit" ]; then limit="$a"; fi
+  prev="$a"
+done
+node -e '
+  const limit = Number(process.argv[1]);
+  const total = ${totalMerged};
+  const n = Math.min(limit, total);
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const isTarget = i === ${targetIndex};
+    const number = isTarget ? ${targetNumber} : 90000 - i;
+    rows.push({
+      number,
+      mergedAt: isTarget ? ${JSON.stringify(targetMergedAt)} : "2026-09-01T00:00:00Z",
+      mergeCommit: { oid: isTarget ? ${JSON.stringify(targetSha)} : "decoy" + i },
+      baseRefName: "main",
+    });
+  }
+  process.stdout.write(JSON.stringify(rows));
+' "$limit"
+`;
+  writeFileSync(path.join(dir, 'gh'), body);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, callsFile };
+}
+
+test('host: pr-merge-commit finds a merge commit carried by a PR past the 100-row limit', () => {
+  // 150 merged PRs on this branch; the one carrying the previous hop's commit
+  // sits at index 120 — inside page 2 (limit 200) but past a fixed `--limit
+  // 100`'s first page. A fix that only raises the fixed limit to e.g. 200
+  // still fails past that threshold — the total here is unrelated to any
+  // specific raised constant, and the stub would equally serve a 101-row case.
+  const gh = makeGhPagingStub(150, 120, 4242, 'cafed00d', '2026-01-15T00:00:00Z');
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/big-branch'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'decoy0', '"first" is still the newest row once the full 150-row page is read');
+  const calls = readFileSync(gh.callsFile, 'utf8').trim().split('\n').filter(Boolean);
+  assert.ok(calls.length >= 2, 'a single call at the default limit cannot have reached row 150');
+});
+
+test('host: pr-merge-dest prints every merged PR past the 100-row limit, with no fixed cap', () => {
+  const gh = makeGhPagingStub(150, 120, 4242, 'cafed00d', '2026-01-15T00:00:00Z');
+  const res = spawnSync('bash', [adapter, 'pr-merge-dest', 'feature/big-branch'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 150, 'every merged PR is printed, not only the first page');
+  assert.ok(lines.some((l) => l.startsWith('4242\t')), 'the row at index 120 — past a fixed 100-row page — is among them');
+});
+
+test('host: pr-merge-commit on GitHub still prints nothing, exit 0, for a branch with no merged PR', () => {
+  const gh = makeGhPagingStub(0, 0, 1, 'x', '2026-01-01T00:00:00Z');
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/none'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '', 'an empty page is an answer, not a failure');
+});
+
+test('host: pr-merge-commit on GitHub exits 3 on a non-miss failure, never printing stale data', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-paging-fail-')));
+  writeFileSync(path.join(dir, 'gh'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' 'error: HTTP 500 — server error' >&2\nexit 1\n`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 3, 'a non-miss failure must not print empty and exit 0');
+  assert.equal(res.stdout.trim(), '');
 });
 
 test('host: pr-merged-heads prints the head for a branch merged past the first page', () => {

@@ -36,4 +36,20 @@ describe('sameCommit', () => {
   it('matches two equal 40-character shas', () => {
     expect(sameCommit(HEAD40, HEAD40)).toBe(true);
   });
+
+  it('refuses a 12-character pin at a raised floor, even though it is a true prefix of the head', () => {
+    expect(sameCommit('66836536f8c9', HEAD40, 40)).toBe(false);
+  });
+
+  it('matches a full 40-character pin at a raised floor', () => {
+    expect(sameCommit(HEAD40, HEAD40, 40)).toBe(true);
+  });
+
+  it('refuses an empty pin against a real head', () => {
+    expect(sameCommit(HEAD40, '')).toBe(false);
+  });
+
+  it('refuses two empty shas', () => {
+    expect(sameCommit('', '')).toBe(false);
+  });
 });

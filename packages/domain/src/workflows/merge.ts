@@ -43,6 +43,14 @@ export interface MergeInput {
   readonly now: number;
   /** The `Checks wait` bound, in milliseconds; an older default-branch reading refuses the merge. */
   readonly checksWaitMs: number;
+  /**
+   * The hex-prefix floor {@link sameCommit} enforces for the `head-moved`
+   * check. The caller's to set: a host that always reports and expects a
+   * full-length head can raise it to close the collision window a short
+   * prefix leaves open, while a host that legitimately reports a shorter head
+   * needs a lower floor. The domain holds no host name to decide this from.
+   */
+  readonly minHexLen: number;
 }
 
 /** What a passing merge decides, beyond its write. */
@@ -63,9 +71,9 @@ const short = (sha: string | undefined): string =>
  *
  * Refuses unless all four hold at the host's answer now: the head names the
  * same commit as the caller's sha (see {@link sameCommit} — a short host head
- * and a full-length caller sha, in either direction, still match), the check
- * rollup is green for that head, the PR is not a draft, and the default branch
- * is not red. A host that did not answer, or that names no head commit,
+ * and a full-length caller sha, in either direction, still match, at the floor
+ * `input.minHexLen` sets), the check rollup is green for that head, the PR is not a
+ * draft, and the default branch is not red. A host that did not answer, or that names no head commit,
  * refuses as `unaskable`, and so does a default-branch read that failed. A
  * missing default-branch reading holds nothing and the decision says so in its
  * detail. A reading whose `askedAt` is older than `input.checksWaitMs`, or does
@@ -96,7 +104,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (pr.headSha === undefined || pr.headSha === '') {
     return no('unaskable', `the host named no head commit for PR #${input.pr}, so the merge cannot be pinned to ${short(input.sha)}. Nothing was merged.`);
   }
-  if (!sameCommit(pr.headSha, input.sha)) {
+  if (!sameCommit(pr.headSha, input.sha, input.minHexLen)) {
     return no('head-moved', `the head of PR #${input.pr} is ${short(pr.headSha)}; the caller read ${short(input.sha)}. Re-read the checks for the new head.`);
   }
   if (pr.draft) return no('draft', `PR #${input.pr} is a draft. Mark it ready, then ask again.`);

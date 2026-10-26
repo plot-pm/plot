@@ -19,9 +19,9 @@ const candidate = (over: Partial<ReleaseChainCandidate>): ReleaseChainCandidate 
 
 const answered = (...candidates: ReleaseChainCandidate[]): ReleaseChainHop => ({ answered: true, candidates });
 
-const reading = (hops: ReleaseChainHop[], destination = 'feature/b') => ({
+const reading = (hops: ReleaseChainHop[], destination = 'feature/b', planCommit = { commit: 'plan', mergedAt: '' }) => ({
   defaultBranch: 'main',
-  planCommit: 'plan',
+  planCommit,
   destination,
   hops,
 });
@@ -102,6 +102,22 @@ describe('releaseChainStep', () => {
     const step = releaseChainStep(reading(hops, 'chain-0'));
     expect(step).toMatchObject({ outcome: 'refused', reason: 'too-deep', branch: `chain-${MAX_RELEASE_CHAIN_DEPTH}` });
   });
+
+  it('#2238: the first hop picks the earlier of two unknown-containment candidates using the plan PR\'s own merge time, instead of refusing ambiguous', () => {
+    const early = candidate({ number: 10, mergeCommit: 'early', mergedAt: '2026-01-01T00:00:00Z' });
+    const late = candidate({ number: 11, mergeCommit: 'late', mergedAt: '2026-06-01T00:00:00Z' });
+    const step = releaseChainStep(
+      reading([answered(early, late)], 'feature/b', { commit: 'plan', mergedAt: '2026-03-01T00:00:00Z' }),
+    );
+    expect(step).toEqual({ outcome: 'resolved', mergeCommit: 'late' });
+  });
+
+  it('#2238: still refuses ambiguous on the first hop when the plan PR carries no merge time at all', () => {
+    const a = candidate({ number: 10, mergeCommit: 'a', mergedAt: '2026-01-01T00:00:00Z' });
+    const b = candidate({ number: 11, mergeCommit: 'b', mergedAt: '2026-06-01T00:00:00Z' });
+    const step = releaseChainStep(reading([answered(a, b)], 'feature/b', { commit: 'plan', mergedAt: '' }));
+    expect(step).toEqual({ outcome: 'refused', reason: 'ambiguous', branch: 'feature/b', candidates: 2 });
+  });
 });
 
 describe('pickReleaseHop', () => {
@@ -136,5 +152,18 @@ describe('pickReleaseHop', () => {
 
   it('answers none where every unknown candidate merged before the previous merge', () => {
     expect(pickReleaseHop([candidate({ mergedAt: '2026-01-01T00:00:00Z' })], previous)).toBe('none');
+  });
+
+  it('#2202: orders strictly by the mergedAt it is given — a caller feeding Bitbucket\'s updated_on in place of a real merge time gets whatever order that implies', () => {
+    // PR #21 genuinely merged first; a later comment or label bumped its
+    // `updated_on` past #20's. pickReleaseHop has no way to tell the two
+    // apart — it only ever sees the value the caller hands it as `mergedAt`.
+    // This is the documented ceiling (see release-chain.ts's Bitbucket call
+    // site and the PR description): Bitbucket's pull-requests endpoint
+    // carries no real merge timestamp.
+    const genuinelyEarlier = candidate({ number: 21, mergeCommit: 'first', mergedAt: '2026-04-05T00:00:00Z' });
+    const genuinelyLater = candidate({ number: 20, mergeCommit: 'second', mergedAt: '2026-04-01T00:00:00Z' });
+    const picked = pickReleaseHop([genuinelyEarlier, genuinelyLater], previous);
+    expect(picked).toMatchObject({ mergeCommit: 'second' });
   });
 });

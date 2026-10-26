@@ -265,6 +265,28 @@ await esbuild.build({
 fs.copyFileSync(oldLabelArtifact, shippedOldLabel);
 fs.chmodSync(shippedOldLabel, 0o755);
 
+// One PR's state through `Host.prState`, reachable from plot-impl-status.sh. A
+// cross-repo `owner/repo#N` reference resolves the host it lives on in the host
+// adapter (`rules/cross-repo-probe.ts`), so the shell keeps no copy of the probe.
+// It runs once per annotated slice line of one operator command.
+const prStateArtifact = path.join(here, 'dist/plot-pr-state.mjs');
+const shippedPrState = path.join(here, '../../skills/plot/scripts/board/plot-pr-state.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/pr-state.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: prStateArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(prStateArtifact, shippedPrState);
+fs.chmodSync(shippedPrState, 0o755);
+
 // The lifecycle transition, reachable from the two scripts that write it.
 //
 // A FIFTH artifact, for the reason the third and fourth ones give: plot-ask.mjs

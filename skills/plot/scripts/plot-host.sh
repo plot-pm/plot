@@ -655,6 +655,9 @@ miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >
 # rather than exiting — the caller already branches on this word, not a code.
 miss_or_unknown() { if [ -z "$1" ] || is_lookup_miss "$1"; then echo "not-merged"; else echo "plot-host: $1" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
+# Reads the last host call's stderr into `err` and removes the file, so the
+# next call starts empty. Every failed-call branch below starts with it.
+host_err() { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; }
 
 # THE ONE MARKER LOOKUP, shared by `pr-comment` and `issue-comment` — GitHub's
 # REST comments endpoint is `issues/$num/comments` for both, since a PR is an
@@ -664,15 +667,21 @@ gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_E
 # so a PR participant who pastes the same marker into their own comment is
 # never mistaken for this script's own prior post. Prints empty on no match.
 #
-# SCOPED TO THE SIGNED-IN IDENTITY, read the same free way `budget_account`
-# already does (`hosts.yml`, not `gh api user`) — both ops write through that
-# identity (`host.ts:358`), never a minted App token, so it is also the only
-# login whose comment this call may edit.
+# SCOPED TO THE LOGIN `gh api user` ANSWERS for the token this call writes
+# with (`host.ts:358`), asked once per lookup. Not `budget_account`: it reads
+# `hosts.yml` or `PLOT_BUDGET_ACCOUNT`, and neither names the author when
+# `GH_TOKEN` is set or the account is a grouping name, so every lookup missed
+# and posted a new comment.
+#
+# NO LOGIN, NO SCOPE. When `gh api user` fails or answers no valid login (an
+# App installation token gets 403 there), the match falls back to the marker
+# alone, as it was before #2661. A comment with no `user` field cannot be
+# attributed and also matches on the marker alone.
 #
 # A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
 # pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
 # that cannot be read never falls through to "no marker found, post new".
-gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(budget_account github)" '[.[][] | select(.user.login == $who) | select(.body | contains($m))][0].id // empty'; }
+gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
@@ -2495,7 +2504,8 @@ rest_pr_to_state() {
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of }
+        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of,
+        mergedAt: (.merged_at // "") }
   '
 }
 
@@ -3834,6 +3844,12 @@ shift
 # answer at all" — the one code every caller reads as permanent rather than
 # transient. Collapsing it to 1 here would tell a GitLab repo to retry forever.
 be="$(backend)" || exit $?
+# PLOT_HOST_OTHER=1 ASKS THE OTHER DRIVABLE BACKEND, the `HOST_DRIVES` entry
+# that is not this checkout's own. `hostShell.prState` and `prMerged` set it to
+# retry a cross-repo `--repo` reference on a clean miss (#2158); the decision is
+# `rules/cross-repo-probe.ts`. The variable stays in the environment, so a
+# re-exec of this script asks the same backend.
+[ -z "${PLOT_HOST_OTHER:-}" ] || be="$(printf '%s\n' $HOST_DRIVES | awk -v be="$be" '$0 != be { o = $0 } END { print o }')"
 
 # EVERY GITHUB OP CONSULTS THE ROUTER, ONCE, HERE. `gh_route` is asked before
 # the op runs and its answer is read from `$route` by whichever arm needs it —
@@ -3960,7 +3976,7 @@ case "$op" in
             rm -f "$HOST_ERR"
             rest_pr_to_state <<<"$out"
           else
-            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+            host_err
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3981,7 +3997,7 @@ case "$op" in
               jq -c '.[0]' <<<"$out" | rest_pr_to_state
             fi
           else
-            err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+            host_err
             host_miss_or_fail "$err" \
               '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
           fi
@@ -3989,11 +4005,11 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus 2>"$HOST_ERR")"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of}' <<<"$out"
+        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}' <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
         # this coming — `rate_limit` does not report the secondary limit — so the
         # cheap path was chosen and then declined. The second path is the one
@@ -4036,7 +4052,7 @@ case "$op" in
           state_row="$(bb_state_row "$out" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       else
@@ -4099,7 +4115,7 @@ case "$op" in
           state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
         fi
       fi
@@ -4136,7 +4152,7 @@ case "$op" in
           rm -f "$HOST_ERR"
           jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           miss_or_unknown "$err"
         fi
       else
@@ -4155,7 +4171,7 @@ case "$op" in
           # the host's own answer rather than a page boundary (#2484).
           jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
-          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          host_err
           miss_or_unknown "$err"
         fi
       fi
@@ -4177,8 +4193,8 @@ case "$op" in
     # this only for a branch it has already been told merged, and the plan it
     # serves budgets one host call per branch either way.
     #
-    # `--state all` and `--limit 100` for `pr-merged`'s own two reasons: a
-    # merged PR reports CLOSED, and the newest PR is not the merge.
+    # `--state all` for `pr-merged`'s own two reasons: a merged PR reports
+    # CLOSED, and the newest PR is not the merge.
     #
     # PRINTS NOTHING AND EXITS 0 where no PR merged — an ANSWER, the same shape
     # `pr-state` gives for a missing PR. Exit 3 is the question failing.
@@ -4186,8 +4202,12 @@ case "$op" in
     # `pr-merge-dest` RUNS THE SAME QUERY and prints every merged PR instead of
     # the first sha: one `number<TAB>base<TAB>sha<TAB>mergedAt` line each, read
     # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
-    # release-chain walk. Bitbucket names no merge time, so `mergedAt` is
-    # `updated_on`, as in `pr-list`.
+    # release-chain walk, where under-reading is a silent wrong hop rather than
+    # a cheap prefilter (#2238) — so GitHub's `--limit` grows and the query
+    # re-asks until a page returns short of it, same proof as
+    # `pr_list_report_truncation`. Bitbucket's arm already pages in full via
+    # `_bb_paged_walk` (#2484); its `mergedAt` is `updated_on` as in `pr-list`,
+    # since the endpoint carries no real merge timestamp (#2202).
     ref="${1:?$op needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -4197,19 +4217,27 @@ case "$op" in
     done
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
+      limit=100
+      # A page as long as `--limit` may have been cut, so the limit doubles and
+      # the query re-asks. The loop ends one of two ways: a short page, after
+      # which `$HOST_ERR` is gone, or a failed call, which leaves `$HOST_ERR`
+      # in place because the redirect creates it before `gh` runs.
+      while out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; do
         rm -f "$HOST_ERR"
-        # The FIRST merged PR carrying a sha. A branch may hold several merged
-        # PRs; each names its own merge commit, and any of them is a commit that
-        # landed this branch's work.
-        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
-               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
-      else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        [ "$(jq 'length' <<<"$out")" -lt "$limit" ] && break
+        limit=$((limit * 2))
+      done
+      if [ -e "$HOST_ERR" ]; then
+        host_err
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
         # nothing" — the caller distinguishes the two by the exit code.
         miss_or_exit3 "$err"
+      else
+        # Every merged PR carrying a sha, earliest-first ordering left to the
+        # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
+               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
       fi
     else
       bb_require_json
@@ -4221,7 +4249,7 @@ case "$op" in
         jq -r 'map(select(.merge_commit.hash != null)
                | {n: .id, b: (.destination.branch.name // ""), s: .merge_commit.hash, t: (.updated_on // "")}) | '"$pick" <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         miss_or_exit3 "$err"
       fi
     fi
@@ -4250,7 +4278,7 @@ case "$op" in
         rm -f "$HOST_ERR"
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-gh pr list failed}" >&2; exit 3; }
       fi
     else
@@ -4262,7 +4290,7 @@ case "$op" in
         rm -f "$HOST_ERR"
         jq -r '.[] | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-the branch query failed}" >&2; exit 3; }
       fi
     fi
@@ -4335,7 +4363,7 @@ case "$op" in
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
-    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
       echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
       exit 1
@@ -5699,7 +5727,7 @@ case "$op" in
           }
         }' <<<"$out"
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        host_err
         # The host could not be asked. Report unknown rather than failing outright,
         # because this is informational — a caller that cannot read the budget
         # should proceed with the default path, not error out.

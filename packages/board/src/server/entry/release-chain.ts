@@ -48,12 +48,16 @@ export interface ResolveInput {
   readonly pr: string;
   /** The PR's merge commit, or `''` where the host named none. */
   readonly mergeCommit: string;
+  /** When the PR itself merged, ISO-8601, or `''` where the host did not say. */
+  readonly mergedAt: string;
   /** The branch the PR merged into, or `''` where the host did not say. */
   readonly base: string;
   /** The repository's default branch. */
   readonly defaultBranch: string;
   /** The scan's PR source: the CLI name `gh` or `bb`, or a status word. */
   readonly prSource: string;
+  /** Whether the scan ran `--no-fetch`/`--offline`, skipping `git fetch`. */
+  readonly noFetch: boolean;
 }
 
 /** The ports a walk reads. */
@@ -62,10 +66,11 @@ export interface ResolvePorts {
   readonly refs: Pick<Refs, 'contains' | 'tagsContaining'>;
 }
 
-const fetchAdvice = (prSource: string): string =>
-  prSource === 'bb'
-    ? 'unreachable: Bitbucket exposes no ref for this merge commit — a fetch cannot bring it'
-    : 'inspect: git fetch --tags origin, then re-run';
+const fetchAdvice = (prSource: string, noFetch: boolean): string => {
+  if (prSource === 'bb') return 'unreachable: Bitbucket exposes no ref for this merge commit — a fetch cannot bring it';
+  if (noFetch) return 're-run without --no-fetch/--offline: this scan skipped git fetch, so a commit a fetch would bring reads as missing';
+  return 'inspect: shallow clone, or a destination this remote never held — git fetch --tags origin, then re-run';
+};
 
 const inspectPr = (prSource: string, pr: string): string => {
   if (prSource === 'gh') return `gh pr view ${pr} --json state,mergeCommit`;
@@ -94,22 +99,27 @@ export const resolveRelease = async (
   ports: ResolvePorts,
   warn: (s: string) => void,
 ): Promise<string> => {
-  const { pr, mergeCommit, base, defaultBranch, prSource } = input;
+  const { pr, mergeCommit, mergedAt, base, defaultBranch, prSource, noFetch } = input;
   if (mergeCommit === '') {
     return `finding\tdelivered, but PR #${pr} has no merge commit → cannot resolve\\n    inspect: ${inspectPr(prSource, pr)}`;
   }
   if (base === '' || base === defaultBranch) {
-    return `finding\tdelivered, PR #${pr} names merge commit ${mergeCommit}, not in this clone → cannot resolve\\n    ${fetchAdvice(prSource)}`;
+    return `finding\tdelivered, PR #${pr} names merge commit ${mergeCommit}, not in this clone → cannot resolve\\n    ${fetchAdvice(prSource, noFetch)}`;
   }
   const into = `delivered, PR #${pr} merged into '${base}' →`;
   const hops: ReleaseChainHop[] = [];
   for (;;) {
-    const step = releaseChainStep({ defaultBranch, planCommit: mergeCommit, destination: base, hops });
+    const step = releaseChainStep({
+      defaultBranch,
+      planCommit: { commit: mergeCommit, mergedAt },
+      destination: base,
+      hops,
+    });
     if (step.outcome === 'refused') return `finding\t${into} ${refusalText(step)}`;
     if (step.outcome === 'resolved') {
       const tags = await ports.refs.tagsContaining(step.mergeCommit);
       if (!tags.ok) {
-        return `finding\t${into} cannot tell (merge commit ${step.mergeCommit} on '${defaultBranch}' is not in this clone)\\n    ${fetchAdvice(prSource)}`;
+        return `finding\t${into} cannot tell (merge commit ${step.mergeCommit} on '${defaultBranch}' is not in this clone)\\n    ${fetchAdvice(prSource, noFetch)}`;
       }
       const tag = tags.value[0];
       return tag === undefined ? 'unreleased' : `shipped\t${tag} via ${base}`;
@@ -134,17 +144,18 @@ export const resolveRelease = async (
  * Parses the `pr-state` row.
  *
  * @param stdin - the row as `plot-host.sh pr-state` printed it.
- * @returns the merge commit and destination, each `''` where absent or unreadable.
+ * @returns the merge commit, its merge time, and the destination, each `''` where absent or unreadable.
  */
-export const parseRow = (stdin: string): { mergeCommit: string; base: string } => {
+export const parseRow = (stdin: string): { mergeCommit: string; mergedAt: string; base: string } => {
   try {
-    const row = JSON.parse(stdin) as { mergeCommit?: unknown; base?: unknown };
+    const row = JSON.parse(stdin) as { mergeCommit?: unknown; mergedAt?: unknown; base?: unknown };
     return {
       mergeCommit: typeof row.mergeCommit === 'string' ? row.mergeCommit : '',
+      mergedAt: typeof row.mergedAt === 'string' ? row.mergedAt : '',
       base: typeof row.base === 'string' ? row.base : '',
     };
   } catch {
-    return { mergeCommit: '', base: '' };
+    return { mergeCommit: '', mergedAt: '', base: '' };
   }
 };
 
@@ -165,12 +176,15 @@ export const run = async (
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
-  const [verb, pr, defaultBranch, prSource = ''] = argv;
+  const [verb, pr, defaultBranch, prSource = '', noFetchArg = ''] = argv;
   if (verb !== 'resolve' || pr === undefined || defaultBranch === undefined) {
-    warn('plot-release-chain: usage: plot-release-chain.mjs resolve <pr> <default-branch> <pr-source> < pr-state-row\n');
+    warn(
+      'plot-release-chain: usage: plot-release-chain.mjs resolve <pr> <default-branch> <pr-source> <no-fetch: 0|1> < pr-state-row\n',
+    );
     return EXIT.usage;
   }
-  const line = await resolveRelease({ pr, defaultBranch, prSource, ...parseRow(stdin) }, ports, warn);
+  const noFetch = noFetchArg === '1' || noFetchArg === 'true';
+  const line = await resolveRelease({ pr, defaultBranch, prSource, noFetch, ...parseRow(stdin) }, ports, warn);
   write(`${line}\n`);
   return EXIT.ok;
 };

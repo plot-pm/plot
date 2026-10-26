@@ -20,11 +20,14 @@ after(() => {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-host.sh');
 
-// The identity `gh_marker_comment_id` scopes a marker match to — read, like
-// `budget_account`, from a `hosts.yml` beside the sandbox rather than a real
-// `gh api user` call. A fixture comment whose `user.login` is this value is
-// "ours"; any other login is a PR participant's own comment.
+// The identity `gh_marker_comment_id` scopes a marker match to: the login the
+// stub answers for `gh api user -q .login`. A fixture comment whose
+// `user.login` is this value is "ours"; any other login is a PR participant's
+// own comment. The sandbox's `hosts.yml` and `PLOT_BUDGET_ACCOUNT` name two
+// OTHER identities, so a lookup that read either one would miss its own comment.
 const PLOT_LOGIN = 'plot-bot';
+const HOSTS_YML_USER = 'hosts-yml-user';
+const GROUPING_ACCOUNT = 'a-grouping-name';
 
 /** A scratch repo whose `gh` and `bb` log their argv to `calls` and run `ghTail`/`bbTail`. */
 const sandbox = ({ ghTail = 'exit 0', bbTail = 'exit 0' } = {}) => {
@@ -42,7 +45,7 @@ const sandbox = ({ ghTail = 'exit 0', bbTail = 'exit 0' } = {}) => {
   stub('bb', bbTail);
   const ghConfigDir = path.join(root, 'gh-config');
   fs.mkdirSync(ghConfigDir);
-  fs.writeFileSync(path.join(ghConfigDir, 'hosts.yml'), `github.com:\n    user: ${PLOT_LOGIN}\n`);
+  fs.writeFileSync(path.join(ghConfigDir, 'hosts.yml'), `github.com:\n    user: ${HOSTS_YML_USER}\n`);
   return { root, bin, calls, ghConfigDir };
 };
 
@@ -50,7 +53,7 @@ const prComment = (box, backend, args) =>
   new Promise((resolve) => {
     const child = spawn('bash', [adapter, 'pr-comment', ...args], {
       cwd: box.root,
-      env: { ...process.env, PATH: `${box.bin}:${process.env.PATH}`, PLOT_HOST: backend, GH_CONFIG_DIR: box.ghConfigDir },
+      env: { ...process.env, PATH: `${box.bin}:${process.env.PATH}`, PLOT_HOST: backend, GH_CONFIG_DIR: box.ghConfigDir, PLOT_BUDGET_ACCOUNT: GROUPING_ACCOUNT },
     });
     let err = '';
     child.stderr.on('data', (d) => {
@@ -83,9 +86,18 @@ test('pr-comment: Bitbucket exits 4, names the backend, and calls neither CLI', 
   assert.doesNotMatch(callLog(box), /^(gh|bb) pr comment/m);
 });
 
-/** A `gh` whose comment list answers `comments` and whose every other call exits 0. */
-const listing = (comments) => ({
-  ghTail: `[ "$1 $2" = "api --paginate" ] && echo '${JSON.stringify(comments)}'; exit 0`,
+/**
+ * A `gh` whose comment list answers `comments`, whose `api user` answers
+ * `login` (or fails with a 403 when `login` is null), and whose every other
+ * call exits 0.
+ */
+const listing = (comments, login = PLOT_LOGIN) => ({
+  ghTail: [
+    login === null
+      ? `[ "$1 $2" = "api user" ] && { echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; }`
+      : `[ "$1 $2" = "api user" ] && { echo '${login}'; exit 0; }`,
+    `[ "$1 $2" = "api --paginate" ] && echo '${JSON.stringify(comments)}'; exit 0`,
+  ].join('\n'),
 });
 
 test('pr-comment: a marker held by an earlier comment edits that comment and posts nothing', async () => {
@@ -105,6 +117,22 @@ test('pr-comment: a marker held only by another author’s comment does not matc
   assert.equal(got.code, 0, got.err);
   assert.match(callLog(box), /^gh pr comment 7 --body new <!-- m -->$/m);
   assert.doesNotMatch(callLog(box), /PATCH/);
+});
+
+test('pr-comment: a marker comment with no user field edits that comment while the login is known', async () => {
+  const box = sandbox(listing([{ id: 12, body: 'old <!-- m -->' }]));
+  const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
+  assert.equal(got.code, 0, got.err);
+  assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
+  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+});
+
+test('pr-comment: with no login from gh api user, the marker alone matches and another author’s comment is edited', async () => {
+  const box = sandbox(listing([{ id: 12, body: 'old <!-- m -->', user: { login: 'a-pr-participant' } }], null));
+  const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
+  assert.equal(got.code, 0, got.err);
+  assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
+  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
 });
 
 test('pr-comment: a marker no comment holds posts, and so does a PR with no comments', async () => {
