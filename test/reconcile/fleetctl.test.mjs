@@ -711,7 +711,6 @@ test('refusal 5: an observed refusal to write blocks --start, and fills no unit'
   const r = run(ctl, ['--start'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: [guardBin, path.dirname(process.execPath), defaultUnitPath()].join(':'),
   });
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /no marker file appeared after the probe run/, r.out);
@@ -725,7 +724,6 @@ test('refusal 5: the refusal runs before launchctl bootstrap — no unit loads, 
   run(ctl, ['--start'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: [guardBin, path.dirname(process.execPath), defaultUnitPath()].join(':'),
   });
   assert.equal(fs.existsSync(path.join(home, 'Library', 'LaunchAgents')), false);
   assert.equal(fs.existsSync(path.join(home, '.config', 'systemd')), false);
@@ -736,7 +734,6 @@ test('refusal 5: --dry-run names the probe command and refuses nothing — a pre
   const r = run(ctl, ['--start', '--dry-run'], root, guardBin, {
     HOME: fakeHome(box),
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: [guardBin, path.dirname(process.execPath), defaultUnitPath()].join(':'),
   });
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /would probe: node .*board\/plot-write-probe\.mjs/, r.out);
@@ -756,7 +753,6 @@ test('refusal 5: a missing bundle is a hard shell failure, not a silent proceed'
   const r = run(ctl, ['--start'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
-    PATH: [guardBin, path.dirname(process.execPath), defaultUnitPath()].join(':'),
   });
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /Cannot find module|MODULE_NOT_FOUND/, r.out);
