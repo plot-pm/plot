@@ -4,7 +4,14 @@ import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
-import { freshScanState, scanOnce, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
+import {
+  freshScanState,
+  listedRowCount,
+  scanListingCost,
+  scanOnce,
+  type ScanOptions,
+  type ScanWorld,
+} from '../../src/shared/fleet-scan.js';
 
 const READING: FleetReading = {
   main: 'main',
@@ -152,5 +159,35 @@ describe('scanOnce carries streamed terminal:/listing: lines forward on a kill',
     await scanOnce(worldWith(clean), state, OPTIONS);
     expect(state.listing).toBe('.branches\t2\t-\t-\n.list-arrived\t1\t-\t-\n');
     expect(state.listingBranches).toBe(2);
+  });
+});
+
+describe('scanListingCost on GitHub', () => {
+  // gh pr list pages at 100 rows: one --state open call plus the --state all
+  // pages. 100 rows is 1 page, 101 is 2 — the off-by-one at the boundary.
+  it.each([
+    [0, 2],
+    [1, 2],
+    [100, 2],
+    [101, 3],
+    [1_767, 19],
+  ])('prices %i rows at %i requests', (rows, cost) => {
+    expect(scanListingCost('github', 0, rows)).toBe(cost);
+  });
+
+  it('prices an unknown row count at 2, same as the first-page floor', () => {
+    expect(scanListingCost('github', 0, null)).toBe(2);
+  });
+});
+
+describe('listedRowCount', () => {
+  it('counts branch lines and skips dotted notes', () => {
+    const listed = '.branches\t3\t-\t-\nfeature_a\tOPEN\tgreen\tfalse\n.list-complete\t1\t-\t-\n' +
+      'feature_b\tMERGED\tgreen\tfalse\n.list-arrived\t1\t-\t-\n';
+    expect(listedRowCount(listed)).toBe(2);
+  });
+
+  it('counts 0 for an empty listing', () => {
+    expect(listedRowCount('')).toBe(0);
   });
 });
