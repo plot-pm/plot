@@ -61,14 +61,10 @@ j() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 # The most frequent QUACDS-style prefix in a newline list of text, and how
 # many LINES carried it — one `count prefix` pair on stdout, empty if none.
-# At most one match per line, so a single line naming the prefix twice (e.g.
-# a branch named "feature/ABC-123-fix-related-to-ABC-456") still counts once.
-top_prefix() {
-  awk 'match($0, /[A-Z][A-Z0-9]{1,9}-[0-9]+/) {
-    pre = substr($0, RSTART - 1, 1)
-    if (RSTART == 1 || pre !~ /[A-Za-z0-9]/) print substr($0, RSTART, RLENGTH)
-  }' | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1
-}
+# At most one match per line (via awk match(), unlike grep -oE), so a single
+# line naming the prefix twice still counts once; the RSTART condition keeps
+# grep -oE's \b boundary, rejecting a match starting mid-token.
+top_prefix() { awk 'match($0, /[A-Z][A-Z0-9]{1,9}-[0-9]+/) && (RSTART == 1 || substr($0, RSTART - 1, 1) !~ /[A-Za-z0-9]/) { print substr($0, RSTART, RLENGTH) }' | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1; }
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo '{"error":"not a git repository"}'; exit 1; }
 
