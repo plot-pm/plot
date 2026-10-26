@@ -3185,7 +3185,7 @@ else
         oi_view_cache+="$oi_line
 "
       fi
-      oi_tag=${oi_line#*	}; oi_tag=${oi_tag%%	*}; oi_err=${oi_line#*	*	}
+      IFS=$'\t' read -r _ oi_tag oi_err <<< "$oi_line"
       if [ "$oi_tag" = hostdead ]; then
         # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to
         # ask, and it will answer the same for every remaining key — said once.
