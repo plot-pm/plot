@@ -47,8 +47,8 @@ before.
 | 1. Locate Plan | Small | plot-plan-meta.sh lookup; the Design spike exception reads two parsed fields, `spike_approved_raw` and each branch's `spike` flag |
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
 | 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed. **`--brief-only` skips this step**: no checkout, no claim push, no worktree |
-| 4. Hand-off Brief | Frontier | Interpretation, not extraction: naming which alternatives a plan rejected and which assertions a naive implementation would pass without is judgment. Smaller tiers fill the header fields and the plan's own `Done when`, then say which sections they could not write |
-| 5. Record Started | Small | One Status line + commit; optional board status is a single shell command |
+| 4. Hand-off Brief | Frontier | Interpretation, not extraction: naming which alternatives a plan rejected and which assertions a naive implementation would pass without is judgment. Smaller tiers fill the header fields and the plan's own `Done when`, then say which sections they could not write. **Under `--brief-only`, writing the already-composed text to a scratch file and booking it is Small** — the judgment is in composing the brief, not in the one call that lands it |
+| 5. Record Started | Small | One Status line + commit; optional board status is a single shell command. **Under `--brief-only`, this is one call, not a commit** — step 4's `plot-brief-book.sh` already books the `Started:` record, so nothing here writes again |
 | 6. Summary | Small | Orientation template |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
@@ -127,12 +127,20 @@ later handed it finds its own ref already there and logs
 worker until a person released their refs.
 
 `/api/implement` runs this skill's agent directly in the operator's main
-checkout, with no worktree of its own. `startImplement` restores whatever
-branch that checkout was on before the run once the run ends, so a
-checkout this step should never touch does not stay moved if it is. That
-restore is a backstop for a run that deviates from this step, not
-licence to check out a branch under `--brief-only` — the step above still
-means skip it entirely.
+checkout, with no worktree of its own. **Under `--brief-only`, steps 4 and 5
+never write to that checkout at all** — see step 4's booking entry point,
+which books both the brief and the `Started:` record in a disposable
+worktree cut from `origin/<default>` and never opens the main checkout.
+`startImplement` restores whatever branch the checkout was on before the
+run once the run ends, as a backstop for a run that deviates from this
+step — not licence to check out a branch under `--brief-only`, and not the
+mechanism either step relies on to keep the checkout clean. Three runs on
+2026-10-26 wrote the brief and the `Started:` line directly into the main
+checkout and left byte-identical leftovers there that made
+`git merge --ff-only origin/main` refuse — the restore does not undo a
+write to tracked content it was never built to touch, and it removes
+nothing. The booking entry point exists so this failure mode has no path
+left to occur, not so it has something to recover from afterward.
 
 **Without the flag, this step runs as before.** A person who runs
 `/plot-implement` by hand is about to work the branch, so the claim is
@@ -225,6 +233,31 @@ session's scrollback dies with that session; an agent that is resumed,
 replaced or restarted reads the file instead of asking a human to
 reconstruct it.
 
+**Under `--brief-only`, book it through the entry point — this is the
+primary path, not a fallback.** Write the brief's text to a scratch file
+*outside* the repository (e.g. `mktemp`, or a path under the OS temp
+directory — never a path under the checkout, which this step must not
+write into), then call:
+
+```bash
+../plot/scripts/plot-brief-book.sh <slug> <branch> <scratch-brief-file>
+```
+
+This books both the brief **and** step 5's `Started:` record in one call,
+in one disposable worktree cut from a freshly fetched `origin/<default
+branch>`: write, commit, push, remove the worktree. The main checkout is
+never opened, so running this under a stale or dirty operator checkout
+changes nothing about its outcome — `git status --porcelain`, `HEAD` and
+the checked-out branch on that checkout are exactly as this call found
+them, whether it succeeds or refuses. A brief already on `origin/<default
+branch>` for this slug is success, not failure: the call writes no second
+commit and says so. Treat step 5 below as already done once this call
+succeeds under `--brief-only` — it has nothing left to write.
+
+**Without `--brief-only`,** write and commit the brief directly in the
+checkout you are already working in (the branch from step 3), the same as
+before:
+
 **Fetch `origin/<default branch>` immediately before this commit, not only
 back at step 2.** Step 2's staleness preflight is about the *plan's*
 assumptions drifting since approval; this fetch is about the checkout's own
@@ -253,13 +286,14 @@ redo the commit in a fresh disposable worktree cut from the new tip
 (`git worktree add -q -B <throwaway-branch> <path> "origin/$DEFAULT_BRANCH"`,
 write and commit the brief there, push, then remove the worktree and the
 throwaway branch) — the same shape `plot-dispatch.sh`'s
-`write_started_record` already uses to book a `Started:` record. **Never**
-recover with a bare `git reset`: a mixed reset (the default, with neither
-`--hard` nor `--soft`) moves `HEAD` without moving the working tree, so a
-later `git add -A` in that checkout would commit the reversal of every
-commit the reset skipped past. The main-checkout gate refuses that reset
-outright; the point here is to never need the refusal, by recovering a way
-that was always going to work.
+`write_started_record` already uses to book a `Started:` record, and the
+same shape `plot-brief-book.sh` above runs on every call rather than only
+on a retry. **Never** recover with a bare `git reset`: a mixed reset (the
+default, with neither `--hard` nor `--soft`) moves `HEAD` without moving
+the working tree, so a later `git add -A` in that checkout would commit
+the reversal of every commit the reset skipped past. The main-checkout
+gate refuses that reset outright; the point here is to never need the
+refusal, by recovering a way that was always going to work.
 
 **The brief is interpretation, not extraction.** A summary of the plan is
 worth nothing to a reader who can open the plan. What the brief adds is
@@ -384,7 +418,13 @@ Implementation-side skills must not re-ask what the brief answers (e.g.
 
 ### 5. Record Started
 
-Add one line to the plan's `## Status` per started branch:
+**Under `--brief-only`, this step is already done.** Step 4's
+`plot-brief-book.sh` call books the `Started:` record in the same commit
+as the brief — one call, not a commit of your own. Nothing here writes
+again; go straight to step 6.
+
+**Without `--brief-only`,** add one line to the plan's `## Status` per
+started branch:
 
 ```
 - **Started:** <YYYY-MM-DD>, <who>, `<branch>`
@@ -393,8 +433,9 @@ Add one line to the plan's `## Status` per started branch:
 Commit it where the plan lives (same branch in `same-branch` flow;
 default branch in direct flows — see `/plot-approve` step 4 for the
 exact push mechanics and the branch-protection fallback; the plan's
-branch otherwise). **Under `--brief-only` the record goes on the default branch, never on the slice branch,** and the `brief-push` gate refuses a `git push` of the branch the run briefs. The board derives **Ready** (approved, no `Started:`)
-vs **In progress** from exactly this record.
+branch otherwise). The `brief-push` gate refuses a `git push` of the
+branch the run briefs. The board derives **Ready** (approved, no
+`Started:`) vs **In progress** from exactly this record.
 
 **This commit follows step 4's fetch-first and rejected-push mechanics
 too.** Fetch `origin/<default branch>` immediately before writing this
