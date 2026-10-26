@@ -84,8 +84,8 @@ With N leftover plan-named worktrees and no desk running, the GraphQL lines per 
 - [x] Which process and which operation spend the 610 per hour? — fleetd. The nothing-done step's `pr-state` calls are about 430 of 618 lines per hour with 10 leftover desks (inferred from the burst shape); the rest are fleetd listings. See *Callers*.
 - [x] Does the board read the host while fleetd owns the PR index? — No GraphQL call. The `ps` sample shows only `gh run list` (core) and `plot-host.sh backend`.
 - [x] Does a caller field in the record answer the question for good? — Not needed here. A `ps` sample of 200 s attributed every GraphQL call to its parent process and operation, so the Rejected plan stays rejected.
-- [ ] Is an `OPEN` index row acceptable as the answer `true` for `prOpen`? CLAUDE.md *A Decision Reads The Index* reads only `MERGED` rows. This plan reads an `OPEN` row only in the direction that releases nothing. If the operator declines, slice 2 is dropped and slice 1 still removes the measured spend.
-- [ ] What idle rate does the plan accept as done? Proposal: the nothing-done step spends 0 lines per hour for desks whose verdict does not read `prOpen`, and the idle total falls by that step's share.
+- [x] Is an `OPEN` index row acceptable as the answer `true` for `prOpen`? — Yes, operator decision 2026-10-26. Slice 2 also adds the exception to CLAUDE.md *A Decision Reads The Index*: an `OPEN` row may answer only where a wrong answer releases nothing.
+- [x] What idle rate does the plan accept as done? — Operator decision 2026-10-26: the nothing-done step spends 0 lines per hour for desks whose verdict does not read `prOpen`, and `mine=` reports every call the step makes. The plan sets no total idle target.
 
 ## Slices
 
@@ -95,11 +95,11 @@ With N leftover plan-named worktrees and no desk running, the GraphQL lines per 
 
 ### Read The Index
 
-- `feature/nothing-done-reads-an-open-pr-from-the-index` — answer `prOpen: true` from an `OPEN` index row for the branch and ask the host on every other row or miss <!-- waits: bug/nothing-done-asks-pr-state-only-where-it-decides -->
+- `feature/nothing-done-reads-an-open-pr-from-the-index` — answer `prOpen: true` from an `OPEN` index row for the branch and ask the host on every other row or miss <!-- waits: bug/nothing-done-asks-pr-state-only-where-it-decides -->; also add the `OPEN`-row exception to CLAUDE.md *A Decision Reads The Index* and regenerate `AGENTS.md`
 
 ## Notes
 
 - Source: issue #2715, https://github.com/plot-pm/plot/issues/2715. The measurement is also posted as a comment there.
-- Follow-up, not in this plan: `budget_record_call` (`plot-host.sh:3576`) writes one line per `gh` process, so paged `pr-list` calls under-count real GraphQL requests. It concerns every paged listing and the record's format, not the nothing-done step. It needs its own issue.
-- Not explained: the burst of 96–236 requests per minute on 2026-10-25 at 20:42–20:50 (peak hour 2,017). The `ps` sample covers 2026-10-26 only. With desks running, the fresh-agent and nothing-done steps see more candidates, which fits a burst, but no sample of that window exists.
+- Follow-up, not in this plan: `budget_record_call` (`plot-host.sh:3576`) writes one line per `gh` process, so paged `pr-list` calls under-count real GraphQL requests. It concerns every paged listing and the record's format, not the nothing-done step. It is filed as #2717.
+- Not explained: the burst of 96–236 requests per minute on 2026-10-25 at 20:42–20:50 (peak hour 2,017). The `ps` sample covers 2026-10-26 only. With desks running, the fresh-agent and nothing-done steps see more candidates, which fits a burst, but no sample of that window exists. Operator decision 2026-10-26: investigate only if it recurs after #2717 makes the record count pages.
 - Cited lines verified on `origin/main` at `ea2aa9743`.
