@@ -2985,14 +2985,14 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # sweep cross-checking every open ticket against the plan estate, not by
 # anything in Plot. Both sides of that comparison were already readable here:
 # the phase and `issues[]` come from the parse this sweep already holds, and
-# the open list is one host call.
+# each distinct key names one `issue-view` call.
 #
-# ONE CALL PER KEY, NEVER A WINDOW. `issue-view <key>` answers any issue
-# regardless of state and fails only when the key does not exist — the same
-# read the Jira-only branch below already made per key. Cost is constant in
-# the count of DISTINCT keys finished plans name, not in how many issues the
-# tracker holds, so a plan that finished long ago is checked exactly as
-# cheaply as one that finished yesterday.
+# ONE CALL PER DISTINCT KEY, NEVER A WINDOW, NEVER PER PLAN. `issue-view
+# <key>` answers any issue regardless of state and fails only when the key
+# does not exist. Cost is constant in the count of DISTINCT keys finished
+# plans name, not in how many issues the tracker holds and not in how many
+# plans name the same key, so a plan that finished long ago is checked
+# exactly as cheaply as one that finished yesterday.
 #
 # A WINDOWED LIST CANNOT TELL ABSENT FROM CLOSED. `issue-list` is bounded —
 # `gh issue list` defaults to 30 without `--limit` — so an issue outside the
@@ -3064,8 +3064,11 @@ n_unread_heading_items=0
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
 # cannot tell a signal from a citation, and plans here cite issues constantly.
 oi_claims=""; oi_keyless=""
-# KEY RESOLUTION MIRRORS `resolveItemKey` (sprint-release.ts): the first
-# Jira-shaped `issues[]` entry wins, else a Jira-shaped `ticket:` stands in.
+# KEY RESOLUTION: if any `issues[]` entry is Jira-shaped, every entry is kept
+# (not just the first); otherwise a Jira-shaped `ticket:` stands in for the
+# whole list. The regex is ANCHORED (`^...$`, whole-string), stricter than
+# `sprint-release.ts`'s unanchored `JIRA_KEY` (`.test()`/`.exec()` match
+# anywhere in the string) — the two are not the same pattern.
 if [ -n "$plan_json" ]; then
   oi_tagged=$(printf '%s\n' "$plan_json" | jq -r --arg re '^[A-Z][A-Z0-9]*-[0-9]+$' '
     select(.phase == "delivered" or .phase == "released") | (.issues // []) as $issues | (.ticket // "") as $ticket
@@ -3147,6 +3150,41 @@ else
   # than a status that does not exist.
   oi_released_status=$(cfg "Tracker released status" "" 2>/dev/null)
   oi_host_failed=0; oi_out=""
+  # ONCE PER DISTINCT KEY, NOT PER PLAN·KEY PAIR. `oi_view_cache` holds one
+  # `key<TAB>tag<TAB>payload` line per key already asked — tag is
+  # open/closed/err, payload is empty or the error text `issue-view` printed.
+  # A plan naming the same key twice (directly, or via the `ticket:` fallback
+  # racing `issues[]`) reads the cache on its second encounter; the lookup
+  # itself still runs exactly once. NO ASSOCIATIVE ARRAY: see the `NO
+  # ASSOCIATIVE ARRAY` note above section 1's index reader — bash 3.2 ships on
+  # a stock Mac and cannot parse `declare -A`.
+  oi_view_cache=""
+  # ask_issue <key> — fills oi_tag/oi_err from the cache, asking the host on a
+  # miss. Returns 4 only to signal "host is unaskable", matching issue-view's
+  # own exit code so the caller's branch stays a single `if`/`elif` chain.
+  ask_issue() {
+    local key="$1" line
+    line=$(awk -F'\t' -v k="$key" '$1 == k {print; exit}' <<< "$oi_view_cache")
+    if [ -z "$line" ]; then
+      local err_file="" view rc err=""
+      plot_tmpfile err_file reconcile-issue-err || err_file=""
+      view=$(bash "$script_dir/plot-host.sh" issue-view "$key" </dev/null 2>"${err_file:-/dev/null}"); rc=$?
+      [ -n "$err_file" ] && err=$(head -1 "$err_file" 2>/dev/null) && /bin/rm -f "$err_file" 2>/dev/null
+      if [ "$rc" -eq 4 ]; then
+        line="$key	hostdead	${err:-tracker unavailable}"
+      elif [ "$rc" -ne 0 ]; then
+        line="$key	err	${err:-plot-host.sh exited $rc}"
+      else
+        line="$key	$(printf '%s' "$view" | jq -r '.state // "open"' 2>/dev/null)	"
+      fi
+      oi_view_cache+="$line
+"
+    fi
+    oi_tag=${line#*	}; oi_tag=${oi_tag%%	*}
+    oi_err=${line#*	*	}
+    [ "$oi_tag" = hostdead ] && return 4
+    return 0
+  }
   # THE CLAIMS ARE READ ON FD 3, and the reason is a measured defect rather
   # than style: a nested `while read` inside a loop fed by `<<<` drains the
   # OUTER loop's stdin. Measured while writing this section — the first plan
@@ -3162,23 +3200,22 @@ else
     IFS=','
     for oi_key in $oi_keys; do
       IFS="$oi_IFS_saved"; [ -n "$oi_key" ] || continue
-      oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
-      oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
-      oi_view_err=""; [ -n "$oi_view_err_file" ] && oi_view_err=$(head -1 "$oi_view_err_file" 2>/dev/null) && /bin/rm -f "$oi_view_err_file" 2>/dev/null
+      ask_issue "$oi_key"; oi_view_rc=$?
       if [ "$oi_view_rc" -eq 4 ]; then
         # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to
         # ask, and it will answer the same for every remaining key — said once.
-        [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: ${oi_view_err:-tracker unavailable})"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
+        [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: $oi_err)"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
         oi_host_failed=1; break 2
-      elif [ "$oi_view_rc" -ne 0 ]; then
+      elif [ "$oi_tag" = err ]; then
         # ONE KEY'S LOOKUP FAILING is that key's own failure, not evidence of
         # anything — reported unchecked for this key alone, never dropped and
-        # never read as closed.
-        oi_out+="  $oi_base — $oi_phase, $oi_key not checked: ${oi_view_err:-plot-host.sh exited $oi_view_rc}\n"
+        # never read as closed. A DE-DUPLICATED key still takes this branch on
+        # every plan that names it: the cache remembers the failure, not a
+        # silence that would read as "checked, and clean".
+        oi_out+="  $oi_base — $oi_phase, $oi_key not checked: $oi_err\n"
         n_issue_unread=$((n_issue_unread + 1)); continue
       fi
-      oi_state=$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)
-      [ "$oi_state" = closed ] && continue || oi_hits+="${oi_hits:+,}$oi_key"
+      [ "$oi_tag" = closed ] && continue || oi_hits+="${oi_hits:+,}$oi_key"
     done
     IFS="$oi_IFS_saved"; [ -n "$oi_hits" ] || continue
     # A NUMBER PRINTS AS `#N` AND A JIRA KEY AS ITSELF: `#PROJ-101` finds
@@ -3203,18 +3240,6 @@ else
   if [ "$oi_host_failed" -eq 0 ]; then
     if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
     [ "$oi_scheme" != jira ] || [ -z "$oi_keyless" ] || echo "  not checked: $(printf '%s' "$oi_keyless" | awk -F', ' '{print NF}') finished plan(s) name no Jira key — $oi_keyless"
-    # JIRA'S OPEN READ IS AN INBOX, NOT A PROJECT LIST, with no `Ticket
-    # prefixes` declared (`plot-host.sh` issue-list, the jira arm's `scope`/
-    # `person` split): `assignee = currentUser() AND resolution = EMPTY`. A
-    # finished plan's key that is open but assigned to someone else reads
-    # "closed" here — not absent because it closed, but absent because the
-    # list never asked about it. Declaring `Ticket prefixes` widens the read
-    # to every project named there, the scope every other backend has for free.
-    # The note reads what `plot-host.sh` reads: `PLOT_TICKET_PREFIXES` scopes the
-    # read ahead of the key (`tracker_projects`), and `PLOT_JIRA_JQL` replaces
-    # the query whole, so either one makes the note false.
-    [ "$oi_scheme" = jira ] && [ -z "${PLOT_TICKET_PREFIXES:-}${PLOT_JIRA_JQL:-}$(cfg "Ticket prefixes" "" 2>/dev/null)" ] && \
-      echo "  note: Tracker: jira with no 'Ticket prefixes' declared asks only the caller's own open tickets — an issue assigned to someone else reads as closed here."
   fi
 fi
 echo
@@ -3282,10 +3307,33 @@ n_unread_waits=$REPORT_UNREAD_PAIRS_N
 echo
 
 echo "== 24b. Unread heading items (a list item under a heading names a branch no heading claims) =="
-report_unread_pairs unread_heading_items '.wave, .branch' \
-  "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or give this wave a (Branch: %s) heading\n" \
-  "(none — every heading-shape list item was attributed)"
-n_unread_heading_items=$REPORT_UNREAD_PAIRS_N
+# TWO CAUSES, TWO REPAIRS, told apart by whether the wave's OWN heading read any
+# branch at all — not by the orphaned item alone. `waves[].branches` is the
+# roster of branches the parser's heading handler already attributed to each
+# wave; a wave with zero entries there never had a readable `Branch:` at all,
+# and a wave with one or more already has a heading claiming a different
+# branch than this item names. Reading that roster, rather than adding a third
+# field to `unread_heading_items[]`, keeps the fix inside this file: that array
+# is asserted byte-for-byte elsewhere (`branch-heading.test.mjs`), which this
+# slice does not own.
+n_unread_heading_items=0
+if [ -n "$plan_json" ]; then
+  while IFS="$US" read -r f wave branch has_heading_branch; do
+    [ -n "$f" ] || continue
+    echo "  $(basename "$f") — wave '$wave' holds a list item naming '$branch', a branch no heading in that wave claims"
+    if [ "$has_heading_branch" = "true" ]; then
+      echo "    rewrite: move the item under its own heading, or give '$branch' its own (Branch: $branch) heading — this wave's heading already claims a different branch"
+    else
+      echo "    rewrite: move the item under its own heading, or give this wave a (Branch: $branch) heading — it carries none yet"
+    fi
+    n_unread_heading_items=$((n_unread_heading_items + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r --arg US "$US" 'select(.phase != "NONE") as $p | ($p.waves // []) as $waves | $p.file as $f
+             | $p.unread_heading_items[]? as $u
+             | ($waves | map(select(.name == $u.wave)) | (.[0].branches // []) | length > 0) as $has
+             | [$f, $u.wave, $u.branch, ($has | tostring)] | join($US)')
+fi
+[ "$n_unread_heading_items" -gt 0 ] || echo "  (none — every heading-shape list item was attributed)"
 echo
 
 # ---------------------------------------------------------------------------
