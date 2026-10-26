@@ -1,0 +1,1 @@
+../2026-10-26-the-fleet-scan-re-reads-all.md
