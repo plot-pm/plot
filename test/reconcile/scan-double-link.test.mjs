@@ -133,12 +133,18 @@ test('a Draft plan double-linked names the delivered/ link as the fix target', (
   assert.doesNotMatch(sections['1'], /fix: git rm plans\/active\/draft-both\.md/);
 });
 
-test('a design-phase plan double-linked is reported with no fix command', () => {
+test('a design-phase plan double-linked names its own reason for having no fix command', () => {
   const sections = splitSections(report);
-  assert.match(sections['1'], /2026-01-03-design-both\.md — phase 'Design' but linked in both plans\/active\/ and plans\/delivered\//);
+  // The old behaviour silently omitted the fix line; the new behaviour states
+  // explicitly, in the same line, that the phase names neither index — rather
+  // than leaving a reader to wonder whether the line was dropped by mistake.
+  assert.match(
+    sections['1'],
+    /2026-01-03-design-both\.md — phase 'Design' but linked in both plans\/active\/ and plans\/delivered\/ \(no unambiguous fix — Design names neither index\)/,
+  );
   const planLine = sections['1'].split('\n').findIndex((l) => l.includes('2026-01-03-design-both.md'));
   assert.ok(!sections['1'].split('\n')[planLine + 1]?.includes('fix:'),
-    'a phase outside both lists prints no fix line — picking one would guess');
+    'a phase outside both lists still prints no fix: line — picking one would guess');
 });
 
 test('the double-link case appears once per plan, not twice', () => {

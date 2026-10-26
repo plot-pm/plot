@@ -1178,6 +1178,37 @@ test('scan: an unsliced wave leaves attention= unchanged — the section does NO
   assert.match(footer, /\battention=0\b/);
 });
 
+test('scan: section 7 starts node once per pass, not once per multi-branch wave', () => {
+  // The uwRepo fixture carries THREE multi-branch waves (tangled, shipped,
+  // half-chained) across three plans, plus one chained heading that is not
+  // uncut — the exactly-2+-waves fixture the plan's fix needs to tell a
+  // per-pass start from a per-wave one. A `node` stub on PATH logs every
+  // invocation whose argv names plot-slice-chain.mjs and then execs the real
+  // node so the answers stay correct; counting its own call count (not the
+  // report text, which is identical either way) is the only way to see the
+  // batching since the output is unchanged by it.
+  const stubDir = scratch('plot-scan-node-stub-');
+  const callsLog = path.join(stubDir, 'calls.log');
+  fs.writeFileSync(callsLog, '');
+  const realNode = process.execPath;
+  fs.writeFileSync(path.join(stubDir, 'node'), `#!/bin/sh
+case "$*" in
+  *plot-slice-chain.mjs*) printf '%s\\n' "$*" >> '${callsLog}' ;;
+esac
+exec '${realNode}' "$@"
+`, { mode: 0o755 });
+
+  const out = execFileSync('bash', [scan, '--offline'], {
+    encoding: 'utf8', cwd: uwRepo,
+    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` },
+  });
+
+  const calls = fs.readFileSync(callsLog, 'utf8').trim().split('\n').filter(Boolean);
+  assert.equal(calls.length, 1, `expected exactly one node start for plot-slice-chain.mjs, got:\n${calls.join('\n')}`);
+  // The report itself is unchanged by batching — same findings, same footer.
+  assert.equal(out, uwReport);
+});
+
 // ---------------------------------------------------------------------------
 // Section 8: prose wave names (a `### ` heading written as a sentence, not a
 // label). A FIFTH fixture, minimal like the unsliced one: pure plan parsing
