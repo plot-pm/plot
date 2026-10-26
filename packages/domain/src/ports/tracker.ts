@@ -170,6 +170,13 @@ export interface IssueRead {
 /** The issues a tracker closed in a window: an {@link IssueRead}, newest close first. */
 export type ClosedIssues = IssueRead;
 
+/**
+ * The start of the `unaskable` reason a {@link Tracker.versionRead} gives for a
+ * version the tracker does not know. Every adapter that knows versions starts
+ * that reason with it, and no other reason starts with it.
+ */
+export const VERSION_NOT_FOUND = 'version-not-found';
+
 /** One tracker version, and the issues whose fix version names it. */
 export interface VersionRead {
   /** The version's name, as the tracker names it. */
@@ -254,28 +261,16 @@ export interface Tracker {
   issueListOpen(limit: number): Promise<PortResult<IssueRead>>;
 
   /**
-   * Lists the tracker's open issues that carry `label`, without their bodies.
-   *
-   * THE LABEL IS ASKED OF THE TRACKER, not read off the rows: an {@link Issue}
-   * carries no labels. A caller finding an issue Plot itself opened asks for the
-   * label Plot applied, then decides on the titles.
-   *
-   * @param label - the label to filter by, verbatim.
-   * @param limit - how many issues to read at most.
-   * @returns the issues, and whether the read reached its end; `unaskable`
-   *   where no tracker can be asked or the declared one cannot filter by label.
-   */
-  issueListLabelled(label: string, limit: number): Promise<PortResult<IssueRead>>;
-
-  /**
    * Lists the tracker's open issues that carry `label` and whose title
    * contains `titleHas`, without their bodies.
    *
-   * The title match is a tracker-side search, not an exact match: the caller
-   * still checks every returned candidate itself (`findOpenReviewIssue` does
-   * this for a review follow-up issue). This narrows a read whose subject is
-   * one entity named in the title — a PR, say — to a bounded answer that does
-   * not grow with the whole backlog the way {@link issueListLabelled} does.
+   * THE LABEL AND TITLE ARE BOTH ASKED OF THE TRACKER, not read off the rows:
+   * an {@link Issue} carries no labels. The title match is a tracker-side
+   * search, not an exact match: the caller still checks every returned
+   * candidate itself (`findOpenReviewIssue` does this for a review follow-up
+   * issue). This narrows a read whose subject is one entity named in the
+   * title — a PR, say — to a bounded answer that does not grow with the whole
+   * backlog a label-only read would.
    *
    * @param label - the label to filter by, verbatim.
    * @param titleHas - the text the title must contain, verbatim.

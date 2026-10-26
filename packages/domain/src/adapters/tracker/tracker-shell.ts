@@ -31,13 +31,6 @@ export interface RawVersion {
   releaseDate?: string | null;
 }
 
-/**
- * The start of the `unaskable` reason a `Tracker.versionRead` gives for a
- * version the tracker does not know. Every adapter that knows versions starts
- * that reason with it, and no other reason starts with it.
- */
-export const VERSION_NOT_FOUND = 'version-not-found';
-
 /** One limit reading as `plot-host.sh` reports it. */
 interface RawLimit {
   connector?: string;
@@ -333,19 +326,6 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
      * @returns the closed issues, newest first, whether the read reached its
      *   end, and the requests it spent.
      */
-    /**
-     * Lists the open issues carrying `label`: `issue-list --paged --label <label>`.
-     * See {@link walk}. Only the GitHub arm of `plot-host.sh` accepts `--label`;
-     * the others exit 4, which answers `unaskable` with the stated reason.
-     *
-     * @param label - the label to filter by.
-     * @param limit - how many issues to read at most.
-     * @returns the labelled open issues, whether the read reached its end, and
-     *   the requests it spent.
-     */
-    issueListLabelled: (label: string, limit: number): Promise<PortResult<IssueRead>> =>
-      walk(['issue-list', '--paged', '--label', label], limit),
-
     /**
      * Lists the open issues carrying `label` whose title contains `titleHas`:
      * `issue-list --paged --label <label> --title-has <titleHas>`. See
