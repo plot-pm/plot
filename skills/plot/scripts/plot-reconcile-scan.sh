@@ -3158,20 +3158,17 @@ else
   # ask_issue <key> fills oi_tag/oi_err, asking the host only on a cache miss;
   # returns 4 for "host unaskable", matching issue-view's own exit code.
   ask_issue() {
-    local key="$1" line
+    local key="$1" line err_file="" view rc err
     line=$(awk -F'\t' -v k="$key" '$1 == k {print; exit}' <<< "$oi_view_cache")
     if [ -z "$line" ]; then
-      local err_file="" view rc err=""
       plot_tmpfile err_file reconcile-issue-err || err_file=""
       view=$(bash "$script_dir/plot-host.sh" issue-view "$key" </dev/null 2>"${err_file:-/dev/null}"); rc=$?
-      [ -n "$err_file" ] && err=$(head -1 "$err_file" 2>/dev/null) && /bin/rm -f "$err_file" 2>/dev/null
-      if [ "$rc" -eq 4 ]; then
-        line="$key	hostdead	${err:-tracker unavailable}"
-      elif [ "$rc" -ne 0 ]; then
-        line="$key	err	${err:-plot-host.sh exited $rc}"
-      else
-        line="$key	$(printf '%s' "$view" | jq -r '.state // "open"' 2>/dev/null)	"
-      fi
+      err=$(head -1 "${err_file:-/dev/null}" 2>/dev/null); /bin/rm -f "$err_file" 2>/dev/null
+      case "$rc" in
+        4) line="$key	hostdead	${err:-tracker unavailable}" ;;
+        0) line="$key	$(printf '%s' "$view" | jq -r '.state // "open"' 2>/dev/null)	" ;;
+        *) line="$key	err	${err:-plot-host.sh exited $rc}" ;;
+      esac
       oi_view_cache+="$line
 "
     fi
