@@ -48,7 +48,7 @@ before.
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
 | 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed. **`--brief-only` skips this step**: no checkout, no claim push, no worktree |
 | 4. Hand-off Brief | Frontier | Interpretation, not extraction: naming which alternatives a plan rejected and which assertions a naive implementation would pass without is judgment. Smaller tiers fill the header fields and the plan's own `Done when`, then say which sections they could not write. **Under `--brief-only`, writing the already-composed text to a scratch file and booking it is Small** — the judgment is in composing the brief, not in the one call that lands it |
-| 5. Record Started | Small | One Status line + commit; optional board status is a single shell command. **Under `--brief-only`, this is one call, not a commit** — step 4's `plot-brief-book.sh` already books the `Started:` record, so nothing here writes again |
+| 5. Record Started | Small | One Status line + commit; optional board status is a single shell command. **Under `--brief-only`, this is one call, not a commit** — step 4's `plot-brief-book.mjs` already books the `Started:` record, so nothing here writes again |
 | 6. Summary | Small | Orientation template |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
@@ -240,7 +240,7 @@ directory — never a path under the checkout, which this step must not
 write into), then call:
 
 ```bash
-../plot/scripts/plot-brief-book.sh <slug> <branch> <scratch-brief-file>
+node ../plot/scripts/board/plot-brief-book.mjs <slug> <branch> <scratch-brief-file>
 ```
 
 This books both the brief **and** step 5's `Started:` record in one call,
@@ -287,7 +287,7 @@ redo the commit in a fresh disposable worktree cut from the new tip
 write and commit the brief there, push, then remove the worktree and the
 throwaway branch) — the same shape `plot-dispatch.sh`'s
 `write_started_record` already uses to book a `Started:` record, and the
-same shape `plot-brief-book.sh` above runs on every call rather than only
+same shape `plot-brief-book.mjs` above runs on every call rather than only
 on a retry. **Never** recover with a bare `git reset`: a mixed reset (the
 default, with neither `--hard` nor `--soft`) moves `HEAD` without moving
 the working tree, so a later `git add -A` in that checkout would commit
@@ -419,7 +419,7 @@ Implementation-side skills must not re-ask what the brief answers (e.g.
 ### 5. Record Started
 
 **Under `--brief-only`, this step is already done.** Step 4's
-`plot-brief-book.sh` call books the `Started:` record in the same commit
+`plot-brief-book.mjs` call books the `Started:` record in the same commit
 as the brief — one call, not a commit of your own. Nothing here writes
 again; go straight to step 6.
 

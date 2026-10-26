@@ -4,11 +4,14 @@
 // A `--brief-only` implement run used to write the brief and the plan's
 // `Started:` record directly into the OPERATOR'S MAIN checkout. Three runs on
 // 2026-10-26 left byte-identical leftovers there that made
-// `git merge --ff-only origin/main` refuse. `plot-brief-book.sh` replaces that
-// with the same disposable-worktree shape `plot-record-pr.sh` already proved:
-// cut a worktree from a freshly fetched `origin/<default>`, write, commit,
-// push, remove — the main checkout is never opened. The script is a launcher
-// over `board/plot-brief-book.mjs`, so these tests need a built board
+// `git merge --ff-only origin/main` refuse. `board/plot-brief-book.mjs`
+// replaces that with the same disposable-worktree shape `plot-record-pr.mjs`
+// already proved: cut a worktree from a freshly fetched `origin/<default>`,
+// write, commit, push, remove — the main checkout is never opened.
+//
+// **No `.sh` launcher**: the plan this reproduces settles "no new shell"
+// explicitly, so the bundle is called directly with `node`, the same way
+// `plot-panel.mjs` and `plot-verify.mjs` are. These tests need a built board
 // (`pnpm build:board`).
 //
 // `makeEstate`/`childEnv` below are adapted from record-pr.test.mjs's pattern,
@@ -26,7 +29,8 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
-const briefBook = path.join(scripts, 'plot-brief-book.sh');
+const briefBook = path.join(scripts, 'board', 'plot-brief-book.mjs');
+const runBriefBook = (args, opts) => execFileSync('node', [briefBook, ...args], opts);
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
@@ -112,7 +116,7 @@ test('reproduction: writing the brief and Started line directly into the main ch
   assert.notEqual(behind, '0', 'expected the reproduction to leave the main checkout behind origin');
 });
 
-test('plot-brief-book.sh: books the brief and Started line, leaving a stale, dirty main checkout untouched', () => {
+test('plot-brief-book.mjs: books the brief and Started line, leaving a stale, dirty main checkout untouched', () => {
   const branch = 'bug/brief-book-ok';
   const { tmp, origin, main, desk } = makeEstate('ok', branch);
   const planPath = path.join(main, 'docs', 'plans', PLAN_NAME);
@@ -129,7 +133,7 @@ test('plot-brief-book.sh: books the brief and Started line, leaving a stale, dir
   const briefFile = path.join(tmp, 'brief.md');
   fs.writeFileSync(briefFile, 'the hand-off brief');
 
-  const out = execFileSync('bash', [briefBook, 'brief-book-ok', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
+  const out = runBriefBook(['brief-book-ok', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
   assert.match(out, /push: clean/);
 
   // The main checkout is byte-for-byte unchanged: same HEAD, same branch, same porcelain.
@@ -139,7 +143,7 @@ test('plot-brief-book.sh: books the brief and Started line, leaving a stale, dir
 
   // The desk the agent actually ran the command in is also left clean — the
   // write happened only in the disposable booking worktree, never here.
-  assert.equal(git(desk, 'status', '--porcelain'), '', 'the desk running plot-brief-book.sh must be untouched');
+  assert.equal(git(desk, 'status', '--porcelain'), '', 'the desk running plot-brief-book.mjs must be untouched');
 
   // origin/main holds the brief and the Started: record.
   const check = path.join(tmp, 'check');
@@ -149,7 +153,7 @@ test('plot-brief-book.sh: books the brief and Started line, leaving a stale, dir
   assert.match(plan, new RegExp('\\*\\*Started:\\*\\* \\d{4}-\\d{2}-\\d{2}, .*, `' + branch.replace('/', '\\/') + '`'));
 });
 
-test('plot-brief-book.sh: a clean, current main checkout also books cleanly', () => {
+test('plot-brief-book.mjs: a clean, current main checkout also books cleanly', () => {
   const branch = 'bug/brief-book-clean';
   const { main, desk, tmp } = makeEstate('clean', branch);
   const planPath = path.join(main, 'docs', 'plans', PLAN_NAME);
@@ -160,25 +164,25 @@ test('plot-brief-book.sh: a clean, current main checkout also books cleanly', ()
 
   const briefFile = path.join(tmp, 'brief.md');
   fs.writeFileSync(briefFile, 'the hand-off brief');
-  const out = execFileSync('bash', [briefBook, 'brief-book-clean', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
+  const out = runBriefBook(['brief-book-clean', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
   assert.match(out, /push: clean/);
 
   assert.equal(git(main, 'rev-parse', 'HEAD').trim(), beforeHead, 'main checkout HEAD must not move');
   assert.equal(git(main, 'status', '--porcelain'), beforePorcelain, 'main checkout working tree must be unchanged');
 });
 
-test('plot-brief-book.sh: a second call for an already-booked brief writes no second commit', () => {
+test('plot-brief-book.mjs: a second call for an already-booked brief writes no second commit', () => {
   const branch = 'bug/brief-book-twice';
   const { main, desk, tmp } = makeEstate('twice', branch);
 
   const briefFile = path.join(tmp, 'brief.md');
   fs.writeFileSync(briefFile, 'the hand-off brief');
-  execFileSync('bash', [briefBook, 'brief-book-twice', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
+  runBriefBook(['brief-book-twice', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
 
   git(main, 'fetch', '-q', 'origin', 'main');
   const beforeLog = git(main, 'log', '--oneline', 'origin/main');
 
-  const out2 = execFileSync('bash', [briefBook, 'brief-book-twice', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
+  const out2 = runBriefBook(['brief-book-twice', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
   assert.match(out2, /nothing to commit/);
 
   git(main, 'fetch', '-q', 'origin', 'main');
@@ -186,35 +190,28 @@ test('plot-brief-book.sh: a second call for an already-booked brief writes no se
   assert.equal(afterLog, beforeLog, 'a second call for an already-booked brief must add no second commit');
 });
 
-test('plot-brief-book.sh: the booking worktree is removed on success', () => {
+test('plot-brief-book.mjs: the booking worktree is removed on success', () => {
   const branch = 'bug/brief-book-removed';
   const { main, desk, tmp } = makeEstate('removed', branch);
 
   const briefFile = path.join(tmp, 'brief.md');
   fs.writeFileSync(briefFile, 'the hand-off brief');
-  execFileSync('bash', [briefBook, 'brief-book-removed', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
+  runBriefBook(['brief-book-removed', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv() });
 
   const worktrees = git(main, 'worktree', 'list', '--porcelain');
   assert.doesNotMatch(worktrees, /plot-brief-book-removed/, 'the disposable booking worktree must be removed on success');
 });
 
-test('plot-brief-book.sh: refuses when no plan names the given branch, and still removes the booking worktree', () => {
+test('plot-brief-book.mjs: refuses when no plan names the given branch, and still removes the booking worktree', () => {
   const branch = 'bug/unnamed-anywhere';
   const { main, desk } = makeEstate('unnamed', 'bug/brief-book-ok2');
   const briefFile = path.join(path.dirname(desk), 'brief.md');
   fs.writeFileSync(briefFile, 'x');
 
   assert.throws(() => {
-    execFileSync('bash', [briefBook, 'unnamed', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv(), stdio: 'pipe' });
+    runBriefBook(['unnamed', branch, briefFile], { cwd: desk, encoding: 'utf8', env: childEnv(), stdio: 'pipe' });
   }, /no plan in .* names branch/);
 
   const worktrees = git(main, 'worktree', 'list', '--porcelain');
   assert.doesNotMatch(worktrees, /plot-brief-book-unnamed/, 'the booking worktree must be removed on refusal too');
-});
-
-test('plot-brief-book.sh: a launcher that execs its bundle and decides nothing', () => {
-  const text = fs.readFileSync(briefBook, 'utf8');
-  assert.match(text, /bundle="\$script_dir\/board\/plot-brief-book\.mjs"/, 'the launcher must resolve board/plot-brief-book.mjs');
-  assert.match(text, /^exec node "\$bundle" "\$@"$/m, 'the launcher must exec the bundle with its arguments');
-  assert.doesNotMatch(text, /^\s*git /m, 'the launcher must run no git command of its own');
 });

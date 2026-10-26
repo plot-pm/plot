@@ -1,9 +1,11 @@
-// `plot-brief-book.sh`'s mechanical half: write a branch's hand-off brief and
-// its plan's `Started:` record in ONE disposable worktree cut from
-// `origin/<default>`, commit, push, and remove the worktree. The main
-// checkout is never opened, so a `--brief-only` implement run leaves it
-// exactly as it found it — `git status --porcelain`, `HEAD` and the checked
-// out branch all unchanged.
+// Writes a branch's hand-off brief and its plan's `Started:` record in ONE
+// disposable worktree cut from `origin/<default>`, commits, pushes, and
+// removes the worktree. The main checkout is never opened, so a
+// `--brief-only` implement run leaves it exactly as it found it —
+// `git status --porcelain`, `HEAD` and the checked out branch all unchanged.
+//
+// Called directly with `node`, no `.sh` launcher: the plan this implements
+// settles "no new shell" explicitly.
 //
 //   node plot-brief-book.mjs <slug> <branch> <brief-file>
 //
@@ -26,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { commitAndPush, localDate, Refused, type LadderContext, type Printer } from './ladder.js';
 import { findPlanForBranch } from './plan-lookup.js';
 
-const USAGE = 'usage: plot-brief-book.sh <slug> <branch> <brief-file>';
+const USAGE = 'usage: plot-brief-book.mjs <slug> <branch> <brief-file>';
 
 /** The ports and paths this entry needs. */
 export interface BriefBookContext extends LadderContext {

@@ -85,7 +85,7 @@ describe('parseBriefBookArgs', () => {
   });
 
   it('answers the usage line when an argument is missing', () => {
-    expect(parseBriefBookArgs(['foo', 'bug/foo'])).toMatch(/^usage: plot-brief-book\.sh/);
+    expect(parseBriefBookArgs(['foo', 'bug/foo'])).toMatch(/^usage: plot-brief-book\.mjs/);
   });
 
   it('refuses a brief file it cannot read', () => {
