@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2483
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-24, Jan Wloka, `feature/tracker-arms-issue-view-state`
 - **Started:** 2026-10-25, Jan Wloka, `feature/tracker-arms-issue-list-counted`
 - **Started:** 2026-10-26, Jan Wloka, `feature/tracker-arms-port-and-advice`
+- **Delivered:** 2026-10-26
 
 ## Changelog
 
