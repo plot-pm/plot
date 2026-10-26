@@ -1122,10 +1122,7 @@ if [ "$mode" = "start" ]; then
     exit 0
   fi
 
-  probe_output=$(cd "$repo_root" && node "$script_dir/board/plot-write-probe.mjs" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" 2>&1) || {
-    printf "plot-fleetctl: %s\n" "$probe_output" >&2
-    exit 1
-  }
+  PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-write-probe.mjs" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" || exit 1
 
   mkdir -p "$repo_root/.plot/logs" "$repo_root/.plot/state"
 

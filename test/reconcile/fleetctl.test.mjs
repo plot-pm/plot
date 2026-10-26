@@ -160,9 +160,12 @@ function sandbox(label, { nvmrc = '24', registryd = true, writeProbe = 'proceed'
 
   if (registryd) fs.writeFileSync(path.join(dst, 'board', 'plot-fleetd.mjs'), 'process.exit(0);\n');
   if (writeProbe === 'proceed') {
-    fs.writeFileSync(path.join(dst, 'board', 'plot-write-probe.mjs'), 'console.log("proceed"); process.exit(0);\n');
+    fs.writeFileSync(path.join(dst, 'board', 'plot-write-probe.mjs'), 'process.exit(0);\n');
   } else if (writeProbe === 'refuse') {
-    fs.writeFileSync(path.join(dst, 'board', 'plot-write-probe.mjs'), 'console.log("refuse"); console.log("no marker file appeared after the probe run"); process.exit(1);\n');
+    fs.writeFileSync(
+      path.join(dst, 'board', 'plot-write-probe.mjs'),
+      'console.error("plot-fleetctl: The worker command was refused every write it tried (no marker file appeared after the probe run)."); process.exit(1);\n',
+    );
   }
   // 'crash' writes no file: the real entry point's own MODULE_NOT_FOUND.
   if (nvmrc) fs.writeFileSync(path.join(root, '.nvmrc'), `${nvmrc}\n`);
@@ -2029,7 +2032,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   if (registryd) {
     fs.writeFileSync(bundle, 'console.log("fleetd ran:", process.argv.slice(2).join(" "));\n');
   }
-  fs.writeFileSync(path.join(dst, 'board', 'plot-write-probe.mjs'), 'console.log("proceed"); process.exit(0);\n');
+  fs.writeFileSync(path.join(dst, 'board', 'plot-write-probe.mjs'), 'process.exit(0);\n');
   if (nvmrc) fs.writeFileSync(path.join(plugin, '.nvmrc'), `${nvmrc}\n`);
 
   const consumer = path.join(box, 'consumer');

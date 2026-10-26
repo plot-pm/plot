@@ -13,7 +13,7 @@ const probeAnswering = (answer: unknown, asked: string[] = []): WriteProbe =>
   }) as unknown as WriteProbe;
 
 describe('plot-write-probe.mjs', () => {
-  it('proceeds and asks with the configured command on an observed yes', async () => {
+  it('proceeds and asks with the configured command on an observed yes, printing nothing', async () => {
     const asked: string[] = [];
     let out = '';
     const code = await run(['claude -p'], probeAnswering({ ok: true, value: 'yes' }, asked), (s) => {
@@ -21,16 +21,16 @@ describe('plot-write-probe.mjs', () => {
     });
     expect(code).toBe(0);
     expect(asked).toEqual(['claude -p']);
-    expect(out).toBe('proceed\n');
+    expect(out).toBe('');
   });
 
-  it('refuses on an observed no, and prints the refusal text', async () => {
+  it('refuses on an observed no, and prints the refusal text prefixed for its shell caller', async () => {
     let out = '';
     const code = await run(['claude -p'], probeAnswering({ ok: true, value: 'no' }), (s) => {
       out += s;
     });
     expect(code).toBe(1);
-    expect(out).toContain('refuse\n');
+    expect(out).toMatch(/^plot-fleetctl: /);
     expect(out).toMatch(/refused every write/);
   });
 

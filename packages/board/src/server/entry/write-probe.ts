@@ -6,35 +6,35 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
- * The `node` entry point `plot-fleetctl.sh` and `registryd-main.ts` run before
- * handing a claim over to a worker command.
+ * The `node` entry point `plot-fleetctl.sh` runs before handing a claim over
+ * to a worker command.
  *
  * ```
  * node plot-write-probe.mjs 'claude -p'
- * proceed
+ * plot-fleetctl: The worker command was refused every write it tried (...)
  * ```
  *
  * The one argument is the configured `Worker command`, named for the report
  * rather than branched on — one prompt file governs every agent that declared
  * no charter, so the probe asks that file regardless of which command string
- * is configured. Prints `proceed` or `refuse` on its own line, followed by the
- * refusal's text where it refused. Exits 0 for `proceed` (an observed `yes` or
- * an unanswerable probe — absent is not false), 1 for `refuse` (an observed
- * `no`), and 2 for a missing argument.
+ * is configured. Prints nothing on an observed `yes` or an unanswerable probe
+ * — absent is not false, and a shell caller only needs an exit code for that
+ * case. Prints the refusal's text, prefixed for its one shell caller, on an
+ * observed `no`. Exits 0 to proceed, 1 to refuse, 2 for a missing argument.
  */
 
 /**
- * Runs the probe and prints whether a claim may proceed.
+ * Runs the probe and prints the refusal, if any.
  *
  * @param argv - the arguments after the script name: the configured `Worker command`.
  * @param probe - the probe to run.
- * @param write - where the answer goes.
+ * @param write - where a refusal goes; unused when the probe does not refuse.
  * @returns the process exit code.
  */
 export const run = async (
   argv: readonly string[],
   probe: WriteProbe,
-  write: (s: string) => void = (s) => process.stdout.write(s),
+  write: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
   const [command] = argv;
   if (command === undefined || command === '') {
@@ -45,11 +45,9 @@ export const run = async (
   const reading = result.ok ? result.value : 'unanswerable';
   const decision = writeProbeAnswer(reading);
   if (decision === 'refuse') {
-    write('refuse\n');
-    write(`${writeProbeRefusal('no marker file appeared after the probe run')}\n`);
+    write(`plot-fleetctl: ${writeProbeRefusal('no marker file appeared after the probe run')}\n`);
     return 1;
   }
-  write('proceed\n');
   return 0;
 };
 
