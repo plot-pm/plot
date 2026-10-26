@@ -61,7 +61,7 @@ Every slice keeps the layering rule: the shell arms answer a question and the do
 
 ### Port and advice
 
-- `feature/tracker-arms-port-and-advice` — marker on the port, dead operation removed, doc and advice fixes, one Tracker scheme parse <!-- waits: feature/tracker-arms-issue-list-counted -->
+- `feature/tracker-arms-port-and-advice` — marker on the port, dead operation removed, doc and advice fixes, one Tracker scheme parse <!-- waits: feature/tracker-arms-issue-list-counted --> → #2703
 
 ## Notes
 
