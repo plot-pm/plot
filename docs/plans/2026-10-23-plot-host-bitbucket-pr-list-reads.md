@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2400
@@ -12,7 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2402 merged
 - **Started:** 2026-10-23, Jan Wloka, `bug/plot-host-bitbucket-pr-list-reads`
-- **Delivered:** 2026-10-26
+- **Rejected:** 2026-10-26 (PR #2422 merged holding only its claim and blocker commit f576060de; bb_state_listing on main still reads one page; the paging moves to read-merged-prs-from-the-merge slice 1 (#2419))
 
 ## Changelog
 
