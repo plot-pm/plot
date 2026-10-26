@@ -3302,11 +3302,9 @@ if [ -n "$plan_json" ]; then
   while IFS="$US" read -r f wave branch has_heading_branch; do
     [ -n "$f" ] || continue
     echo "  $(basename "$f") — wave '$wave' holds a list item naming '$branch', a branch no heading in that wave claims"
-    if [ "$has_heading_branch" = "true" ]; then
-      echo "    rewrite: move the item under its own heading, or give '$branch' its own (Branch: $branch) heading — this wave's heading already claims a different branch"
-    else
-      echo "    rewrite: move the item under its own heading, or give this wave a (Branch: $branch) heading — it carries none yet"
-    fi
+    oi_hb_note="give this wave a (Branch: $branch) heading — it carries none yet"
+    [ "$has_heading_branch" = "true" ] && oi_hb_note="give '$branch' its own (Branch: $branch) heading — this wave's heading already claims a different branch"
+    echo "    rewrite: move the item under its own heading, or $oi_hb_note"
     n_unread_heading_items=$((n_unread_heading_items + 1))
   done < <(printf '%s\n' "$plan_json" \
     | jq -r --arg US "$US" 'select(.phase != "NONE") as $p | ($p.waves // []) as $waves | $p.file as $f
