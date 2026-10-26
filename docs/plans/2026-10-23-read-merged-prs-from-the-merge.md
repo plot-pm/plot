@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-10-26, Jan Wloka, plan-PR #2419 merged
+- **Started:** 2026-10-26, Jan Wloka, `bug/a-bitbucket-listing-reads-every-page`
 
 ## Changelog
 
