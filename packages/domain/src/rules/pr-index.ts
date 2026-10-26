@@ -342,11 +342,19 @@ export interface PrFullReadFailure {
  * one full read, which is exactly the behaviour a board with no store has
  * always had.
  *
- * **A PARTIAL STORE MAY NOT BE NARROWED AGAINST.** `complete: false` means some
- * state did not answer, so rows exist that this store has never seen — and a
- * window over `updated:>` would never see them either, because they did not
- * change. Narrowing against a store nobody proved whole is how a gap becomes
- * permanent.
+ * **A PARTIAL STORE MAY NOT BE NARROWED AGAINST — EXCEPT INSIDE THE GRACE OF
+ * ITS OWN FAILURE.** `complete: false` means some state did not answer, so
+ * rows exist that this store has never seen — and a window over `updated:>`
+ * would never see them either, because they did not change. Narrowing against
+ * a store nobody proved whole is how a gap becomes permanent, which is why the
+ * refusal stands with no `failed` reading. But a partial answer is itself a
+ * reading of a failure on the SAME pass that produced the store, and after
+ * Bitbucket pages a full read this is up to 24 requests; repeating it every
+ * ordinary tick to re-ask a state that just 429'd spends the budget
+ * `PR_REQUESTS_PER_REFRESH.bitbucket` counts as 3. So a partial store answers
+ * a delta while a recorded failure is inside its grace — not narrowing the
+ * rows this store has never seen, but buying time before the next full
+ * attempt. The grace expires, so the full read still returns.
  *
  * **THE FULL-READ CLOCK IS `wholeAt`, AND `at` CANNOT BE IT.** `at` moves on
  * every fold, delta included, so once a delta keeps a store whole a healthy
@@ -371,8 +379,10 @@ export interface PrFullReadFailure {
  * with no expiry would never see a deleted PR again.
  *
  * **THE FALLBACK NEVER REACHES A STORE WITH NOTHING TO NARROW AGAINST.** A cold
- * store, a partial store and a store with no watermark each have no delta to
- * fall back to, so they keep their cadence whatever failed.
+ * store and a store with no watermark have no delta to fall back to, so they
+ * keep their cadence whatever failed. A PARTIAL STORE DOES HAVE ONE — its
+ * watermark came from the rows that did answer — so it is the one incomplete
+ * shape the fallback reaches; see the paragraph above.
  *
  * @param held - the store as it was read, or null where there was none.
  * @param now - this machine's clock, in epoch milliseconds.
@@ -391,7 +401,15 @@ export const prWindowFor = (
   const full: PrWindow = { since: null, kind: 'whole' };
   if (held === null) return full;
   if (held.watermark === null || held.watermark === '') return full;
-  if (!held.complete) return full;
+  if (!held.complete) {
+    // A FAILURE INSIDE ITS GRACE FALLS BACK TO A DELTA, exactly as the
+    // age-due branch below does — see the class comment above. With no
+    // failure on record, or one outside the grace, the refusal holds.
+    if (failed !== null && Math.abs(now - failed.at) < failureGraceMs) {
+      return { since: held.watermark, kind: 'delta' };
+    }
+    return full;
+  }
   // THE FULL READ'S OWN CLOCK. A store carrying none has no full read on
   // record, which is not evidence that one happened.
   if (held.wholeAt === undefined || held.wholeAt === '') return full;

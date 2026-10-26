@@ -34,20 +34,30 @@ const DEFAULT_LIMIT = 100;
 /**
  * Reads every merged PR's review.
  *
+ * A PR merged before `since` is skipped before the `prReview` call: the rule
+ * only examines merges after `since` (`reviewBypasses`'s own cutoff), so a PR
+ * outside that window buys a request answering a question nobody asks. On
+ * Bitbucket `mergedAt` is `updated_on`, never earlier than the merge itself,
+ * so the skip drops no PR merged after `since`.
+ *
  * @param host - the host to ask.
  * @param limit - how many merged PRs to list.
+ * @param since - ISO-8601 time the rule turned on, or `null` to examine every merge.
  * @returns the readings and whether the list reached its limit, or null when
  *   the merged list cannot be read.
  */
 export const readMerged = async (
   host: Host,
   limit: number,
+  since: string | null,
 ): Promise<{ readings: MergedReview[]; truncated: boolean } | null> => {
   const listed = await host.prList('merged', limit);
   if (!listed.ok) return null;
+  const cutoff = since === null ? NaN : Date.parse(since);
   const readings: MergedReview[] = [];
   for (const pr of listed.value) {
     if (pr.mergedAt === null) continue;
+    if (!Number.isNaN(cutoff) && Date.parse(pr.mergedAt) <= cutoff) continue;
     const read = await host.prReview(pr.number);
     const review: ReviewState = !read.ok
       ? 'unread'
@@ -103,7 +113,7 @@ export const run = async (
     for (const line of render(reviewBypasses([], null))) write(line);
     return 0;
   }
-  const merged = await readMerged(host, limit);
+  const merged = await readMerged(host, limit, since);
   if (merged === null) {
     write('  (not evaluated — the merged-PR list could not be read from the host)');
     return 3;

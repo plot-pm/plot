@@ -76,4 +76,14 @@ describe('plot-review-bypass', () => {
     const { lines } = await output({ prs: [pr(7, null)] });
     expect(lines).toEqual(['  (none — every examined merge carries a passing plot/review or a bypass note)']);
   });
+
+  it('does not call prReview for a PR merged before since', async () => {
+    // No fixture entry for #8's review: if `readMerged` asked anyway, the
+    // host would fail the read and #8 would print as `unread`. It must not.
+    const { lines } = await output({
+      prs: [pr(8, SINCE), pr(9, AFTER)],
+      reviews: { 9: { sha: 'a', state: 'success', bypass: false } },
+    });
+    expect(lines).toEqual(['  (none — every examined merge carries a passing plot/review or a bypass note)']);
+  });
 });
