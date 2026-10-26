@@ -4775,10 +4775,10 @@ const RICH_OPEN_ROW = (n, head, checks) =>
 const PLAIN_ROW = (n, state, head) =>
   `{"number":${n},"title":"t","state":"${state}","head":"${head}","author":"a"}`;
 
-const stateAwareHost = ({ open = [], all = [], openExit = 0, allExit = 0, openErr = '', allErr = '' }) => `#!/usr/bin/env bash
+const stateAwareHost = ({ open = [], all = [], openExit = 0, allExit = 0, openErr = '', allErr = '', backend = 'github' }) => `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$PLOT_TEST_CALLS"
 case "$1" in
-  backend) echo github ;;
+  backend) echo ${backend} ;;
   default-branch) echo main ;;
   pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
   pr-list)
@@ -5007,6 +5007,56 @@ test('fleet: a truncation report never licenses the marker', () => {
   }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
   assert.ok(!('.list-complete' in cache),
     'a page the adapter called possibly truncated was read as whole');
+  f.cleanup();
+});
+
+// --- Bitbucket's own wording reaches the same marker ------------------------
+//
+// The tests above pin the sentence with the GitHub backend word. `_bb_paged_walk`
+// (wave 1 of this plan) now walks Bitbucket's `next` across several pages before
+// `bb_state_listing` ever prints a completeness sentence, so the scan-side read
+// of that sentence needs its own proof against the Bitbucket word and against a
+// claim that only a multi-page walk could have produced — not just a restated
+// single-page fixture with `github` swapped for `bitbucket`.
+
+const BB_PAGE_COMPLETE = (state, rows, limit) =>
+  `plot-host: bitbucket pr-list state=${state} page complete (${rows} rows below requested limit ${limit}) — this page holds every pull request the host has in this state`;
+const BB_POSSIBLY_TRUNCATED = (state, rows, limit) =>
+  `plot-host: bitbucket pr-list state=${state} possibly truncated (${rows} rows, requested limit ${limit} unprovable) — a join against this page may read older branches as 'no PR' (#333)`;
+
+test('fleet: a Bitbucket scan writes .list-complete when both calls report page complete across pages', () => {
+  // Both pages answer exactly the limit — a row-count read alone would call
+  // this "possibly truncated" — but each call's stderr carries the sentence
+  // `_bb_paged_walk` only emits once its own multi-page `next` walk reached the
+  // limit or ran out of `next` on the Bitbucket envelope.
+  const f = makeOpenAndLandedRepo('plot-fleet-bb-complete-');
+  const { cache } = scanWithHostCache(f, stateAwareHost({
+    backend: 'bitbucket',
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    openErr: BB_PAGE_COMPLETE('open', 1, 1),
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open')],
+    allErr: BB_PAGE_COMPLETE('all', 1, 1),
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok('.list-complete' in cache,
+    'both Bitbucket calls claimed page complete and the scan still withheld the marker');
+  f.cleanup();
+});
+
+test('fleet: a Bitbucket scan withholds .list-complete when a state reports possibly truncated at the limit', () => {
+  // The `open` page claims completeness but `all` does not — the row-limit
+  // walk stopped at `PLOT_PR_LIST_LIMIT` with its envelope's own `next` either
+  // present or unreadable, so `_bb_paged_walk` could not back a whole-page claim
+  // for that state. One unprovable state withholds the marker for both.
+  const f = makeOpenAndLandedRepo('plot-fleet-bb-trunc-');
+  const { cache } = scanWithHostCache(f, stateAwareHost({
+    backend: 'bitbucket',
+    open: [RICH_OPEN_ROW(1, 'feature/open', 'green')],
+    openErr: BB_PAGE_COMPLETE('open', 1, 1),
+    all: [PLAIN_ROW(1, 'OPEN', 'feature/open')],
+    allErr: BB_POSSIBLY_TRUNCATED('all', 1, 1),
+  }), ['p'], { PLOT_PR_LIST_LIMIT: '1' });
+  assert.ok(!('.list-complete' in cache),
+    'a Bitbucket state reported possibly truncated and the scan still licensed the marker');
   f.cleanup();
 });
 

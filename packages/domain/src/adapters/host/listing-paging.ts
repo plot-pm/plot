@@ -24,6 +24,16 @@ export const BITBUCKET_PAGE_LENGTHS: Readonly<Record<string, number>> = {
  * @returns `honours-limit` for GitHub; a fixed page otherwise, whose length is
  *   null for a backend or a version nobody measured.
  */
+/**
+ * Bitbucket stays `fixed-page` even though `plot-host.sh`'s `_bb_paged_walk`
+ * now follows `next` up to a `--limit`: that walk changes how many of
+ * Bitbucket's own fixed `pagelen`-row pages the shell reads before stopping,
+ * not what any one page is. `pagePossiblyTruncated` still proves completeness
+ * from `envelopeNext` or the measured page length, never from comparing the
+ * row count against the caller's limit — the trait that makes GitHub's
+ * listing `honours-limit`. See `packages/domain/corpus/listing-page.corpus.test.ts`,
+ * which exercises `--limit` cases against this kind and agrees with the shell.
+ */
 export const listingPagingFor = (backend: string, cliVersion: string): ListingPaging => {
   if (backend === 'github') return { kind: 'honours-limit' };
   const pageLength = backend === 'bitbucket' ? BITBUCKET_PAGE_LENGTHS[cliVersion] : undefined;

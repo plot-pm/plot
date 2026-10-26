@@ -1829,7 +1829,9 @@ describe('the queue world asks a known PR by number when the listing fails (#114
       expect(connectors).toEqual(['bitbucket']);
       expect(await queue.viewLanded(12)).toBe('landed');
       expect(await queue.viewLanded(13)).toBe('unknown');
-      expect(calls().filter((c) => c.startsWith('pr-'))).toEqual(['pr-list --state merged --limit 500', 'pr-state 12', 'pr-state 13']);
+      // 50, NOT 500: the stub's `backend` answers `bitbucket`, so the limit the
+      // call carries is the narrower one `mergedBranches` chose for it.
+      expect(calls().filter((c) => c.startsWith('pr-'))).toEqual(['pr-list --state merged --limit 50', 'pr-state 12', 'pr-state 13']);
       expect(tally.calls).toBe(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -1914,6 +1916,53 @@ describe('the queue world asks a known PR by number when the listing fails (#114
       const empty: PrIndexStore = { ...index([]), read: async () => answered(null) };
       const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, empty);
       expect(await queue.prIndexRows()).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('mergedBranches asks the merged-PR limit backend chooses', () => {
+  // A STUB THAT LOGS ITS CALLS AND ANSWERS WHATEVER `backend` NAMES, so the
+  // same fixture proves both arms: GitHub keeps the 500 #707/#710 needed, and
+  // Bitbucket's own paged walk (`bb_state_listing`'s row-limit mode) stays
+  // inside the 3-request-per-refresh budget at 50 instead.
+  const stubBackend = (backend: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-queue-limit-'));
+    const log = join(dir, 'calls.log');
+    writeFileSync(
+      join(dir, 'plot-host.sh'),
+      [
+        '#!/usr/bin/env bash',
+        `echo "$*" >> '${log}'`,
+        'case "$1" in',
+        `  backend) echo ${backend} ;;`,
+        '  pr-list) exit 0 ;;',
+        'esac',
+      ].join('\n') + '\n',
+    );
+    chmodSync(join(dir, 'plot-host.sh'), 0o755);
+    const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []);
+    return { dir, calls };
+  };
+
+  it('asks GitHub for 500 merged rows', async () => {
+    const { dir, calls } = stubBackend('github');
+    try {
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 });
+      await queue.mergedBranches();
+      expect(calls().filter((c) => c.startsWith('pr-list'))).toEqual(['pr-list --state merged --limit 500']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks Bitbucket for 50 merged rows, not 500', async () => {
+    const { dir, calls } = stubBackend('bitbucket');
+    try {
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 });
+      await queue.mergedBranches();
+      expect(calls().filter((c) => c.startsWith('pr-list'))).toEqual(['pr-list --state merged --limit 50']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -1863,10 +1863,13 @@ test('host: pr-list --state closed sends bb its own word, declined', () => {
   assert.ok(!/closed/i.test(calls[0]));
 });
 
-// The board calls with --limit 300. bb has no --limit and errors on it, so the
-// adapter must not forward it — and must say the cap cannot be honoured rather
-// than serving a short page as if it were the whole set.
-test('host: --limit never reaches bb, and the shortfall is reported', () => {
+// The board calls with --limit 300. bb has no --limit flag of its own and
+// errors on it, so the adapter must never forward it literally — `--limit`
+// is honoured by `_bb_paged_walk` following `next` instead, never by passing
+// the flag through to `bb`. An empty page owes no completeness claim either
+// way (`pr_list_report_truncation`'s `count -gt 0` gate), so this stub's
+// empty `[]` page prints nothing on either stream.
+test('host: --limit never reaches bb as a literal flag', () => {
   const bb = makeStrictBbStub({ json: '[]' });
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all', '--limit', '300'], {
     encoding: 'utf8',
@@ -1874,7 +1877,7 @@ test('host: --limit never reaches bb, and the shortfall is reported', () => {
   });
   assert.equal(res.status, 0, res.stderr);
   assert.ok(!callsOf(bb.callsFile).some((c) => c.includes('--limit')));
-  assert.match(res.stderr, /limit/i);
+  assert.equal(res.stderr, '');
 });
 
 // An unknown state is a caller bug. Returning an empty list would read as
@@ -6317,6 +6320,166 @@ test('host: bitbucket without a --limit does not report truncation', () => {
   assert.equal(truncationReports(res.stderr).length, 0, 'no --limit, no truncation claim');
 });
 
+// --- pr-list follows `next` up to --limit on Bitbucket (wave 1) ------------
+//
+// `bb_state_listing` no longer reads exactly one page: it walks `next` through
+// `_bb_paged_walk`'s row-limit mode until it holds `--limit` rows or a page
+// has no `next`, then trims to exactly `--limit`. These tests drive it with
+// `makeSweepBbStub`'s multi-page `{pages: [...]}` shape, keyed by a substring
+// of `bb_state_listing`'s own path (`pullrequests?state=<S>&pagelen=50`) —
+// the plain-listing path, never the per-branch `q=` one.
+const stateListingKey = (state) => `pullrequests?state=${state}&pagelen`;
+
+test('host: bitbucket follows next across 3 linked pages and reports "page complete" under the limit', () => {
+  // 120 merged rows on 3 pages of 50/50/20, the last with no next: a --limit
+  // of 1000 is never reached, so the walk stops on the envelope's own
+  // completeness and reports no truncation at all.
+  const pages = [
+    Array.from({ length: 50 }, (_, i) => restPr(900 - i, `feature/pr-${900 - i}`, 'MERGED')),
+    Array.from({ length: 50 }, (_, i) => restPr(850 - i, `feature/pr-${850 - i}`, 'MERGED')),
+    Array.from({ length: 20 }, (_, i) => restPr(800 - i, `feature/pr-${800 - i}`, 'MERGED')),
+  ];
+  const bb = makeSweepBbStub({ prs: { [stateListingKey('MERGED')]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 120, 'all three pages are read and printed, not just the first 50');
+  assert.equal(truncationReports(res.stderr).length, 0, 'the last page had no next — the set is whole');
+});
+
+test('host: bitbucket stops at --limit on an always-next listing and reports possibly truncated', () => {
+  // Every page this stub could serve carries a next (synthetic pages beyond
+  // what --limit 100 needs are never read), so the walk stops at 2 pages of
+  // 50 once it holds 100 rows — a clean limit-stop, exit 0, but the walk
+  // cannot prove there is nothing more, so the truncation report still fires.
+  const pages = Array.from({ length: 5 }, (_, p) =>
+    Array.from({ length: 50 }, (_, i) => restPr(2000 - p * 100 - i, `feature/pr-${2000 - p * 100 - i}`, 'MERGED')));
+  const bb = makeSweepBbStub({ prs: { [stateListingKey('MERGED')]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '100'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 100, 'stopped exactly at the limit, not a whole third page');
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'the walk cannot prove completeness at the limit');
+  assert.match(reports[0], /state=merged/);
+});
+
+test('host: bitbucket trims a non-multiple-of-50 --limit to the exact row count, reporting truncated', () => {
+  // --limit 120 on 3 pages of 50/50/50 (all carrying next): the walk reads
+  // page 3 in full to reach 120, trims the array down to 120, and the
+  // truncation signal must come from what page 3's OWN next said — present —
+  // not from "120 is not a multiple of 50", which a naive fix would guess at.
+  const pages = Array.from({ length: 4 }, (_, p) =>
+    Array.from({ length: 50 }, (_, i) => restPr(3000 - p * 100 - i, `feature/pr-${3000 - p * 100 - i}`, 'MERGED')));
+  const bb = makeSweepBbStub({ prs: { [stateListingKey('MERGED')]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '120'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 120, 'trimmed to exactly the limit, not a whole page of 150');
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'page 3 (the stopping page) still named a next');
+  assert.match(reports[0], /state=merged/);
+});
+
+test('host: bitbucket a clean 3-page walk with no next on the last page reports no truncation at the limit', () => {
+  // The mirror of the trim case: --limit 120 again, but page 3 is the LAST
+  // page (no next) even though the walk stopped there because it already
+  // held >= 120 rows. BB_LIST_NEXT_FILE must still read page 3's own
+  // envelope — absent — so the report is "page complete", not "possibly
+  // truncated", proving the signal comes from the stopping page and not from
+  // row-count-vs-limit alone.
+  const pages = [
+    Array.from({ length: 50 }, (_, i) => restPr(4000 - i, `feature/pr-${4000 - i}`, 'MERGED')),
+    Array.from({ length: 50 }, (_, i) => restPr(3950 - i, `feature/pr-${3950 - i}`, 'MERGED')),
+    Array.from({ length: 50 }, (_, i) => restPr(3900 - i, `feature/pr-${3900 - i}`, 'MERGED')),
+  ];
+  const bb = makeSweepBbStub({ prs: { [stateListingKey('MERGED')]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '120'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(lines.length, 120, 'still trimmed to the limit even though page 3 was whole');
+  assert.equal(truncationReports(res.stderr).length, 0, 'page 3 named no next — the set is complete');
+});
+
+test('host: bitbucket a page-2 failure during --state all fails only merged, with no partial rows', () => {
+  // HTTP 429 on page 2 of the merged walk must fail that state's whole answer
+  // (no partial array printed) and exit 7 — PR_LIST_PARTIAL_RC, "some states
+  // answered, some did not" — once open and declined still answer. This is
+  // the regression `_bb_paged_walk`'s existing page-2 failure rule already
+  // guards for `bb_branch_query`; the row-limit mode must not weaken it.
+  const openRows = [restPr(100, 'feature/open-1', 'OPEN')];
+  const declinedRows = [restPr(200, 'feature/declined-1', 'DECLINED')];
+  const mergedPages = [
+    Array.from({ length: 50 }, (_, i) => restPr(5000 - i, `feature/pr-${5000 - i}`, 'MERGED')),
+    Array.from({ length: 50 }, (_, i) => restPr(4950 - i, `feature/pr-${4950 - i}`, 'MERGED')),
+  ];
+  const bb = makeSweepBbStub({
+    prs: {
+      [stateListingKey('OPEN')]: openRows,
+      [stateListingKey('DECLINED')]: declinedRows,
+      [stateListingKey('MERGED')]: {
+        pages: mergedPages, failAt: 2, said: 'error: HTTP 429 — rate limited', code: 5,
+      },
+    },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '100'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 7, res.stderr);
+  const lines = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.ok(lines.some((r) => r.state === 'OPEN'), 'open still answered');
+  assert.ok(lines.some((r) => r.state === 'CLOSED'), 'declined still answered, as the adapter\'s own "CLOSED" word');
+  assert.ok(!lines.some((r) => r.state === 'MERGED'), 'no partial merged array — the failed state prints nothing');
+  assert.match(res.stderr, /missing: merged/);
+});
+
+test('host: bitbucket with no --limit still asks exactly one page of the plain listing', () => {
+  // The regression every pre-existing no-limit caller depends on:
+  // PR_LIST_LIMIT empty must take bb_state_listing's original single-`bb api`
+  // branch, never _bb_paged_walk, so a stub with no `next` support at all
+  // (makeStrictBbStub) still answers correctly.
+  const bb = makeStrictBbStub({
+    perState: { open: bbFullPage(20, 'OPEN'), merged: '[]', declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'open'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, 20);
+  assert.equal(truncationReports(res.stderr).length, 0);
+});
+
+test('host: bb_branch_query at its page cap still exits 3, unaffected by the row-limit mode', () => {
+  // bb_branch_query always passes "" as _bb_paged_walk's new row-limit
+  // parameter — a regression check that threading the new 4th positional
+  // through did not disturb the existing page-cap mode's own exit code.
+  const branch = 'feature/x';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
+  const pages = Array.from({ length: 21 }, (_, p) => Array.from({ length: 50 }, (_, i) => headFor(7000 + p * 100 + i)));
+  const bb = makeSweepBbStub({ prs: { [key]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 3, res.stderr);
+  assert.match(res.stderr, /page cap 20/);
+});
+
 test('host: only a non-empty state is reported, and it is named', () => {
   // Per-state granularity. A full page cannot prove its total, so that state
   // is reported. The state that returned NOTHING had nothing to hide and is
@@ -8223,7 +8386,13 @@ function makeSweepBbStub({ prs = {}, fail = {} } = {}) {
   const nextPathFor = (key, page) => `/repositories/{ws}/{repo}/pullrequests/page-${Buffer.from(key).toString('hex').slice(0, 24)}-${page}`;
   const payloadFor = (key, page, rows, next) => {
     const f = path.join(dir, `payload-${Buffer.from(key).toString('hex').slice(0, 40)}-${page}.json`);
-    writeFileSync(f, JSON.stringify({ size: rows.length, values: rows, ...(next ? { next: `https://api.bitbucket.org/2.0${next}` } : {}) }));
+    // `page` is part of Bitbucket's real envelope (see `envelopeNextFor`'s doc
+    // comment) and is the three-way envelope test's gate: a payload missing it
+    // reads as `unknown`, never as a proven `next`-absence. Omitting it here
+    // made every multi-page fixture in this file read as unknown regardless of
+    // its own `next`, which happened to match the old (buggy) "0" default on
+    // exhaustion but breaks once that default is read from the envelope.
+    writeFileSync(f, JSON.stringify({ size: rows.length, page, values: rows, ...(next ? { next: `https://api.bitbucket.org/2.0${next}` } : {}) }));
     return f;
   };
   // One `if` arm per page of every multi-page key, keyed by the exact
