@@ -129,7 +129,7 @@ Slice 2 adds one paragraph to *A Decision Reads The Index*, next to the paragrap
 
 ### Priced Listing
 
-- `bug/the-scan-listing-is-priced-in-pages` — `scanListingCost` prices a GitHub listing at `1 + max(1, ceil(rows / 100))` requests from the carried listing's branch lines, and a test states the 95 s base and 760 s ceiling at 19 requests
+- `bug/the-scan-listing-is-priced-in-pages` — `scanListingCost` prices a GitHub listing at `1 + max(1, ceil(rows / 100))` requests from the carried listing's branch lines, and a test states the 95 s base and 760 s ceiling at 19 requests → #2734
 
 ### Listing Delta
 
