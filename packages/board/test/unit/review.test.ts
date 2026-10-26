@@ -664,8 +664,8 @@ describe('one follow-up issue per PR', () => {
     // A BACKLOG OF 250, searched by title the way the real tracker does: only
     // rows whose title contains the search text come back at all, so a match
     // at row 230 of the full backlog is still row 0 of the search result —
-    // the old `issueListLabelled` read, which scanned the first 200 backlog
-    // rows unfiltered, would have missed it.
+    // `issueListWithTitle`'s title filter finds it regardless of its position
+    // in the unfiltered backlog, where a page limit alone would miss it.
     const haystack = Array.from({ length: 250 }, (_, i) => issueRow(String(i), `plot-review: findings on PR #${900 + i}`));
     haystack[230] = issueRow('9', 'plot-review: findings on PR #7');
     const { tracker, commented } = withLabelled([], {

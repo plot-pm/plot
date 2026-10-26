@@ -601,7 +601,7 @@ describe('the fixture stands in for a tracker that is there', () => {
     expect(found.issues.map((i) => i.id)).toEqual(['QF-2', 'QF-3']);
   });
 
-  it('issueListWithTitle reports no match from an absent label, same as issueListLabelled', async () => {
+  it('issueListWithTitle reports no match from an absent label', async () => {
     const tracker = trackerFixture({ titled: { 'ai-generated': [issue] } });
     const found = answer<IssueRead>(await tracker.issueListWithTitle('other-label', 'PR #1', 10));
     expect(found.issues).toEqual([]);
@@ -612,7 +612,7 @@ describe('the fixture stands in for a tracker that is there', () => {
     expect(await tracker.issueListWithTitle('ai-generated', 'PR #1', 10)).toEqual({ ok: false, why: 'failed' });
   });
 
-  it('issueListWithTitle answers unaskable when told to, same shape as issueListLabelled', async () => {
+  it('issueListWithTitle answers unaskable when told to', async () => {
     const tracker = trackerFixture({ issueListWithTitleUnaskable: 'the Jira tracker cannot search issues by title' });
     expect(await tracker.issueListWithTitle('ai-generated', 'PR #1', 10)).toEqual({
       ok: false,
