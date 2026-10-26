@@ -3172,7 +3172,7 @@ else
       IFS="$oi_IFS_saved"; [ -n "$oi_key" ] || continue
       oi_line=$(awk -F'\t' -v k="$oi_key" '$1 == k {print; exit}' <<< "$oi_view_cache")
       if [ -z "$oi_line" ]; then
-        oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
+        plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
         oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
         oi_view_err=$(head -1 "${oi_view_err_file:-/dev/null}" 2>/dev/null); /bin/rm -f "$oi_view_err_file" 2>/dev/null
         if [ "$oi_view_rc" -eq 4 ]; then
