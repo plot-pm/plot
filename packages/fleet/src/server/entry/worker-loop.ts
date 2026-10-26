@@ -160,6 +160,10 @@ interface WaitClock {
    * mid-wait, which {@link pr} itself cannot (a PR number does not change).
    */
   mergeable: Mergeability | null;
+  /** The open PR's draft flag, read once on entry to the checks wait alongside {@link pr}. */
+  draft: boolean | null;
+  /** The open PR's head commit, read once on entry to the checks wait alongside {@link pr}. */
+  headSha: string | undefined;
   /**
    * The open PR's own base branch, read once on entry alongside {@link pr}
    * and held for every later re-read — the base a PR targets does not
@@ -172,7 +176,7 @@ interface WaitClock {
 /** Every port this entry reads or writes through, composed once at start. */
 export interface WorkerLoopPorts extends LoopWritePorts {
   readonly build: BuildPort;
-  readonly host: Pick<Host, 'prState'>;
+  readonly host: Pick<Host, 'prState' | 'prReady'>;
   readonly transcriptQuietSeconds: (worktree: string) => Promise<number | 'unavailable'>;
   /**
    * Appends a sealed slice's spend to the checkout's slice-spend record — the
@@ -884,6 +888,9 @@ export const readPass = async (
     correctionBudget: config.correctionBudget,
     pr: null,
     mergeable: null,
+    prDraft: null,
+    prHeadSha: undefined,
+    lastPushSha: prompt.pushedSha,
     correctionText: '',
     resumeId: manifest.resumeId,
     passAt,
@@ -1001,6 +1008,8 @@ export const readPass = async (
     clock.since = Date.now();
     clock.pr = prNumber;
     clock.mergeable = mergeable;
+    clock.draft = pr.draft;
+    clock.headSha = pr.headSha;
     clock.base = pr.base;
   }
 
@@ -1008,6 +1017,8 @@ export const readPass = async (
   const pushed = true;
   const prOpen = true;
   const prNumber = clock.pr;
+  const prDraft = clock.draft;
+  const prHeadSha = clock.headSha;
   const waitedSeconds = Math.floor((Date.now() - clock.since) / 1000);
 
   // THE WAIT RE-READS MERGEABILITY EVERY LATER PASS, not on the entry pass
@@ -1030,7 +1041,7 @@ export const readPass = async (
   }
 
   if (config.checksWaitSeconds <= 0) {
-    return { ...base, pushed, prOpen, pr: prNumber, mergeable, checks: 'none', waitedSeconds };
+    return { ...base, pushed, prOpen, pr: prNumber, mergeable, prDraft, prHeadSha, checks: 'none', waitedSeconds };
   }
 
   const pushedSha = prompt.pushedSha;
@@ -1055,6 +1066,9 @@ export const readPass = async (
     prOpen,
     pr: prNumber,
     mergeable,
+    prDraft,
+    prHeadSha,
+    lastPushSha: pushedSha,
     tip,
     checks,
     checksPassed,
@@ -1704,7 +1718,7 @@ const runPrompt = async (
  * @returns the process exit code the decision named.
  */
 export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
-  const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null, mergeable: null, base: '' };
+  const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null, mergeable: null, draft: null, headSha: undefined, base: '' };
   let held: Held = { ...FRESH };
   // A carried hop names the branch the last prompt ran on, so it seeds
   // `previousBranch` too: a clear before the next prompt keeps the hop.

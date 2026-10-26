@@ -379,6 +379,11 @@ export const hostShell = (context: ShellContext): Host => {
       return settled(first, crossRepoAnswer(first, await prStateOn(args, onOtherHost), isNoPr));
     },
 
+    prReady: async (pr): Promise<PortResult<void>> => {
+      const run = await runProcess('bash', [host, 'pr-ready', String(pr)], inRepo);
+      return record(run, () => undefined);
+    },
+
     prMerged: async (branch, opts): Promise<PortResult<MergedAnswer>> => {
       const args = ['pr-merged', branch, ...(opts?.repo !== undefined ? ['--repo', opts.repo] : [])];
       const first = await prMergedOn(args, inRepo);

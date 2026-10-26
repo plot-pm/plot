@@ -88,6 +88,18 @@ export interface HostFixture {
    * Default is to succeed.
    */
   prCommentUnaskable?: boolean;
+  /**
+   * Where every `prReady` call is recorded, in call order.
+   *
+   * Same reasoning as {@link opened}: a test proving the call happened once,
+   * and not twice, needs the attempts rather than just the latest answer.
+   */
+  readied?: number[];
+  /**
+   * Whether `prReady` fails. A host that refuses the write is a real case.
+   * Default is to succeed.
+   */
+  prReadyFails?: boolean;
 }
 
 /**
@@ -113,6 +125,7 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
   const opened = fixture.opened ?? [];
   const commitStatuses = fixture.commitStatuses ?? [];
   const prComments = fixture.prComments ?? [];
+  const readied = fixture.readied ?? [];
   // Mutable, because the correction rule is behaviour rather than a value and
   // the fixture must be able to show it. A fixture that always answered the
   // literal input could not stand in for an adapter that learns.
@@ -200,6 +213,14 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
       if (held >= 0) prComments[held] = { pr, body };
       else prComments.push({ pr, body });
       return answered(true);
+    },
+
+    prReady: async (pr: number): Promise<PortResult<void>> => {
+      // Recorded before it refuses, as `prCreate` and `commitStatus` do: a
+      // test proving a second call asks nothing must still see the attempt.
+      readied.push(pr);
+      if (fixture.prReadyFails === true) return failed();
+      return answered(undefined);
     },
 
     // ALWAYS NULL, and that is the fixture being honest rather than

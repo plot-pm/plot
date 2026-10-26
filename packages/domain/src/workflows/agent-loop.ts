@@ -2,6 +2,7 @@ import type { ClaimHolderAnswer } from '../rules/claim.js';
 import type { ChecksFromRuns, RemoteTipReading } from '../rules/checks-verdict.js';
 import type { LoopRegistration } from '../rules/desk-manifest.js';
 import type { Mergeability } from '../entities/pr.js';
+import { markReadyDecision } from '../rules/mark-ready.js';
 import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
 import type { CommitReading, MonitorVerdict, PermissionDenialReading } from '../rules/sample.js';
@@ -246,6 +247,24 @@ export interface AgentLoopReadings {
    * the host has said it will build nothing.
    */
   readonly mergeable: Mergeability | null;
+  /**
+   * Whether the open PR is still a draft, read once on entry to the checks
+   * wait alongside {@link pr} — `null` outside the wait, where no PR has been
+   * read yet. Feeds {@link markReadyDecision} only; nothing else consults it.
+   */
+  readonly prDraft: boolean | null;
+  /**
+   * The open PR's head commit, read once on entry to the checks wait
+   * alongside {@link pr}. Absent where the host did not say — a caller must
+   * not read that as a head that matches {@link lastPushSha}.
+   */
+  readonly prHeadSha?: string;
+  /**
+   * The commit this pass's claim push (or the run's own push) last landed on
+   * the remote. Compared against {@link prHeadSha} so a PR carrying someone
+   * else's later commit is never marked ready.
+   */
+  readonly lastPushSha: string;
   /** The correction text to hand the agent on a failed build, already built by the caller. */
   readonly correctionText: string;
   /** The session to resume the correction in, or `''` to start a fresh worker. */
@@ -410,12 +429,19 @@ const finding = (
  * A decision that seals the slice and frees the loop: `declaration` ok, the
  * slice's spend, and the manifest's assignment cleared.
  */
-const seal = (worktree: string, branch: string, session: string, note: string): Decision<AgentLoopDetail> =>
+const seal = (
+  worktree: string,
+  branch: string,
+  session: string,
+  note: string,
+  markReady: { readonly pr: number } | null = null,
+): Decision<AgentLoopDetail> =>
   decide(
     'agent-loop',
     [
       { kind: 'declaration', worktree, branch, status: 'ok', summary: '' },
       { kind: 'slice-spend', branch, worktree },
+      ...(markReady !== null ? [{ kind: 'pr-ready', pr: markReady.pr } as const] : []),
       { kind: 'assignment-clear', session },
     ],
     { branch, exitCode: null, note },
@@ -434,8 +460,21 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
   const { worktree } = readings;
   if (readings.checksPassed === true) {
     // ROW 13 — checks pass: declare ok, record the spend, clear the
-    // assignment, then the loop is free again.
-    return seal(worktree, branch, readings.session, 'checks passed');
+    // assignment, then the loop is free again. Reaching this row is only
+    // possible once the agent's run has ended successfully, so the worker
+    // state `markReadyDecision` reads is `finished` by construction.
+    const markReady =
+      readings.pr !== null &&
+      markReadyDecision({
+        worker: 'finished',
+        prOpen: readings.prOpen,
+        draft: readings.prDraft === true,
+        headSha: readings.prHeadSha,
+        lastPushSha: readings.lastPushSha,
+      })
+        ? { pr: readings.pr }
+        : null;
+    return seal(worktree, branch, readings.session, 'checks passed', markReady);
   }
 
   if (readings.correctionAttempts < readings.correctionBudget) {

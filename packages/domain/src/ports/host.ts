@@ -219,6 +219,14 @@ export interface Host {
   prState(ref: string | number, opts?: { withChecks?: boolean; repo?: string }): Promise<PortResult<PrLookup>>;
 
   /**
+   * Takes a PR out of draft.
+   *
+   * @param pr - the PR's number.
+   * @returns `failed` where the host refused, carrying the host's own message.
+   */
+  prReady(pr: number): Promise<PortResult<void>>;
+
+  /**
    * Whether the host merged ANY PR for this branch.
    *
    * Reads the merge timestamp rather than the state — a merged PR reports
