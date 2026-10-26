@@ -75,7 +75,7 @@ Findings by slice:
 ### Scan sections
 
 - `bug/reconcile-scan-sections-1-and-7` — one node start per pass, one missing-bundle line, a fix command for a design plan with both links → #2709
-- `bug/reconcile-scan-sections-22-24` — section 23 one read per key, accurate notes, section 24b repair hint, `SKILL.md` for sections 23 and 24b <!-- waits: bug/reconcile-scan-sections-1-and-7 -->
+- `bug/reconcile-scan-sections-22-24` — section 23 one read per key, accurate notes, section 24b repair hint, `SKILL.md` for sections 23 and 24b <!-- waits: bug/reconcile-scan-sections-1-and-7 --> → #2711
 
 ## Notes
 
