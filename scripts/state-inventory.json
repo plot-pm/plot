@@ -12,6 +12,12 @@
     { "base": "budget", "glob": "slots/*/*", "bound": "spent", "writer": "skills/plot/scripts/plot-budget.sh (budget_slot_claim and its scratch file, budget_slot_release);packages/domain/src/adapters/slots/slots-file.ts" },
     { "base": "pr-index", "glob": "*.json", "bound": "overwritten", "writer": "packages/domain/src/adapters/pr-index/pr-index-file.ts" },
     { "base": "pr-index", "glob": "*.json.*.tmp", "bound": "spent", "writer": "packages/domain/src/adapters/pr-index/pr-index-file.ts" },
+    { "base": "pr-index", "glob": "*.lock/owner.*", "bound": "kept on purpose", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
+    { "base": "pr-index", "glob": "*.lock/.*.tmp", "bound": "spent", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
+    { "base": "pr-index", "glob": "*.lock/board.*", "bound": "overwritten", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
+    { "base": "pr-index", "glob": "*.lock/fleetd", "bound": "overwritten", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
+    { "base": "pr-index", "glob": "*.reader.json", "bound": "overwritten", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
+    { "base": "pr-index", "glob": "*.reader.json.*.tmp", "bound": "spent", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
     { "base": "home/.plot", "glob": "state/board-cache/*.json", "bound": "overwritten", "writer": "skills/plot/scripts/plot-update-board.sh" }
   ]
 }
