@@ -1363,9 +1363,11 @@ export interface NothingDoneDecision {
  *
  * @param candidates - what {@link readNothingDoneCandidates} read.
  * @param commitBeyondClaim - reads whether a desk's branch holds a commit
- *   beyond its claim, keyed by worktree.
+ *   beyond its claim, keyed by worktree. Called only for a `nothing-done`
+ *   candidate — the one ending whose verdict reads the answer.
  * @param prOpen - reads whether an open PR still carries a branch, keyed by
- *   branch; `'unanswerable'` where the host could not be asked.
+ *   branch; `'unanswerable'` where the host could not be asked. Called only
+ *   for a `nothing-done` candidate whose `commitBeyondClaim` answered `'no'`.
  * @param priorFreshSessions - how many fresh sessions this slice already had,
  *   keyed by plan and branch — the same store {@link readFreshAgentCandidates}
  *   reads, so the allowance is shared whichever pipeline asks first.
@@ -1383,6 +1385,16 @@ export const nothingDoneDecisions = async (
       out.push({ branch: reading.branch, worktree: reading.worktree, verdict: 'leave' });
       continue;
     }
+    // ASK ONLY WHERE THE ANSWER DECIDES: `endingAction` reads
+    // `commitBeyondClaim` and `prOpen` on exactly one row, ending
+    // `nothing-done` (`ending-action.ts:345-347`) — every other ending returns
+    // before it. So `commitBeyondClaim` is asked only for `nothing-done`, and
+    // `prOpen` only where that answer was `'no'`; every other candidate gets
+    // the filler `'unanswerable'`, which takes the same arm as `'yes'`/`true`
+    // and so never changes the verdict.
+    const isNothingDone = reading.ending === 'nothing-done';
+    const commit = isNothingDone ? await commitBeyondClaim(reading.worktree) : ('unanswerable' as const);
+    const open = isNothingDone && commit === 'no' ? await prOpen(reading.branch) : ('unanswerable' as const);
     const readings = {
       ending: reading.ending,
       branch: reading.branch,
@@ -1393,8 +1405,8 @@ export const nothingDoneDecisions = async (
       // states for its own candidates.
       hasManifest: false,
       priorFreshSessions: await priorFreshSessions(reading.plan, reading.branch),
-      commitBeyondClaim: await commitBeyondClaim(reading.worktree),
-      prOpen: await prOpen(reading.branch),
+      commitBeyondClaim: commit,
+      prOpen: open,
       // NOT READ HERE: both feed only a `needs-a-person` answer, and this step
       // applies `release-claim` alone. The fresh-agent step reads them.
       prMerged: 'unanswerable' as const,

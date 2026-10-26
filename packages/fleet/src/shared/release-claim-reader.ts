@@ -13,6 +13,15 @@ import {
 import { agentsFs, processesShell, refsGit, hostShell, claimReleaseShell } from '@plot-pm/domain/adapters';
 
 /**
+ * The host-call counter a reading adds to — the same shape
+ * `registryd-main.ts`'s `HostTally` has, named here rather than imported so
+ * this file (imported BY `registryd-main.ts`) stays acyclic.
+ */
+export interface HostCallTally {
+  calls: number;
+}
+
+/**
  * REFUSES TWO OF THE SCRIPT'S SIX. `releaseClaim` (the domain decision) only
  * reads what this route already gathers for every row: a live agent (from the
  * manifests, not merely a ref) and an open-or-merged PR. The script's other
@@ -63,15 +72,21 @@ async function liveHolders(
  * The branch's PR, read through the two `Host` calls `releaseClaim` needs
  * combined into one reading — `failed`/`unaskable` pass through unchanged, so
  * silence never reads as "no PR".
+ *
+ * @param tally - the host-call counter this reading adds to: 1 for `prState`,
+ *   plus 1 more for `prMerged` where `prState` answered.
  */
 async function prReading(
   branch: string,
   context: { repoRoot: string; scriptDir: string },
+  tally: HostCallTally,
 ): Promise<PortResult<ClaimReleasePrReading>> {
   const host = hostShell(context);
   const state = await host.prState(branch);
+  tally.calls += 1;
   if (!isAnswered(state)) return state.why === 'unaskable' ? unaskable() : failed();
   const merged = await host.prMerged(branch);
+  tally.calls += 1;
   if (!isAnswered(merged)) return merged.why === 'unaskable' ? unaskable() : failed();
   if (state.value === null) {
     return answered({ open: false, merged: merged.value === 'merged', number: 0, state: '' });
@@ -89,18 +104,21 @@ async function prReading(
  * with a claim to release — runs the script. ONE FUNCTION so the route and
  * the CLI share one decision rather than two copies of it.
  *
+ * @param tally - the host-call counter {@link prReading} adds to; a no-op
+ *   tally where the caller does not track one (the board's own callers).
  * @returns the outcome, never throwing: a gathering failure refuses exactly
  *   as `releaseClaim` itself refuses an `unknown` PR reading.
  */
 export async function gatherReadingsAndRelease(
   branch: string,
   context: { repoRoot: string; scriptDir: string },
+  tally: HostCallTally = { calls: 0 },
 ): Promise<{ status: number; result: ReleaseClaimResult }> {
   const refs = refsGit(context);
   const [branches, holders, pr] = await Promise.all([
     refs.listBranches(true),
     liveHolders(branch, context),
-    prReading(branch, context),
+    prReading(branch, context, tally),
   ]);
   const claimed = (isAnswered(branches) && branches.value.includes(branch)) || holders.length > 0;
   const readings: ClaimReleaseReadings = { branch, claimed, holders, pr };
