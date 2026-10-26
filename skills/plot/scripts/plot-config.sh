@@ -273,7 +273,7 @@ default="${3:-}"
 
 # Parenthetical prose, markdown backticks, list separators — in that order.
 prose='s/\([^)]*\)//g; s/`//g; s/[[:space:]]*,[[:space:]]*/, /g;'
-case "$cmd" in get) ;; get-raw) prose='s/`//g;' ;; *) echo "plot-config: unknown subcommand '$cmd' (only 'get' and 'get-raw' are supported)" >&2; exit 1 ;; esac
+case "$cmd" in get) ;; get-raw) prose='s/^`([^`]*)`.*/\1/; s/`//g;' ;; *) echo "plot-config: unknown subcommand '$cmd' (only 'get' and 'get-raw' are supported)" >&2; exit 1 ;; esac
 
 # THE CALLER'S ROOT IS TAKEN WHERE IT OFFERS ONE. `git rev-parse` is ~5 ms and
 # this script runs once per config key, so a caller reading several keys pays

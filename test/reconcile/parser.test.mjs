@@ -2836,3 +2836,51 @@ Second slice.
   assert.ok(!('commits' in byName['docs/two']));
   assert.deepEqual(meta.prs, [9]);
 });
+
+test('plan-meta: a ref named on heading and overlay item is not doubled', () => {
+  // A heading-shape slice's list item overlays the same branch: its commits
+  // merge with the heading's. The old code appended unconditionally, so a ref
+  // named on both lines (abc1234 here) came out twice; the fixture makes old
+  // and new disagree because both lines name the same ref.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** docs
+
+## Slices
+
+### Pushed twice (Branch: docs/one) → commit abc1234
+First slice.
+- \`docs/one\` — also landed → commit abc1234, def5678
+`);
+  const byName = Object.fromEntries(meta.waves.flatMap((w) => w.branches).map((b) => [b.branch, b]));
+  assert.deepEqual(byName['docs/one'].commits, ['abc1234', 'def5678'],
+    'the shared ref appears once, new refs still append, first-seen order kept');
+});
+
+test('plan-meta: a bare deferral on an overlay item keeps the heading\'s reason', () => {
+  // The heading names the reason; its list item repeats the bare marker with
+  // no reason of its own. The old code's `defer_note` on the bare line is ""
+  // and overwrote the heading's reason unconditionally in overlay mode — the
+  // fixture makes old and new disagree because the heading carries a reason
+  // and the item carries none.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** docs
+
+## Slices
+
+### Shelved (Branch: docs/one) <!-- deferred: superseded 2026-08-27 -->
+First slice.
+- \`docs/one\` — still parked <!-- deferred -->
+`);
+  const byName = Object.fromEntries(meta.waves.flatMap((w) => w.branches).map((b) => [b.branch, b]));
+  assert.equal(byName['docs/one'].deferred, true, 'the flag stays true');
+  assert.equal(byName['docs/one'].deferred_reason, 'superseded 2026-08-27',
+    'the bare item does not erase the heading\'s reason');
+});

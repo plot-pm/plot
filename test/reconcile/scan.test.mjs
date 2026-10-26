@@ -3941,6 +3941,21 @@ test('scan: section 22 finds the ewz shape once "Shipped code paths" names it', 
     `a docs-and-tests merge ships no code under the configured pattern:\n${s22}`);
 });
 
+test('scan: section 22 reads a backtick-quoted pattern with trailing prose', () => {
+  // `plot-config.sh get-raw` used to keep everything after the first backtick
+  // span: a value written `^(backend/.*/src/main/|frontend/)` (the project's
+  // own layout) returned the regex PLUS that prose to `grep -E`, which then
+  // matched no path and section 22 read clean on every plan. The fixture is
+  // the same backend/frontend shape as the test above, just quoted the way a
+  // real project (ewz-kus-portal style) writes it.
+  const s22 = scanShippedPathsRepo('`^(backend/.*/src/main/|frontend/)` (the code a plan ships)');
+  assert.match(s22, /bug\/ewz-shape/,
+    `a quoted-with-prose config value must still let the guard find a real finding:\n${s22}`);
+  assert.match(s22, /PR #11/, 'the PR number is still lifted from the subject');
+  assert.doesNotMatch(s22, /docs\/ewz-guide|PR #12/,
+    `a docs-and-tests merge ships no code under the configured pattern:\n${s22}`);
+});
+
 test('scan: section 22 says "not evaluated" for an invalid "Shipped code paths" pattern', () => {
   const s22 = scanShippedPathsRepo('^(backend/');
   assert.match(s22, /not evaluated — the 'Shipped code paths' pattern is invalid/,
