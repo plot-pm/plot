@@ -1487,6 +1487,28 @@ await esbuild.build({
 fs.copyFileSync(recordPrArtifact, shippedRecordPr);
 fs.chmodSync(shippedRecordPr, 0o755);
 
+// `plot-brief-book.sh`'s mechanical half: writes a branch's hand-off brief
+// and its plan's `Started:` record in one disposable worktree cut from
+// `origin/<default>`, commits, pushes and removes the worktree — the main
+// checkout is never opened. `plot-brief-book.sh` is a launcher over this.
+const briefBookArtifact = path.join(here, 'dist/plot-brief-book.mjs');
+const shippedBriefBook = path.join(here, '../../skills/plot/scripts/board/plot-brief-book.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/brief-book.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: briefBookArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(briefBookArtifact, shippedBriefBook);
+fs.chmodSync(shippedBriefBook, 0o755);
+
 // `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
 // operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
 // readings-in/decision-out bundle like the others above: this one creates the
@@ -1756,6 +1778,7 @@ const gateKb = (fs.statSync(shippedGate).size / 1024).toFixed(1);
 const bitbucketMergeableKb = (fs.statSync(shippedBitbucketMergeable).size / 1024).toFixed(1);
 const planForBranchKb = (fs.statSync(shippedPlanForBranch).size / 1024).toFixed(1);
 const recordPrKb = (fs.statSync(shippedRecordPr).size / 1024).toFixed(1);
+const briefBookKb = (fs.statSync(shippedBriefBook).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1802,4 +1825,5 @@ console.log(`Built plot-gate.mjs (${gateKb} KB) → skills/plot/scripts/board/`)
 console.log(`Built plot-bitbucket-mergeable.mjs (${bitbucketMergeableKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-plan-for-branch.mjs (${planForBranchKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-record-pr.mjs (${recordPrKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-brief-book.mjs (${briefBookKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
