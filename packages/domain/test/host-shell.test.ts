@@ -311,6 +311,17 @@ describe('a host that answers', () => {
     expect(withoutLimit).toEqual({ ok: true, value: [] });
   });
 
+  it('passes --since through, after --limit, and omits it when unset', async () => {
+    const withSince = await hostShell(
+      hostThat('[ "$*" = "pr-list --state merged --limit 500 --since 2026-10-20T12:33:56Z" ] || exit 1; exit 0'),
+    ).prList('merged', 500, '2026-10-20T12:33:56Z');
+    expect(withSince).toEqual({ ok: true, value: [] });
+    const withoutSince = await hostShell(
+      hostThat('[ "$*" = "pr-list --state merged --limit 500" ] || exit 1; exit 0'),
+    ).prList('merged', 500);
+    expect(withoutSince).toEqual({ ok: true, value: [] });
+  });
+
   it('passes --draft only when the request asks for one', async () => {
     const request = { title: 't', body: 'b', head: 'idea/a-spec' };
     const withDraft = await hostShell(

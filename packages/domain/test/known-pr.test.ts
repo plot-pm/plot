@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { PrIndexRow } from '../src/entities/pr-index.js';
+import { PR_INDEX_VERSION, decodePrIndex, type PrIndex, type PrIndexRow } from '../src/entities/pr-index.js';
 import {
+  MERGED_DELTA_OVERLAP_MS,
   VIEWS_PER_PASS,
   blockingBranches,
   indexMergedHeads,
   knownPrFor,
   landedSource,
+  mergedSetWindowFor,
   viewLanded,
 } from '../src/rules/known-pr.js';
 
@@ -18,6 +20,18 @@ const row = (number: number, head: string, state: string, draft = false): PrInde
   review: '',
   url: '',
 });
+
+const store = (over: Partial<PrIndex> = {}): PrIndex =>
+  ({
+    v: PR_INDEX_VERSION,
+    connector: 'github',
+    watermark: '2026-10-20T12:34:56Z',
+    complete: true,
+    at: '2026-10-20T12:35:00Z',
+    wholeAt: '2026-10-20T11:00:00Z',
+    rows: [],
+    ...over,
+  }) as PrIndex;
 
 describe('knownPrFor', () => {
   it('knows nothing about a branch the index does not hold', () => {
@@ -58,6 +72,46 @@ describe('indexMergedHeads', () => {
   it('names a head once a merged row exists beside its other rows', () => {
     const rows = [row(7, 'feature/a', 'CLOSED'), row(9, 'feature/a', 'MERGED')];
     expect([...indexMergedHeads(rows)]).toEqual(['feature/a']);
+  });
+});
+
+describe('mergedSetWindowFor', () => {
+  it('answers delta with since = watermark - 60s for a current, complete, version-5 store', () => {
+    expect(mergedSetWindowFor(store())).toEqual({ kind: 'delta', since: '2026-10-20T12:33:56Z' });
+    expect(MERGED_DELTA_OVERLAP_MS).toBe(60_000);
+  });
+
+  it('answers full for a null store', () => {
+    expect(mergedSetWindowFor(null)).toEqual({ kind: 'full' });
+  });
+
+  it('answers full for a store marked incomplete', () => {
+    expect(mergedSetWindowFor(store({ complete: false }))).toEqual({ kind: 'full' });
+  });
+
+  it('answers full for a null watermark', () => {
+    expect(mergedSetWindowFor(store({ watermark: null }))).toEqual({ kind: 'full' });
+  });
+
+  it('answers full for an empty watermark', () => {
+    expect(mergedSetWindowFor(store({ watermark: '' }))).toEqual({ kind: 'full' });
+  });
+
+  it('answers full for an unparseable watermark', () => {
+    expect(mergedSetWindowFor(store({ watermark: 'not-a-stamp' }))).toEqual({ kind: 'full' });
+  });
+
+  it('treats an old-version store as nothing to start from, via the caller\'s own decode', () => {
+    // Mirrors the actual v4 shape fleetd's live store held on this estate —
+    // not a hand-rolled null. `decodePrIndex`'s `.strict()` literal on `v`
+    // fails this file's parse before the rule ever sees it, so the caller
+    // always hands the rule a null here, same as a missing file.
+    const v4Text = JSON.stringify({ ...store(), v: 4 });
+    expect(mergedSetWindowFor(decodePrIndex(v4Text))).toEqual({ kind: 'full' });
+  });
+
+  it('treats an unparseable store file as nothing to start from, via the caller\'s own decode', () => {
+    expect(mergedSetWindowFor(decodePrIndex('{not json'))).toEqual({ kind: 'full' });
   });
 });
 

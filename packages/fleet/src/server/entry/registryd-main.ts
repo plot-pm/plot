@@ -47,7 +47,7 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { HeldSlice, PortResult } from '@plot-pm/domain';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
-import { viewLanded } from '@plot-pm/domain/rules/known-pr';
+import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
@@ -90,7 +90,7 @@ import {
   type SupervisorWorld,
   type TreeReading,
 } from '../../shared/supervisor.js';
-import type { QueueWorld, HandOverWorld } from '../../shared/queue-reading.js';
+import type { QueueWorld, HandOverWorld, MergedListing } from '../../shared/queue-reading.js';
 import {
   tick,
   tickLine,
@@ -794,37 +794,61 @@ export const queueWorldForRepo = (
       // measured 2026-09-06, #707 and #710 are hundreds of merges back and a
       // default page missed both, leaving their plans blocked exactly as
       // before.
-      tally.calls += 1;
-      const answer = await host.prList('merged', 500);
-      // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
-      // incomplete and cannot say why; the tick line prints the kind, so an
-      // operator reads `unaskable(throttled)` rather than inferring a rate
-      // limit from a count of held slices (#1094).
-      if (!answer.ok)
+      const full = async (): Promise<MergedListing> => {
+        tally.calls += 1;
+        const answer = await host.prList('merged', 500);
+        // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
+        // incomplete and cannot say why; the tick line prints the kind, so an
+        // operator reads `unaskable(throttled)` rather than inferring a rate
+        // limit from a count of held slices (#1094).
+        if (!answer.ok)
+          return {
+            merged: new Set<string>(),
+            whole: false,
+            kind: host.lastRefusal()?.kind ?? 'failed',
+            failed: true,
+          };
+        // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers
+        // the rows that arrived and leaves a refusal behind, so a branch
+        // missing from them may still have merged.
+        const refusal = host.lastRefusal();
+        const whole = refusal === null;
+        // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
+        // The repo's rule is that `mergedAt` decides *did this land* — a merged
+        // PR reports CLOSED when asked about one PR. Here `--state merged` made
+        // that distinction host-side, and `pr-list` does not carry `mergedAt` at
+        // all (`host-shell.ts:94` fills it from a field the shell never emits),
+        // so filtering on it would reject every row. Ask `prMerged` for a single
+        // branch; this is the bundle.
         return {
-          merged: new Set<string>(),
-          whole: false,
-          kind: host.lastRefusal()?.kind ?? 'failed',
-          failed: true,
+          merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
+          whole,
+          kind: refusal?.kind ?? null,
+          failed: false,
         };
-      // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers the
-      // rows that arrived and leaves a refusal behind, so a branch missing from
-      // them may still have merged.
-      const refusal = host.lastRefusal();
-      const whole = refusal === null;
-      // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
-      // The repo's rule is that `mergedAt` decides *did this land* — a merged
-      // PR reports CLOSED when asked about one PR. Here `--state merged` made
-      // that distinction host-side, and `pr-list` does not carry `mergedAt` at
-      // all (`host-shell.ts:94` fills it from a field the shell never emits),
-      // so filtering on it would reject every row. Ask `prMerged` for a single
-      // branch; this is the bundle.
-      return {
-        merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
-        whole,
-        kind: refusal?.kind ?? null,
-        failed: false,
       };
+      // A DELTA NARROWS THE CALL; IT NEVER REPLACES THE STORE'S OWN ANSWER.
+      // `mergedSetWindowFor` reads the SAME store `prIndexRows` already
+      // exposes, by the same backend word, so a store this tick's earlier
+      // `prIndexRows()` read as empty (missing/incomplete/wrong-version) also
+      // decides `full` here — the two readings cannot disagree.
+      const backend = await host.backend();
+      if (!backend.ok) return full();
+      const held = await index.read(backend.value);
+      const store = held.ok ? held.value : null;
+      const window = mergedSetWindowFor(store);
+      if (window.kind === 'full') return full();
+      tally.calls += 1;
+      const answer = await host.prList('merged', 500, window.since);
+      const refusal = host.lastRefusal();
+      // ANY DELTA TROUBLE FALLS THROUGH TO THE FULL CALL IN THE SAME TICK.
+      // A failed call, a left-behind refusal, or exactly `--limit 500` rows
+      // (the page may have been truncated) are each a reason not to trust
+      // this answer — none of them are unioned with the stored rows.
+      if (!answer.ok || refusal !== null || answer.value.length === 500) return full();
+      const deltaHeads = answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head);
+      const merged = new Set([...deltaHeads, ...indexMergedHeads(store?.rows ?? [])]);
+      return { merged, whole: true, kind: 'delta', failed: false };
     },
     // A GOING VERIFY RUN HOLDS AN AGENT SLOT, so `scaleUp` counts it.
     verifying: () => verifyingCount(repoRoot),

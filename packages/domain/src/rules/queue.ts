@@ -180,8 +180,19 @@ export interface QueueAgent {
 export interface MergedSetState {
   /** `whole` answered in full; `partial` answered with a refusal; `unaskable` failed. */
   state: 'whole' | 'partial' | 'unaskable';
-  /** The refusal's kind, or `null` where the listing answered whole. */
-  kind: 'throttled' | 'secondary' | 'failed' | null;
+  /**
+   * The refusal's kind, or `null` where the listing answered whole from one
+   * unconditional page.
+   *
+   * **`delta` IS NOT A REFUSAL — IT IS THE OTHER WAY `whole` CAN HAPPEN.**
+   * The merged set answered whole either from the one 500-row page this field
+   * used to mean exclusively, or from the PR index's stored rows plus one
+   * narrow host delta. Both are `state: 'whole'`; `kind: 'delta'` says which
+   * path bought it, the same way `'throttled'` says which refusal did. A
+   * second field would let a caller print `whole` while silently never
+   * learning which read paid for it.
+   */
+  kind: 'throttled' | 'secondary' | 'failed' | 'delta' | null;
 }
 
 /** What the registry read when it asked whether it could hand anything over. */

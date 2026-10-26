@@ -306,9 +306,12 @@ export interface Host {
    *
    * @param state - `open`, `merged`, `closed`, or `all`.
    * @param limit - how many to ask for; the host's own page size when omitted.
+   * @param since - narrows to PRs the host has seen change since this stamp,
+   *   the host's own rendering, passed through byte-for-byte; every PR when
+   *   omitted.
    * @returns the PRs, newest first.
    */
-  prList(state: string, limit?: number): Promise<PortResult<readonly Pr[]>>;
+  prList(state: string, limit?: number, since?: string): Promise<PortResult<readonly Pr[]>>;
 
   /**
    * What is this connector's limit, and how well does it know it?
