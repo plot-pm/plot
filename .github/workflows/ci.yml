@@ -373,18 +373,26 @@ jobs:
     # THE JOB CAP EXCEEDS THE STEP CAP, so a wedged test step ends `failure`
     # and reaches the diagnostic step below rather than ending `cancelled` at
     # the same instant the job cap fires. Equal caps hid that step entirely:
-    # the step's own 12-minute `timeout-minutes` and this job's 12-minute
-    # `timeout-minutes` fired together, the job read `cancelled`, and
+    # the step's own `timeout-minutes` and this job's `timeout-minutes` (both
+    # 12 minutes at the time) fired together, the job read `cancelled`, and
     # `if: failure()` never ran.
     #
-    # 14 minutes: the test step's 12-minute cap, plus a margin for everything
+    # 18 minutes: the test step's 16-minute cap, plus a margin for everything
     # the step cap does not cover — checkout, `pnpm install`, the board build,
     # and the diagnostic step itself. Measured 2026-10-24 over the last 30
     # `helper-contracts` runs, checkout through "Build the board bundles" was
     # p95 33 s, max 34 s; the diagnostic step is a few `ps`/`find`/`tail`
     # calls with no file to wait on. 2 minutes covers both with room to
     # spare.
-    timeout-minutes: 14
+    #
+    # CAPS RAISED 2026-10-26 (step 12 to 16, job 14 to 18): the suite outgrew
+    # the 12-minute step cap with `# fail 0`. Over the last 8 `main` runs the
+    # job's wall time was 12m fail, 12m ok, 11m ok, 10m ok, 10m ok, 10m ok,
+    # 12m ok, 12m fail (newest first); run 40298067570 attempt 2 reported
+    # `# duration_ms 720190` and then timed out. The 2026-10-20 split measured
+    # a median of 462.5 s, and the suite now takes 600-720 s. Sharding the
+    # suite is the lasting fix; this raise only keeps `main` green until then.
+    timeout-minutes: 18
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -485,7 +493,7 @@ jobs:
       # SPLIT OUT OF `validate` 2026-10-20 (#2121): see the comment on the
       # `helper-contracts` job above for the measurement that drove the split.
       - name: Helper contract tests
-        timeout-minutes: 12
+        timeout-minutes: 16
         run: pnpm run test:contracts
       - name: What was still running (only when the suite wedged)
         if: failure()
@@ -797,8 +805,8 @@ jobs:
     # slower of the three: at the step p95s, max(547.6 s, 600 s) + 376.65 s
     # = 976.65 s (16.3 min), plus each job's checkout, install and build. Each
     # job's `timeout-minutes` counts only its own steps, never the wait on
-    # `needs:`, so each job stays under its own cap: `helper-contracts` 14 min
-    # (p95 9.1 min test step, plus the margin above its cap comment),
+    # `needs:`, so each job stays under its own cap: `helper-contracts` 18 min
+    # (16 min test step cap, measured 10-12 min on 2026-10-26, plus the margin above),
     # `board-integration` 22 min (p95 10.0 min test step, plus its own
     # margin), `validate` 25 min (p95 6.3 min).
     timeout-minutes: 25
@@ -876,7 +884,7 @@ jobs:
         run: pnpm run build:board
 
       # BOUNDED like the helper contract suite now split into its own
-      # `helper-contracts` job: that step carries `timeout-minutes: 12`
+      # `helper-contracts` job: that step carries `timeout-minutes: 16`
       # because it once wedged until the job ceiling at 25 and reported
       # nothing; this step had no bound at all. E2E dispatches real workers,
       # so it is the likeliest of all of them to hang — and now that it is
