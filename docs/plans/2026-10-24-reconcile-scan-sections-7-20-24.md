@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2479
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-24, Jan Wloka, `bug/reconcile-config-and-plan-meta`
 - **Started:** 2026-10-26, Jan Wloka, `bug/reconcile-scan-sections-1-and-7`
 - **Started:** 2026-10-26, Jan Wloka, `bug/reconcile-scan-sections-22-24`
+- **Delivered:** 2026-10-26
 
 ## Changelog
 
