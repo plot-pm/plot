@@ -9,7 +9,7 @@
 - **Issue:** #2385
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -117,6 +117,15 @@ The branch-with-ref arm (`branch-state.ts:310-325`) is also out of scope. On ewz
 - [ ] [Technical] Can every `pr-list` caller take exit 7 for a short listing? Slice 1 surveys `plot-fleet-scan.sh`, `plot-impl-status.sh`, `plot-reconcile-scan.sh`, `plot-pr-merged.sh` and the host adapter first. If a caller cannot take it, the fallback is a stderr marker that the adapter reads. — *decides: the survey in slice 1*
 - [ ] [Domain] Which merged PR does slice 3 take for a reused branch name? A by-name query returns every merged PR of the name, and ewz-kus-portal holds 87 reused names. Today `merged_pr_for_branch` takes the first listed row (`plot-impl-status.sh:274-277`), and `mergedRowByHead` takes the lowest number (`merged-row.ts:30-33`), so both can pick an earlier attempt. — *decides: whether a Bitbucket row carries `mergedAt` or a merge commit, so the per-plan age rule (`merge-subject.md:43`) applies; slice 3 measures it read-only on ewz-kus-portal*
 - [ ] [Technical] Does the wave gate drop `--merges` to read squash subjects? Across about 70 local Bitbucket clones, 7 single-parent commits carry a `Merged in` subject, and ewz-kus-portal holds 0. Walking every commit costs 0.10–0.12 s against 0.02 s on ewz-kus-portal. The default keeps `--merges`. — *decides: the operator, from these numbers*
+- [ ] [Sibling] #2400 is Delivered with no code: PR #2422 merged at 2026-10-26T14:19:47Z holding only its claim and the blocker commit `f576060de`, and `bb_state_listing` on `origin/main` still asks one page. This plan names #2400 as the owner of Bitbucket paging in Motivation, Cost, Scope and Overlap. Either #2400 goes back to Approved through `/plot-reject`, or slice 1 pages `bb_state_listing` through `bb api` and `next` and takes over #2400's work. — *decides: the operator; raised round 2 by contradiction*
+- [ ] [Technical] Slice 1's exit 7 puts the whole stderr into `prError` (`pr-refresh.ts:1792`), and the board shows *"PR data stale — host unreachable"* after every refresh of a Bitbucket board with more than 50 PRs in one state. It also gives exit 7 a second meaning against `plot-host.sh:960-970`, `scripts-shell.ts:101-110` and the scan's re-run note (`plot-fleet-scan.sh:5332-5336`). Choose one: page the listing (see above), read the existing *possibly truncated* line in the adapter, or render it as a notice that says *incomplete*. — *decides: the #2400 choice above; raised round 2 by all four jurors*
+- [ ] [Technical] Callers that lose rows on exit 7: `plot-reconcile-scan.sh:738`, `plot-open-pr.sh:116` and `packages/domain/corpus/listing-page.corpus.test.ts:124`. The open point on the survey above is answered *no* for these three. — *decides: the slice 1 design; raised round 2 by estate and deliverable*
+- [ ] [Cost] A store that never becomes whole gets a full read on every refresh (`prWindowFor`, `rules/pr-index.ts:384`). On Bitbucket that costs one `git fetch` per base and one `merge-tree` per open PR, and it replaces the paged `updated_on>=` delta with one 50-row page per state. The page order of the unfiltered listing is unmeasured. — *decides: measure on a live v5 Bitbucket store before slice 1; raised round 2 by cost and deliverable*
+- [ ] [Technical] Slice 2 misses a third cap: `packages/domain/corpus/production.ts:286-290` `readMergeSubjects(…, limit = 2000)`, which `branch-state.corpus.test.ts:340,392` reads. `registryd-main.ts` has no saturation report. `merge-subjects.ts:40-41` and `board/src/server/entry/merge-subject.ts:39` go stale. — *decides: slice 2's file list; raised round 2 by estate and contradiction*
+- [ ] [Deliverable] Slice 2's Changelog line describes no reachable case on ewz-kus-portal: all 1770 `Merged in` subjects lie inside the 2000 cap, and only 253 merges are newer than the first plan file. Restate it as the footer note that disappears, or bound the walk by the oldest plan's adding commit. — *decides: the Changelog; raised round 2 by deliverable and cost*
+- [ ] [Deliverable] Slice 3 duplicates the deliver gate's by-name lookup (`deliverabilityOf` → `Host.prMerged`). Choose one: step 4 reads `plot-ask.mjs deliverable`, one `pr-list` call with repeated `--branch`, or a declared and paired shell duplicate. Narrow Changelog line 3 to the step-4 report, drop "On Bitbucket" or limit the slice to Bitbucket, and edit `skills/plot-deliver/SKILL.md:139`. — *decides: the slice 3 design; raised round 2 by estate, contradiction, cost and deliverable*
+- [ ] [Scope] GitHub has the same false `complete: true`: `PR_LIMIT = 1000`, and the arm exits 0 at the limit (`plot-host.sh:4735-4736`). This checkout's store holds 1007 rows with `complete: true`. Extend slice 1 to GitHub, or scope it out with a reason. — *decides: the operator; raised round 2 by estate*
+- [ ] [Deliverable] The summary opens with the July plans' *state unknown*, which no slice changes. Say in the summary that it is out of scope (HTTP 429). Correct Approach line 43 against `wholenessAfter`, replace slice 1's existing domain test (`pr-index.test.ts:205-220`) with a caller test, and name slice 1's `check-shell-lines.sh` offset. — *decides: the next amendment; raised round 2*
 - [x] [Domain] Does a merge-log row settle `pr: MERGED` for delivery? — *answered round 1: no.* No subject row enters the index. See *Merge-Subject Rows*.
 - [x] [Technical] What does a v6 row hold? — *answered round 1:* there is no v6. `PR_INDEX_VERSION` stays 5.
 - [x] [Technical] How do merge-log rows survive a `whole` fold? — *answered round 1:* there are none to survive. The "written once" claim is withdrawn.
@@ -134,15 +143,17 @@ The branch-with-ref arm (`branch-state.ts:310-325`) is also out of scope. On ewz
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Panel round 1: estate, contradiction, deliverable and cost lenses", "a": "unanimous amend; moderation at .plot/panels/2026-10-23-read-merged-prs-from-the-merge/panel.md; revision 2026-10-26 answered 14 points and left 4 open", "category": "panel"}
+    {"q": "Panel round 1: estate, contradiction, deliverable and cost lenses", "a": "unanimous amend; moderation at .plot/panels/2026-10-23-read-merged-prs-from-the-merge/panel.md; revision 2026-10-26 answered 14 points and left 4 open", "category": "panel"},
+    {"q": "Panel round 2: estate, contradiction, deliverable and cost lenses", "a": "unanimous amend; moderation at .plot/panels/2026-10-23-read-merged-prs-from-the-merge/round2-panel.md; 9 new open points, #2400 delivered with no code decides first", "category": "panel"}
   ],
   "deferredItems": [
     {"q": "Accept the reshaped scope, or restore subject rows as a v6 subjects array?", "category": "scope", "context": "Open Points"},
     {"q": "Can every pr-list caller take exit 7 for a short listing?", "category": "technical", "context": "Open Points"},
     {"q": "Which merged PR does slice 3 take for a reused branch name?", "category": "domain", "context": "Open Points"},
-    {"q": "Does the wave gate drop --merges to read squash subjects?", "category": "technical", "context": "Open Points"}
+    {"q": "Does the wave gate drop --merges to read squash subjects?", "category": "technical", "context": "Open Points"},
+    {"q": "#2400 is Delivered with no code: reject it, or move the paging into slice 1?", "category": "scope", "context": "Open Points"}
   ],
   "categoriesCovered": {
     "technical": {"stack": false, "architecture": true, "implementation": true},
