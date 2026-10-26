@@ -247,6 +247,8 @@ export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
 
 export { claimReleaseShell } from './claim-release/claim-release-shell.js';
 
+export { writeProbeShell, type WriteProbeShellOptions } from './write-probe/write-probe-shell.js';
+
 export { boundedRunProcess } from './bounded-run/bounded-run-process.js';
 export { boundedRunFixture, type BoundedRunFixture } from './bounded-run/bounded-run-fixture.js';
 
