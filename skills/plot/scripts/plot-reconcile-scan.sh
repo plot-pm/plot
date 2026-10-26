@@ -3155,28 +3155,6 @@ else
   # the cache on its second encounter. NO ASSOCIATIVE ARRAY (bash 3.2, no
   # `declare -A`), per section 1's index reader.
   oi_view_cache=""
-  # ask_issue <key> fills oi_tag/oi_err, asking the host only on a cache miss;
-  # returns 4 for "host unaskable", matching issue-view's own exit code.
-  ask_issue() {
-    local key="$1" line err_file="" view rc err
-    line=$(awk -F'\t' -v k="$key" '$1 == k {print; exit}' <<< "$oi_view_cache")
-    if [ -z "$line" ]; then
-      plot_tmpfile err_file reconcile-issue-err || err_file=""
-      view=$(bash "$script_dir/plot-host.sh" issue-view "$key" </dev/null 2>"${err_file:-/dev/null}"); rc=$?
-      err=$(head -1 "${err_file:-/dev/null}" 2>/dev/null); /bin/rm -f "$err_file" 2>/dev/null
-      case "$rc" in
-        4) line="$key	hostdead	${err:-tracker unavailable}" ;;
-        0) line="$key	$(printf '%s' "$view" | jq -r '.state // "open"' 2>/dev/null)	" ;;
-        *) line="$key	err	${err:-plot-host.sh exited $rc}" ;;
-      esac
-      oi_view_cache+="$line
-"
-    fi
-    oi_tag=${line#*	}; oi_tag=${oi_tag%%	*}
-    oi_err=${line#*	*	}
-    [ "$oi_tag" = hostdead ] && return 4
-    return 0
-  }
   # THE CLAIMS ARE READ ON FD 3, and the reason is a measured defect rather
   # than style: a nested `while read` inside a loop fed by `<<<` drains the
   # OUTER loop's stdin. Measured while writing this section — the first plan
@@ -3192,8 +3170,21 @@ else
     IFS=','
     for oi_key in $oi_keys; do
       IFS="$oi_IFS_saved"; [ -n "$oi_key" ] || continue
-      ask_issue "$oi_key"; oi_view_rc=$?
-      if [ "$oi_view_rc" -eq 4 ]; then
+      oi_line=$(awk -F'\t' -v k="$oi_key" '$1 == k {print; exit}' <<< "$oi_view_cache")
+      if [ -z "$oi_line" ]; then
+        oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
+        oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
+        oi_view_err=$(head -1 "${oi_view_err_file:-/dev/null}" 2>/dev/null); /bin/rm -f "$oi_view_err_file" 2>/dev/null
+        case "$oi_view_rc" in
+          4) oi_line="$oi_key	hostdead	${oi_view_err:-tracker unavailable}" ;;
+          0) oi_line="$oi_key	$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)	" ;;
+          *) oi_line="$oi_key	err	${oi_view_err:-plot-host.sh exited $oi_view_rc}" ;;
+        esac
+        oi_view_cache+="$oi_line
+"
+      fi
+      oi_tag=${oi_line#*	}; oi_tag=${oi_tag%%	*}; oi_err=${oi_line#*	*	}
+      if [ "$oi_tag" = hostdead ]; then
         # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to
         # ask, and it will answer the same for every remaining key — said once.
         [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: $oi_err)"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
