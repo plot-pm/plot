@@ -44,6 +44,24 @@ describe('insertStartedLine', () => {
     });
   });
 
+  it('stops at the next heading, appending after the last bullet before it', () => {
+    const plan = '# A\n\n## Status\n\n- **Delivered:** 2026-10-01, Jan, `bug/old`\n\n## Slices\n\n- `bug/other`\n';
+    const result = insertStartedLine(plan, '2026-10-26', 'Plot Test', 'bug/foo');
+    expect(result).toEqual({
+      outcome: 'inserted',
+      content: '# A\n\n## Status\n\n- **Delivered:** 2026-10-01, Jan, `bug/old`\n- **Started:** 2026-10-26, Plot Test, `bug/foo`\n\n## Slices\n\n- `bug/other`\n',
+    });
+  });
+
+  it('stops at an HTML comment, appending after the last bullet before it', () => {
+    const plan = '# A\n\n## Status\n\n- **Delivered:** 2026-10-01, Jan, `bug/old`\n\n<!-- spike -->\n';
+    const result = insertStartedLine(plan, '2026-10-26', 'Plot Test', 'bug/foo');
+    expect(result).toEqual({
+      outcome: 'inserted',
+      content: '# A\n\n## Status\n\n- **Delivered:** 2026-10-01, Jan, `bug/old`\n- **Started:** 2026-10-26, Plot Test, `bug/foo`\n\n<!-- spike -->\n',
+    });
+  });
+
   it('refuses a plan with no Status section', () => {
     expect(insertStartedLine('# A\n\n## Slices\n', '2026-10-26', 'Plot Test', 'bug/foo')).toEqual({
       outcome: 'refused',
