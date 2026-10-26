@@ -11,6 +11,7 @@
 - **Started:** 2026-10-26, Jan Wloka, `feature/pr-reader-lock-elects-one-writer`
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #2386
+- **Rounds:** 2
 - **Story:** <!-- optional -->
 - **Review:** pr
 - **Impl:** own branches
