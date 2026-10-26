@@ -283,25 +283,27 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$script_dir/plot-tmp.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
-# Prints one line (+ a rewrite hint) per `{k1,k2}` pair a `plot-plan-meta.sh`
-# field reports, and sets REPORT_UNREAD_PAIRS_N to the count. $1=field name,
-# $2=jq keys "k1,k2", $3=printf format (gets basename, k1, k2 and a fourth
-# argument, in that order), $4=none-message, $5=the fourth argument (k2 when
-# absent). Every value is an argument: none is read as a printf directive.
-# Shared by 24a (unread_waits) and 24b (unread_heading_items) — same shape, different field and wording. Sets a global rather than
+# Prints one line (+ a rewrite hint) per entry a `plot-plan-meta.sh` field
+# reports, and sets REPORT_UNREAD_PAIRS_N to the count. $1=field name,
+# $2=jq keys "k1, k2[, k3]", read against each entry with its plan bound as
+# $p, $3=printf format (gets basename, k1, k2 and a fourth argument, in that
+# order), $4=none-message, $5=the fourth argument (k3 when absent). Every
+# value is an argument: none is read as a printf directive.
+# Shared by 24a (unread_waits, a literal fourth argument) and 24b
+# (unread_heading_items, a k3 note computed from $p.waves). Sets a global rather than
 # returning the count on stdout: the per-item lines ARE this function's
 # printed report, so a caller cannot capture the count with $(...) without
 # swallowing them too.
 report_unread_pairs() {
-  local field=$1 keys=$2 fmt=$3 none_msg=$4 f k1 k2
+  local field=$1 keys=$2 fmt=$3 none_msg=$4 f k1 k2 k3
   REPORT_UNREAD_PAIRS_N=0
   if [ -n "$plan_json" ]; then
-    while IFS="$US" read -r f k1 k2; do
+    while IFS="$US" read -r f k1 k2 k3; do
       [ -n "$f" ] || continue
-      printf "$fmt" "$(basename "$f")" "$k1" "$k2" "${5-$k2}"
+      printf "$fmt" "$(basename "$f")" "$k1" "$k2" "${5-$k3}"
       REPORT_UNREAD_PAIRS_N=$((REPORT_UNREAD_PAIRS_N + 1))
     done < <(printf '%s\n' "$plan_json" \
-      | jq -r "select(.phase != \"NONE\") | .file as \$f | .$field[]? | [\$f, $keys] | join(\"\")")
+      | jq -r "select(.phase != \"NONE\") as \$p | .file as \$f | .$field[]? | [\$f, $keys] | join(\"\")")
   fi
   [ "$REPORT_UNREAD_PAIRS_N" -gt 0 ] || echo "  $none_msg"
 }
@@ -3057,8 +3059,6 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # still decides.
 n_open_issues=0; n_issue_unread=0
 n_unread=0
-n_unread_waits=0
-n_unread_heading_items=0
 # The finished plans that name an issue, read from the parse already in memory
 # (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
@@ -3091,28 +3091,22 @@ ask_issue_source() {
   local declared backend out rc
   declared=$(cfg "Tracker" "" 2>/dev/null)
   backend=$(bash "$script_dir/plot-host.sh" backend 2>/dev/null </dev/null)
-  [ -f "$oi_entry" ] && command -v node >/dev/null 2>&1 || {
-    oi_ask=unaskable
-    oi_reason="board/plot-issue-source.mjs could not be run"
-    return 0
-  }
+  # UNASKABLE UNTIL A STEP ANSWERS: each step sets the reason it would fail
+  # with, and a step that fails returns with `oi_ask=unaskable` and that reason.
+  oi_ask=unaskable
+  oi_reason="board/plot-issue-source.mjs could not be run"
+  [ -f "$oi_entry" ] && command -v node >/dev/null 2>&1 || return 0
   out=$(printf '%s' "$declared" | node "$oi_entry" "$backend" 2>/dev/null); rc=$?
-  if [ "$rc" -ne 0 ]; then
-    oi_ask=unaskable
-    oi_reason="board/plot-issue-source.mjs exited $rc"
-    return 0
-  fi
+  oi_reason="board/plot-issue-source.mjs exited $rc"
+  [ "$rc" -eq 0 ] || return 0
   # EXIT CODE FIRST, THEN THE WORD. A word outside the three means the entry
   # answered something this section cannot act on, which is the same answer as
-  # a failure: ask nobody, and say so.
+  # a failure: no arm matches, and `oi_ask` stays unaskable with this reason.
+  oi_reason="board/plot-issue-source.mjs answered '${out}', which is not one of tracker/git-host/nobody"
   case "${out%%	*}" in
     tracker)   oi_ask=tracker; oi_scheme=$(printf '%s' "$out" | cut -f2) ;;
     git-host)  oi_ask=git-host ;;
     nobody)    oi_ask=nobody; oi_reason=$(printf '%s' "$out" | cut -f2-) ;;
-    *)
-      oi_ask=unaskable
-      oi_reason="board/plot-issue-source.mjs answered '${out}', which is not one of tracker/git-host/nobody"
-      ;;
   esac
 }
 
@@ -3295,22 +3289,13 @@ echo "== 24b. Unread heading items (a list item under a heading names a branch n
 # `unread_heading_items[]`, which `branch-heading.test.mjs` asserts whole and
 # this slice does not own. Zero entries: the wave's heading never read a
 # `Branch:`. One or more: it already claims a different branch than this item.
-n_unread_heading_items=0
-if [ -n "$plan_json" ]; then
-  while IFS="$US" read -r f wave branch has_heading_branch; do
-    [ -n "$f" ] || continue
-    echo "  $(basename "$f") — wave '$wave' holds a list item naming '$branch', a branch no heading in that wave claims"
-    oi_hb_note="give this wave a (Branch: $branch) heading — it carries none yet"
-    [ "$has_heading_branch" = "true" ] && oi_hb_note="give '$branch' its own (Branch: $branch) heading — this wave's heading already claims a different branch"
-    echo "    rewrite: move the item under its own heading, or $oi_hb_note"
-    n_unread_heading_items=$((n_unread_heading_items + 1))
-  done < <(printf '%s\n' "$plan_json" \
-    | jq -r --arg US "$US" 'select(.phase != "NONE") as $p | ($p.waves // []) as $waves | $p.file as $f
-             | $p.unread_heading_items[]? as $u
-             | ($waves | map(select(.name == $u.wave)) | (.[0].branches // []) | length > 0) as $has
-             | [$f, $u.wave, $u.branch, ($has | tostring)] | join($US)')
-fi
-[ "$n_unread_heading_items" -gt 0 ] || echo "  (none — every heading-shape list item was attributed)"
+# The third jq key computes the repair note from the first wave of that name.
+report_unread_pairs unread_heading_items '.wave, .branch, (.wave as $w | .branch as $b | ([$p.waves[]? | select(.name == $w)] | .[0].branches // [] | length > 0) as $has
+  | if $has then "give \u0027\($b)\u0027 its own (Branch: \($b)) heading — this wave\u0027s heading already claims a different branch" else
+  "give this wave a (Branch: \($b)) heading — it carries none yet" end)' \
+  "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or %s\n" \
+  "(none — every heading-shape list item was attributed)"
+n_unread_heading_items=$REPORT_UNREAD_PAIRS_N
 echo
 
 # ---------------------------------------------------------------------------
