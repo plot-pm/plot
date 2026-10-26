@@ -5351,11 +5351,13 @@ ticket: PROJ-201
 test('section 23 prefers the Issue: line\'s key over a different ticket: value', () => {
   // `both-keys` names PROJ-101 on its `Issue:` line and a DIFFERENT key,
   // PROJ-999, in `ticket:` frontmatter. `resolveItemKey`'s fixed order — the
-  // Issue: line, then ticket: — says PROJ-101 must be the one compared. A
-  // naive "use ticket: whenever issues[] looks sparse" implementation would
-  // still get this right only by accident (issues[] is NOT sparse here), so
-  // this fixture is built so the two keys disagree on whether anything is
-  // open: PROJ-101 is open, PROJ-999 is not even in the stub's open list.
+  // Issue: line, then ticket: — says PROJ-101 must be the one compared.
+  // PROJ-999 is stubbed OPEN here (not merely absent from the open list): an
+  // always-append regression that keeps both keys would still pass this test
+  // if PROJ-999 read closed downstream, since a closed key's own `issue-view`
+  // check filters it out of the report regardless of whether jq appended it.
+  // Stubbing it open removes that second safety net — only the precedence
+  // rule itself can keep PROJ-999 out of the report now.
   const bothKeys = `---
 ticket: PROJ-999
 ---
@@ -5368,7 +5370,7 @@ ticket: PROJ-999
 - **Issue:** PROJ-101
 
 `;
-  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], {
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101', 'PROJ-999']), ['--no-fetch'], {
     ticketPrefixes: 'PROJ',
     extraPlans: { '2026-01-06-both-keys.md': bothKeys },
   });
@@ -5376,7 +5378,7 @@ ticket: PROJ-999
     const s = f.sections['23'];
     assert.match(s, /2026-01-06-both-keys\.md — released, still open: PROJ-101$/m,
       `the Issue: line's key wins over a different ticket: value:\n${s}`);
-    assert.doesNotMatch(s, /PROJ-999/, `the ticket: value must not be the one compared:\n${s}`);
+    assert.doesNotMatch(s, /PROJ-999/, `the ticket: value must not be the one compared, even though it is open:\n${s}`);
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });

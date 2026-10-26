@@ -39,23 +39,34 @@ const PLAN =
   + `### Waiter heading\n\n`
   + `- \`${WAITER_CROSS}\` <!-- waits: ${TARGET} --> — waits under a DIFFERENT heading\n`;
 
-/** A `gh` that answers an OPEN pull request for TARGET and none for anything else. */
-const GH =
+/**
+ * A `gh` that answers a pull request for TARGET in the given state, and none
+ * for anything else. `pr-state` by branch calls `gh pr view <branch> --json
+ * …`, so the branch is argv position 3 ("pr", "view", "<branch>") — not 4,
+ * which lands on `--json`. `plot-fleet-scan.sh`'s bulk `pr list --state all`
+ * is the dominant path for a scan with no per-branch ask, so both arms must
+ * answer the same state for a fixture to exercise what the real scan reads.
+ */
+const ghFor = (state: 'OPEN' | 'MERGED'): string =>
   '#!/usr/bin/env bash\n'
   + 'if [ "$1 $2" = "pr view" ]; then\n'
-  + '  br="$4"\n'
-  + `  if [ "$br" = "${TARGET}" ]; then echo '{"number":42,"state":"OPEN","headRefName":"${TARGET}","draft":true}'; exit 0; fi\n`
+  + '  br="$3"\n'
+  + `  if [ "$br" = "${TARGET}" ]; then echo '{"number":42,"state":"${state}","headRefName":"${TARGET}","draft":${state === 'OPEN'}}'; exit 0; fi\n`
   + '  echo "no pull requests found" >&2; exit 1\n'
   + 'fi\n'
   + 'if [ "$1 $2" = "pr list" ]; then\n'
-  + `  echo '[{"number":42,"state":"OPEN","headRefName":"${TARGET}","draft":true}]'\n`
+  + `  echo '[{"number":42,"state":"${state}","headRefName":"${TARGET}","draft":${state === 'OPEN'}}]'\n`
   + '  exit 0\n'
   + 'fi\n'
   + 'echo "{}"\n';
 
+const GH = ghFor('OPEN');
+
 let root: string;
 let sandbox: Estate;
 let full: Map<string, string>;
+let fullMerged: Map<string, string>;
+let eligibleWhileOpen: string[];
 
 /** Builds the sandbox estate and returns its working tree. */
 const estate = (): Estate => {
@@ -114,6 +125,13 @@ beforeAll(() => {
   process.env.PATH = `${join(root, 'bin')}:${path ?? ''}`;
   try {
     full = statesOf(readFleetScan(sandbox) as Pulse);
+    eligibleWhileOpen = readListEligible(sandbox, { fetch: false });
+    // TARGET's PR reading MERGED, not OPEN: the real discriminator. `waitVerdict`
+    // treats every non-MERGED state alike, so a fixture that never reads MERGED
+    // cannot tell "the host's OPEN answer flowed through" from "the host was
+    // unreachable and the default happened to read the same".
+    writeFileSync(join(root, 'bin', 'gh'), ghFor('MERGED'));
+    fullMerged = statesOf(readFleetScan(sandbox) as Pulse);
   } finally {
     process.env.PATH = path;
   }
@@ -140,11 +158,11 @@ const unstarted: BranchReadings = {
   waits: [],
 };
 
-/** What the rule answers for a branch waiting on an OPEN prerequisite. */
-const ruleFor = (prerequisite: string): string =>
+/** What the rule answers for a branch waiting on `prerequisite`, reading `state`. */
+const ruleFor = (prerequisite: string, state: 'OPEN' | 'MERGED'): string =>
   branchState({
     ...unstarted,
-    waits: [{ branch: prerequisite, pr: 'OPEN', namedSlice: ruleNames().has(prerequisite) }],
+    waits: [{ branch: prerequisite, pr: state, namedSlice: ruleNames().has(prerequisite) }],
   });
 
 describe('a prerequisite with an open pull request, under one heading and across two', () => {
@@ -152,22 +170,22 @@ describe('a prerequisite with an open pull request, under one heading and across
     ['the same heading as its target', WAITER_SAME],
     ['a different heading than its target', WAITER_CROSS],
   ])('reads waiting, not eligible, for a waiter under %s', (_what, branch) => {
-    expect({ rule: ruleFor(TARGET), full: full.get(branch) }).toEqual({
+    expect({ rule: ruleFor(TARGET, 'OPEN'), full: full.get(branch) }).toEqual({
       rule: 'waiting',
       full: 'waiting',
     });
   });
 
   it('does not hand either waiter to --list-eligible', () => {
-    const path = process.env.PATH;
-    process.env.PATH = `${join(root, 'bin')}:${path ?? ''}`;
-    let eligible: string[];
-    try {
-      eligible = readListEligible(sandbox, { fetch: false });
-    } finally {
-      process.env.PATH = path;
-    }
-    expect(eligible).not.toContain(WAITER_SAME);
-    expect(eligible).not.toContain(WAITER_CROSS);
+    expect(eligibleWhileOpen).not.toContain(WAITER_SAME);
+    expect(eligibleWhileOpen).not.toContain(WAITER_CROSS);
+  });
+
+  it.each([
+    ['the same heading as its target', WAITER_SAME],
+    ['a different heading than its target', WAITER_CROSS],
+  ])('clears to not-waiting once TARGET merges, for a waiter under %s', (_what, branch) => {
+    expect(ruleFor(TARGET, 'MERGED')).not.toEqual('waiting');
+    expect(fullMerged.get(branch)).not.toEqual('waiting');
   });
 });
