@@ -156,7 +156,7 @@ Each slice adds a changeset for package `plot`, with its Changelog line as the d
 
 ### Ask Only Where It Decides
 
-- `bug/nothing-done-asks-pr-state-only-where-it-decides` — ask `commitBeyondClaim` and `prOpen` only where `ending-action.ts:346-347` reads them, build the nothing-done ports with `tally`, count the release's host calls, and reset `tally` at the spend reading with the thrown and incomplete paths named
+- `bug/nothing-done-asks-pr-state-only-where-it-decides` — ask `commitBeyondClaim` and `prOpen` only where `ending-action.ts:346-347` reads them, build the nothing-done ports with `tally`, count the release's host calls, and reset `tally` at the spend reading with the thrown and incomplete paths named → #2732
 
 ### Merged Delta Read
 
