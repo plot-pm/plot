@@ -19,6 +19,7 @@ export { shellContext, scriptPath, type ShellContext } from './scripts.js';
 export { scriptsShell } from './scripts/scripts-shell.js';
 
 export { planStoreShell } from './plan-store/plan-store-shell.js';
+export { planStoreRef } from './plan-store/plan-store-ref.js';
 export {
   planStoreFixture,
   planRecord,

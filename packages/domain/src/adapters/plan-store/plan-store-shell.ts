@@ -11,8 +11,16 @@ import { answered, failed, type PortResult } from '../../port-result.js';
 import { asJsonLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
-/** One line of `plot-plan-meta.sh` output, before it is renamed to the port's shape. */
-interface RawPlan {
+/**
+ * One line of `plot-plan-meta.sh` output, before it is renamed to the port's
+ * shape.
+ *
+ * Exported for {@link planStoreRef}, the ref-backed sibling adapter: both
+ * spawn the SAME parser and rename its wire shape with the SAME function —
+ * {@link planOf} — so the two adapters cannot drift into two readings of one
+ * format contract.
+ */
+export interface RawPlan {
   file?: string;
   format?: string;
   phase?: string;
@@ -121,7 +129,7 @@ const slicesOf = (raw: RawPlan): RawSlice[] => {
  * @param raw - one JSON line from the parser.
  * @returns the record, with every absent field at its empty value.
  */
-const planOf = (raw: RawPlan): PlanRecord => ({
+export const planOf = (raw: RawPlan): PlanRecord => ({
   file: raw.file ?? '',
   format: raw.format ?? 'none',
   phase: raw.phase ?? '',
