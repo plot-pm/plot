@@ -731,7 +731,7 @@ resolve_wt_root() { # sets wt_root, wt_prefix; exits 3 when unaskable
 # and that is the arm a macOS operator uses. The fill and the parse ARE
 # assertable on Linux, which is what this guard makes reachable.
 if [ -n "${PLOT_FLEETCTL_SOURCED:-}" ]; then
-  return 0 2>/dev/null || true
+  return 0 2>/dev/null
 fi
 
 mode=""
@@ -984,7 +984,7 @@ if [ "$mode" = "status" ]; then
   # included, because a board runs on a host with no init system.
   skip_pid=""
   [ "$install_state" = running ] && skip_pid=$sup_pid
-  plot_processes_block "$skip_pid" || true
+  plot_processes_block "$skip_pid"
   # THE EXIT CODE COMES FROM THE CAPTURE, NEVER FROM A FRESH PROBE. This line
   # read `supervisor_loaded; exit $?` — a fourth call to the init system that
   # recomputed the verdict from the label alone, so a loaded-but-dead
