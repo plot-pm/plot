@@ -3175,11 +3175,13 @@ else
         oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
         oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
         oi_view_err=$(head -1 "${oi_view_err_file:-/dev/null}" 2>/dev/null); /bin/rm -f "$oi_view_err_file" 2>/dev/null
-        case "$oi_view_rc" in
-          4) oi_line="$oi_key	hostdead	${oi_view_err:-tracker unavailable}" ;;
-          0) oi_line="$oi_key	$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)	" ;;
-          *) oi_line="$oi_key	err	${oi_view_err:-plot-host.sh exited $oi_view_rc}" ;;
-        esac
+        if [ "$oi_view_rc" -eq 4 ]; then
+          oi_line="$oi_key	hostdead	${oi_view_err:-tracker unavailable}"
+        elif [ "$oi_view_rc" -eq 0 ]; then
+          oi_line="$oi_key	$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)	"
+        else
+          oi_line="$oi_key	err	${oi_view_err:-plot-host.sh exited $oi_view_rc}"
+        fi
         oi_view_cache+="$oi_line
 "
       fi
