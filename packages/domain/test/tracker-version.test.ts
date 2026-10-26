@@ -235,4 +235,17 @@ describe('versionRead', () => {
     const unknown = await trackerFixture({ versions: {} }).versionRead('9.9.9', 10);
     expect(unknown).toEqual({ ok: false, why: 'unaskable', reason: "version-not-found: this fixture has no version named '9.9.9'" });
   });
+
+  it('counts the version-existence check in pages, matching the Jira adapter', async () => {
+    const read = await trackerFixture({
+      versions: { '1.2.0': { name: '1.2.0', released: false, releaseDate: null } },
+      labelled: {
+        'fixVersion:1.2.0': [
+          { id: '1', title: 't1', url: 'u', createdAt: null, body: null, status: '', statusCategory: '', closedAt: null, assignees: [] },
+          { id: '2', title: 't2', url: 'u', createdAt: null, body: null, status: '', statusCategory: '', closedAt: null, assignees: [] },
+        ],
+      },
+    }).versionRead('1.2.0', 10);
+    expect(value(read).pages).toBe(2);
+  });
 });

@@ -167,11 +167,14 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       const version = fixture.versions?.[name];
       if (version === undefined) return unaskable(`${VERSION_NOT_FOUND}: this fixture has no version named '${name}'`);
       const withVersion = fixture.labelled?.[`fixVersion:${name}`] ?? [];
+      // +1 for the version-existence check itself, the way `tracker-jira.ts`
+      // counts one page per project's `version-list` call alongside the issue
+      // pages: this fixture models exactly one project's worth of that check.
       return answered({
         ...version,
         issues: withVersion.slice(0, limit),
         complete: withVersion.length < limit,
-        pages: pagesOf(Math.min(withVersion.length, limit)),
+        pages: pagesOf(Math.min(withVersion.length, limit)) + 1,
       });
     },
 
