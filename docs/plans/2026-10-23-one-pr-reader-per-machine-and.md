@@ -201,7 +201,7 @@ From `CLAUDE.md`:
 
 ### fleetd lock
 
-- `feature/fleetd-holds-the-pr-index-lock` — fleetd elects on every PR beat before the cadence gate, fences before `writePrStore`, writes the reader state file and its `fleetd` heartbeat, adopts the state file at start, and skips the pass on `held` and on `failed`; observable: a fleetd restart inside a host-named backoff sends no PR request before `prNextAt`; updates the `fleet-clock.ts` docs and the `CLAUDE.md` paragraph
+- `feature/fleetd-holds-the-pr-index-lock` — fleetd elects on every PR beat before the cadence gate, fences before `writePrStore`, writes the reader state file and its `fleetd` heartbeat, adopts the state file at start, and skips the pass on `held` and on `failed`; observable: a fleetd restart inside a host-named backoff sends no PR request before `prNextAt`; updates the `fleet-clock.ts` docs and the `CLAUDE.md` paragraph → #2723
 
 ### Board reader
 
