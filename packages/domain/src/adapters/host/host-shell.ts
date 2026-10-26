@@ -441,9 +441,15 @@ export const hostShell = (context: ShellContext): Host => {
       return record(run, (stdout) => asText(stdout));
     },
 
-    prList: (state, limit) =>
+    prList: (state, limit, since) =>
       ask(
-        ['pr-list', '--state', state, ...(limit === undefined ? [] : ['--limit', String(limit)])],
+        [
+          'pr-list',
+          '--state',
+          state,
+          ...(limit === undefined ? [] : ['--limit', String(limit)]),
+          ...(since === undefined ? [] : ['--since', since]),
+        ],
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
       ),
 

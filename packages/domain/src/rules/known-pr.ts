@@ -1,5 +1,5 @@
 import type { Pr } from '../entities/pr.js';
-import type { PrIndexRow } from '../entities/pr-index.js';
+import type { PrIndex, PrIndexRow } from '../entities/pr-index.js';
 import { sliceVerdicts } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
 
@@ -65,6 +65,56 @@ const isMergedRow = (row: PrIndexRow): boolean => row.state.toUpperCase() === 'M
  */
 export const indexMergedHeads = (rows: readonly PrIndexRow[]): ReadonlySet<string> =>
   new Set(rows.filter(isMergedRow).map((row) => row.head));
+
+/**
+ * How much overlap a merged-set delta asks for, beyond the stored watermark.
+ *
+ * `updated:>` is exclusive on both hosts, so a PR updated in the same second
+ * as the watermark would otherwise be missed until the next full read. One
+ * {@link MERGED_DELTA_OVERLAP_MS} covers that same-second case plus one
+ * refresh interval of host-side ordering skew, at the cost of re-reading at
+ * most a minute's worth of merges — comfortably under a 500-row page.
+ */
+export const MERGED_DELTA_OVERLAP_MS = 60_000;
+
+/** What a merged-set read may ask the host for. */
+export type MergedSetWindow = { kind: 'delta'; since: string } | { kind: 'full' };
+
+/**
+ * Decides whether a merged-set read may narrow against the PR index, or must
+ * ask the host for everything.
+ *
+ * **A SIBLING OF {@link import('./pr-index.js').prWindowFor}, NOT A CALL TO
+ * IT, AND THE DIVERGENCE IS DELIBERATE.** Both answer *full or delta against
+ * the stored watermark*, and both refuse on a missing store, a missing or
+ * empty watermark, and `complete: false`. They diverge on the fourth
+ * question: `prWindowFor` asks *is the daily full read due BY AGE*, stretched
+ * by a failure grace, because a refresh's own cadence is a 24-hour clock this
+ * caller does not run. This rule asks nothing about age at all — a current,
+ * complete, watermarked store answers `delta` regardless of how long ago it
+ * was last whole, because a merged-set read costs nothing by staying narrow
+ * forever; the daily full read that would notice a deleted PR is
+ * `prWindowFor`'s job, not this one's. So this rule takes no `now` either —
+ * every question it answers is about the STORE, never about this machine's
+ * clock. Sharing the refusal ladder and adding an age clock neither needs
+ * would hide a THIRD function inside one that reads two unrelated settings;
+ * two short rules, each naming its own question, is the one this corpus does
+ * not drift out of sync by accident.
+ *
+ * @param held - the store as it was read, or null where there was none.
+ * @returns `full` where the store cannot be narrowed against; `delta` with
+ *   the host's own watermark minus {@link MERGED_DELTA_OVERLAP_MS}, rendered
+ *   in the host's stamp format, otherwise.
+ */
+export const mergedSetWindowFor = (held: PrIndex | null): MergedSetWindow => {
+  const full: MergedSetWindow = { kind: 'full' };
+  if (held === null) return full;
+  if (held.watermark === null || held.watermark === '') return full;
+  if (!held.complete) return full;
+  const watermarkMs = Date.parse(held.watermark);
+  if (Number.isNaN(watermarkMs)) return full;
+  return { kind: 'delta', since: new Date(watermarkMs - MERGED_DELTA_OVERLAP_MS).toISOString().replace(/\.\d{3}Z$/, 'Z') };
+};
 
 /**
  * What the PR index knows about a branch.

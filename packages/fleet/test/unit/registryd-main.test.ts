@@ -2040,7 +2040,11 @@ describe('the queue world asks a known PR by number when the listing fails (#114
         failed: true,
       });
       expect(await queue.prIndexRows()).toEqual([row]);
-      expect(connectors).toEqual(['bitbucket']);
+      // TWO READS, NOT ONE: `mergedBranches` now reads the index itself, to
+      // decide full vs. delta against the store — same file, no host call, so
+      // `tally.calls` below is unaffected. `prIndexRows` is a second, separate
+      // read of the same store for a different question.
+      expect(connectors).toEqual(['bitbucket', 'bitbucket']);
       expect(await queue.viewLanded(12)).toBe('landed');
       expect(await queue.viewLanded(13)).toBe('unknown');
       expect(calls().filter((c) => c.startsWith('pr-'))).toEqual(['pr-list --state merged --limit 500', 'pr-state 12', 'pr-state 13']);
@@ -2128,6 +2132,202 @@ describe('the queue world asks a known PR by number when the listing fails (#114
       const empty: PrIndexStore = { ...index([]), read: async () => answered(null) };
       const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, empty);
       expect(await queue.prIndexRows()).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('mergedBranches reads a current store as a delta against the host', () => {
+  // A CURRENT, COMPLETE, VERSION-5 STORE lets `mergedBranches` narrow its one
+  // host call to `--since <watermark - 60s>`, and union the delta's heads
+  // with the store's own merged rows — rather than asking for the whole
+  // 500-row page every tick.
+  const storeOf = (rows: ReturnType<typeof row>[], over: Record<string, unknown> = {}): PrIndexStore => ({
+    location: async () => answered(''),
+    read: async (connector) =>
+      answered({
+        v: PR_INDEX_VERSION,
+        connector,
+        watermark: '2026-10-20T12:34:56Z',
+        complete: true,
+        at: '2026-10-20T12:35:00Z',
+        rows,
+        ...over,
+      } as never),
+    write: async () => answered(undefined),
+  });
+  function row(number: number, head: string, state: string, draft = false) {
+    return { number, head, state, draft, checks: 'none' as const, review: '', url: '' };
+  }
+  const fakeHost = (dir: string, listing: string) => {
+    writeFileSync(
+      join(dir, 'plot-host.sh'),
+      [
+        '#!/usr/bin/env bash',
+        'case "$1" in',
+        '  backend) echo github ;;',
+        `  pr-list) ${listing} ;;`,
+        'esac',
+      ].join('\n') + '\n',
+    );
+    chmodSync(join(dir, 'plot-host.sh'), 0o755);
+  };
+
+  it('asks one delta call and unions its heads with the store\'s merged rows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-'));
+    try {
+      fakeHost(dir, 'echo \'{"number":99,"head":"feature/fresh","state":"MERGED","draft":false,"url":"","mergeCommit":""}\'');
+      const store = storeOf([
+        row(1, 'feature/old', 'MERGED'),
+        row(2, 'feature/open', 'OPEN'),
+        row(3, 'feature/closed', 'CLOSED'),
+        row(4, 'feature/draft', 'MERGED', true),
+      ]);
+      const tally = { calls: 0 };
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, store);
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/fresh', 'feature/old']),
+        whole: true,
+        kind: 'delta',
+        failed: false,
+      });
+      expect(tally.calls).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks since the watermark minus the overlap, rendered in the host stamp format', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-since-'));
+    const log = join(dir, 'calls.log');
+    try {
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        ['#!/usr/bin/env bash', `echo "$*" >> '${log}'`, 'case "$1" in', '  backend) echo github ;;', '  pr-list) echo -n "" ;;', 'esac'].join(
+          '\n',
+        ) + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, storeOf([]));
+      await queue.mergedBranches();
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls).toContain('pr-list --state merged --limit 500 --since 2026-10-20T12:33:56Z');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls through to the full call where the delta request fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-fail-'));
+    const log = join(dir, 'calls.log');
+    try {
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        [
+          '#!/usr/bin/env bash',
+          `echo "$*" >> '${log}'`,
+          'case "$1" in',
+          '  backend) echo github ;;',
+          '  pr-list)',
+          '    if echo "$*" | grep -q -- --since; then',
+          '      echo "HTTP 429 Rate limit for this resource has been exceeded" >&2; exit 5',
+          '    else',
+          '      echo \'{"number":1,"head":"feature/old","state":"MERGED","draft":false,"url":"","mergeCommit":""}\'',
+          '    fi',
+          '    ;;',
+          'esac',
+        ].join('\n') + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const tally = { calls: 0 };
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, storeOf([row(1, 'feature/old', 'MERGED')]));
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/old']),
+        whole: true,
+        kind: null,
+        failed: false,
+      });
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls.filter((c) => c.startsWith('pr-list'))).toEqual([
+        'pr-list --state merged --limit 500 --since 2026-10-20T12:33:56Z',
+        'pr-list --state merged --limit 500',
+      ]);
+      expect(tally.calls).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls through to the full call where the delta answers exactly 500 rows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-truncated-'));
+    const log = join(dir, 'calls.log');
+    try {
+      const fivehundred = Array.from({ length: 500 }, (_, i) => `feature/pr-${i}`)
+        .map((head, i) => `{"number":${i},"head":"${head}","state":"MERGED","draft":false,"url":"","mergeCommit":""}`)
+        .join('\\n');
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        [
+          '#!/usr/bin/env bash',
+          `echo "$*" >> '${log}'`,
+          'case "$1" in',
+          '  backend) echo github ;;',
+          '  pr-list)',
+          '    if echo "$*" | grep -q -- --since; then',
+          `      echo -e '${fivehundred}'`,
+          '    else',
+          '      echo \'{"number":1,"head":"feature/one","state":"MERGED","draft":false,"url":"","mergeCommit":""}\'',
+          '    fi',
+          '    ;;',
+          'esac',
+        ].join('\n') + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const tally = { calls: 0 };
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, storeOf([]));
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/one']),
+        whole: true,
+        kind: null,
+        failed: false,
+      });
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls.filter((c) => c.startsWith('pr-list')).length).toBe(2);
+      expect(tally.calls).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks the unconditional full listing, with no --since, for a full window', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-full-'));
+    const log = join(dir, 'calls.log');
+    try {
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        [
+          '#!/usr/bin/env bash',
+          `echo "$*" >> '${log}'`,
+          'case "$1" in',
+          '  backend) echo github ;;',
+          '  pr-list) echo \'{"number":1,"head":"feature/one","state":"MERGED","draft":false,"url":"","mergeCommit":""}\' ;;',
+          'esac',
+        ].join('\n') + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const tally = { calls: 0 };
+      // complete: false — the refusal ladder's own `full` case.
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, storeOf([], { complete: false }));
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/one']),
+        whole: true,
+        kind: null,
+        failed: false,
+      });
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls.filter((c) => c.startsWith('pr-list'))).toEqual(['pr-list --state merged --limit 500']);
+      expect(tally.calls).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
