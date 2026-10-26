@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2401 merged
 - **Started:** 2026-10-23, Jan Wloka, `feature/one-pr-reader-per-machine-and`
+- **Started:** 2026-10-26, Jan Wloka, `feature/pr-reader-lock-elects-one-writer`
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #2386
 - **Story:** <!-- optional -->
