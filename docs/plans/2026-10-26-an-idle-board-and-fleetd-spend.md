@@ -161,7 +161,7 @@ Each slice adds a changeset for package `plot`, with its Changelog line as the d
 
 ### Merged Delta Read
 
-- `feature/the-tick-reads-merged-prs-as-an-index-delta` — a domain rule in `rules/known-pr.ts` makes the tick's merged set the index's MERGED rows plus `pr-list --state merged --since <watermark − 60 s>` for a current, complete store, falls back to the 500-row listing otherwise, prints `merged-set=delta`, adds the one-consumer paragraph to CLAUDE.md *A Decision Reads The Index* and regenerates `AGENTS.md` <!-- waits: bug/nothing-done-asks-pr-state-only-where-it-decides -->
+- `feature/the-tick-reads-merged-prs-as-an-index-delta` — a domain rule in `rules/known-pr.ts` makes the tick's merged set the index's MERGED rows plus `pr-list --state merged --since <watermark − 60 s>` for a current, complete store, falls back to the 500-row listing otherwise, prints `merged-set=delta`, adds the one-consumer paragraph to CLAUDE.md *A Decision Reads The Index* and regenerates `AGENTS.md` <!-- waits: bug/nothing-done-asks-pr-state-only-where-it-decides --> → #2738
 
 ## Notes
 
