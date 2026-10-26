@@ -1371,6 +1371,214 @@ describe('run — a failed tick must not end the daemon', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // THE RESET PLACEMENT (#2716): `tally.calls` is zeroed after the spend
+  // reading, not at the top of the tick. The fresh-agent/nothing-done steps
+  // run AFTER that reading, so a COMPLETED tick's `mine=` line reports what
+  // the PRIOR tick's steps added to the tally, not its own — the reset at the
+  // bottom is what hands that number to the next tick's reading rather than
+  // wiping it first.
+  //
+  // Each completed tick names one `nothing-done` desk whose one commit is an
+  // empty claim marker (no commit beyond the claim), so
+  // `startNothingDoneReleases` asks the stubbed host's `pr-state` exactly
+  // once per completed tick — one host call, 60/hr at the default interval
+  // (`boardSharePerHour`, confirmed above: "two host calls a tick ... is the
+  // 120/hr ceiling"). Tick 1 reports `mine=0/hr` (nothing ran before it) and
+  // then adds its own one call to the tally; tick 2 THROWS before reaching
+  // the bottom-of-loop reset, so without the catch block's OWN reset tick 1's
+  // call would still be sitting in `tally.calls` when tick 3 reads it —
+  // reporting `mine=60/hr` for a call that happened two ticks ago. The catch
+  // block resets the tally itself, so tick 3 reads a clean `0` and reports
+  // `mine=0/hr`, exactly as tick 1 did.
+  it('counts only the completing tick\'s own calls, even after a tick in between threw', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-reset-'));
+    const worktree = join(dir, 'desk');
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(
+      join(worktree, '.plot-worker.ending.json'),
+      JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch: 'feature/x', detail: '' }),
+    );
+    // A real git tree whose only commit beyond `origin/main` is an empty
+    // claim marker — `commitBeyondClaim` (real git, not the stubbed host)
+    // reads that as `'no'`, which is what makes the step go on to ask
+    // `prOpen` at all.
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
+    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'plot: claim feature/x'], { cwd: worktree });
+    const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
+    execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
+    writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"NONE"}\'\nexit 0\n');
+    chmodSync(join(dir, 'plot-host.sh'), 0o755);
+    try {
+      const desk = {
+        path: worktree,
+        branch: 'feature/x',
+        isMain: false,
+        prunable: false,
+        registered: false,
+        planNamed: true,
+        plan: '2026-10-05-a-plan',
+        dirtyCount: 0,
+      };
+      const completeReport: TickReport = {
+        startedAt: 0,
+        costMs: 1,
+        agents: 1,
+        incomplete: '',
+        handOver: null,
+        trees: [desk],
+        decision: {
+          outcome: 'decided',
+          workflow: 'supervise',
+          writes: [],
+          detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [], unclaimed: [] },
+        },
+      };
+      let ticks = 0;
+      const lines: string[] = [];
+      const code = await run(
+        ['--start-agents'],
+        dir,
+        (s) => lines.push(s),
+        async () => {},
+        () => ticks >= 3,
+        () => {},
+        dir,
+        {
+          tick: async () => {
+            ticks += 1;
+            if (ticks === 2) throw new Error('mid-run tick failure');
+            return completeReport;
+          },
+        },
+      );
+      expect(code).toBe(0);
+      expect(ticks).toBe(3);
+      // Tick 2 threw before ever reaching `reportTick`, so only ticks 1 and 3
+      // print a `mine=` line.
+      const mineLines = lines.filter((l) => l.includes('mine=')).map((l) => /mine=(\d+)\/hr/.exec(l)?.[1]);
+      // Both read `0`: tick 1 because nothing ran before it, tick 3 because
+      // the catch block cleared tick 1's one call rather than letting it
+      // leak past the throwing tick 2. A reset left only at the top of the
+      // tick (the bug) would instead leave tick 3 reading `60` — tick 1's
+      // call, still sitting in `tally.calls` two ticks later.
+      expect(mineLines).toEqual(['0', '0']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * ACCEPTANCE, PER TICK (#2716): with N leftover worktrees and no manifest, of
+ * which M hold `nothing-done` with no commit beyond the claim, the step makes
+ * M `pr-state` calls that tick against N before — and `mine=` for the NEXT
+ * tick's reading (which is where a completed tick's own calls surface, see
+ * above) equals 60 times the calls counted since the previous reading.
+ */
+describe('acceptance — the step asks the host once per nothing-done desk with no commit beyond its claim, out of every leftover desk', () => {
+  it('makes M host calls for M of N desks, and reports 60 x M on the following tick', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-acceptance-'));
+    try {
+      // A REAL GIT TREE PER DESK: `commitBeyondClaim` reads real git, never
+      // the stubbed host. A desk whose only commit beyond `origin/main` is an
+      // empty claim marker reads `'no'` (asks `prOpen`); one with a real,
+      // non-claim commit reads `'yes'` (never asks).
+      const deskWithNoCommitBeyondClaim = (name: string, branch: string) => {
+        const worktree = join(dir, name);
+        mkdirSync(worktree, { recursive: true });
+        writeFileSync(
+          join(worktree, '.plot-worker.ending.json'),
+          JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch, detail: '' }),
+        );
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`], { cwd: worktree });
+        const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
+        execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
+        return { path: worktree, branch, isMain: false, prunable: false, registered: false, planNamed: true, plan: `2026-10-05-${name}`, dirtyCount: 0 };
+      };
+      const deskWithRealWorkBeyondClaim = (name: string, branch: string) => {
+        const worktree = join(dir, name);
+        mkdirSync(worktree, { recursive: true });
+        writeFileSync(
+          join(worktree, '.plot-worker.ending.json'),
+          JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch, detail: '' }),
+        );
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
+        writeFileSync(join(worktree, 'a-file.txt'), 'real work');
+        execFileSync('git', ['add', 'a-file.txt'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '-m', 'real work on the slice'], { cwd: worktree });
+        const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
+        execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
+        return { path: worktree, branch, isMain: false, prunable: false, registered: false, planNamed: true, plan: `2026-10-05-${name}`, dirtyCount: 0 };
+      };
+      const deskWithOtherEnding = (name: string, branch: string) => {
+        const worktree = join(dir, name);
+        mkdirSync(worktree, { recursive: true });
+        writeFileSync(
+          join(worktree, '.plot-worker.ending.json'),
+          JSON.stringify({ reason: 'spent', actor: 'monitor', branch, detail: '' }),
+        );
+        return { path: worktree, branch, isMain: false, prunable: false, registered: false, planNamed: true, plan: `2026-10-05-${name}`, dirtyCount: 0 };
+      };
+
+      // N = 4 leftover desks; M = 2 are `nothing-done` with no commit beyond
+      // the claim (the two the step must ask about); one has real work beyond
+      // its claim (`nothing-done` but must NOT be asked `prOpen`); one ended
+      // some other way entirely (must not be asked anything).
+      const trees = [
+        deskWithNoCommitBeyondClaim('desk-a', 'feature/a'),
+        deskWithNoCommitBeyondClaim('desk-b', 'feature/b'),
+        deskWithRealWorkBeyondClaim('desk-c', 'feature/c'),
+        deskWithOtherEnding('desk-d', 'feature/d'),
+      ];
+      writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"NONE"}\'\nexit 0\n');
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+
+      const completeReport: TickReport = {
+        startedAt: 0,
+        costMs: 1,
+        agents: 1,
+        incomplete: '',
+        handOver: null,
+        trees,
+        decision: {
+          outcome: 'decided',
+          workflow: 'supervise',
+          writes: [],
+          detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [], unclaimed: [] },
+        },
+      };
+      let ticks = 0;
+      const lines: string[] = [];
+      const code = await run(
+        ['--start-agents'],
+        dir,
+        (s) => lines.push(s),
+        async () => {},
+        () => ticks >= 2,
+        () => {},
+        dir,
+        {
+          tick: async () => {
+            ticks += 1;
+            return completeReport;
+          },
+        },
+      );
+      expect(code).toBe(0);
+      expect(ticks).toBe(2);
+      const mineLines = lines.filter((l) => l.includes('mine=')).map((l) => /mine=(\d+)\/hr/.exec(l)?.[1]);
+      // Tick 1 reports `0` (nothing ran before it); tick 2 reports what tick
+      // 1's own nothing-done step added — M = 2 calls, 60 x 2 = 120/hr.
+      expect(mineLines).toEqual(['0', '120']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 /**

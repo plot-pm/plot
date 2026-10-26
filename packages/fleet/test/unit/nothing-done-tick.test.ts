@@ -131,6 +131,24 @@ describe('nothingDoneDecisions', () => {
     expect(decision?.verdict).toBe('leave');
   });
 
+  it('leaves a desk alone when commitBeyondClaim itself answers unanswerable, asking prOpen nothing', async () => {
+    // THE FILLER-ARM EQUIVALENCE: `'unanswerable'` must take the same arm as
+    // `'yes'` — a verdict change here would mean the conditional-asking
+    // rewrite altered what the tick decides, not just what it asks.
+    let prCalls = 0;
+    const [decision] = await nothingDoneDecisions(
+      [candidate()],
+      async () => 'unanswerable',
+      async () => {
+        prCalls += 1;
+        return false;
+      },
+      noFreshSessions,
+    );
+    expect(decision?.verdict).toBe('leave');
+    expect(prCalls).toBe(0);
+  });
+
   it('decides release-claim for the refused assignment of a take-up holding-work, never the desk\'s branch (#1281)', async () => {
     const [decision] = await nothingDoneDecisions(
       [candidate({ ending: 'holding-work', refusedAssignment: 'infra/assigned' })],
@@ -193,6 +211,68 @@ describe('nothingDoneDecisions', () => {
     );
     expect(commitAsked).toEqual(['/wa', '/wb']);
     expect(prAsked).toEqual(['a', 'b']);
+  });
+
+  it('asks commitBeyondClaim once and prOpen once for nothing-done with no commit beyond the claim, and nothing for every other ending', async () => {
+    // ASK ONLY WHERE THE ANSWER DECIDES: a count that only checks the
+    // `nothing-done` row passes with `prOpen` asked for `holding-work` too —
+    // this covers every ending `endingAction` can be handed, including the
+    // three `isBoundEnding` filters out before a reading is built at all.
+    const endings: Array<Partial<NothingDoneCandidateReadings>> = [
+      { ending: null },
+      { ending: 'nothing-done' },
+      { ending: 'holding-work', refusedAssignment: 'infra/assigned' },
+      { ending: 'holding-work', refusedAssignment: '' },
+      { ending: 'bound' },
+      { ending: 'unreadable' },
+      { ending: 'quiet' },
+      { ending: 'corrections-spent' },
+      { ending: 'turn-limit' },
+      { ending: 'blocked' },
+      { ending: 'spend-limit' },
+      { ending: 'unstarted' },
+      { ending: 'run-limit' },
+      { ending: 'checks-unanswered' },
+      { ending: 'permission-denied' },
+      { ending: 'spent' },
+      { ending: 'unregistered' },
+      { ending: 'stopped' },
+    ];
+    for (const over of endings) {
+      let commitCalls = 0;
+      let prCalls = 0;
+      await nothingDoneDecisions(
+        [candidate(over)],
+        async () => {
+          commitCalls += 1;
+          return 'no';
+        },
+        async () => {
+          prCalls += 1;
+          return false;
+        },
+        noFreshSessions,
+      );
+      const isNothingDone = over.ending === 'nothing-done';
+      expect([over.ending, commitCalls]).toEqual([over.ending, isNothingDone ? 1 : 0]);
+      expect([over.ending, prCalls]).toEqual([over.ending, isNothingDone ? 1 : 0]);
+    }
+  });
+
+  it('skips prOpen where commitBeyondClaim already answers yes or unanswerable for nothing-done', async () => {
+    for (const commitAnswer of ['yes', 'unanswerable'] as const) {
+      let prCalls = 0;
+      await nothingDoneDecisions(
+        [candidate()],
+        async () => commitAnswer,
+        async () => {
+          prCalls += 1;
+          return false;
+        },
+        noFreshSessions,
+      );
+      expect([commitAnswer, prCalls]).toEqual([commitAnswer, 0]);
+    }
   });
 
   it('asks the shared fresh-session store by plan and branch for a holding-work ending', async () => {
