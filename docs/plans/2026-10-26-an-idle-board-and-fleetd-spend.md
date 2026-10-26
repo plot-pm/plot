@@ -13,6 +13,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-26, Jan Wloka, plan-PR #2716 merged
+- **Started:** 2026-10-26, Jan Wloka, `bug/nothing-done-asks-pr-state-only-where-it-decides`
 
 ## Changelog
 
