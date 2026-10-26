@@ -2,22 +2,22 @@ import type { Issue } from '../../entities/issue.js';
 import { ISSUE_PAGE_ROWS } from '../../entities/issue-index.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
-import type {
-  ClosedIssues,
-  IssueCommentOutcome,
-  IssueOpen,
-  IssueOpenOutcome,
-  IssueRead,
-  PlanStateOutcome,
-  PlanStateWrite,
-  StatusOutcome,
-  StatusWrite,
-  Tracker,
-  TrackerConfig,
-  TrackerSpender,
-  VersionRead,
+import {
+  VERSION_NOT_FOUND,
+  type ClosedIssues,
+  type IssueCommentOutcome,
+  type IssueOpen,
+  type IssueOpenOutcome,
+  type IssueRead,
+  type PlanStateOutcome,
+  type PlanStateWrite,
+  type StatusOutcome,
+  type StatusWrite,
+  type Tracker,
+  type TrackerConfig,
+  type TrackerSpender,
+  type VersionRead,
 } from '../../ports/tracker.js';
-import { VERSION_NOT_FOUND } from './tracker-shell.js';
 
 /** The tracker a fixture answers as. */
 export interface TrackerFixture {
@@ -52,10 +52,11 @@ export interface TrackerFixture {
   outcome?: StatusOutcome;
   /** Where every `issueOpen` is recorded, in call order, before it can refuse. */
   opened?: IssueOpen[];
-  /** The open issues `issueListLabelled` reports per label; a label absent here reports none. */
+  /**
+   * The issues `versionRead` reports for a version, keyed `fixVersion:<name>`;
+   * a key absent here reports none.
+   */
   labelled?: Readonly<Record<string, readonly Issue[]>>;
-  /** Whether `issueListLabelled` fails outright. */
-  issueListLabelledFails?: boolean;
   /**
    * The open issues `issueListWithTitle` searches over, per label; a label
    * absent here reports none. The fixture filters by title substring itself,
@@ -166,11 +167,14 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       const version = fixture.versions?.[name];
       if (version === undefined) return unaskable(`${VERSION_NOT_FOUND}: this fixture has no version named '${name}'`);
       const withVersion = fixture.labelled?.[`fixVersion:${name}`] ?? [];
+      // +1 for the version-existence check itself, the way `tracker-jira.ts`
+      // counts one page per project's `version-list` call alongside the issue
+      // pages: this fixture models exactly one project's worth of that check.
       return answered({
         ...version,
         issues: withVersion.slice(0, limit),
         complete: withVersion.length < limit,
-        pages: pagesOf(Math.min(withVersion.length, limit)),
+        pages: pagesOf(Math.min(withVersion.length, limit)) + 1,
       });
     },
 
@@ -181,12 +185,6 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       written.push(write);
       if (fixture.statusWriteFails === true) return failed();
       return answered(fixture.outcome ?? 'written');
-    },
-
-    issueListLabelled: async (label, limit): Promise<PortResult<IssueRead>> => {
-      if (fixture.issueListLabelledFails === true) return failed();
-      const found = (fixture.labelled?.[label] ?? []).slice(0, limit);
-      return answered({ issues: found, complete: found.length < limit, pages: pagesOf(found.length) });
     },
 
     issueListWithTitle: async (label, titleHas, limit): Promise<PortResult<IssueRead>> => {

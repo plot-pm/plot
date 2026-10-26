@@ -1,24 +1,25 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
-import type {
-  ClosedIssues,
-  IssueCommentOutcome,
-  IssueOpen,
-  IssueOpenOutcome,
-  IssueRead,
-  PlanStateOutcome,
-  StatusOutcome,
-  StatusWrite,
-  Tracker,
-  TrackerConfig,
-  TrackerSpender,
-  VersionRead,
+import {
+  VERSION_NOT_FOUND,
+  type ClosedIssues,
+  type IssueCommentOutcome,
+  type IssueOpen,
+  type IssueOpenOutcome,
+  type IssueRead,
+  type PlanStateOutcome,
+  type StatusOutcome,
+  type StatusWrite,
+  type Tracker,
+  type TrackerConfig,
+  type TrackerSpender,
+  type VersionRead,
 } from '../../ports/tracker.js';
 import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { noTransitionOutcome } from '../../rules/issue-status.js';
-import { issueOpenOf, trackerReads, VERSION_NOT_FOUND, type RawVersion } from './tracker-shell.js';
+import { issueOpenOf, trackerReads, type RawVersion } from './tracker-shell.js';
 
 /**
  * Folds the same-named versions of several projects into one.
@@ -144,7 +145,6 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
-    issueListLabelled: async (): Promise<PortResult<IssueRead>> => unaskable('the Jira tracker lists no issues by label'),
     issueListWithTitle: async (): Promise<PortResult<IssueRead>> => unaskable('the Jira tracker cannot search issues by title'),
 
     // GATED THE SAME WAY `issueListInbox` IS: a changed-since read scoped by

@@ -60,8 +60,11 @@ set -uo pipefail
 j() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 # The most frequent QUACDS-style prefix in a newline list of text, and how
-# often it occurred — one `count prefix` pair on stdout, empty if none.
-top_prefix() { grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1; }
+# many LINES carried it — one `count prefix` pair on stdout, empty if none.
+# At most one match per line (via awk match(), unlike grep -oE), so a single
+# line naming the prefix twice still counts once; the RSTART condition keeps
+# grep -oE's \b boundary, rejecting a match starting mid-token.
+top_prefix() { awk 'match($0, /[A-Z][A-Z0-9]{1,9}-[0-9]+/) && (RSTART == 1 || substr($0, RSTART - 1, 1) !~ /[A-Za-z0-9]/) { print substr($0, RSTART, RLENGTH) }' | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1; }
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo '{"error":"not a git repository"}'; exit 1; }
 

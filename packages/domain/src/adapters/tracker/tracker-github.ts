@@ -142,7 +142,6 @@ export const trackerGithub = (context: ShellContext): Tracker => {
 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
-    issueListLabelled: (label, limit): Promise<PortResult<IssueRead>> => reads.issueListLabelled(label, limit),
     issueListWithTitle: (label, titleHas, limit): Promise<PortResult<IssueRead>> =>
       reads.issueListWithTitle(label, titleHas, limit),
     issueListChanged: (since, limit): Promise<PortResult<IssueRead>> => reads.issueListChanged(since, limit),

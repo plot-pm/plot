@@ -48,6 +48,17 @@ const SCRIPT_PREFIX = /^plot-host:\s*/;
 const NO_EXTERNAL_TRACKER = 'plot';
 
 /**
+ * The `Tracker` config key's scheme: its first word, lowercased; `''` where
+ * `declared` names none.
+ *
+ * @param declared - the `Tracker` config key's value, verbatim.
+ * @returns the scheme, lowercased.
+ */
+const trackerScheme = (declared: string): string =>
+  // The first word, as one string: `split` with a limit of 1 joins to it.
+  declared.trim().split(/\s+/, 1).join('').toLowerCase();
+
+/**
  * Decides who answers a repository's open-issue list.
  *
  * A declared tracker is never answered by the git host in its place: a list
@@ -59,8 +70,7 @@ const NO_EXTERNAL_TRACKER = 'plot';
  * @returns the source to ask, or `nobody` with the reason no list exists.
  */
 export const issueSource = (reading: IssueSourceReading): IssueSource => {
-  // The first word, as one string: `split` with a limit of 1 joins to it.
-  const scheme = reading.declared.trim().split(/\s+/, 1).join('').toLowerCase();
+  const scheme = trackerScheme(reading.declared);
   if (scheme === '' || scheme === NO_EXTERNAL_TRACKER) return { ask: 'git-host' };
   const lister = reading.listers.find((l) => l.scheme === scheme);
   if (lister === undefined) {
@@ -113,13 +123,14 @@ export type SprintOwner =
  * `Sprint owner` and `Tracker` answer independent questions — this repo's
  * sprints versus where its issues live — and a repository that sets neither,
  * or sets only `Tracker`, keeps today's rule unchanged: a declared external
- * tracker means plot is not the sprint owner, because a shadow sprint board
- * drifts from the one plot would otherwise keep. `Sprint owner` exists only
- * to let a repository say "plot" to the first question while still naming an
- * external tracker for the second — declaring `Sprint owner` with any other
- * value, or declaring `Sprint owner: plot` with no `Tracker`, decides nothing
- * a bare `Tracker` reading didn't already decide, so the key is read only
- * where it is present and non-empty.
+ * tracker's own sprint board and a plot-kept one would update independently of
+ * each other and drift apart, so plot declines to keep the second one unless
+ * `Sprint owner: plot` says otherwise. `Sprint owner` exists only to let a
+ * repository say "plot" to the first question while still naming an external
+ * tracker for the second — declaring `Sprint owner` with any other value, or
+ * declaring `Sprint owner: plot` with no `Tracker`, decides nothing a bare
+ * `Tracker` reading didn't already decide, so the key is read only where it
+ * is present and non-empty.
  *
  * @param declaredSprintOwner - the `Sprint owner` config key's value,
  *   verbatim; `''` where the repository declared none.
@@ -131,7 +142,7 @@ export type SprintOwner =
 export const sprintOwner = (declaredSprintOwner: string, declaredTracker: string): SprintOwner => {
   const owner = declaredSprintOwner.trim().toLowerCase();
   if (owner === NO_EXTERNAL_TRACKER) return { owns: 'plot' };
-  const scheme = declaredTracker.trim().split(/\s+/, 1).join('').toLowerCase();
+  const scheme = trackerScheme(declaredTracker);
   return scheme === '' || scheme === NO_EXTERNAL_TRACKER ? { owns: 'plot' } : { owns: 'external', scheme };
 };
 
@@ -162,7 +173,7 @@ export const bbIssueCommandMissing = (declared: string, suggested: string): stri
   const trimmed = declared.trim();
   const declareOne = `${base}; declare the issue tracker with the \`Tracker\` config key`;
   if (trimmed === '') return declareOne;
-  const scheme = trimmed.split(/\s+/, 1).join('').toLowerCase();
+  const scheme = trackerScheme(declared);
   if (scheme !== NO_EXTERNAL_TRACKER) return base;
   return suggested === ''
     ? declareOne

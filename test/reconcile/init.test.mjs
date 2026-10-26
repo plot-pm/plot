@@ -115,6 +115,17 @@ test('detect: counts the ticket prefix it saw in branch names, a different popul
   assert.equal(probe(plain).branch_ticket_prefix_count, 0);
 });
 
+test('detect: counts a branch naming the prefix twice in its own name once, not twice', () => {
+  // A branch name mentioning its ticket twice — e.g. a rename that kept the
+  // old slug as a suffix — is one branch, not two occurrences of the prefix.
+  const r = repoWith({ 'a.txt': 'x' });
+  git(r, 'branch', 'feature/QUACDS-12-fix-related-to-QUACDS-34');
+  git(r, 'branch', 'bug/QUACDS-56-other');
+  const d = probe(r);
+  assert.equal(d.branch_ticket_prefix, 'QUACDS');
+  assert.equal(d.branch_ticket_prefix_count, 2, 'two branches, not three occurrences');
+});
+
 test('detect: counts a pushed branch once, not once per local and remote copy', () => {
   // One Jira-keyed branch checked out locally AND mirrored on origin is one
   // branch. Counted per ref it reads as 2, which clears the two-occurrence bar

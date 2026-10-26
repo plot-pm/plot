@@ -101,5 +101,6 @@ describe('the issue-source entry answers the bb-issue-missing sentence', () => {
   it('names the `Tracker` key for an empty stdin', () => {
     const { stdout } = ask(['--bb-issue-missing'], '');
     expect(stdout).toContain('`Tracker` config key');
+    expect(stdout).not.toContain('Sprint owner: plot');
   });
 });
