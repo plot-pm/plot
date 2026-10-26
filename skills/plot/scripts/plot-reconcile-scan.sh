@@ -1058,13 +1058,7 @@ $base	"
   # the both-links case below, where the correct link already exists.
   emit_drift() {
     drift_out+="  $base — $1\n"
-    if [ -n "${2-}" ]; then
-      if [ -n "${3-}" ]; then
-        drift_out+="    fix: git rm $2 && ln -s ../$base $3/${2##*/} && git add -A\n"
-      else
-        drift_out+="    fix: git rm $2 && git add -A\n"
-      fi
-    fi
+    [ -n "${2-}" ] && drift_out+="    fix: git rm $2${3:+ && ln -s ../$base $3/${2##*/}} && git add -A\n"
     n_drift=$((n_drift + 1))
   }
   if [ -n "$in_active" ] && [ -n "$in_delivered" ]; then
@@ -1521,46 +1515,29 @@ echo
 echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
 unsliced_out=""
 if [ -n "$plan_json" ] && [ -f "$script_dir/board/plot-slice-chain.mjs" ] && command -v node >/dev/null 2>&1; then
-    # Collect every multi-branch wave first — file, heading, branch count, and
-    # the wave's `branches` (each `{branch, waits_on}`) — into parallel arrays,
-    # joined with US (0x1f), not tab: an empty heading plus IFS-whitespace tabs
-    # would collapse and shift fields (same reason plan_rows uses US above).
-    # Phase-less files (phase == "NONE") are dropped: no Phase:, no plan.
-    _uc_f=(); _uc_wname=(); _uc_wcount=(); _uc_wbranches=()
-    while IFS="$US" read -r f wname wcount wbranches; do
+    # One `node` start for the whole reconcile run, not one per wave
+    # (docs/shell-and-domain.md: once per reconcile pass): a second,
+    # pure-jq pass (no spawn) re-reads the same filter for file/heading/
+    # count and `paste` zips it to node's verdicts, in order, field by
+    # field. US (0x1f), not tab: an empty heading plus IFS-whitespace
+    # tabs would collapse and shift fields (plan_rows above). Phase-less
+    # files (phase == "NONE") are dropped: no Phase:, no plan.
+    _uc_sel='select(.phase != "NONE") | .file as $f | .waves[]? | select((.branches | length) > 1)'
+    while IFS="$US" read -r f wname wcount verdict; do
       [ -n "$f" ] || continue
-      _uc_f+=("$f"); _uc_wname+=("$wname"); _uc_wcount+=("$wcount"); _uc_wbranches+=("$wbranches")
-    done < <(printf '%s\n' "$plan_json" \
-      | jq -r 'select(.phase != "NONE") | .file as $f
-               | .waves[]? | select((.branches | length) > 1)
-               | [$f, .name, (.branches | length | tostring), (.branches | tojson)] | join("")')
-    # One `node` start for the whole pass, not one per wave (docs/shell-and-
-    # domain.md: once per reconcile pass) — every wave's branches go in as one
-    # line each, and `plot-slice-chain.mjs` answers them back in the same order.
-    _uc_verdicts=""
-    if [ "${#_uc_f[@]}" -gt 0 ]; then
-      _uc_input=""
-      for _uc_i in "${!_uc_f[@]}"; do
-        _uc_input+="$(printf '{"branches":%s}\n' "${_uc_wbranches[$_uc_i]}")"$'\n'
-      done
-      _uc_verdicts=$(printf '%s' "$_uc_input" | node "$script_dir/board/plot-slice-chain.mjs")
-    fi
-    _uc_idx=0
-    while [ "$_uc_idx" -lt "${#_uc_f[@]}" ]; do
-      f=${_uc_f[$_uc_idx]}; wname=${_uc_wname[$_uc_idx]}; wcount=${_uc_wcount[$_uc_idx]}
-      verdict=$(printf '%s\n' "$_uc_verdicts" | sed -n "$((_uc_idx + 1))p")
-      _uc_idx=$((_uc_idx + 1))
       [ "$verdict" = "chained" ] && continue
       base=$(basename "$f"); slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-      # An unnamed wave (branches before any `### `) has no heading to name; say so
-      # rather than print an empty token.
-      unsliced_out+="  $base — wave '${wname:-(unnamed wave)}' carries $wcount branch lines (a wave holds one)\n"
-      # /plot-reslice is the repair, and it needs a human to name the slices and
-      # argue their order — so the verb is `reslice:`, not `fix:`: a person must
-      # decide, exactly as the index-drift section's is `optional:`.
-      unsliced_out+="    reslice: /plot-reslice ${slug%.md}\n"
+      # An unnamed wave (branches before any `### `) has no heading to
+      # name; say so rather than print an empty token. /plot-reslice is the
+      # repair, and it needs a human to name the slices and argue their
+      # order — so the verb is `reslice:`, not `fix:`: a person
+      # must decide, exactly as the index-drift section's is `optional:`.
+      unsliced_out+="  $base — wave '${wname:-(unnamed wave)}' carries $wcount branch lines (a wave holds one)\n    reslice: /plot-reslice ${slug%.md}\n"
       n_unsliced=$((n_unsliced + 1))
-    done
+    done < <(paste -d "$US" \
+      <(printf '%s\n' "$plan_json" | jq -r "$_uc_sel"'| [$f, .name, (.branches | length | tostring)] | join("'"$US"'")') \
+      <(printf '%s\n' "$plan_json" | jq -c "$_uc_sel"'| {branches}' \
+          | node "$script_dir/board/plot-slice-chain.mjs"))
 elif [ -n "$plan_json" ]; then echo "  (not evaluated — board/plot-slice-chain.mjs or node is missing)"
 fi
 if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every slice holds a single branch)"; fi
