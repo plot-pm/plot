@@ -10,6 +10,7 @@
 - **Started:** 2026-10-23, Jan Wloka, `feature/one-pr-reader-per-machine-and`
 - **Started:** 2026-10-26, Jan Wloka, `feature/pr-reader-lock-elects-one-writer`
 - **Started:** 2026-10-26, Jan Wloka, `feature/pr-index-lock-beside-the-index`
+- **Started:** 2026-10-26, Jan Wloka, `feature/fleetd-holds-the-pr-index-lock`
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2386
 - **Rounds:** 2
