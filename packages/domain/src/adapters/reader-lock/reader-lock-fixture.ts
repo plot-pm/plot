@@ -15,46 +15,68 @@ export interface ReaderLockFixtureOptions {
  * An in-memory `ReaderLock`, for a test that needs the port's behaviour
  * without a filesystem.
  *
- * MIRRORS `reader-lock-file.ts`'S GENERATION DISCIPLINE: `elect` only ever
- * publishes a generation past the one it read, and a stale or absent holder
- * is reclaimed by publishing past it rather than by removing it — there is
- * nothing to unlink in memory either, and keeping that shape here is what
- * makes this fixture a faithful stand-in rather than a simpler reimplementation
- * that could drift from what the file adapter actually does.
+ * MIRRORS `reader-lock-file.ts`'S GENERATION DISCIPLINE. A takeover publishes
+ * the generation past the highest one; a renewal replaces the holder's own
+ * generation; a release replaces it with a released claim, which `holder`
+ * reads as no holder; an election prunes every generation below `n - 1`. No
+ * generation number is ever published twice.
  *
  * @param options - canned answers, for a test.
  * @returns a `ReaderLock` backed by a plain object.
  */
 export const readerLockFixture = (options: ReaderLockFixtureOptions = {}): ReaderLock => {
   const alive = options.isAlive ?? (() => null);
-  const locks = new Map<string, { generation: number; claim: ReaderClaim }>();
+  const locks = new Map<string, Map<number, ReaderClaim>>();
+  const highestOf = (key: string): { generation: number; claim: ReaderClaim } | null => {
+    const generations = locks.get(key);
+    if (generations === undefined || generations.size === 0) return null;
+    const generation = Math.max(...generations.keys());
+    const claim = generations.get(generation);
+    return claim === undefined ? null : { generation, claim };
+  };
+  const put = (key: string, generation: number, claim: ReaderClaim): void => {
+    const generations = locks.get(key) ?? new Map<number, ReaderClaim>();
+    generations.set(generation, { ...claim, generation });
+    locks.set(key, generations);
+  };
   const readerStates = new Map<string, ReaderState>();
   const heartbeatsByKey = new Map<string, Map<string, number>>();
 
   return {
     holder: async (key: string): Promise<PortResult<ReaderClaim | null>> => {
       if (options.broken === true) return failed<ReaderClaim | null>();
-      const held = locks.get(key);
-      return answered(held === undefined ? null : held.claim);
+      const held = highestOf(key);
+      return answered(held === null || held.claim.released === true ? null : held.claim);
     },
 
     elect: async (key: string, claim: ReaderClaim): Promise<PortResult<'elected' | 'held'>> => {
       if (options.broken === true) return failed<'elected' | 'held'>();
-      const held = locks.get(key);
-      if (held !== undefined && held.claim.pid !== claim.pid) {
+      const held = highestOf(key);
+      const fresh: ReaderClaim = { generation: 0, pid: claim.pid, startedAt: claim.startedAt, at: claim.at };
+      if (held !== null && held.claim.pid === claim.pid && held.claim.released !== true) {
+        put(key, held.generation, fresh);
+        return answered<'elected' | 'held'>('elected');
+      }
+      if (held !== null && held.claim.pid !== claim.pid) {
         if (!readerIsStale(held.claim, alive(held.claim.pid), null, claim.at)) {
           return answered<'elected' | 'held'>('held');
         }
       }
       const generation = (held?.generation ?? 0) + 1;
-      locks.set(key, { generation, claim: { ...claim, generation } });
+      put(key, generation, fresh);
+      const generations = locks.get(key);
+      for (const old of Array.from(generations?.keys() ?? [])) {
+        if (old < generation - 1) generations?.delete(old);
+      }
       return answered<'elected' | 'held'>('elected');
     },
 
     release: async (key: string, pid: number): Promise<PortResult<void>> => {
       if (options.broken === true) return failed<void>();
-      const held = locks.get(key);
-      if (held !== undefined && held.claim.pid === pid) locks.delete(key);
+      const held = highestOf(key);
+      if (held !== null && held.claim.pid === pid && held.claim.released !== true) {
+        put(key, held.generation, { ...held.claim, released: true });
+      }
       return answered(undefined);
     },
 

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -41,14 +41,90 @@ describe('readerLockFile', () => {
     expect(held?.generation).toBe(1);
   });
 
-  it('renews on every call this process makes', async () => {
+  it('renews onto its own generation on every call this process makes', async () => {
     const lock = readerLockFile({ home });
     answer(await lock.elect('github', { generation: 0, ...claim(11, 1_756_700_000_000) }));
     const second = answer(await lock.elect('github', { generation: 0, ...claim(11, 1_756_700_001_000) }));
     expect(second).toBe('elected');
     const held = answer(await lock.holder('github'));
-    expect(held?.generation).toBe(2);
+    expect(held?.generation).toBe(1);
     expect(held?.at).toBe(1_756_700_001_000);
+    expect(readdirSync(join(home, 'github.lock')).filter((name) => name.startsWith('owner.'))).toEqual(['owner.1']);
+  });
+
+  it('a release after renewals leaves no live claim of that holder', async () => {
+    const lock = readerLockFile({ home });
+    for (let beat = 0; beat < 4; beat += 1) {
+      answer(await lock.elect('github', { generation: 0, ...claim(process.pid, 1_756_700_000_000 + beat * 60_000) }));
+    }
+    answer(await lock.release('github', process.pid));
+    expect(answer(await lock.holder('github'))).toBeNull();
+    const dir = join(home, 'github.lock');
+    expect(readdirSync(dir).filter((name) => name.startsWith('owner.'))).toEqual(['owner.1']);
+    expect(readFileSync(join(dir, 'owner.1'), 'utf8')).toMatch(/\treleased\n$/);
+  });
+
+  it('a second release changes nothing', async () => {
+    const lock = readerLockFile({ home });
+    answer(await lock.elect('github', { generation: 0, ...claim(process.pid, 1_756_700_000_000) }));
+    answer(await lock.release('github', process.pid));
+    const dir = join(home, 'github.lock');
+    const once = readFileSync(join(dir, 'owner.1'), 'utf8');
+    answer(await lock.release('github', process.pid));
+    expect(readFileSync(join(dir, 'owner.1'), 'utf8')).toBe(once);
+    expect(readdirSync(dir).filter((name) => name.startsWith('owner.'))).toEqual(['owner.1']);
+    expect(answer(await lock.holder('github'))).toBeNull();
+  });
+
+  it('elects past a released claim with the next generation', async () => {
+    const lock = readerLockFile({ home });
+    answer(await lock.elect('github', { generation: 0, ...claim(process.pid, 1_756_700_000_000) }));
+    answer(await lock.release('github', process.pid));
+    const other = readerLockFile({ home });
+    expect(answer(await other.elect('github', { generation: 0, ...claim(process.ppid, 1_756_700_000_100) }))).toBe('elected');
+    const held = answer(await other.holder('github'));
+    expect(held?.pid).toBe(process.ppid);
+    expect(held?.generation).toBe(2);
+  });
+
+  it('prunes every generation below the one before the holder', async () => {
+    const lock = readerLockFile({ home });
+    answer(await lock.elect('github', { generation: 0, ...claim(4_194_304, 1_756_700_000_000) }));
+    answer(await lock.elect('github', { generation: 0, ...claim(4_194_305, 1_756_700_000_000) }));
+    answer(await lock.elect('github', { generation: 0, ...claim(process.pid, 1_756_700_000_000) }));
+    const owners = readdirSync(join(home, 'github.lock')).filter((name) => name.startsWith('owner.')).sort();
+    expect(owners).toEqual(['owner.2', 'owner.3']);
+  });
+
+  /**
+   * The interleaving from the #2719 review: Y reads owner.5 held by H, H
+   * releases, Y takes owner.6, and X — whose read predates the release — saw
+   * owner.4 as the highest and links owner.5. Release keeps owner.5 in place,
+   * so X's link fails with EEXIST, and Y and X racing past the released claim
+   * contend for owner.6, which only one link can take.
+   */
+  it('a release never frees a generation number for a second holder', async () => {
+    const dir = join(home, 'github.lock');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'owner.4'), `4\t4194304\t-\t1756700000000\n`);
+    writeFileSync(join(dir, 'owner.5'), `5\t${process.pid}\t-\t1756700000000\n`);
+    const h = readerLockFile({ home });
+    answer(await h.release('github', process.pid));
+
+    const stale = join(dir, '.x.tmp');
+    writeFileSync(stale, `5\t1\t-\t1756700000100\n`);
+    expect(() => linkSync(stale, join(dir, 'owner.5'))).toThrow(/EEXIST/);
+
+    const y = readerLockFile({ home });
+    const x = readerLockFile({ home });
+    const verdicts = await Promise.all([
+      y.elect('github', { generation: 0, ...claim(process.ppid, 1_756_700_000_100) }),
+      x.elect('github', { generation: 0, ...claim(1, 1_756_700_000_100) }),
+    ]);
+    expect(verdicts.map(answer).filter((verdict) => verdict === 'elected')).toHaveLength(1);
+    const held = answer(await y.holder('github'));
+    expect(held?.generation).toBe(6);
+    expect(readdirSync(dir).filter((name) => /^owner\.\d+$/.test(name)).sort()).toEqual(['owner.5', 'owner.6']);
   });
 
   it('reports held where a live other process holds it', async () => {

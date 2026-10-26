@@ -16,6 +16,8 @@ export interface ReaderClaim {
   startedAt: number | null;
   /** When the claim was last renewed, epoch milliseconds. */
   at: number;
+  /** True on a claim its holder released; a released claim is stale at once. */
+  released?: boolean;
 }
 
 /**
@@ -43,7 +45,7 @@ export const READER_LOCK_SKEW_MS = 3000;
 /**
  * Whether a reader's claim still describes a process that holds it.
  *
- * A dead pid frees the claim. A live pid whose actual start time differs from
+ * A released claim is stale. A dead pid frees the claim. A live pid whose actual start time differs from
  * the claim's by at least {@link READER_LOCK_SKEW_MS} is a reused number and
  * frees it too. Anything else is held until it is older than
  * {@link READER_STALE_MS}.
@@ -66,6 +68,7 @@ export const readerIsStale = (
   startedAt: number | null,
   now: number,
 ): boolean => {
+  if (claim.released === true) return true;
   if (alive === false) return true;
   if (alive === null) return false;
   if (

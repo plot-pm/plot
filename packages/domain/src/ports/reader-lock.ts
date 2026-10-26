@@ -26,16 +26,19 @@ export interface ReaderLock {
    * @param key - the lock's key: a connector's name, scoped to one repository
    *   by the adapter that resolves it.
    * @returns the highest-generation claim, `null` where the lock names no
-   *   holder, or `failed` where it could not be read at all.
+   *   holder or its highest claim is released, or `failed` where it could not
+   *   be read at all.
    */
   holder(key: string): Promise<PortResult<ReaderClaim | null>>;
 
   /**
    * Takes the lock for this process, or confirms this process already holds
-   * it — publishing a fresh generation either way.
+   * it.
    *
    * RENEWS ON EVERY CALL A HOLDER MAKES. A reader that elected once and never
    * renewed would go stale under `READER_STALE_MS` while still refreshing.
+   * A renewal replaces the holder's own claim under the same generation; a
+   * takeover publishes the next generation.
    *
    * @param key - the lock to take.
    * @param claim - this process's claim, stamped by the caller; its
@@ -52,7 +55,9 @@ export interface ReaderLock {
    *
    * IDEMPOTENT. Only a claim naming this pid as the still-current generation
    * is released — a lock already taken over by a new generation while this
-   * process still ran is left untouched, for its new holder.
+   * process still ran is left untouched, for its new holder. A release
+   * replaces the claim with a released one under the same generation and
+   * removes no generation, so a generation number is never reused.
    *
    * @param key - the lock to release.
    * @param pid - this process's id, checked against the held claim before

@@ -19,6 +19,11 @@ const claim = (overrides: Partial<ReaderClaim> = {}): ReaderClaim => ({
 });
 
 describe('readerIsStale', () => {
+  it('is stale at once where the claim is released, whatever the liveness reads', () => {
+    expect(readerIsStale(claim({ released: true }), true, claim().startedAt, claim().at)).toBe(true);
+    expect(readerIsStale(claim({ released: true }), null, null, claim().at)).toBe(true);
+  });
+
   it('is stale once a dead pid holds it', () => {
     expect(readerIsStale(claim(), false, null, claim().at)).toBe(true);
   });

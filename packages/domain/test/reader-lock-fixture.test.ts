@@ -79,6 +79,27 @@ describe('readerLockFixture', () => {
     expect(answer(await lock.holder('github'))).toBeNull();
   });
 
+  it('renews onto its own generation', async () => {
+    const lock = readerLockFixture();
+    answer(await lock.elect('github', { generation: 0, ...claim(11, 1_756_700_000_000) }));
+    answer(await lock.elect('github', { generation: 0, ...claim(11, 1_756_700_060_000) }));
+    const held = answer(await lock.holder('github'));
+    expect(held?.generation).toBe(1);
+    expect(held?.at).toBe(1_756_700_060_000);
+  });
+
+  it('a release after renewals leaves no live claim, and the next election takes the next generation', async () => {
+    const lock = readerLockFixture({ isAlive: () => true });
+    for (let beat = 0; beat < 3; beat += 1) {
+      answer(await lock.elect('github', { generation: 0, ...claim(11, 1_756_700_000_000 + beat * 60_000) }));
+    }
+    answer(await lock.release('github', 11));
+    answer(await lock.release('github', 11));
+    expect(answer(await lock.holder('github'))).toBeNull();
+    expect(answer(await lock.elect('github', { generation: 0, ...claim(22, 1_756_700_200_000) }))).toBe('elected');
+    expect(answer(await lock.holder('github'))?.generation).toBe(2);
+  });
+
   it('keeps one connector from colliding with another', async () => {
     const lock = readerLockFixture();
     answer(await lock.elect('github', { generation: 0, ...claim(11, 1_756_700_000_000) }));

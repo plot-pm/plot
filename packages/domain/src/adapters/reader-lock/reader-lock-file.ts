@@ -58,6 +58,14 @@ export interface ReaderLockFileOptions {
   env?: Record<string, string | undefined>;
 }
 
+/** The same claim without a `released` marker. */
+const liveClaim = (claim: ReaderClaim): ReaderClaim => ({
+  generation: claim.generation,
+  pid: claim.pid,
+  startedAt: claim.startedAt,
+  at: claim.at,
+});
+
 /** Whether a failure was the file simply not being there. */
 const isMissing = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
@@ -66,9 +74,12 @@ const isMissing = (error: unknown): boolean =>
 const isTaken = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'EEXIST';
 
-/** How a claim is written — one line, three fields, no parser needed. */
+/**
+ * How a claim is written: one tab-separated line holding the generation, pid,
+ * start time and `at`, and a fifth field `released` on a released claim.
+ */
 const encodeClaim = (claim: ReaderClaim): string =>
-  `${Math.trunc(claim.generation)}\t${Math.trunc(claim.pid)}\t${claim.startedAt === null ? '-' : Math.trunc(claim.startedAt)}\t${Math.trunc(claim.at)}\n`;
+  `${Math.trunc(claim.generation)}\t${Math.trunc(claim.pid)}\t${claim.startedAt === null ? '-' : Math.trunc(claim.startedAt)}\t${Math.trunc(claim.at)}${claim.released === true ? '\treleased' : ''}\n`;
 
 /**
  * Reads a claim back, or null where the text is not one this wrote.
@@ -78,19 +89,21 @@ const encodeClaim = (claim: ReaderClaim): string =>
  * exactly like a missing file.
  */
 const decodeClaim = (text: string): ReaderClaim | null => {
-  const [generation, pid, startedAt, at] = text.trim().split('\t');
+  const [generation, pid, startedAt, at, marker] = text.trim().split('\t');
   const parsedGeneration = Number(generation);
   const parsedPid = Number(pid);
   const parsedAt = Number(at);
   if (!Number.isFinite(parsedGeneration) || !Number.isFinite(parsedPid) || !Number.isFinite(parsedAt)) {
     return null;
   }
+  if (marker !== undefined && marker !== 'released') return null;
   const parsedStart = startedAt === '-' ? null : Number(startedAt);
   return {
     generation: parsedGeneration,
     pid: parsedPid,
     startedAt: parsedStart !== null && Number.isFinite(parsedStart) ? parsedStart : null,
     at: parsedAt,
+    ...(marker === 'released' ? { released: true } : {}),
   };
 };
 
@@ -127,6 +140,14 @@ const pidAlive = (pid: number): boolean | null => {
  * atomic call. Nothing is ever unlinked on a decision path — a stale or
  * contended election leaves the old generation file in place and links past
  * it, so a holder reading `holder()` mid-takeover never sees an absent claim.
+ *
+ * **RENEWAL AND RELEASE RENAME ONTO THE HOLDER'S OWN `owner.<n>`.** Renewal
+ * writes a fresh claim to a scratch file and renames it onto `owner.<n>`;
+ * release does the same with a `released` claim. Neither creates a generation
+ * nor removes one, so a generation number is never free again once linked.
+ * After an election the holder prunes every `owner.<m>` with `m < n - 1`;
+ * `owner.<n-1>` stays, so a process that read `n - 1` as the highest and links
+ * `owner.<n>` gets `EEXIST`.
  *
  * **THE KEY IS `realpath`D**, closing the symlink-collision bug the old
  * single-segment key carried: `/tmp` and `/private/tmp` name one physical
@@ -184,20 +205,31 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
    * next generation without removing the one it supersedes, so more than one
    * may exist at once; the highest is the only one that is current.
    */
-  const highestClaim = async (dir: string): Promise<{ generation: number; claim: ReaderClaim } | null> => {
+  const highestClaim = async (dir: string): Promise<{ generation: number; claim: ReaderClaim } | null> =>
+    (await readClaims(dir)).highest;
+
+  /**
+   * Reads the lock directory: the highest generation that decodes, and the
+   * number of every `owner.<n>` file present, decoded or not.
+   */
+  const readClaims = async (
+    dir: string,
+  ): Promise<{ highest: { generation: number; claim: ReaderClaim } | null; generations: number[] }> => {
     let names: string[];
     try {
       names = await readdir(dir);
     } catch (error) {
-      if (isMissing(error)) return null;
+      if (isMissing(error)) return { highest: null, generations: [] };
       throw error;
     }
     let best: { generation: number; claim: ReaderClaim } | null = null;
+    const generations: number[] = [];
     for (const name of names) {
       const match = /^owner\.(\d+)$/.exec(name);
       if (match === null) continue;
       const generation = Number(match[1]);
       if (!Number.isInteger(generation)) continue;
+      generations.push(generation);
       let text: string;
       try {
         text = await readFile(join(dir, name), 'utf8');
@@ -208,7 +240,46 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
       if (claim === null) continue;
       if (best === null || generation > best.generation) best = { generation, claim };
     }
-    return best;
+    return { highest: best, generations };
+  };
+
+  /**
+   * Replaces the holder's own `owner.<n>` with `claim`, through a scratch file
+   * and `rename`, so a reader sees the old claim or the new one and never an
+   * empty file.
+   *
+   * @returns `true` where the rename landed, `false` where it failed.
+   */
+  const replaceOwn = async (dir: string, generation: number, claim: ReaderClaim): Promise<boolean> => {
+    const scratch = join(dir, `.${claim.pid}.${Math.trunc(claim.at)}.${generation}.renew.tmp`);
+    try {
+      await writeFile(scratch, encodeClaim({ ...claim, generation }), { encoding: 'utf8' });
+      await rename(scratch, join(dir, `owner.${generation}`));
+      return true;
+    } catch {
+      try {
+        await unlink(scratch);
+      } catch {
+        // Already gone, which is the state this wanted.
+      }
+      return false;
+    }
+  };
+
+  /**
+   * Removes every `owner.<m>` with `m < held - 1`. Decides nothing: a failed
+   * removal leaves a file the next prune retries.
+   */
+  const prune = async (dir: string, held: number): Promise<void> => {
+    const { generations } = await readClaims(dir).catch(() => ({ generations: [] as number[] }));
+    for (const generation of generations) {
+      if (generation >= held - 1) continue;
+      try {
+        await unlink(join(dir, `owner.${generation}`));
+      } catch {
+        // Gone already, or left for the next prune.
+      }
+    }
   };
 
   /**
@@ -251,7 +322,7 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
       if (dir === null) return failed<ReaderClaim | null>();
       try {
         const highest = await highestClaim(dir);
-        return answered(highest === null ? null : highest.claim);
+        return answered(highest === null || highest.claim.released === true ? null : highest.claim);
       } catch {
         return failed<ReaderClaim | null>();
       }
@@ -272,6 +343,21 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
         } catch {
           return failed<'elected' | 'held'>();
         }
+        if (highest !== null && highest.claim.pid === claim.pid && highest.claim.released !== true) {
+          // RENEWAL: rename onto this holder's own generation, then confirm no
+          // takeover linked past it between the read and the rename.
+          if (!(await replaceOwn(dir, highest.generation, liveClaim(claim)))) {
+            return failed<'elected' | 'held'>();
+          }
+          let after: { generation: number; claim: ReaderClaim } | null;
+          try {
+            after = await highestClaim(dir);
+          } catch {
+            return failed<'elected' | 'held'>();
+          }
+          const still = after !== null && after.generation === highest.generation;
+          return answered<'elected' | 'held'>(still ? 'elected' : 'held');
+        }
         if (highest !== null && highest.claim.pid !== claim.pid) {
           const alive = pidAlive(highest.claim.pid);
           // NO `ps` READ HERE, SO THE HELD CLAIM'S LIVE START TIME IS `null`.
@@ -285,9 +371,12 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
           }
         }
         const after = highest === null ? 0 : highest.generation;
-        const published = await publish(dir, after, claim);
+        const published = await publish(dir, after, liveClaim(claim));
         if (published === 'failed') return failed<'elected' | 'held'>();
-        if (published !== null) return answered<'elected' | 'held'>('elected');
+        if (published !== null) {
+          await prune(dir, published);
+          return answered<'elected' | 'held'>('elected');
+        }
         // Lost the race for this generation number; re-read and retry.
       }
       return failed<'elected' | 'held'>();
@@ -303,17 +392,13 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
         return failed<void>();
       }
       // ONLY THE CURRENT GENERATION, AND ONLY IF IT IS STILL THIS PROCESS'S.
-      // A lock already taken over by a new generation while this process
-      // still ran is left untouched for its new holder — releasing it would
-      // remove a live caller's claim.
-      if (highest === null || highest.claim.pid !== pid) return answered(undefined);
-      try {
-        await unlink(join(dir, `owner.${highest.generation}`));
+      // A lock already taken over by a new generation is left to its new
+      // holder. A claim already released is left as it is.
+      if (highest === null || highest.claim.pid !== pid || highest.claim.released === true) {
         return answered(undefined);
-      } catch (error) {
-        if (isMissing(error)) return answered(undefined);
-        return failed<void>();
       }
+      const released: ReaderClaim = { ...highest.claim, released: true };
+      return (await replaceOwn(dir, highest.generation, released)) ? answered(undefined) : failed<void>();
     },
 
     readerState: async (key: string): Promise<PortResult<ReaderState | null>> => {
