@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { envelopeNextFor, listingPagingFor } from '../src/adapters/host/listing-paging.js';
+import { envelopeNextFor, listingPagingFor, walkToLimit } from '../src/adapters/host/listing-paging.js';
 import { pagePossiblyTruncated } from '../src/rules/listing-page.js';
 import { compareField, describingAs, type Disagreement } from './compare.js';
 
@@ -28,13 +28,20 @@ import { compareField, describingAs, type Disagreement } from './compare.js';
  * verdicts, unmodified. `'absent'` is the new shape #1757 adds: no `next` key
  * in an otherwise-identical envelope, which must prove the page complete on
  * its own, for any version — including one the table never measured.
+ *
+ * With a limit, the shell walks `next` (`_bb_paged_walk`'s row-limit mode), and
+ * the stub serves the same page at every path. So the rule reads the case
+ * through `walkToLimit`, which models the walk's stop: the shell's row count is
+ * the whole walk's, not one page's. `'unknown'` is an envelope with no `page`
+ * key and no `next`: the walk reads one page, and only the version table's
+ * page length can call it complete.
  */
 
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
 const HOST = join(ROOT, 'skills/plot/scripts/plot-host.sh');
 const report = describingAs({ left: 'rule', right: 'shell' });
 
-type Envelope = 'present' | 'absent';
+type Envelope = 'present' | 'absent' | 'unknown';
 
 /** One listing call: the host, the CLI version it reports, the limit, the rows and the envelope's own `next`. */
 interface Case {
@@ -70,6 +77,11 @@ const CASES: readonly Case[] = [
   // (50 rows) must still read complete — proving the envelope path supersedes
   // the length test rather than only covering rows strictly below it.
   { backend: 'bitbucket' as const, version: '1.9.0', limit: 1000, rows: 50, envelope: 'absent' as const },
+  // No envelope read: the walk stops after one page, and the version table's
+  // page length alone decides.
+  ...['1.9.0', '1.10.0'].flatMap((version) => [0, 20, 50].map((rows) => ({
+    backend: 'bitbucket' as const, version, limit: 1000, rows, envelope: 'unknown' as const,
+  }))),
 ];
 
 let sandbox = '';
@@ -100,6 +112,7 @@ const bbResponse = (one: Case): string => {
   if (one.envelope === 'present') {
     return `{"values":${rows},"page":1,"next":"https://api.bitbucket.org/2.0/next-page"}`;
   }
+  if (one.envelope === 'unknown') return `{"values":${rows}}`;
   return `{"values":${rows},"page":1}`;
 };
 
@@ -120,19 +133,24 @@ const shellVerdict = (one: Case, index: number): boolean => {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: one.backend, PLOT_BUDGET_OFF: '1' },
+    timeout: 20_000,
   });
+  if (run.error) throw new Error(`plot-host.sh did not finish: ${run.error.message}`);
   if (run.status !== 0) throw new Error(`plot-host.sh exited ${run.status}: ${run.stderr}`);
   return /state=open possibly truncated/.test(run.stderr);
 };
 
+/** What the shell's listing returned for this case: one page, or the walk over the stub's repeated page. */
+const listed = (one: Case): { rows: number; envelopeNext: ReturnType<typeof envelopeNextFor> } => {
+  if (one.backend === 'github') return { rows: one.rows, envelopeNext: 'unknown' };
+  const page = { rows: one.rows, envelopeNext: envelopeNextFor(JSON.parse(bbResponse(one))) };
+  if (one.limit === null) return page;
+  return walkToLimit(Array.from({ length: Math.ceil(one.limit / 50) + 1 }, () => page), one.limit);
+};
+
 /** The rule's verdict on the same case. */
 const ruleVerdict = (one: Case): boolean =>
-  pagePossiblyTruncated({
-    limit: one.limit,
-    rows: one.rows,
-    paging: listingPagingFor(one.backend, one.version),
-    envelopeNext: one.backend === 'bitbucket' ? envelopeNextFor(JSON.parse(bbResponse(one))) : 'unknown',
-  });
+  pagePossiblyTruncated({ limit: one.limit, paging: listingPagingFor(one.backend, one.version), ...listed(one) });
 
 const subject = (one: Case): string =>
   `${one.backend}${one.version === '' ? '' : ` bb ${one.version}`} limit=${one.limit ?? '-'} rows=${
@@ -151,7 +169,7 @@ afterAll(() => {
 
 describe('pagePossiblyTruncated agrees with plot-host.sh pr_list_report_truncation', () => {
   it('exercises both answers on both hosts, so this is not vacuous', () => {
-    expect(verdicts.length).toBe(70);
+    expect(verdicts.length).toBe(76);
     for (const backend of ['github', 'bitbucket']) {
       const answers = new Set(verdicts.filter((v) => v.one.backend === backend).map((v) => v.shell));
       expect([...answers].sort()).toEqual([false, true]);
@@ -164,12 +182,22 @@ describe('pagePossiblyTruncated agrees with plot-host.sh pr_list_report_truncati
     expect(found.map(report)).toEqual([]);
   });
 
-  it('calls a short page from the measured bb complete, and one from an unmeasured bb not', () => {
+  it('calls a short page with no envelope from the measured bb complete, and one from an unmeasured bb not', () => {
     const at = (version: string): boolean | undefined =>
       verdicts.find((v) => v.one.backend === 'bitbucket' && v.one.version === version
-        && v.one.limit === 1000 && v.one.rows === 20 && v.one.envelope === 'present')?.shell;
+        && v.one.limit === 1000 && v.one.rows === 20 && v.one.envelope === 'unknown')?.shell;
     expect(at('1.9.0')).toBe(false);
     expect(at('1.10.0')).toBe(true);
+  });
+
+  it('#2731: a walk that stops with a next named or trims a row reads possibly truncated', () => {
+    const at = (limit: number, rows: number): boolean | undefined =>
+      verdicts.find((v) => v.one.backend === 'bitbucket' && v.one.version === '1.9.0'
+        && v.one.envelope === 'present' && v.one.limit === limit && v.one.rows === rows)?.shell;
+    expect(at(20, 0)).toBe(true);
+    expect(at(1000, 1)).toBe(true);
+    expect(at(1000, 20)).toBe(true);
+    expect(at(20, 50)).toBe(true);
   });
 
   it('#1757: an unmeasured bb version with no envelope next reads complete, any row count', () => {

@@ -6390,13 +6390,10 @@ test('host: bitbucket trims a non-multiple-of-50 --limit to the exact row count,
   assert.match(reports[0], /state=merged/);
 });
 
-test('host: bitbucket a clean 3-page walk with no next on the last page reports no truncation at the limit', () => {
-  // The mirror of the trim case: --limit 120 again, but page 3 is the LAST
-  // page (no next) even though the walk stopped there because it already
-  // held >= 120 rows. BB_LIST_NEXT_FILE must still read page 3's own
-  // envelope — absent — so the report is "page complete", not "possibly
-  // truncated", proving the signal comes from the stopping page and not from
-  // row-count-vs-limit alone.
+test('host: bitbucket a walk whose trim drops rows from a last page reports possibly truncated', () => {
+  // #2731 MEDIUM 1: --limit 120 on 3 pages of 50, page 3 the LAST page (no
+  // next). 150 rows exist and 120 are printed, so the 30 trimmed rows make
+  // the walk short even though page 3 named no next.
   const pages = [
     Array.from({ length: 50 }, (_, i) => restPr(4000 - i, `feature/pr-${4000 - i}`, 'MERGED')),
     Array.from({ length: 50 }, (_, i) => restPr(3950 - i, `feature/pr-${3950 - i}`, 'MERGED')),
@@ -6409,8 +6406,45 @@ test('host: bitbucket a clean 3-page walk with no next on the last page reports 
   });
   assert.equal(res.status, 0, res.stderr);
   const lines = res.stdout.trim().split('\n').filter(Boolean);
-  assert.equal(lines.length, 120, 'still trimmed to the limit even though page 3 was whole');
-  assert.equal(truncationReports(res.stderr).length, 0, 'page 3 named no next — the set is complete');
+  assert.equal(lines.length, 120, 'trimmed to the limit');
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'the trim dropped 30 rows, so the walk is short');
+  assert.match(reports[0], /state=merged/);
+  assert.doesNotMatch(res.stderr, /page complete/);
+});
+
+test('host: bitbucket a --limit under one page that trims a page naming next reports possibly truncated', () => {
+  // #2731 MEDIUM 1: --limit 30 on a first page of 50 that names a next. The
+  // 30 printed rows are fewer than the measured page length, which must not
+  // read as a short last page.
+  const pages = Array.from({ length: 2 }, (_, p) =>
+    Array.from({ length: 50 }, (_, i) => restPr(6000 - p * 100 - i, `feature/pr-${6000 - p * 100 - i}`, 'MERGED')));
+  const bb = makeSweepBbStub({ prs: { [stateListingKey('MERGED')]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '30'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, 30);
+  assert.equal(truncationReports(res.stderr).length, 1);
+  assert.equal(callsOf(bb.callsFile).filter((c) => c.includes('api')).length, 1, 'one page holds 30 rows');
+});
+
+test('host: bitbucket an empty page that still names next stops the walk and reports possibly truncated', () => {
+  // #2731 HIGH 1: a page with 0 rows and a next must neither loop nor read as
+  // an empty, complete state.
+  const pages = [[], Array.from({ length: 50 }, (_, i) => restPr(7000 - i, `feature/pr-${7000 - i}`, 'MERGED'))];
+  const bb = makeSweepBbStub({ prs: { [stateListingKey('MERGED')]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+    timeout: 30_000,
+  });
+  assert.equal(res.error, undefined, 'the walk ends');
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+  assert.equal(truncationReports(res.stderr).length, 1);
+  assert.equal(callsOf(bb.callsFile).filter((c) => c.includes('api')).length, 1, 'the empty page ends the walk');
 });
 
 test('host: bitbucket a page-2 failure during --state all fails only merged, with no partial rows', () => {

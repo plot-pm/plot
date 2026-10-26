@@ -1141,26 +1141,30 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # CLEAN STOP EXITS 0. `bb_state_listing` asks for exactly the rows its caller
 # requested; stopping there is not a failure to read everything, it is
 # answering the question asked — the same distinction `pr_list_report_truncation`
-# draws for GitHub's own `--limit`. A page can overshoot the limit (Bitbucket
-# pages in fixed blocks of `pagelen`), so the array is trimmed to `$4` rows
-# before it is printed, and `BB_LIST_NEXT_FILE` (if set) is written the
-# stopping page's own `next` reading — "1" present, "0" absent — exactly as
-# `bb_state_listing` wrote it when it read one page directly, so a `--limit`
-# that is not a multiple of `pagelen` still gets the right truncation
-# sentence rather than the version-table guess. A REQUEST FAILURE IS STILL A
-# REQUEST FAILURE: the limit changes how a CLEAN stop is reported, never how a
-# broken one is.
+# draws for GitHub's own `--limit`. The walk stops at the first of: a page with
+# no `next`, `$4` rows held, a page that added no rows, or ceil(`$4` /
+# `BB_LIST_PAGELEN`) pages read. That page bound is the plan's cost model
+# (`2026-10-23-read-merged-prs-from-the-merge`, Approach 1): Bitbucket fills
+# every page but the last, so ceil(limit / 50) pages reach the limit, and a
+# host that pages shorter stops there and reports itself rather than costing
+# one request per row. An empty page that still names a `next` stops the walk
+# instead of looping on it. A page can overshoot the limit, so the array is
+# trimmed to `$4` rows before it is printed, and `BB_LIST_NEXT_FILE` (if set)
+# is written the stopping page's own `next` reading — "1" present, "0" absent,
+# "" no envelope — or "1" whenever the trim dropped a row, so
+# `pr_list_report_truncation` says "possibly truncated" for every stop that
+# left a row unread. `corpus/listing-page.corpus.test.ts` holds this stop rule
+# against `walkToLimit` in `adapters/host/listing-paging.ts`. A REQUEST FAILURE
+# IS STILL A REQUEST FAILURE: the limit changes how a CLEAN stop is reported,
+# never how a broken one is.
 _bb_paged_walk() {
-  local _path="$1" _label="$2" _detail="$3" _limit="$4" _out _spool _next _envnext _page=0 _got; shift 4
+  local _path="$1" _label="$2" _detail="$3" _limit="$4" _out _spool _next _envnext _page=0 _got=0 _prev; shift 4
   # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
   # `rm` on an early return; the walk only ever runs a handful of times per
   # process, so the file outliving one call costs nothing a caller can see.
   plot_tmpfile _spool host-paged-walk || return 3; while [ -n "$_path" ]; do
-    if [ -n "$_limit" ]; then
-      :
-    else
-      [ "$((++_page))" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
-    fi
+    _page=$((_page + 1))
+    [ -n "$_limit" ] || [ "$_page" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
     # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
     # would turn the host's exit code into jq's, and a parse error and a spent
     # quota are not the same fact. A failure on page 2+ returns the same raw
@@ -1175,8 +1179,10 @@ _bb_paged_walk() {
     # "0" (complete) for a page this function has no licence to call whole.
     _envnext="$(jq -r 'if (type=="object") and has("values") and has("page") then (if has("next") then "1" else "0" end) else "" end' <<<"$_out")" || return 3
     if [ -n "$_limit" ]; then
+      _prev="$_got"
       _got="$(jq -c -s 'add // [] | length' < "$_spool")" || return 3
-      if [ "$_got" -ge "$_limit" ] 2>/dev/null; then
+      if [ -z "$_next" ] || [ "$_got" -ge "$_limit" ] 2>/dev/null || [ "$_got" -eq "$_prev" ] || [ "$_page" -ge "$(( (_limit + BB_LIST_PAGELEN - 1) / BB_LIST_PAGELEN ))" ]; then
+        [ "$_got" -gt "$_limit" ] 2>/dev/null && _envnext=1
         [ -n "${BB_LIST_NEXT_FILE:-}" ] && printf '%s' "$_envnext" > "$BB_LIST_NEXT_FILE"
         jq -c -s --argjson n "$_limit" 'add // [] | .[:$n]' < "$_spool"
         return 0
@@ -1185,13 +1191,6 @@ _bb_paged_walk() {
     if [ -z "$_next" ]; then _path=""; elif [[ "$_next" == "$BB_API_BASE"/* ]]; then _path="${_next#"$BB_API_BASE"}"
     else echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3; fi
   done
-  # THE WALK EXHAUSTED `next` BEFORE REACHING THE LIMIT: the last page read
-  # is the whole answer, and `_envnext` is that same page's own reading —
-  # never a blind "0". A page whose envelope could not be read stays unknown
-  # here exactly as it would mid-walk, so `pr_list_report_truncation` falls
-  # through to the page-length test rather than being handed a completeness
-  # claim this function cannot back.
-  [ -n "${BB_LIST_NEXT_FILE:-}" ] && [ -n "$_limit" ] && printf '%s' "$_envnext" > "$BB_LIST_NEXT_FILE"
   jq -c -s 'add // []' < "$_spool"
 }
 
@@ -1442,15 +1441,12 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 # the line: a row-limit stop answered exactly what the caller asked for, so it
 # is not the same fact as the page-cap stop `bb_branch_query` reports with
 # "possibly truncated" and exit 3. Whether THIS state's rows exceed the limit
-# unprovably is `pr_list_report_truncation`'s question, not this function's,
-# and it is answered the same way as before this slice: by the row count
-# against the length table, UNLESS the envelope's own `next` settles it —
-# which it reads back from `BB_LIST_NEXT_FILE` (`pr_list_states` sets the
-# path; this runs in that call's own subshell, so a global here would never
-# reach the caller). `_bb_paged_walk` writes that file itself in limit mode,
-# so a `--limit` that is not a multiple of `pagelen` still reports correctly:
-# the stopping page's own `next` is what proves or disproves completeness,
-# never the row count alone.
+# unprovably is `pr_list_report_truncation`'s question, not this function's.
+# It reads the walk's answer back from `BB_LIST_NEXT_FILE` (`pr_list_states`
+# sets the path; this runs in that call's own subshell, so a global here would
+# never reach the caller): the stopping page's own `next`, or "1" where the
+# walk trimmed rows, so a `--limit` that is not a multiple of `pagelen` still
+# reports correctly. The length table answers only where no envelope was read.
 #
 # THE HOST'S FAILURE TEXT AND EXIT CODE LEAVE UNTOUCHED, as in
 # `bb_branch_query`: `pr_list_call` classifies once, so a `429` on any page
@@ -3238,17 +3234,17 @@ jira_ask() { local raw rc; raw="$(jira_curl "$@")"; rc=$?; jira_check "$raw" "$r
 #   github (HONOURS --limit)  : a state is possibly truncated when it returned
 #                               AT LEAST the requested limit. Fewer rows than
 #                               the limit PROVES completeness.
-#   bitbucket (FIXED PAGE)    : `bb_state_listing` NOW FOLLOWS `next` UP TO
-#                               `--limit` (`_bb_paged_walk`'s row-limit mode),
-#                               but what it follows is still a listing that
-#                               pages in fixed `pagelen`-row blocks, so the
-#                               kind stays `fixed-page` rather than becoming
-#                               `honours-limit` — see the doc comment on
-#                               `listingPagingFor`. A page SHORTER than the
-#                               page length is the last page, so it is
-#                               complete. A page AT the length stays possibly
-#                               truncated UNLESS the envelope itself says
-#                               there is no `next` (below).
+#   bitbucket (FIXED PAGE)    : `bb_state_listing` FOLLOWS `next` UP TO
+#                               `--limit` (`_bb_paged_walk`'s row-limit mode)
+#                               over fixed `pagelen`-row pages, so the kind
+#                               stays `fixed-page` rather than becoming
+#                               `honours-limit` — see `listingPagingFor`. The
+#                               walk is complete when its last page named no
+#                               `next` and it trimmed no row, and possibly
+#                               truncated when it stopped with a `next` named
+#                               or a row trimmed. Where no envelope was read,
+#                               a page SHORTER than the measured length is
+#                               complete (below).
 #
 # THE PAGE LENGTH IS A READING, NEVER A CONSTANT THE RULE NAMES. The listing
 # asks `pagelen=$BB_LIST_PAGELEN` through `bb api`, and the length holds only
@@ -3286,8 +3282,9 @@ jira_ask() { local raw rc; raw="$(jira_curl "$@")"; rc=$?; jira_check "$raw" "$r
 # into a minutes-long pulse. See the plan's Done-when item 3.
 #
 # The page length Bitbucket's plain listing asks for. `bb_state_listing` sends
-# it, and `pr_list_report_truncation` reads it as the page length only for a
-# `bb` in BB_LIST_PAGE_VERSIONS.
+# it, `_bb_paged_walk` bounds a row-limit walk at ceil(limit / this) pages, and
+# `pr_list_report_truncation` reads it as the page length only for a `bb` in
+# BB_LIST_PAGE_VERSIONS.
 BB_LIST_PAGELEN=50
 
 # The `bb` versions measured to pass `pagelen` through `bb api` unchanged,
@@ -3331,13 +3328,12 @@ bb_list_page_length() {
 # version. #1757: `BB_LIST_PAGE_VERSIONS` names only versions this estate has
 # measured, so a page from any other version (1.11.1 included) could never be
 # proven complete by row count alone — 9 rows with no `next` read as "possibly
-# truncated" even though the envelope already answered. A page WITH `next`
-# proves nothing either way (Bitbucket could in principle set it with zero rows
-# left), so it falls through to the length test exactly as before. Absence,
-# never presence, is the signal — `$5` is "0" only when `bb_state_listing` read
-# an envelope with no `next` key; "1" means `next` was present; "" means no
-# envelope shape was read at all, and the version table alone decides, as
-# before this slice.
+# truncated" even though the envelope already answered. With a limit,
+# `_bb_paged_walk` follows `next` and writes the reading of the page where it
+# stopped, or "1" where it trimmed rows: "0" proves the walk whole, and "1"
+# means a further page or a dropped row exists, so it is possibly truncated at
+# any row count, including 0. Only "" (no envelope shape was read) falls back
+# to the version table's page length.
 #
 # $1 backend  $2 requested limit (may be "")  $3 state word  $4 row count
 # $5 envelope's own completeness reading: "0" no next, "1" next present, ""
@@ -3345,7 +3341,7 @@ bb_list_page_length() {
 pr_list_report_truncation() {
   local be="$1" limit="$2" state="$3" count="$4" next="${5:-}" len=""
   # no --limit → no completeness claim owed; an empty page had nothing to hide
-  [ -n "$limit" ] || return 0; [ "$count" -gt 0 ] 2>/dev/null || return 0
+  [ -n "$limit" ] || return 0; [ "$count" -gt 0 ] 2>/dev/null || [ "$next" = "1" ] || return 0
   if [ "$be" = "github" ]; then
     # github honours the limit: complete unless the page came back AT the limit.
     # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
@@ -3354,9 +3350,10 @@ pr_list_report_truncation() {
     # exist rather than the rows requested.
     if [ "$count" -lt "$limit" ] 2>/dev/null; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   else
-    # A fixed page: complete below a measured length, or whose own envelope
-    # named no further page — unprovable otherwise.
-    [ "$next" = "0" ] || len="$(bb_list_page_length)"
+    # A walk whose last page named no further page is complete; one that
+    # stopped with a further page named or rows trimmed is not; an unread
+    # envelope is complete only below a measured page length.
+    [ -n "$next" ] || len="$(bb_list_page_length)"
     if [ "$next" = "0" ] || { [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; }; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   fi
   # Named per state so a caller can resolve exactly the states that were

@@ -123,7 +123,7 @@ So each state is built in a real repository with a real origin, and read back th
 
 ## The listing-page comparison
 
-`corpus/listing-page.corpus.test.ts` compares `pagePossiblyTruncated` (`rules/listing-page.ts`) against `pr_list_report_truncation` (`plot-host.sh`). `pr-list` runs on every board refresh, so the shell keeps its copy. The corpus is built: 63 cases over GitHub and two `bb` versions, three limits and seven row counts, run through `plot-host.sh pr-list` against stub CLIs. The rule reads each case's paging through `listingPagingFor`, so the comparison also holds the two page-length tables together: `BITBUCKET_PAGE_LENGTHS` in `adapters/host/listing-paging.ts` and `BB_LIST_PAGE_VERSIONS` in the script.
+`corpus/listing-page.corpus.test.ts` compares `pagePossiblyTruncated` (`rules/listing-page.ts`) against `pr_list_report_truncation` (`plot-host.sh`). `pr-list` runs on every board refresh, so the shell keeps its copy. The corpus is built: 76 cases over GitHub and three `bb` versions, three limits, seven row counts and three envelope shapes, run through `plot-host.sh pr-list` against stub CLIs. With a limit, the shell walks `next` over Bitbucket pages, so the rule reads each Bitbucket case through `walkToLimit`, which holds the walk's stop rule, and each case's paging through `listingPagingFor`, so the comparison also holds the two page-length tables together: `BITBUCKET_PAGE_LENGTHS` in `adapters/host/listing-paging.ts` and `BB_LIST_PAGE_VERSIONS` in the script.
 
 ## The free-wait comparison
 
