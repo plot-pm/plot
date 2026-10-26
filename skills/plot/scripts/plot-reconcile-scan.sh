@@ -3065,10 +3065,9 @@ n_unread_heading_items=0
 # cannot tell a signal from a citation, and plans here cite issues constantly.
 oi_claims=""; oi_keyless=""
 # KEY RESOLUTION: if any `issues[]` entry is Jira-shaped, every entry is kept
-# (not just the first); otherwise a Jira-shaped `ticket:` stands in for the
-# whole list. The regex is ANCHORED (`^...$`, whole-string), stricter than
-# `sprint-release.ts`'s unanchored `JIRA_KEY` (`.test()`/`.exec()` match
-# anywhere in the string) — the two are not the same pattern.
+# (not just the first); otherwise a Jira-shaped `ticket:` stands in. The regex
+# is ANCHORED (`^...$`), stricter than `sprint-release.ts`'s unanchored
+# `JIRA_KEY` (`.test()`/`.exec()` match anywhere) — not the same pattern.
 if [ -n "$plan_json" ]; then
   oi_tagged=$(printf '%s\n' "$plan_json" | jq -r --arg re '^[A-Z][A-Z0-9]*-[0-9]+$' '
     select(.phase == "delivered" or .phase == "released") | (.issues // []) as $issues | (.ticket // "") as $ticket
@@ -3150,18 +3149,14 @@ else
   # than a status that does not exist.
   oi_released_status=$(cfg "Tracker released status" "" 2>/dev/null)
   oi_host_failed=0; oi_out=""
-  # ONCE PER DISTINCT KEY, NOT PER PLAN·KEY PAIR. `oi_view_cache` holds one
-  # `key<TAB>tag<TAB>payload` line per key already asked — tag is
-  # open/closed/err, payload is empty or the error text `issue-view` printed.
-  # A plan naming the same key twice (directly, or via the `ticket:` fallback
-  # racing `issues[]`) reads the cache on its second encounter; the lookup
-  # itself still runs exactly once. NO ASSOCIATIVE ARRAY: see the `NO
-  # ASSOCIATIVE ARRAY` note above section 1's index reader — bash 3.2 ships on
-  # a stock Mac and cannot parse `declare -A`.
+  # ONCE PER DISTINCT KEY, NOT PER PLAN·KEY PAIR: `oi_view_cache` holds one
+  # `key<TAB>tag<TAB>payload` line per key already asked (tag open/closed/err),
+  # so a key two plans name — directly, or via the `ticket:` fallback — reads
+  # the cache on its second encounter. NO ASSOCIATIVE ARRAY (bash 3.2, no
+  # `declare -A`), per section 1's index reader.
   oi_view_cache=""
-  # ask_issue <key> — fills oi_tag/oi_err from the cache, asking the host on a
-  # miss. Returns 4 only to signal "host is unaskable", matching issue-view's
-  # own exit code so the caller's branch stays a single `if`/`elif` chain.
+  # ask_issue <key> fills oi_tag/oi_err, asking the host only on a cache miss;
+  # returns 4 for "host unaskable", matching issue-view's own exit code.
   ask_issue() {
     local key="$1" line
     line=$(awk -F'\t' -v k="$key" '$1 == k {print; exit}' <<< "$oi_view_cache")
@@ -3307,15 +3302,11 @@ n_unread_waits=$REPORT_UNREAD_PAIRS_N
 echo
 
 echo "== 24b. Unread heading items (a list item under a heading names a branch no heading claims) =="
-# TWO CAUSES, TWO REPAIRS, told apart by whether the wave's OWN heading read any
-# branch at all — not by the orphaned item alone. `waves[].branches` is the
-# roster of branches the parser's heading handler already attributed to each
-# wave; a wave with zero entries there never had a readable `Branch:` at all,
-# and a wave with one or more already has a heading claiming a different
-# branch than this item names. Reading that roster, rather than adding a third
-# field to `unread_heading_items[]`, keeps the fix inside this file: that array
-# is asserted byte-for-byte elsewhere (`branch-heading.test.mjs`), which this
-# slice does not own.
+# TWO CAUSES, TWO REPAIRS, told apart by `waves[].branches` — the roster the
+# heading handler already attributed per wave — rather than a third field on
+# `unread_heading_items[]`, which `branch-heading.test.mjs` asserts whole and
+# this slice does not own. Zero entries: the wave's heading never read a
+# `Branch:`. One or more: it already claims a different branch than this item.
 n_unread_heading_items=0
 if [ -n "$plan_json" ]; then
   while IFS="$US" read -r f wave branch has_heading_branch; do
