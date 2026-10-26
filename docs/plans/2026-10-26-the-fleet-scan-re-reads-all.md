@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-26, Jan Wloka, plan-PR #2721 merged
 - **Started:** 2026-10-26, Jan Wloka, `bug/the-scan-listing-is-priced-in-pages`
+- **Started:** 2026-10-26, Jan Wloka, `feature/the-scan-listing-is-a-host-delta`
 
 ## Changelog
 
