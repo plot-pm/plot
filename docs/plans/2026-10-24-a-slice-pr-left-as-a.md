@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2559
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2561 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/a-slice-pr-left-as-a`
+- **Delivered:** 2026-10-26
 
 ## Changelog
 
