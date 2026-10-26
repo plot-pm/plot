@@ -79,7 +79,7 @@ A fix in the board or fleetd bundle reaches a machine only after a restart of th
 
 ### Fleetd Plan Source
 
-- `bug/fleetd-plan-store-reads-the-ref` — fleetd's queue, supervisor and index monitor read plans from `origin/<default>`; a fixture repo test approves a plan on the remote while the local checkout stays behind and asserts the plan's slices are in fleetd's queue; an unreadable ref queues nothing; changeset package `plot`
+- `bug/fleetd-plan-store-reads-the-ref` — fleetd's queue, supervisor and index monitor read plans from `origin/<default>`; a fixture repo test approves a plan on the remote while the local checkout stays behind and asserts the plan's slices are in fleetd's queue; an unreadable ref queues nothing; changeset package `plot` → #2742
 
 ## Notes
 
