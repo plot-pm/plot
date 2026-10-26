@@ -4,13 +4,16 @@ import {
   ISSUE_REFRESH_MS,
   startPulse,
   type FleetReading,
+  type ReaderClaim,
   type RunningPulse,
 } from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
+import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 
-import { prGateOpen, refreshPrs, type PrState, type PrWorld } from './pr-refresh.js';
+import { processStartedAt } from './board-run.js';
+import { prGateOpen, refreshPrs, resolveBackend, type PrState, type PrWorld } from './pr-refresh.js';
 import { PR_REFRESH_MS, REFRESH_MS, scanOnce, writeScan, type ScanState, type ScanWorld } from './fleet-scan.js';
 
 /**
@@ -151,27 +154,120 @@ export const fleetScan = (
   if (landed !== null && after) await after(landed);
 };
 
+/** The reader lock a PR pass elects under. */
+export interface PrLock {
+  /** The reader lock port; `readerLockFile` in production. */
+  lock: ReaderLock;
+}
+
+/** This process's reader-election claim, built fresh for every `elect` call. */
+const ownClaim = (now: number): ReaderClaim => ({
+  generation: 0,
+  pid: process.pid,
+  startedAt: processStartedAt(process.pid) ?? Math.round(now - process.uptime() * 1000),
+  at: now,
+});
+
+/** Maps a published reader state onto the fields a following process renders without asking the host. */
+const adoptReaderState = (state: PrState, published: { prError: string | null; prNextAt: number; prNextIsBackoff: boolean; prFullReadFailedAt: number | null }): void => {
+  state.prError = published.prError;
+  state.prNextAt = published.prNextAt;
+  state.prNextIsBackoff = published.prNextIsBackoff;
+  state.prFullReadFailedAt = published.prFullReadFailedAt;
+};
+
 /**
- * Builds the PR pass the fleet's clock runs: one host read behind the cadence
- * gate, folded into the PR index.
+ * Builds the PR pass the fleet's clock runs: an election for this machine's
+ * one PR reader, one host read behind the cadence gate, folded into the PR
+ * index.
  *
- * The gate is the one the board used: an ordinary beat opens it within a slack
- * of the interval, and a backoff the host named holds for its full delay.
+ * ELECTS BEFORE THE GATE. A beat that lost the election asks the host
+ * nothing and touches no store, whatever the cadence says — the gate decides
+ * when THE READER refreshes, not whether this process is it.
+ *
+ * `held` skips the whole pass: no host call, no store touch, no write. A
+ * process newly electing adopts the current holder's published cadence and
+ * failure state once, the moment it becomes the holder — `state.prAt ===
+ * null` is that moment, a fresh process's own cold-start signal, checked
+ * rather than trusting `elect`'s return word alone, because a holder that
+ * renews every beat also reads `'elected'` on every call it already won.
+ *
+ * THE FOLD IS FENCED, NOT THE WHOLE PASS. `refreshPrs` re-reads the lock's
+ * holder immediatly before the write that would otherwise race a takeover
+ * mid-pass; losing that race skips only the fold, since the host was already
+ * asked and that answer is still served.
+ *
+ * Every pass that held the lock — whether or not the fold happened — ends by
+ * publishing this reader's cadence and a `fleetd` heartbeat, so a following
+ * board renders this process's latest reading without asking the host itself.
+ *
+ * A `failed` lock (its directory itself unwritable) skips the pass and warns
+ * once per distinct cause, not once per beat, the same shape
+ * `warnDefaultBranchOnce` in `registryd-main.ts` uses for its own repeating
+ * condition.
+ *
+ * The lock's key is the connector `resolveBackend` resolves — `(realpath(common
+ * git dir), connector)` once the adapter scopes it to this repository — read
+ * before electing, the same key `writePrStore` already folds under.
  *
  * @param world - what the pass reaches; the fleet is the index's only writer.
  * @param state - the cadence, backoff and limit reading carried between passes.
- * @param warn - receives a one-line reason when a pass throws.
+ * @param prLock - the reader lock this pass elects under.
+ * @param warn - receives a one-line reason when a pass throws or the lock fails.
  * @returns the function to hand to {@link startFleetClock} as `prs`.
  */
 export const fleetPrs = (
   world: PrWorld,
   state: PrState,
+  prLock: PrLock,
   warn: (line: string) => void,
-): (() => Promise<void>) => async () => {
-  if (!prGateOpen(state.prNextAt, state.prNextIsBackoff)) return;
-  try {
-    await refreshPrs(world, state);
-  } catch (e) {
-    warn(`plot-fleetd: PR read failed: ${e instanceof Error ? e.message : String(e)}\n`);
-  }
+): (() => Promise<void>) => {
+  const now = world.now ?? Date.now;
+  let lastFailureCause: string | null = null;
+  const warnOnce = (cause: string, line: string): void => {
+    if (cause === lastFailureCause) return;
+    lastFailureCause = cause;
+    warn(line);
+  };
+  return async () => {
+    const key = await resolveBackend(state, world.host);
+    const claim = ownClaim(now());
+    const verdict = await prLock.lock.elect(key, claim);
+    if (!verdict.ok) {
+      warnOnce('elect-failed', `plot-fleetd: PR reader lock unavailable; skipping this pass\n`);
+      return;
+    }
+    lastFailureCause = null;
+    if (verdict.value === 'held') return;
+    if (state.prAt === null) {
+      const published = await prLock.lock.readerState(key);
+      if (published.ok && published.value !== null) adoptReaderState(state, published.value);
+    }
+    if (!prGateOpen(state.prNextAt, state.prNextIsBackoff)) return;
+    try {
+      await refreshPrs({ ...world, fenceFold: () => fenceFold(prLock, key) }, state);
+    } catch (e) {
+      warn(`plot-fleetd: PR read failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+    await prLock.lock.writeReaderState(key, {
+      v: 1,
+      prError: state.prError,
+      prNextAt: state.prNextAt,
+      prNextIsBackoff: state.prNextIsBackoff,
+      prFullReadFailedAt: state.prFullReadFailedAt,
+      at: now(),
+    });
+    await prLock.lock.heartbeat(key, 'fleetd', now());
+  };
+};
+
+/**
+ * Whether this process still names the lock's holder, right before the fold
+ * it fences. The pid alone decides it: any other live holder is by
+ * construction a different process, and a claim this process itself
+ * published under a later generation still carries this same pid.
+ */
+const fenceFold = async (prLock: PrLock, key: string): Promise<boolean> => {
+  const held = await prLock.lock.holder(key);
+  return held.ok && held.value !== null && held.value.pid === process.pid;
 };
