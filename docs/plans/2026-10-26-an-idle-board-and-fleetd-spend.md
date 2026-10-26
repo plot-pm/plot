@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2715
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-26, Jan Wloka, plan-PR #2716 merged
 - **Started:** 2026-10-26, Jan Wloka, `bug/nothing-done-asks-pr-state-only-where-it-decides`
 - **Started:** 2026-10-26, Jan Wloka, `feature/the-tick-reads-merged-prs-as-an-index-delta`
+- **Delivered:** 2026-10-26
 
 ## Changelog
 
