@@ -196,7 +196,7 @@ From `CLAUDE.md`:
 
 ### Index lock
 
-- `feature/pr-index-lock-beside-the-index` — `reader-election.ts`, the `reader-lock.ts` port and the `reader-lock-file.ts` adapter (from #2436, TSDoc trimmed) over `<index dir>/<connector>.lock/`: generation owner files decided by one `link`, renewal and release through the same decision, start time compared within `CONTINUE_LOCK_SKEW_MS`, the age bound kept when liveness is unknown, the heartbeat rule, and the reader state file codec; state-inventory rows; observable: a multi-process race test in which 8 real `node` processes elect over one stale claim and exactly one wins, a renewing holder is never read as "no holder", and a superseded holder's release leaves the new claim; no caller yet
+- `feature/pr-index-lock-beside-the-index` — `reader-election.ts`, the `reader-lock.ts` port and the `reader-lock-file.ts` adapter (from #2436, TSDoc trimmed) over `<index dir>/<connector>.lock/`: generation owner files decided by one `link`, renewal and release through the same decision, start time compared within `CONTINUE_LOCK_SKEW_MS`, the age bound kept when liveness is unknown, the heartbeat rule, and the reader state file codec; state-inventory rows; observable: a multi-process race test in which 8 real `node` processes elect over one stale claim and exactly one wins, a renewing holder is never read as "no holder", and a superseded holder's release leaves the new claim; no caller yet → #2718
 
 ### fleetd lock
 
