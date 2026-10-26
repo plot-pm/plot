@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-26, Jan Wloka, plan-PR #2726 merged
 - **Started:** 2026-10-26, Jan Wloka, `bug/implement-books-the-brief-in-a-worktree`
+- **Started:** 2026-10-26, Jan Wloka, `bug/fleetd-plan-store-reads-the-ref`
 
 ## Changelog
 
