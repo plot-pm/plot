@@ -10218,6 +10218,100 @@ test('host: issue-list jira --fix-version with a quote and a backslash reaches t
   assert.ok(argv.includes('jql=fixVersion = "kus \\"102\\" \\\\ x" AND project IN (PROJ) ORDER BY created DESC'), argv.join('\n'));
 });
 
+// --- the existence check runs once per read, not once per page (#2259) -----
+//
+// `walk` (tracker-shell.ts) calls this op once per page of a multi-page
+// `--fix-version` read, each page past the first carrying `--page-token`. The
+// existence check used to re-run on every one of those calls, so `pages`
+// (tracker-jira.ts's `versionRead`) undercounted the real Jira call total
+// whenever the read spanned more than one page.
+
+function makePagedVersionAwareCurlStub({ versions, firstPageBody, secondPageBody }) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jira-')));
+  const argvFile = path.join(dir, 'curl.argv');
+  const toB64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+  const cases = Object.entries(versions)
+    .map(([project, list]) => `*"/project/${project}/versions"*) body='${toB64(JSON.stringify(list))}' ;;`)
+    .join('\n');
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> "${argvFile}"
+printf '===\\n' >> "${argvFile}"
+body=''
+for a in "$@"; do case "$a" in
+${cases}
+esac; done
+if [ -z "$body" ]; then
+  case "$*" in
+    *page-token*) body='${toB64(secondPageBody)}' ;;
+    *) body='${toB64(firstPageBody)}' ;;
+  esac
+fi
+printf '%s' "$(printf '%s' "$body" | base64 -d)"
+printf '\\n200'
+`);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  return { dir, argvFile };
+}
+
+test('host: issue-list jira --fix-version runs the existence check once across a two-page read, not once per page', () => {
+  const stub = makePagedVersionAwareCurlStub({
+    versions: { PROJ: [{ name: 'kus-portal-102' }] },
+    firstPageBody: jiraIssuesBody(1, { nextPageToken: 'tok-2' }),
+    secondPageBody: jiraIssuesBody(1),
+  });
+  const first = runJira(['issue-list', '--fix-version', 'kus-portal-102', '--limit', '1'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(first.status, 0, first.stderr);
+  const second = runJira(['issue-list', '--fix-version', 'kus-portal-102', '--limit', '1', '--page-token', 'tok-2'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(second.status, 0, second.stderr);
+  const versionCalls = readFileSync(stub.argvFile, 'utf8').split('===\n').filter((c) => c.includes('/project/PROJ/versions')).length;
+  assert.equal(versionCalls, 1, 'the second page must not repeat the existence check');
+});
+
+test('host: issue-list jira --fix-version malformed version-list JSON exits as a failed question, never version-not-found', () => {
+  const stub = makeVersionAwareCurlStub({ versions: {} });
+  writeFileSync(path.join(stub.dir, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> "${stub.argvFile}"
+printf '===\\n' >> "${stub.argvFile}"
+for a in "$@"; do case "$a" in
+  *"/project/PROJ/versions"*) printf 'not valid json {{{'; printf '\\n200'; exit 0 ;;
+esac; done
+printf '%s' '{"issues":[]}'
+printf '\\n200'
+`);
+  chmodSync(path.join(stub.dir, 'curl'), 0o755);
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 3, res.stderr);
+  assert.doesNotMatch(res.stderr, /version-not-found/);
+});
+
+// --- --limit is bounded before the numeric comparison runs (#2259) ---------
+
+test('host: issue-list --limit outside bash integer range is refused before any curl runs, not passed through to maxResults', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--limit', '99999999999999999999'], stub);
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /exceeds one Jira page/);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+// --- a later --state does not silently override --fix-version (#2259) ------
+
+test('host: issue-list --fix-version then --state closed is refused rather than silently dropping the version filter', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--fix-version', '2.28', '--state', 'closed'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /--fix-version and --state closed conflict/);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-list --state closed then --fix-version resolves the same way as the other argument order', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--state', 'closed', '--fix-version', '2.28'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /--fix-version and --state closed conflict/);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
 // --- the unpaged open/inbox cut notice --------------------------------------
 //
 // An unpaged read of exactly ISSUE_PAGE_ROWS (50 by default) rows, with more
