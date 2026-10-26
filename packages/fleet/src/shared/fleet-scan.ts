@@ -103,17 +103,26 @@ export interface ScanOptions {
 /**
  * Requests one fleet-scan listing spends on `backend`.
  *
- * GitHub answers in one request. Bitbucket asks its REST endpoint about each
- * tracked branch under three states, so the cost is `branches x 3`.
+ * Bitbucket asks its REST endpoint about each tracked branch under three
+ * states, so the cost is `branches x 3`. GitHub's `gh pr list` pages at 100
+ * rows per request: one `--state open` call plus `ceil(rows / 100)` calls for
+ * `--state all`, so the cost is `1 + max(1, ceil(rows / 100))`. `rows` absent
+ * (no adopted listing yet) prices as 2 — the first listing is always
+ * permitted, so this price decides nothing.
  *
  * @param backend - the configured host.
- * @param branches - how many branches the scan tracks.
+ * @param branches - how many branches the scan tracks (Bitbucket only).
+ * @param rows - how many branch lines the last adopted GitHub listing held, or
+ *   null where none has been adopted yet.
  * @returns the requests one listing spends; never 0.
  */
-export const scanListingCost = (backend: string, branches: number): number => {
-  if (backend !== 'bitbucket') return 1;
-  const swept = Math.max(0, Math.trunc(branches)) * 3;
-  return swept > 0 ? swept : 3;
+export const scanListingCost = (backend: string, branches: number, rows: number | null): number => {
+  if (backend === 'bitbucket') {
+    const swept = Math.max(0, Math.trunc(branches)) * 3;
+    return swept > 0 ? swept : 3;
+  }
+  if (rows === null) return 2;
+  return 1 + Math.max(1, Math.ceil(rows / 100));
 };
 
 /**
@@ -131,6 +140,18 @@ export const listedBranchCount = (listed: string): number | null => {
   }
   return null;
 };
+
+/**
+ * How many branch rows a reported listing holds.
+ *
+ * Counts every non-empty line whose key does not start with `.` — a dotted
+ * note (`.branches`, `.list-complete`, `.list-arrived`, …) is not a branch row.
+ *
+ * @param listed - the scan's reported listing, one note or branch per line.
+ * @returns the row count; 0 for an empty listing.
+ */
+export const listedRowCount = (listed: string): number =>
+  listed.split('\n').filter((line) => line !== '' && !line.split('\t')[0].startsWith('.')).length;
 
 /**
  * Whether a reported listing ends with its `.list-arrived` line.
@@ -378,7 +399,11 @@ export const scanOnce = async (
     const backend = await world.backend();
     const verdict = listingSpend({
       intervalMs: REFRESH_MS,
-      costPerListing: scanListingCost(backend, state.listingBranches),
+      costPerListing: scanListingCost(
+        backend,
+        state.listingBranches,
+        state.listing === '' ? null : listedRowCount(state.listing),
+      ),
       rate: await spendRateFor(world.scripts),
       lastListedAt: state.listingAt,
       now,
