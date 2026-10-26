@@ -274,6 +274,14 @@ Turn the merged signals into proposals:
   propose the **move** this repository needs, naming the evidence the way the
   commit-subject proposal does:
 
+  **This branch is about `branchTicket.prefix`, not `ticket.prefix` — a `null`
+  `ticket.prefix` with no `Tracker` key does not fall here.** `issueSource`
+  reading an absent key the same as `Tracker: plot` describes RUNTIME
+  behaviour, not what this setup step proposes. With both signals absent
+  (no `Tracker` key, `ticket.prefix` null), the `ticket.prefix` rule above
+  still governs: ask which tracker, and never propose `Tracker: none` — or
+  silently leave the key unset — from the absence of evidence alone.
+
   > Found `QUACDS` in 5 of 40 branch names, and this repository declares
   > `Tracker: plot` on a Bitbucket remote → propose `Tracker: jira` with
   > `Sprint owner: plot`.
