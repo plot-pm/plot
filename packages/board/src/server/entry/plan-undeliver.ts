@@ -7,6 +7,7 @@ import {
 } from '@plot-pm/domain/transitions/plan';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { reverseDelivery } from '@plot-pm/domain/rules/plan-record-edit';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -112,7 +113,7 @@ export const requestFrom = (text: string): Request => {
  * Decide the reversal, or throw the refusal.
  *
  * @param request - what the caller sent.
- * @returns the decided phase and record, tab-separated and newline-terminated.
+ * @returns the decided state and record, tab-separated, a newline, then the plan file with the reversal written.
  * @throws a refusal carrying its `reason`, for {@link run} to print.
  */
 export const answer = (request: Request): string => {
@@ -135,7 +136,17 @@ export const answer = (request: Request): string => {
     err.reason = result.reason;
     throw err;
   }
-  return `${result.phase}\t${result.record}\n`;
+  // The estate capitalises the phase the rule normalised.
+  const state = result.phase.charAt(0).toUpperCase() + result.phase.slice(1);
+  const edited = reverseDelivery(request.content, state, result.record);
+  if (edited === null) {
+    const err = new Error(
+      `${request.slug} has no '- **State:**' line under '## Status' — refusing rather than guessing where the phase lives.`,
+    ) as Error & { reason: string };
+    err.reason = 'state-line-missing';
+    throw err;
+  }
+  return `${state}\t${result.record}\n${edited}`;
 };
 
 /**
