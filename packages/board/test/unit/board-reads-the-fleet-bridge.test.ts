@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rmTree } from '../helpers.mjs';
-import { fleetStateFile, bridgePath } from '@plot-pm/domain/adapters';
+import { fleetStateFile, bridgePath, readerLockFixture } from '@plot-pm/domain/adapters';
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
+import { READER_STATE_VERSION } from '@plot-pm/domain';
 
 const fold = vi.hoisted(() => ({ calls: 0 }));
 vi.mock('@plot-pm/domain', async (importOriginal) => {
@@ -83,7 +84,17 @@ const fixture = (supervisorUp: boolean) => {
   execFileSync('git', ['init', '--quiet'], { cwd: dir });
   fs.mkdirSync(path.join(dir, 'pr-index'));
   vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
-  const opts = { repoRoot: dir, scriptsDir: dir };
+  // A fleet owning the PR lock holds a live `fleetd` claim and heartbeat, the
+  // same pair `fleetPrs` itself publishes on every pass; a board whose fixture
+  // simulates the fleet via the bridge alone would read `electBoardVerdict` as
+  // `elect` and ask the host on its own, which no real fleet ever leaves room for.
+  const readerLock = supervisorUp ? readerLockFixture() : undefined;
+  if (readerLock !== undefined) {
+    const now = Date.now();
+    void readerLock.elect('github', { generation: 0, pid: 424242, startedAt: now - 60_000, at: now });
+    void readerLock.heartbeat('github', 'fleetd', now);
+  }
+  const opts = { repoRoot: dir, scriptsDir: dir, readerLock };
   const prListed = (): number => (fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter(Boolean).length : 0);
   const spawned = (): string[] => (fs.existsSync(scans) ? fs.readFileSync(scans, 'utf8').split('\n').filter(Boolean) : []);
   const supervisorReads = (): number => (fs.existsSync(path.join(dir, 'ctl.log')) ? fs.readFileSync(path.join(dir, 'ctl.log'), 'utf8').split('\n').filter(Boolean).length : 0);
@@ -203,22 +214,30 @@ describe('the PR reader while a fleet runs', () => {
     await index.write('github', foldPrIndex(null, { connector: 'github', rows: [heldRow], kind: 'whole', at: new Date().toISOString() }));
   };
 
-  it('shows the fleet\'s last PR error beside the maps it served', async () => {
+  it('shows the reader\'s last PR error beside the maps it served', async () => {
     const { dir, opts } = fixture(true);
     await seedStore(dir);
-    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000, 'gh: HTTP 502'));
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const now = Date.now();
+    await opts.readerLock?.writeReaderState('github', {
+      v: READER_STATE_VERSION, prError: 'gh: HTTP 502', prNextAt: now + 60_000, prNextIsBackoff: false, prFullReadFailedAt: now, at: now,
+    });
     const entry = freshCacheEntry();
     await refresh(opts, entry);
     await maybeRefreshPrs(opts, entry);
     expect(entry.prError).toBe('gh: HTTP 502');
   });
 
-  it('clears the error once the fleet bridges none', async () => {
+  it('clears the error once the reader publishes none', async () => {
     const { dir, opts } = fixture(true);
     await seedStore(dir);
     const entry = freshCacheEntry();
     entry.prError = 'old';
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const now = Date.now();
+    await opts.readerLock?.writeReaderState('github', {
+      v: READER_STATE_VERSION, prError: null, prNextAt: now + 60_000, prNextIsBackoff: false, prFullReadFailedAt: null, at: now,
+    });
     await refresh(opts, entry);
     await maybeRefreshPrs(opts, entry);
     expect(entry.prError).toBeNull();
