@@ -9,7 +9,7 @@ import { gatherReadingsAndRelease } from '../release-claim.js';
 import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { fleetdStartFile } from '@plot-pm/domain/adapters';
-import { spawnerStatus, spawnerStatusText, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
+import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt } from './merge.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
@@ -23,8 +23,8 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
  * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
  * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
  * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
- * node skills/plot/scripts/board/plot-ask.mjs spawner [pid]
- * <spawnContract JSON> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board
+ * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
+ * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
  * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
  * ```
  *
@@ -179,9 +179,12 @@ export const run = async (
     // The board's OWN spawn contract, reported through `/api/board` rather
     // than `fleetd-start.json` — `plot-boardctl.sh --status` is the one
     // caller, and it already fetched that body for `served=`/`answers:`
-    // above. Piping its `spawnContract` object in here means that ONE fetch
-    // is also the source for this line: no second network call, and no
-    // second copy of `spawnerStatus`/`bundleDriftDetected` written in shell.
+    // above. It pipes the whole body in, and this mode reads its
+    // `spawnContract` object: ONE fetch is also the source for this line, and
+    // no JSON is parsed in shell.
+    //
+    // `--lines` prints the finished, indented `--status` lines, and nothing
+    // for a body with no `spawnContract` (a board built before #2728).
     //
     // There is no independent process to compare a pid against — the board's
     // own reply IS proof it is the process running right now — so this uses
@@ -190,13 +193,17 @@ export const run = async (
     const raw = readFileSync(0, 'utf8');
     let parsed: { spawnContract: number; bundlePath: string; bundleHash: string | null; runningBundleHash: string | null; gateNumber: number | null; gatePath: string } | null = null;
     try {
-      parsed = JSON.parse(raw);
+      parsed = JSON.parse(raw)?.spawnContract ?? null;
     } catch {
       parsed = null;
     }
     const identity = parsed ? { pid: 1, spawnContract: parsed.spawnContract } : null;
     const verdict = spawnerStatus(identity, 1, parsed?.gateNumber ?? null);
     const drifted = parsed ? bundleDriftDetected(parsed.bundleHash, parsed.runningBundleHash) : false;
+    if (argv.includes('--lines')) {
+      if (parsed) write(spawnerStatusLines(verdict, drifted ? bundleDriftText(parsed.bundlePath) : null));
+      return 0;
+    }
     write(`${JSON.stringify({
       status: spawnerStatusText(verdict),
       verdict,
@@ -223,6 +230,8 @@ export const run = async (
     // against, so the record's own pid is the only candidate — a caller that
     // omits it can never see `unknown` from a pid mismatch, only from a
     // missing record or an unanswered gate.
+    //
+    // `--lines` prints the finished, indented `--status` lines instead of JSON.
     const { opts } = contextFrom(here);
     const record = await fleetdStartFile({ cwd: opts.repoRoot }).read();
     const identity = record.ok && record.value ? { pid: record.value.pid, spawnContract: record.value.spawnContract } : null;
@@ -239,12 +248,17 @@ export const run = async (
       runningHash = hashed.ok ? hashed.value.get(record.value.bundlePath) ?? null : null;
     }
     const drifted = record.ok && record.value ? bundleDriftDetected(record.value.bundleHash, runningHash) : false;
+    const driftText = drifted && record.ok && record.value ? bundleDriftText(record.value.bundlePath) : null;
+    if (argv.includes('--lines')) {
+      write(spawnerStatusLines(verdict, driftText));
+      return 0;
+    }
     write(`${JSON.stringify({
       status: spawnerStatusText(verdict),
       verdict,
       bundlePath: record.ok && record.value ? record.value.bundlePath : null,
       bundleDrift: drifted,
-      bundleDriftText: drifted && record.ok && record.value ? bundleDriftText(record.value.bundlePath) : null,
+      bundleDriftText: driftText,
       gatePath,
       gateNumber: gateAnswer,
     })}\n`);
@@ -270,7 +284,7 @@ export const run = async (
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spawner [pid] | spawner --from-board | plangate --slug <slug> --default-branch <main>\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spawner [pid] [--lines] | spawner --from-board [--lines] | plangate --slug <slug> --default-branch <main>\n',
     );
     return 2;
   }

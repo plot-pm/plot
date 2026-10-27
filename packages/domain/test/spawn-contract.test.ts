@@ -9,6 +9,7 @@ import {
   spawnContractReading,
   spawnerStatus,
   spawnerStatusEntry,
+  spawnerStatusLines,
   spawnerStatusText,
 } from '../src/rules/spawn-contract.js';
 
@@ -144,6 +145,18 @@ describe('bundleDriftDetected', () => {
 describe('bundleDriftText', () => {
   it('names the path and marks itself as evidence, not the verdict', () => {
     expect(bundleDriftText('/tmp/bundle.mjs')).toBe('bundle differs from /tmp/bundle.mjs (evidence, not the verdict)');
+  });
+});
+
+describe('spawnerStatusLines', () => {
+  it('prints the verdict line alone, indented, when nothing drifted', () => {
+    expect(spawnerStatusLines({ kind: 'current' }, null)).toBe('  spawn contract: current\n');
+  });
+
+  it('prints the drift line after the verdict line when the bundle drifted', () => {
+    expect(spawnerStatusLines({ kind: 'stale', spawnerNumber: 1, gateNumber: 2 }, 'bundle differs from /b.mjs (evidence, not the verdict)')).toBe(
+      '  spawn contract: stale: spawn contract 1, gate expects 2\n  bundle differs from /b.mjs (evidence, not the verdict)\n',
+    );
   });
 });
 

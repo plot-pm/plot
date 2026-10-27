@@ -832,21 +832,9 @@ if [ "$mode" = "status" ]; then
     # older-than.md) reads `fleetd-start.json`, compares it against the gate's
     # own answer through `spawnerStatus`, and hashes the bundle fresh — so a
     # rebuilt bundle shows up as drift and a stale spawn contract as `stale:`.
-    # A missing `plot-ask.mjs` or an unparseable answer prints nothing.
-    # REPORT ONLY: nothing below restarts, reloads or repairs anything.
-    spawner_json=$(PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-ask.mjs" spawner "$sup_pid" 2>/dev/null) && {
-      printf '%s' "$spawner_json" | node -e '
-        let s = "";
-        process.stdin.on("data", d => (s += d)).on("end", () => {
-          try {
-            const a = JSON.parse(s);
-            const lines = [`spawn contract: ${a.status}`];
-            if (a.bundleDrift) lines.push(a.bundleDriftText);
-            process.stdout.write(lines.map(l => `  ${l}\n`).join(""));
-          } catch { process.exitCode = 1; }
-        });
-      ' 2>/dev/null
-    }
+    # The bundle prints the finished lines; a missing `plot-ask.mjs` prints
+    # nothing. REPORT ONLY: nothing below restarts, reloads or repairs anything.
+    PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-ask.mjs" spawner "$sup_pid" --lines 2>/dev/null
   elif [ "$sup_loaded" = 0 ]; then
     # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
     # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`

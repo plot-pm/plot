@@ -202,6 +202,20 @@ export const bundleDriftDetected = (recordedHash: string | null, runningHash: st
 export const bundleDriftText = (bundlePath: string): string => `bundle differs from ${bundlePath} (evidence, not the verdict)`;
 
 /**
+ * Renders the `--status` lines `plot-boardctl.sh` and `plot-fleetctl.sh` print
+ * for a spawner: the verdict line, then the bundle-drift line when there is
+ * one, each indented two spaces and ending in a newline.
+ *
+ * @param verdict - the comparison's result.
+ * @param driftText - the {@link bundleDriftText} line, or null without drift.
+ * @returns the finished lines.
+ */
+export const spawnerStatusLines = (verdict: SpawnerStatusVerdict, driftText: string | null): string =>
+  [`spawn contract: ${spawnerStatusText(verdict)}`, ...(driftText === null ? [] : [driftText])]
+    .map((line) => `  ${line}\n`)
+    .join('');
+
+/**
  * The board-status panel entry for a stale spawn contract — null for
  * `current` and `unknown`, the same absent-when-healthy contract
  * `checkoutHealthStatus` and `defaultBranchStatus` follow, so an unreadable

@@ -89,6 +89,18 @@ const askSpawner = async (argv: string[]): Promise<{ code: number; body: Record<
 };
 
 describe('plot-ask spawner [pid]', () => {
+  it('prints the finished status lines with --lines', async () => {
+    const { repoRoot, bundlePath, bundleHash } = repoWithBundle();
+    writeGate(repoRoot, 7);
+    useRepoScriptGate(repoRoot);
+    writeFleetdStart(repoRoot, { pid: 4242, spawnContract: 7, bundlePath, bundleHash });
+
+    const lines: string[] = [];
+    const code = await run(['spawner', '4242', '--lines'], '/nonexistent', (line) => lines.push(line));
+    expect(code).toBe(0);
+    expect(lines.join('')).toBe('  spawn contract: current\n');
+  });
+
   it('reads current when the record, the live pid and the gate all agree', async () => {
     const { repoRoot, bundlePath, bundleHash } = repoWithBundle();
     writeGate(repoRoot, 7);
@@ -197,13 +209,37 @@ describe('plot-ask spawner --from-board', () => {
   // `test:board` step rebuilds before running anything under `test/`.
   const ask = path.resolve(__dirname, '../../../../skills/plot/scripts/board/plot-ask.mjs');
 
+  /** Pipes a `/api/board` body carrying `payload` as its `spawnContract`, the way `plot-boardctl.sh --status` does. */
   const askFromBoard = (payload: Record<string, unknown>): { code: number; body: Record<string, unknown> } => {
     const result = execFileSync('node', [ask, 'spawner', '--from-board'], {
-      input: JSON.stringify(payload),
+      input: JSON.stringify({ server: { repo: '/repo' }, spawnContract: payload }),
       encoding: 'utf8',
     });
     return { code: 0, body: JSON.parse(result) };
   };
+
+  const linesFromBoard = (body: Record<string, unknown>): string =>
+    execFileSync('node', [ask, 'spawner', '--from-board', '--lines'], { input: JSON.stringify(body), encoding: 'utf8' });
+
+  it('prints the finished status lines with --lines', () => {
+    const out = linesFromBoard({
+      spawnContract: {
+        spawnContract: 7,
+        bundlePath: 'skills/plot/scripts/board/board-server.mjs',
+        bundleHash: 'abc',
+        runningBundleHash: 'def',
+        gateNumber: 9,
+        gatePath: '/repo/skills/plot/scripts/board/plot-gate.mjs',
+      },
+    });
+    expect(out).toBe(
+      '  spawn contract: stale: spawn contract 7, gate expects 9\n  bundle differs from skills/plot/scripts/board/board-server.mjs (evidence, not the verdict)\n',
+    );
+  });
+
+  it('prints nothing with --lines for a board body that carries no spawnContract', () => {
+    expect(linesFromBoard({ server: { repo: '/repo' } })).toBe('');
+  });
 
   it('reads current with no stale-process case, by construction', async () => {
     const { code, body } = askFromBoard({

@@ -195,63 +195,29 @@ tree_pids() { # tree_pids <root>
 # Does a board ANSWER on the port, and for which repository? `/api/board`
 # carries `server.repo` — the realpath of the checkout the board serves — so
 # this is what distinguishes *your* board from another installation's holding
-# the same port. Prints "<repo>" on success; empty when nothing answers.
+# the same port. Sets `$served` to "<repo>" on success; empty when nothing
+# answers.
 #
-# ONE FETCH SERVES BOTH THIS AND THE SPAWN-CONTRACT LINE (#2728, docs/plans/
-# 2026-10-26-a-board-or-fleetd-older-than.md): the body is cached in
-# `$board_body` for `board_spawn_contract` below to read, so a second caller
-# never re-fetches `/api/board` for a field this one already has.
-board_body=""
+# IT SETS GLOBALS AND PRINTS NOTHING, so no caller runs it in `$(…)`. A command
+# substitution is a subshell, and `$board_body` assigned there never reaches
+# `--status`, which pipes that same body to `plot-ask.mjs spawner --from-board`
+# (#2728, docs/plans/2026-10-26-a-board-or-fleetd-older-than.md). One fetch
+# serves both lines.
 board_repo() {
+  served=""
   command -v curl >/dev/null 2>&1 || return 1
   # THIRTY SECONDS, and the margin is measured. A cold first fetch against a
   # 59-plan repo took 8.7–9.5 s on 2026-08-19 while the warm one took ~1.7 s; a
   # 10 s ceiling turns a healthy board into a reported failure on a loaded
   # machine.
-  board_body=$(curl -sf --max-time 30 "http://localhost:$port/api/board" 2>/dev/null) || { board_body=""; return 1; }
-  printf '%s' "$board_body" | node -e '
+  board_body=$(curl -sf --max-time 30 "http://localhost:$port/api/board" 2>/dev/null) || return 1
+  served=$(printf '%s' "$board_body" | node -e '
     let s = "";
     process.stdin.on("data", d => (s += d)).on("end", () => {
       try { process.stdout.write(String(JSON.parse(s)?.server?.repo ?? "")); }
       catch { process.exitCode = 1; }
     });
-  ' 2>/dev/null
-}
-
-# THE SAME BODY `board_repo` ALREADY FETCHED, never a second `/api/board`
-# call. Prints the spawner-status line(s) `plot-ask.mjs spawner --from-board`
-# derives from the body's `spawnContract` object; empty when the board carries
-# none (an old bundle this branch's own change has not reached) or when the
-# comparison itself answers nothing printable. REPORT ONLY — nothing here
-# starts, stops, kicks or reloads a process.
-board_spawn_contract() {
-  [ -n "$board_body" ] || return 1
-  [ -f "$script_dir/board/plot-ask.mjs" ] || return 1
-  local sc_json
-  sc_json=$(printf '%s' "$board_body" | node -e '
-    let s = "";
-    process.stdin.on("data", d => (s += d)).on("end", () => {
-      try {
-        const sc = JSON.parse(s)?.spawnContract;
-        if (sc) process.stdout.write(JSON.stringify(sc));
-      } catch {}
-    });
-  ' 2>/dev/null) || return 1
-  [ -n "$sc_json" ] || return 1
-  local spawner_json
-  spawner_json=$(printf '%s' "$sc_json" | node "$script_dir/board/plot-ask.mjs" spawner --from-board 2>/dev/null) || return 1
-  [ -n "$spawner_json" ] || return 1
-  printf '%s' "$spawner_json" | node -e '
-    let s = "";
-    process.stdin.on("data", d => (s += d)).on("end", () => {
-      try {
-        const a = JSON.parse(s);
-        const lines = [`spawn contract: ${a.status}`];
-        if (a.bundleDrift) lines.push(a.bundleDriftText);
-        process.stdout.write(lines.join("\n"));
-      } catch { process.exitCode = 1; }
-    });
-  ' 2>/dev/null
+  ' 2>/dev/null)
 }
 
 # ---------------------------------------------------------------------------
@@ -350,17 +316,16 @@ if [ "$mode" = "status" ]; then
   # THE THIRD FACT, and the only one that says WHOSE board it is. Two boards on
   # one machine are indistinguishable by pid or port alone; `server.repo` names
   # the checkout each serves.
-  served=$(board_repo) || served=""
+  board_repo
   if [ -n "$served" ]; then
     here=$(cd "$repo_root" && pwd -P)
     there=$(cd "$served" 2>/dev/null && pwd -P) || there="$served"
     if [ "$here" = "$there" ]; then
       echo "answers: yes — serving THIS repository ($served)"
       # THE SAME /api/board BODY ABOVE, never a second fetch (#2728, docs/plans/
-      # 2026-10-26-a-board-or-fleetd-older-than.md). REPORT ONLY. Two lines
-      # when the bundle has also drifted, so each is read and prefixed on its
-      # own — a plain `echo "  $x"` would indent only the first.
-      spawn_lines=$(board_spawn_contract) && [ -n "$spawn_lines" ] && printf '%s\n' "$spawn_lines" | while IFS= read -r line; do echo "  $line"; done
+      # 2026-10-26-a-board-or-fleetd-older-than.md). REPORT ONLY. The bundle
+      # prints the finished lines, and nothing for a board with no contract.
+      printf '%s' "$board_body" | node "$script_dir/board/plot-ask.mjs" spawner --from-board --lines 2>/dev/null
     else
       echo "answers: yes — serving ANOTHER checkout ($served)"
       echo "  This repository is $here. That board is not yours to stop."
@@ -438,7 +403,7 @@ if [ "$mode" = "start" ]; then
   # avoid. Report whose it is and stop.
   existing=$(listening_pid) || existing=""
   if [ -n "$existing" ]; then
-    served=$(board_repo) || served=""
+    board_repo
     echo "a board already holds port $port (pid $existing)"
     if [ -n "$served" ]; then
       here=$(cd "$repo_root" && pwd -P)
@@ -498,7 +463,7 @@ if [ "$mode" = "start" ]; then
     exit 1
   fi
 
-  served=$(board_repo) || served=""
+  board_repo
   if [ -z "$served" ]; then
     echo "plot-boardctl: started (pid $root_pid) but /api/board did not answer" >&2
     echo "  A board that did not come up must say so. log: $logfile" >&2
