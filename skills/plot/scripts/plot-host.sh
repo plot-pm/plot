@@ -127,7 +127,10 @@
 #                                 mismatch refuses `head-moved` (exit 1).
 #   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
-#   pr-list [--state open|merged|closed|all] [--limit N] [--rich|--rich-open]
+#   pr-list [--state open|merged|closed|all|settled] [--limit N] [--rich|--rich-open]
+#                                 settled is merged+declined on bitbucket (no
+#                                 open sweep) and --state all on github, which
+#                                 already answers everything in one call.
 #                                 --rich-open asks the rich fields of the OPEN
 #                                 pull requests only, and emits every row in the
 #                                 --rich shape. A MERGED or CLOSED row carries
@@ -2602,10 +2605,11 @@ rest_pr_to_state() {
 # A caller wanting it asks for it by name.
 bb_states_for() {
   case "$1" in
-    all)    printf 'open\nmerged\ndeclined\n' ;;
-    closed) printf 'declined\n' ;;
+    all)     printf 'open\nmerged\ndeclined\n' ;;
+    settled) printf 'merged\ndeclined\n' ;; # terminal only — no `open` sweep
+    closed)  printf 'declined\n' ;;
     open|merged|declined|superseded) printf '%s\n' "$1" ;;
-    *) die "unknown --state '$1' for the bitbucket backend (open|merged|closed|declined|superseded|all)" ;;
+    *) die "unknown --state '$1' for the bitbucket backend (open|merged|closed|declined|superseded|all|settled)" ;;
   esac
 }
 
@@ -4595,6 +4599,11 @@ case "$op" in
     fi
 
     if [ "$be" = "github" ]; then
+      # `settled` HAS NO GITHUB QUERY OF ITS OWN: `gh pr list --state all`
+      # already returns every row, and the caller using `settled` (the fleet
+      # scan's second call) already strips the OPEN ones itself. A second
+      # filter here would duplicate that stripping rather than replace it.
+      [ "$state" = "settled" ] && state="all"
       # THE SPLIT READ, AND IT IS TWO CALLS BECAUSE THE COST IS PER ROW.
       # `gh pr list` pages internally and takes no page-size flag, so 1000 rich
       # rows cost 1000 rows' worth of `statusCheckRollup` whatever the page.

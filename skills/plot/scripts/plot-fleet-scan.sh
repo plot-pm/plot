@@ -1041,9 +1041,9 @@ prefill_pr_states() {
   # missing from the rich payload has NO row at all once the plain payload's
   # OPEN rows are dropped below, and a missing row reads as "no PR".
   #
-  # OPEN FIRST, THEN ALL. A PR that merges between the two calls then carries
-  # a rich OPEN row and a plain MERGED one, and the rank keeps OPEN — stale by
-  # seconds, and the next scan corrects it.
+  # OPEN FIRST, THEN SETTLED. A PR that merges between the two calls then
+  # carries a rich OPEN row and a plain MERGED one, and the rank keeps OPEN —
+  # stale by seconds, and the next scan corrects it.
   open_err=$("$script_dir/plot-host.sh" pr-list --state open --limit "$PR_LIST_LIMIT" --rich \
          ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$open_list_out"); rc_open=$?
@@ -1060,7 +1060,7 @@ prefill_pr_states() {
   # throttled host it would spend quota on a payload nothing reads.
   pr_list_verdict "$rc_open" "$open_err"; _v_open=$_plv
   case "$_v_open" in ok|partial) ;; *) HOST_VERDICT=$_v_open; return 0 ;; esac
-  host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" \
+  host_err=$("$script_dir/plot-host.sh" pr-list --state settled --limit "$PR_LIST_LIMIT" \
          ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$host_list_out"); rc=$?
   pr_list_verdict "$rc" "$host_err"; _v_all=$_plv
@@ -1068,17 +1068,19 @@ prefill_pr_states() {
   pr_list_verdict_rank "$_v_all"
   if [ "$_r_open" -gt "$_plr" ]; then HOST_VERDICT=$_v_open; else HOST_VERDICT=$_v_all; fi
   case "$HOST_VERDICT" in ok|partial) ;; *) return 0 ;; esac
-  # THE MERGE, AND THE TRAP IT AVOIDS. An open PR is in BOTH payloads — rich
-  # from the `open` call, plain from the `all` call — and both rows rank 1 in
-  # the dedup below. With the sort key exhausted, `sort` compares whole lines,
-  # and the plain row's `-` sentinel (0x2D) sorts before any letter: the plain
-  # row wins every time and the rollup is lost for 100% of open PRs.
+  # THE MERGE, AND THE TRAP IT AVOIDS. An open PR can still appear in BOTH
+  # payloads — rich from the `open` call, plain from the `settled` call, since
+  # GitHub's `settled` arm is `--state all` and answers OPEN rows too — and
+  # both rows rank 1 in the dedup below. With the sort key exhausted, `sort`
+  # compares whole lines, and the plain row's `-` sentinel (0x2D) sorts before
+  # any letter: the plain row wins every time and the rollup is lost for 100%
+  # of open PRs.
   #
-  # So the `all` payload's OPEN rows are dropped before the concatenation, and
-  # each branch contributes one OPEN row at most. Those rows are unused: the
-  # `open` call already answered for every open PR, with its rollup.
+  # So the `settled` payload's OPEN rows are dropped before the concatenation,
+  # and each branch contributes one OPEN row at most. Those rows are unused:
+  # the `open` call already answered for every open PR, with its rollup.
   #
-  # THE COMPLETENESS COUNT IS TAKEN FROM THE `all` PAYLOAD BEFORE THE FILTER.
+  # THE COMPLETENESS COUNT IS TAKEN FROM THE `settled` PAYLOAD BEFORE THE FILTER.
   # `.list-complete` compares a row count against `PR_LIST_LIMIT`, and a count
   # taken after the filter can fall below the limit for a list that reached it
   # — a truncated list then reads as whole, and a cache miss derives `NONE` for
