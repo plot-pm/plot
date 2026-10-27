@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import {
   deliveryReadings,
+  holdFromRejection,
   planAutoDeliver,
   pruneDelivering,
   pruneFailures,
@@ -13,7 +14,7 @@ import {
 } from '@plot-pm/domain';
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
-import { deliverLogPath, scriptsOf, type ActOptions } from './action-log.js';
+import { deliverLogPath, planStoreOf, scriptsOf, type ActOptions } from './action-log.js';
 import {
   IN_FLIGHT_RENEW_AFTER_MS,
   readInFlight,
@@ -489,11 +490,26 @@ const reportStopped = (opts: ActOptions, slug: string, failure: DeliveryFailure)
  * only evidence that a delivery is running, and a pass blind to them would start
  * a second one.
  *
+ * A candidate whose plan file carries a `Rejected:` record — or cannot be
+ * read at all — is held rather than delivered: {@link holdFromRejection}. A
+ * held plan is a true skip, structurally outside the marks/failures
+ * bookkeeping above — it gets no in-flight mark and no failure count, so it
+ * never reads as a plan that "failed … consecutive deliveries". Fleetd logs
+ * one line naming the plan and the hold reason the first time a pass holds
+ * it; `heldLogged` is the caller's record of which slugs it already logged,
+ * reused across passes so a held plan is not renamed in the log every tick.
+ *
  * @param opts - where the fleet acts.
  * @param pulse - the pulse the scan just wrote.
  * @param now - epoch milliseconds; the clock of this pass.
+ * @param heldLogged - slugs already logged as held; mutated with any new ones.
  */
-export const runAutoDeliverPass = (opts: ActOptions, pulse: FleetReading | null, now: number = Date.now()): void => {
+export const runAutoDeliverPass = async (
+  opts: ActOptions,
+  pulse: FleetReading | null,
+  now: number = Date.now(),
+  heldLogged: Set<string> = new Set(),
+): Promise<void> => {
   const read = readInFlight(opts.repoRoot, now, 'deliver');
   if (read.branches === null) {
     console.log(`auto-deliver: cannot read the in-flight record (${read.error}); starting nothing this pass`);
@@ -517,7 +533,23 @@ export const runAutoDeliverPass = (opts: ActOptions, pulse: FleetReading | null,
     if (retryVerdict(failures[slug], reading, now) === 'stopped') stopped.push(slug);
   }
 
-  const plans = planAutoDeliver({ pulse, inFlight: held, complete, failures, now });
+  const candidates = planAutoDeliver({ pulse, inFlight: held, complete, failures, now });
+  const plans: AutoDeliverPlan[] = [];
+  if (candidates.length > 0) {
+    const planStore = planStoreOf(opts);
+    for (const candidate of candidates) {
+      const reading = await planStore.readPlan(candidate.file);
+      const hold = holdFromRejection(reading);
+      if (hold === null) {
+        plans.push(candidate);
+        continue;
+      }
+      if (!heldLogged.has(candidate.slug)) {
+        heldLogged.add(candidate.slug);
+        console.log(`auto-deliver: holding ${candidate.slug} (${hold}) — needs a person to deliver it`);
+      }
+    }
+  }
   const marks: Record<string, number> = {};
   for (const slug of held) {
     const at = read.stamps[slug] ?? read.expired[slug];

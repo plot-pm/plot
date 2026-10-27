@@ -1,12 +1,14 @@
-import { scriptsShell } from '@plot-pm/domain/adapters';
-import type { Scripts } from '@plot-pm/domain';
+import { scriptsShell, planStoreShell } from '@plot-pm/domain/adapters';
+import type { PlanStore, Scripts } from '@plot-pm/domain';
 import { agentLogPath } from './agent-log.js';
 import type { ConfigReadOptions } from './config-reader.js';
 
-/** Where the fleet acts: the repository, its scripts, and optionally the port that runs them. */
+/** Where the fleet acts: the repository, its scripts, and optionally the ports that read/run them. */
 export interface ActOptions extends ConfigReadOptions {
   /** The `Scripts` port that starts a script. Absent means the shell adapter over `scriptsDir`. */
   scripts?: Scripts;
+  /** The `PlanStore` port that reads plan files. Absent means the shell adapter over `repoRoot`. */
+  planStore?: PlanStore;
 }
 
 /**
@@ -17,6 +19,15 @@ export interface ActOptions extends ConfigReadOptions {
  */
 export const scriptsOf = (opts: ActOptions): Scripts =>
   opts.scripts ?? scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The `PlanStore` port these options read plan files through.
+ *
+ * @param opts - where the fleet acts.
+ * @returns the injected port, or the shell adapter over `opts.repoRoot`.
+ */
+export const planStoreOf = (opts: ActOptions): PlanStore =>
+  opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /** The fan-out Plot ships — the one this package starts, never a path a caller holds. */
 export const DISPATCH_SCRIPT = 'plot-dispatch.sh';

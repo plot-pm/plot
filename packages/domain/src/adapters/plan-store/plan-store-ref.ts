@@ -7,7 +7,7 @@ import type { Refs } from '../../ports/refs.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { asJsonLines, runProcess, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { planOf, planStoreShell, type RawPlan } from './plan-store-shell.js';
+import { planOf, planStoreShell, statusField, type RawPlan } from './plan-store-shell.js';
 
 /**
  * Reads plan files from a ref rather than from a checkout's working tree.
@@ -92,6 +92,7 @@ export const planStoreRef = (
     const stageDir = mkdtempSync(join(tmpdir(), 'plot-plan-store-ref-'));
     try {
       const staged: { stagedPath: string; file: string }[] = [];
+      const rejectedByStagedPath = new Map<string, string>();
       let n = 0;
       for (const { file, sha } of wanted) {
         const content = read.value.get(sha);
@@ -101,6 +102,7 @@ export const planStoreRef = (
         const stagedPath = join(dir, basename(file));
         writeFileSync(stagedPath, content, 'utf8');
         staged.push({ stagedPath, file });
+        rejectedByStagedPath.set(stagedPath, statusField(content, 'Rejected'));
       }
       if (staged.length === 0) return answered([]);
 
@@ -114,7 +116,8 @@ export const planStoreRef = (
         asJsonLines<RawPlan>(stdout)
           .filter((raw) => raw.error === undefined)
           .map((raw) => {
-            const record = planOf(raw);
+            const rejectedRaw = raw.file === undefined ? '' : rejectedByStagedPath.get(raw.file) ?? '';
+            const record = planOf(raw, rejectedRaw);
             const canonical = raw.file === undefined ? undefined : canonicalPath.get(raw.file);
             return canonical === undefined ? record : { ...record, file: canonical };
           }),

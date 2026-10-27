@@ -7,6 +7,7 @@ import {
   dependentsOf,
   hasUndeliveredDependent,
   deliveryReadings,
+  holdFromRejection,
   landedBranches,
   pruneFailures,
   recordDeliveryFailure,
@@ -17,7 +18,10 @@ import {
   planSlug,
   pruneDelivering,
   type FleetReading,
+  answered,
+  failed,
 } from '../src/index.js';
+import { planRecord } from '../src/adapters/index.js';
 
 type St = 'open' | 'merged' | 'deferred';
 
@@ -277,6 +281,55 @@ describe('rules/auto-deliver', () => {
       it('drops a record whose plan the pulse does not list, and skips plans with none', () => {
         expect(pruneFailures({ other: failed(1) }, plan)).toEqual({});
       });
+    });
+  });
+
+  describe('holdFromRejection', () => {
+    it('holds a plan whose Rejected: record sits ahead of a kept Delivered: line', () => {
+      // plot-undeliver.sh:117-157 inserts `Rejected:` ahead of `State:` and
+      // keeps the `Delivered:` line below it — the last record by file
+      // position is `Delivered:`, and the rule must read by name regardless.
+      const reading = answered(
+        planRecord({
+          rejectedRaw: '- **Rejected:** 2026-10-16',
+          deliveredRaw: '- **Delivered:** 2026-10-15',
+        }),
+      );
+      expect(holdFromRejection(reading)).toBe('rejected');
+    });
+
+    it('holds a same-day #2400 timing: merge 14:19Z, rejection 14:38Z', () => {
+      const reading = answered(planRecord({ rejectedRaw: '- **Rejected:** 2026-08-20' }));
+      expect(holdFromRejection(reading)).toBe('rejected');
+    });
+
+    it('holds a later real merge — row 1, 16 files, merged 2026-10-16T05:57:25Z', () => {
+      const reading = answered(
+        planRecord({
+          rejectedRaw: '- **Rejected:** 2026-10-16',
+          startedRaw: ['- **Started:** 2026-10-16T05:50:00Z'],
+        }),
+      );
+      expect(holdFromRejection(reading)).toBe('rejected');
+    });
+
+    it('holds a plan that carries a later Started: record', () => {
+      const reading = answered(
+        planRecord({
+          rejectedRaw: '- **Rejected:** 2026-10-16',
+          startedRaw: ['- **Started:** 2026-10-27T00:00:00Z'],
+        }),
+      );
+      expect(holdFromRejection(reading)).toBe('rejected');
+    });
+
+    it('holds as unknown when the plan file could not be read', () => {
+      expect(holdFromRejection(failed())).toBe('unknown');
+    });
+
+    it('does not hold an Approved plan with no Rejected: line', () => {
+      const reading = answered(planRecord({ deliveredRaw: '- **Delivered:** 2026-10-15' }));
+      expect(holdFromRejection(reading)).toBeNull();
     });
   });
 });
