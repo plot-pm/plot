@@ -106,6 +106,9 @@ async function prReading(
  *
  * @param tally - the host-call counter {@link prReading} adds to; a no-op
  *   tally where the caller does not track one (the board's own callers).
+ * @param localEvidence - `'claim-only'` where the caller read the branch as
+ *   holding no commit beyond its claim; it licenses a release only where the
+ *   host did not answer.
  * @returns the outcome, never throwing: a gathering failure refuses exactly
  *   as `releaseClaim` itself refuses an `unknown` PR reading.
  */
@@ -113,6 +116,7 @@ export async function gatherReadingsAndRelease(
   branch: string,
   context: { repoRoot: string; scriptDir: string },
   tally: HostCallTally = { calls: 0 },
+  localEvidence: 'claim-only' | 'unknown' = 'unknown',
 ): Promise<{ status: number; result: ReleaseClaimResult }> {
   const refs = refsGit(context);
   const [branches, holders, pr] = await Promise.all([
@@ -121,7 +125,7 @@ export async function gatherReadingsAndRelease(
     prReading(branch, context, tally),
   ]);
   const claimed = (isAnswered(branches) && branches.value.includes(branch)) || holders.length > 0;
-  const readings: ClaimReleaseReadings = { branch, claimed, holders, pr };
+  const readings: ClaimReleaseReadings = { branch, claimed, holders, pr, localEvidence };
   const outcome = releaseClaim(readings);
 
   if (refused(outcome)) {
@@ -143,7 +147,7 @@ export async function gatherReadingsAndRelease(
     };
   }
 
-  const run = claimReleaseShell(context).release(branch);
+  const run = claimReleaseShell(context).release(branch, { claimOnly: outcome.detail.viaLocalEvidence === true });
   if (!isAnswered(run)) {
     return {
       status: 500,

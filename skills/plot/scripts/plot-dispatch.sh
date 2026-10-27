@@ -287,6 +287,7 @@ release_branch=""
 # decision that has one home. It is filled from the rule below.
 start_count=""
 offline=""
+claim_only=""
 allow_local=0
 allow_waiting=0
 max=0
@@ -320,6 +321,9 @@ while [ $# -gt 0 ]; do
     --restart)  mode=restart; case "${2:-}" in */*) restart_branch="$2"; shift ;; esac ;;
     # The same rule once more: a bare `--release <slug>` must not delete a ref
     # named after a plan slug.
+    # `--claim-only` skips the host's PR question for a caller holding local
+    # evidence that the branch carries only its claim; step 3 still refuses work.
+    --claim-only) claim_only=1 ;;
     --release)  mode=release; case "${2:-}" in */*) release_branch="$2"; shift ;; esac ;;
     # `--start [N]` brings FREE agents into existence — registered, waiting, and
     # holding no slice. The count is OPTIONAL and only a bare number is consumed,
@@ -2042,36 +2046,38 @@ if [ "$mode" = "release" ]; then
   # which is right for a rendering and wrong here: a deleted ref cannot be
   # re-created, so a host that cannot be asked refuses. `--offline` promises no
   # host call, so it refuses too.
-  if [ -n "$offline" ]; then
-    echo "plot-dispatch: --release asks the host whether $br has a PR, and --offline forbids that — refusing." >&2
-    echo "  Nothing was written." >&2
-    exit 1
-  fi
-  if ! pr_json=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
-    echo "plot-dispatch: the host could not be asked whether $br has a PR — refusing." >&2
-    echo "  A release deletes a ref that cannot be re-created, so silence is not" >&2
-    echo "  permission. Check the host (plot-host.sh pr-state $br) and retry." >&2
-    echo "  Nothing was written." >&2
-    exit 1
-  fi
-  pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
-  pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
-  # ANY MERGED PR, NOT ONLY THE NEWEST — `pr-merged` reads `mergedAt` over every
-  # PR for the branch, because a newer unmerged PR can mask a merged one.
-  merged_answer=$("$script_dir/plot-host.sh" pr-merged "$br" </dev/null 2>/dev/null) || merged_answer=unknown
-  case "$pr_state:$merged_answer" in
-    OPEN:*|MERGED:*|*:merged)
-      echo "plot-dispatch: $br has a pull request (#${pr_num:-?}, ${pr_state:-MERGED}) — refusing." >&2
-      echo "  An open PR is work under review; a merged branch's ref is released by" >&2
-      echo "  plot-release-refs.sh when its plan is delivered. Nothing was written." >&2
+  if [ -z "$claim_only" ]; then
+    if [ -n "$offline" ]; then
+      echo "plot-dispatch: --release asks the host whether $br has a PR, and --offline forbids that — refusing." >&2
+      echo "  Nothing was written." >&2
       exit 1
-      ;;
-    *:unknown|*:)
-      echo "plot-dispatch: the host could not say whether $br ever merged — refusing." >&2
-      echo "  Check it (plot-host.sh pr-merged $br) and retry. Nothing was written." >&2
+    fi
+    if ! pr_json=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
+      echo "plot-dispatch: the host could not be asked whether $br has a PR — refusing." >&2
+      echo "  A release deletes a ref that cannot be re-created, so silence is not" >&2
+      echo "  permission. Check the host (plot-host.sh pr-state $br) and retry." >&2
+      echo "  Nothing was written." >&2
       exit 1
-      ;;
-  esac
+    fi
+    pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+    pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+    # ANY MERGED PR, NOT ONLY THE NEWEST — `pr-merged` reads `mergedAt` over every
+    # PR for the branch, because a newer unmerged PR can mask a merged one.
+    merged_answer=$("$script_dir/plot-host.sh" pr-merged "$br" </dev/null 2>/dev/null) || merged_answer=unknown
+    case "$pr_state:$merged_answer" in
+      OPEN:*|MERGED:*|*:merged)
+        echo "plot-dispatch: $br has a pull request (#${pr_num:-?}, ${pr_state:-MERGED}) — refusing." >&2
+        echo "  An open PR is work under review; a merged branch's ref is released by" >&2
+        echo "  plot-release-refs.sh when its plan is delivered. Nothing was written." >&2
+        exit 1
+        ;;
+      *:unknown|*:)
+        echo "plot-dispatch: the host could not say whether $br ever merged — refusing." >&2
+        echo "  Check it (plot-host.sh pr-merged $br) and retry. Nothing was written." >&2
+        exit 1
+        ;;
+    esac
+  fi
 
   # THE DESK, ASKED OF GIT — never rebuilt from the branch name, the rule every
   # other verb here follows. A manifest naming this branch may name a desk git

@@ -422,6 +422,12 @@ export interface ClaimReleaseReadings {
   holders: readonly string[];
   /** What the host answered about the branch's pull requests. */
   pr: PortResult<ClaimReleasePrReading>;
+  /**
+   * What the caller's own reading of the branch says about its work.
+   * `'claim-only'` means the branch holds no commit beyond the claim; any
+   * other value, and an absent field, license nothing.
+   */
+  localEvidence?: 'claim-only' | 'unknown';
 }
 
 /** What releasing decided. */
@@ -430,6 +436,8 @@ export interface ClaimReleaseDetail {
   branch: string;
   /** Whether the branch held a claim at all. */
   hadClaim: boolean;
+  /** True where the release rests on claim-only local evidence because the host did not answer. */
+  viaLocalEvidence?: true;
 }
 
 /**
@@ -460,8 +468,13 @@ export interface ClaimReleaseDetail {
  * answers with exit 0 — checked before `agent-live` and `pr-open`, since
  * neither question applies to a branch nothing names.
  *
- * @param readings - the branch, whether it is claimed, its manifest holders
- *   and its PR reading.
+ * An unanswered PR reading refuses `pr-open` unless `localEvidence` is
+ * `'claim-only'`: a branch with no commit beyond its claim carries no work a
+ * PR could hold, so the release deletes nothing but the claim. An answered PR
+ * reading is never overridden by local evidence.
+ *
+ * @param readings - the branch, whether it is claimed, its manifest holders,
+ *   its PR reading and the caller's local evidence.
  * @returns a decision naming the release, or `branch-missing`, `agent-live`
  *   or `pr-open`.
  */
@@ -489,6 +502,13 @@ export const releaseClaim = (
   }
 
   if (!isAnswered(readings.pr)) {
+    if (readings.localEvidence === 'claim-only') {
+      return decide('dispatch', [{ kind: 'claim-release', branch: readings.branch }], {
+        branch: readings.branch,
+        hadClaim: true,
+        viaLocalEvidence: true,
+      });
+    }
     return no(
       'pr-open',
       `plot-dispatch: could not ask the host about ${readings.branch}'s pull requests — a release deletes a ref that cannot be re-created, so silence is not permission.`,
