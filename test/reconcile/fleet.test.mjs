@@ -1178,6 +1178,36 @@ test('fleet: a saturated merge walk is reported, never silent', () => {
   f.cleanup();
 });
 
+test('fleet: the merge walk cap agrees across shell, TS constant, and corpus default', () => {
+  // Three independent literals — one shell variable default, one exported TS
+  // constant, one default parameter value — with no shared constant to import
+  // across a shell script and two TypeScript files. This is the test that
+  // catches a future edit to one site without the other two.
+  const scanSrc = fs.readFileSync(scan, 'utf8');
+  const scanMatch = scanSrc.match(/MERGE_SCAN_LIMIT=\$\{PLOT_MERGE_SCAN_LIMIT:-(\d+)\}/);
+  assert.ok(scanMatch, 'plot-fleet-scan.sh must set MERGE_SCAN_LIMIT from PLOT_MERGE_SCAN_LIMIT with a default');
+
+  const registrydPath = path.join(here, '..', '..', 'packages', 'fleet', 'src',
+    'server', 'entry', 'registryd-main.ts');
+  const registrydSrc = fs.readFileSync(registrydPath, 'utf8');
+  const registrydMatch = registrydSrc.match(/export const MERGE_WALK_LIMIT = (\d+);/);
+  assert.ok(registrydMatch, 'registryd-main.ts must export MERGE_WALK_LIMIT as a numeric literal');
+
+  const productionPath = path.join(here, '..', '..', 'packages', 'domain', 'corpus',
+    'production.ts');
+  const productionSrc = fs.readFileSync(productionPath, 'utf8');
+  const productionMatch = productionSrc.match(/limit = (\d+),\n\): string\[\] =>/);
+  assert.ok(productionMatch, "production.ts's readMergeSubjects must default limit to a numeric literal");
+
+  const [scanLimit, registrydLimit, productionLimit] =
+    [scanMatch, registrydMatch, productionMatch].map((m) => Number(m[1]));
+  assert.equal(scanLimit, 20000, 'the shell default must be 20000');
+  assert.equal(registrydLimit, scanLimit,
+    `MERGE_WALK_LIMIT (${registrydLimit}) must equal MERGE_SCAN_LIMIT's default (${scanLimit})`);
+  assert.equal(productionLimit, scanLimit,
+    `readMergeSubjects's default (${productionLimit}) must equal MERGE_SCAN_LIMIT's default (${scanLimit})`);
+});
+
 test('fleet: merge_detect=none when the default branch offers no PR merges', () => {
   // A squash/rebase repo leaves no conforming merge commit, so there is nothing
   // to find. `open` is still the answer — no third state, no guessing — but the

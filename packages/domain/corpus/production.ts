@@ -286,7 +286,7 @@ export const readRemoteRefs = (estate: Estate): Map<string, string> => {
 export const readMergeSubjects = (
   estate: Estate,
   mainBranch: string,
-  limit = 2000,
+  limit = 20000,
 ): string[] =>
   execFileSync(
     'git',

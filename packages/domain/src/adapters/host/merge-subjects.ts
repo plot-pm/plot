@@ -38,7 +38,11 @@ export const MERGE_SUBJECT_FORMS: Readonly<Record<string, readonly string[]>> = 
    *
    * It names no owner, so the owner reading does not narrow it. Measured
    * 2026-10-01 on a Bitbucket estate: 1723 of 1723 `Merged in` subjects sit on
-   * two-parent merges, so a `--merges` walk loses none.
+   * two-parent merges, so a `--merges` walk loses none there — but measured
+   * 2026-10-26 across about 70 local Bitbucket clones: 7 single-parent commits
+   * in 5 repositories carry a `Merged in` subject, so a `--merges` walk does
+   * lose a few. Rare, but real — the same squash/rebase gap GitHub's form has
+   * above, just smaller.
    */
   bitbucket: ['Merged in <branch> (pull request #<number>)'],
 };
