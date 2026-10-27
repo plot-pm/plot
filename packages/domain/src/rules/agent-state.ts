@@ -12,10 +12,14 @@ import { taskState, type TaskReadings } from './task.js';
  * found and rejected, which is why {@link agentState} answers `ended` for it
  * rather than reading an exit file that belongs to nobody.
  *
- * - `live` — the pid answers, and either its start time is at or after the
- *   manifest's or nothing recorded a start time to check against.
- * - `stale` — the pid answers and the process began before the manifest was
- *   stamped, so the operating system reused the number.
+ * - `live` — the pid answers, and its start time matches what was recorded:
+ *   within 3 s of the pid's own recorded start (`pidStartedAt`, or the
+ *   `.plot-worker.pid.startedAt` sidecar) on either side; with no per-pid
+ *   start, at or after the manifest's `startedAt` less 3 s; with neither,
+ *   nothing to check against.
+ * - `stale` — the pid answers and its start time fails that comparison, so
+ *   the operating system reused the number. `plot_pid_is_current` makes the
+ *   comparison and `plot_worker_readings` reports the word.
  * - `orphaned` — the pid answers and is the right process, and no agent runs
  *   under it. The recorded pid is the loop shell, which outlives its agent for
  *   the whole `Worker bound`, so this is a live wrapper around nothing.
