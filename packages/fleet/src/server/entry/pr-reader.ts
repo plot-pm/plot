@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startPulse, type RunningPulse } from '@plot-pm/domain';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { clockSystem, hostShell, prIndexFile, readerLockFile, scriptsShell } from '@plot-pm/domain/adapters';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
@@ -242,15 +243,15 @@ if (
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed === null) {
     process.stderr.write(`plot-pr-reader: ${USAGE}\n`);
-    process.exit(2);
+    void endEntry(2);
   } else {
     let signalled = false;
     const onSignal = (signal: NodeJS.Signals): void => {
-      if (signalled) process.exit(signal === 'SIGINT' ? 130 : 143);
+      if (signalled) void endEntry(signal === 'SIGINT' ? 130 : 143);
       signalled = true;
     };
     process.on('SIGTERM', onSignal);
     process.on('SIGINT', onSignal);
-    process.exitCode = await run(parsed, repoRoot, scriptDirFor(process.env, import.meta.url), warn, psLiveness, () => signalled);
+    void endEntry(await run(parsed, repoRoot, scriptDirFor(process.env, import.meta.url), warn, psLiveness, () => signalled));
   }
 }
