@@ -56,6 +56,12 @@ export const withoutComments = (command: string): string => {
 /** `for NAME in LIST; do` — the list ends at the first `;` or new line. */
 const FOR_LOOP = /\bfor\s+([A-Za-z_]\w*)\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b/g;
 
+/** A command or process substitution: `$(`, a backtick, `<(` or `>(`. */
+const SUBSTITUTION = /\$\(|`|[<>]\(/;
+
+/** Whether any word holds a command or process substitution. */
+const hasSubstitution = (words: readonly string[]): boolean => words.some((w) => SUBSTITUTION.test(w));
+
 /** Programs that read their operands and never run one. */
 const READERS: ReadonlySet<string> = new Set([
   'cmp', 'diff', 'cat', 'ls', 'grep', 'head', 'tail', 'wc', 'shasum', 'sha256sum', 'stat', 'test', '[',
@@ -102,7 +108,7 @@ const withoutDataLists = (command: string): string => {
     const { index: at } = match;
     const after = command.slice(at + match[0].length);
     const body = bodySegments(after);
-    if (!body.every(isReader) || body.some((words) => words.some((w) => /\$\(|`|[<>]\(/.test(w)))) continue;
+    if (!body.every(isReader) || body.some(hasSubstitution)) continue;
     const listStart = at + match[0].indexOf(match[2], match[0].indexOf(' in ') + 1);
     out = out.slice(0, listStart) + out.slice(listStart + match[2].length);
   }
@@ -183,13 +189,15 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * | `node skills/plot/scripts/board/plot-approve.mjs x` | `'approve'` — the launcher's own bundle |
  * | `node .../plot-approve.mjs --dry-run x` | `null` — no endpoint for this mode |
  *
- * A script named is a RUN unless its segment's program is `ls`, `cat` or
- * `git grep` — the three reads #1245 measured the token loop getting wrong.
- * Everything else a script's basename appears in, including a loop body or an
- * unquoted heredoc line, is read as a run: that is deliberate, not a gap left
- * by this reading. A single-quoted heredoc body (`<<'EOF'` or `<<-'EOF'`) is
- * data and must be stripped by the caller before this is asked; an unquoted
- * body stays tokenised because it can hold a command substitution.
+ * A script named is a RUN unless its segment's program is a reader
+ * (`isReadSegment`, delegating to `isReader`'s set) and the segment holds no
+ * substitution, no assignment or `env` prefix, and no git option that runs or
+ * writes. Everything else a script's basename appears in, including a loop
+ * body or an unquoted heredoc line, is read as a run: that is deliberate, not
+ * a gap left by this reading. A single-quoted heredoc body (`<<'EOF'` or
+ * `<<-'EOF'`) is data and must be stripped by the caller before this is
+ * asked; an unquoted body stays tokenised because it can hold a command
+ * substitution.
  *
  * A glob word ending `.sh` or `.mjs` is matched as a pattern against the gated
  * basenames; it answers only where exactly one of them matches, so `*.sh` —
@@ -245,11 +253,11 @@ const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
 };
 const GATED_NAMES = Object.keys(GATED);
 
-/** A word's path basename, with a glued assignment, grouping or quote prefix and trailing punctuation dropped. */
+/** A word's path basename, with a glued assignment, grouping, quote or substitution prefix and trailing punctuation dropped. */
 export const wordBasename = (word: string): string => {
   const stripped = word
     .replace(/^[A-Za-z_][A-Za-z0-9_]*=/, '')
-    .replace(/^\$?["'(]+/, '')
+    .replace(/^`|^\$?["'(]+|^[<>]\(/, '')
     .replace(/[)\];,"']+$/, '');
   // `String.split` always returns at least one element, even for `''`, so the
   // last element is never `undefined` — no fallback is reachable here.
@@ -298,13 +306,21 @@ const scriptNamed = (word: string): string | null => {
   return null;
 };
 
-/** Whether a segment's program is a read that this reading carves out: `ls`, `cat`, `git grep`. */
+/** A `git` option that runs or writes a program, on `git diff|show|log|grep`. */
+const GIT_RUN_OPTIONS = /^(--ext-diff|--textconv|--output(=.*)?|-O.*|--open-files-in-pager(=.*)?)$/;
+
+/**
+ * Whether a segment's program is a read: `isReader`'s set, with none of a
+ * command or process substitution in any word, an assignment or `env` prefix,
+ * or (on `git`) an option that runs or writes a program.
+ */
 export const isReadSegment = (words: readonly string[]): boolean => {
+  if (!isReader(words)) return false;
+  if (hasSubstitution(words)) return false;
   const program = programWords(words);
-  if (program.length === 0) return false;
-  const head = wordBasename(program[0]);
-  if (head === 'ls' || head === 'cat') return true;
-  return head === 'git' && program[1] === 'grep';
+  if (program.length !== words.length) return false;
+  if (wordBasename(program[0]) === 'git' && words.some((w) => GIT_RUN_OPTIONS.test(w))) return false;
+  return true;
 };
 
 /** Each gated script's modes with no endpoint. The approve entry has no `--status` mode, so `--status` on it is a run. */

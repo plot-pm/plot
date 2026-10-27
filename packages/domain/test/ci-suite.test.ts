@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ciSuiteRefusal, controllerInvocation, programWords, withoutComments, withoutQuotes } from '../src/rules/ci-suite.js';
+import { unpinnedMerges } from '../src/rules/controller-gate.js';
 
 const SUITES = [
   'pnpm run test:e2e',
@@ -60,6 +61,74 @@ describe('controllerInvocation', () => {
       ['git grep -n, a named pathspec', 'git grep -n x -- skills/plot/scripts/plot-deliver.sh'],
       ['cat', 'cat plot-approve.sh'],
     ])('%s', (_label, command) => {
+      expect(controllerInvocation(command)).toBeNull();
+    });
+  });
+
+  describe('#2706: a reader beyond ls/cat/git-grep is a read too, per row', () => {
+    it.each([
+      ['grep', 'grep -n x skills/plot/scripts/plot-dispatch.sh'],
+      ['head', 'head -5 skills/plot/scripts/plot-approve.sh'],
+      ['tail -f', 'tail -f skills/plot/scripts/plot-dispatch.sh'],
+      ['wc -l', 'wc -l skills/plot/scripts/plot-deliver.sh'],
+      ['diff', 'diff skills/plot/scripts/plot-approve.sh /dev/null'],
+      ['stat', 'stat skills/plot/scripts/plot-deliver.sh'],
+      ['shasum', 'shasum skills/plot/scripts/plot-dispatch.sh'],
+      ['test -x', 'test -x skills/plot/scripts/plot-dispatch.sh'],
+      ['[ -x ]', '[ -x skills/plot/scripts/plot-dispatch.sh ]'],
+      ['git diff', 'git diff main -- skills/plot/scripts/plot-deliver.sh'],
+      ['git show', 'git show HEAD:skills/plot/scripts/plot-dispatch.sh'],
+      ['git log -p', 'git log -p -- skills/plot/scripts/plot-deliver.sh'],
+      ['the issue #2706 command', "grep -n 'orphaned claim' skills/plot/scripts/plot-reap.sh | head"],
+    ])('%s', (_label, command) => {
+      expect(controllerInvocation(command)).toBeNull();
+    });
+  });
+
+  describe('#2706: a substitution in a reader segment is still a run, per row', () => {
+    it.each([
+      ['$( ) as an operand', 'grep x $(skills/plot/scripts/plot-dispatch.sh s)', 'dispatch'],
+      ['backtick as an operand', 'wc -c `skills/plot/scripts/plot-dispatch.sh s`', 'dispatch'],
+      ['<( ) as an operand', 'diff <(skills/plot/scripts/plot-dispatch.sh s) f', 'dispatch'],
+      ['>( ) as an operand', 'tail -f /dev/null >(skills/plot/scripts/plot-dispatch.sh s)', 'dispatch'],
+      ['$( ) inside test -n', '[ -n "$(skills/plot/scripts/plot-deliver.sh s)" ]', 'deliver'],
+      ['$( ) naming --release', 'wc -l $(plot-deliver.sh --release 1.0 x)', 'release'],
+      ['a bare backtick call', 'grep x `plot-dispatch.sh y`', 'dispatch'],
+      ['a bare <( ) call', 'head <(plot-dispatch.sh y)', 'dispatch'],
+      ['the closed cat $( ) hole', 'cat $(skills/plot/scripts/plot-approve.sh y)', 'approve'],
+    ] as const)('%s', (_label, command, action) => {
+      expect(controllerInvocation(command)).toBe(action);
+    });
+  });
+
+  describe('#2706: an assignment or env prefix on a reader is still a run, per row', () => {
+    it.each([
+      ['GIT_EXTERNAL_DIFF=', 'GIT_EXTERNAL_DIFF=skills/plot/scripts/plot-dispatch.sh git diff', 'dispatch'],
+      ['GIT_PAGER=', 'GIT_PAGER=skills/plot/scripts/plot-dispatch.sh git grep x', 'dispatch'],
+      ['env PAGER=', 'env PAGER=skills/plot/scripts/plot-dispatch.sh cat x', 'dispatch'],
+    ] as const)('%s', (_label, command, action) => {
+      expect(controllerInvocation(command)).toBe(action);
+    });
+  });
+
+  describe('#2706: a git option that runs or writes is still a run, per row', () => {
+    it.each([
+      ['--ext-diff', 'git log --ext-diff -p -1 -- skills/plot/scripts/plot-dispatch.sh', 'dispatch'],
+      ['-O...', 'git grep -Oskills/plot/scripts/plot-dispatch.sh x', 'dispatch'],
+      ['--open-files-in-pager=', 'git grep --open-files-in-pager=skills/plot/scripts/plot-dispatch.sh x', 'dispatch'],
+      ['--output=', 'git show -1 --output=skills/plot/scripts/plot-dispatch.sh', 'dispatch'],
+      ['--textconv', 'git diff --textconv -- skills/plot/scripts/plot-dispatch.sh', 'dispatch'],
+    ] as const)('%s', (_label, command, action) => {
+      expect(controllerInvocation(command)).toBe(action);
+    });
+  });
+
+  describe('#2706: a reader piped into a shell stays a known hole, pinned at today’s answer', () => {
+    it.each([
+      'cat skills/plot/scripts/plot-dispatch.sh | bash -s s',
+      'grep . skills/plot/scripts/plot-dispatch.sh | bash -s s',
+      'head -n 9999 skills/plot/scripts/plot-dispatch.sh > /tmp/d.sh',
+    ])('%s', (command) => {
       expect(controllerInvocation(command)).toBeNull();
     });
   });
@@ -203,9 +272,24 @@ describe('controllerInvocation', () => {
     expect(controllerInvocation('git push origin HEAD:main')).toBeNull();
   });
 
-  it('a known false positive stays refused on purpose: grep and sed are not carved out', () => {
-    expect(controllerInvocation('grep -c foo skills/plot/scripts/plot-dispatch.sh')).toBe('dispatch');
+  it('a bare grep on a gated script is a read, widened by #2706', () => {
+    expect(controllerInvocation('grep -c foo skills/plot/scripts/plot-dispatch.sh')).toBeNull();
+  });
+
+  it('sed and awk stay refused on purpose: #2706 widens the reader set, not this one', () => {
     expect(controllerInvocation("sed -n '1,5p' skills/plot/scripts/plot-dispatch.sh")).toBe('dispatch');
+    expect(controllerInvocation('awk 1 skills/plot/scripts/plot-dispatch.sh')).toBe('dispatch');
+    expect(controllerInvocation('rg -n x skills/plot/scripts/plot-dispatch.sh')).toBe('dispatch');
+  });
+
+  it('a reader name as an argument, not the program, is still a run', () => {
+    expect(controllerInvocation('bash skills/plot/scripts/plot-dispatch.sh grep')).toBe('dispatch');
+  });
+
+  it('#2706: the merge-pin check shares the same reader predicate', () => {
+    expect(unpinnedMerges('grep -n pr-merge skills/plot/scripts/plot-host.sh')).toEqual([]);
+    expect(unpinnedMerges('git log -S pr-merge -- skills/plot/scripts/plot-host.sh')).toEqual([]);
+    expect(unpinnedMerges('grep x $(gh pr merge 12)')).toEqual(['gh']);
   });
 
   it('a segment with no program after its assignments is not a read, and is not a run either', () => {
