@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { removeTree as rmTree } from '../rm-tree.mjs';
-import { planSlug, planAutoDeliver, pruneDelivering } from '@plot-pm/domain';
+import { deliveryReadings, planSlug, planAutoDeliver, pruneDelivering } from '@plot-pm/domain';
 import { maybeAutoDeliver, runAutoDeliverPass, DELIVER_COMMAND_KEY } from '../../src/shared/auto-deliver.js';
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import { allSlicesMerged } from '@plot-pm/domain';
@@ -34,11 +34,17 @@ import {
   IN_FLIGHT_DELIVER_TTL_MS,
   IN_FLIGHT_PASS_GAP_MS,
   IN_FLIGHT_RENEW_AFTER_MS,
+  updateDeliverState,
 } from '../../src/shared/in-flight-store.js';
 import { FLEET_SCAN_BUDGET_MS } from '../../src/shared/fleet-scan.js';
 import { deliverLogPath } from '../../src/shared/action-log.js';
 import { AUTO_DELIVER_MAX_FAILURES, retryDelayMs } from '@plot-pm/domain';
 import type { Scripts, StartOptions } from '@plot-pm/domain/ports/scripts';
+import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters';
+import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
+import { refsGit } from '@plot-pm/domain/adapters';
+import { execFileSync } from 'node:child_process';
+import { pulsePlanStore } from '../../src/server/entry/registryd-main.js';
 
 const made: string[] = [];
 afterEach(() => {
@@ -72,7 +78,7 @@ function fixtureWithMarker(
   buildCommand: (marker: string) => string,
   deliverExit = 0,
 ): {
-  opts: { repoRoot: string; scriptsDir: string };
+  opts: { repoRoot: string; scriptsDir: string; planStore: PlanStore };
   runs: () => string[];
 } {
   // Nested one level down: the board writes a repo's agent logs into its parent.
@@ -140,7 +146,16 @@ function fixtureWithMarker(
   );
 
   return {
-    opts: { repoRoot, scriptsDir },
+    opts: {
+      repoRoot,
+      scriptsDir,
+      planStore: planStoreFixture({
+        plans: [
+          planRecord({ file: '2026-08-27-ship-it.md', phase: 'approved' }),
+          planRecord({ file: '2026-08-27-gone.md', phase: 'delivered' }),
+        ],
+      }),
+    },
     runs: () =>
       fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean) : [],
   };
@@ -636,12 +651,12 @@ describe('runAutoDeliverPass — the marks persist', () => {
   it('writes the plan as a mark before the delivery runs, and a second pass starts nothing', async () => {
     const { opts, runs } = fixture('');
     const p = finished();
-    runAutoDeliverPass(opts, p);
+    await runAutoDeliverPass(opts, p);
     const marks = readInFlight(opts.repoRoot, Date.now(), 'deliver');
     expect([...(marks.branches ?? [])]).toEqual(['ship-it']);
     await settle();
     const before = runs().length;
-    runAutoDeliverPass(opts, p);
+    await runAutoDeliverPass(opts, p);
     await settle();
     expect(runs().length).toBe(before);
   });
@@ -650,7 +665,7 @@ describe('runAutoDeliverPass — the marks persist', () => {
     const { opts, runs } = fixture('');
     fs.mkdirSync(path.dirname(inFlightPath(opts.repoRoot, 'deliver')), { recursive: true });
     fs.writeFileSync(inFlightPath(opts.repoRoot, 'deliver'), '{not json');
-    runAutoDeliverPass(opts, finished());
+    await runAutoDeliverPass(opts, finished());
     await settle();
     expect(runs()).toEqual([]);
   });
@@ -661,7 +676,7 @@ describe('runAutoDeliverPass — the marks persist', () => {
   it('retires the mark of a delivery that fails, so the next pass retries it', async () => {
     const { opts, runs } = fixture('', 1);
     const p = finished();
-    runAutoDeliverPass(opts, p);
+    await runAutoDeliverPass(opts, p);
     expect([...(readInFlight(opts.repoRoot, Date.now(), 'deliver').branches ?? [])]).toEqual(['ship-it']);
     await settle();
     expect(runs()).toEqual(['deliver ship-it']);
@@ -669,17 +684,17 @@ describe('runAutoDeliverPass — the marks persist', () => {
     expect([...(after.branches ?? [])]).toEqual([]);
     expect(planAutoDeliver({ pulse: p, inFlight: after.branches ?? new Set() }).map((x) => x.slug)).toEqual(['ship-it']);
     // The retry waits for the delay after the first failure.
-    runAutoDeliverPass(opts, p);
+    await runAutoDeliverPass(opts, p);
     await settle();
     expect(runs()).toEqual(['deliver ship-it']);
-    runAutoDeliverPass(opts, p, (after.failures['ship-it']?.lastAt ?? 0) + retryDelayMs(1));
+    await runAutoDeliverPass(opts, p, (after.failures['ship-it']?.lastAt ?? 0) + retryDelayMs(1));
     await settle();
     expect(runs()).toEqual(['deliver ship-it', 'deliver ship-it']);
   });
 
   it('keeps the mark of a delivery that succeeds', async () => {
     const { opts } = fixture('', 0);
-    runAutoDeliverPass(opts, finished());
+    await runAutoDeliverPass(opts, finished());
     await settle();
     expect([...(readInFlight(opts.repoRoot, Date.now(), 'deliver').branches ?? [])]).toEqual(['ship-it']);
   });
@@ -689,11 +704,11 @@ describe('runAutoDeliverPass — the marks persist', () => {
     const { opts } = fixture('');
     const file = inFlightPath(opts.repoRoot, 'deliver');
     const p = finished();
-    runAutoDeliverPass(opts, p);
+    await runAutoDeliverPass(opts, p);
     const first = fs.statSync(file);
     const firstBody = fs.readFileSync(file, 'utf8');
     await new Promise((r) => setTimeout(r, 25));
-    runAutoDeliverPass(opts, p);
+    await runAutoDeliverPass(opts, p);
     const second = fs.statSync(file);
     expect(second.mtimeMs).toBe(first.mtimeMs);
     expect(second.ino).toBe(first.ino);
@@ -704,16 +719,16 @@ describe('runAutoDeliverPass — the marks persist', () => {
   it('skips the write for an unchanged set while the mark is younger than the renewal age', async () => {
     const { opts } = fixture('');
     const file = inFlightPath(opts.repoRoot, 'deliver');
-    runAutoDeliverPass(opts, finished('2026-08-27-ship-it.md'));
+    await runAutoDeliverPass(opts, finished('2026-08-27-ship-it.md'));
     const before = fs.statSync(file);
     await new Promise((r) => setTimeout(r, 25));
-    runAutoDeliverPass(opts, finished('2026-08-27-ship-it.md'));
+    await runAutoDeliverPass(opts, finished('2026-08-27-ship-it.md'));
     expect(fs.statSync(file).mtimeMs).toBe(before.mtimeMs);
     expect([...(readInFlight(opts.repoRoot, Date.now(), 'deliver').branches ?? [])]).toEqual(['ship-it']);
     await settle();
   });
 
-  it('writes when a slug is added, and when a slug is retired', () => {
+  it('writes when a slug is added, and when a slug is retired', async () => {
     const { opts } = fixture('');
     const file = inFlightPath(opts.repoRoot, 'deliver');
     const t0 = Date.now();
@@ -722,10 +737,10 @@ describe('runAutoDeliverPass — the marks persist', () => {
     fs.writeFileSync(file, JSON.stringify({ marks: { gone: t0 } }));
     const mtime = (): string => fs.readFileSync(file, 'utf8');
     const delivered = pulse([['2026-08-27-gone.md', 'delivered', [slice('W', [['feature/g', 'merged']])]]]);
-    runAutoDeliverPass({ ...opts, scripts: fakeScripts().scripts }, delivered, t0);
+    await runAutoDeliverPass({ ...opts, scripts: fakeScripts().scripts }, delivered, t0);
     expect(JSON.parse(mtime()).marks).toEqual({});
     const fake = fakeScripts();
-    runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished(), t0 + 1);
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished(), t0 + 1);
     expect(JSON.parse(mtime()).marks).toEqual({ 'ship-it': t0 + 1 });
     expect(fake.started).toEqual(['ship-it']);
   });
@@ -786,7 +801,7 @@ describe('runAutoDeliverPass — a failed delivery retries, and stops', () => {
     try {
       let now = Date.now();
       for (let attempt = 1; attempt <= AUTO_DELIVER_MAX_FAILURES; attempt++) {
-        runAutoDeliverPass(o, p, now);
+        await runAutoDeliverPass(o, p, now);
         expect(fake.started).toHaveLength(attempt);
         fake.exit(1);
         const failure = deliverFile(opts.repoRoot).failures?.['ship-it'];
@@ -794,12 +809,12 @@ describe('runAutoDeliverPass — a failed delivery retries, and stops', () => {
         if (attempt === AUTO_DELIVER_MAX_FAILURES) break;
         // NOT before the delay: a pass just short of it starts nothing.
         const lastAt = failure?.lastAt ?? 0;
-        runAutoDeliverPass(o, p, lastAt + retryDelayMs(attempt) - 1);
+        await runAutoDeliverPass(o, p, lastAt + retryDelayMs(attempt) - 1);
         expect(fake.started).toHaveLength(attempt);
         now = lastAt + retryDelayMs(attempt);
       }
       // STOPPED: no later pass starts it, however late.
-      runAutoDeliverPass(o, p, Date.now() + 365 * 24 * 3_600_000);
+      await runAutoDeliverPass(o, p, Date.now() + 365 * 24 * 3_600_000);
       expect(fake.started).toHaveLength(AUTO_DELIVER_MAX_FAILURES);
       expect(logs.filter((l) => l.includes('needs a person'))).toHaveLength(1);
       expect(fs.readFileSync(deliverLogPath(opts.repoRoot, 'ship-it'), 'utf8')).toContain('needs a person');
@@ -813,17 +828,17 @@ describe('runAutoDeliverPass — a failed delivery retries, and stops', () => {
     const fake = fakeScripts();
     const o = { ...opts, scripts: fake.scripts };
     const p = finished();
-    runAutoDeliverPass(o, p);
+    await runAutoDeliverPass(o, p);
     fake.exit(1);
     const first = deliverFile(opts.repoRoot).failures?.['ship-it']?.lastAt ?? 0;
-    runAutoDeliverPass(o, p, first + retryDelayMs(1));
+    await runAutoDeliverPass(o, p, first + retryDelayMs(1));
     expect(fake.started).toHaveLength(2);
     fake.exit(1);
     const second = deliverFile(opts.repoRoot).failures?.['ship-it']?.lastAt ?? 0;
     // The first delay no longer suffices.
-    runAutoDeliverPass(o, p, second + retryDelayMs(1));
+    await runAutoDeliverPass(o, p, second + retryDelayMs(1));
     expect(fake.started).toHaveLength(2);
-    runAutoDeliverPass(o, p, second + retryDelayMs(2));
+    await runAutoDeliverPass(o, p, second + retryDelayMs(2));
     expect(fake.started).toHaveLength(3);
     expect(retryDelayMs(2)).toBeGreaterThan(retryDelayMs(1));
   });
@@ -833,18 +848,18 @@ describe('runAutoDeliverPass — a failed delivery retries, and stops', () => {
     const fake = fakeScripts();
     const o = { ...opts, scripts: fake.scripts };
     const p = finished();
-    runAutoDeliverPass(o, p);
+    await runAutoDeliverPass(o, p);
     fake.exit(1);
     expect(deliverFile(opts.repoRoot).failures?.['ship-it']?.count).toBe(1);
     const lastAt = deliverFile(opts.repoRoot).failures?.['ship-it']?.lastAt ?? 0;
-    runAutoDeliverPass(o, p, lastAt + retryDelayMs(1));
+    await runAutoDeliverPass(o, p, lastAt + retryDelayMs(1));
     expect(fake.started).toHaveLength(2);
     fake.exit(0);
     expect(deliverFile(opts.repoRoot).failures).toBeUndefined();
     await settle();
   });
 
-  it('resets the count when the plan reading changes', () => {
+  it('resets the count when the plan reading changes', async () => {
     const { opts } = fixture('');
     const file = inFlightPath(opts.repoRoot, 'deliver');
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -854,7 +869,7 @@ describe('runAutoDeliverPass — a failed delivery retries, and stops', () => {
       failures: { 'ship-it': { count: AUTO_DELIVER_MAX_FAILURES, lastAt: now, reading: 'feature/a=open' } },
     }));
     const fake = fakeScripts();
-    runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished(), now);
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished(), now);
     expect(fake.started).toEqual(['ship-it']);
     expect(deliverFile(opts.repoRoot).failures).toBeUndefined();
   });
@@ -890,7 +905,7 @@ describe('runAutoDeliverPass — a failed delivery retries, and stops', () => {
 
 describe('runAutoDeliverPass — a mark is renewed only while its delivery runs', () => {
   // M1 case A: the supervisor restarted mid-delivery, and the orphan died.
-  it('lets an orphaned mark expire and counts the expiry as a failure', () => {
+  it('lets an orphaned mark expire and counts the expiry as a failure', async () => {
     const { opts } = fixture('');
     const file = inFlightPath(opts.repoRoot, 'deliver');
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -899,22 +914,22 @@ describe('runAutoDeliverPass — a mark is renewed only while its delivery runs'
     const fake = fakeScripts();
     const o = { ...opts, scripts: fake.scripts };
     // Past the renewal age, inside the lifetime: not renewed, not restarted.
-    runAutoDeliverPass(o, finished(), t0 + IN_FLIGHT_RENEW_AFTER_MS + 1);
+    await runAutoDeliverPass(o, finished(), t0 + IN_FLIGHT_RENEW_AFTER_MS + 1);
     expect(deliverFile(opts.repoRoot).marks['ship-it']).toBe(t0);
     expect(fake.started).toEqual([]);
     // Past the lifetime: the mark lapses and counts as one failed attempt.
     const lapsedAt = t0 + IN_FLIGHT_DELIVER_TTL_MS;
-    runAutoDeliverPass(o, finished(), lapsedAt);
+    await runAutoDeliverPass(o, finished(), lapsedAt);
     const after = deliverFile(opts.repoRoot);
     expect(after.marks).toEqual({});
     expect(after.failures?.['ship-it']?.count).toBe(1);
     expect(fake.started).toEqual([]);
     // And the retry follows the delay.
-    runAutoDeliverPass(o, finished(), lapsedAt + retryDelayMs(1));
+    await runAutoDeliverPass(o, finished(), lapsedAt + retryDelayMs(1));
     expect(fake.started).toEqual(['ship-it']);
   });
 
-  it('renews an orphaned mark while its recorded pid is alive', () => {
+  it('renews an orphaned mark while its recorded pid is alive', async () => {
     const { opts } = fixture('');
     const file = inFlightPath(opts.repoRoot, 'deliver');
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -922,15 +937,15 @@ describe('runAutoDeliverPass — a mark is renewed only while its delivery runs'
     fs.writeFileSync(file, JSON.stringify({ marks: { 'ship-it': t0 }, pids: { 'ship-it': process.pid } }));
     const fake = fakeScripts();
     const at = t0 + IN_FLIGHT_RENEW_AFTER_MS;
-    runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished(), at);
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished(), at);
     expect(deliverFile(opts.repoRoot).marks['ship-it']).toBe(at);
     expect(fake.started).toEqual([]);
   });
 
-  it('records the pid of a script delivery and drops it at the exit', () => {
+  it('records the pid of a script delivery and drops it at the exit', async () => {
     const { opts } = fixture('');
     const fake = fakeScripts('hang', 4242);
-    runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished());
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished());
     expect(deliverFile(opts.repoRoot).pids).toEqual({ 'ship-it': 4242 });
     fake.exit(0);
     expect(deliverFile(opts.repoRoot).pids).toBeUndefined();
@@ -940,19 +955,19 @@ describe('runAutoDeliverPass — a mark is renewed only while its delivery runs'
   it.each(['error', 'error-exit'] as const)('clears the mark and counts one failure on a spawn %s', async (how) => {
     const { opts } = fixture('');
     const fake = fakeScripts(how);
-    runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished());
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished());
     await tick();
     const after = deliverFile(opts.repoRoot);
     expect(after.marks).toEqual({});
     expect(after.failures?.['ship-it']?.count).toBe(1);
   });
 
-  it('clears the mark and counts one failure when the deliver log cannot open', () => {
+  it('clears the mark and counts one failure when the deliver log cannot open', async () => {
     const { opts } = fixture('');
     // A directory where the log file should be makes `open(…, 'a')` fail.
     fs.mkdirSync(deliverLogPath(opts.repoRoot, 'ship-it'), { recursive: true });
     const fake = fakeScripts();
-    runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished());
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts }, finished());
     expect(fake.started).toEqual([]);
     const after = deliverFile(opts.repoRoot);
     expect(after.marks).toEqual({});
@@ -961,25 +976,231 @@ describe('runAutoDeliverPass — a mark is renewed only while its delivery runs'
 });
 
 describe('runAutoDeliverPass — the renewal margin', () => {
-  it('survives a pass gap of one scan budget plus its margin', () => {
+  it('survives a pass gap of one scan budget plus its margin', async () => {
     expect(IN_FLIGHT_PASS_GAP_MS).toBeGreaterThan(FLEET_SCAN_BUDGET_MS);
     const { opts } = fixture('');
     const fake = fakeScripts();
     const o = { ...opts, scripts: fake.scripts };
     const t0 = Date.now();
-    runAutoDeliverPass(o, finished(), t0);
+    await runAutoDeliverPass(o, finished(), t0);
     // The last pass that does NOT renew: just under the renewal age.
     const quiet = t0 + IN_FLIGHT_RENEW_AFTER_MS - 1;
-    runAutoDeliverPass(o, finished(), quiet);
+    await runAutoDeliverPass(o, finished(), quiet);
     expect(deliverFile(opts.repoRoot).marks['ship-it']).toBe(t0);
     for (const gap of [FLEET_SCAN_BUDGET_MS, IN_FLIGHT_PASS_GAP_MS]) {
       // Any reader at the next pass still sees the mark.
       expect([...(readInFlight(opts.repoRoot, quiet + gap, 'deliver').branches ?? [])]).toEqual(['ship-it']);
     }
-    runAutoDeliverPass(o, finished(), quiet + FLEET_SCAN_BUDGET_MS);
+    await runAutoDeliverPass(o, finished(), quiet + FLEET_SCAN_BUDGET_MS);
     expect(deliverFile(opts.repoRoot).marks['ship-it']).toBe(quiet + FLEET_SCAN_BUDGET_MS);
     expect(fake.started).toEqual(['ship-it']);
     fake.exit(0);
   });
 });
 
+describe('runAutoDeliverPass — a rejected plan is held, not delivered', () => {
+  const rejectedStore = () =>
+    planStoreFixture({
+      plans: [
+        planRecord({
+          file: '2026-08-27-ship-it.md',
+          phase: 'approved',
+          rejectedRaw: '- **Rejected:** 2026-10-16',
+          deliveredRaw: '- **Delivered:** 2026-10-15',
+        }),
+      ],
+    });
+
+  it('starts nothing for a plan whose Rejected: record sits ahead of a kept Delivered: line', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore: rejectedStore() }, finished());
+    expect(fake.started).toEqual([]);
+  });
+
+  // Five held passes leave no mark and no failure for the slug, and no
+  // "failed … consecutive deliveries" line. A hold built as a failure would
+  // pass every other test here and stop the plan after three passes.
+  it('leaves no mark and no failure across five held passes', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    const o = { ...opts, scripts: fake.scripts, planStore: rejectedStore() };
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => void logs.push(args.join(' '));
+    try {
+      let now = Date.now();
+      for (let pass = 1; pass <= 5; pass++) {
+        await runAutoDeliverPass(o, finished(), now);
+        now += FLEET_SCAN_BUDGET_MS * 10;
+      }
+    } finally {
+      console.log = origLog;
+    }
+    expect(fake.started).toEqual([]);
+    expect(fs.existsSync(inFlightPath(opts.repoRoot, 'deliver'))).toBe(false);
+    expect(logs.some((l) => /consecutive deliver/.test(l))).toBe(false);
+  });
+
+  it('logs the hold once, the first pass it applies, naming the plan and the reason', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    const o = { ...opts, scripts: fake.scripts, planStore: rejectedStore() };
+    const heldLogged = new Set<string>();
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => void logs.push(args.join(' '));
+    try {
+      await runAutoDeliverPass(o, finished(), Date.now(), heldLogged);
+      await runAutoDeliverPass(o, finished(), Date.now() + 1, heldLogged);
+    } finally {
+      console.log = origLog;
+    }
+    const matches = logs.filter((l) => l.includes('ship-it') && l.includes('rejected'));
+    expect(matches).toHaveLength(1);
+  });
+
+  it('holds as unknown, and logs unknown, when the plan file cannot be read', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    const emptyStore = planStoreFixture({ plans: [] });
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => void logs.push(args.join(' '));
+    try {
+      await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore: emptyStore }, finished());
+    } finally {
+      console.log = origLog;
+    }
+    expect(fake.started).toEqual([]);
+    expect(logs.some((l) => l.includes('ship-it') && l.includes('unknown'))).toBe(true);
+  });
+
+  it('delivers as today an Approved plan with no Rejected: line', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    const store = planStoreFixture({
+      plans: [planRecord({ file: '2026-08-27-ship-it.md', phase: 'approved' })],
+    });
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore: store }, finished());
+    expect(fake.started).toEqual(['ship-it']);
+  });
+
+  it('is not even a candidate for a delivered plan carrying a Rejected: line', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    const store = planStoreFixture({
+      plans: [
+        planRecord({
+          file: '2026-08-27-ship-it.md',
+          phase: 'delivered',
+          rejectedRaw: '- **Rejected:** 2026-10-16',
+        }),
+      ],
+    });
+    const p = pulse([['2026-08-27-ship-it.md', 'delivered', [slice('W', [['feature/a', 'merged']])]]]);
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore: store }, p);
+    expect(fake.started).toEqual([]);
+  });
+});
+
+
+describe('runAutoDeliverPass — the hold reads the plan source the pulse read', () => {
+  const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
+  const PLAN = 'docs/plans/2026-08-27-ship-it.md';
+  const planText = (rejected: boolean): string =>
+    '# Ship it\n\n## Status\n\n- **State:** Approved\n- **Type:** feature\n' +
+    '- **Delivered:** 2026-10-15\n' +
+    (rejected ? '- **Rejected:** 2026-10-16, jwloka, re-opened\n' : '');
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' } });
+
+  /**
+   * A repository whose `origin/main` holds `onRef` and whose working tree
+   * holds `onTree`; `null` means the file is absent there.
+   */
+  const repoWith = (repoRoot: string, onRef: string | null, onTree: string | null): void => {
+    git(repoRoot, 'init', '-q', '-b', 'main');
+    git(repoRoot, 'config', 'user.email', 't@example.com');
+    git(repoRoot, 'config', 'user.name', 't');
+    fs.mkdirSync(path.join(repoRoot, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'README.md'), 'x\n');
+    git(repoRoot, 'add', 'README.md');
+    git(repoRoot, 'commit', '-q', '-m', 'base');
+    if (onRef !== null) {
+      fs.writeFileSync(path.join(repoRoot, PLAN), onRef);
+      git(repoRoot, 'add', PLAN);
+      git(repoRoot, 'commit', '-q', '-m', 'plan');
+      git(repoRoot, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+      git(repoRoot, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+      git(repoRoot, 'reset', '-q', '--hard', 'HEAD~1');
+    }
+    if (onTree === null) return;
+    fs.mkdirSync(path.join(repoRoot, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, PLAN), onTree);
+  };
+
+  const run = async (onRef: string | null, onTree: string | null): Promise<string[]> => {
+    const { opts } = fixture('');
+    repoWith(opts.repoRoot, onRef, onTree);
+    const fake = fakeScripts();
+    const refs = refsGit({ repoRoot: opts.repoRoot, scriptDir: SCRIPTS });
+    const planStore = pulsePlanStore({ repoRoot: opts.repoRoot, scriptDir: SCRIPTS }, refs);
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore }, finished());
+    return fake.started;
+  };
+
+  it('delivers a plan that only origin/main holds, not the checkout', async () => {
+    expect(await run(planText(false), null)).toEqual(['ship-it']);
+  });
+
+  it('holds a plan whose Rejected: record only origin/main holds', async () => {
+    expect(await run(planText(true), planText(false))).toEqual([]);
+  });
+
+  it('reads the working tree when origin/main does not resolve, as the pulse does', async () => {
+    expect(await run(null, planText(true))).toEqual([]);
+    expect(await run(null, planText(false))).toEqual(['ship-it']);
+  });
+});
+
+describe('runAutoDeliverPass — an exit during the plan reads survives the pass', () => {
+  // A delivery's exit writes the record while the pass waits on the plan
+  // store. The pass must write from the record as it stands after the wait.
+  it('keeps the failure and the retired mark an exit wrote while the plans were read', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    const t0 = Date.now();
+    const p = pulse([
+      ['2026-08-27-ship-it.md', 'approved', [slice('W', [['feature/a', 'merged']])]],
+      ['2026-08-27-other.md', 'approved', [slice('W', [['feature/b', 'merged']])]],
+    ]);
+    const file = inFlightPath(opts.repoRoot, 'deliver');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ marks: { other: t0 } }));
+    const store = planStoreFixture({
+      plans: [
+        planRecord({ file: '2026-08-27-ship-it.md', phase: 'approved' }),
+        planRecord({ file: '2026-08-27-other.md', phase: 'approved' }),
+      ],
+    });
+    const reading = deliveryReadings(p).get('other') ?? '';
+    const racing: PlanStore = {
+      ...store,
+      listPlans: async () => {
+        // What `onEnd` writes for a failed delivery of `other`.
+        updateDeliverState(opts.repoRoot, (f) => ({
+          marks: Object.fromEntries(Object.entries(f.marks).filter(([slug]) => slug !== 'other')),
+          pids: f.pids,
+          failures: { ...f.failures, other: { count: 1, lastAt: t0, reading } },
+        }));
+        return store.listPlans();
+      },
+    };
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore: racing }, p, t0);
+    const after = deliverFile(opts.repoRoot);
+    expect(after.failures?.other?.count).toBe(1);
+    expect(after.marks.other).toBeUndefined();
+    expect(fake.started).toEqual(['ship-it']);
+  });
+});

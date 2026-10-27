@@ -126,10 +126,15 @@ const slicesOf = (raw: RawPlan): RawSlice[] => {
  * still emits the older one and a reader that took only the new spelling would
  * report a plan with branches and no slices.
  *
+ * `rejectedRaw` is not among the parser's fields — `plot-plan-meta.sh` has no
+ * `Rejected:` handling — so the caller supplies it separately, read from the
+ * file's own text.
+ *
  * @param raw - one JSON line from the parser.
+ * @param rejectedRaw - the `Rejected:` record verbatim, or `''`.
  * @returns the record, with every absent field at its empty value.
  */
-export const planOf = (raw: RawPlan): PlanRecord => ({
+export const planOf = (raw: RawPlan, rejectedRaw = ''): PlanRecord => ({
   file: raw.file ?? '',
   format: raw.format ?? 'none',
   phase: raw.phase ?? '',
@@ -150,7 +155,22 @@ export const planOf = (raw: RawPlan): PlanRecord => ({
   deliveredRaw: raw.delivered_raw ?? '',
   releasedRaw: raw.released_raw ?? '',
   startedRaw: raw.started_raw ?? [],
+  rejectedRaw,
 });
+
+/**
+ * Reads a `- **<name>:** ...` Status-block line from a plan's raw text.
+ *
+ * Matched by name rather than by position, since `plot-undeliver.sh` inserts
+ * `Rejected:` ahead of a `Delivered:` line it keeps — the line that is last in
+ * the file is not necessarily the one most recently written.
+ *
+ * @param body - the plan file's full text.
+ * @param name - the record's name, e.g. `Rejected`.
+ * @returns the line's value, trimmed, or `''` when the file carries no such line.
+ */
+export const statusField = (body: string, name: string): string =>
+  body.match(new RegExp(`^- \\*\\*${name}:\\*\\* (.+)$`, 'm'))?.[1]?.trim() ?? '';
 
 /**
  * Reads plan files through `plot-plan-meta.sh`, which is the format contract.
@@ -172,11 +192,29 @@ export const planStoreShell = (context: ShellContext): PlanStore => {
   ): Promise<PortResult<readonly PlanRecord[]>> => {
     if (files.length === 0) return answered([]);
     const run = await runProcess('bash', [meta, ...files], { cwd: context.repoRoot });
-    return resultOf(run, (stdout) =>
+    const parsed = resultOf(run, (stdout) =>
       asJsonLines<RawPlan>(stdout)
         .filter((raw) => raw.error === undefined)
-        .map(planOf),
+        .map((raw) => ({ file: raw.file ?? '', plan: planOf(raw) })),
     );
+    if (!parsed.ok) return parsed;
+    // THE `Rejected:` LINE, read from each file's own text rather than the
+    // parser's JSON — `plot-plan-meta.sh` has no field for it. A file this
+    // adapter cannot read keeps `rejectedRaw` at `''`: the parser already
+    // answered for the file, and a second, failed read must not turn that
+    // answer into a failure.
+    const withRejected = await Promise.all(
+      parsed.value.map(async ({ file, plan }) => {
+        let body = '';
+        try {
+          body = await readFile(resolve(context.repoRoot, file), 'utf8');
+        } catch {
+          /* rejectedRaw stays '' */
+        }
+        return { ...plan, rejectedRaw: statusField(body, 'Rejected') };
+      }),
+    );
+    return answered(withRejected);
   };
 
   return {

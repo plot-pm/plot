@@ -43,6 +43,7 @@ export const planRecord = (over: Partial<PlanRecord> = {}): PlanRecord => ({
   deliveredRaw: '',
   releasedRaw: '',
   startedRaw: [],
+  rejectedRaw: '',
   ...over,
 });
 

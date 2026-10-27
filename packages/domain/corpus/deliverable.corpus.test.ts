@@ -31,6 +31,11 @@ import path from 'node:path';
  * asymmetry. Folding it into this comparison would force one of the two to
  * move and destroy the protection — the disagreement is the feature.
  *
+ * `holdFromRejection` is excluded for the same reason as the rest of
+ * `planAutoDeliver`'s surrounding fleet pass: it reads a plan's `Rejected:`
+ * record, which none of the four readers above carries. No corpus pair arises
+ * from it.
+ *
  * NEITHER OF THE THREE IS AUTHORITATIVE. This test says they agree.
  * `docs/shell-and-domain.md` is the contract: on a disagreement the branch
  * stops, and adjusting a side to make this pass is the one move forbidden.

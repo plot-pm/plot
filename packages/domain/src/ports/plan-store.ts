@@ -57,6 +57,8 @@ export interface PlanRecord {
   releasedRaw: string;
   /** Every `Started:` record verbatim, in file order. */
   startedRaw: readonly string[];
+  /** The `Rejected:` record verbatim, or `''`. Any position in the file; a plan may carry one while also carrying a later `Delivered:` or `Started:` record. */
+  rejectedRaw: string;
 }
 
 /** One slice of a plan, holding the branches it wants landed together. */

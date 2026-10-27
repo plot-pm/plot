@@ -1,5 +1,7 @@
 import { allSlicesConfirmed, allSlicesMerged, type PlanFile } from './deliverable.js';
 import type { FleetReading } from '../entities/fleet.js';
+import type { PlanRecord } from '../ports/plan-store.js';
+import type { PortResult } from '../port-result.js';
 import { planSlug } from './auto-dispatch.js';
 
 export { planSlug };
@@ -426,4 +428,35 @@ export const pruneDelivering = (
     stillPending.add(slug);
   }
   return stillPending;
+};
+
+/**
+ * Why `holdFromRejection` holds a plan, or `null` for a plan it does not hold.
+ *
+ * `'rejected'` names a plan whose file carries a `Rejected:` record.
+ * `'unknown'` names a plan whose file this call could not read.
+ */
+export type AutoDeliverHold = 'rejected' | 'unknown';
+
+/**
+ * Whether a plan `planAutoDeliver` already marked deliverable must instead be
+ * held for a person to deliver by hand.
+ *
+ * A plan's `Rejected:` record is read by NAME, never by file position:
+ * `plot-undeliver.sh` inserts `Rejected:` ahead of the `Delivered:` line it
+ * keeps, so the record nearest the end of the file is not necessarily the one
+ * most recently written. A plan carrying the record holds regardless of any
+ * later `Started:` record or later merge, because nothing short of an actual
+ * re-delivery — which moves the plan past phase `approved` and out of
+ * `planAutoDeliver`'s candidates — proves a person acted on the reversal.
+ *
+ * A file this call could not read holds too: an unreadable file is not
+ * evidence that it carries no `Rejected:` record.
+ *
+ * @param reading - the candidate's plan file, as {@link PlanStore.readPlan} answered it.
+ * @returns the hold reason, or `null` when the plan is not held.
+ */
+export const holdFromRejection = (reading: PortResult<PlanRecord>): AutoDeliverHold | null => {
+  if (!reading.ok) return 'unknown';
+  return reading.value.rejectedRaw === '' ? null : 'rejected';
 };
