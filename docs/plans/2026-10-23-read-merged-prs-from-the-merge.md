@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Issue:** #2385, #2400
 - **Review:** pr
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-26, Jan Wloka, `bug/a-bitbucket-listing-reads-every-page`
 - **Started:** 2026-10-27, Jan Wloka, `bug/the-merge-walk-reads-the-whole-log`
 - **Started:** 2026-10-27, Jan Wloka, `bug/impl-status-asks-merged-prs-by-branch`
+- **Delivered:** 2026-10-27
 
 ## Changelog
 
