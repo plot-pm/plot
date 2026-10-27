@@ -403,14 +403,20 @@ const commonRefusalLines = (scriptDir: string): readonly string[] => [
   '  you own, or a re-cut in a disposable worktree.',
 ];
 
+/** A {@link SpawnContractReading} that proves a skew: see {@link provenSkew}. */
+type SkewedReading = 'absent' | { readonly number: number };
+
 /**
  * Whether `reading` proves this process's spawner carried a different
  * {@link SPAWN_CONTRACT} number than this gate — `absent`, or a number that
  * differs. `empty` and `unreadable` are "no information," not "stale," and
  * prove nothing: treating them as `absent` would accuse a corrupted-but-not-
  * stale environment of being a stale spawner.
+ *
+ * Narrows to {@link SkewedReading} so {@link spawnerSkewLines} never has to
+ * handle the `empty`/`unreadable` cases this function has already ruled out.
  */
-const provenSkew = (reading: SpawnContractReading): boolean =>
+const provenSkew = (reading: SpawnContractReading): reading is SkewedReading =>
   reading === 'absent' || (typeof reading === 'object' && reading.number !== SPAWN_CONTRACT);
 
 /**
@@ -419,15 +425,12 @@ const provenSkew = (reading: SpawnContractReading): boolean =>
  * report rather than route around the refusal — the one sentence #2725's agent
  * needed and did not have (#2728).
  *
- * @param reading - the gate's reading of its own spawn contract.
+ * @param reading - a reading {@link provenSkew} has already proven skewed.
  * @returns the paragraph's lines, newest-spawner-direction included.
  */
-const spawnerSkewLines = (reading: SpawnContractReading): readonly string[] => {
-  const spawner = reading === 'absent' ? 'none' : typeof reading === 'object' ? String(reading.number) : '';
-  const direction =
-    reading === 'absent' || (typeof reading === 'object' && reading.number < SPAWN_CONTRACT)
-      ? 'older'
-      : 'newer';
+const spawnerSkewLines = (reading: SkewedReading): readonly string[] => {
+  const spawner = reading === 'absent' ? 'none' : String(reading.number);
+  const direction = reading === 'absent' || reading.number < SPAWN_CONTRACT ? 'older' : 'newer';
   return [
     '',
     `  The process that spawned this agent carried spawn contract ${spawner}, against this gate's ${SPAWN_CONTRACT} — it`,
