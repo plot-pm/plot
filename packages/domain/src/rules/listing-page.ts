@@ -94,3 +94,32 @@ export const walkStep = (pages: readonly ListedPage[], limit: number, pageLength
     || pages.length >= Math.ceil(limit / pageLength);
   return { stops, rows: Math.min(rows, limit), envelopeNext: rows > limit ? 'present' : next };
 };
+
+/** The rows `gh` fetches per request when it lists pull requests or issues. */
+export const GH_PAGE_ROWS = 100;
+
+/**
+ * How many requests `gh pr list` or `gh issue list` made for a listing that
+ * returned `rows` rows.
+ *
+ * `gh` pages at {@link GH_PAGE_ROWS} rows per request inside one process and
+ * prints no page count, so the count derives from the rows: `ceil(rows / 100)`,
+ * and 1 for an empty listing. Measured with `GH_DEBUG=api`: 250 rows made 3
+ * requests and a 150-row `--search` delta made 2. The count is requests, not
+ * GraphQL points; a rich page can cost more than one point.
+ *
+ * @param rows - the rows the listing returned. A value that is not a
+ *   non-negative integer counts as 0.
+ * @returns the requests the listing made; never less than 1.
+ */
+export const githubListingPages = (rows: number): number =>
+  Number.isInteger(rows) && rows > 0 ? Math.ceil(rows / GH_PAGE_ROWS) : 1;
+
+/**
+ * The requests a `gh` listing made beyond the first, which the wrapper around
+ * `gh` already records as its one request per process.
+ *
+ * @param rows - the rows the listing returned.
+ * @returns `githubListingPages(rows) - 1`.
+ */
+export const githubExtraPages = (rows: number): number => githubListingPages(rows) - 1;

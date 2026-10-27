@@ -1455,6 +1455,27 @@ await esbuild.build({
 fs.copyFileSync(listingWalkArtifact, shippedListingWalk);
 fs.chmodSync(shippedListingWalk, 0o755);
 
+// How many requests past the first a `gh` listing made, for `plot-host.sh`'s
+// spend record. Once per `pr-list` or `issue-list`, which `gh` itself spends a
+// request on, so the hop is the operator-command tier.
+const listingPagesArtifact = path.join(here, 'dist/plot-listing-pages.mjs');
+const shippedListingPages = path.join(here, '../../skills/plot/scripts/board/plot-listing-pages.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/listing-pages.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: listingPagesArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(listingPagesArtifact, shippedListingPages);
+fs.chmodSync(shippedListingPages, 0o755);
+
 // The Bitbucket `mergeable` reading from a local `git merge-tree` check, for
 // `plot-host.sh pr-state` and `pr-list --rich`. Once per Bitbucket PR row, the
 // operator-command tier `docs/shell-and-domain.md` puts on the calling side.

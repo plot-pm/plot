@@ -648,13 +648,6 @@ die() { echo "plot-host: $*" >&2; exit 1; }
 # Rows in one page of a Jira issue read: its `maxResults` bound.
 ISSUE_PAGE_ROWS=100
 
-# Rows `gh` fetches per request, for both `pr list` and `issue list`. Measured
-# with `GH_DEBUG=api`: a 250-row listing made 3 requests and a 150-row
-# `--search` delta made 2 — `ceil(rows/100)`. Duplicated in
-# `fleet-scan.ts:119-126`'s `scanListingCost`, which prices the same 100 in
-# TypeScript ("A Shell Script Asks The Domain").
-GH_PAGE_ROWS=100
-
 # Reports the host CLI's own words from the last call and exits 3 — a question
 # that failed, as opposed to exit 4 (cannot be asked) or an answered empty list.
 # An empty message or a recognised lookup miss is an answer; anything else exits 3.
@@ -3336,7 +3329,10 @@ pr_list_report_truncation() {
   # no --limit → no completeness claim owed; an empty page had nothing to hide
   [ -n "$limit" ] || return 0; [ "$count" -gt 0 ] 2>/dev/null || [ "$next" = "1" ] || return 0
   if [ "$be" = "github" ]; then
-    gh_record_pages graphql "$count"
+    # `gh` pages inside this one process and `gh()` recorded one request for it, so
+    # the pages past the first are recorded here, from the rows: a request count,
+    # not GraphQL points. The rule is the domain's (`githubExtraPages`).
+    budget_record_call github github graphql "$(node "$here/board/plot-listing-pages.mjs" "$count" 2>/dev/null)"
     # github honours the limit: complete unless the page came back AT the limit.
     # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
     # answered 1065 rows and `--limit 2000` the same 1065, so a page short of
@@ -3659,8 +3655,11 @@ PLOT_BUDGET_HARVEST=""
 # and a full REST one summed to a number describing neither. Measured
 # 2026-09-01 from the response headers: `core` 4990 of 5000, `graphql` 0 of
 # 5000.
-budget_record_call() { # $1=connector $2=backend-for-account $3=bucket $4=spent (default 1)
+budget_record_call() { # $1=connector $2=backend-for-account $3=bucket $4=spent (default 1; 0 or empty records nothing)
   [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
+  # A spend that is not a positive number records nothing: the caller asked a rule
+  # for it and the rule did not answer, and a made-up `1` would be a made-up spend.
+  [ "${4-1}" -gt 0 ] 2>/dev/null || return 0
   local reading account bucket
   account="$(budget_account "${2:-$1}")"
   bucket="${3:-}"; [ -n "$bucket" ] || bucket="$(budget_bucket "$1")"
@@ -3680,13 +3679,6 @@ budget_record_call() { # $1=connector $2=backend-for-account $3=bucket $4=spent 
   IFS=$'\t' read -r _blim _brem _brst _bbas <<<"$reading"
   budget_append "$1" "$account" "$bucket" "${4:-1}" "$_blim" "$_brem" "$_brst" "$_bbas"
 }
-
-# Records the pages past the first for a GitHub listing of $2 rows, derived
-# rather than harvested (`gh` prints no page count): a page is `GH_PAGE_ROWS`,
-# so `gh pr list`/`gh issue list` made `max(1, ceil($2/GH_PAGE_ROWS))`
-# requests and `gh()` already recorded the first as its one-per-process `1`.
-# `spent` counts requests, not GraphQL points — a rich page can cost more.
-gh_record_pages() { [ $(( ($2 - 1) / GH_PAGE_ROWS )) -gt 0 ] && budget_record_call github github "$1" $(( ($2 - 1) / GH_PAGE_ROWS )); }
 
 # Reads `X-RateLimit-*` out of a header block, into the harvest variable.
 #
@@ -5479,11 +5471,10 @@ case "$op" in
       if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        # `gh` pages by GH_PAGE_ROWS inside ONE process and the wrapper records
-        # one call per process, so each page past the first is recorded here.
-        # Run before the jq print below so that print's exit status, not this
-        # call's, is the branch's — a page count 0 or 1 leaves this a no-op.
-        gh_record_pages graphql "$(jq 'length' <<<"$out" 2>/dev/null || echo 0)"
+        # `gh` pages inside ONE process and the wrapper records one call per
+        # process, so each page past the first is recorded here. Run before the jq
+        # print below so that print's exit status is the branch's, not this call's.
+        budget_record_call github github graphql "$(node "$here/board/plot-listing-pages.mjs" <<<"$out" 2>/dev/null)"
         jq -c --arg status "$gh_state" \
           '.[] | ((.state // $status) | ascii_downcase) as $actual |
                   {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),

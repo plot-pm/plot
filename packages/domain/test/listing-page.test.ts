@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { listingPagingFor, walkToLimit } from '../src/adapters/host/listing-paging.js';
-import { pagePossiblyTruncated, walkStep, type ListingPaging } from '../src/rules/listing-page.js';
+import {
+  GH_PAGE_ROWS, githubExtraPages, githubListingPages, pagePossiblyTruncated, walkStep, type ListingPaging,
+} from '../src/rules/listing-page.js';
 
 const honours: ListingPaging = { kind: 'honours-limit' };
 const fifty: ListingPaging = { kind: 'fixed-page', pageLength: 50 };
@@ -113,4 +115,23 @@ describe('how a listing pages, as the adapter reads it', () => {
       expect(listingPagingFor(backend, version)).toEqual(unmeasured);
     },
   );
+});
+
+describe('a gh listing makes ceil(rows / 100) requests', () => {
+  it.each([
+    [0, 1], [1, 1], [99, 1], [100, 1], [101, 2], [150, 2], [250, 3], [500, 5], [1767, 18],
+  ])('%i rows made %i requests', (rows, pages) => {
+    expect(githubListingPages(rows)).toBe(pages);
+    expect(githubExtraPages(rows)).toBe(pages - 1);
+  });
+
+  it('prices a count that is not a non-negative integer as an empty listing', () => {
+    expect(githubListingPages(Number.NaN)).toBe(1);
+    expect(githubListingPages(-5)).toBe(1);
+    expect(githubListingPages(1.5)).toBe(1);
+  });
+
+  it('pages at 100 rows', () => {
+    expect(GH_PAGE_ROWS).toBe(100);
+  });
 });
