@@ -102,26 +102,41 @@ export const psLiveness = (pids: readonly number[]): Promise<Map<number, { alive
 
 /**
  * Whether anyone still follows this lock — a live `board.<pid>` heartbeat
- * that is both fresh and names a live process, or a live `fleetd` heartbeat.
+ * that is both fresh and names a live process, or a live `fleetd` heartbeat
+ * this process did not just write itself.
  *
  * `fleetd` NEVER NEEDS THE PID CHECK: unlike a board's heartbeat, whose name
  * carries the pid this function must verify against `ps`, `fleetd`'s own name
  * carries none — its liveness is the same age-only reading `fleetPrs` itself
  * already treats as sufficient for a follower.
  *
+ * `selfAt` IS THE ESCAPE FROM THIS PROCESS'S OWN WRITE. `fleetPrs` — shared
+ * with the real fleetd daemon and not owned by this entry point — stamps
+ * every successful pass's heartbeat under the literal name `fleetd`,
+ * whichever process ran it. Read back with no further signal, this
+ * process's own pass would read as "a live fleetd", so this reader could
+ * never see `none` and would never exit on its own. `selfAt` names the `at`
+ * this process itself last stamped under that name; a `fleetd` heartbeat
+ * carrying that exact value is this reader's own echo, not a second process,
+ * and is excluded before the followers are counted.
+ *
  * @param heartbeats - every heartbeat currently published under the lock.
  * @param now - epoch milliseconds.
  * @param liveness - reads pid liveness in one batch; {@link psLiveness} in production.
- * @returns `'fleetd'` where a live fleetd heartbeat exists, `'followers'`
- *   where at least one other live heartbeat exists, or `'none'`.
+ * @param selfAt - the `at` this process itself last wrote under the name
+ *   `fleetd`, or `null` where it has made no such write yet.
+ * @returns `'fleetd'` where a live fleetd heartbeat exists that this process
+ *   did not itself just write, `'followers'` where at least one other live
+ *   heartbeat exists, or `'none'`.
  */
 export const stillFollowed = async (
   heartbeats: readonly { name: string; at: number }[],
   now: number,
   liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>>,
+  selfAt: number | null = null,
 ): Promise<'fleetd' | 'followers' | 'none'> => {
   const fresh = heartbeats.filter((h) => heartbeatIsFresh(h.at, now));
-  if (fresh.some((h) => h.name === 'fleetd')) return 'fleetd';
+  if (fresh.some((h) => h.name === 'fleetd' && h.at !== selfAt)) return 'fleetd';
   const boardPids = fresh
     .map((h) => /^board\.(\d+)$/.exec(h.name))
     .filter((m): m is RegExpExecArray => m !== null)
@@ -153,10 +168,19 @@ export const run = async (
   const prLock: PrLock = { lock };
   const state: PrState = freshPrState();
   state.backend = args.connector;
+  // `fleetPrs` stamps every timestamp it uses — including the `fleetd`
+  // heartbeat it writes on a successful pass — from `world.now`. Recording
+  // each value handed out here lets `checkStillFollowed` tell this process's
+  // own just-written heartbeat apart from a genuine external fleetd's.
+  let lastSelfAt: number | null = null;
   const world: PrWorld = {
     scripts: scriptsShell(context),
     host: hostShell(context),
     store: prIndexFile({ cwd: repoRoot }),
+    now: () => {
+      lastSelfAt = Date.now();
+      return lastSelfAt;
+    },
   };
   const readPrs = fleetPrs(world, state, prLock, warn);
 
@@ -166,7 +190,7 @@ export const run = async (
     const now = Date.now();
     const held = await lock.heartbeats(args.connector);
     const read = held.ok ? held.value : [];
-    if ((await stillFollowed(read, now, liveness)) === 'none') stop = true;
+    if ((await stillFollowed(read, now, liveness, lastSelfAt)) === 'none') stop = true;
   };
 
   await readPrs();

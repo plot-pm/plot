@@ -8,6 +8,7 @@ import { fleetStateFile, bridgePath, readerLockFixture } from '@plot-pm/domain/a
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 import { READER_STATE_VERSION } from '@plot-pm/domain';
+import type { Detached } from '@plot-pm/domain';
 
 const fold = vi.hoisted(() => ({ calls: 0 }));
 vi.mock('@plot-pm/domain', async (importOriginal) => {
@@ -94,11 +95,23 @@ const fixture = (supervisorUp: boolean) => {
     void readerLock.elect('github', { generation: 0, pid: 424242, startedAt: now - 60_000, at: now });
     void readerLock.heartbeat('github', 'fleetd', now);
   }
-  const opts = { repoRoot: dir, scriptsDir: dir, readerLock };
+  // Without a live reader-lock claim (supervisorUp: false), `maybeRefreshPrs`
+  // reads `elect` and would start a real machine reader through the real
+  // `Detached` adapter. A recording fake keeps that path in memory — the same
+  // seam `needs-design.test.ts` uses for its own spawn — so a test exercising
+  // `maybeRefreshPrs` alone never spawns a real `plot-pr-reader.mjs` process.
+  const detachedCalls: { script: string; args: readonly string[] }[] = [];
+  const detached: Detached = {
+    node: (script, args) => {
+      detachedCalls.push({ script, args });
+      return { pid: 1, exitCode: () => null };
+    },
+  };
+  const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
   const prListed = (): number => (fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter(Boolean).length : 0);
   const spawned = (): string[] => (fs.existsSync(scans) ? fs.readFileSync(scans, 'utf8').split('\n').filter(Boolean) : []);
   const supervisorReads = (): number => (fs.existsSync(path.join(dir, 'ctl.log')) ? fs.readFileSync(path.join(dir, 'ctl.log'), 'utf8').split('\n').filter(Boolean).length : 0);
-  return { dir, opts, spawned, prListed, supervisorReads };
+  return { dir, opts, spawned, prListed, supervisorReads, detachedCalls };
 };
 
 beforeEach(() => {
@@ -195,7 +208,7 @@ describe('the PR side of the board', () => {
   });
 
   it('alone, asks the host and folds in memory without writing the index', async () => {
-    const { dir, opts, prListed } = fixture(false);
+    const { dir, opts, prListed, detachedCalls } = fixture(false);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
     await refresh(opts, entry);
@@ -204,6 +217,10 @@ describe('the PR side of the board', () => {
     expect(entry.prsByNumber?.get(7)?.head).toBe('feature/a');
     const file = await prIndexFile({ cwd: dir }).location('github');
     expect(fs.existsSync(file.ok ? file.value : '')).toBe(false);
+    // No live fleetd heartbeat under this lock: the board's own verdict reads
+    // `elect`, and this proves it reached for the recording `Detached` fake
+    // rather than a real process — a board test run starts no real reader.
+    expect(detachedCalls).toHaveLength(1);
   });
 });
 
