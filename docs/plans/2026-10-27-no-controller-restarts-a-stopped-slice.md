@@ -78,7 +78,7 @@ Decided 2026-10-27 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-27-no
 
 ### Restart controller
 
-- `bug/a-stopped-slice-has-a-restart-controller` — extend `restartWorker` (live loop, `pr-unanswerable`, unattended refusal), a restart precondition on `continueOnDesk` under the continue lock, the superseded ending, `POST /api/restart`, `plot-restart-command.mjs`, the Restart row state, `--restart` asking the domain with `handover_refusal` removed, and the gate change <!-- builds: the restart controller action -->
+- `bug/a-stopped-slice-has-a-restart-controller` — extend `restartWorker` (live loop, `pr-unanswerable`, unattended refusal), a restart precondition on `continueOnDesk` under the continue lock, the superseded ending, `POST /api/restart`, `plot-restart-command.mjs`, the Restart row state, `--restart` asking the domain with `handover_refusal` removed, and the gate change <!-- builds: the restart controller action --> → #2799
 
 ### A fleet start restarts what its stop stopped
 
