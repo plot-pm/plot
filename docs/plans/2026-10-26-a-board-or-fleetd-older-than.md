@@ -13,6 +13,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2729 merged
+- **Started:** 2026-10-27, Jan Wloka, `bug/a-spawn-carries-its-gate-contract`
 
 ## Changelog
 
