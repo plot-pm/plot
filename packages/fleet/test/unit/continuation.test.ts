@@ -99,7 +99,20 @@ describe('continueOnDesk clears the main-checkout-writer marker for the spawn', 
 // -o lstart` for, which a fake `EventEmitter` never produces.
 describe('continueOnDesk records the spawned pid\'s own start time', () => {
   const desks: string[] = [];
-  afterEach(() => {
+  const workers: number[] = [];
+  const isAlive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  afterEach(async () => {
+    for (const pid of workers.splice(0)) {
+      if (isAlive(pid)) process.kill(pid, 'SIGKILL');
+      for (let i = 0; i < 100 && isAlive(pid); i += 1) await new Promise((r) => setTimeout(r, 50));
+    }
     for (const desk of desks.splice(0)) rmSync(desk, { recursive: true, force: true });
   });
 
@@ -126,6 +139,7 @@ describe('continueOnDesk records the spawned pid\'s own start time', () => {
     });
 
     expect(result.kind).toBe('started');
+    workers.push(Number(readFileSync(join(worktree, '.plot-worker.pid'), 'utf8')));
     const startedAt = readFileSync(join(worktree, '.plot-worker.pid.startedAt'), 'utf8');
     expect(startedAt).not.toBe('');
     expect(Number.isNaN(Date.parse(startedAt))).toBe(false);
