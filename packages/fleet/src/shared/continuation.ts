@@ -135,7 +135,19 @@ export type ContinueRefusal =
    * way — `sliceSpendRefusal` reads an unconfigured limit as "no limit", not
    * as zero.
    */
-  | 'spend-limit';
+  | 'spend-limit'
+  /** `restart`: the slice's pull request is open, merged or closed, so the work is in review. */
+  | 'reached-review'
+  /** `restart`: the host could not say whether the branch has a pull request. */
+  | 'pr-unanswerable'
+  /** `restart`: the worker state is `running`. */
+  | 'worker-alive'
+  /** `restart`: the worker finished; the reaper and `continue` own that desk. */
+  | 'worker-finished'
+  /** `restart`: an unanswered `PLOT-BLOCKED` marker sits in the tree; `continue` answers it. */
+  | 'blocked-marker'
+  /** `restart`: the caller runs unattended. */
+  | 'unattended';
 /** How many commits the prompt names before it says there are more. */
 export const COMMIT_MAX = 40;
 
@@ -358,6 +370,9 @@ export type DeskContinuation =
   | { kind: 'refused'; status: number; reason: ContinueRefusal; detail: string }
   | { kind: 'failed'; error: string };
 
+/** What a restart precondition answers: the start may go ahead, or why it may not. */
+export type RestartVerdict = { ok: true } | { ok: false; status: number; reason: ContinueRefusal; detail: string };
+
 /** What {@link continueOnDesk} needs to start a continuation on a desk. */
 export interface DeskContinuationInput {
   opts: ContinuationOptions;
@@ -385,6 +400,18 @@ export interface DeskContinuationInput {
    * `PLOT-BLOCKED` marker; see {@link continueOnDesk}.
    */
   fresh?: boolean;
+  /**
+   * Makes this start a restart of a dead worker rather than the answer to a
+   * question. Called once, under the continue lock and after `onLocked`; its
+   * refusal ends the start before any change to the desk.
+   *
+   * It replaces the marker precondition: a restart needs no `PLOT-BLOCKED`
+   * marker and refuses one. A named manifest is stamped and an unnamed desk is
+   * given a new one. On a start, `.plot-worker.ending.json` is removed, so a
+   * restarted worker that dies without writing an ending is read as killed
+   * rather than as the previous run's ending.
+   */
+  restart?: () => Promise<RestartVerdict>;
   /**
    * Runs after every refusal check has passed and before the first change to
    * the desk or the manifest. Returning false stops the start with a
@@ -713,6 +740,17 @@ const startMonitors = (input: {
 };
 
 /**
+ * Where a restart's manifest goes. A restart holds no live loop, so none is
+ * stopped: a named manifest is stamped, an unnamed desk is given a new one,
+ * and two manifests naming one desk stay an estate defect.
+ */
+const restartTarget = (manifest: ReturnType<typeof deskManifestFor>): ReturnType<typeof continueTarget> => {
+  if (manifest.kind === 'named') return { kind: 'continue', manifest: 'stamp', path: manifest.path };
+  if (manifest.kind === 'several') return { kind: 'refused', reason: 'several' };
+  return { kind: 'continue', manifest: 'write' };
+};
+
+/**
  * Starts a new worker on a desk, with `answer` in its prompt — on a desk that
  * holds an unanswered `PLOT-BLOCKED` marker, or, with `fresh`, on one whose
  * ending alone earns a new session with no marker in the tree.
@@ -750,7 +788,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   const question = await markerIn(worktree);
   const ending = deskEnding(worktree);
   const freshAsked = input.fresh === true && endingAsksFreshStart(ending, branch);
-  if (!question && !freshAsked) {
+  if (!question && !freshAsked && input.restart === undefined) {
     return refused(
       409,
       'no-question',
@@ -788,6 +826,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
 
   try {
     if (input.onLocked !== undefined) await input.onLocked();
+    if (input.restart !== undefined) {
+      const verdict = await input.restart();
+      if (!verdict.ok) return refused(verdict.status, verdict.reason, verdict.detail);
+    }
 
     // ASKED BEFORE ANY WRITE, and that is the decision: a refused continuation
     // must leave no `.plot-continuation.md`, no appended log and no removed
@@ -798,7 +840,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     const manifestAnswer = deskManifestFor(opts.repoRoot, worktree, opts);
     // `readDeskLoop` is the one live-loop reading; `plot-desk-loop.mjs` asks it too.
     const { loop, waitsFree: loopWaitsFree } = readDeskLoop(worktree, manifestAnswer);
-    const target = continueTarget({
+    const target = input.restart !== undefined ? restartTarget(manifestAnswer) : continueTarget({
       branch,
       manifest: manifestAnswer,
       ending,
@@ -1067,6 +1109,16 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       fs.rmSync(path.join(worktree, '.plot-worker.exit'), { force: true });
     } catch {
       /* a missing exit file is the normal case */
+    }
+    // THE PREVIOUS ENDING IS SUPERSEDED BY A RESTART. Left in place, a restarted
+    // worker killed before it writes its own ending would be read as the
+    // previous run's `stopped`, and `endingAction` answers `leave` for that.
+    if (input.restart !== undefined) {
+      try {
+        fs.rmSync(path.join(worktree, ENDING_FILENAME), { force: true });
+      } catch {
+        /* a missing ending is the normal case */
+      }
     }
 
     // THE STALE WRAPPER PID, REMOVED BEFORE THE SPAWN. This route starts no
