@@ -358,3 +358,45 @@ describe('a board restarts a reader that exited', () => {
     }
   });
 });
+
+describe('a board starts no reader it has no repository or host for', () => {
+  it('a board whose git host names no backend writes no heartbeat and starts no reader', async () => {
+    const dir = fixture();
+    try {
+      fs.writeFileSync(path.join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\nexit 4\n');
+      const readerLock = readerLockFixture();
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const entry = freshCacheEntry();
+
+      await maybeRefreshPrs({ repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) }, entry);
+
+      expect(calls).toHaveLength(0);
+      const beats = await readerLock.heartbeats('');
+      expect(beats.ok ? beats.value : null).toEqual([]);
+      expect(entry.prReader).toBe('this board');
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('a board whose repository is gone starts no reader and creates no log directory', async () => {
+    const dir = fixture();
+    try {
+      const gone = path.join(dir, 'gone');
+      const calls: { script: string; args: readonly string[] }[] = [];
+
+      // The backend an earlier tick resolved, before the repository was removed.
+      const entry = { ...freshCacheEntry(), backend: 'github' };
+
+      await maybeRefreshPrs(
+        { repoRoot: gone, scriptsDir: dir, readerLock: readerLockFixture(), detached: recordingDetached(calls) },
+        entry,
+      );
+
+      expect(calls).toHaveLength(0);
+      expect(fs.existsSync(gone)).toBe(false);
+    } finally {
+      cleanup(dir);
+    }
+  });
+});

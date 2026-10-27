@@ -2312,6 +2312,27 @@ const fleetdHeartbeatIsLive = async (lock: ReaderLock, key: string, now: number)
   return held.value.some((h) => h.name === 'fleetd' && heartbeatIsFresh(h.at, now));
 };
 
+/**
+ * Creates `dir` one level at a time below `root`, and never creates `root`.
+ *
+ * @param root - a directory that must already exist.
+ * @param dir - the directory to create, at or below `root`.
+ * @returns `true` where `dir` exists afterwards; `false` where `root` or a
+ *   level above `dir` is missing, or a `mkdir` fails for another reason.
+ */
+const ensureBelowRoot = (root: string, dir: string): boolean => {
+  let at = root;
+  for (const segment of path.relative(root, dir).split(path.sep).filter((s) => s !== '')) {
+    at = path.join(at, segment);
+    try {
+      fs.mkdirSync(at);
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'EEXIST') return false;
+    }
+  }
+  return fs.existsSync(dir);
+};
+
 /** The reader this board process last started per repository, index directory and connector, and when. */
 const startedReaders = new Map<string, { child: DetachedProcess; at: number }>();
 
@@ -2322,6 +2343,10 @@ const startedReaders = new Map<string, { child: DetachedProcess; at: number }>()
  * once to one start per bound. Mirrors `handleNeedsDesign`'s spawn shape: the
  * `Detached` port starts the bundle, logging to
  * `<repoRoot>/.plot/logs/pr-reader.log`, truncated at each start.
+ *
+ * Starts nothing where `repoRoot` no longer exists: the log directory is
+ * created one level at a time below `repoRoot`, never `repoRoot` itself, so a
+ * start after the repository was removed recreates nothing.
  *
  * @param opts - the board's options.
  * @param key - the reader lock's key.
@@ -2334,7 +2359,7 @@ const startReader = (opts: BuildBoardOptions, key: string, indexDir: string, now
   if (last !== undefined && (last.child.exitCode() === null || now - last.at < HEARTBEAT_STALE_MS)) return;
   const log = path.join(logDir(opts.repoRoot), 'pr-reader.log');
   const script = path.join(opts.scriptsDir, PR_READER_BUNDLE);
-  fs.mkdirSync(path.dirname(log), { recursive: true });
+  if (!ensureBelowRoot(opts.repoRoot, path.dirname(log))) return;
   const child = detachedFor(opts).node(script, ['--lock-dir', indexDir, '--connector', key], opts.repoRoot, log);
   startedReaders.set(guardKey, { child, at: now });
 };
@@ -2478,6 +2503,10 @@ export const refreshPrs = async (
  *     overlay, same as `elect`, but nothing is started: a lock this board
  *     cannot read is a lock a spawned reader could not elect over either.
  *
+ * A board whose git host answers no backend has no connector to key a lock
+ * by: it reads and writes no lock, starts no reader, and serves its own
+ * overlay.
+ *
  * Every tick writes this board's own heartbeat, also while the PR gate is
  * closed, and an open tick writes it before any read, whether it follows,
  * starts a reader, or serves its own overlay, so the reader this tick may
@@ -2500,24 +2529,32 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     const lock = readerLockFor(opts);
     const key = await readerLockKey(opts, entry);
     const now = Date.now();
-    const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
-    const fleetdLive = await fleetdHeartbeatIsLive(lock, key, now);
-    entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
-    // BEFORE ANY READ, so a reader started on this tick already counts this
-    // board on its first exit check, and a tick that throws still leaves it.
-    await lock.heartbeat(key, `board.${process.pid}`, now);
-    if (verdict === 'follow') {
-      await readPrsFromStore(opts, entry, key);
-    } else {
-      if (verdict === 'elect' && !fleetdLive) {
-        const indexDir = await indexDirFor(opts);
-        if (indexDir !== null) startReader(opts, key, indexDir, now);
-      }
-      // NO READER CONFIRMED LIVE: the board asks the host itself and folds the
-      // answer in memory, so the store stays the reader's to write. Inferred
-      // from the lock's own holder, which is the only liveness signal this
-      // function reads for PRs now.
+    if (key === '') {
+      // NO GIT HOST ANSWERED: no connector names a lock, so the board elects
+      // nothing, heartbeats nothing and starts no reader. It serves its own
+      // overlay, as a board with no reader does.
+      entry.prReader = whoReadsPrs(null, 'unknown', false);
       await refreshPrs(opts, entry, overlayFor(opts, entry));
+    } else {
+      const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
+      const fleetdLive = await fleetdHeartbeatIsLive(lock, key, now);
+      entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
+      // BEFORE ANY READ, so a reader started on this tick already counts this
+      // board on its first exit check, and a tick that throws still leaves it.
+      await lock.heartbeat(key, `board.${process.pid}`, now);
+      if (verdict === 'follow') {
+        await readPrsFromStore(opts, entry, key);
+      } else {
+        if (verdict === 'elect' && !fleetdLive) {
+          const indexDir = await indexDirFor(opts);
+          if (indexDir !== null) startReader(opts, key, indexDir, now);
+        }
+        // NO READER CONFIRMED LIVE: the board asks the host itself and folds the
+        // answer in memory, so the store stays the reader's to write. Inferred
+        // from the lock's own holder, which is the only liveness signal this
+        // function reads for PRs now.
+        await refreshPrs(opts, entry, overlayFor(opts, entry));
+      }
     }
     // ISSUES FOLLOW THE FLEET, NOT THE PR LOCK. The reader reads PRs only, and
     // fleetd is the one writer of the issue index, so the index is served
