@@ -195,6 +195,31 @@ describe('parseScanListingRows', () => {
   it('refuses a line that is not JSON', () => {
     expect(parseScanListingRows('plot-host: something went wrong\n')).toBeNull();
   });
+
+  it('refuses a line whose JSON is null or a scalar', () => {
+    expect(parseScanListingRows('null\n')).toBeNull();
+    expect(parseScanListingRows('5\n')).toBeNull();
+    expect(parseScanListingRows('"text"\n')).toBeNull();
+  });
+
+  it('refuses a row whose head or state is missing, empty or not a string', () => {
+    expect(parseScanListingRows(JSON.stringify({ head: '', state: 'OPEN' }))).toBeNull();
+    expect(parseScanListingRows(JSON.stringify({ head: 7, state: 'OPEN' }))).toBeNull();
+    expect(parseScanListingRows(JSON.stringify({ head: 'feature/a' }))).toBeNull();
+    expect(parseScanListingRows(JSON.stringify({ head: 'feature/a', state: '' }))).toBeNull();
+  });
+
+  it('reads an absent updatedAt as the empty string and skips blank lines', () => {
+    expect(parseScanListingRows(`\n${JSON.stringify({ head: 'feature/a', state: 'OPEN' })}\n  \n`)).toEqual([
+      { head: 'feature/a', state: 'OPEN', updatedAt: '' },
+    ]);
+  });
+
+  it('keeps checks without a draft where draft is not a boolean', () => {
+    expect(parseScanListingRows(JSON.stringify({ head: 'feature/a', state: 'OPEN', checks: 'green', draft: 'yes' }))).toEqual([
+      { head: 'feature/a', state: 'OPEN', updatedAt: '', checks: 'green' },
+    ]);
+  });
 });
 
 describe('renderScanListing', () => {
@@ -208,6 +233,15 @@ describe('renderScanListing', () => {
       'feature_c\tMERGED\t-\t-',
       '.branches\t2\t-\t-',
       '.list-complete\t1\t-\t-',
+      '.list-arrived\t1\t-\t-',
+      '',
+    ].join('\n'));
+  });
+
+  it('omits .list-complete where the listing is not whole', () => {
+    expect(renderScanListing([row({ head: 'feature/c', state: 'MERGED' })], false)).toBe([
+      'feature_c\tMERGED\t-\t-',
+      '.branches\t1\t-\t-',
       '.list-arrived\t1\t-\t-',
       '',
     ].join('\n'));
