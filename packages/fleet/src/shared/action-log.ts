@@ -10,7 +10,7 @@ export interface ActOptions extends ConfigReadOptions {
   /** The `PlanStore` port that reads plan files. Absent means the shell adapter over `repoRoot`. */
   planStore?: PlanStore;
   /** The `Host` port that names a merge commit. Absent means the shell adapter over `repoRoot`. */
-  host?: Host;
+  hostAdapter?: Host;
   /** The `Refs` port that reads a commit's files. Absent means the git adapter over `repoRoot`. */
   refs?: Refs;
 }
@@ -40,7 +40,7 @@ export const planStoreOf = (opts: ActOptions): PlanStore =>
  * @returns the injected port, or the shell adapter over `opts.repoRoot`.
  */
 export const hostOf = (opts: ActOptions): Host =>
-  opts.host ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  opts.hostAdapter ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
  * The `Refs` port these options read commits through.

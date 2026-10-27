@@ -618,13 +618,14 @@ const holdClaimOnly = async (
     const merged = plan.slices.flatMap((s) => s.branches).filter((b) => b.state === 'merged');
     const answers: [string, boolean | 'unknown'][] = [];
     for (const { branch } of merged) {
-      let work = carried.get(branch);
-      if (work === undefined) {
-        const read = await carriedWorkOf(ports, branch);
-        if (read !== 'unknown') carried.set(branch, read);
-        work = read;
+      const known = carried.get(branch);
+      if (known !== undefined) {
+        answers.push([branch, known]);
+        continue;
       }
-      answers.push([branch, work]);
+      const read = await carriedWorkOf(ports, branch);
+      if (read !== 'unknown') carried.set(branch, read);
+      answers.push([branch, read]);
     }
     holds.set(slug, holdFromClaimOnly(answers));
   }

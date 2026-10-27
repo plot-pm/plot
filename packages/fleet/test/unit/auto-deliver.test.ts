@@ -102,7 +102,7 @@ function fixtureWithMarker(
   buildCommand: (marker: string) => string,
   deliverExit = 0,
 ): {
-  opts: { repoRoot: string; scriptsDir: string; planStore: PlanStore; host: Host; refs: Refs };
+  opts: { repoRoot: string; scriptsDir: string; planStore: PlanStore; hostAdapter: Host; refs: Refs };
   runs: () => string[];
 } {
   // Nested one level down: the board writes a repo's agent logs into its parent.
@@ -179,7 +179,7 @@ function fixtureWithMarker(
           planRecord({ file: '2026-08-27-gone.md', phase: 'delivered' }),
         ],
       }),
-      ...(({ host, refs }) => ({ host, refs }))(workPorts()),
+      ...(({ host, refs }) => ({ hostAdapter: host, refs }))(workPorts()),
     },
     runs: () =>
       fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean) : [],
@@ -1237,7 +1237,7 @@ describe('runAutoDeliverPass — a claim-only slice is held, not delivered', () 
     const log = console.log;
     console.log = (...args: unknown[]) => void logs.push(args.join(' '));
     try {
-      await runAutoDeliverPass({ ...opts, scripts: fake.scripts, host: ports.host, refs: ports.refs }, finished(), Date.now(), new Set(), carried);
+      await runAutoDeliverPass({ ...opts, scripts: fake.scripts, hostAdapter: ports.host, refs: ports.refs }, finished(), Date.now(), new Set(), carried);
     } finally {
       console.log = log;
     }
