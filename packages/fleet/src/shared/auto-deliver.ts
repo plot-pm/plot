@@ -3,7 +3,10 @@ import path from 'node:path';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import {
   deliveryReadings,
+  carriedWorkOf,
+  holdFromClaimOnly,
   holdFromRejection,
+  planSlug,
   planAutoDeliver,
   pruneDelivering,
   pruneFailures,
@@ -18,7 +21,7 @@ import {
 } from '@plot-pm/domain';
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
-import { deliverLogPath, planStoreOf, scriptsOf, type ActOptions } from './action-log.js';
+import { deliverLogPath, hostOf, planStoreOf, refsOf, scriptsOf, type ActOptions } from './action-log.js';
 import {
   IN_FLIGHT_RENEW_AFTER_MS,
   readInFlight,
@@ -506,13 +509,21 @@ const reportStopped = (opts: ActOptions, slug: string, failure: DeliveryFailure)
  * @param opts - where the fleet acts.
  * @param pulse - the pulse the scan just wrote.
  * @param now - epoch milliseconds; the clock of this pass.
+ * A candidate with a merged branch whose merge carried no work — only a claim
+ * or a `PLOT-BLOCKED*` marker — is held the same way: {@link holdFromClaimOnly}.
+ * A branch's answer is read once per `carried` map, whose life is the
+ * caller's, because a merge commit cannot change; an `'unknown'` answer is not
+ * kept and is asked again on the next pass.
+ *
  * @param heldLogged - slugs already logged as held; mutated with any new ones.
+ * @param carried - merged branch to whether its merge carried work; mutated with new answers.
  */
 export const runAutoDeliverPass = async (
   opts: ActOptions,
   pulse: FleetReading | null,
   now: number = Date.now(),
   heldLogged: Set<string> = new Set(),
+  carried: Map<string, boolean> = new Map(),
 ): Promise<void> => {
   // THE PLAN READS COME FIRST, and the in-flight record is read again after
   // them. A delivery's exit can update the record while the reads wait; a pass
@@ -521,6 +532,7 @@ export const runAutoDeliverPass = async (
   if (first === null) return;
   if (first.candidates.length === 0) return finishPass(opts, pulse, now, first, []);
   const holds = await readHolds(planStoreOf(opts), first.candidates);
+  await holdClaimOnly(opts, pulse, holds, carried);
   const pass = settleInFlight(opts, pulse, now);
   if (pass === null) return;
   const plans: AutoDeliverPlan[] = [];
@@ -582,6 +594,41 @@ const settleInFlight = (opts: ActOptions, pulse: FleetReading | null, now: numbe
   }
   const candidates = planAutoDeliver({ pulse, inFlight: held, complete, failures, now });
   return { read, mine, live, held, failures, stopped, candidates };
+};
+
+/**
+ * Fold the claim-only hold into `holds` for each candidate not yet held.
+ *
+ * Reads every merged branch of the candidate's plan through
+ * {@link carriedWorkOf}, except those `carried` already answers.
+ *
+ * @param holds - the holds read so far; a `null` entry may become a hold.
+ * @param carried - the per-branch answers kept across passes; gains each `true`/`false` read here.
+ */
+const holdClaimOnly = async (
+  opts: ActOptions,
+  pulse: FleetReading | null,
+  holds: Map<string, AutoDeliverHold | null>,
+  carried: Map<string, boolean>,
+): Promise<void> => {
+  const ports = { host: hostOf(opts), refs: refsOf(opts) };
+  for (const plan of pulse?.plans ?? []) {
+    const slug = planSlug(plan.file);
+    if (holds.get(slug) !== null) continue;
+    const merged = plan.slices.flatMap((s) => s.branches).filter((b) => b.state === 'merged');
+    const answers: [string, boolean | 'unknown'][] = [];
+    for (const { branch } of merged) {
+      const known = carried.get(branch);
+      if (known !== undefined) {
+        answers.push([branch, known]);
+        continue;
+      }
+      const read = await carriedWorkOf(ports, branch);
+      if (read !== 'unknown') carried.set(branch, read);
+      answers.push([branch, read]);
+    }
+    holds.set(slug, holdFromClaimOnly(answers));
+  }
 };
 
 /**

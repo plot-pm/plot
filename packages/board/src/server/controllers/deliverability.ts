@@ -1,5 +1,6 @@
 import { deliver, refused, type DeliverBranchReading } from '@plot-pm/domain';
 import type { Host, PlanStore, Refs } from '@plot-pm/domain';
+import { carriedWorkOf } from '@plot-pm/domain/rules/claim-only-slice';
 import { commitVerdict, isForeignCommit } from '@plot-pm/domain/rules/commit-evidence';
 import { crossRepoReferences, type CrossRepoReference } from '@plot-pm/domain/rules/cross-repo-reference';
 import { mergedRowByHead } from '@plot-pm/domain/rules/merged-row';
@@ -185,55 +186,6 @@ const mergedBranches = async (
   }
   return states;
 };
-
-/**
- * Whether a merged branch's PR carried anything but a marker or a claim.
- *
- * THE MERGE COMMIT, NOT THE BRANCH. A squash-merged branch loses its ref, so
- * `origin/main...branch` cannot run for the population this is asked about —
- * measured on both slices that shipped empty. The host names the commit and git
- * reads it.
- *
- * TWO EXCLUSIONS AND NO OTHERS. `PLOT-BLOCKED*` is a worker's question to a
- * person rather than work, and the claim commit is empty so it contributes no
- * path — the same pair `plot-reconcile-scan.sh`'s section 17 excludes when it
- * asks whether a branch holds work. A documentation-only PR carried work: it is
- * a slice that wrote documentation.
- *
- * `unknown` WHERE EITHER READING FAILED, and never `false`. A host that could
- * not name the commit, and a commit git could not read, are both *cannot
- * verify*.
- *
- * @param ports - the host that names the merge commit, and the refs that read it
- * @param branch - the merged branch to ask about
- * @returns whether it carried work, or `'unknown'` where that could not be read
- */
-const carriedWorkOf = async (
-  ports: { host: Host; refs: Refs },
-  branch: string,
-): Promise<boolean | 'unknown'> => {
-  const sha = await ports.host.prMergeCommit(branch);
-  if (!sha.ok) return 'unknown';
-  // NO MERGE COMMIT IS NOT NO WORK. The host answered that it holds no merged
-  // PR for this name, while `prMerged` said the branch merged — the two
-  // disagree, and a disagreement is exactly what `unknown` is for.
-  if (sha.value === '') return 'unknown';
-
-  const files = await ports.refs.commitFiles(sha.value);
-  if (!files.ok) return 'unknown';
-  return files.value.some((path) => !isMarker(path));
-};
-
-/**
- * Whether a path is a blocked marker rather than work.
- *
- * `PLOT-BLOCKED*` at the repository root, the spelling the fleet scan looks for
- * and the worker writes.
- *
- * @param path - a path a commit changed, relative to the repository root
- * @returns true where the path is a marker
- */
-const isMarker = (path: string): boolean => path.startsWith('PLOT-BLOCKED');
 
 /**
  * Whether a plan's work has landed — the question `plot-deliver.sh` used to

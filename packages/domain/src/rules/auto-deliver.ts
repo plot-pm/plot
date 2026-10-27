@@ -434,9 +434,10 @@ export const pruneDelivering = (
  * Why `holdFromRejection` holds a plan, or `null` for a plan it does not hold.
  *
  * `'rejected'` names a plan whose file carries a `Rejected:` record.
- * `'unknown'` names a plan whose file this call could not read.
+ * `'unknown'` names a plan whose file, or whose merged branch's carried work, this call could not read.
+ * `claim-only <branch>` names a plan with a merged branch whose merge changed no path but `PLOT-BLOCKED*` markers.
  */
-export type AutoDeliverHold = 'rejected' | 'unknown';
+export type AutoDeliverHold = 'rejected' | 'unknown' | `claim-only ${string}`;
 
 /**
  * Whether a plan `planAutoDeliver` already marked deliverable must instead be
@@ -459,4 +460,25 @@ export type AutoDeliverHold = 'rejected' | 'unknown';
 export const holdFromRejection = (reading: PortResult<PlanRecord>): AutoDeliverHold | null => {
   if (!reading.ok) return 'unknown';
   return reading.value.rejectedRaw === '' ? null : 'rejected';
+};
+
+/**
+ * Whether a plan whose merged branches were read must be held because one of
+ * them carried no work.
+ *
+ * A branch that merged only its claim, or a `PLOT-BLOCKED*` marker, is not a
+ * delivered slice. An unreadable branch holds too: `'unknown'` is not evidence
+ * of work. Only the unattended path holds; a person delivering by hand sees the
+ * same finding and decides.
+ *
+ * @param carried - each merged branch with its {@link carriedWorkOf} answer, in order
+ * @returns `claim-only <branch>` for the first branch that carried none,
+ *   `'unknown'` when none was claim-only and one could not be read, else `null`
+ */
+export const holdFromClaimOnly = (
+  carried: readonly (readonly [branch: string, carried: boolean | 'unknown'])[],
+): AutoDeliverHold | null => {
+  const empty = carried.find(([, work]) => work === false);
+  if (empty !== undefined) return `claim-only ${empty[0]}`;
+  return carried.some(([, work]) => work === 'unknown') ? 'unknown' : null;
 };

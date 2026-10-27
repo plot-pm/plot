@@ -34,7 +34,8 @@ import path from 'node:path';
  * `holdFromRejection` is excluded for the same reason as the rest of
  * `planAutoDeliver`'s surrounding fleet pass: it reads a plan's `Rejected:`
  * record, which none of the four readers above carries. No corpus pair arises
- * from it.
+ * from it. `holdFromClaimOnly` is excluded likewise: it reads a merge commit's
+ * files through `Host` and `Refs`, which none of the four readers touch.
  *
  * NEITHER OF THE THREE IS AUTHORITATIVE. This test says they agree.
  * `docs/shell-and-domain.md` is the contract: on a disagreement the branch
