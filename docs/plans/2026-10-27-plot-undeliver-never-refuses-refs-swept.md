@@ -107,7 +107,7 @@ Skill and repo:
 
 ### Refusal
 
-- `bug/plot-undeliver-reads-slices` — the domain decides `refs-swept` and `refs-unknown` from per-branch readings; `plot-undeliver.sh` reads branches through `plot-plan-meta.sh`, supplies readings and the slug, records its receipt and moves the index entry; `owningCommand` learns the from-state
+- `bug/plot-undeliver-reads-slices` — the domain decides `refs-swept` and `refs-unknown` from per-branch readings; `plot-undeliver.sh` reads branches through `plot-plan-meta.sh`, supplies readings and the slug, records its receipt and moves the index entry; `owningCommand` learns the from-state → #2795
 
 ### Controller
 
