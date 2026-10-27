@@ -1,0 +1,1 @@
+../2026-10-27-auto-deliver-re-delivers-a-rejected.md
