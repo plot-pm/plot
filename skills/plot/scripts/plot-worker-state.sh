@@ -307,13 +307,9 @@ _plot_lstart_epoch() { # $1=ps -o lstart= text → epoch seconds, or "" (non-zer
 # and `plot_worker_readings`, which both read the same three fields the same
 # way before diverging on what they report.
 _plot_pid_readings() { # $1=worktree → "pid\tstartedAt\tpidStartedAt" (pid empty if none found)
-  local wt="$1" manifest="" manifest_data="" pid="" started="" pid_started=""
+  local wt="$1" manifest="" pid="" started="" pid_started=""
   if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
-    if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
-      pid=$(printf '%s' "$manifest_data" | cut -f1)
-      started=$(printf '%s' "$manifest_data" | cut -f2)
-      pid_started=$(printf '%s' "$manifest_data" | cut -f3)
-    fi
+    IFS=$'\t' read -r pid started pid_started < <(plot_read_manifest_pid "$manifest")
   fi
   if [ -z "$pid" ] && [ -n "$wt" ] && [ -f "$wt/.plot-worker.pid" ]; then
     pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
