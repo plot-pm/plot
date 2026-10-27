@@ -1116,7 +1116,9 @@ if [ "$mode" = "start" ]; then
   # `launchctl bootstrap`: a refused probe leaves no unit loaded and pushes no
   # ref. Absent is not false — `plot-write-probe.mjs` exits 0 for an
   # unanswerable probe the same as for an observed yes, so a probe that could
-  # not run never blocks a start it did not actually test.
+  # not run never blocks a start it did not actually test. An empty or `none`
+  # Worker command starts nothing and is not probed (`writeProbeNeeded`); a
+  # stale print block proceeds and names its fix (`writeProbeOutcome`).
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould probe: node %s/board/plot-write-probe.mjs '%s'\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "$script_dir" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" "${start_count:-(default)}"
     exit 0

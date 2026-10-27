@@ -1147,6 +1147,32 @@ describe('probeBeforeStarting — a refused write never reaches startAgents', ()
     expect(readCalls).toBe(0);
   });
 
+  it('proceeds without probing when the Worker command is none (#2778)', async () => {
+    const asked: string[] = [];
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: true, value: 'no' }, asked),
+      async () => 'none',
+      () => {},
+    );
+    expect(proceed).toBe(true);
+    expect(asked).toHaveLength(0);
+  });
+
+  it('proceeds on a stale print and warns with the template refresh (#2778)', async () => {
+    const warned: string[] = [];
+    const reason = 'stale-print: .plot/worker-prompt.sh has no PLOT_PRINT_INVOCATION block';
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: false, why: 'unaskable', reason }),
+      async () => 'claude -p',
+      (s) => warned.push(s),
+    );
+    expect(proceed).toBe(true);
+    expect(warned.join('')).toMatch(/^plot-fleetd: The write probe did not run/);
+    expect(warned.join('')).toContain('skills/plot/templates/worker-prompt.sh');
+  });
+
   it('proceeds without probing when no Worker command is configured', async () => {
     const asked: string[] = [];
     const proceed = await probeBeforeStarting(

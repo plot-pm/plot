@@ -1,12 +1,17 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { answered, unaskable, type PortResult } from '../../port-result.js';
 import type { WriteProbe } from '../../ports/write-probe.js';
 import { FALLBACK_PROMPT } from '../../rules/prompt.js';
-import type { WriteProbeReading } from '../../rules/write-probe.js';
+import {
+  flagMissingFromPrint,
+  promptPrintsInvocation,
+  stalePrintReason,
+  type WriteProbeReading,
+} from '../../rules/write-probe.js';
 import { runProcess, type RunOptions, type ScriptRun } from '../run-script.js';
 import type { ShellContext } from '../scripts.js';
 
@@ -28,6 +33,8 @@ export interface WriteProbeShellOptions {
   rm?: (path: string, options: { recursive: true; force: true }) => Promise<void>;
   /** Checks whether a path exists; defaults to {@link existsSync}. */
   exists?: (path: string) => boolean;
+  /** Reads the prompt file's text; defaults to {@link readFile} as UTF-8. */
+  readText?: (path: string) => Promise<string>;
 }
 
 /** The harness and flags `.plot/worker-prompt.sh` prints under `PLOT_PRINT_INVOCATION=1`, one token per line, without `-p` and the prompt. */
@@ -50,6 +57,12 @@ const parseInvocation = (stdout: string): string[] =>
  * prints every flag of its launch line, `--permission-mode` included, from
  * the same arrays the launch reads; the probe adds no flag of its own.
  *
+ * **A PRINT THAT CANNOT BE TRUSTED IS NOT RUN.** A prompt file with no
+ * `PLOT_PRINT_INVOCATION` block is never sourced, because sourcing it runs its
+ * real prompt. A print that omits a launch flag the file passes (see
+ * `flagMissingFromPrint`) does not reach the harness. Both answer
+ * `unanswerable` with a `stalePrintReason`, which `writeProbeOutcome` reports.
+ *
  * **ABSENT IS NOT FALSE.** No prompt file on disk, a harness that cannot be
  * resolved, a scratch desk that cannot be cut, or a run that times out all
  * answer `unanswerable`: none of them observed a refused write.
@@ -60,6 +73,7 @@ export const writeProbeShell = (context: ShellContext, options: WriteProbeShellO
   const cutScratch = options.mkdtemp ?? mkdtemp;
   const removeScratch = options.rm ?? rm;
   const exists = options.exists ?? existsSync;
+  const readText = options.readText ?? ((path: string) => readFile(path, 'utf8'));
 
   return {
     // `command` names which configured role this probe stands in for, for a
@@ -68,6 +82,16 @@ export const writeProbeShell = (context: ShellContext, options: WriteProbeShellO
     check: async (_command: string): Promise<PortResult<WriteProbeReading>> => {
       const promptPath = join(context.repoRoot, FALLBACK_PROMPT);
       if (!exists(promptPath)) return unaskable<WriteProbeReading>('no prompt file to probe');
+
+      let promptText: string;
+      try {
+        promptText = await readText(promptPath);
+      } catch {
+        return unaskable<WriteProbeReading>('could not read the prompt file');
+      }
+      if (!promptPrintsInvocation(promptText)) {
+        return unaskable<WriteProbeReading>(stalePrintReason(`${FALLBACK_PROMPT} has no PLOT_PRINT_INVOCATION block`));
+      }
 
       let scratch: string;
       try {
@@ -86,6 +110,12 @@ export const writeProbeShell = (context: ShellContext, options: WriteProbeShellO
 
         const [harness, ...flags] = parseInvocation(printed.stdout);
         if (harness === undefined || harness === '') return unaskable<WriteProbeReading>('no harness resolved');
+        const missing = flagMissingFromPrint(promptText, flags);
+        if (missing !== undefined) {
+          return unaskable<WriteProbeReading>(
+            stalePrintReason(`${FALLBACK_PROMPT} launches with ${missing} but its PLOT_PRINT_INVOCATION block does not print it`),
+          );
+        }
 
         const marker = join(scratch, MARKER_NAME);
         const prompt = `Write the single character x to the file at ${marker}, creating it if it does not exist, then stop. Do nothing else.`;

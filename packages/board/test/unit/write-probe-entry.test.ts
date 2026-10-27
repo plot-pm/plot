@@ -46,6 +46,32 @@ describe('plot-write-probe.mjs', () => {
     expect(code).toBe(0);
   });
 
+  it('proceeds without probing an empty or none Worker command (#2778)', async () => {
+    // plot-fleetctl.sh passes `plot-config.sh get "Worker command" ""` as the
+    // one argument, so an unset key arrives as an empty string.
+    for (const command of ['', 'none']) {
+      const asked: string[] = [];
+      let out = '';
+      const code = await run([command], probeAnswering({ ok: true, value: 'no' }, asked), (s) => {
+        out += s;
+      });
+      expect(code).toBe(0);
+      expect(asked).toEqual([]);
+      expect(out).toBe('');
+    }
+  });
+
+  it('proceeds on a stale print and prints the template refresh for its shell caller (#2778)', async () => {
+    let out = '';
+    const reason = 'stale-print: .plot/worker-prompt.sh launches with --permission-mode but its PLOT_PRINT_INVOCATION block does not print it';
+    const code = await run(['claude -p'], probeAnswering({ ok: false, why: 'unaskable', reason }), (s) => {
+      out += s;
+    });
+    expect(code).toBe(0);
+    expect(out).toMatch(/^plot-fleetctl: The write probe did not run/);
+    expect(out).toContain('skills/plot/templates/worker-prompt.sh');
+  });
+
   it('exits 2 on a missing command argument', async () => {
     expect(await run([], probeAnswering({ ok: true, value: 'yes' }), () => {})).toBe(2);
   });

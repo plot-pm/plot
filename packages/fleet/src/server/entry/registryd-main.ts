@@ -38,7 +38,7 @@ import {
 import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
-import { writeProbeAnswer, writeProbeRefusal } from '@plot-pm/domain/rules/write-probe';
+import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write-probe';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
@@ -1408,9 +1408,10 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
  * whose free agents are all already assigned, never reaches the probe — the
  * same reasoning that keeps `--once` free when no agent needs starting.
  *
- * **ABSENT IS NOT FALSE.** An empty or unconfigured `Worker command` is left
- * to `startFreeAgent`'s own `unaskable` answer; this only refuses an
- * OBSERVED failure to write.
+ * **ABSENT IS NOT FALSE.** An empty, unconfigured or `none` `Worker command`
+ * is not probed (`writeProbeNeeded`) and is left to `startFreeAgent`'s own
+ * answer; this only refuses an OBSERVED failure to write. A stale print
+ * proceeds and reports its fix (`writeProbeOutcome`).
  *
  * @param report - what the tick decided.
  * @param probe - what runs the configured command once, in a scratch desk.
@@ -1428,15 +1429,11 @@ export const probeBeforeStarting = async (
   if (!hasWorkerStart) return true;
 
   const command = await readWorkerCommand();
-  if (command === '') return true;
+  if (!writeProbeNeeded(command)) return true;
 
-  const result = await probe.check(command);
-  const reading = result.ok ? result.value : 'unanswerable';
-  if (writeProbeAnswer(reading) === 'refuse') {
-    warn(`plot-fleetd: ${writeProbeRefusal('no marker file appeared after the probe run')}\n`);
-    return false;
-  }
-  return true;
+  const outcome = writeProbeOutcome(await probe.check(command));
+  if (outcome.message !== undefined) warn(`plot-fleetd: ${outcome.message}\n`);
+  return outcome.answer === 'proceed';
 };
 
 export const startAgents = async (

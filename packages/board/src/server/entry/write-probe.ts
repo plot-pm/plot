@@ -1,7 +1,7 @@
 import { writeProbeShell, type ShellContext } from '@plot-pm/domain/adapters';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
-import { writeProbeAnswer, writeProbeRefusal } from '@plot-pm/domain/rules/write-probe';
+import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write-probe';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -18,10 +18,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * The one argument is the configured `Worker command`, named for the report
  * rather than branched on — one prompt file governs every agent that declared
  * no charter, so the probe asks that file regardless of which command string
- * is configured. Prints nothing on an observed `yes` or an unanswerable probe
- * — absent is not false, and a shell caller only needs an exit code for that
- * case. Prints the refusal's text, prefixed for its one shell caller, on an
- * observed `no`. Exits 0 to proceed, 1 to refuse, 2 for a missing argument.
+ * is configured. An empty or `none` command starts nothing, so it is not
+ * probed and exits 0 (`writeProbeNeeded`). Prints nothing on an observed `yes`
+ * or an unanswerable probe. Prints the refusal's text on an observed `no`, and
+ * the fix on a stale print (`writeProbeOutcome`), prefixed for its one shell
+ * caller. Exits 0 to proceed, 1 to refuse, 2 for a missing argument.
  */
 
 /**
@@ -38,18 +39,14 @@ export const run = async (
   write: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
   const [command] = argv;
-  if (command === undefined || command === '') {
+  if (command === undefined) {
     process.stderr.write('plot-write-probe: expected the configured Worker command\n');
     return 2;
   }
-  const result = await probe.check(command);
-  const reading = result.ok ? result.value : 'unanswerable';
-  const decision = writeProbeAnswer(reading);
-  if (decision === 'refuse') {
-    write(`plot-fleetctl: ${writeProbeRefusal('no marker file appeared after the probe run')}\n`);
-    return 1;
-  }
-  return 0;
+  if (!writeProbeNeeded(command)) return 0;
+  const outcome = writeProbeOutcome(await probe.check(command));
+  if (outcome.message !== undefined) write(`plot-fleetctl: ${outcome.message}\n`);
+  return outcome.answer === 'refuse' ? 1 : 0;
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

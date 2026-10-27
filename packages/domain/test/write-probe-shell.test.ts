@@ -13,21 +13,27 @@ import { runProcess, type ScriptRun } from '../src/adapters/run-script.js';
 /** The prompt template Plot ships, which `plot-init` copies to `.plot/worker-prompt.sh`. */
 const templatePath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills', 'plot', 'templates', 'worker-prompt.sh');
 
+/** The template as shipped before #2778, whose print omits `--permission-mode`. */
+const oldTemplatePath = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'worker-prompt-before-2778.sh');
+
 /** Launch variables a dispatched worker's own environment carries, blanked so the template reads none. */
 const unsetLaunchVars: Record<string, string> = {
   PLOT_HARNESS: '', PLOT_MODEL: '', PLOT_EFFORT: '', PLOT_CAPABILITIES: '',
   PLOT_SESSION_ID: '', PLOT_AGENT_SETTINGS: '', PLOT_BACKGROUND_DENY: '',
 };
 
+/** A prompt file with a print block and no launch flag, for tests that stub `run`. */
+const MINIMAL_PROMPT = '#!/usr/bin/env bash\nif [ -n "${PLOT_PRINT_INVOCATION:-}" ]; then printf \'%s\\n\' claude; exit 0; fi\nclaude -p "work"\n';
+
 /**
  * A repo root carrying the one file the probe reads: `.plot/worker-prompt.sh`.
  * The probe never executes this file for real in these tests — `run` is
- * stubbed — so its content does not matter, only its presence.
+ * stubbed — so only its text matters: it names a print block and no launch flag.
  */
-async function repoWithPrompt(): Promise<string> {
+async function repoWithPrompt(text: string = MINIMAL_PROMPT): Promise<string> {
   const root = await mkdtempAsync(join(tmpdir(), 'plot-write-probe-repo-'));
   await mkdir(join(root, '.plot'), { recursive: true });
-  await writeFile(join(root, '.plot', 'worker-prompt.sh'), '#!/usr/bin/env bash\n');
+  await writeFile(join(root, '.plot', 'worker-prompt.sh'), text);
   return root;
 }
 
@@ -222,6 +228,61 @@ describe('writeProbeShell — the shipped prompt template', () => {
       const at = seen[0].args.indexOf('--permission-mode');
       expect(at).toBeGreaterThanOrEqual(0);
       expect(seen[0].args[at + 1]).toBe('bypassPermissions');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('writeProbeShell — a print that cannot be trusted is not run (#2778)', () => {
+  /** Runs the probe over `promptFile` with real bash and a stubbed harness; returns the result and what ran. */
+  const probeOver = async (promptFile: string) => {
+    const root = await mkdtempAsync(join(tmpdir(), 'plot-write-probe-stale-'));
+    const commands: string[] = [];
+    try {
+      await mkdir(join(root, '.plot'), { recursive: true });
+      await copyFile(promptFile, join(root, '.plot', 'worker-prompt.sh'));
+      const probe = writeProbeShell(shellContext(root), {
+        run: async (command, args, options): Promise<ScriptRun> => {
+          commands.push(command);
+          if (command === 'bash') {
+            return runProcess(command, args, { ...options, env: { ...options?.env, ...unsetLaunchVars } });
+          }
+          return { code: 0, stdout: '', stderr: '' };
+        },
+      });
+      return { reading: await probe.check('claude -p'), commands };
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  };
+
+  it('answers unanswerable with a stale-print reason for the template shipped before #2778, and runs no harness', async () => {
+    const { reading, commands } = await probeOver(oldTemplatePath);
+    expect(reading.ok).toBe(false);
+    expect(!reading.ok && reading.why === 'unaskable' && reading.reason).toMatch(/^stale-print: .*--permission-mode/);
+    expect(commands).toEqual(['bash']);
+  });
+
+  it('runs the harness for the current template', async () => {
+    const { reading, commands } = await probeOver(templatePath);
+    expect(isAnswered(reading)).toBe(true);
+    expect(commands).toEqual(['bash', 'claude']);
+  });
+
+  it('never sources a prompt file that has no print block', async () => {
+    const root = await repoWithPrompt('#!/usr/bin/env bash\nclaude -p "work" --permission-mode bypassPermissions\n');
+    const commands: string[] = [];
+    try {
+      const probe = writeProbeShell(shellContext(root), {
+        run: async (command): Promise<ScriptRun> => {
+          commands.push(command);
+          return { code: 0, stdout: 'claude\n', stderr: '' };
+        },
+      });
+      const reading = await probe.check('claude -p');
+      expect(!reading.ok && reading.why === 'unaskable' && reading.reason).toMatch(/^stale-print: .*no PLOT_PRINT_INVOCATION block/);
+      expect(commands).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
