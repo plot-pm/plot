@@ -20,6 +20,7 @@ import {
   type ScanOptions,
   type ScanWorld,
 } from '../../src/shared/fleet-scan.js';
+import { removeTree } from '../rm-tree.mjs';
 
 const READING: FleetReading = {
   main: 'main',
@@ -219,7 +220,7 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
   });
 
   afterAll(() => {
-    if (sandbox !== '') fs.rmSync(sandbox, { recursive: true, force: true });
+    if (sandbox !== '') removeTree(sandbox);
   });
 
   /** A world whose `hostSaid` runs the shipped `plot-host.sh` in the sandbox. */
