@@ -91,7 +91,7 @@ export interface ReaderLock {
    * lock; this port only publishes and reads the file, and decides nothing.
    *
    * @param key - the lock's key.
-   * @param name - the heartbeat's own name, e.g. `board.<pid>` or `fleetd` —
+   * @param name - the heartbeat's own name, `board.<pid>`, `reader.<pid>` or `fleetd` —
    *   distinct names so more than one follower may heartbeat at once.
    * @param at - epoch milliseconds to stamp the heartbeat with.
    * @returns nothing on success; `failed` where the write did not land.

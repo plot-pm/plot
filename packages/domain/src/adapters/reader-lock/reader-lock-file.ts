@@ -457,7 +457,7 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
       }
       const beats: { name: string; at: number }[] = [];
       for (const name of names) {
-        if (name === 'fleetd' || /^board\.\d+$/.test(name)) {
+        if (name === 'fleetd' || /^(board|reader)\.\d+$/.test(name)) {
           let text: string;
           try {
             text = await readFile(join(dir, name), 'utf8');

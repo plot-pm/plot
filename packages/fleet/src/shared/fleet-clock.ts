@@ -158,6 +158,11 @@ export const fleetScan = (
 export interface PrLock {
   /** The reader lock port; `readerLockFile` in production. */
   lock: ReaderLock;
+  /**
+   * The name this process heartbeats under: `fleetd` where absent, and
+   * `reader.<pid>` for the standalone PR reader.
+   */
+  name?: string;
 }
 
 /** This process's reader-election claim, built fresh for every `elect` call. */
@@ -185,8 +190,8 @@ const adoptReaderState = (state: PrState, published: { prError: string | null; p
  * nothing and touches no store, whatever the cadence says — the gate decides
  * when THE READER refreshes, not whether this process is it.
  *
- * `held` skips the whole pass: no host call, no store touch, no write. A
- * process newly electing adopts the current holder's published cadence and
+ * `held` skips the rest of the pass after the heartbeat: no host call, no
+ * store touch, no reader-state write. A process newly electing adopts the current holder's published cadence and
  * failure state once, the moment it becomes the holder — `state.prAt ===
  * null` is that moment, a fresh process's own cold-start signal, checked
  * rather than trusting `elect`'s return word alone, because a holder that
@@ -197,9 +202,13 @@ const adoptReaderState = (state: PrState, published: { prError: string | null; p
  * mid-pass; losing that race skips only the fold, since the host was already
  * asked and that answer is still served.
  *
- * Every pass that held the lock — whether or not the fold happened — ends by
- * publishing this reader's cadence and a `fleetd` heartbeat, so a following
- * board renders this process's latest reading without asking the host itself.
+ * Every pass whose election answered publishes this process's heartbeat
+ * under `prLock.name` (`fleetd` by default) before anything else, whether it
+ * holds the lock or reads `held`. A `fleetd` that reads `held` against a
+ * standalone reader is thereby visible to that reader, which exits and
+ * releases the lock, and fleetd elects on its next pass. Every pass that holds
+ * the lock and passes the gate also publishes this reader's cadence, so a
+ * following board renders its latest reading without asking the host itself.
  *
  * A `failed` lock (its directory itself unwritable) skips the pass and warns
  * once per distinct cause, not once per beat, the same shape
@@ -238,6 +247,7 @@ export const fleetPrs = (
       return;
     }
     lastFailureCause = null;
+    await prLock.lock.heartbeat(key, prLock.name ?? 'fleetd', now());
     if (verdict.value === 'held') return;
     if (state.prAt === null) {
       const published = await prLock.lock.readerState(key);
@@ -257,7 +267,6 @@ export const fleetPrs = (
       prFullReadFailedAt: state.prFullReadFailedAt,
       at: now(),
     });
-    await prLock.lock.heartbeat(key, 'fleetd', now());
   };
 };
 

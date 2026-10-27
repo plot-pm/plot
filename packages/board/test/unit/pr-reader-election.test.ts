@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readerLockFixture } from '@plot-pm/domain/adapters';
 import type { Detached } from '@plot-pm/domain';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
-import { READER_STALE_MS } from '@plot-pm/domain/rules/reader-election';
+import { HEARTBEAT_STALE_MS, READER_STALE_MS } from '@plot-pm/domain/rules/reader-election';
 
 import { freshCacheEntry, maybeRefreshPrs } from '../../src/server/fleet.js';
 import { rmTree } from '../helpers.mjs';
@@ -269,6 +269,90 @@ describe('a board following a standalone reader with no fleet', () => {
 
       const beats = await readerLock.heartbeats('github');
       expect(beats.ok && beats.value.map((b) => b.name)).toContain(`board.${process.pid}`);
+    } finally {
+      cleanup(dir);
+    }
+  });
+});
+
+describe('a board restarts a reader that exited', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('starts a new reader once the last one exited and HEARTBEAT_STALE_MS passed since it started, and not before', async () => {
+    const dir = fixture();
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const t0 = Date.now();
+      const readerLock = readerLockFixture();
+      let exited: number | null = null;
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const detached: Detached = {
+        node: (script, args) => {
+          calls.push({ script, args });
+          return { pid: 1, exitCode: () => exited };
+        },
+      };
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
+      const entry = freshCacheEntry();
+      const tick = async (): Promise<void> => {
+        entry.prNextAt = 0;
+        entry.prNextIsBackoff = false;
+        await maybeRefreshPrs(opts, entry);
+      };
+
+      await tick();
+      expect(calls).toHaveLength(1);
+
+      // The reader exits at once (first pass, or a backoff that outlived the heartbeats).
+      exited = 0;
+      vi.setSystemTime(t0 + 1_000);
+      await tick();
+      expect(calls).toHaveLength(1);
+
+      vi.setSystemTime(t0 + HEARTBEAT_STALE_MS);
+      await tick();
+      expect(calls).toHaveLength(2);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('heartbeats on a tick whose PR gate is closed, so a long reader backoff does not make it read as gone', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached([]) };
+      const entry = freshCacheEntry();
+      entry.backend = 'github';
+      entry.prNextAt = Date.now() + 10 * 60_000;
+      entry.prNextIsBackoff = true;
+
+      await maybeRefreshPrs(opts, entry);
+
+      const beats = await readerLock.heartbeats('github');
+      expect(beats.ok ? beats.value.map((b) => b.name) : []).toEqual([`board.${process.pid}`]);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('shows a healthy standalone reader as reader <pid>, not as the fleet', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const now = Date.now();
+      await readerLock.elect('github', { generation: 0, pid: process.ppid, startedAt: now - 60_000, at: now });
+      await readerLock.heartbeat('github', `reader.${process.ppid}`, now);
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
+      const entry = freshCacheEntry();
+
+      await maybeRefreshPrs(opts, entry);
+
+      expect(entry.prReader).toBe(`reader ${process.ppid}`);
+      expect(calls).toHaveLength(0);
     } finally {
       cleanup(dir);
     }

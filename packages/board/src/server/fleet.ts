@@ -40,7 +40,8 @@ import {
 import { stuckState, summarizeStuck } from './stuck.js';
 import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
-import { electReader, heartbeatIsFresh, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
+import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
+import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { logDir } from '@plot-pm/fleet/shared/process-log';
@@ -2325,30 +2326,31 @@ const fleetdHeartbeatIsLive = async (lock: ReaderLock, key: string, now: number)
   return held.value.some((h) => h.name === 'fleetd' && heartbeatIsFresh(h.at, now));
 };
 
-/** One repository+connector's reader lock, started readers tracked so a board process starts at most one. */
-const startedReaders = new Set<string>();
+/** The reader this board process last started per repository, index directory and connector, and when. */
+const startedReaders = new Map<string, { child: DetachedProcess; at: number }>();
 
 /**
- * Starts this machine's PR reader for `key`, unless one this board already
- * started is still plausibly running. Mirrors `handleNeedsDesign`'s own spawn
- * shape exactly: the `Detached` port starts the bundle, logging to
+ * Starts this machine's PR reader for `key`, unless the reader this board
+ * process last started for the same key still runs, or started less than
+ * {@link HEARTBEAT_STALE_MS} ago. The bound limits a reader that exits at
+ * once to one start per bound. Mirrors `handleNeedsDesign`'s spawn shape: the
+ * `Detached` port starts the bundle, logging to
  * `<repoRoot>/.plot/logs/pr-reader.log`, truncated at each start.
  *
- * `startedReaders` is an in-memory guard against THIS process spawning twice,
- * not a liveness check — a dead reader this board started once is not
- * reclaimed here; the next `elect` verdict with no live heartbeat starts a new
- * one once this guard is cleared by a process restart. Cheap, because the
- * failure it leaves on a restart is an extra reader, which a lock conflict
- * and the stale heartbeat will reclaim within {@link HEARTBEAT_STALE_MS}.
+ * @param opts - the board's options.
+ * @param key - the reader lock's key.
+ * @param indexDir - the lock directory handed to the reader.
+ * @param now - epoch milliseconds.
  */
-const startReader = (opts: BuildBoardOptions, key: string, indexDir: string): void => {
+const startReader = (opts: BuildBoardOptions, key: string, indexDir: string, now: number): void => {
   const guardKey = `${opts.repoRoot}\0${indexDir}\0${key}`;
-  if (startedReaders.has(guardKey)) return;
-  startedReaders.add(guardKey);
+  const last = startedReaders.get(guardKey);
+  if (last !== undefined && (last.child.exitCode() === null || now - last.at < HEARTBEAT_STALE_MS)) return;
   const log = path.join(logDir(opts.repoRoot), 'pr-reader.log');
   const script = path.join(opts.scriptsDir, PR_READER_BUNDLE);
   fs.mkdirSync(path.dirname(log), { recursive: true });
-  detachedFor(opts).node(script, ['--lock-dir', indexDir, '--connector', key], opts.repoRoot, log);
+  const child = detachedFor(opts).node(script, ['--lock-dir', indexDir, '--connector', key], opts.repoRoot, log);
+  startedReaders.set(guardKey, { child, at: now });
 };
 
 /**
@@ -2490,16 +2492,23 @@ export const refreshPrs = async (
  *     overlay, same as `elect`, but nothing is started: a lock this board
  *     cannot read is a lock a spawned reader could not elect over either.
  *
- * Every verdict writes this board's own heartbeat before any read, whether
- * it follows, starts a reader, or serves its own overlay, so the reader this
- * tick may have started counts this board as a live follower on its first
- * exit check.
+ * Every tick writes this board's own heartbeat, also while the PR gate is
+ * closed, and an open tick writes it before any read, whether it follows,
+ * starts a reader, or serves its own overlay, so the reader this tick may
+ * have started counts this board as a live follower on its first exit check.
  *
  * Issues do not follow the verdict: they come from the issue index while a
  * fleet runs and from the host otherwise.
  */
 export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
-  if (entry.prRunning || !prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) return;
+  if (entry.prRunning) return;
+  if (!prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) {
+    // A CLOSED GATE STILL HEARTBEATS. During a reader backoff longer than
+    // HEARTBEAT_STALE_MS, a board that wrote no heartbeat would read as gone,
+    // and the reader would exit while this board still follows it.
+    if (entry.backend !== null && entry.backend !== '') await readerLockFor(opts).heartbeat(entry.backend, `board.${process.pid}`, Date.now());
+    return;
+  }
   entry.prRunning = true;
   try {
     const lock = readerLockFor(opts);
@@ -2516,7 +2525,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     } else {
       if (verdict === 'elect' && !fleetdLive) {
         const indexDir = await indexDirFor(opts);
-        if (indexDir !== null) startReader(opts, key, indexDir);
+        if (indexDir !== null) startReader(opts, key, indexDir, now);
       }
       // NO READER CONFIRMED LIVE: the board asks the host itself and folds the
       // answer in memory, so the store stays the reader's to write. Inferred

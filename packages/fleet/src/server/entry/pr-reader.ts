@@ -24,9 +24,10 @@ import { logDir, processLog } from '../../shared/process-log.js';
  * `--connector` so `resolveBackend` short-circuits on its own cached-value
  * check rather than asking the host.
  *
- * Exits once no live heartbeat remains under the lock, or once a live
- * `fleetd` heartbeat appears — the exact signal that fleetd itself has
- * resumed reading PRs for this repository.
+ * Heartbeats as `reader.<pid>`. Exits, releasing its claim, once no live
+ * board heartbeat remains under the lock, or once a live `fleetd` heartbeat
+ * appears: fleetd publishes one on every pass, also while this reader holds
+ * the lock, and elects on the pass after this reader releases it.
  */
 
 /** The usage line. */
@@ -114,42 +115,26 @@ export const psLiveness = (pids: readonly number[]): Promise<Map<number, { alive
   });
 
 /**
- * Whether anyone still follows this lock — a live `board.<pid>` heartbeat
- * that is both fresh and names a live process, or a live `fleetd` heartbeat
- * this process did not just write itself.
+ * Whether this reader should keep running: `'fleetd'` where a fresh `fleetd`
+ * heartbeat exists, `'followers'` where a fresh `board.<pid>` heartbeat names
+ * a live process, and `'none'` otherwise.
  *
- * `fleetd` NEVER NEEDS THE PID CHECK: unlike a board's heartbeat, whose name
- * carries the pid this function must verify against `ps`, `fleetd`'s own name
- * carries none — its liveness is the same age-only reading `fleetPrs` itself
- * already treats as sufficient for a follower.
- *
- * `selfAt` IS THE ESCAPE FROM THIS PROCESS'S OWN WRITE. `fleetPrs` — shared
- * with the real fleetd daemon and not owned by this entry point — stamps
- * every successful pass's heartbeat under the literal name `fleetd`,
- * whichever process ran it. Read back with no further signal, this
- * process's own pass would read as "a live fleetd", so this reader could
- * never see `none` and would never exit on its own. `selfAt` names the `at`
- * this process itself last stamped under that name; a `fleetd` heartbeat
- * carrying that exact value is this reader's own echo, not a second process,
- * and is excluded before the followers are counted.
+ * The reader's own heartbeat is published as `reader.<pid>` and is never
+ * counted. A `fleetd` heartbeat needs no pid check: its name carries no pid,
+ * and its age alone says fleetd still runs.
  *
  * @param heartbeats - every heartbeat currently published under the lock.
  * @param now - epoch milliseconds.
  * @param liveness - reads pid liveness in one batch; {@link psLiveness} in production.
- * @param selfAt - the `at` this process itself last wrote under the name
- *   `fleetd`, or `null` where it has made no such write yet.
- * @returns `'fleetd'` where a live fleetd heartbeat exists that this process
- *   did not itself just write, `'followers'` where at least one other live
- *   heartbeat exists, or `'none'`.
+ * @returns the reading.
  */
 export const stillFollowed = async (
   heartbeats: readonly { name: string; at: number }[],
   now: number,
   liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>>,
-  selfAt: number | null = null,
 ): Promise<'fleetd' | 'followers' | 'none'> => {
   const fresh = heartbeats.filter((h) => heartbeatIsFresh(h.at, now));
-  if (fresh.some((h) => h.name === 'fleetd' && h.at !== selfAt)) return 'fleetd';
+  if (fresh.some((h) => h.name === 'fleetd')) return 'fleetd';
   const boardPids = fresh
     .map((h) => /^board\.(\d+)$/.exec(h.name))
     .filter((m): m is RegExpExecArray => m !== null)
@@ -160,9 +145,11 @@ export const stillFollowed = async (
 };
 
 /**
- * Runs the reader: one `fleetPrs` pass per `PR_REFRESH_MS` tick, exiting once
- * {@link stillFollowed} reads `none` or `stop` reads true, and releasing its
- * claim on the reader lock before it returns.
+ * Runs the reader: one `fleetPrs` pass per `PR_REFRESH_MS` tick, heartbeating
+ * as `reader.<pid>`, exiting once {@link stillFollowed} reads `none` or
+ * `fleetd`, or `stopRequested` reads true, and releasing its claim on the
+ * reader lock before it returns. A released claim lets a waiting fleetd elect
+ * on its next pass.
  *
  * @param args - the parsed `--lock-dir`/`--connector` pair.
  * @param repoRoot - the repository root; the reader's own `cwd`.
@@ -171,7 +158,7 @@ export const stillFollowed = async (
  * @param liveness - reads pid liveness in one batch; a test replaces it.
  * @param stopRequested - reads true once a signal asks the reader to stop.
  * @returns the process exit code: always 0 — the reader leaves because no one
- *   follows it, never because it failed.
+ *   follows it or fleetd runs, never because it failed.
  */
 export const run = async (
   args: PrReaderArgs,
@@ -183,22 +170,13 @@ export const run = async (
 ): Promise<number> => {
   const context = { repoRoot, scriptDir };
   const lock = readerLockFile({ home: args.lockDir });
-  const prLock: PrLock = { lock };
+  const prLock: PrLock = { lock, name: `reader.${process.pid}` };
   const state: PrState = freshPrState();
   state.backend = args.connector;
-  // `fleetPrs` stamps every timestamp it uses — including the `fleetd`
-  // heartbeat it writes on a successful pass — from `world.now`. Recording
-  // each value handed out here lets `checkStillFollowed` tell this process's
-  // own just-written heartbeat apart from a genuine external fleetd's.
-  let lastSelfAt: number | null = null;
   const world: PrWorld = {
     scripts: scriptsShell(context),
     host: hostShell(context),
     store: prIndexFile({ cwd: repoRoot }),
-    now: () => {
-      lastSelfAt = Date.now();
-      return lastSelfAt;
-    },
   };
   const readPrs = fleetPrs(world, state, prLock, warn);
 
@@ -208,7 +186,7 @@ export const run = async (
     const now = Date.now();
     const held = await lock.heartbeats(args.connector);
     const read = held.ok ? held.value : [];
-    if ((await stillFollowed(read, now, liveness, lastSelfAt)) === 'none') stop = true;
+    if ((await stillFollowed(read, now, liveness)) !== 'followers') stop = true;
   };
 
   await readPrs();
