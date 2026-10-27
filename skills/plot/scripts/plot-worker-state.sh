@@ -269,65 +269,86 @@ plot_manifest_for_worktree() { # $1=worktree → manifest path, or "" (non-zero)
   printf '%s' "$found"
 }
 
-# Read pid and startedAt from a manifest → "pid\tstartedAt", or "" (non-zero).
+# Read pid, startedAt and pidStartedAt from a manifest →
+# "pid\tstartedAt\tpidStartedAt", or "" (non-zero).
 #
-# Both fields are extracted; if either is missing the result is empty. A manifest
-# with no pid (an older format or a placeholder) returns nothing, which falls
-# through to the worktree's `.plot-worker.pid` for backward compatibility.
-plot_read_manifest_pid() { # $1=manifest path → "pid\tstartedAt", or "" (non-zero)
-  local manifest="$1" pid started
+# `pid` and `startedAt` are required; if either is missing the result is empty.
+# A manifest with no pid (an older format or a placeholder) returns nothing,
+# which falls through to the worktree's `.plot-worker.pid` for backward
+# compatibility. `pidStartedAt` — the pid's OWN recorded start, `ps -o lstart`
+# text stamped beside it at launch — is optional: an older manifest predating
+# that field reads as the empty third column, which `plot_pid_is_current`
+# reads as "none recorded" and falls back to its one-sided check.
+plot_read_manifest_pid() { # $1=manifest path → "pid\tstartedAt\tpidStartedAt", or "" (non-zero)
+  local manifest="$1" pid started pid_started
   [ -f "$manifest" ] || return 1
 
   # Extract fields. The manifest is pretty-printed, one per line.
   pid=$(grep -m1 '"pid":' "$manifest" 2>/dev/null | sed 's/.*"pid": *"\([^"]*\)".*/\1/')
   started=$(grep -m1 '"startedAt":' "$manifest" 2>/dev/null | sed 's/.*"startedAt": *"\([^"]*\)".*/\1/')
+  pid_started=$(grep -m1 '"pidStartedAt":' "$manifest" 2>/dev/null | sed 's/.*"pidStartedAt": *"\([^"]*\)".*/\1/')
 
   [ -n "$pid" ] && [ -n "$started" ] || return 1
-  printf '%s\t%s' "$pid" "$started"
+  printf '%s\t%s\t%s' "$pid" "$started" "$pid_started"
 }
 
-# Validate a pid against the manifest's startedAt → 0 if valid, non-zero if stale.
+# Convert a `ps -o lstart=` string to epoch seconds, trying macOS's two
+# `date -j` formats and then GNU's `-d`. Shared by both readings
+# `plot_pid_is_current` compares — the live process's start and a pid's own
+# recorded start use the same `ps -o lstart` shape.
+_plot_lstart_epoch() { # $1=ps -o lstart= text → epoch seconds, or "" (non-zero)
+  date -j -f "%a %b %d %H:%M:%S %Y" "$1" +%s 2>/dev/null \
+    || date -j -f "%c" "$1" +%s 2>/dev/null \
+    || date -d "$1" +%s 2>/dev/null
+}
+
+# Validate a pid against a recorded start → 0 if valid, non-zero if stale.
 #
-# A pid is stale when the process that holds it started BEFORE the manifest's
-# `startedAt`. The operating system reuses pids, so a recorded pid that now
-# belongs to an older, unrelated process must not read as `running`.
+# A pid is stale when the process that holds it is not the one Plot recorded.
+# The operating system reuses pids, so a recorded pid that now belongs to an
+# unrelated process must not read as `running`.
 #
 # THE CHECK IS ON PROCESS START TIME, not existence. `kill -0` only says the pid
-# exists; this says whether it is the SAME process the dispatcher started.
+# exists; this says whether it is the SAME process Plot started.
+#
+# Two readings, two comparisons:
+#   - $3 (the pid's OWN recorded start, `pidStartedAt`) when given: TWO-SIDED,
+#     within 3 s on either side. This is the per-pid start a writer stamped
+#     beside the pid itself, so an identical start is the expected case, not an
+#     edge one — a live worker's start never drifts from what was recorded for
+#     it, while a reused pid's real start lands outside the window in either
+#     direction (earlier for a process that predates the write, later for one
+#     that started after).
+#   - absent: ONE-SIDED, as before — the live process must have started at or
+#     after the manifest's own `startedAt` ($2), with the same 3 s slack. This
+#     is the fallback for a manifest stamped before `pidStartedAt` existed.
 #
 # Returns non-zero (stale) on any failure — an unparseable time, a process that
 # cannot be inspected, or a platform without `ps -o lstart`. The honest answer
 # for an uncheckable pid is "unknown", which the caller turns into `ended`.
-plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) → 0 if current, 1 if stale
-  local pid="$1" started="$2" proc_start manifest_epoch proc_epoch
-
-  # Convert the manifest's startedAt (ISO-8601) to epoch seconds.
-  # `date -j -f` is macOS; `date -d` is GNU. Try both.
-  if manifest_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null); then
-    :
-  elif manifest_epoch=$(date -d "$started" +%s 2>/dev/null); then
-    :
-  else
-    return 1  # Cannot parse; treat as stale to be safe.
-  fi
+plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) $3=pidStartedAt (ps -o lstart text, optional) → 0 if current, 1 if stale
+  local pid="$1" started="$2" pid_started="${3:-}" proc_start manifest_epoch proc_epoch recorded_epoch slack=3
 
   # Get the process's start time from `ps -o lstart=`. This is portable across
   # macOS and Linux, though the format differs.
   proc_start=$(ps -o lstart= -p "$pid" 2>/dev/null | tr -d '\n')
   [ -n "$proc_start" ] || return 1  # Process does not exist.
+  proc_epoch=$(_plot_lstart_epoch "$proc_start") || return 1  # Cannot parse; treat as stale.
 
-  # Convert the process start time to epoch seconds.
-  # macOS format: "Mon Aug 24 08:31:25 2026"
-  # Linux format: varies; `date -d` handles it.
-  if proc_epoch=$(date -j -f "%a %b %d %H:%M:%S %Y" "$proc_start" +%s 2>/dev/null); then
-    :
-  elif proc_epoch=$(date -j -f "%c" "$proc_start" +%s 2>/dev/null); then
-    :
-  elif proc_epoch=$(date -d "$proc_start" +%s 2>/dev/null); then
-    :
-  else
-    return 1  # Cannot parse; treat as stale.
+  if [ -n "$pid_started" ]; then
+    # TWO-SIDED: the pid's own recorded start, same `ps -o lstart` shape as the
+    # live reading, so the same parse helper handles both.
+    recorded_epoch=$(_plot_lstart_epoch "$pid_started") || return 1  # Cannot parse; treat as stale.
+    local diff=$((proc_epoch - recorded_epoch))
+    [ "$diff" -ge "-$slack" ] && [ "$diff" -le "$slack" ]
+    return
   fi
+
+  # ONE-SIDED fallback: no per-pid start recorded. Convert the manifest's
+  # startedAt (ISO-8601) to epoch seconds. `date -j -f` is macOS; `date -d` is
+  # GNU. Try both.
+  manifest_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null || date -d "$started" +%s 2>/dev/null) \
+    || return 1  # Cannot parse; treat as stale to be safe.
 
   # A process that started BEFORE the manifest's startedAt is a reused pid.
   # A process that started AT or AFTER is the real worker. The slack is 3 s:
@@ -335,7 +356,6 @@ plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) → 0 if current, 1 if 
   # second can tick over in between, and procps on Linux reports a start 0.8 to
   # 1.2 s early (`SKEW_MS` in `test/reconcile/own-process.mjs`). The stamp is
   # UTC, so the macOS parse takes `-u`; without it the stamp read as local time.
-  local slack=3
   [ "$proc_epoch" -ge "$((manifest_epoch - slack))" ]
 }
 
@@ -1194,28 +1214,35 @@ plot_desk_loops() { PLOT_MANIFEST_DIR="${PLOT_MANIFEST_DIR:-}" node "${_plot_wst
 # Prints "state\tpid\tcode" — pid and code empty where they do not apply.
 # Never fails; an unreadable worktree is `none`, which is the honest answer.
 plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
-  local wt="$1" has_pr="${2:-}" pid="" code="" started_at="" manifest_data="" manifest=""
+  local wt="$1" has_pr="${2:-}" pid="" code="" started_at="" pid_started_at="" manifest_data="" manifest=""
 
   # -------------------------------------------------------------------------
   # Read the pid — first from the manifest, then from the worktree file.
   # -------------------------------------------------------------------------
   #
-  # THE MANIFEST IS PRIMARY. It carries both `pid` and `startedAt`, so a pid
-  # read here can be validated against the process's actual start time.
+  # THE MANIFEST IS PRIMARY. It carries `pid`, `startedAt` and the pid's own
+  # `pidStartedAt`, so a pid read here can be validated against the process's
+  # actual start time.
   if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
     if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
       pid=$(printf '%s' "$manifest_data" | cut -f1)
       started_at=$(printf '%s' "$manifest_data" | cut -f2)
+      pid_started_at=$(printf '%s' "$manifest_data" | cut -f3)
     fi
   fi
 
   # FALLBACK to the worktree pid file when the manifest has no usable pid.
-  # `started_at` stays empty; the staleness check is skipped, and the old
-  # behaviour applies — `kill -0` is trusted.
+  # `started_at` stays empty — there is no manifest `startedAt` to fall back
+  # on here — but `pid_started_at` reads the pid file's OWN sidecar
+  # (`.plot-worker.pid.startedAt`, beside it), so this path gets the same
+  # two-sided check the manifest path gets, rather than trusting `kill -0`
+  # alone. A pid file written before that sidecar existed reads it as empty,
+  # which `plot_pid_is_current` already treats as "none recorded".
   if [ -z "$pid" ]; then
     [ -n "$wt" ] && [ -f "$wt/.plot-worker.pid" ] || { printf 'none\t\t'; return; }
     pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
     [ -n "$pid" ] || { printf 'none\t\t'; return; }
+    [ -f "$wt/.plot-worker.pid.startedAt" ] && pid_started_at=$(cat "$wt/.plot-worker.pid.startedAt" 2>/dev/null | tr -d '\n')
   fi
 
   # -------------------------------------------------------------------------
@@ -1238,13 +1265,13 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
   # only if the process holding it started at or after the time the manifest
   # was stamped.
   #
-  # Without `startedAt`, the old behaviour applies: `kill -0` alone decides.
-  # This keeps the fallback honest — an uncheckable pid is reported as running
-  # when it answers `kill -0`, exactly as before.
+  # Without EITHER `startedAt` or `pidStartedAt`, the old behaviour applies:
+  # `kill -0` alone decides. This keeps the fallback honest — an uncheckable
+  # pid is reported as running when it answers `kill -0`, exactly as before.
   if kill -0 "$pid" 2>/dev/null; then
-    if [ -n "$started_at" ]; then
+    if [ -n "$started_at" ] || [ -n "$pid_started_at" ]; then
       # STALENESS CHECK: is the process the one we started?
-      if ! plot_pid_is_current "$pid" "$started_at"; then
+      if ! plot_pid_is_current "$pid" "$started_at" "$pid_started_at"; then
         # The pid exists but belongs to an older process — a REUSE. The worker
         # is dead; treat this as `ended` (no exit file can be trusted either).
         printf 'ended\t%s\t' "$pid"
@@ -1403,7 +1430,7 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
 # because it was told they differ. The PR fact is NOT here: it comes from the
 # caller, exactly as it does for `plot_worker_state`.
 plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\tdirty\tunpushed"
-  local wt="$1" pid="" started_at="" manifest_data="" manifest=""
+  local wt="$1" pid="" started_at="" pid_started_at="" manifest_data="" manifest=""
   local here=1 pid_recorded=0 liveness=dead exit_field='-' blocked=0 dirty=0 ahead=""
 
   # NO WORKTREE IS ANSWERED FIRST, and it is a question about the worktree LIST
@@ -1415,16 +1442,19 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
     return
   fi
 
-  # THE MANIFEST IS PRIMARY, as above: it carries `pid` and `startedAt`
-  # together, and `startedAt` is what tells a reused pid from the real worker.
+  # THE MANIFEST IS PRIMARY, as above: it carries `pid`, `startedAt` and
+  # `pidStartedAt` together, and the pid's own start is what tells a reused
+  # pid from the real worker.
   if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
     if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
       pid=$(printf '%s' "$manifest_data" | cut -f1)
       started_at=$(printf '%s' "$manifest_data" | cut -f2)
+      pid_started_at=$(printf '%s' "$manifest_data" | cut -f3)
     fi
   fi
   if [ -z "$pid" ] && [ -f "$wt/.plot-worker.pid" ]; then
     pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
+    [ -f "$wt/.plot-worker.pid.startedAt" ] && pid_started_at=$(cat "$wt/.plot-worker.pid.startedAt" 2>/dev/null | tr -d '\n')
   fi
 
   # A pid of 0 and any non-numeric junk are NOT pids. `kill -0 0` signals the
@@ -1440,7 +1470,7 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
       # A recorded start time closes the pid-reuse window. Without one the old
       # behaviour applies and `kill -0` alone decides, which keeps an
       # uncheckable pid honest rather than pessimistic.
-      if [ -n "$started_at" ] && ! plot_pid_is_current "$pid" "$started_at"; then
+      if { [ -n "$started_at" ] || [ -n "$pid_started_at" ]; } && ! plot_pid_is_current "$pid" "$started_at" "$pid_started_at"; then
         liveness=stale
       elif [ ! -f "$wt/.plot-worker.wrapper.pid" ]; then
         # NO WRAPPER FILE, NO AGENT QUESTION — the gate `plot_worker_state`
