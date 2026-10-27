@@ -13,8 +13,12 @@ import { firstReapRefusal } from '@plot-pm/domain/rules/reapable';
 import { firstBranchRefusal, firstClaimRefusal, dirtyTreeOwner } from '@plot-pm/domain/rules/sweepable';
 import { realCommits, isEmptyClaim, type CommitReading } from '@plot-pm/domain/rules/empty-claim';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
-import { deskLoopAlive } from '@plot-pm/domain/rules/desk-loop-alive';
-import { pidAliveEverywhere, recordedLoopPids } from '@plot-pm/fleet/shared/desk-loop';
+import {
+  isRecordedProcess,
+  IMPLEMENT_LOCK_SKEW_MS,
+  type LockedProcess,
+  type ProcessSighting,
+} from '@plot-pm/domain/rules/implement-lock';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -302,21 +306,98 @@ const ROOT_MARKER = 'PLOT-BLOCKED.md';
 /** Whether a `desk_dirt` porcelain line (status column, space, path) is the desk-root marker alone. */
 const isRootMarkerLine = (line: string): boolean => line.slice(3) === ROOT_MARKER;
 
+/** One manifest field, read as a raw string; `''` where the manifest holds none. */
+const manifestField = (manifestFile: string, name: string): string => {
+  let text: string;
+  try {
+    text = readFileSync(manifestFile, 'utf8');
+  } catch {
+    return '';
+  }
+  const match = new RegExp(`"${name}"\\s*:\\s*"([^"]*)"`).exec(text);
+  return match ? match[1] : '';
+};
+
+/**
+ * A manifest-recorded pid as a {@link LockedProcess}, or `null` where the pid
+ * itself is absent, empty or non-numeric — nothing to check liveness of.
+ *
+ * The recorded start is the raw `ps -o lstart` text {@link manifestField}
+ * reads for `${pidField}StartedAt`, converted once here the way `Date.parse`
+ * and `plot_pid_is_current` both already do. A start that cannot be read or
+ * parsed reads as `Number.NaN`, which {@link isRecordedProcess} already
+ * treats as unreachable-by-skew rather than as a mismatch — see its sighting
+ * side below, which answers *alive* whenever the sighting's own start is
+ * unreadable. A NaN on the RECORDED side would wrongly refuse every skew
+ * comparison, so it is routed around: {@link deskWorkerPidFromManifest} skips
+ * the skew check entirely when the recorded start did not parse, matching
+ * "absent is not false."
+ */
+const manifestLockedProcess = (manifestFile: string, pidField: string): LockedProcess | null => {
+  const pid = manifestField(manifestFile, pidField);
+  if (!/^[1-9][0-9]*$/.test(pid)) return null;
+  const startedAt = Date.parse(manifestField(manifestFile, `${pidField}StartedAt`));
+  return { pid: Number(pid), startedAt };
+};
+
+/**
+ * Whether a manifest-recorded pid still names the process it was recorded
+ * for, reading the process table through `processes` rather than `kill -0`
+ * directly so a {@link Processes#startedAt} failure reads as unreadable
+ * rather than as not-alive.
+ *
+ * A recorded start that failed to parse (`Number.isNaN`) skips the skew
+ * check and asks only whether the pid is alive — the manifest named no start
+ * to compare against, so there is nothing to tell a reuse apart by, and the
+ * asymmetric cost ({@link isRecordedProcess}'s own doc) still favours *alive*.
+ */
+const manifestPidIsRecorded = async (processes: Processes, recorded: LockedProcess): Promise<boolean> => {
+  const aliveResult = await processes.isAlive(recorded.pid);
+  const alive = aliveResult.ok ? aliveResult.value : null;
+  if (Number.isNaN(recorded.startedAt)) return alive !== false;
+  let startedAt: number | null = null;
+  if (alive === true) {
+    const startedResult = await processes.startedAt(recorded.pid);
+    startedAt = startedResult.ok ? startedResult.value : null;
+  }
+  const sighting: ProcessSighting = { alive, startedAt };
+  return isRecordedProcess(sighting, recorded, IMPLEMENT_LOCK_SKEW_MS);
+};
+
+/**
+ * The first of the manifest's `pid` and `wrapperPid` that still names the
+ * process it was recorded for, or `''`.
+ *
+ * Reads the manifest's recorded starts directly rather than going through
+ * `deskLoopAlive`/`pidAliveEverywhere`: those intentionally read ANY live pid
+ * as the desk's loop, reused or not, because a wrong *not-alive* there starts
+ * a second loop beside a live one (#1294). The reaper's question is the
+ * opposite one — *is this still the worker Plot started* — so it asks
+ * {@link isRecordedProcess} instead, scoped to this one reading.
+ */
+const deskWorkerPidFromManifest = async (processes: Processes, manifestFile: string): Promise<string> => {
+  for (const field of ['pid', 'wrapperPid']) {
+    const recorded = manifestLockedProcess(manifestFile, field);
+    if (recorded === null) continue;
+    if (await manifestPidIsRecorded(processes, recorded)) return String(recorded.pid);
+  }
+  return '';
+};
+
 /**
  * The pid of a live worker or loop at a desk, or `''`.
  *
- * Falls through from {@link processWorkerPid} to `deskLoopAlive` over the
- * manifest's `pid` and `wrapperPid`, so a loop sleeping between two agents
- * keeps its desk. `.plot-worker.pid` is not read here: `plot_worker_state`
- * already reads it, and a live wrapper with no agent under it reads `finished`.
+ * Falls through from {@link processWorkerPid} to the manifest's `pid` and
+ * `wrapperPid`, so a loop sleeping between two agents keeps its desk.
+ * `.plot-worker.pid` is not read here: `plot_worker_state` already reads it,
+ * and a live wrapper with no agent under it reads `finished`.
  */
 const deskWorkerPid = async (processes: Processes, worktree: string, manifestDir: string): Promise<string> => {
   const pid = await processWorkerPid(processes, worktree);
   if (pid !== '') return pid;
   const manifest = manifestFor(manifestDir, worktree);
   if (manifest === null) return '';
-  const loop = deskLoopAlive({ pids: recordedLoopPids(manifest), alive: pidAliveEverywhere });
-  return loop.kind === 'alive' ? loop.pid : '';
+  return deskWorkerPidFromManifest(processes, manifest);
 };
 
 /** Commits beyond `range`, counted as `realCommits` does, or `null` where git could not read the range. */

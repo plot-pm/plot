@@ -36,8 +36,8 @@ function awkProgram(): string {
   // written as the four-byte sequence '"'"'. Undo that escaping to recover the
   // awk source as awk will actually see it.
   const marker =
-    'awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '
-    + '-v wrapper="$$" -v wmon="$wmon" -v amon="$amon" ';
+    'awk -v pid="$agent" -v pidstarted="$agentstarted" -v started="$PLOT_STAMP_STARTED" '
+    + '-v wrapper="$$" -v wrapperstarted="$wrapperstarted" -v wmon="$wmon" -v amon="$amon" ';
   const at = src.indexOf(marker);
   assert.notEqual(at, -1, 'the dispatcher awk invocation moved — update this extractor');
   const after = src.slice(at + marker.length);
@@ -51,9 +51,11 @@ function awkProgram(): string {
   return body.slice(0, end);
 }
 
-/** The process group a stamp records — the wrapper and both monitors. */
+/** The process group a stamp records — the wrapper, both start times, and both monitors. */
 interface Group {
+  pidStartedAt: string;
   wrapperPid: string;
+  wrapperPidStartedAt: string;
   workerMonitorPid: string;
   agentMonitorPid: string;
 }
@@ -70,8 +72,10 @@ function runAwk(text: string, pid: string, started: string, g: Group): string {
       'awk',
       [
         '-v', `pid=${pid}`,
+        '-v', `pidstarted=${g.pidStartedAt}`,
         '-v', `started=${started}`,
         '-v', `wrapper=${g.wrapperPid}`,
+        '-v', `wrapperstarted=${g.wrapperPidStartedAt}`,
         '-v', `wmon=${g.workerMonitorPid}`,
         '-v', `amon=${g.agentMonitorPid}`,
         awkProgram(), f, f,
@@ -102,7 +106,9 @@ function manifest(pid: string, extra: string[] = []): string {
 describe('the awk and stampManifest agree byte for byte', () => {
   const NOW = '2026-08-20T12:00:00Z';
   const GROUP: Group = {
+    pidStartedAt: 'Thu Aug 20 08:59:58 2026',
     wrapperPid: '7358',
+    wrapperPidStartedAt: 'Thu Aug 20 08:59:57 2026',
     workerMonitorPid: '7364',
     agentMonitorPid: '7365',
   };
@@ -137,7 +143,9 @@ describe('the awk and stampManifest agree byte for byte', () => {
   // not gated on the relaunch flag — and this pins that they agree on it.
   it('over an EXISTING group — the old lines replaced, on a first-dispatch shape', () => {
     const input = manifest('', [
+      '  "pidStartedAt": "Wed Aug 19 00:00:00 2026",',
       '  "wrapperPid": "111",',
+      '  "wrapperPidStartedAt": "Wed Aug 19 00:00:00 2026",',
       '  "workerMonitorPid": "222",',
       '  "agentMonitorPid": "333",',
     ]);
@@ -146,11 +154,15 @@ describe('the awk and stampManifest agree byte for byte', () => {
     assert.equal(fromAwk, fromTs);
     assert.ok(!fromTs.includes('"wrapperPid": "111"'), 'the stale group must be gone');
     assert.equal(fromTs.match(/"wrapperPid"/g)?.length, 1, 'exactly one wrapperPid line');
+    assert.equal(fromTs.match(/"pidStartedAt"/g)?.length, 1, 'exactly one pidStartedAt line');
+    assert.equal(fromTs.match(/"wrapperPidStartedAt"/g)?.length, 1, 'exactly one wrapperPidStartedAt line');
   });
 
   it('over an EXISTING group — on a relaunch shape', () => {
     const input = manifest('69993', [
+      '  "pidStartedAt": "Wed Aug 19 00:00:00 2026",',
       '  "wrapperPid": "111",',
+      '  "wrapperPidStartedAt": "Wed Aug 19 00:00:00 2026",',
       '  "workerMonitorPid": "222",',
       '  "agentMonitorPid": "333",',
       '  "previousPid": "91471",',
@@ -207,7 +219,13 @@ describe('the awk and stampManifest agree byte for byte', () => {
   // is not none*. A hand-made worktree has no monitors; the field says so.
   it('with no monitors attached — empty values, not missing lines', () => {
     const input = manifest('');
-    const none: Group = { wrapperPid: '7358', workerMonitorPid: '', agentMonitorPid: '' };
+    const none: Group = {
+      pidStartedAt: 'Thu Aug 20 08:59:58 2026',
+      wrapperPid: '7358',
+      wrapperPidStartedAt: '',
+      workerMonitorPid: '',
+      agentMonitorPid: '',
+    };
     const fromAwk = runAwk(input, '4242', NOW, none);
     const fromTs = stampManifest(input, { pid: '4242', startedAt: NOW, ...none });
     assert.equal(fromAwk, fromTs);

@@ -124,6 +124,28 @@ test('desk_dirt: a real file beside .plot-worker.continue.md still reads dirty',
   assert.doesNotMatch(r.stdout, /plot-worker\.continue\.md/, `the continuation file must not be:\n${r.stdout}`);
 });
 
+test('desk_dirt: a desk holding only .plot-worker.pid.startedAt reads clean, with no ignore rule for it', () => {
+  // The fixture repo ignores nothing, as an adopting repository does not:
+  // the sidecar the dispatch wrapper writes must not read as unlanded work.
+  const dir = repo();
+  writeFileSync(path.join(dir, '.plot-worker.pid.startedAt'), 'Tue Oct 27 17:43:23 2026');
+  assert.match(execFileSync('git', ['-C', dir, 'status', '--porcelain'], { encoding: 'utf8' }),
+    /\?\? \.plot-worker\.pid\.startedAt/, 'precondition: git reports the sidecar as untracked');
+  const r = call('desk_dirt', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '', `the start-time sidecar alone is not unlanded work:\n${r.stdout}`);
+});
+
+test('desk_dirt: a real file beside .plot-worker.pid.startedAt still reads dirty', () => {
+  const dir = repo();
+  writeFileSync(path.join(dir, '.plot-worker.pid.startedAt'), 'Tue Oct 27 17:43:23 2026');
+  writeFileSync(path.join(dir, 'my-source.ts'), 'real work\n');
+  const r = call('desk_dirt', dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /my-source\.ts/, `the source change must still be named:\n${r.stdout}`);
+  assert.doesNotMatch(r.stdout, /plot-worker\.pid\.startedAt/, `the sidecar must not be:\n${r.stdout}`);
+});
+
 test('exclude_bundle_paths: an empty bundle set excludes nothing', () => {
   const dir = scratch(); // no build.mjs at all
   execFileSync('git', ['-C', dir, 'init', '-q', '-b', 'main']);

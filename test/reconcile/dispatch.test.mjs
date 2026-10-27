@@ -3038,9 +3038,15 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   // counter rather than a share of `relaunches`, so a person's manual restarts
   // cannot exhaust an automatic budget.
   assert.deepEqual(Object.keys(m).sort(),
-    ['agentMonitorPid', 'attempts', 'branch', 'command', 'pid',
-      'resumeId', 'session', 'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid'],
+    ['agentMonitorPid', 'attempts', 'branch', 'command', 'pid', 'pidStartedAt',
+      'resumeId', 'session', 'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid', 'wrapperPidStartedAt'],
     'launch-time facts plus every process the dispatcher started: no model, no context it could only guess');
+  // The wrapper records its own process start beside its pid, which the reaper
+  // compares against the live start to tell it from a reused pid (#2697). The
+  // agent here exits at once, so its start may be gone before `ps` reads it;
+  // the next test reads the agent's start from an agent that stays.
+  assert.ok(!Number.isNaN(Date.parse(m.wrapperPidStartedAt)),
+    `wrapperPidStartedAt is a readable start time: '${m.wrapperPidStartedAt}'`);
 });
 
 test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', () => {
@@ -3098,6 +3104,11 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   assert.equal(pidFile, agentPid, '.plot-worker.pid names the agent (sanity)');
   assert.equal(m.pid, agentPid,
     `the manifest pid must name the agent (${agentPid}), got ${m.pid}`);
+  // The agent's own process start is recorded beside its pid, in the manifest
+  // and in the pid file's sidecar, with the same text (#2697).
+  assert.ok(!Number.isNaN(Date.parse(m.pidStartedAt)), `pidStartedAt is a readable start time: '${m.pidStartedAt}'`);
+  assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.pid.startedAt'), 'utf8'), m.pidStartedAt,
+    '.plot-worker.pid.startedAt records the same start as the manifest');
 
   signalRecorded(sentinel, 'SIGTERM');
   endDesk(wt);

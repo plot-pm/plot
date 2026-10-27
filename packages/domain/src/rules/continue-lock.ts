@@ -1,4 +1,4 @@
-import type { LockedProcess, ProcessSighting } from './implement-lock.js';
+import { isRecordedProcess, type LockedProcess, type ProcessSighting } from './implement-lock.js';
 
 /**
  * The record a continue lock holds: the holder's pid and when it started, and
@@ -28,12 +28,6 @@ export interface ContinueHolderReadings {
  */
 export const CONTINUE_LOCK_SKEW_MS = 3000;
 
-/** Whether a sighting names the recorded process: alive, and started at the recorded moment. */
-const isRecorded = (sighting: ProcessSighting, recorded: LockedProcess): boolean =>
-  sighting.alive === null ||
-  (sighting.alive &&
-    (sighting.startedAt === null || Math.abs(sighting.startedAt - recorded.startedAt) < CONTINUE_LOCK_SKEW_MS));
-
 /**
  * Whether a continue lock still holds its desk.
  *
@@ -56,7 +50,7 @@ export const continueLockHeld = (
   boundMs: number,
 ): boolean => {
   if (now - holder.at >= boundMs) return false;
-  return isRecorded(readings.holder, holder);
+  return isRecordedProcess(readings.holder, holder, CONTINUE_LOCK_SKEW_MS);
 };
 
 /**

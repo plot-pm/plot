@@ -425,6 +425,26 @@ export interface DeskContinuationInput {
   spawn?: typeof spawn;
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * A process start time in the text `ps -o lstart=` prints in the C locale,
+ * local time: `Tue Oct 27 17:43:23 2026`. The dispatcher's awk writer stores
+ * that text for `pidStartedAt` and `wrapperPidStartedAt`, so both writers
+ * store one format, and `Date.parse` and `plot_pid_is_current` read either.
+ *
+ * @param startedAt - epoch milliseconds, or `null` where the start could not be read.
+ * @returns the text, or `''` for `null`.
+ */
+const lstartText = (startedAt: number | null): string => {
+  if (startedAt === null) return '';
+  const d = new Date(startedAt);
+  return `${WEEKDAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${pad2(d.getDate())} `
+    + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())} ${d.getFullYear()}`;
+};
+
 /**
  * The monitor pids a manifest records; `[]` when it cannot be read.
  *
@@ -1150,8 +1170,14 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     let warning: string | undefined;
     if (pid > 0) {
       let pidRecorded = true;
+      // `pidStartedAt` is read once, here, through the process probe, and
+      // written both to the `.plot-worker.pid` sidecar and to the manifest
+      // stamp below, in the `ps -o lstart` text the dispatcher's awk writer
+      // stores, so a reader finds one shape whichever path started the worker.
+      const pidStartedAt = lstartText((input.probe ?? processProbeSystem()).startedAt(pid));
       try {
         fs.writeFileSync(path.join(worktree, '.plot-worker.pid'), String(pid), 'utf8');
+        fs.writeFileSync(path.join(worktree, '.plot-worker.pid.startedAt'), pidStartedAt, 'utf8');
       } catch (err) {
         // The worker IS running; only the record of it failed. Say so rather than
         // reporting a failure that would invite a second spawn into the same
@@ -1183,10 +1209,22 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       // No wrapper and no WorkerMonitor exist for a continued run, so those two
       // are recorded `''`; omitting them would leave the previous dispatch's
       // pids on the row. The stamp re-emits the whole group on every write.
+      //
+      // `pidStartedAt` was already read above, right after the spawn, and is
+      // reused here rather than read a second time — the fact the reaper's
+      // identity check needs to tell this run's pid apart from a later,
+      // unrelated process reusing it (`isRecordedProcess`). Raw text, not
+      // epoch milliseconds: the dispatcher's awk writer has no `date`
+      // conversion to spend, so both writers store what `ps` printed and
+      // every reader converts once, itself. `wrapperPidStartedAt` stays `''`
+      // beside the empty `wrapperPid`: there is no wrapper to have a start
+      // time.
       const stamped = writeManifestStamp(manifestPath, {
         pid: String(pid),
         startedAt: new Date().toISOString(),
+        pidStartedAt,
         wrapperPid: '',
+        wrapperPidStartedAt: '',
         workerMonitorPid: '',
         agentMonitorPid: started.agentMonitorPid,
       });
