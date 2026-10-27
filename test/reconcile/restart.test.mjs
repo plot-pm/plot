@@ -142,6 +142,9 @@ function run(repo, args, { gh = null, expectFail = false } = {}) {
   // two of the leaked manifests named `plot-restart-*` desks written from here.
   // The env must not decide it.
   delete env.PLOT_REPO_ROOT;
+  // An unattended caller is refused by the restart controller, so a worker's
+  // own PLOT_UNATTENDED must not reach the dispatcher under test.
+  delete env.PLOT_UNATTENDED;
   // WHAT COUNTS AS THE AGENT, IN THIS TEST'S WORLD. The liveness reading asks
   // whether a process named `$PLOT_AGENT_PROCESS` runs under the recorded pid,
   // and the name is the project's — Plot hardcodes no tooling. `spawnLive`
@@ -469,12 +472,11 @@ test('plot-fleet-scan.sh --next still offers only open branches', () => {
     'the claimable[] condition must still require st = open');
 });
 
-test('--restart refuses a branch with no worktree, naming the branch', () => {
+test('--restart refuses a branch no plan or worktree holds, naming the refusal', () => {
   const { repo } = makeRepo();
   const res = run(repo, ['--restart', 'feature/never-dispatched'],
     { gh: ghShim(), expectFail: true });
-  assert.match(res.stdout, /feature\/never-dispatched/);
-  assert.match(res.stdout, /worktree/i);
+  assert.match(res.stdout, /unknown-branch/);
 });
 
 // ---------------------------------------------------------------------------
@@ -485,8 +487,6 @@ test('--restart with no Worker command starts nothing and names the value to set
   const { repo } = makeRepo({ workerCommand: '' });
   const wt = claimedWorktree(repo);
   const res = run(repo, ['--restart', 'feature/stopped'], { gh: ghShim(), expectFail: true });
-  assert.match(res.stdout, /no 'Worker command' is configured, so nothing started/, res.stdout);
-  assert.match(res.stdout, /set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop\.sh', which \/plot-dispatch offers to write/,
-    res.stdout);
+  assert.match(res.stdout, /no-worker-command: no `Worker command` in Plot Config/, res.stdout);
   assert.equal(fs.existsSync(path.join(wt, '.plot-worker.pid')), false, 'no worker was launched');
 });

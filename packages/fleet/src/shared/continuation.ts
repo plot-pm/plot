@@ -35,6 +35,36 @@ import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-wr
  */
 
 /** Where the repository and its scripts directory are, for {@link continueOnDesk}. */
+/** What the charter of a named agent declares it may touch. */
+type CapabilityReading =
+  | { kind: 'none' }
+  | { kind: 'declared'; list: string }
+  | { kind: 'unreadable'; detail: string };
+
+/**
+ * Asks `plot-prompt.mjs --capabilities` what an agent's charter declares.
+ *
+ * @param opts - the repository and its scripts directory.
+ * @param agent - the agent name `PLOT_AGENT` carries; empty names none.
+ * @returns `none` for no agent, no bundle, no charter or no capabilities; `unreadable` for exit 3.
+ */
+const resolveCapabilities = (opts: ContinuationOptions, agent: string): CapabilityReading => {
+  if (agent === '') return { kind: 'none' };
+  const bundle = path.join(opts.scriptsDir, 'board', 'plot-prompt.mjs');
+  if (!fs.existsSync(bundle)) return { kind: 'none' };
+  try {
+    const list = execFileSync('node', [bundle, '--capabilities', opts.repoRoot, agent], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    return list === '' ? { kind: 'none' } : { kind: 'declared', list };
+  } catch (err) {
+    const failure = err as { status?: number; stderr?: string };
+    if (failure.status === 3) return { kind: 'unreadable', detail: (failure.stderr ?? '').trim() };
+    return { kind: 'none' };
+  }
+};
+
 export interface ContinuationOptions {
   repoRoot: string;
   scriptsDir: string;
@@ -1059,6 +1089,17 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // freshly written manifest behind for a loop that is not about to start —
     // the manifest is the one piece of state a reader treats as "a worker is
     // registered here," so it is the last thing created, not the first.
+    // THE CHARTER'S CAPABILITIES TRAVEL TO THE WORKER, resolved by the bundle
+    // that reads the charter. Exit 3 is a charter that exists and cannot be
+    // read, and a launch on it would run under a scope nobody asked for. Nothing
+    // is exported where nothing was declared, so a prompt file's
+    // `[ -n "$PLOT_CAPABILITIES" ]` probe keeps its meaning.
+    const capabilities = resolveCapabilities(opts, process.env.PLOT_AGENT ?? '');
+    if (capabilities.kind === 'unreadable') {
+      fs.closeSync(out);
+      return failed(`refusing to start: the charter for agent '${process.env.PLOT_AGENT}' cannot be read: ${capabilities.detail}`);
+    }
+
     let manifestPath: string;
     if (target.manifest === 'stamp') {
       manifestPath = target.path;
@@ -1077,7 +1118,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       });
       if (written === null) {
         fs.closeSync(out);
-        return failed(`cannot write a manifest naming ${worktree}; a start now would run unregistered`);
+        return failed(`cannot write a manifest naming ${worktree} into ${resolveManifestDir(opts.repoRoot, opts)}; a start now would run unregistered`);
       }
       manifestPath = written;
     }
@@ -1195,6 +1236,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
             // Refused above unless `continueTarget` found one to stamp or wrote a
             // new one, so `manifestPath` is never empty here.
             PLOT_MANIFEST_FILE: manifestPath,
+            PLOT_CAPABILITIES: capabilities.kind === 'declared' ? capabilities.list : undefined,
             [CONTINUATION_ENV]: promptPath,
           },
         },

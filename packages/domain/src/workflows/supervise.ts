@@ -282,7 +282,7 @@ const stopNotice = (supervision: Supervision): string => {
   const head =
     supervision.cause === 'agent-blocked'
       ? `PLOT-BLOCKED: the agent on \`${supervision.branch}\` declared itself blocked and stopped. It reported that it cannot proceed, so a correction is not an answer — read its declaration and decide what it needs.`
-      : `PLOT-BLOCKED: the supervisor gave up on \`${supervision.branch}\` after ${supervision.nextAttempts} attempts. Decide whether to restart it with \`plot-dispatch.sh --restart\`, finish it by hand, or defer the branch in the plan.`;
+      : `PLOT-BLOCKED: the supervisor gave up on \`${supervision.branch}\` after ${supervision.nextAttempts} attempts. Decide whether to restart it with \`plot-restart-command.mjs <branch>\`, finish it by hand, or defer the branch in the plan.`;
 
   const body = [head, '', writtenBy(supervision.branch, supervision.session)];
   if (supervision.failures.length === 0) return `${body.join('\n')}\n`;
