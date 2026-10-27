@@ -105,7 +105,7 @@ Slice 2 (a domain unit test for the classification rule, the pass test, and the 
 
 ### Rejection hold
 
-- `bug/auto-deliver-holds-a-rejected-plan` — `runAutoDeliverPass` reads each candidate's plan file through `PlanStore` and a domain rule holds a plan at phase `approved` with any `Rejected:` line, as a skip with no mark and no failure record; an unreadable file holds; one exclusion-comment line in `deliverable.corpus.test.ts`; tests: both reject layouts with #2400's same-day timings, a later real merge, a later `Started:`, no `Rejected:` delivers, five held passes leave no failure record.
+- `bug/auto-deliver-holds-a-rejected-plan` — `runAutoDeliverPass` reads each candidate's plan file through `PlanStore` and a domain rule holds a plan at phase `approved` with any `Rejected:` line, as a skip with no mark and no failure record; an unreadable file holds; one exclusion-comment line in `deliverable.corpus.test.ts`; tests: both reject layouts with #2400's same-day timings, a later real merge, a later `Started:`, no `Rejected:` delivers, five held passes leave no failure record. → #2775
 
 ### Claim-only slice
 
