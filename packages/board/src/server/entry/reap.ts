@@ -674,6 +674,8 @@ export const runWorktreeKind = async (
   manifestDir: string,
   wtRoot: string,
   write: Printer,
+  planDir = '',
+  activeDir = '',
 ): Promise<ReapCounters> => {
   const counters: ReapCounters = { reap: 0, kept: 0, removed: 0, vanished: 0, unplaced: 0, cleared: 0 };
   write('verdict  branch                                               why\n');
@@ -736,11 +738,31 @@ export const runWorktreeKind = async (
     const markerFile = marker ? path.join(tree.path, ROOT_MARKER) : '';
     const dirty = dirtyPaths.value.find((p) => !isRootMarkerLine(p)) ?? '';
 
+    // A branch a plan gave up never merges. Its work counts as kept when the
+    // branch's own remote ref holds it, so the marker is measured against that
+    // ref and the merge gate is lifted. Read only for a named branch, and only
+    // where plans were supplied.
+    const givenUp =
+      short !== '' && planDir !== '' && (await branchGivenUpByPlans(ctx, planDir, activeDir, short));
+    let openPr = false;
+    if (givenUp) {
+      const lookup = await ctx.host.prState(short);
+      if (!lookup.ok) {
+        write(row('keep', label, unaskable));
+        counters.kept += 1;
+        continue;
+      }
+      openPr = lookup.value !== null && lookup.value.state === 'OPEN';
+    }
+
     let markerRecordsWork = false;
     if (marker) {
       // A `Refs` scoped to THIS worktree, so `HEAD` is the desk's own.
       const treeRefs = refsGit({ repoRoot: tree.path, scriptDir: ctx.scriptDir });
-      const fileChanging = await fileChangingCommitCount(treeRefs, `origin/${defaultBranch}..HEAD`);
+      const fileChanging = await fileChangingCommitCount(
+        treeRefs,
+        givenUp ? `origin/${short}..HEAD` : `origin/${defaultBranch}..HEAD`,
+      );
       if (fileChanging === null) {
         write(row('keep', label, unaskable));
         counters.kept += 1;
@@ -755,7 +777,9 @@ export const runWorktreeKind = async (
     // reads as not contained and goes to the host.
     let merge: 'merged' | 'not-merged' = 'not-merged';
     let why = '';
-    if (short !== '') {
+    if (givenUp) {
+      why = `given up, head on origin/${short}`;
+    } else if (short !== '') {
       const contained = await ctx.refs.contains(short, `origin/${defaultBranch}`);
       if (contained.ok && contained.value === 'yes') {
         merge = 'merged';
@@ -791,6 +815,8 @@ export const runWorktreeKind = async (
       markerRecordsWork,
       merge,
       unpushed,
+      givenUp,
+      openPr,
     });
 
     if (problem !== null) {
@@ -813,6 +839,9 @@ export const runWorktreeKind = async (
           break;
         case 'no-merged-pr':
           reason = 'unlanded work — no merged PR';
+          break;
+        case 'open-pr':
+          reason = 'open PR — not given up yet';
           break;
         default:
           reason = 'rule could not be asked — keeping';
@@ -859,6 +888,17 @@ export const runWorktreeKind = async (
       continue;
     }
 
+    // The local branch goes only when a fetch made in this run still shows
+    // nothing unpushed. The remote ref is never touched.
+    let branchDeletable = false;
+    if (givenUp) {
+      const fetched = await ctx.trees.fetch(tree.path, short);
+      if (fetched.ok) {
+        const left = await ctx.trees.unpushedCommits(tree.path, []);
+        branchDeletable = left.ok && left.value.length === 0;
+      }
+    }
+
     const removedOk = await ctx.trees.removeOnly(tree.path);
     if (!removedOk.ok) {
       write(row('FAILED', label, 'git worktree remove refused'));
@@ -867,6 +907,10 @@ export const runWorktreeKind = async (
     }
 
     let finalWhy = why;
+    if (givenUp) {
+      const deleted = branchDeletable ? await ctx.trees.deleteBranch(short) : null;
+      finalWhy = `${finalWhy}, local branch ${deleted !== null && deleted.ok ? 'deleted' : 'kept'}`;
+    }
     const m = manifestFor(manifestDir, wtReal);
     if (m !== null) {
       try {
@@ -1025,18 +1069,18 @@ interface ClaimCounters {
 }
 
 /**
- * How the plans classified a claim: `abandoned` (a plan deferred or moved the
- * branch and no Active-index plan still schedules it) or `unresolved`.
+ * Whether the plans gave a branch up: a plan deferred or moved it and no
+ * Active-index plan still schedules it.
  *
  * Reads every plan under the plan directory, so a delivered or released plan
  * counts. A plan that cannot be listed, read or parsed is no evidence either way.
  */
-const claimDisposition = async (
+const branchGivenUpByPlans = async (
   ctx: Context,
   planDir: string,
   activeDir: string,
   branch: string,
-): Promise<'abandoned' | 'unresolved'> => {
+): Promise<boolean> => {
   const list = (dir: string): string[] => {
     try {
       return readdirSync(dir).filter((n) => n.endsWith('.md'));
@@ -1060,13 +1104,22 @@ const claimDisposition = async (
     }
   }
   const read = await ctx.plans.readPlans(files);
-  if (!read.ok) return 'unresolved';
+  if (!read.ok) return false;
   const plans = read.value.map((record) => ({
     active: activeNames.has(path.basename(record.file)),
     slices: record.slices,
   }));
-  return branchGivenUp(branch, plans) ? 'abandoned' : 'unresolved';
+  return branchGivenUp(branch, plans);
 };
+
+/** How the plans classified a claim: `abandoned` (given up) or `unresolved`. */
+const claimDisposition = async (
+  ctx: Context,
+  planDir: string,
+  activeDir: string,
+  branch: string,
+): Promise<'abandoned' | 'unresolved'> =>
+  (await branchGivenUpByPlans(ctx, planDir, activeDir, branch)) ? 'abandoned' : 'unresolved';
 
 const runClaimKind = async (
   ctx: Context,
@@ -1212,7 +1265,7 @@ const runReap = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const planDirRaw = planDirCfg.ok && planDirCfg.value.trim() !== '' ? planDirCfg.value.trim() : 'docs/plans/';
   const planDir = path.isAbsolute(planDirRaw) ? planDirRaw : path.join(ctx.repoRoot, planDirRaw);
 
-  const wt = await runWorktreeKind(ctx, args, defaultBranch, manifestDir, wtRoot, write);
+  const wt = await runWorktreeKind(ctx, args, defaultBranch, manifestDir, wtRoot, write, planDir, activeDir);
   const br = await runBranchKind(ctx, args, defaultBranch, write);
   const cl = await runClaimKind(ctx, args, defaultBranch, planDir, activeDir, write);
   const dirtyTrees = await runDirtyKind(ctx, manifestDir, write);
