@@ -61,6 +61,7 @@ node_modules/
 # and a `git add -A` in a worker's worktree carries someone's console log into
 # the repo. Caught once, before it landed.
 .plot-worker.pid
+.plot-worker.pid.startedAt
 .plot-worker.wrapper.pid
 .plot-worker.exit
 .plot-worker.log

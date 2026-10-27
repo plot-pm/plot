@@ -41,6 +41,13 @@
 #                             `PLOT-CORRECTION.md` above, whole line and
 #                             untracked form only, so `docs/.plot-worker.continue.md`
 #                             still counts.
+#   ?? .plot-worker.pid.startedAt
+#                             the dispatch wrapper and `continueOnDesk` write
+#                             the agent's own start time beside
+#                             `.plot-worker.pid` in every desk, and an adopting
+#                             repository's `.gitignore` does not name it.
+#                             Matched the same way, whole line and untracked
+#                             form only.
 #   each generated bundle     `main` rebuilds and pushes every one of them
 #                             (`bug/main-builds-its-bundles`, #1249), so a desk
 #                             that locally rebuilt one to test holds nothing an
@@ -107,7 +114,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
 desk_dirt() {
   git -C "$1" status --porcelain 2>/dev/null \
     | grep -v 'tiny-garden/\.plot/state' \
-    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md') \
+    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt') \
     | exclude_bundle_paths "$1" \
     || true
 }

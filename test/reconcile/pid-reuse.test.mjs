@@ -206,7 +206,7 @@ const realPs = execFileSync('bash', ['-c', 'command -v ps'], { encoding: 'utf8' 
  * manifest's pid fields. `unreadableStart` puts a `ps` on `PATH` that fails
  * every `lstart` question and answers every other one.
  */
-const reapFixture = (manifest, { unreadableStart = false } = {}) => {
+const reapFixture = (manifest, { unreadableStart = false, ignoreWorkerFiles = true, deskFiles = {} } = {}) => {
   const tmp = tmpDir('plot-pidreuse-reap-');
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -216,7 +216,7 @@ const reapFixture = (manifest, { unreadableStart = false } = {}) => {
   git(repo, 'config', 'user.name', 'Plot Test');
   git(repo, 'config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '# Repo\n\n## Plot Config\n\n- **Agent registry:** `registry`\n');
-  fs.writeFileSync(path.join(repo, '.gitignore'), '.plot-worker*\nregistry/\n');
+  fs.writeFileSync(path.join(repo, '.gitignore'), `${ignoreWorkerFiles ? '.plot-worker*\n' : ''}registry/\n`);
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'init');
   git(repo, 'push', '-q', 'origin', 'main');
@@ -229,6 +229,7 @@ const reapFixture = (manifest, { unreadableStart = false } = {}) => {
   git(wt, 'commit', '-qm', `work on ${branch}`);
   git(wt, 'push', '-q', '-u', 'origin', branch);
   const head = git(wt, 'rev-parse', 'HEAD').trim();
+  for (const [name, text] of Object.entries(deskFiles)) fs.writeFileSync(path.join(wt, name), text);
 
   const registry = path.join(repo, 'registry');
   fs.mkdirSync(registry);
@@ -331,4 +332,16 @@ test('reaper keeps: a live pid whose start cannot be read', () => withChild((chi
     pidStartedAt: lstartShifted(child.pid, -3600),
   }, { unreadableStart: true });
   assert.match(line, new RegExp(`^keep.*worker alive \\(pid ${child.pid}\\)`), line);
+}));
+
+test('reaper: a desk holding only the start-time sidecar reads clean, with no ignore rule for it', () => withChild((child) => {
+  // An adopting repository's `.gitignore` names no `.plot-worker*` file, so
+  // the fixture ignores none. The worker is gone; the sidecar it left is the
+  // desk's only untracked file and is not work.
+  const line = reapFixture({ pid: String(DEAD), startedAt: isoShifted(child.pid, 0), pidStartedAt: '' }, {
+    ignoreWorkerFiles: false,
+    deskFiles: { '.plot-worker.pid.startedAt': lstartOf(child.pid) },
+  });
+  assert.doesNotMatch(line, /uncommitted/, `the sidecar alone is not uncommitted work:\n${line}`);
+  assert.match(line, /^would/, `and the merged desk is reapable:\n${line}`);
 }));
