@@ -238,6 +238,17 @@ describe('reverseDelivery', () => {
     expect(out?.match(/Rejected:/g)).toHaveLength(1);
   });
 
+  it('adds no second Rejected: line where one sits outside the Status section', () => {
+    const out = reverseDelivery(
+      `# P\n\n## Status\n\n- **State:** Delivered\n\n## Notes\n\n- **Rejected:** kept\n`,
+      'Approved',
+      'new',
+    );
+    expect(out).toContain('- **State:** Approved');
+    expect(out).toContain('- **Rejected:** kept');
+    expect(out?.match(/Rejected:/g)).toHaveLength(1);
+  });
+
   it('flips the first status: and phase: front-matter keys and keeps the quotes', () => {
     const out = reverseDelivery(
       plan('- **State:** Delivered\n', '---\nstatus: "Delivered"\nphase: Delivered\n---\n'),
