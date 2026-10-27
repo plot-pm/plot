@@ -92,6 +92,101 @@ printf '%s' '{}'
 }
 
 /**
+ * A `bb` that answers `pr-list --state merged --branch <b>...` the way
+ * `plot-host.sh` drives Bitbucket once `--branch` is passed: one
+ * `bb_branch_query` request per named branch (`q=...source.branch.name="<b>"`),
+ * rather than the blind `pullrequests?state=MERGED&pagelen=50` listing.
+ *
+ * `olderMerges` maps a branch name to the PR number it merged as; any other
+ * named branch answers "no PR". A fixed 50-row blind-listing response is also
+ * served, naming only OTHER branches — so a naive implementation that still
+ * asks the blind listing instead of naming branches resolves nothing for any
+ * branch in `olderMerges`, reproducing the bug this slice fixes.
+ *
+ * Bitbucket's real envelope is `{"values": [...]}`, matching
+ * `bitbucket-cut-merged-list.test.mjs`'s fixture — every `bb api` call site in
+ * `plot-host.sh` pipes its output through `jq -c '.values // []'`.
+ */
+function stubBb({ olderMerges = {} } = {}) {
+  const dir = tmp('bbstub');
+  const log = path.join(dir, 'calls.log');
+  const envelope = (rows) => JSON.stringify({ values: rows });
+  const blindPage = envelope(
+    Array.from({ length: 50 }, (_, i) => ({
+      id: 1 + i,
+      state: 'MERGED',
+      source: { branch: { name: `feature/newer-${i}` } },
+    })),
+  );
+  // `bb_branch_query` url-encodes the `q=` value: letters, digits, `.`, `~`,
+  // `_` and `-` survive unencoded; `/` does NOT (it becomes `%2F`), so a
+  // `feature/x` branch's own slash is gone from the path and only the part
+  // after the last `/` is still a literal substring — the same reason
+  // `bitbucket-cut-merged-list.test.mjs` matches on `old-merge`, not
+  // `feature/old-merge`.
+  //
+  // `links.html.href` is required: `plot-jenkins-pr-checks.mjs`'s Bitbucket
+  // row fold reads `e.links.html.href` unconditionally (`p()`, state
+  // sub-command) and throws `TypeError` on an absent `links`, which
+  // `plot-host.sh` does not catch — the row this stub serves must carry a
+  // real Bitbucket PR's full shape, not only the fields a listing needs.
+  const prRow = (branch, number) => ({
+    id: number,
+    state: 'MERGED',
+    source: { branch: { name: branch } },
+    destination: { branch: { name: 'main' } },
+    links: { html: { href: `https://bitbucket.org/ws/repo/pull-requests/${number}` } },
+  });
+  const branchArms = Object.entries(olderMerges).map(([branch, number]) => {
+    const row = envelope([prRow(branch, number)]);
+    const suffix = branch.split('/').pop();
+    return `  *"source.branch.name="*"${suffix}"*)\n    echo '${row}'\n    ;;`;
+  }).join('\n');
+  // `pr-state` on a bare PR NUMBER is the second call `plot-impl-status.sh`
+  // makes once a branch resolves: it never calls `bb api` for this, it calls
+  // `bb pr view <n> --json` directly (`plot-host.sh:4119`), and the row it
+  // needs is the SAME shape as a `pullrequests` listing item — not wrapped in
+  // `{"values": [...]}`.
+  const viewArms = Object.entries(olderMerges).map(([branch, number]) =>
+    `  ${number})\n    echo '${JSON.stringify(prRow(branch, number))}'\n    ;;`).join('\n');
+  fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  case "$3" in
+${viewArms}
+    *)
+      echo "stub: no such PR $3" >&2
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+if [ "$1" != "api" ]; then echo "stub: only bb api/pr view is served" >&2; exit 9; fi
+path="$2"
+case "$path" in
+${branchArms}
+  *"source.branch.name="*)
+    echo '${envelope([])}'
+    ;;
+  *"state="*)
+    echo '${blindPage}'
+    ;;
+  *)
+    echo '${envelope([])}'
+    ;;
+esac
+`);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+  return {
+    dir,
+    calls: () => (fs.existsSync(log)
+      ? fs.readFileSync(log, 'utf8').split('\n').filter((l) => l !== '')
+      : []),
+  };
+}
+
+/**
  * A store directory holding one connector's file, written verbatim.
  *
  * `v` DEFAULTS TO THE CURRENT `PR_INDEX_VERSION` and must be bumped with it:
@@ -151,11 +246,11 @@ function repoWithPlan(sectionBody) {
   return repo;
 }
 
-function statusOf(repo, { stub, storeHome, cwd = repo } = {}) {
+function statusOf(repo, { stub, storeHome, cwd = repo, host = 'github' } = {}) {
   const env = {
     ...process.env,
     PATH: `${stub.dir}:${process.env.PATH}`,
-    PLOT_HOST: 'github',
+    PLOT_HOST: host,
     // ALWAYS SET, even to a directory with no store: an unset value would let
     // the adapter resolve the operator's real `.git/.plot/state/index/`.
     PLOT_PR_INDEX_HOME: storeHome ?? tmp('empty'),
@@ -203,6 +298,45 @@ test('an un-annotated branch resolves from the store by head, with no host call'
 
   assert.deepEqual(stub.calls(), [], 'a head the store knows must not cost a pr-list');
   assert.equal(byBranch(j)['feature/unannotated'].number, 901);
+});
+
+// THE BUG THIS SLICE FIXES: on Bitbucket, the merged-PR LISTING pages at 50
+// rows — before wave 1 that was the hard ceiling; after it, the listing pages
+// fully but step 4's OLD code still asked it blind and matched heads locally.
+// A branch merged outside the newest 50 rows read as "no PR" either way,
+// because the blind listing this stub serves never includes it. The fix
+// passes the unresolved branch by `--branch`, which routes Bitbucket to
+// `bb_branch_sweep` — one request per named branch — rather than the listing.
+test('bitbucket: an un-annotated branch merged outside the listing page resolves by name, in one pr-list call', () => {
+  const repo = repoWithPlan([
+    '## Slices', '', '### Only (Branch: feature/old-merge)', '', 'No PR written down.',
+  ].join('\n'));
+  const stub = stubBb({ olderMerges: { 'feature/old-merge': 4242 } });
+  const j = statusOf(repo, { stub, host: 'bitbucket' });
+
+  const calls = stub.calls();
+  assert.ok(
+    calls.some((c) => c.includes('source.branch.name=') && c.includes('old-merge')),
+    'the branch must be asked by name — a naive implementation asking only the blind listing finds nothing',
+  );
+  assert.equal(
+    calls.filter((c) => c.includes('api')).length, 1,
+    'exactly one pr-list op is made (bb_branch_sweep runs inside it)',
+  );
+  assert.equal(byBranch(j)['feature/old-merge'].number, 4242, 'the by-name query must resolve the merge the blind page cuts off');
+});
+
+// A branch with no merged PR must stay unresolved — the resolver must never
+// fabricate a match just because the host was asked by name.
+test('bitbucket: a branch with no merged PR stays unresolved', () => {
+  const repo = repoWithPlan([
+    '## Slices', '', '### Only (Branch: feature/never-merged)', '', 'No PR written down.',
+  ].join('\n'));
+  const stub = stubBb({ olderMerges: {} });
+  const j = statusOf(repo, { stub, host: 'bitbucket' });
+
+  assert.equal(byBranch(j)['feature/never-merged'], undefined, 'absence must stay absence, never a fabricated merge');
+  assert.deepEqual(j.prs, []);
 });
 
 // TRUSTING A NON-TERMINAL ROW IS THE DEFECT. An OPEN row can be stale in either

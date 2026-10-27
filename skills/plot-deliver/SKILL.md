@@ -135,9 +135,9 @@ Run the helper:
 `→ owner/repo#N`) resolves by that number, and a line WITHOUT one falls back to
 matching the branch NAME against the heads of merged PRs — the same derivation
 `plot-reconcile-scan.sh` uses in section 2, so the verification works on a plan
-whose worker never annotated. All host access stays inside `plot-host.sh`
-(a single bundled `pr-list --state merged` for the whole plan, then a per-PR
-`pr-state`); nothing here calls `gh`/`bb` directly.
+whose worker never annotated. All host access stays inside `plot-host.sh` (one
+`pr-list --state merged` call naming every unresolved branch by `--branch`,
+then a per-PR `pr-state`); nothing here calls `gh`/`bb` directly.
 
 **The helper reads PRs only.** A slice line that names commits (`→ commit abc1234`) has no PR, so the helper omits it from `prs`, and a plan made of such slices prints `{"prs": []}` — that is not a failure. Check those slices with `../plot/scripts/plot-deliver.sh --dry-run <slug>`: it fetches the default branch, asks git whether each named commit is reachable from `origin/<default>`, and refuses naming every slice whose commit is not.
 
