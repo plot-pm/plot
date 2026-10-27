@@ -56,10 +56,12 @@ import {
   type PhaseMap,
   approverOf,
   sprintGoal,
+  type Detached,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
+import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import { people } from './server-info.js';
 import {
   buildShell,
@@ -72,7 +74,9 @@ import {
   treesGit,
   defaultBranchFile,
   gateContractFile,
+  readerLockFile,
 } from '@plot-pm/domain/adapters';
+import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
@@ -195,6 +199,24 @@ export interface BuildBoardOptions {
    * disk and "now" would always read as the same hash.
    */
   startBundle?: { path: string; hash: string | null };
+  /**
+   * The PR reader election lock. Absent means this repository's
+   * `.plot/state/index/` directory, through `readerLockFile`.
+   *
+   * A port for the same reason as {@link spendRecord}: a board handed a
+   * fixture lock elects nothing real, starts no process, and a test can
+   * drive `elect`/`follow`/`unknown` without a second board instance.
+   */
+  readerLock?: ReaderLock;
+  /**
+   * Starts the machine's PR reader. Absent means a real detached `node`
+   * process, the same seam `handleNeedsDesign` uses for its own bundle.
+   *
+   * A board test exercising the PR refresh path injects a recording fake
+   * here rather than ever starting a real reader — two board instances in
+   * one test process must never race a real `Detached.node` call.
+   */
+  detached?: Detached;
 }
 
 /** The board's bundle in a checkout of this repository, relative to its root — the path a build with no {@link BuildBoardOptions.startBundle} reads. */
@@ -335,6 +357,26 @@ export const spawnContractReadingFor = async (
     gatePath,
   };
 };
+
+/**
+ * The PR reader election lock for these options — the caller's, or this
+ * repository's `.plot/state/index/` directory.
+ *
+ * Built per call for the same reason as {@link refsFor}: the adapter is a
+ * value, not a singleton, and a board handed a fixture lock elects nothing
+ * real.
+ */
+export const readerLockFor = (opts: BuildBoardOptions): ReaderLock => opts.readerLock ?? readerLockFile({ cwd: opts.repoRoot });
+
+/**
+ * What starts the machine's PR reader for these options — the caller's, or a
+ * real detached `node` process.
+ *
+ * Built per call for the same reason as {@link refsFor}. The same seam
+ * `handleNeedsDesign` already uses for its own bundle, repointed here so a
+ * board test never starts a real reader process.
+ */
+export const detachedFor = (opts: BuildBoardOptions): Detached => opts.detached ?? detachedNode();
 
 /**
  * The script runner for these options — the ONE way this package invokes a
