@@ -92,7 +92,7 @@ Each slice adds a test that fails on `4a1b8a5fa` and the opposite arms that must
 
 ### Pid reuse
 
-- `bug/the-reaper-reads-a-reused-pid-as-a-live-worker` — the reaper compares a start time recorded per pid at launch, and the shell's one-sided start-time check becomes two-sided against it (#2697)
+- `bug/the-reaper-reads-a-reused-pid-as-a-live-worker` — the reaper compares a start time recorded per pid at launch, and the shell's one-sided start-time check becomes two-sided against it (#2697) → #2785
 
 ### Claim branch
 
