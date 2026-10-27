@@ -126,10 +126,16 @@ export const sprintVerb = (state: string): string => {
  * @param kind - the file's kind.
  * @param slug - the file's slug from {@link slugOf}.
  * @param to - the state the commit stages.
+ * @param from - the state in `HEAD`; Delivered → Approved names `/plot-reject`.
  * @returns the line an operator runs; for a plan state no command writes, the
  *   lifecycle and a pointer to report the gap.
  */
-export const owningCommand = (kind: LifecycleKind, slug: string, to: string): string => {
+export const owningCommand = (
+  kind: LifecycleKind,
+  slug: string,
+  to: string,
+  from = '',
+): string => {
   if (kind === 'sprint') {
     return `/plot-sprint ${slug} ${sprintVerb(to)}  (or: bash skills/plot/scripts/plot-sprint-state.sh ${slug} ${to})`;
   }
@@ -137,6 +143,9 @@ export const owningCommand = (kind: LifecycleKind, slug: string, to: string): st
     case 'design':
       return `needs-design ${slug}  (or: node skills/plot/scripts/board/plot-needs-design.mjs ${slug} --who <handle>)`;
     case 'approved':
+      if (from.toLowerCase() === 'delivered') {
+        return `/plot-reject ${slug}  (or: bash skills/plot/scripts/plot-undeliver.sh ${slug} --why <reason>)`;
+      }
       return `/plot-approve ${slug}  (or: bash skills/plot/scripts/plot-approve.sh ${slug})`;
     case 'delivered':
       return `/plot-deliver ${slug}  (or: bash skills/plot/scripts/plot-deliver.sh ${slug})`;
@@ -487,7 +496,7 @@ export const stateTransitionRefusal = (uncleared: readonly StateTransition[]): s
         ? `No command removes a '${name}:' line: a removal is a transition to none, and the line has one writer.`
         : spike
           ? `The command that owns this write: node skills/plot/scripts/board/plot-approve.mjs --spike ${slugOf(kind, path)} --who <handle>`
-          : `The command that owns this write: ${owningCommand(kind, slugOf(kind, path), after)}`;
+          : `The command that owns this write: ${owningCommand(kind, slugOf(kind, path), after, before)}`;
     lines.push(
       '',
       `  ${path}`,

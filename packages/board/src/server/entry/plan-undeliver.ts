@@ -1,6 +1,7 @@
 import {
   isRefusal,
   undeliver,
+  type BranchReading,
   type TransitionPlan,
   type TransitionResult,
 } from '@plot-pm/domain/transitions/plan';
@@ -12,7 +13,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The `node` entry point `plot-undeliver.sh` runs, once per reversal.
  *
  * ```
- * printf '2026-09-09\tthe corpus slice was never built\n<the plan file>' \
+ * printf '2026-09-09\tthe corpus slice was never built\tmy-plan\t1\nfeature/a\tabsent\tmerged\tno\n<the plan file>' \
  *   | node plot-plan-undeliver.mjs
  * approved	2026-09-09, the corpus slice was never built
  * ```
@@ -36,26 +37,23 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * person acts on. The rule that fired goes out beside it, so the shell can
  * branch without matching prose.
  *
- * **`refs` IS A READING THE SHELL TAKES.** A delivered plan's merged refs are
- * deleted by `plot-release-refs.sh`, and resolving one needs a git remote the
- * domain cannot reach. The caller measures it and sends it; this passes it
- * through untouched.
+ * **THE BRANCH READINGS ARE THE SHELL'S, AND THE RULE IS THE DOMAIN'S.** A
+ * delivered plan's merged refs are deleted when their PR merges, and resolving
+ * a ref or asking the host needs a remote the domain cannot reach. The caller
+ * sends one line per non-deferred branch — `branch`, `ref`, `merged`,
+ * `closedUnmerged`, tab-separated — and `undeliver` decides from them.
  */
 
-/** What the caller sends: the date, the reason, the swept refs, and the plan. */
+/** What the caller sends: the date, the reason, the slug, the readings, and the plan. */
 interface Request {
   /** The date to record, ISO-8601. */
   on: string;
   /** Why the delivery is being reversed. */
   why: string;
-  /**
-   * The branches whose refs are already gone, comma-separated, or `''`.
-   *
-   * `''` means the caller looked and found none — NOT that it did not look. A
-   * caller that cannot measure refs sends the field empty and gets a decision,
-   * which is the same answer it would have had before this reading existed.
-   */
-  sweptRefs: string;
+  /** The plan's slug, named in every refusal. */
+  slug: string;
+  /** One reading per non-deferred branch; empty where the plan names none. */
+  branches: BranchReading[];
   /** The whole plan file. */
   content: string;
 }
@@ -87,30 +85,28 @@ const stateFrom = (content: string): string => {
 };
 
 /**
- * Parse the caller's three lines and the plan behind them.
+ * Parse the caller's header, branch readings and the plan behind them.
  *
- * @param text - stdin: `<on>\t<why>\t<sweptRefs>\n<the plan file>`.
+ * @param text - stdin: `<on>\t<why>\t<slug>\t<n>\n`, then `n` lines of
+ *   `<branch>\t<ref>\t<merged>\t<closedUnmerged>`, then the plan file.
  * @returns the request.
- * @throws where stdin carries no newline, so no plan could follow the header.
+ * @throws where the header is missing, `n` is not a count, or fewer than `n`
+ *   reading lines follow it.
  */
 export const requestFrom = (text: string): Request => {
-  const cut = text.indexOf('\n');
-  if (cut < 0) throw new Error('expected a header line, a newline, then the plan file');
-  const [on = '', why = '', sweptRefs = ''] = text.slice(0, cut).split('\t');
-  return { on, why, sweptRefs, content: text.slice(cut + 1) };
+  const lines = text.split('\n');
+  if (lines.length < 2) throw new Error('expected a header line, a newline, then the plan file');
+  const [on = '', why = '', slug = '', count = '0'] = lines[0].split('\t');
+  const n = Number(count);
+  if (!Number.isInteger(n) || n < 0 || lines.length < n + 1) {
+    throw new Error(`expected ${count} branch reading lines after the header`);
+  }
+  const branches = lines.slice(1, n + 1).map((line) => {
+    const [branch = '', ref = '', merged = '', closedUnmerged = ''] = line.split('\t');
+    return { branch, ref, merged, closedUnmerged } as BranchReading;
+  });
+  return { on, why, slug, branches, content: lines.slice(n + 1).join('\n') };
 };
-
-/**
- * The slug a plan file names, or `''`.
- *
- * Read from `Slug:` where the file states one, and otherwise left empty: the
- * slug only reaches the refusal sentences, and inventing one from a filename
- * this bundle never sees would put a guess in the text a person acts on.
- *
- * @param content - the whole plan file.
- * @returns the slug, or `''`.
- */
-const slugFrom = (content: string): string => field(content, 'Slug');
 
 /**
  * Decide the reversal, or throw the refusal.
@@ -121,7 +117,7 @@ const slugFrom = (content: string): string => field(content, 'Slug');
  */
 export const answer = (request: Request): string => {
   const plan: TransitionPlan = {
-    slug: slugFrom(request.content),
+    slug: request.slug,
     phase: stateFrom(request.content) as TransitionPlan['phase'],
     review: 'pr',
     approvedRecord: field(request.content, 'Approved'),
@@ -129,14 +125,10 @@ export const answer = (request: Request): string => {
     releasedRecord: field(request.content, 'Released'),
     rejectedRecord: field(request.content, 'Rejected'),
   };
-  const swept = request.sweptRefs.trim();
   const result: TransitionResult = undeliver(plan, {
     on: request.on,
     why: request.why,
-    // SENT ONLY WHERE THE CALLER MEASURED SOMETHING. An empty field is a
-    // caller that looked and found none, and a `met: true` reading says so
-    // without the rule having to tell the two apart.
-    preconditions: swept === '' ? [] : [{ name: 'refs', met: false, detail: swept }],
+    branches: request.branches,
   });
   if (isRefusal(result)) {
     const err = new Error(result.detail) as Error & { reason: string };

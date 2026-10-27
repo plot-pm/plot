@@ -73,20 +73,37 @@ if [ "$count" -gt 1 ]; then
 fi
 file="$matches"
 
-# MEASURE THE SWEPT REFS. A branch the plan names whose remote ref is gone has
-# nowhere to put the remaining work, and the domain cannot ask a remote.
-swept=""
-branches=$(grep -oE '\(Branch: [^,)]+' "$file" 2>/dev/null | sed 's/(Branch: //' | sort -u || true)
-for b in $branches; do
-  if ! git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
-    swept="${swept:+$swept, }$b"
+# READ EACH BRANCH, DECIDE NOTHING. One line per non-deferred branch: the ref
+# (`ls-remote` exit 0 present, 2 absent, anything else unknown -- an unreachable
+# origin exits 128 and is not "deleted"), and, only where the ref is gone, what
+# the host says: a merge (`mergedAt`, never ancestry) and a closed unmerged PR.
+# shellcheck source=plot-pr-merged.sh
+. "$script_dir/plot-pr-merged.sh"
+# shellcheck source=plot-state-receipt.sh
+. "$script_dir/plot-state-receipt.sh"
+readings=""
+n=0
+for b in $(bash "$script_dir/plot-plan-meta.sh" "$file" | jq -r '.waves[].branches[] | select(.deferred | not) | .branch' | sort -u); do
+  git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1 && ref=present || { rc=$?; [ "$rc" = 2 ] && ref=absent || ref=unknown; }
+  merged=-; closed=-
+  if [ "$ref" = absent ]; then
+    case "$(_plot_merged_lookup "$b")" in found) merged=merged ;; none) merged=not-merged ;; *) merged=unknown ;; esac
+    closed=unknown
+    if out=$(bash "$script_dir/plot-host.sh" pr-list --state closed --branch "$b" --limit 100 2>&1) && [[ "$out" != *'possibly truncated'* ]]; then
+      cnt=$(printf '%s' "$out" | jq -s --arg b "$b" '[.. | objects | select(.head == $b and ((.mergedAt // "") == ""))] | length' 2>/dev/null) || cnt=x
+      case "$cnt" in 0) closed=no ;; x) ;; *) closed=yes ;; esac
+    fi
   fi
+  readings="$readings$b	$ref	$merged	$closed
+"
+  n=$((n + 1))
 done
 
-# ASK THE DOMAIN. The header is one line and the file follows it whole, so a
-# plan carrying tabs or its own `## Status` block travels unescaped.
+# ASK THE DOMAIN. The header is one line, the readings follow it, and the file
+# follows them whole, so a plan carrying tabs or its own `## Status` block
+# travels unescaped.
 set +e
-answer=$(printf '%s\t%s\t%s\n' "$on" "$why" "$swept" | cat - "$file" | node "$bundle" 2>&1)
+answer=$({ printf '%s\t%s\t%s\t%s\n%s' "$on" "$why" "$slug" "$n" "$readings"; cat "$file"; } | node "$bundle" 2>&1)
 rc=$?
 set -e
 
@@ -158,5 +175,10 @@ if ! grep -qiE '^[ \t]*[-*][ \t]*\*\*Rejected:' "$tmp"; then
 fi
 
 mv "$tmp" "$file"
+record_state_receipt "$file" "$decided_state"
+# The index follows the state: the delivered entry becomes an active one.
+mkdir -p "$plan_dir/active"
+ln -sfn "../$(basename "$file")" "$plan_dir/active/$slug.md"
+rm -f "$plan_dir/delivered/$slug.md"
 echo "plot-undeliver: $slug → $decided_state ($decided_record)"
 echo "  the file is written; the commit is yours."

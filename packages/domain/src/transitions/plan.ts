@@ -105,6 +105,7 @@ export type RefusalReason =
   | 'reason-missing'
   | 'successor-missing'
   | 'refs-swept'
+  | 'refs-unknown'
   | 'slice-unnamed'
   | 'spike-none'
   | 'spike-not-first'
@@ -677,6 +678,42 @@ export const deliver = (plan: TransitionPlan, input: DeliverInput): TransitionRe
   };
 };
 
+/** Whether a branch's remote ref exists, as `git ls-remote` answered. */
+export type RefReading = 'present' | 'absent' | 'unknown';
+
+/** Whether the host recorded a merge for a branch; `unknown` when it did not answer. */
+export type MergeReading = 'merged' | 'not-merged' | 'unknown';
+
+/** Whether the host lists a PR on the branch that closed unmerged. */
+export type ClosedPrReading = 'yes' | 'no' | 'unknown';
+
+/** What a caller measured about one non-deferred branch of a delivered plan. */
+export interface BranchReading {
+  branch: string;
+  ref: RefReading;
+  merged: MergeReading;
+  closedUnmerged: ClosedPrReading;
+}
+
+/**
+ * Whether a branch's work is lost, kept, or not known to be either.
+ *
+ * Only a branch whose ref is gone needs the host's answers: `merged` means the
+ * work landed, and `not-merged` with no closed PR means the branch was never
+ * pushed, so nothing was lost.
+ *
+ * @param reading - what the caller measured for the branch.
+ * @returns `lost` for an absent ref, no merge and a closed unmerged PR;
+ *   `unknown` where the origin or the host did not answer; otherwise `kept`.
+ */
+const branchFate = (reading: BranchReading): 'lost' | 'unknown' | 'kept' => {
+  if (reading.ref === 'unknown') return 'unknown';
+  if (reading.ref === 'present' || reading.merged === 'merged') return 'kept';
+  if (reading.merged === 'unknown') return 'unknown';
+  if (reading.closedUnmerged === 'unknown') return 'unknown';
+  return reading.closedUnmerged === 'yes' ? 'lost' : 'kept';
+};
+
 /** What `undeliver` needs beyond the plan. */
 export interface UndeliverInput {
   /** The date to record, ISO-8601. */
@@ -689,7 +726,12 @@ export interface UndeliverInput {
    * the only thing that tells a reader which one to believe.
    */
   why: string;
-  /** Readings an adapter measured, such as whether the branches' refs survive. */
+  /**
+   * One reading per non-deferred branch of the plan. Absent or empty where the
+   * plan names no branch.
+   */
+  branches?: readonly BranchReading[];
+  /** Further readings an adapter measured. */
   preconditions?: readonly Precondition[];
 }
 
@@ -728,14 +770,14 @@ export const undeliverable = (plan: TransitionPlan): boolean =>
  * is tagged and published. Returning it to Approved would claim the release did
  * not happen, which no edit to a phase field can make true.
  *
- * **WHETHER THE BRANCHES' REFS SURVIVE IS A READING.** A delivered plan's merged
- * refs are deleted by `plot-release-refs.sh`, and a plan returned to Approved
- * whose refs are gone has nowhere to put the remaining work — the reversal would
- * produce a live plan naming branches that no longer exist. Resolving a ref needs
- * a git remote the domain cannot reach, so the caller supplies it as a
- * precondition named `refs`, and this refuses on it by its own name rather than
- * through the generic `precondition-unmet` — a reader repairing swept refs acts
- * differently from one repairing an unmet reading they have never seen.
+ * **`refs-swept` MEANS LOST WORK AND NOTHING ELSE.** A ref that is gone is not
+ * evidence of loss: the repository deletes a branch when its PR merges. The
+ * caller supplies one {@link BranchReading} per non-deferred branch, and a
+ * branch is lost only where its ref is absent, the host records no merge, and
+ * the host lists a PR that closed unmerged. A merged branch, a never-pushed
+ * branch and a present branch pass. Where the origin or the host did not
+ * answer, the refusal is `refs-unknown`, whose text does not claim that a ref
+ * was deleted.
  *
  * `approved` is not refused: it is the idempotent case, where a phase flipped
  * without its record is still repairable.
@@ -744,8 +786,8 @@ export const undeliverable = (plan: TransitionPlan): boolean =>
  * @param input - the date and reason to record, plus any readings.
  * @returns a decision carrying `approved` and its `Rejected:` record, or a
  *   refusal naming the gate that fired: `state-terminal`, `state-too-early`,
- *   `state-wrong`, `state-unreadable`, `reason-missing`, `refs-swept` or
- *   `precondition-unmet`.
+ *   `state-wrong`, `state-unreadable`, `reason-missing`, `refs-swept`,
+ *   `refs-unknown` or `precondition-unmet`.
  */
 export const undeliver = (plan: TransitionPlan, input: UndeliverInput): TransitionResult => {
   switch (plan.phase) {
@@ -791,18 +833,21 @@ export const undeliver = (plan: TransitionPlan, input: UndeliverInput): Transiti
     );
   }
 
-  // NAMED RATHER THAN GENERIC, and asked before the other readings. A caller
-  // whose refs were swept has one repair — restore them, or write a new plan —
-  // and a refusal spelling `precondition-unmet` sends it looking for which
-  // reading it forgot to supply.
-  const swept = (input.preconditions ?? []).find((p) => p.name === 'refs' && !p.met);
-  if (swept) {
+  const readings = input.branches ?? [];
+  const lost = readings.filter((r) => branchFate(r) === 'lost').map((r) => r.branch);
+  if (lost.length > 0) {
     return refuse(
       plan.slug,
       'refs-swept',
-      swept.detail
-        ? `plan '${plan.slug}' has branches whose refs are already deleted: ${swept.detail}. Returning it to Approved would name work that no longer exists anywhere.`
-        : `plan '${plan.slug}' has branches whose refs are already deleted — returning it to Approved would name work that no longer exists anywhere.`,
+      `plan '${plan.slug}' has branches whose work is lost: ${lost.join(', ')} — no remote ref, no merged PR, and a PR that closed unmerged. Returning it to Approved would name work that no longer exists anywhere. Write a new plan for it.`,
+    );
+  }
+  const unknown = readings.filter((r) => branchFate(r) === 'unknown').map((r) => r.branch);
+  if (unknown.length > 0) {
+    return refuse(
+      plan.slug,
+      'refs-unknown',
+      `plan '${plan.slug}' has branches whose state could not be read: ${unknown.join(', ')} — the origin or the host did not answer. Retry when both answer.`,
     );
   }
 
