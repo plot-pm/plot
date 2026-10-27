@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2759 merged
+- **Started:** 2026-10-27, Jan Wloka, `feature/the-controller-gate-reads-a-grep`
 
 ## Changelog
 
