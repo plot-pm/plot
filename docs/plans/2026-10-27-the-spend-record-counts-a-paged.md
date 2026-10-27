@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #2717
@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2761 merged
 - **Started:** 2026-10-27, Jan Wloka, `feature/the-spend-record-counts-a-paged`
+- **Delivered:** 2026-10-27
 
 ## Changelog
 
