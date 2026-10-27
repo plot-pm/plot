@@ -206,7 +206,7 @@ From `CLAUDE.md`:
 
 ### Board reader
 
-- `feature/boards-share-one-pr-reader` — `plot-pr-reader.mjs` and its shipping lines; the board writes heartbeats, follows the lock for PRs only, starts the reader through a `Detached` seam when no holder and no fleetd live, reads `prError` and the backoff from the reader state file, and shows who reads PRs; the reader exits when no board heartbeat lives or a `fleetd` heartbeat lives; a test proves board tests start no reader; acceptance: with no fleet and two boards for one repository, one `plot-pr-reader.mjs` process runs, `.plot/logs/pr-reader.log` shows one elected pass per minute, the reader survives the exit of the board that started it, it exits within 2 minutes after the last board, and `budget.tsv`'s `github graphql` rate with two boards matches the rate with one board; updates the stale comments and the `CLAUDE.md` section
+- `feature/boards-share-one-pr-reader` — `plot-pr-reader.mjs` and its shipping lines; the board writes heartbeats, follows the lock for PRs only, starts the reader through a `Detached` seam when no holder and no fleetd live, reads `prError` and the backoff from the reader state file, and shows who reads PRs; the reader exits when no board heartbeat lives or a `fleetd` heartbeat lives; a test proves board tests start no reader; acceptance: with no fleet and two boards for one repository, one `plot-pr-reader.mjs` process runs, `.plot/logs/pr-reader.log` shows one elected pass per minute, the reader survives the exit of the board that started it, it exits within 2 minutes after the last board, and `budget.tsv`'s `github graphql` rate with two boards matches the rate with one board; updates the stale comments and the `CLAUDE.md` section → #2752
 
 ## Notes
 
