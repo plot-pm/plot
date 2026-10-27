@@ -29,10 +29,12 @@ import { compareField, describingAs, type Disagreement } from './compare.js';
  * in an otherwise-identical envelope, which must prove the page complete on
  * its own, for any version — including one the table never measured.
  *
- * With a limit, the shell walks `next` (`_bb_paged_walk`'s row-limit mode), and
+ * With a limit, the shell walks `next` (`_bb_paged_walk`'s row-limit mode) and
+ * asks `walkStep` after every page through `board/plot-listing-walk.mjs`, and
  * the stub serves the same page at every path. So the rule reads the case
- * through `walkToLimit`, which models the walk's stop: the shell's row count is
- * the whole walk's, not one page's. `'unknown'` is an envelope with no `page`
+ * through `walkToLimit`, which runs `walkStep` over the pages: the shell's row
+ * count is the whole walk's, not one page's, and a walk the shell stops
+ * anywhere else disagrees here. `'unknown'` is an envelope with no `page`
  * key and no `next`: the walk reads one page, and only the version table's
  * page length can call it complete.
  */

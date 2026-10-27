@@ -1141,58 +1141,46 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # CLEAN STOP EXITS 0. `bb_state_listing` asks for exactly the rows its caller
 # requested; stopping there is not a failure to read everything, it is
 # answering the question asked — the same distinction `pr_list_report_truncation`
-# draws for GitHub's own `--limit`. The walk stops at the first of: a page with
-# no `next`, `$4` rows held, a page that added no rows, or ceil(`$4` /
-# `BB_LIST_PAGELEN`) pages read. That page bound is the plan's cost model
-# (`2026-10-23-read-merged-prs-from-the-merge`, Approach 1): Bitbucket fills
-# every page but the last, so ceil(limit / 50) pages reach the limit, and a
-# host that pages shorter stops there and reports itself rather than costing
-# one request per row. An empty page that still names a `next` stops the walk
-# instead of looping on it. A page can overshoot the limit, so the array is
-# trimmed to `$4` rows before it is printed, and `BB_LIST_NEXT_FILE` (if set)
-# is written the stopping page's own `next` reading — "1" present, "0" absent,
-# "" no envelope — or "1" whenever the trim dropped a row, so
+# draws for GitHub's own `--limit`. THE STOP RULE LIVES IN THE DOMAIN:
+# `walkStep` in `packages/domain/src/rules/listing-page.ts`, asked after every
+# page through `board/plot-listing-walk.mjs` with the pages read so far. It
+# stops at the first of: a page with no `next`, `$4` rows held, a page that
+# added no rows, or ceil(`$4` / `BB_LIST_PAGELEN`) pages read — the plan's cost
+# model (`2026-10-23-read-merged-prs-from-the-merge`, Approach 1). The bundle
+# prints the rows trimmed to `$4` and writes `BB_LIST_NEXT_FILE` (if set) the
+# stopping page's own `next` reading — "1" present, "0" absent, "" no
+# envelope — or "1" whenever the trim dropped a row, so
 # `pr_list_report_truncation` says "possibly truncated" for every stop that
-# left a row unread. `corpus/listing-page.corpus.test.ts` holds this stop rule
-# against `walkToLimit` in `adapters/host/listing-paging.ts`. A REQUEST FAILURE
-# IS STILL A REQUEST FAILURE: the limit changes how a CLEAN stop is reported,
-# never how a broken one is.
+# left a row unread. COST: one `node` start (~40 ms) per page, at most
+# ceil(limit / 50) per state listing, beside a host request per page.
+# A REQUEST FAILURE IS STILL A REQUEST FAILURE: the limit changes how a CLEAN
+# stop is reported, never how a broken one is.
 _bb_paged_walk() {
-  # A ROW-LIMIT WALK'S PAGE BOUND `_bound` IS ceil(limit / pagelen); with no
-  # limit it is empty and the page cap below applies instead.
-  local _path="$1" _label="$2" _detail="$3" _limit="$4" _out _spool _next _page=0 _got=0 _prev \
-    _bound="${4:+$(( ($4 + BB_LIST_PAGELEN - 1) / BB_LIST_PAGELEN ))}"; shift 4
+  local _path="$1" _label="$2" _detail="$3" _limit="$4" _out _spool _next _page=0; shift 4
   # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
   # `rm` on an early return; the walk only ever runs a handful of times per
   # process, so the file outliving one call costs nothing a caller can see.
+  # The spool holds each page's whole response, one per line.
   plot_tmpfile _spool host-paged-walk || return 3; while [ -n "$_path" ]; do
-    [ "$((++_page))" -le "${_bound:-$BB_BRANCH_QUERY_PAGE_CAP}" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
+    # A ROW-LIMIT WALK'S PAGE CAP IS `$4`, which `walkStep`'s page bound
+    # ceil(`$4` / pagelen) always reaches first; with no limit it is
+    # `BB_BRANCH_QUERY_PAGE_CAP`.
+    [ "$((++_page))" -le "${_limit:-$BB_BRANCH_QUERY_PAGE_CAP}" ] || { echo "plot-host: $_label possibly truncated ($(jq -s 'map(.values // []) | add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
     # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
     # would turn the host's exit code into jq's, and a parse error and a spent
     # quota are not the same fact. A failure on page 2+ returns the same raw
     # code the first page would have — see the header above.
     _out="$(bb "$@" api "$_path")" || return $?
-    printf '%s\n' "$_out" | jq -c '.values // []' >> "$_spool" && _next="$(jq -r '.next // empty' <<<"$_out")" || return 3
-    # A ROW-LIMIT WALK STOPS EARLY on `$4` rows held, a page that added no
-    # rows, or its page bound; a page with no `next` ends the loop below. All
-    # four stops leave the stopping page in `_out` for the reading after it.
-    if [ -n "$_limit" ]; then
-      _prev="$_got"
-      _got="$(jq -c -s 'add // [] | length' < "$_spool")" || return 3
-      [ "$_got" -ge "$_limit" ] 2>/dev/null || [ "$_got" -eq "$_prev" ] || [ "$_page" -ge "$_bound" ] && break
-    fi
+    jq -c . <<<"$_out" >> "$_spool" && _next="$(jq -r '.next // empty' <<<"$_out")" || return 3
+    # A ROW-LIMIT WALK ASKS THE DOMAIN after every page. The bundle exits 0 to
+    # read the next page, 10 once it has printed the walk's answer and written
+    # the stopping `next` reading, and 3 where the pages did not parse; 10
+    # returns 0 here and every other code returns as it is.
+    [ -z "$_limit" ] || node "$here/board/plot-listing-walk.mjs" "$_limit" "$BB_LIST_PAGELEN" "${BB_LIST_NEXT_FILE:-}" < "$_spool" || return "$(($? == 10 ? 0 : $?))"
     if [ -z "$_next" ]; then _path=""; elif [[ "$_next" == "$BB_API_BASE"/* ]]; then _path="${_next#"$BB_API_BASE"}"
     else echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3; fi
   done
-  # THE SAME THREE-WAY ENVELOPE READ `bb_state_listing` USED FOR ITS ONE
-  # DIRECT CALL, not a bare `next`-emptiness test: an envelope missing
-  # `values`/`page` altogether (the shape a stub with no `next` support at
-  # all emits, or a narrower real response) proves nothing either way, and
-  # `[ -z "$_next" ]` could not tell that apart from "absent" — it answered
-  # "0" (complete) for a page this function has no licence to call whole.
-  # A trim that drops a row reads "1" whatever the envelope says.
-  [ -n "$_limit" ] && [ -n "${BB_LIST_NEXT_FILE:-}" ] && jq -r --argjson cut "$((_got > _limit))" 'if $cut == 1 then "1" elif (type=="object") and has("values") and has("page") then (if has("next") then "1" else "0" end) else "" end' <<<"$_out" > "$BB_LIST_NEXT_FILE"
-  jq -c -s --argjson n "${_limit:-null}" 'add // [] | .[:$n]' < "$_spool"
+  jq -c -s 'map(.values // []) | add // []' < "$_spool"
 }
 
 bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]

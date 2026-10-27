@@ -1,4 +1,4 @@
-import type { EnvelopeNext, ListingPaging } from '../../rules/listing-page.js';
+import { walkStep, type EnvelopeNext, type ListedPage, type ListingPaging } from '../../rules/listing-page.js';
 
 /**
  * The page length of Bitbucket's plain listing, per `bb` version measured.
@@ -40,19 +40,11 @@ export const listingPagingFor = (backend: string, cliVersion: string): ListingPa
 /** The page length `plot-host.sh` asks Bitbucket's plain listing for (`BB_LIST_PAGELEN`). */
 export const BITBUCKET_REQUEST_PAGELEN = 50;
 
-/** One page of a Bitbucket listing: its row count and what its envelope said about a further page. */
-export interface ListedPage {
-  readonly rows: number;
-  readonly envelopeNext: EnvelopeNext;
-}
-
 /**
- * Where `plot-host.sh`'s `_bb_paged_walk` stops in its row-limit mode, and what
- * it reports. `corpus/listing-page.corpus.test.ts` holds the pair.
- *
- * The walk reads `pages` in order and stops at the first page that names no
- * further page, brings the total to `limit` rows, adds no rows, or is page
- * ceil(`limit` / `pageLength`). A walk past the end of `pages` stops there.
+ * Where `plot-host.sh`'s `_bb_paged_walk` stops in its row-limit mode over
+ * `pages`, and what it reports. The walk asks `walkStep` after each page
+ * through `board/plot-listing-walk.mjs`; this reads the same rule over a whole
+ * list of pages. A walk past the end of `pages` stops there.
  *
  * @param pages - the pages the host serves, in order.
  * @param limit - the caller's row limit, at least 1.
@@ -65,15 +57,9 @@ export const walkToLimit = (
   limit: number,
   pageLength: number = BITBUCKET_REQUEST_PAGELEN,
 ): { readonly rows: number; readonly envelopeNext: EnvelopeNext } => {
-  const bound = Math.ceil(limit / pageLength);
-  let rows = 0;
-  let last: EnvelopeNext = 'unknown';
-  for (const [index, page] of pages.entries()) {
-    rows += page.rows;
-    last = page.envelopeNext;
-    if (last !== 'present' || rows >= limit || page.rows === 0 || index + 1 >= bound) break;
-  }
-  return { rows: Math.min(rows, limit), envelopeNext: rows > limit ? 'present' : last };
+  const read = pages.findIndex((_, index) => walkStep(pages.slice(0, index + 1), limit, pageLength).stops);
+  const { rows, envelopeNext } = walkStep(read === -1 ? pages : pages.slice(0, read + 1), limit, pageLength);
+  return { rows, envelopeNext };
 };
 
 /**

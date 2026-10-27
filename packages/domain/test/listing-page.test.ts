@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { listingPagingFor, walkToLimit } from '../src/adapters/host/listing-paging.js';
-import { pagePossiblyTruncated, type ListingPaging } from '../src/rules/listing-page.js';
+import { pagePossiblyTruncated, walkStep, type ListingPaging } from '../src/rules/listing-page.js';
 
 const honours: ListingPaging = { kind: 'honours-limit' };
 const fifty: ListingPaging = { kind: 'fixed-page', pageLength: 50 };
@@ -72,6 +72,30 @@ describe('where a row-limit walk stops', () => {
   it('reads at most ceil(limit / page length) pages', () => {
     const short = { rows: 1, envelopeNext: 'present' as const };
     expect(walkToLimit(Array.from({ length: 50 }, () => short), 1000)).toEqual({ rows: 20, envelopeNext: 'present' });
+  });
+});
+
+describe('whether a row-limit walk reads another page', () => {
+  const full = { rows: 50, envelopeNext: 'present' as const };
+
+  it('continues after a full page that names a further page, below the limit and the page bound', () => {
+    expect(walkStep([full], 1000, 50)).toEqual({ stops: false, rows: 50, envelopeNext: 'present' });
+  });
+
+  it('stops on a page that names no further page, or on no envelope', () => {
+    expect(walkStep([full, { rows: 20, envelopeNext: 'absent' }], 1000, 50).stops).toBe(true);
+    expect(walkStep([{ rows: 20, envelopeNext: 'unknown' }], 1000, 50)).toEqual({ stops: true, rows: 20, envelopeNext: 'unknown' });
+  });
+
+  it('stops at the limit, and reports a further page where the trim drops a row', () => {
+    expect(walkStep([full, full], 100, 50)).toEqual({ stops: true, rows: 100, envelopeNext: 'present' });
+    expect(walkStep([full], 30, 50)).toEqual({ stops: true, rows: 30, envelopeNext: 'present' });
+  });
+
+  it('stops on an empty page, at the page bound, and before any page is read', () => {
+    expect(walkStep([full, { rows: 0, envelopeNext: 'present' }], 1000, 50).stops).toBe(true);
+    expect(walkStep([{ rows: 1, envelopeNext: 'present' }, { rows: 1, envelopeNext: 'present' }], 100, 50).stops).toBe(true);
+    expect(walkStep([], 1000, 50)).toEqual({ stops: true, rows: 0, envelopeNext: 'unknown' });
   });
 });
 

@@ -56,3 +56,41 @@ export const pagePossiblyTruncated = (page: ListingPage): boolean => {
   if (next === 'present' || page.paging.pageLength === null) return true;
   return page.rows >= page.paging.pageLength;
 };
+
+/** One page of a fixed-page listing: its row count and what its envelope said about a further page. */
+export interface ListedPage {
+  readonly rows: number;
+  readonly envelopeNext: EnvelopeNext;
+}
+
+/** Whether a row-limit walk stops after the pages it has read, and what it reports if it does. */
+export interface WalkStep {
+  /** True where the walk reads no further page. */
+  readonly stops: boolean;
+  /** The rows read so far, trimmed to the limit. */
+  readonly rows: number;
+  /** The last page's `envelopeNext`, or `'present'` where the trim drops a row. */
+  readonly envelopeNext: EnvelopeNext;
+}
+
+/**
+ * Decides whether a walk over a fixed-page listing stops after `pages`.
+ *
+ * The walk stops after the first page that names no further page, brings the
+ * total to `limit` rows, adds no rows, or is page ceil(`limit` / `pageLength`).
+ * A walk that has read no page stops with no rows.
+ *
+ * @param pages - the pages read so far, in order.
+ * @param limit - the caller's row limit, at least 1.
+ * @param pageLength - the page length the request asks for.
+ * @returns whether the walk stops, the row count trimmed to `limit`, and the
+ *   last page's `envelopeNext`, or `'present'` where the trim drops a row.
+ */
+export const walkStep = (pages: readonly ListedPage[], limit: number, pageLength: number): WalkStep => {
+  const rows = pages.reduce((sum, page) => sum + page.rows, 0);
+  const last = pages.at(-1);
+  const next = last?.envelopeNext ?? 'unknown';
+  const stops = last === undefined || next !== 'present' || rows >= limit || last.rows === 0
+    || pages.length >= Math.ceil(limit / pageLength);
+  return { stops, rows: Math.min(rows, limit), envelopeNext: rows > limit ? 'present' : next };
+};
