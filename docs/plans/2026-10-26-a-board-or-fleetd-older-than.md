@@ -125,7 +125,7 @@ Each slice adds a changeset for package `plot`, with its Changelog line as the d
 
 ### Spawner Status
 
-- `bug/the-board-and-fleetd-report-their-contract` — the board and fleetd record their start contract and bundle hash, `fleetd-start.json` with fleetd as its one writer, `spawnerStatus` and `plot-ask.mjs spawner`, and the stale, current or unknown line in both `--status` outputs and on the board page, changing no process <!-- waits: bug/a-spawn-carries-its-gate-contract --> <!-- builds: a spawn-contract reading for the board and fleetd -->
+- `bug/the-board-and-fleetd-report-their-contract` — the board and fleetd record their start contract and bundle hash, `fleetd-start.json` with fleetd as its one writer, `spawnerStatus` and `plot-ask.mjs spawner`, and the stale, current or unknown line in both `--status` outputs and on the board page, changing no process <!-- waits: bug/a-spawn-carries-its-gate-contract --> <!-- builds: a spawn-contract reading for the board and fleetd --> → #2771
 
 ## Notes
 
