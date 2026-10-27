@@ -1,5 +1,5 @@
-import { scriptsShell, planStoreShell } from '@plot-pm/domain/adapters';
-import type { PlanStore, Scripts } from '@plot-pm/domain';
+import { scriptsShell, planStoreShell, hostShell, refsGit } from '@plot-pm/domain/adapters';
+import type { Host, PlanStore, Refs, Scripts } from '@plot-pm/domain';
 import { agentLogPath } from './agent-log.js';
 import type { ConfigReadOptions } from './config-reader.js';
 
@@ -9,6 +9,10 @@ export interface ActOptions extends ConfigReadOptions {
   scripts?: Scripts;
   /** The `PlanStore` port that reads plan files. Absent means the shell adapter over `repoRoot`. */
   planStore?: PlanStore;
+  /** The `Host` port that names a merge commit. Absent means the shell adapter over `repoRoot`. */
+  host?: Host;
+  /** The `Refs` port that reads a commit's files. Absent means the git adapter over `repoRoot`. */
+  refs?: Refs;
 }
 
 /**
@@ -28,6 +32,24 @@ export const scriptsOf = (opts: ActOptions): Scripts =>
  */
 export const planStoreOf = (opts: ActOptions): PlanStore =>
   opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The `Host` port these options ask about merge commits through.
+ *
+ * @param opts - where the fleet acts.
+ * @returns the injected port, or the shell adapter over `opts.repoRoot`.
+ */
+export const hostOf = (opts: ActOptions): Host =>
+  opts.host ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The `Refs` port these options read commits through.
+ *
+ * @param opts - where the fleet acts.
+ * @returns the injected port, or the git adapter over `opts.repoRoot`.
+ */
+export const refsOf = (opts: ActOptions): Refs =>
+  opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /** The fan-out Plot ships — the one this package starts, never a path a caller holds. */
 export const DISPATCH_SCRIPT = 'plot-dispatch.sh';

@@ -42,6 +42,7 @@ import { AUTO_DELIVER_MAX_FAILURES, retryDelayMs } from '@plot-pm/domain';
 import type { Scripts, StartOptions } from '@plot-pm/domain/ports/scripts';
 import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
+import type { Host, Refs } from '@plot-pm/domain';
 import { refsGit } from '@plot-pm/domain/adapters';
 import { execFileSync } from 'node:child_process';
 import { pulsePlanStore } from '../../src/server/entry/registryd-main.js';
@@ -62,6 +63,29 @@ afterEach(() => {
  * `deliverCommand` reads `Deliver command` through it; `deliverConfig` decides
  * what it answers, which is how the two entrances of item 10 are selected.
  */
+/**
+ * A host and refs answering `files` for every merge commit, counting each ask.
+ *
+ * @param files - what `commitFiles` lists, or `'fail'` for a read that fails.
+ * @param sha - what `prMergeCommit` answers, or `'fail'` for a refusal.
+ */
+const workPorts = (files: readonly string[] | 'fail' = ['src/a.ts'], sha: string | 'fail' = 'abc1234') => {
+  const calls = { prMergeCommit: 0, commitFiles: 0 };
+  const host = {
+    prMergeCommit: async () => {
+      calls.prMergeCommit += 1;
+      return sha === 'fail' ? { ok: false, error: 'host down' } : { ok: true, value: sha };
+    },
+  } as unknown as Host;
+  const refs = {
+    commitFiles: async () => {
+      calls.commitFiles += 1;
+      return files === 'fail' ? { ok: false, error: 'git failed' } : { ok: true, value: files };
+    },
+  } as unknown as Refs;
+  return { host, refs, calls };
+};
+
 function fixture(deliverCommand = '', deliverExit = 0) {
   return fixtureWithMarker(() => deliverCommand, deliverExit);
 }
@@ -78,7 +102,7 @@ function fixtureWithMarker(
   buildCommand: (marker: string) => string,
   deliverExit = 0,
 ): {
-  opts: { repoRoot: string; scriptsDir: string; planStore: PlanStore };
+  opts: { repoRoot: string; scriptsDir: string; planStore: PlanStore; host: Host; refs: Refs };
   runs: () => string[];
 } {
   // Nested one level down: the board writes a repo's agent logs into its parent.
@@ -155,6 +179,7 @@ function fixtureWithMarker(
           planRecord({ file: '2026-08-27-gone.md', phase: 'delivered' }),
         ],
       }),
+      ...(({ host, refs }) => ({ host, refs }))(workPorts()),
     },
     runs: () =>
       fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean) : [],
@@ -1202,5 +1227,67 @@ describe('runAutoDeliverPass — an exit during the plan reads survives the pass
     expect(after.failures?.other?.count).toBe(1);
     expect(after.marks.other).toBeUndefined();
     expect(fake.started).toEqual(['ship-it']);
+  });
+});
+
+describe('runAutoDeliverPass — a claim-only slice is held, not delivered', () => {
+  const claimOnly = async (ports: ReturnType<typeof workPorts>, carried = new Map<string, boolean>(), logs: string[] = []) => {
+    const { opts, runs } = fixture('');
+    const fake = fakeScripts();
+    const log = console.log;
+    console.log = (...args: unknown[]) => void logs.push(args.join(' '));
+    try {
+      await runAutoDeliverPass({ ...opts, scripts: fake.scripts, host: ports.host, refs: ports.refs }, finished(), Date.now(), new Set(), carried);
+    } finally {
+      console.log = log;
+    }
+    return { fake, runs, opts, carried };
+  };
+
+  it('holds a merge whose first-parent diff lists no file (the #2422 shape)', async () => {
+    const logs: string[] = [];
+    const { fake, opts } = await claimOnly(workPorts([]), new Map(), logs);
+    expect(fake.started).toEqual([]);
+    expect(logs.join('\n')).toContain('holding ship-it (claim-only feature/a)');
+    expect(readInFlight(opts.repoRoot, Date.now(), 'deliver').failures).toEqual({});
+  });
+
+  it('holds a merge whose diff lists only PLOT-BLOCKED.md', async () => {
+    expect((await claimOnly(workPorts(['PLOT-BLOCKED.md']))).fake.started).toEqual([]);
+  });
+
+  it('delivers a merge that changed a source file', async () => {
+    expect((await claimOnly(workPorts(['src/a.ts']))).fake.started.length).toBe(1);
+  });
+
+  it('delivers a merge that changed only docs — documentation is work', async () => {
+    expect((await claimOnly(workPorts(['docs/notes.md']))).fake.started.length).toBe(1);
+  });
+
+  it.each([
+    ['a failed prMergeCommit', workPorts(['src/a.ts'], 'fail')],
+    ['an empty merge-commit answer', workPorts(['src/a.ts'], '')],
+    ['a failed commitFiles read', workPorts('fail')],
+  ])('holds as unknown on %s', async (_name, ports) => {
+    const logs: string[] = [];
+    const { fake } = await claimOnly(ports, new Map(), logs);
+    expect(fake.started).toEqual([]);
+    expect(logs.join('\n')).toContain('holding ship-it (unknown)');
+  });
+
+  it('asks nothing more on a second pass over the same merged branch', async () => {
+    const ports = workPorts([]);
+    const carried = new Map<string, boolean>();
+    await claimOnly(ports, carried);
+    await claimOnly(ports, carried);
+    expect(ports.calls).toEqual({ prMergeCommit: 1, commitFiles: 1 });
+  });
+
+  it('asks again on the next pass after an unknown answer', async () => {
+    const ports = workPorts('fail');
+    const carried = new Map<string, boolean>();
+    await claimOnly(ports, carried);
+    await claimOnly(ports, carried);
+    expect(ports.calls.commitFiles).toBe(2);
   });
 });
