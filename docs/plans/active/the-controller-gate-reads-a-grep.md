@@ -1,0 +1,1 @@
+../2026-10-27-the-controller-gate-reads-a-grep.md
