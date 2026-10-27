@@ -1,5 +1,13 @@
+import { build } from 'esbuild';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ANSWERED, run } from '../../src/server/entry/listing-walk.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * THE ENTRY IS AN ADAPTER AND THESE TEST THE ADAPTATION.
@@ -53,5 +61,31 @@ describe('plot-listing-walk', () => {
     expect(ask(['1000', '50'], ['[1]']).code).toBe(3);
     expect(ask(['1000', '50'], ['{']).code).toBe(3);
     expect(ask(['0', '50'], [page(1, false)]).code).toBe(3);
+  });
+});
+
+describe('plot-listing-walk as a process', () => {
+  it('delivers an answer larger than a pipe buffer in full, and exits 10', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'plot-listing-walk-'));
+    try {
+      const bundle = path.join(dir, 'walk.mjs');
+      await build({
+        entryPoints: [path.join(here, '../../src/server/entry/listing-walk.ts')],
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+        outfile: bundle,
+        logLevel: 'silent',
+      });
+      // 50 rows of 4 KB each: about 200 KB, three times the 64 KB pipe buffer.
+      const rows = Array.from({ length: 50 }, (_, i) => ({ id: i + 1, title: 'x'.repeat(4000) }));
+      const input = `${JSON.stringify({ values: rows, page: 1 })}\n`;
+      const result = spawnSync(process.execPath, [bundle, '50', '50'], { input, maxBuffer: 16 * 1024 * 1024 });
+      expect(result.status).toBe(ANSWERED);
+      expect(result.stdout.length).toBe(Buffer.byteLength(`${JSON.stringify(rows)}\n`));
+      expect(JSON.parse(result.stdout.toString('utf8'))).toHaveLength(50);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

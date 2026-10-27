@@ -74,5 +74,7 @@ export const run = (
 // Only when RUN, never when imported. `pathToFileURL` rather than a template,
 // for the reason `merge-subject.ts` records.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  process.exit(run(process.argv.slice(2), readFileSync(0, 'utf8')));
+  // `exitCode`, never `process.exit`: stdout to a pipe is asynchronous, and an
+  // exit cuts whatever is still queued — past 64 KB on macOS.
+  process.exitCode = run(process.argv.slice(2), readFileSync(0, 'utf8'));
 }
