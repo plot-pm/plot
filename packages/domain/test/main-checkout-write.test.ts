@@ -7,9 +7,11 @@ import {
   MAIN_CHECKOUT_WRITER_ENV,
   mainCheckoutWriteRefusal,
   mutatesGitState,
+  strandingResetRefusal,
   strandsTree,
   treeStrandingResetDirs,
 } from '../src/rules/main-checkout-write.js';
+import { SPAWN_CONTRACT } from '../src/rules/spawn-contract.js';
 
 describe('mutatesGitState', () => {
   it.each([
@@ -279,8 +281,11 @@ describe('gatesMainCheckout', () => {
   });
 });
 
+const FORBIDDEN = [/--stop\b/, /\brestart/, /\bkill\b/, /\bbootout/];
+
 describe('mainCheckoutWriteRefusal', () => {
-  const text = mainCheckoutWriteRefusal('/repo/skills/plot/scripts');
+  const equalReading = { number: SPAWN_CONTRACT } as const;
+  const text = mainCheckoutWriteRefusal('/repo/skills/plot/scripts', equalReading);
 
   it('names the desk-root helper so the reader can resolve their own worktree', () => {
     expect(text).toContain('/repo/skills/plot/scripts/plot-desk-root.sh');
@@ -290,6 +295,64 @@ describe('mainCheckoutWriteRefusal', () => {
   it('names the main checkout and PLOT_UNATTENDED as the reasons', () => {
     expect(text).toContain('MAIN checkout');
     expect(text).toContain('PLOT_UNATTENDED=1');
+  });
+
+  it('names both numbers and tells a by-design writer to stop and report on an absent reading', () => {
+    const skewed = mainCheckoutWriteRefusal('/repo/skills/plot/scripts', 'absent');
+    expect(skewed).toContain(String(SPAWN_CONTRACT));
+    expect(skewed).toContain('none');
+    expect(skewed).toContain('stop and report');
+    // The disposable-worktree sentence is dropped only in the proven-skew case.
+    expect(skewed).not.toContain('disposable worktree the way plot-dispatch.sh');
+  });
+
+  it('names the older-gate direction for an absent reading', () => {
+    const skewed = mainCheckoutWriteRefusal('/repo/skills/plot/scripts', 'absent');
+    expect(skewed).toContain('older');
+  });
+
+  it('names both numbers, the newer-gate direction, and tells a by-design writer to stop and report on a larger spawner number', () => {
+    const skewed = mainCheckoutWriteRefusal('/repo/skills/plot/scripts', { number: SPAWN_CONTRACT + 1 });
+    expect(skewed).toContain(String(SPAWN_CONTRACT));
+    expect(skewed).toContain(String(SPAWN_CONTRACT + 1));
+    expect(skewed).toContain('newer');
+    expect(skewed).toContain('stop and report');
+    expect(skewed).not.toContain('disposable worktree the way plot-dispatch.sh');
+  });
+
+  it.each([
+    ['empty', 'empty' as const],
+    ['unreadable', 'unreadable' as const],
+    ['equal', equalReading],
+  ])('adds no spawner paragraph for %s', (_label, reading) => {
+    const unskewed = mainCheckoutWriteRefusal('/repo/skills/plot/scripts', reading);
+    expect(unskewed).not.toContain('stop and report');
+    expect(unskewed).toContain('disposable worktree the way plot-dispatch.sh');
+  });
+
+  it('contains none of the stop/restart/kill/bootout command words, in any reading', () => {
+    for (const reading of ['absent', 'empty', 'unreadable', { number: 1 }, { number: SPAWN_CONTRACT }, { number: 999 }] as const) {
+      const t = mainCheckoutWriteRefusal('/repo/skills/plot/scripts', reading);
+      for (const word of FORBIDDEN) expect(t).not.toMatch(word);
+    }
+  });
+});
+
+describe('strandingResetRefusal', () => {
+  const text = strandingResetRefusal('/repo/skills/plot/scripts');
+
+  it('names the desk-root helper and the mixed-reset paragraph', () => {
+    expect(text).toContain('/repo/skills/plot/scripts/plot-desk-root.sh');
+    expect(text).toContain('mixed');
+  });
+
+  it('carries no spawner-marker sentence', () => {
+    expect(text).not.toContain('PLOT_MAIN_CHECKOUT_WRITER');
+    expect(text).not.toContain('stop and report');
+  });
+
+  it('contains none of the stop/restart/kill/bootout command words', () => {
+    for (const word of FORBIDDEN) expect(text).not.toContain(word);
   });
 });
 

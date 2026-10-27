@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
 import { EXIT, mainCheckoutGateOf, runGates, type MainCheckoutReadings, type Where } from '../../src/server/entry/gate.js';
+import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 
 /** Readings that answer `where`, or throw it, and record each directory asked. */
 const readings = (where: Where | Error | ((dir: string) => Where), asked: string[] = []): MainCheckoutReadings => ({
@@ -21,7 +22,7 @@ const MAIN: Where = { root: { ok: true, value: '/nowhere/repo' }, linked: false 
 const DESK: Where = { root: { ok: true, value: '/nowhere/desk' }, linked: true };
 const NO_ROOT: Where = { root: { ok: false }, linked: false };
 
-const KEYS = ['PLOT_UNATTENDED', 'PLOT_MAIN_CHECKOUT_WRITER'] as const;
+const KEYS = ['PLOT_UNATTENDED', 'PLOT_MAIN_CHECKOUT_WRITER', 'PLOT_SPAWN_CONTRACT'] as const;
 let prior: Partial<Record<(typeof KEYS)[number], string>> = {};
 beforeEach(() => {
   prior = Object.fromEntries(KEYS.flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]]])));
@@ -112,6 +113,21 @@ describe('the main-checkout gate, for an unattended agent', () => {
     expect(answer.warned).toContain('UNVERIFIED');
     expect(answer.warned).toContain('main-checkout');
   });
+
+  it('refuses with a proven spawn-contract skew paragraph when PLOT_SPAWN_CONTRACT is unset', async () => {
+    delete process.env.PLOT_SPAWN_CONTRACT;
+    const answer = await ask(readings(MAIN), 'git commit -m x');
+    expect(answer.code).toBe(EXIT.refuse);
+    expect(answer.warned).toContain('stop and report');
+    expect(answer.warned).toContain('none');
+  });
+
+  it('refuses with no spawn-contract skew paragraph when PLOT_SPAWN_CONTRACT matches this gate', async () => {
+    process.env.PLOT_SPAWN_CONTRACT = String(SPAWN_CONTRACT);
+    const answer = await ask(readings(MAIN), 'git commit -m x');
+    expect(answer.code).toBe(EXIT.refuse);
+    expect(answer.warned).not.toContain('stop and report');
+  });
 });
 
 describe('the main-checkout gate, for an attended session', () => {
@@ -160,5 +176,15 @@ describe('the main-checkout gate, for a mixed reset', () => {
   it('allows when the root cannot be read', async () => {
     process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
     expect((await ask(readings(NO_ROOT), 'git reset')).code).toBe(EXIT.allow);
+  });
+
+  it('refuses a marked writer with the mixed-reset text, carrying no marker or spawn-contract sentence', async () => {
+    process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
+    delete process.env.PLOT_SPAWN_CONTRACT;
+    const answer = await ask(readings(MAIN), 'git reset');
+    expect(answer.code).toBe(EXIT.refuse);
+    expect(answer.warned).toContain('mixed');
+    expect(answer.warned).not.toContain('PLOT_MAIN_CHECKOUT_WRITER');
+    expect(answer.warned).not.toContain('stop and report');
   });
 });

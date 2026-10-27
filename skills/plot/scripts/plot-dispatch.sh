@@ -1103,8 +1103,7 @@ ask_start_command() { # $1 = free | assigned
 }
 
 start_worker() {
-  local branch="$1" wt="$2"
-  local cmd
+  local branch="$1" wt="$2" cmd
 
   # THE PLAN IS THE DEFAULT AND THE FLAG IS THE OVERRIDE.
   #
