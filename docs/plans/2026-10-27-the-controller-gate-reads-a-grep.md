@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Issue:** #2706
 - **Rounds:** 1
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2759 merged
 - **Started:** 2026-10-27, Jan Wloka, `feature/the-controller-gate-reads-a-grep`
+- **Delivered:** 2026-10-27
 
 ## Changelog
 
