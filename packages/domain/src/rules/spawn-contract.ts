@@ -24,6 +24,8 @@
  * what changed, so the shape and the number cannot drift apart silently.
  */
 
+import type { BoardStatus } from './default-branch.js';
+
 /** The number every unattended spawn's environment carries today. */
 export const SPAWN_CONTRACT = 1;
 
@@ -96,6 +98,148 @@ export interface SpawnContractVariableShape {
  * `SPAWN_CONTRACT` means updating this alongside it — the two change in the
  * same commit, never one without the other.
  */
+/**
+ * What a spawner (the board or fleetd) reports about its own spawn contract
+ * against the gate's own number — three words only, each naming what a
+ * restart would do, never suggesting one (#2728,
+ * `docs/plans/2026-10-26-a-board-or-fleetd-older-than.md`).
+ *
+ * **`current`**: the spawner's recorded number equals the gate's.
+ * **`stale`**: the numbers differ, in EITHER direction — both are always
+ * carried, never collapsed to a boolean or a word like "different".
+ * **`unknown`**: no recorded identity, a pid mismatch, or a gate that did not
+ * answer. A missing record and an unreadable gate are indistinguishable from
+ * here, by design: both mean *nothing to compare*.
+ */
+export type SpawnerStatusVerdict =
+  | { readonly kind: 'current' }
+  | { readonly kind: 'stale'; readonly spawnerNumber: number; readonly gateNumber: number }
+  | { readonly kind: 'unknown' };
+
+/**
+ * One spawner's own recorded identity, as {@link FleetdStart} or the board's
+ * compiled equivalent carries it — the values {@link spawnerStatus} compares
+ * against a gate's answer.
+ */
+export interface SpawnerIdentity {
+  /** The process id the record was written under. */
+  readonly pid: number;
+  /** The spawn contract number the record carries. */
+  readonly spawnContract: number;
+}
+
+/**
+ * Compares a spawner's own recorded spawn contract against a gate's answer.
+ *
+ * **REPORT ONLY.** This function compares two numbers and returns a word; it
+ * starts, stops, kicks and reloads nothing, and nothing downstream of it may
+ * either — that is the whole point of #2728's fix.
+ *
+ * @param identity - the spawner's own record, or `null` where none exists.
+ * @param runningPid - the pid of the supervisor actually running now; a
+ *   record whose `pid` does not match reads `unknown` rather than stale or
+ *   current, because the record may describe a process that already exited.
+ * @param gateNumber - the gate's own `--spawn-contract` answer, or `null`
+ *   where the gate did not answer.
+ * @returns `current`, `stale` naming both numbers, or `unknown`.
+ */
+export const spawnerStatus = (
+  identity: SpawnerIdentity | null,
+  runningPid: number,
+  gateNumber: number | null,
+): SpawnerStatusVerdict => {
+  if (identity === null || identity.pid !== runningPid || gateNumber === null) {
+    return { kind: 'unknown' };
+  }
+  if (identity.spawnContract === gateNumber) return { kind: 'current' };
+  return { kind: 'stale', spawnerNumber: identity.spawnContract, gateNumber };
+};
+
+/**
+ * Renders a {@link SpawnerStatusVerdict} as the one-line text every
+ * `--status` script and the board print — the exact three shapes the brief
+ * requires, so no caller formats its own variant.
+ *
+ * @param verdict - the comparison's result.
+ * @returns `current`, `stale: spawn contract N, gate expects M`, or `unknown`.
+ */
+export const spawnerStatusText = (verdict: SpawnerStatusVerdict): string => {
+  switch (verdict.kind) {
+    case 'current':
+      return 'current';
+    case 'stale':
+      return `stale: spawn contract ${verdict.spawnerNumber}, gate expects ${verdict.gateNumber}`;
+    case 'unknown':
+      return 'unknown';
+  }
+};
+
+/**
+ * Whether a running bundle's hash differs from the one a spawner recorded at
+ * its own start.
+ *
+ * **EVIDENCE, NEVER THE VERDICT.** A content-hash difference is never
+ * `stale` by itself — only a different `SPAWN_CONTRACT` number is. This is
+ * why {@link spawnerStatus} and this function take separate inputs and
+ * produce separate lines: folding them together would let a rebuild with an
+ * unchanged contract number read as stale, which it is not.
+ *
+ * @param recordedHash - the hash the spawner wrote at its own start.
+ * @param runningHash - a fresh hash of the same path, read now.
+ * @returns true where they differ; false where they match or either is absent.
+ */
+export const bundleDriftDetected = (recordedHash: string | null, runningHash: string | null): boolean =>
+  recordedHash !== null && runningHash !== null && recordedHash !== runningHash;
+
+/**
+ * Renders the bundle-drift evidence line, separate from
+ * {@link spawnerStatusText} — its own tone, never folded into
+ * stale/current/unknown.
+ *
+ * @param bundlePath - the path the spawner recorded its hash against.
+ * @returns the evidence line.
+ */
+export const bundleDriftText = (bundlePath: string): string => `bundle differs from ${bundlePath} (evidence, not the verdict)`;
+
+/**
+ * The board-status panel entry for a stale spawn contract — null for
+ * `current` and `unknown`, the same absent-when-healthy contract
+ * `checkoutHealthStatus` and `defaultBranchStatus` follow, so an unreadable
+ * gate or a current board shows nothing here.
+ *
+ * @param verdict - the comparison's result.
+ * @returns a rose status entry while stale; null for `current` or `unknown`.
+ */
+export const spawnerStatusEntry = (verdict: SpawnerStatusVerdict): BoardStatus | null =>
+  verdict.kind === 'stale'
+    ? {
+        key: 'spawn-contract-stale',
+        severity: 20,
+        tone: 'rose',
+        text: spawnerStatusText(verdict),
+      }
+    : null;
+
+/**
+ * The board-status panel entry for the bundle-drift evidence line — its own
+ * entry, never folded into {@link spawnerStatusEntry}, so a rebuild with an
+ * unchanged contract number cannot read as the stale verdict.
+ *
+ * @param drifted - whether the running bundle's hash differs from the one
+ *   recorded at start.
+ * @param bundlePath - the path the drift was measured against.
+ * @returns an amber status entry while drifted; null otherwise.
+ */
+export const bundleDriftEntry = (drifted: boolean, bundlePath: string): BoardStatus | null =>
+  drifted
+    ? {
+        key: 'spawn-contract-bundle-drift',
+        severity: 10,
+        tone: 'amber',
+        text: bundleDriftText(bundlePath),
+      }
+    : null;
+
 export const SPAWN_CONTRACT_SHAPE: readonly SpawnContractVariableShape[] = [
   {
     name: 'PLOT_BRIEF_BRANCH',

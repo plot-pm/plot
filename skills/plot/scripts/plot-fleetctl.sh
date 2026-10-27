@@ -820,12 +820,28 @@ if [ "$mode" = "status" ]; then
     # A pid is not a tick: measured 2026-09-23, this arm printed `running`
     # over a 25-hour-old log. The age is evidence and the state word stays.
     [ -z "$tick_age" ] || echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
-    # THE RUNNING PROCESS ALREADY HOLDS THE OLD FILE OPEN, so a bundle removed
-    # out from under it is invisible to the pid check above — the process does
-    # not notice until it next restarts and the file is gone. Named here rather
-    # than repaired: the fix is a rebuild or reinstall, a person's call.
-    bundle=$(supervisor_bundle_path)
-    [ -n "$bundle" ] && [ ! -f "$bundle" ] && printf '  BUNDLE MISSING: %s no longer exists — the loaded unit still names it\n    Rebuild it, or reinstall: /plot-fleet --stop, then /plot-fleet --start\n' "$bundle"
+    # THIS SUPERSEDES THE OLD BUNDLE-MISSING CHECK (#2728, docs/plans/
+    # 2026-10-26-a-board-or-fleetd-older-than.md). `plot-ask.mjs spawner` reads
+    # `fleetd-start.json`, compares it against the gate's own answer through
+    # `spawnerStatus`, and hashes the SAME bundle fresh — so a removed or
+    # rebuilt bundle shows up here as drift, and a stale spawn contract shows
+    # up as `stale:`, both without a second comparison written in this script.
+    # REPORT ONLY: nothing below restarts, reloads or repairs anything.
+    if [ -f "$script_dir/board/plot-ask.mjs" ]; then
+      spawner_json=$(PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-ask.mjs" spawner "$sup_pid" 2>/dev/null) && [ -n "$spawner_json" ] && {
+        spawner_lines=$(printf '%s' "$spawner_json" | node -e '
+          let s = "";
+          process.stdin.on("data", d => (s += d)).on("end", () => {
+            try {
+              const a = JSON.parse(s);
+              const lines = [`spawn contract: ${a.status}`];
+              if (a.bundleDrift) lines.push(a.bundleDriftText);
+              process.stdout.write(lines.join("\n"));
+            } catch { process.exitCode = 1; }
+          });
+        ' 2>/dev/null) && [ -n "$spawner_lines" ] && printf '%s\n' "$spawner_lines" | while IFS= read -r line; do echo "  $line"; done
+      }
+    fi
   elif [ "$sup_loaded" = 0 ]; then
     # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
     # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`

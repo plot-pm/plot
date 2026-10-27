@@ -31,8 +31,11 @@ import {
   fleetStateFile,
   clockSystem,
   startChannel,
+  fleetdStartFile,
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
+import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
+import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
@@ -191,6 +194,9 @@ import type { Agents } from '@plot-pm/domain/ports/agents';
  * different verdicts about it in the same second.
  */
 const MACHINE_SAMPLES = 5;
+
+/** This artifact's own path, relative to the repository root — what {@link run} records in `fleetd-start.json` and hashes at its own start. */
+export const BUNDLE_RELATIVE_PATH = join('skills', 'plot', 'scripts', 'board', 'plot-fleetd.mjs');
 
 /** Where the plot helper scripts sit, relative to this artifact. */
 const scriptsDirFor = (here: string): string =>
@@ -2221,6 +2227,31 @@ export const run = async (
 
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
+
+  // WRITTEN ONCE, HERE, AT THE TOP OF THIS PROCESS'S LIFE — never again this
+  // run, and never read back by the daemon itself (#2728, `docs/plans/
+  // 2026-10-26-a-board-or-fleetd-older-than.md`). `plot-fleetctl.sh --status`,
+  // through `plot-ask.mjs spawner`, is the reader; `registryd-main.ts`'s
+  // `run()` is the ONLY writer, the same one-writer contract
+  // `one-issue-index-writer.test.ts` holds for `issues.json`. A failed write
+  // is reported and never stops the daemon from starting — report only.
+  const startHashed = refsGit({ repoRoot, scriptDir: scriptsDir }).hashFilesSync([BUNDLE_RELATIVE_PATH]);
+  const startBundleHash = startHashed.ok ? startHashed.value.get(BUNDLE_RELATIVE_PATH) ?? null : null;
+  if (startBundleHash !== null) {
+    const record: FleetdStart = {
+      v: FLEETD_START_VERSION,
+      pid: process.pid,
+      startedAt: Date.now(),
+      spawnContract: SPAWN_CONTRACT,
+      bundlePath: BUNDLE_RELATIVE_PATH,
+      bundleHash: startBundleHash,
+    };
+    const written = await fleetdStartFile({ cwd: repoRoot }).write(record);
+    if (!written.ok) warn(`plot-fleetd: could not write fleetd-start.json — spawner status will read unknown\n`);
+  } else {
+    warn(`plot-fleetd: could not hash ${BUNDLE_RELATIVE_PATH} — spawner status will read unknown\n`);
+  }
+
   const tally: HostTally = { calls: 0 };
   // ONE `Checks wait` READ PER TICK, SHARED BY BOTH CONSUMERS. `queue`'s own
   // `defaultBranchRed` and `defaultBranchWorld` below each used to call

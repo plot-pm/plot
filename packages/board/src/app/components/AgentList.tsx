@@ -31,6 +31,12 @@ import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } 
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
+import {
+  bundleDriftDetected,
+  bundleDriftEntry,
+  spawnerStatus,
+  spawnerStatusEntry,
+} from '@plot-pm/domain/rules/spawn-contract';
 import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { DeliveryFilters } from './DeliveryFilters.js';
 import { activeSprintButton, readList, sprintMembershipLookup, writeList } from '../lib/filters.js';
@@ -100,6 +106,17 @@ import { hasExceptions } from '../lib/agent-rows/stuck.js';
 export { menuState, noActionReason, offersOpen, openLabel, openTarget, runLinkLabel, showsWorkerLog, storyRefusal } from '../lib/agent-rows/menus.js';
 export { inferredPlanName, isReleaseBranch, isUnpushed, rowSubject } from '../lib/agent-rows/rows.js';
 export type { AgentListProps };
+
+/**
+ * The pid `spawnerStatus` is called with from this component, for both its
+ * `identity.pid` and `runningPid` arguments. The wire payload's
+ * `spawnContract` is this board's own live reading of itself, not a record
+ * read off disk, so there is no stale-process case to distinguish here — the
+ * match is certain by construction. This constant exists only to satisfy
+ * `spawnerStatus`'s shared signature from a call site that has no real pid to
+ * compare.
+ */
+const WIRE_IDENTITY_PID = 1;
 
 
 /**
@@ -331,6 +348,7 @@ export function AgentList({
   server,
   defaultBranch,
   checkoutClean,
+  spawnContract,
 }: AgentListProps) {
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
@@ -944,6 +962,30 @@ export function AgentList({
   // shown by `PlanSourceLine`, not here.
   const checkoutEntry = checkoutHealthStatus(checkoutClean ?? null);
   if (checkoutEntry) statuses.push(checkoutEntry);
+  // THE BOARD'S OWN SPAWN CONTRACT against the gate's — #2728
+  // (docs/plans/2026-10-26-a-board-or-fleetd-older-than.md). `spawnerStatus`'s
+  // pid argument exists to catch a record describing a process that already
+  // exited; the wire payload instead carries THIS board's own live reading of
+  // itself, so there is no stale record to distrust and the identity match is
+  // certain by construction. `WIRE_IDENTITY_PID` is a fixed, matching pair
+  // used only to satisfy that shared signature from this call site. Two
+  // independent entries, never folded into one: `spawnerStatusEntry` is the
+  // stale/current/unknown verdict, `bundleDriftEntry` is evidence a rebuild
+  // happened and says nothing about staleness by itself.
+  const spawnVerdict = spawnerStatus(
+    spawnContract ? { pid: WIRE_IDENTITY_PID, spawnContract: spawnContract.spawnContract } : null,
+    WIRE_IDENTITY_PID,
+    spawnContract?.gateNumber ?? null,
+  );
+  const spawnEntry = spawnerStatusEntry(spawnVerdict);
+  if (spawnEntry) statuses.push(spawnEntry);
+  const driftEntry = spawnContract
+    ? bundleDriftEntry(
+        bundleDriftDetected(spawnContract.bundleHash, spawnContract.runningBundleHash),
+        spawnContract.bundlePath,
+      )
+    : null;
+  if (driftEntry) statuses.push(driftEntry);
 
   return (
     <div className="space-y-4">
