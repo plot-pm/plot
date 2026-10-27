@@ -138,7 +138,7 @@ Slice 2 adds one paragraph to *A Decision Reads The Index*, next to the paragrap
 
 ### Bitbucket Settled Sweep
 
-- `bug/the-bitbucket-sweep-asks-open-once` — `pr-list` gains the `settled` state word (Bitbucket `merged declined`, GitHub `all`), the scan's second call asks it, and `scanListingCost`'s Bitbucket arm states the open plus settled sweeps; the slice removes as many shell commands as it adds, measured by `scripts/check-shell-lines.sh` <!-- waits: bug/the-scan-listing-is-priced-in-pages -->
+- `bug/the-bitbucket-sweep-asks-open-once` — `pr-list` gains the `settled` state word (Bitbucket `merged declined`, GitHub `all`), the scan's second call asks it, and `scanListingCost`'s Bitbucket arm states the open plus settled sweeps; the slice removes as many shell commands as it adds, measured by `scripts/check-shell-lines.sh` <!-- waits: bug/the-scan-listing-is-priced-in-pages --> → #2777
 
 ## Notes
 
