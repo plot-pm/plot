@@ -7829,6 +7829,131 @@ test('host: a GraphQL call is recorded against graphql, not against core', () =>
   );
 });
 
+// --- the spend record counts a paged listing's pages, not its process -----
+//
+// `gh pr list`/`gh issue list` page internally at `GH_PAGE_ROWS` rows per
+// request, and until this slice `gh()` recorded one line per PROCESS whatever
+// it paged. `gh_record_pages` derives the pages past the first from the row
+// count — `gh` prints no page count — and records them as one extra line.
+// Every case here asserts the SUM of `spent` for the bucket, never a line
+// count or `.some(spent === N)`: the shape of the record (one line vs several)
+// is an implementation detail the sum does not see.
+const ghRows = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({
+  number: 1000 - i, title: `PR ${1000 - i}`, state: 'OPEN', headRefName: `feature/pr-${1000 - i}`,
+  isDraft: false, url: `https://example.test/pr/${1000 - i}`, updatedAt: '2026-10-27T00:00:00Z',
+  author: { login: 'jwloka' }, headRefOid: 'abc1234', mergedAt: null,
+  mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+})));
+// `makeStubsRateAware` seeds a `basis=actual` line per bucket before the run;
+// only the lines the run itself appended (`basis=unknown`, no live rate read)
+// count the pages this slice derives.
+const spentSum = (stubs, bucket) =>
+  recordOf(stubs)
+    .filter((r) => r.bucket === bucket && r.basis === 'unknown')
+    .reduce((sum, r) => sum + Number(r.spent), 0);
+
+for (const [rows, expected] of [[0, 1], [99, 1], [100, 1], [101, 2], [250, 3], [500, 5]]) {
+  test(`host: pr-list --limit 500 with ${rows} rows sums spent to ${expected} (plain arm)`, () => {
+    const stubs = makeStubsRateAware({ graphqlJson: ghRows(rows) });
+    run(['pr-list', '--limit', '500'], { env: { PLOT_HOST: 'github' }, stubs });
+    assert.equal(spentSum(stubs, 'graphql'), expected,
+      `record was:\n${JSON.stringify(recordOf(stubs), null, 2)}`);
+  });
+}
+
+test('host: pr-list --limit 150, 150 rows sums spent to 2', () => {
+  const stubs = makeStubsRateAware({ graphqlJson: ghRows(150) });
+  run(['pr-list', '--limit', '150'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(spentSum(stubs, 'graphql'), 2);
+});
+
+for (const [rows, expected] of [[100, 1], [101, 2], [250, 3]]) {
+  test(`host: pr-list --rich --limit 500 with ${rows} rows sums spent to ${expected} (rich arm)`, () => {
+    const stubs = makeStubsRateAware({ graphqlJson: ghRows(rows) });
+    run(['pr-list', '--rich', '--limit', '500'], { env: { PLOT_HOST: 'github' }, stubs });
+    assert.equal(spentSum(stubs, 'graphql'), expected);
+  });
+
+  test(`host: pr-list --rich --limit 500 with ${rows} rows through the Jenkins arm sums spent to ${expected}`, () => {
+    const repo = makeJenkinsRepo();
+    const hostStubs = makeStubsRateAware({ graphqlJson: ghRows(rows) });
+    const jen = makeJenStub({ jobsJson: '[]' });
+    const budgetHome = path.join(trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenbudget-'))), 'budget-home');
+    runJenkins(['pr-list', '--rich', '--limit', '500'],
+      { repo, hostStubs, jen, extraEnv: { PLOT_BUDGET_HOME: budgetHome, PLOT_BUDGET_ACCOUNT: BUDGET_ACCOUNT } });
+    assert.equal(spentSum({ budgetHome }, 'graphql'), expected,
+      'the Jenkins arm must stay wired to the same helper the plain and rich arms use');
+  });
+}
+
+test('host: pr-list --rich-open sums pages(open) + pages(all)', () => {
+  // A parent that double-counts, or a child that records nothing, both fail
+  // this: 101 open rows (2 pages) + 250 all rows (3 pages) must sum to 5, and
+  // the parent process itself (`--rich-open`) must record nothing of its own
+  // — counting happens at the leaf, the two children `pr-list` spawns.
+  const stub = makeSplitGhStub({ open: ghRows(101), all: ghRows(250) });
+  run(['pr-list', '--rich-open', '--state', 'all', '--limit', '1000'],
+    { env: { PLOT_HOST: 'github' }, stubs: stub });
+  assert.equal(spentSum(stub, 'graphql'), 2 + 3,
+    `record was:\n${JSON.stringify(recordOf(stub), null, 2)}`);
+});
+
+test('host: a failed pr-list records 1, a floor rather than the true spend', () => {
+  // THE KNOWN LIMIT. A listing that fails partway has spent requests the
+  // adapter cannot see — `gh` prints no page count on a failure either — so
+  // the record under-counts here. This is a floor, not a fix.
+  const stubs = makeStubs({ ghFail: 'HTTP 500: Internal Server Error' });
+  const res = runAllowFail(['pr-list', '--limit', '500'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0, 'the call failed');
+  assert.equal(spentSum(stubs, 'graphql'), 1, 'a floor: one process recorded, no pages derivable from no rows');
+});
+
+test('host: GitHub issue-list, 250 rows sums spent to 3 (the sum, not three lines)', () => {
+  // Catches a refactor that changes the total while still writing three
+  // lines, or one line, of the wrong shape. `makeStubs` (not the rate-aware
+  // stub) answers any gh argv with the same JSON, which is what `gh issue
+  // list` needs here — `makeStubsRateAware` only recognises `pr`/`api`.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify(Array.from({ length: 250 }, (_, i) => ({
+      number: 1000 - i, title: `Issue ${1000 - i}`, url: `https://example.test/issues/${1000 - i}`,
+      createdAt: '2026-10-27T00:00:00Z', assignees: [],
+    }))),
+  });
+  run(['issue-list'], { env: { PLOT_HOST: 'github', ...budgetEnvFor(stubs) }, stubs });
+  assert.equal(spentSum(stubs, 'graphql'), 3,
+    `record was:\n${JSON.stringify(recordOf(stubs), null, 2)}`);
+});
+
+test('host: Bitbucket pr-list walking 3 pages writes one bitbucket line per bb() call, each spent 1', () => {
+  // BITBUCKET DOES NOT CHANGE. `_bb_paged_walk` already runs one `bb … api`
+  // per page through the `bb()` wrapper, so a 3-page walk already records
+  // three lines — one per page, never folded into a derived-pages line the
+  // way the GitHub arms now are. Pinned here so a future change to the
+  // shared helper cannot silently fold these into one line.
+  //
+  // THE RECORD ALSO CARRIES TWO CAPABILITY-CHECK LINES, not from this walk:
+  // `bb_require_json` identifies the binary (`bb --version`) and probes
+  // `--json` support once per process, uncached across runs, and both probes
+  // go through the same `bb()` wrapper. That overhead is fixed and is not
+  // what this test is pinning, so it is counted explicitly rather than
+  // silently included in "3".
+  const pages = [
+    Array.from({ length: 50 }, (_, i) => restPr(900 - i, `feature/pr-${900 - i}`, 'OPEN')),
+    Array.from({ length: 50 }, (_, i) => restPr(850 - i, `feature/pr-${850 - i}`, 'OPEN')),
+    Array.from({ length: 10 }, (_, i) => restPr(800 - i, `feature/pr-${800 - i}`, 'OPEN')),
+  ];
+  const bb = makeSweepBbStub({ prs: { [stateListingKey('OPEN')]: { pages } } });
+  run(['pr-list', '--state', 'open', '--limit', '200'],
+    { env: { PLOT_HOST: 'bitbucket', ...budgetEnvFor(bb) }, stubs: bb });
+  const lines = recordOf(bb).filter((r) => r.connector === 'bitbucket');
+  const listingCalls = callsOf(bb.callsFile).filter((c) => c.startsWith('api ')).length;
+  assert.equal(listingCalls, 3, 'the walk itself made exactly 3 page requests');
+  const CAPABILITY_CHECK_OVERHEAD = 2;
+  assert.equal(lines.length, listingCalls + CAPABILITY_CHECK_OVERHEAD,
+    `record was:\n${JSON.stringify(recordOf(bb), null, 2)}`);
+  assert.ok(lines.every((r) => r.spent === '1'), 'each bb() call is its own request, spent 1');
+});
+
 test('host: a spent GraphQL bucket does not stop a REST call', () => {
   // THE DONE-WHEN, WORDED AS THE PLAN WORDS IT. The two are budgeted by name,
   // so the board keeps answering from the pool with 4990 left instead of
@@ -10773,6 +10898,10 @@ test('host: issue-list jira --state closed --limit 500 is unaffected: closed for
 });
 
 test('host: issue-list github closed records one extra call per 100 rows past the first', () => {
+  // Sums `spent`, not lines: `gh_record_pages` writes the extra pages as one
+  // line with `spent=extra`, not one line per extra page — the shape the
+  // loop this replaced used. The sum is what the brief's Done-when table
+  // pins, and what every other case in this file asserts.
   const rows = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({
     number: i + 1, title: 't', url: 'u', createdAt: 'c', closedAt: 'd',
   })));
@@ -10783,7 +10912,9 @@ test('host: issue-list github closed records one extra call per 100 rows past th
     });
     assert.equal(res.status, 0, res.stderr);
     const file = path.join(home, 'budget.tsv');
-    return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).length : 0;
+    if (!existsSync(file)) return 0;
+    return readFileSync(file, 'utf8').trim().split('\n').filter(Boolean)
+      .reduce((sum, line) => sum + Number(line.split('\t')[5]), 0);
   };
   const one = spent(100);
   assert.equal(spent(101) - one, 1);

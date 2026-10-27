@@ -5,6 +5,7 @@ import { listingSpend, type LimitBasis } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
+import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
 import {
   foldScanListing, parseScanListingRows, renderScanListing, scanListingWindowFor,
@@ -135,7 +136,7 @@ export const scanListingCost = (backend: string, branches: number, rows: number 
     return swept > 0 ? swept : 3;
   }
   if (rows === null) return 2;
-  return 1 + Math.max(1, Math.ceil(rows / 100));
+  return 1 + githubListingPages(rows);
 };
 
 /**
