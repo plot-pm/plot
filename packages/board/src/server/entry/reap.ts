@@ -8,6 +8,9 @@ import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
+import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
+import { branchGivenUp } from '@plot-pm/domain/rules/branch-given-up';
+import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Host, Processes, Refs, Scripts, Trees } from '@plot-pm/domain';
 import { firstReapRefusal } from '@plot-pm/domain/rules/reapable';
 import { firstBranchRefusal, firstClaimRefusal, dirtyTreeOwner } from '@plot-pm/domain/rules/sweepable';
@@ -261,6 +264,7 @@ export interface Context {
   scripts: Scripts;
   trees: Trees;
   processes: Processes;
+  plans: PlanStore;
   /** Fetches one branch from `origin`. */
   fetch: (branch: string) => Promise<unknown>;
 }
@@ -1020,32 +1024,55 @@ interface ClaimCounters {
   kept: number;
 }
 
-/** How the plan annotation classified a claim: `abandoned` (deferred/moved) or `unresolved`. */
-const claimDisposition = (activeDir: string, branch: string): 'abandoned' | 'unresolved' => {
-  let files: string[] = [];
-  try {
-    files = readdirSync(activeDir).filter((n) => n.endsWith('.md'));
-  } catch {
-    files = [];
-  }
-  for (const name of files) {
-    let text: string;
+/**
+ * How the plans classified a claim: `abandoned` (a plan deferred or moved the
+ * branch and no Active-index plan still schedules it) or `unresolved`.
+ *
+ * Reads every plan under the plan directory, so a delivered or released plan
+ * counts. A plan that cannot be listed, read or parsed is no evidence either way.
+ */
+const claimDisposition = async (
+  ctx: Context,
+  planDir: string,
+  activeDir: string,
+  branch: string,
+): Promise<'abandoned' | 'unresolved'> => {
+  const list = (dir: string): string[] => {
     try {
-      text = readFileSync(path.join(activeDir, name), 'utf8');
+      return readdirSync(dir).filter((n) => n.endsWith('.md'));
+    } catch {
+      return [];
+    }
+  };
+  // The Active index links the plans in the plan directory, so a name is read once;
+  // a plan only the Active index holds is still read.
+  const activeNames = new Set(list(activeDir));
+  const candidates = new Map<string, string>();
+  for (const dir of [planDir, activeDir]) {
+    for (const name of list(dir)) if (!candidates.has(name)) candidates.set(name, path.join(dir, name));
+  }
+  const files: string[] = [];
+  for (const file of candidates.values()) {
+    try {
+      if (readFileSync(file, 'utf8').includes(branch)) files.push(file);
     } catch {
       continue;
     }
-    const line = text.split('\n').find((l) => l.includes(`\`${branch}\``));
-    if (line === undefined) continue;
-    if (line.includes('<!-- deferred:') || line.includes('<!-- moved:')) return 'abandoned';
   }
-  return 'unresolved';
+  const read = await ctx.plans.readPlans(files);
+  if (!read.ok) return 'unresolved';
+  const plans = read.value.map((record) => ({
+    active: activeNames.has(path.basename(record.file)),
+    slices: record.slices,
+  }));
+  return branchGivenUp(branch, plans) ? 'abandoned' : 'unresolved';
 };
 
 const runClaimKind = async (
   ctx: Context,
   args: Args,
   defaultBranch: string,
+  planDir: string,
   activeDir: string,
   write: Printer,
 ): Promise<ClaimCounters> => {
@@ -1061,7 +1088,7 @@ const runClaimKind = async (
     const empty = await isWhollyEmptyClaim(ctx.refs, `origin/${defaultBranch}..${br}`);
     if (!empty) continue;
 
-    const disp = claimDisposition(activeDir, br);
+    const disp = await claimDisposition(ctx, planDir, activeDir, br);
     const refusal = firstClaimRefusal({ branch: br, isEmptyClaim: empty, disposition: disp });
 
     if (refusal !== null) {
@@ -1181,9 +1208,13 @@ const runReap = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const activeDirRaw = activeDirCfg.ok && activeDirCfg.value.trim() !== '' ? activeDirCfg.value.trim() : 'docs/plans/active/';
   const activeDir = path.isAbsolute(activeDirRaw) ? activeDirRaw : path.join(ctx.repoRoot, activeDirRaw);
 
+  const planDirCfg = await ctx.scripts.config('Plan directory', 'docs/plans/');
+  const planDirRaw = planDirCfg.ok && planDirCfg.value.trim() !== '' ? planDirCfg.value.trim() : 'docs/plans/';
+  const planDir = path.isAbsolute(planDirRaw) ? planDirRaw : path.join(ctx.repoRoot, planDirRaw);
+
   const wt = await runWorktreeKind(ctx, args, defaultBranch, manifestDir, wtRoot, write);
   const br = await runBranchKind(ctx, args, defaultBranch, write);
-  const cl = await runClaimKind(ctx, args, defaultBranch, activeDir, write);
+  const cl = await runClaimKind(ctx, args, defaultBranch, planDir, activeDir, write);
   const dirtyTrees = await runDirtyKind(ctx, manifestDir, write);
 
   write(
@@ -1248,6 +1279,7 @@ export const run = async (
     scripts: scriptsShell(context),
     trees: treesGit(context),
     processes: processesShell(context),
+    plans: planStoreShell(context),
   };
 
   return runReap(ctx, parsed, write, warn);
