@@ -2,6 +2,7 @@ import { type Outcome, type Write, decide, refuse } from './decision.js';
 import type { WorkerState } from '../entities/fleet.js';
 import type { DispatchRefusal } from './dispatch.js';
 import { type PortResult, isAnswered } from '../port-result.js';
+import type { DeskLoop } from '../rules/desk-loop-alive.js';
 
 /**
  * The three verbs that run BEFORE the phase gate, and why they must.
@@ -54,7 +55,7 @@ export interface BranchPrReading {
    * about the WORK. A gate on the state word alone restarts all five and
    * discards exactly what the `finished` refusal protects.
    */
-  reachedReview: boolean;
+  reachedReview: boolean | 'unanswerable';
   /** The PR's number, 0 where none. */
   number: number;
   /** The state as the host reports it. */
@@ -128,6 +129,10 @@ export interface RestartReadings {
   tree: WorktreeReading | null;
   /** What the host said about the branch's PRs. */
   pr: BranchPrReading;
+  /** Whether a recorded pid on the desk is alive. */
+  loop: DeskLoop;
+  /** Whether the caller runs unattended. */
+  unattended: boolean;
 }
 
 /** What restarting decided. */
@@ -172,7 +177,8 @@ export interface RestartDetail {
  *
  * @param readings - the branch, its desk and its PRs.
  * @returns a decision naming the launch, or `branch-missing`, `no-worktree`,
- *   `reached-review`, `worker-alive` or `blocked-marker`.
+ *   `unattended`, `reached-review`, `pr-unanswerable`, `loop-alive`,
+ *   `worker-alive`, `worker-finished` or `blocked-marker`.
  */
 export const restartWorker = (
   readings: RestartReadings,
@@ -185,6 +191,12 @@ export const restartWorker = (
       'plot-dispatch: --restart needs a branch name. A slug is not enough: which stopped branch to hand to a new worker is your call.',
     );
   }
+  if (readings.unattended) {
+    return no(
+      'unattended',
+      'plot-dispatch: --restart needs a person. An unattended caller does not replace a worker.',
+    );
+  }
   if (readings.tree === null) {
     return no(
       'no-worktree',
@@ -193,6 +205,12 @@ export const restartWorker = (
   }
 
   // THE PR IS ASKED FIRST, BEFORE THE STATE WORD.
+  if (readings.pr.reachedReview === 'unanswerable') {
+    return no(
+      'pr-unanswerable',
+      `plot-dispatch: the host could not say whether ${readings.branch} has a pull request — an unanswered question is not "no PR".`,
+    );
+  }
   if (readings.pr.reachedReview) {
     return no(
       'reached-review',
@@ -201,10 +219,22 @@ export const restartWorker = (
   }
 
   const { state, pid, path, blockedMarker, dirty } = readings.tree;
+  if (readings.loop.kind === 'alive' && state !== 'running') {
+    return no(
+      'loop-alive',
+      `plot-dispatch: a loop is alive on ${readings.branch} (pid ${readings.loop.pid}, from ${readings.loop.source}) — it reads ${state}. Let it finish its pass, or end pid ${readings.loop.pid} yourself if you mean to replace it.`,
+    );
+  }
   if (state === 'running') {
     return no(
       'worker-alive',
       `plot-dispatch: a worker is alive on ${readings.branch} (pid ${pid}) — stop it first if you mean to replace it.`,
+    );
+  }
+  if (state === 'finished') {
+    return no(
+      'worker-finished',
+      `plot-dispatch: the worker on ${readings.branch} finished — a finished desk belongs to the reaper and continue, not to a restart.`,
     );
   }
   if (state === 'waiting') {
