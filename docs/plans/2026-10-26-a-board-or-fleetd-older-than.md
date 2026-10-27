@@ -120,7 +120,7 @@ Each slice adds a changeset for package `plot`, with its Changelog line as the d
 
 ### Spawn Contract
 
-- `bug/a-spawn-carries-its-gate-contract` — `SPAWN_CONTRACT` and `PLOT_SPAWN_CONTRACT` in `rules/spawn-contract.ts`, forced into every agent run env and the dispatch brief launch; `mainCheckoutWriteRefusal` split from `strandingResetRefusal` and naming a stale spawner only on a proven contract difference; `plot-gate.mjs --spawn-contract`; the bump test; corrected docstrings <!-- builds: a spawn-contract number every unattended spawn exports and the main-checkout gate compares -->
+- `bug/a-spawn-carries-its-gate-contract` — `SPAWN_CONTRACT` and `PLOT_SPAWN_CONTRACT` in `rules/spawn-contract.ts`, forced into every agent run env and the dispatch brief launch; `mainCheckoutWriteRefusal` split from `strandingResetRefusal` and naming a stale spawner only on a proven contract difference; `plot-gate.mjs --spawn-contract`; the bump test; corrected docstrings <!-- builds: a spawn-contract number every unattended spawn exports and the main-checkout gate compares --> → #2751
 
 ### Spawner Status
 
