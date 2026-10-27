@@ -292,6 +292,56 @@ test('an abandoned claim ref is swept', () => {
   assert.ok(!hasBranch(repo, branch), 'under --yes the claim ref goes');
 });
 
+/** A plan file in `docs/plans/` linked from no index, or only from `delivered/`. */
+function plainPlan(repo, slug, branch, { phase = 'Released', annotation = 'deferred: moved to a-row-is-a-tuple', index = null } = {}) {
+  const file = path.join(repo, 'docs', 'plans', `${slug}.md`);
+  fs.writeFileSync(
+    file,
+    `# ${slug}\n\n## Status\n\n- **Phase:** ${phase}\n\n## Branches\n\n- \`${branch}\` — the work <!-- ${annotation} -->\n`,
+  );
+  if (index !== null) {
+    fs.mkdirSync(path.join(repo, 'docs', 'plans', index), { recursive: true });
+    fs.symlinkSync(path.join('..', `${slug}.md`), path.join(repo, 'docs', 'plans', index, `${slug}.md`));
+  }
+}
+
+test('a claim deferred in a plan linked only from delivered/ is swept', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/claim-in-delivered';
+  claimBranch(repo, branch);
+  plainPlan(repo, 'a-delivered-plan', branch, { phase: 'Delivered', index: 'delivered' });
+  const bin = stubGh(tmp, {});
+
+  const dry = run(repo, bin, '--dry-run');
+  assert.match(dry, /would +feature\/claim-in-delivered/, `the dry run must plan the removal:\n${dry}`);
+  run(repo, bin, '--yes');
+  assert.ok(!hasBranch(repo, branch), 'under --yes the claim ref goes');
+});
+
+test('a claim moved in a plan no index links is swept', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/claim-in-released';
+  claimBranch(repo, branch);
+  plainPlan(repo, 'a-released-plan', branch, { annotation: 'moved: elsewhere' });
+  const bin = stubGh(tmp, {});
+
+  run(repo, bin, '--yes');
+  assert.ok(!hasBranch(repo, branch), 'a Released plan that neither index links still counts');
+});
+
+test('a deferred claim that an active plan schedules is kept', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/claim-still-wanted';
+  claimBranch(repo, branch);
+  plainPlan(repo, 'a-released-plan', branch);
+  plan(repo, 'an-active-plan', branch);
+  const bin = stubGh(tmp, {});
+
+  const out = run(repo, bin, '--yes');
+  assert.match(out, /needs judgment/, out);
+  assert.ok(hasBranch(repo, branch), 'an active slice keeps the branch');
+});
+
 test('a bare `claimed:` is reported and left for a person', () => {
   // A slow worker and a dead one leave the identical empty branch, and one of
   // them is doing real work. Only what the scan calls reapable is swept.
