@@ -4818,8 +4818,8 @@ case "$1" in
 ${open.map((l) => `        echo '${l}'`).join('\n')}
         ${openErr ? `echo '${openErr}' >&2` : ':'}
         exit ${openExit} ;;
-      *" --state all "*)
-        case " $* " in *" --rich "*) echo 'stub: all asked with --rich' >&2; exit 9 ;; esac
+      *" --state settled "*)
+        case " $* " in *" --rich "*) echo 'stub: settled asked with --rich' >&2; exit 9 ;; esac
 ${all.map((l) => `        echo '${l}'`).join('\n')}
         ${allErr ? `echo '${allErr}' >&2` : ':'}
         exit ${allExit} ;;
@@ -4902,11 +4902,11 @@ test('fleet: the rollup is requested of the open call and not of the all call', 
   const lists = calls.filter((c) => c.startsWith('pr-list '));
   assert.equal(lists.length, 2, `two pr-list calls; got ${lists.join(' | ')}`);
   const open = lists.filter((c) => / --state open /.test(`${c} `));
-  const all = lists.filter((c) => / --state all /.test(`${c} `));
+  const all = lists.filter((c) => / --state settled /.test(`${c} `));
   assert.equal(open.length, 1, `one open call; got ${lists.join(' | ')}`);
-  assert.equal(all.length, 1, `one all call; got ${lists.join(' | ')}`);
+  assert.equal(all.length, 1, `one settled call; got ${lists.join(' | ')}`);
   assert.match(`${open[0]} `, / --rich /, 'the open call must ask for the rollup');
-  assert.doesNotMatch(`${all[0]} `, / --rich /, 'the all call must not ask for the rollup');
+  assert.doesNotMatch(`${all[0]} `, / --rich /, 'the settled call must not ask for the rollup');
   // Without --limit the host returns 30, and a truncated list reads as "no PR".
   for (const c of lists) assert.match(c, / --limit \d+/, `no --limit on: ${c}`);
   // The tracked branches reach both calls.
@@ -4923,8 +4923,8 @@ test('fleet: a throttled open call degrades the verdict while the all call would
   assert.match(footerOf(out), /\bhost=throttled\b/,
     'a throttled rich call reported ok, and --loose would degrade with no reason given');
   assert.ok(!('.list-arrived' in cache), 'a failed call must prefill nothing');
-  assert.equal(calls.filter((c) => / --state all /.test(`${c} `)).length, 0,
-    'the all call spends quota on a payload nothing reads');
+  assert.equal(calls.filter((c) => / --state settled /.test(`${c} `)).length, 0,
+    'the settled call spends quota on a payload nothing reads');
   f.cleanup();
 });
 
@@ -5119,7 +5119,7 @@ case "$1" in
   pr-list)
     case " $* " in
       *" --state open "*) ${openErr ? `echo '${openErr}' >&2` : ':'} ; exit 0 ;;
-      *" --state all "*)
+      *" --state settled "*)
         echo '{"number":9,"title":"t","state":"MERGED","head":"feature/other","draft":false,"url":"u"}'
         ${allErr ? `echo '${allErr}' >&2` : ':'}
         exit 0 ;;

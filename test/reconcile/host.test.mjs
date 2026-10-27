@@ -1892,6 +1892,32 @@ test('host: an unknown --state fails loudly instead of returning nothing', () =>
   assert.equal(res.stdout.trim(), '');
 });
 
+test('host: pr-list --state settled sends bb merged and declined, never open', () => {
+  const bb = makeStrictBbStub({ perState: { merged: '[]', declined: '[]' } });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'settled'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const calls = callsOf(bb.callsFile);
+  assert.equal(calls.length, 2, 'merged and declined only — no open sweep');
+  assert.ok(calls.some((c) => c.includes('state=MERGED')));
+  assert.ok(calls.some((c) => c.includes('state=DECLINED')));
+  assert.ok(!calls.some((c) => c.includes('state=OPEN')), 'settled never asks bb about open');
+});
+
+test('host: the GitHub arm asks --state all for settled, not a filter of its own', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'settled'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(stubs.ghArgv, 'utf8');
+  assert.match(argv, /--state\nall/, 'settled reuses the existing all + strip-OPEN behavior');
+  assert.ok(!/--state\nsettled/.test(argv), 'gh is never asked for a state word it does not know');
+});
+
 test('host: pr-state by branch resolves without bb rejecting the call', () => {
   const bb = makeStrictBbStub({
     perState: {
@@ -8779,6 +8805,53 @@ test('host: the GitHub arm is untouched by --branch', () => {
   assert.ok(!sweepComplete(res.stderr), 'the GitHub arm makes no sweep claim');
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.equal(rows[0].number, 7, 'its rows are unchanged');
+});
+
+test('host: a settled sweep with every state answered claims 2 of 2, never 3 of 3', () => {
+  // THE SPEND THIS SLICE REMOVES. `settled` drops `open` from the Bitbucket
+  // sweep, so a whole answer is two states, not the `all` sweep's three — a
+  // claim still reading "3 of 3" would mean the `open` sweep never left.
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'settled', '--limit', '1000', '--rich',
+    '--branch', 'a', '--branch', 'b'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const line = res.stderr.split('\n').find((l) => /sweep complete/.test(l));
+  assert.ok(line, 'a whole settled sweep says so');
+  assert.match(line, /2 branches asked/, 'it names how many branches it asked about');
+  assert.match(line, /2 of 2 states answered/, 'merged and declined only — never 3 of 3');
+});
+
+test('host: a settled sweep with one failed state claims nothing', () => {
+  // THE DANGEROUS FAILURE MODE THE PLAN NAMES: a merged branch misread as
+  // `open` and redispatched. `declined` fails here, so only `merged` answered
+  // — a partial settled sweep, and partial means silent.
+  const bb = makeSweepBbStub({
+    fail: { DECLINED: { said: 'error: HTTP 500 — server error', code: 1 } },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'settled', '--limit', '1000', '--rich',
+    '--branch', 'a'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 7, 'a partial sweep exits PR_LIST_PARTIAL_RC, never 0');
+  assert.ok(!sweepComplete(res.stderr), 'a partial settled sweep makes NO completeness claim');
+  assert.match(res.stderr, /missing: declined/, 'and it names which state went unanswered');
+});
+
+test('host: a settled sweep over no branches claims nothing', () => {
+  // THE VACUOUS CASE. With no `--branch` at all, `pr_sweep_report` never
+  // fires (`PR_LIST_BRANCHES` is unset) — a "0 of 0 states answered" claim
+  // would be true of nothing and must never print.
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'settled', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(!sweepComplete(res.stderr), 'an empty tracked branch set makes no sweep claim');
 });
 
 test('host: the sweep emits every --rich field the arm promises', () => {
