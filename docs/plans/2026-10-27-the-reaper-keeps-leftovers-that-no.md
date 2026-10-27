@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #2757
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-27, Jan Wloka, `bug/the-reaper-reads-a-reused-pid-as-a-live-worker`
 - **Started:** 2026-10-27, Jan Wloka, `bug/a-local-only-empty-claim-branch-has-a-controller`
 - **Started:** 2026-10-27, Jan Wloka, `bug/a-deferred-desk-with-a-pushed-head-is-reapable` (brief only, no claim yet)
+- **Delivered:** 2026-10-27
 
 ## Changelog
 
