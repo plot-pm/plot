@@ -13,6 +13,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2758 merged
+- **Started:** 2026-10-27, Jan Wloka, `bug/the-reaper-reads-a-reused-pid-as-a-live-worker`
 
 ## Changelog
 
