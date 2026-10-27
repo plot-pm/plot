@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
-import type { spawn as SpawnFn } from 'node:child_process';
+import { execFileSync, type spawn as SpawnFn } from 'node:child_process';
 import { describe, expect, it, afterEach } from 'vitest';
 import { composeContinuation, continueOnDesk } from '../../src/shared/continuation.js';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
@@ -139,9 +139,14 @@ describe('continueOnDesk records the spawned pid\'s own start time', () => {
     });
 
     expect(result.kind).toBe('started');
-    workers.push(Number(readFileSync(join(worktree, '.plot-worker.pid'), 'utf8')));
+    const pid = Number(readFileSync(join(worktree, '.plot-worker.pid'), 'utf8'));
+    workers.push(pid);
     const startedAt = readFileSync(join(worktree, '.plot-worker.pid.startedAt'), 'utf8');
-    expect(startedAt).not.toBe('');
-    expect(Number.isNaN(Date.parse(startedAt))).toBe(false);
+    expect(startedAt).toMatch(/^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{2}:\d{2}:\d{2} \d{4}$/);
+    // The sidecar names this pid's own start: the one `ps` reports for it now.
+    const live = Date.parse(
+      execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim(),
+    );
+    expect(Math.abs(Date.parse(startedAt) - live)).toBeLessThan(1000);
   });
 });

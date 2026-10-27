@@ -425,6 +425,26 @@ export interface DeskContinuationInput {
   spawn?: typeof spawn;
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * A process start time in the text `ps -o lstart=` prints in the C locale,
+ * local time: `Tue Oct 27 17:43:23 2026`. The dispatcher's awk writer stores
+ * that text for `pidStartedAt` and `wrapperPidStartedAt`, so both writers
+ * store one format, and `Date.parse` and `plot_pid_is_current` read either.
+ *
+ * @param startedAt - epoch milliseconds, or `null` where the start could not be read.
+ * @returns the text, or `''` for `null`.
+ */
+const lstartText = (startedAt: number | null): string => {
+  if (startedAt === null) return '';
+  const d = new Date(startedAt);
+  return `${WEEKDAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${pad2(d.getDate())} `
+    + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())} ${d.getFullYear()}`;
+};
+
 /**
  * The monitor pids a manifest records; `[]` when it cannot be read.
  *
@@ -435,21 +455,6 @@ export interface DeskContinuationInput {
  * reused, so it is handed to the same `monitors.stop` the AgentMonitor pid
  * uses rather than signalled separately.
  */
-/**
- * `ps -o lstart=` for `pid`, raw and unconverted — the same text the
- * dispatcher's awk writer captures for its own `pidStartedAt`/
- * `wrapperPidStartedAt` fields, so both writers store one format and every
- * reader (`Date.parse`, `plot_pid_is_current`) converts it exactly once.
- * `''` where the pid cannot be read.
- */
-const readProcessStartedAt = (pid: number): string => {
-  try {
-    return execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim();
-  } catch {
-    return '';
-  }
-};
-
 const recordedMonitorPids = (manifestFile: string): string[] => {
   try {
     const m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
@@ -1165,12 +1170,11 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     let warning: string | undefined;
     if (pid > 0) {
       let pidRecorded = true;
-      // `pidStartedAt` is read once, here, and reused both for the
-      // `.plot-worker.pid` sidecar and the manifest stamp below — the same
-      // raw `ps -o lstart` text the dispatcher's awk writer captures for its
-      // own pid file, so a reader finds the same shape regardless of which
-      // path started the worker.
-      const pidStartedAt = readProcessStartedAt(pid);
+      // `pidStartedAt` is read once, here, through the process probe, and
+      // written both to the `.plot-worker.pid` sidecar and to the manifest
+      // stamp below, in the `ps -o lstart` text the dispatcher's awk writer
+      // stores, so a reader finds one shape whichever path started the worker.
+      const pidStartedAt = lstartText((input.probe ?? processProbeSystem()).startedAt(pid));
       try {
         fs.writeFileSync(path.join(worktree, '.plot-worker.pid'), String(pid), 'utf8');
         fs.writeFileSync(path.join(worktree, '.plot-worker.pid.startedAt'), pidStartedAt, 'utf8');
