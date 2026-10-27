@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-26, Jan Wloka, plan-PR #2419 merged
 - **Sprint:** follow-ups-2-28-3
 - **Started:** 2026-10-26, Jan Wloka, `bug/a-bitbucket-listing-reads-every-page`
+- **Started:** 2026-10-27, Jan Wloka, `bug/the-merge-walk-reads-the-whole-log`
 
 ## Changelog
 
