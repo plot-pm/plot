@@ -10,12 +10,12 @@
 #
 #   plot-state-receipt.sh --unowned <path> <value> <reason>
 #
-# for the three writes that have NO owning script today. `/plot-approve` step 3b
+# for the two writes that have NO owning script today. `/plot-approve` step 3b
 # writes the phase by hand under `Review: in-session` and `Review: ballot` —
 # `plot-approve.sh:190` refuses both by name, because a script cannot stand in
 # for a human reviewer or read a ballot. `/plot-release` writes `State:
-# Released`, and `/plot-reject` writes Delivered -> Approved; `setPlanPhase`
-# does not exist, so neither has a script to route to.
+# Released`; `setPlanPhase` does not exist, so it has no script to route to.
+# `/plot-reject` is no longer one: `plot-undeliver.sh` owns its write.
 #
 # A GATE WITH NO EXIT IS ONE PEOPLE ROUTE AROUND — `plot-dispatch.sh`'s
 # `--allow-local` in the same tradition, and the reason this slice waited at all:
@@ -23,10 +23,9 @@
 #
 # THE ESCAPE IS COUNTABLE, WHICH IS THE POINT. The reason is required and it is
 # recorded, so each use is a line naming a routing gap the later slices of
-# `the-master-agent-uses-the-controllers` close: `/plot-reject` becomes a
-# controller command, `/plot-release` asks a controller for its verdict. When
-# those land, their scripts record their own receipts and the escape stops being
-# reached for. Until then it is the difference between a gap that is visible and
+# `the-master-agent-uses-the-controllers` close: `/plot-release` asks a
+# controller for its verdict. When that lands, its script records its own
+# receipt and the escape stops being reached for. Until then it is the difference between a gap that is visible and
 # a gate that is turned off.
 #
 # WHY A RECEIPT RATHER THAN A COMMIT MESSAGE. `plot-state-gate.sh` sees a
@@ -281,7 +280,6 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     echo "The named escape for a lifecycle write with no owning script:" >&2
     echo "  /plot-approve under 'Review: in-session' or 'Review: ballot'" >&2
     echo "  /plot-release writing 'State: Released'" >&2
-    echo "  /plot-reject reverting Delivered -> Approved" >&2
     echo "" >&2
     echo "--unowned-action is the other layer: a controller-owned action run with no" >&2
     echo "controller, for a machine running no board." >&2
