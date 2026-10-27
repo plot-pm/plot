@@ -116,7 +116,7 @@ All cases go in `test/reconcile/host.test.mjs` through `makeStubsRateAware`, `ru
 
 ### Page count
 
-- `feature/the-spend-record-counts-a-paged` — one helper records a GitHub listing's pages past the first for `pr-list` (all three arms, through `pr_list_report_truncation`) and `issue-list`, with a separate `GH_PAGE_ROWS`; contract tests assert the sum of `spent` per row count, the failed-listing floor, `--rich-open` at the leaf, and the Bitbucket per-page lines <!-- builds: a request count on the spend record's paged lines -->
+- `feature/the-spend-record-counts-a-paged` — one helper records a GitHub listing's pages past the first for `pr-list` (all three arms, through `pr_list_report_truncation`) and `issue-list`, with a separate `GH_PAGE_ROWS`; contract tests assert the sum of `spent` per row count, the failed-listing floor, `--rich-open` at the leaf, and the Bitbucket per-page lines <!-- builds: a request count on the spend record's paged lines --> → #2789
 
 ## Notes
 
