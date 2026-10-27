@@ -97,7 +97,7 @@ Each slice adds a test that fails on `4a1b8a5fa` and the opposite arms that must
 
 ### Claim branch
 
-- `bug/a-local-only-empty-claim-branch-has-a-controller` — the reaper reads a slice's deferral from every plan, so it removes an empty local claim that a delivered or released plan defers (#2705)
+- `bug/a-local-only-empty-claim-branch-has-a-controller` — the reaper reads a slice's deferral from every plan, so it removes an empty local claim that a delivered or released plan defers (#2705) → #2791
 
 ### Deferred desk
 
