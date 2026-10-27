@@ -200,3 +200,75 @@ export const insertStatusRecord = (content: string, field: string, record: strin
   }
   return { changed: true, content: out.join('\n') };
 };
+
+/** Whether a line is `## Status` or a heading that starts with it. */
+const isStatusSection = (line: string): boolean => /^## Status/.test(line);
+
+/** Whether a line is a `- **State:**`-style field, matched the way the undeliver write matches it. */
+const isStateBullet = (line: string): boolean => /^[ \t]*[-*][ \t]*\**state[:*]/i.test(line);
+
+/** Whether a line is a `- **Rejected:**` field. */
+const isRejectedBullet = (line: string): boolean => /^[ \t]*[-*][ \t]*\**rejected[:*]/i.test(line);
+
+/**
+ * Writes the reversal of a delivery into a plan file: the front-matter keys,
+ * the `## Status` state, and the `Rejected:` record.
+ *
+ * Front matter: the first `status:` and the first `phase:` key naming
+ * `delivered` take `state`, quotes kept. Status section: the first state bullet
+ * takes `state`; every `Rejected:` bullet is replaced by `record`. Where the
+ * file holds no `Rejected:` bullet, `record` goes on a new line directly after
+ * the state bullet.
+ *
+ * @param content - the whole plan file.
+ * @param state - the state to write, capitalised as the estate spells it.
+ * @param record - the text after `Rejected:`.
+ * @returns the edited file, or `null` where `## Status` holds no state bullet.
+ */
+export const reverseDelivery = (content: string, state: string, record: string): string | null => {
+  const lines = content.split('\n');
+  const out: string[] = [];
+  let inFront = isFrontMatterFence(lines[0]);
+  const flipped = { status: false, phase: false };
+  let inStatus = false;
+  let stateSeen = false;
+  let rejectedSeen = false;
+  let stateAt = -1;
+
+  lines.forEach((line, i) => {
+    if (i === 0) {
+      out.push(line);
+      return;
+    }
+    if (inFront && isFrontMatterFence(line)) {
+      inFront = false;
+      out.push(line);
+      return;
+    }
+    const key = inFront ? frontMatterKeyOf(line) : null;
+    const at = line.toLowerCase().indexOf('delivered');
+    if (key && !flipped[key] && at >= 0) {
+      flipped[key] = true;
+      out.push(line.slice(0, at) + state + line.slice(at + 'delivered'.length));
+      return;
+    }
+    if (/^## /.test(line)) inStatus = isStatusSection(line);
+    if (inStatus && !stateSeen && isStateBullet(line)) {
+      stateSeen = true;
+      stateAt = out.length;
+      out.push(line.replace(/State:\*\*[ \t]*.*$/, `State:** ${state}`));
+      return;
+    }
+    if (inStatus && isRejectedBullet(line)) {
+      rejectedSeen = true;
+      out.push(`- **Rejected:** ${record}`);
+      return;
+    }
+    if (/^[ \t]*[-*][ \t]*\*\*Rejected:/i.test(line)) rejectedSeen = true;
+    out.push(line);
+  });
+
+  if (!stateSeen) return null;
+  if (!rejectedSeen) out.splice(stateAt + 1, 0, `- **Rejected:** ${record}`);
+  return out.join('\n');
+};

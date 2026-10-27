@@ -15,6 +15,7 @@ import {
   supersede,
   undeliver,
   undeliverable,
+  type BranchReading,
   type ApproveInput,
   type TransitionPlan,
 } from '../src/transitions/plan.js';
@@ -812,38 +813,52 @@ describe('undeliver', () => {
     expect(isDecision(result)).toBe(true);
   });
 
-  it('refuses refs-swept by its own name, not as a generic unmet reading', () => {
-    // A CALLER WHOSE REFS WERE SWEPT HAS ONE REPAIR. `precondition-unmet`
-    // sends it looking for a reading it forgot to supply, which is a different
-    // mistake with a different fix.
-    const result = undeliver(planWith({ phase: 'delivered' }), {
-      on: '2026-09-09',
-      why,
-      preconditions: [{ name: 'refs', met: false }],
-    });
+  const reading = (over: Partial<BranchReading> = {}): BranchReading => ({
+    branch: 'feature/a',
+    ref: 'absent',
+    merged: 'not-merged',
+    closedUnmerged: 'yes',
+    ...over,
+  });
+  const undeliverWith = (...branches: BranchReading[]) =>
+    undeliver(planWith({ phase: 'delivered' }), { on: '2026-09-09', why, branches });
+
+  it('refuses refs-swept for a branch that is absent, not merged and has a closed unmerged PR', () => {
+    const result = undeliverWith(reading({ branch: 'feature/a' }), reading({ branch: 'feature/b' }));
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('refs-swept');
-  });
-
-  it('names the swept branches where the reading carried them', () => {
-    const result = undeliver(planWith({ phase: 'delivered' }), {
-      on: '2026-09-09',
-      why,
-      preconditions: [{ name: 'refs', met: false, detail: 'feature/a, feature/b' }],
-    });
-    expect(isRefusal(result)).toBe(true);
-    if (!isRefusal(result)) return;
     expect(result.detail).toContain('feature/a, feature/b');
   });
 
-  it('passes a met refs reading through to the decision', () => {
-    const result = undeliver(planWith({ phase: 'delivered' }), {
-      on: '2026-09-09',
-      why,
-      preconditions: [{ name: 'refs', met: true }],
-    });
-    expect(isDecision(result)).toBe(true);
+  it.each([
+    ['a merged and deleted branch', reading({ merged: 'merged', closedUnmerged: 'no' })],
+    ['a never-pushed branch', reading({ merged: 'not-merged', closedUnmerged: 'no' })],
+    ['a present branch', reading({ ref: 'present', merged: 'not-merged', closedUnmerged: 'yes' })],
+  ])('decides approved for %s', (_name, branch) => {
+    expect(isDecision(undeliverWith(branch))).toBe(true);
+  });
+
+  it('decides approved where the plan names no branch', () => {
+    expect(isDecision(undeliverWith())).toBe(true);
+  });
+
+  it.each([
+    ['a ref that is unknown', reading({ ref: 'unknown', merged: '-' as never })],
+    ['an absent ref with an unknown merge answer', reading({ merged: 'unknown' })],
+    ['an absent ref with an unknown closed-PR answer', reading({ closedUnmerged: 'unknown' })],
+  ])('refuses refs-unknown for %s without claiming deletion', (_name, branch) => {
+    const result = undeliverWith(branch);
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('refs-unknown');
+    expect(result.detail).not.toContain('deleted');
+    expect(result.detail).toContain('feature/a');
+  });
+
+  it('names a lost branch before an unknown one', () => {
+    const result = undeliverWith(reading({ branch: 'feature/a', ref: 'unknown' }), reading({ branch: 'feature/b' }));
+    expect(isRefusal(result) && result.reason).toBe('refs-swept');
   });
 
   it('refuses precondition-unmet for any other unmet reading', () => {

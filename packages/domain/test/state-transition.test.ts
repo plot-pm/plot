@@ -82,6 +82,15 @@ describe('sprintVerb and owningCommand', () => {
     expect(owningCommand('plan', 'x', 'delivered')).toBe('/plot-deliver x  (or: bash skills/plot/scripts/plot-deliver.sh x)');
   });
 
+  it('names /plot-reject for Delivered -> Approved and /plot-approve for an earlier from-state', () => {
+    expect(owningCommand('plan', 'x', 'Approved', 'Delivered')).toBe(
+      '/plot-reject x  (or: bash skills/plot/scripts/plot-undeliver.sh x --why <reason>)',
+    );
+    for (const from of ['Draft', 'Design', '']) {
+      expect(owningCommand('plan', 'x', 'Approved', from)).toContain('/plot-approve x');
+    }
+  });
+
   it('names the needs-design bundle for Design', () => {
     expect(owningCommand('plan', 'x', 'Design')).toBe(
       'needs-design x  (or: node skills/plot/scripts/board/plot-needs-design.mjs x --who <handle>)',

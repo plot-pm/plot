@@ -246,6 +246,7 @@ export type {
   RejectInput,
   SupersedeInput,
   UndeliverInput,
+  BranchReading,
 } from './transitions/plan.js';
 
 /**

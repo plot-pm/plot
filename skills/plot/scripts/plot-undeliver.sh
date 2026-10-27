@@ -73,90 +73,62 @@ if [ "$count" -gt 1 ]; then
 fi
 file="$matches"
 
-# MEASURE THE SWEPT REFS. A branch the plan names whose remote ref is gone has
-# nowhere to put the remaining work, and the domain cannot ask a remote.
-swept=""
-branches=$(grep -oE '\(Branch: [^,)]+' "$file" 2>/dev/null | sed 's/(Branch: //' | sort -u || true)
-for b in $branches; do
-  if ! git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1; then
-    swept="${swept:+$swept, }$b"
+# READ EACH BRANCH, DECIDE NOTHING. One line per non-deferred branch: the ref
+# (`ls-remote` exit 0 present, 2 absent, anything else unknown -- an unreachable
+# origin exits 128 and is not "deleted"), and, only where the ref is gone, what
+# the host says: a merge (`mergedAt`, never ancestry) and a closed unmerged PR.
+# shellcheck source=plot-pr-merged.sh
+. "$script_dir/plot-pr-merged.sh"
+# shellcheck source=plot-state-receipt.sh
+. "$script_dir/plot-state-receipt.sh"
+readings=""
+n=0
+for b in $(bash "$script_dir/plot-plan-meta.sh" "$file" | jq -r '.waves[].branches[] | select(.deferred | not) | .branch' | sort -u); do
+  git ls-remote --exit-code --heads origin "$b" >/dev/null 2>&1 && ref=present || { rc=$?; [ "$rc" = 2 ] && ref=absent || ref=unknown; }
+  merged=-; closed=-
+  if [ "$ref" = absent ]; then
+    case "$(_plot_merged_lookup "$b")" in found) merged=merged ;; none) merged=not-merged ;; *) merged=unknown ;; esac
+    closed=unknown
+    if out=$(bash "$script_dir/plot-host.sh" pr-list --state closed --branch "$b" --limit 100 2>&1) && [[ "$out" != *'possibly truncated'* ]]; then
+      cnt=$(printf '%s' "$out" | jq -Rn --arg b "$b" '[inputs | fromjson? | select(.head == $b and ((.mergedAt // "") == ""))] | length' 2>/dev/null) || cnt=x
+      case "$cnt" in 0) closed=no ;; x) ;; *) closed=yes ;; esac
+    fi
   fi
+  readings="$readings$b	$ref	$merged	$closed
+"
+  n=$((n + 1))
 done
 
-# ASK THE DOMAIN. The header is one line and the file follows it whole, so a
-# plan carrying tabs or its own `## Status` block travels unescaped.
+# ASK THE DOMAIN. The header is one line, the readings follow it, and the file
+# follows them whole, so a plan carrying tabs or its own `## Status` block
+# travels unescaped.
+# THE DOMAIN WRITES THE FILE TOO: the answer is `<State>\t<record>`, a newline,
+# then the plan with the reversal applied. It goes to a scratch copy that one
+# `mv` replaces, so a refused plan is the plan that was found.
+tmp="$file.plot-undeliver"
 set +e
-answer=$(printf '%s\t%s\t%s\n' "$on" "$why" "$swept" | cat - "$file" | node "$bundle" 2>&1)
+{ printf '%s\t%s\t%s\t%s\n%s' "$on" "$why" "$slug" "$n" "$readings"; cat "$file"; } | node "$bundle" >"$tmp" 2>"$tmp.err"
 rc=$?
 set -e
-
+err=$(cat "$tmp.err"); rm -f "$tmp.err"
 # Exit 1 is the domain's refusal: the rule that fired, a tab, and its sentence.
 # Exit 2 is this script handing the bundle something unreadable, which no
 # operator can act on -- so it reports as the bug it is.
 if [ "$rc" != 0 ]; then
-  if [ "$rc" = 1 ]; then
-    echo "plot-undeliver: $(printf '%s' "$answer" | cut -f2-)" >&2
-  else
-    echo "plot-undeliver: $answer" >&2
-  fi
-  exit 1
-fi
-
-decided_state=$(printf '%s' "$answer" | cut -f1)
-decided_record=$(printf '%s' "$answer" | cut -f2)
-
-# THE DOMAIN NORMALISES THE PHASE AND THE ESTATE CAPITALISES IT. Every
-# `State:` line in docs/plans reads `Approved`, and the rule answers
-# `approved` -- so the case is restored here, where presentation belongs, and
-# not in the rule, which would then be answering in a file format's spelling.
-decided_state="$(printf '%s' "${decided_state:0:1}" | tr '[:lower:]' '[:upper:]')${decided_state:1}"
-
-# PERFORM THE WRITE THE DOMAIN DECIDED, against a scratch copy replaced by one
-# `mv`. The awk that knows where a `## Status` line lives stays here, because
-# that is adaptation -- the same split plot-approve.sh draws.
-tmp="$file.plot-undeliver"
-awk -v want="$decided_state" -v record="$decided_record" '
-  NR == 1 { in_fm = ($0 ~ /^---[ \t]*$/); print; next }
-  in_fm && /^---[ \t]*$/ { in_fm = 0; print; next }
-  # #2439: front matter is a second writer the scan reads independently of the
-  # block, so the first status: and the first phase: line naming delivered each
-  # flip in place, quotes kept, matching flipFrontMatterPhase in plan-record-edit.ts.
-  in_fm && (k = tolower(substr($0, 1, index($0, ":")))) ~ /^(status|phase):$/ && !fm[k] && (p = index(tolower($0), "delivered")) { $0 = substr($0, 1, p - 1) want substr($0, p + 9); fm[k] = 1; print; next }
-  /^## / { section = ($0 ~ /^## Status/) ? "status" : "" }
-  section == "status" && !done && tolower($0) ~ /^[ \t]*[-*][ \t]*\**state[:*]/ { sub(/State:\*\*[ \t]*.*$/, "State:** " want); done = 1; print; next }
-  # The reason, recorded beside the state. An existing line is replaced so
-  # re-running writes one record rather than a second.
-  section == "status" && tolower($0) ~ /^[ \t]*[-*][ \t]*\**rejected[:*]/ {
-    print "- **Rejected:** " record
-    wrote = 1
-    next
-  }
-  { print }
-  END { exit (done ? 0 : 1) }
-' "$file" > "$tmp" && awk_rc=0 || awk_rc=$?
-
-if [ "${awk_rc:-0}" != 0 ]; then
   rm -f "$tmp"
-  echo "plot-undeliver: $file has no '- **State:**' line under '## Status' — refusing rather than guessing where the phase lives." >&2
+  echo "plot-undeliver: ${err/$'\t'/: }" >&2
   exit 1
 fi
-
-# The record line is APPENDED where the file carried none, after the state it
-# explains. A plan delivered before this verb existed has no `Rejected:` line,
-# and a reversal that wrote the phase without the reason is the half-write the
-# rule refuses to leave behind.
-if ! grep -qiE '^[ \t]*[-*][ \t]*\*\*Rejected:' "$tmp"; then
-  awk -v record="$decided_record" '
-    BEGIN { section = ""; done = 0 }
-    /^## / { section = ($0 ~ /^## Status/) ? "status" : "" }
-    { print }
-    section == "status" && !done && tolower($0) ~ /^[ \t]*[-*][ \t]*\**state[:*]/ {
-      print "- **Rejected:** " record
-      done = 1
-    }
-  ' "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
-fi
+head=$(head -n 1 "$tmp")
+decided_state=${head%%$'\t'*}
+decided_record=${head#*$'\t'}
+tail -n +2 "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
 
 mv "$tmp" "$file"
+record_state_receipt "$file" "$decided_state"
+# The index follows the state: the delivered entry becomes an active one.
+mkdir -p "$plan_dir/active"
+ln -sfn "../$(basename "$file")" "$plan_dir/active/$slug.md"
+rm -f "$plan_dir/delivered/$slug.md"
 echo "plot-undeliver: $slug → $decided_state ($decided_record)"
 echo "  the file is written; the commit is yours."

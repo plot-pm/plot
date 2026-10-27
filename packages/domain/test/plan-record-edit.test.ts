@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '../src/rules/plan-record-edit.js';
+import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord, reverseDelivery } from '../src/rules/plan-record-edit.js';
 
 describe('flipStatusValue', () => {
   it('flips State: Approved to Delivered inside ## Status', () => {
@@ -212,5 +212,53 @@ describe('insertStatusRecord', () => {
       '- **State:** Approved',
       '- **Delivered:** 2026-10-04',
     ]);
+  });
+});
+
+describe('reverseDelivery', () => {
+  const plan = (status: string, front = '') =>
+    `${front}# P\n\n## Status\n\n${status}\n## Changelog\n\n- x\n`;
+
+  it('flips the state and inserts Rejected: directly after it', () => {
+    const out = reverseDelivery(
+      plan('- **State:** Delivered\n- **Approved:** a\n- **Delivered:** d\n'),
+      'Approved',
+      '2026-01-03, why',
+    );
+    expect(out).toContain('- **State:** Approved\n- **Rejected:** 2026-01-03, why\n- **Approved:** a');
+  });
+
+  it('replaces an existing Rejected: line rather than adding a second', () => {
+    const out = reverseDelivery(
+      plan('- **State:** Delivered\n- **Rejected:** old\n'),
+      'Approved',
+      'new',
+    );
+    expect(out).toContain('- **Rejected:** new');
+    expect(out?.match(/Rejected:/g)).toHaveLength(1);
+  });
+
+  it('adds no second Rejected: line where one sits outside the Status section', () => {
+    const out = reverseDelivery(
+      `# P\n\n## Status\n\n- **State:** Delivered\n\n## Notes\n\n- **Rejected:** kept\n`,
+      'Approved',
+      'new',
+    );
+    expect(out).toContain('- **State:** Approved');
+    expect(out).toContain('- **Rejected:** kept');
+    expect(out?.match(/Rejected:/g)).toHaveLength(1);
+  });
+
+  it('flips the first status: and phase: front-matter keys and keeps the quotes', () => {
+    const out = reverseDelivery(
+      plan('- **State:** Delivered\n', '---\nstatus: "Delivered"\nphase: Delivered\n---\n'),
+      'Approved',
+      'r',
+    );
+    expect(out).toContain('status: "Approved"\nphase: Approved\n---');
+  });
+
+  it('returns null where the status section holds no state bullet', () => {
+    expect(reverseDelivery(plan('- **Approved:** a\n'), 'Approved', 'r')).toBeNull();
   });
 });
