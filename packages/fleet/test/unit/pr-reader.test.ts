@@ -9,6 +9,7 @@ import { HEARTBEAT_STALE_MS } from '@plot-pm/domain/rules/reader-election';
 import { readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
 
 import { run, scriptDirFor, stillFollowed } from '../../src/server/entry/pr-reader.js';
+import { removeTree } from '../rm-tree.mjs';
 
 /** A liveness reader that always answers "alive" for the pids given. */
 const allAlive = async (pids: readonly number[]) =>
@@ -136,7 +137,7 @@ describe('run — the reader hands its role back to fleetd', () => {
       const next = await lock.elect('github', { generation: 0, pid: process.ppid, startedAt: now - 60_000, at: Date.now() });
       expect(next.ok && next.value).toBe('elected');
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      removeTree(root);
     }
   }, 15_000);
 });
@@ -186,7 +187,7 @@ describe('run — one pass with no follower', () => {
       const holder = await readerLockFile({ home: lockDir }).holder('github');
       expect(holder.ok && holder.value).toBe(null);
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      removeTree(root);
     }
   });
 });
