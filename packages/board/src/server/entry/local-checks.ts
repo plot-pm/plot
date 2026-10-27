@@ -11,6 +11,7 @@ import {
   type LocalChecksAnswer,
 } from '@plot-pm/domain/rules/local-checks';
 import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -208,16 +209,17 @@ if (
   import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 ) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const args = process.argv.slice(2);
   if (process.argv[2] === '--ci-suite-refusal') {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-    process.exit(await refuse(process.cwd(), scriptDir, Buffer.concat(chunks).toString('utf8')));
+    void endEntry(await refuse(process.cwd(), scriptDir, Buffer.concat(chunks).toString('utf8')));
+  } else if (args.length === 0) {
+    void endEntry(await run(process.cwd(), scriptDir));
+  } else if (args.length === 2 && args[0] === '--files') {
+    void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, args[1]));
+  } else {
+    process.stderr.write(`plot-local-checks: unknown argument ${args[0]}\nusage: plot-local-checks.mjs [--files <path>]\n`);
+    void endEntry(EXIT.usage);
   }
-  const args = process.argv.slice(2);
-  if (args.length === 0) process.exit(await run(process.cwd(), scriptDir));
-  if (args.length === 2 && args[0] === '--files') {
-    process.exit(await run(process.cwd(), scriptDir, undefined, undefined, args[1]));
-  }
-  process.stderr.write(`plot-local-checks: unknown argument ${args[0]}\nusage: plot-local-checks.mjs [--files <path>]\n`);
-  process.exit(EXIT.usage);
 }

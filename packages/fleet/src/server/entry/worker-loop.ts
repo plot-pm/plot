@@ -75,6 +75,7 @@ import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 import { CONTINUATION_NAME } from '../../shared/continuation-name.js';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * `plot-worker-loop.mjs` — the JS loop, one process for an agent's whole life.
@@ -2595,7 +2596,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   // `--self-check` runs `selfCheck` and starts no loop.
   // The bundle sits in `scripts/board/`; the helper scripts are one level up.
   const scriptDir = dirname(new URL('.', import.meta.url).pathname.replace(/\/$/, ''));
-  process.exit(process.argv.includes('--self-check') ? await selfCheck(process.env, scriptDir) : await main(process.env, scriptDir));
+  void endEntry(process.argv.includes('--self-check') ? await selfCheck(process.env, scriptDir) : await main(process.env, scriptDir));
 }
 /* v8 ignore stop */
 

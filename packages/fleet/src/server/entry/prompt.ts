@@ -9,6 +9,7 @@ import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
 import { spawnContractEnv } from '@plot-pm/domain/rules/spawn-contract';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-worker-loop.sh` runs once, before its first
@@ -237,5 +238,5 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 ) {
-  process.exit(run(process.argv.slice(2)));
+  void endEntry(run(process.argv.slice(2)));
 }

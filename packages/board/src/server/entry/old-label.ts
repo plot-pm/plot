@@ -5,6 +5,7 @@ import {
 } from '@plot-pm/domain/rules/old-label-migration';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-fleetctl.sh` runs when an old-label unit is loaded.
@@ -75,5 +76,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8'), process.argv[2]));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8'), process.argv[2]));
 }

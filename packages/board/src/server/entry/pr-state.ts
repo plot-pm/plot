@@ -3,6 +3,7 @@ import type { Host } from '@plot-pm/domain/ports/host';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-impl-status.sh` runs for an annotated slice line.
@@ -56,5 +57,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     repoRoot: process.cwd(),
     scriptDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
   };
-  process.exit(await run(process.argv.slice(2), hostShell(context)));
+  void endEntry(await run(process.argv.slice(2), hostShell(context)));
 }

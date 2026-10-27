@@ -124,6 +124,7 @@ import { gatherReadingsAndRelease } from '../../shared/release-claim-reader.js';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import type { PrOpenReading } from '@plot-pm/domain/rules/ending-action';
 import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import {
   QUEUE_HOLDS,
@@ -2886,35 +2887,30 @@ export const writersFor = (
 };
 
 /**
- * Settles the process after the daemon's own run, without cutting off a
- * write still in flight.
+ * Settles the process after the daemon's own run, through `endEntry` so a
+ * write still in flight on a `--once` pipe drains before the process ends.
  *
- * SETS `exitCode`, NEVER CALLS `exit`, on the success path: `--once` on a
- * macOS pipe can still have a write in flight when this resolves, and
- * `process.exit` would cut it off before the OS buffer drains. Setting
- * `exitCode` lets the event loop empty naturally, which waits for a
- * backed-up stdout/stderr write to finish before the process ends.
- *
- * The failure path still calls `exit(1)` directly: it covers what throws
+ * The failure path reports and ends with code 1: it covers what throws
  * before the loop is reached — an unreadable argument, a missing registry
  * directory — and is itself the second half of error reporting, not a
  * substitute for the loop's own `catch`. Without it such a failure is an
  * unhandled rejection, which ends the process with an empty error log.
  *
  * @param daemon - the daemon's own run, resolving to its exit code.
- * @param proc - the process whose `exitCode` is set or `exit` is called.
+ * @param end - ends the process; `endEntry` unless a test gives one.
  * @param err - where a start failure is reported.
  */
 export const settleOnce = async (
   daemon: Promise<number>,
-  proc: Pick<NodeJS.Process, 'exit' | 'exitCode'>,
+  end: (code: number) => Promise<never>,
   err: (s: string) => void,
 ): Promise<void> => {
   try {
-    proc.exitCode = await daemon;
+    const code = await daemon;
+    void end(code);
   } catch (e: unknown) {
     err(`plot-fleetd failed to start: ${e instanceof Error ? e.message : String(e)}\n`);
-    proc.exit(1);
+    void end(1);
   }
 };
 
@@ -2936,7 +2932,7 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   const writers = writersFor(process.argv.slice(2), logs);
   void settleOnce(
     startDaemon(process, dirname(fileURLToPath(import.meta.url)), writers.out, writers.err),
-    process,
+    endEntry,
     (s) => process.stderr.write(s),
   );
 }

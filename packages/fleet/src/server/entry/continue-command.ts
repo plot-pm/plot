@@ -6,6 +6,7 @@ import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import type { DeskMonitors, FleetReading } from '@plot-pm/domain';
 import { continueBranch } from '../../shared/continue-command.js';
 import { ANSWER_MAX } from '../../shared/continuation.js';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The master agent's `continue` controller, with no board and no HTTP.
@@ -113,5 +114,5 @@ if (
 ) {
   const scriptDir =
     process.env.PLOT_SCRIPTS_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  process.exit(await run(process.argv.slice(2), process.cwd(), scriptDir));
+  void endEntry(await run(process.argv.slice(2), process.cwd(), scriptDir));
 }

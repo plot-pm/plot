@@ -8,6 +8,7 @@ import {
 import { type Decision, type Refusal, refused } from '@plot-pm/domain/workflows/decision';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `/plot-reconcile` runs, once per sweep.
@@ -432,5 +433,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv.slice(2)));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv.slice(2)));
 }

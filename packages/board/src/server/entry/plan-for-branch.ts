@@ -7,6 +7,7 @@
 // nothing printed when no plan in `Plan directory` names the branch.
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -44,8 +45,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const [branch] = process.argv.slice(2);
   if (!branch) {
     process.stderr.write('usage: plot-plan-for-branch.mjs <branch>\n');
-    process.exit(2);
+    void endEntry(2);
+  } else {
+    const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    void endEntry(await run(branch, process.cwd(), scriptDir));
   }
-  const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  process.exit(await run(branch, process.cwd(), scriptDir));
 }

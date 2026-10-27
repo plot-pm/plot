@@ -3,6 +3,7 @@
 import { checkoutYield, type CheckoutReading, type CheckoutReadings } from '@plot-pm/domain/rules/checkout-yield';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * Whether the worktree holding a branch may be removed so an agent handed that
@@ -95,5 +96,5 @@ export const run = (stdin: string, write: (s: string) => void = (s) => process.s
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8')));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8')));
 }

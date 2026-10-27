@@ -10,6 +10,7 @@ import { refused, type Decision } from '@plot-pm/domain/workflows/decision';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-release-gate.sh` runs, once per release.
@@ -361,7 +362,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     .split(',')
     .map((p) => p.trim())
     .filter((p) => p !== '');
-  process.exit(
+  void endEntry(
     run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv, undefined, ticketPrefixes),
   );
 }

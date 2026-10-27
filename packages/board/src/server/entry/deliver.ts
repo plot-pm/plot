@@ -37,6 +37,7 @@ import { existsSync, lstatSync, mkdirSync, realpathSync, symlinkSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-deliver.sh` now launches, once per plan
@@ -978,5 +979,5 @@ const runRelease = async (
 // the reason `agent-settings.ts` records: `/tmp` is a symlink on macOS.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  process.exit(await run(process.argv.slice(2), process.cwd(), scriptDir));
+  void endEntry(await run(process.argv.slice(2), process.cwd(), scriptDir));
 }

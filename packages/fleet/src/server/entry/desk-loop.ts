@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { DeskManifest } from '@plot-pm/domain/rules/desk-manifest';
 import { deskManifestFor } from '../../shared/manifest-stamp.js';
 import { readDeskLoop, type DeskLoopReading } from '../../shared/desk-loop.js';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * Whether each desk holds a live loop — `deskLoopAlive` and `deskWaitsFree`
@@ -83,7 +84,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     process.env.PLOT_SCRIPTS_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const manifestDir = process.env.PLOT_MANIFEST_DIR || undefined;
   const repoRoot = process.cwd();
-  process.exit(
+  void endEntry(
     run(process.argv.slice(2), readFileSync(0, 'utf8'), {
       manifestFor: (desk) => deskManifestFor(repoRoot, desk, { manifestDir, scriptsDir }),
       read: readDeskLoop,

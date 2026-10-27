@@ -2874,47 +2874,38 @@ describe('queueWorldForRepo — the refused reading', () => {
 });
 
 describe('settleOnce — --once must not cut off a write still draining (#1539)', () => {
-  it('sets exitCode rather than calling exit, so a backed-up write survives', async () => {
-    // A pipe reporting backpressure: `write` returns `false`, and nothing
-    // here ever resolves it — the old `process.exit(code)` would have torn
-    // the process down regardless, discarding that signal entirely.
+  it('ends through the given end function with the daemon run its code', async () => {
+    // A pipe reporting backpressure: `write` returns `false` — `endEntry`
+    // itself is what waits for a backed-up write to drain, and `settleOnce`
+    // only needs to hand it the daemon's own code.
     const writers = writersFor(['--once'], '/unused', {
       stdout: { write: () => false },
       stderr: { write: () => false },
     });
     writers.out('whole output line\n');
 
-    let exitCalls = 0;
-    const proc: Pick<NodeJS.Process, 'exit' | 'exitCode'> = {
-      exitCode: null,
-      exit: (() => {
-        exitCalls += 1;
-        return undefined as never;
-      }) as NodeJS.Process['exit'],
+    const ends: number[] = [];
+    const end = (code: number): Promise<never> => {
+      ends.push(code);
+      return new Promise<never>(() => undefined);
     };
 
-    await settleOnce(Promise.resolve(0), proc, () => {});
+    await settleOnce(Promise.resolve(0), end, () => {});
 
-    expect(proc.exitCode).toBe(0);
-    expect(exitCalls).toBe(0);
+    expect(ends).toEqual([0]);
   });
 
-  it('still reports and exits on a start failure, before the loop is reached', async () => {
-    let exitCalls = 0;
-    const proc: Pick<NodeJS.Process, 'exit' | 'exitCode'> = {
-      exitCode: null,
-      exit: ((code?: number) => {
-        exitCalls += 1;
-        expect(code).toBe(1);
-        return undefined as never;
-      }) as NodeJS.Process['exit'],
+  it('still reports and ends with code 1 on a start failure, before the loop is reached', async () => {
+    const ends: number[] = [];
+    const end = (code: number): Promise<never> => {
+      ends.push(code);
+      return new Promise<never>(() => undefined);
     };
     const err: string[] = [];
 
-    await settleOnce(Promise.reject(new Error('missing registry directory')), proc, (s) => err.push(s));
+    await settleOnce(Promise.reject(new Error('missing registry directory')), end, (s) => err.push(s));
 
-    expect(exitCalls).toBe(1);
+    expect(ends).toEqual([1]);
     expect(err.join('')).toContain('plot-fleetd failed to start: missing registry directory');
-    expect(proc.exitCode).toBe(null);
   });
 });

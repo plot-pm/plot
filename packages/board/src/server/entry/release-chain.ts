@@ -8,6 +8,7 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * Section 6 of `plot-reconcile-scan.sh` for a delivered plan whose PR's merge
@@ -202,5 +203,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   const stdin = Buffer.concat(chunks).toString('utf8');
-  process.exit(await run(process.argv.slice(2), stdin, { host: hostShell(context), refs: refsGit(context) }));
+  void endEntry(await run(process.argv.slice(2), stdin, { host: hostShell(context), refs: refsGit(context) }));
 }

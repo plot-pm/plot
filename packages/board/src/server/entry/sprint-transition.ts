@@ -12,6 +12,7 @@ import {
 } from '@plot-pm/domain/transitions/sprint';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-sprint-state.sh` runs, once per transition.
@@ -317,5 +318,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   if (!process.argv.includes('--states')) {
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   }
-  process.exit(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv));
 }
