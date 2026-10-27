@@ -76,6 +76,7 @@ skills/plot/scripts/board/plot-local-checks.mjs -merge
 skills/plot/scripts/board/plot-merge-subject.mjs -merge
 skills/plot/scripts/board/plot-release-chain.mjs -merge
 skills/plot/scripts/board/plot-bitbucket-slug.mjs -merge
+skills/plot/scripts/board/plot-listing-walk.mjs -merge
 skills/plot/scripts/board/plot-bitbucket-mergeable.mjs -merge
 skills/plot/scripts/board/plot-movable.mjs -merge
 skills/plot/scripts/board/plot-old-label.mjs -merge

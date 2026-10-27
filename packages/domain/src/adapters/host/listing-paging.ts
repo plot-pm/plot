@@ -1,4 +1,4 @@
-import type { EnvelopeNext, ListingPaging } from '../../rules/listing-page.js';
+import { walkStep, type EnvelopeNext, type ListedPage, type ListingPaging } from '../../rules/listing-page.js';
 
 /**
  * The page length of Bitbucket's plain listing, per `bb` version measured.
@@ -24,10 +24,42 @@ export const BITBUCKET_PAGE_LENGTHS: Readonly<Record<string, number>> = {
  * @returns `honours-limit` for GitHub; a fixed page otherwise, whose length is
  *   null for a backend or a version nobody measured.
  */
+/**
+ * Bitbucket stays `fixed-page`: `plot-host.sh`'s `_bb_paged_walk` follows
+ * `next` over fixed `pagelen`-row pages up to a `--limit`, and
+ * `pagePossiblyTruncated` proves completeness from the stopping page's
+ * envelope as `walkToLimit` reports it, never from comparing the row count
+ * against the limit — the trait that makes GitHub's listing `honours-limit`.
+ */
 export const listingPagingFor = (backend: string, cliVersion: string): ListingPaging => {
   if (backend === 'github') return { kind: 'honours-limit' };
   const pageLength = backend === 'bitbucket' ? BITBUCKET_PAGE_LENGTHS[cliVersion] : undefined;
   return { kind: 'fixed-page', pageLength: pageLength ?? null };
+};
+
+/** The page length `plot-host.sh` asks Bitbucket's plain listing for (`BB_LIST_PAGELEN`). */
+export const BITBUCKET_REQUEST_PAGELEN = 50;
+
+/**
+ * Where `plot-host.sh`'s `_bb_paged_walk` stops in its row-limit mode over
+ * `pages`, and what it reports. The walk asks `walkStep` after each page
+ * through `board/plot-listing-walk.mjs`; this reads the same rule over a whole
+ * list of pages. A walk past the end of `pages` stops there.
+ *
+ * @param pages - the pages the host serves, in order.
+ * @param limit - the caller's row limit, at least 1.
+ * @param pageLength - the page length the request asks for.
+ * @returns the row count printed, trimmed to `limit`, and the stopping page's
+ *   `envelopeNext`, or `'present'` where the trim dropped a row.
+ */
+export const walkToLimit = (
+  pages: readonly ListedPage[],
+  limit: number,
+  pageLength: number = BITBUCKET_REQUEST_PAGELEN,
+): { readonly rows: number; readonly envelopeNext: EnvelopeNext } => {
+  const read = pages.findIndex((_, index) => walkStep(pages.slice(0, index + 1), limit, pageLength).stops);
+  const { rows, envelopeNext } = walkStep(read === -1 ? pages : pages.slice(0, read + 1), limit, pageLength);
+  return { rows, envelopeNext };
 };
 
 /**

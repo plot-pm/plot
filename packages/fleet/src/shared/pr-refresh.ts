@@ -1744,6 +1744,26 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // nothing left to stand down, and a latch nobody clears would shorten the
       // next failure's grace to nothing.
       if (kind === 'whole') entry.prFullReadFailedAt = null;
+      // A PARTIAL ANSWER TO A FULL-READ WINDOW IS A FULL READ THAT FAILED FOR
+      // SOME STATES. `window.kind` says this pass asked for everything;
+      // `partialSaid` says not every state answered — so the rows that are
+      // missing are exactly the ones a plain full-read failure stands down
+      // for, and leaving the latch unset here is the gap `prWindowFor`'s grace
+      // cannot close: paging a full read on Bitbucket costs up to 24 requests,
+      // and repeating that every ordinary tick to re-ask a state that just
+      // failed spends the budget `PR_REQUESTS_PER_REFRESH.bitbucket` counts as
+      // 3. Recorded whatever the cause — the grace does not ask why the state
+      // was missing, only that it was.
+      const partialFullRead = window.kind === 'whole' && partialSaid !== null;
+      if (partialFullRead) entry.prFullReadFailedAt = Date.now();
+      // THE BACKOFF IS SEPARATE AND CONDITIONAL. `partialSaid` is the host's
+      // own sentence naming the miss, so where it names a rate limit the same
+      // `hostReaction` a thrown refusal reads below applies here too — a
+      // partial answer is not a refusal (the rows it carries are kept and
+      // served), but a throttled state behind it is still a throttled state.
+      const partialFullReadReaction = partialFullRead
+        ? hostReaction(partialSaid, rate?.resetAt ?? null)
+        : null;
       // THE SERVED MAPS COME FROM THE FOLD, NOT FROM THIS PASS'S ROWS. A
       // delta's window returns the rows that changed — 3 on a quiet estate —
       // and `map`/`byNumber`/`byHead` above hold exactly those. Serving them
@@ -1800,7 +1820,12 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // undo the saving on the connector this slice never set out to narrow.
       await world.afterAnswer?.(map);
       entry.prAt = Date.now();
-      scheduleNextPr(entry, startedAt, null, backend, scheduleRate);
+      // A THROTTLED STATE BEHIND A PARTIAL FULL READ GETS THE SAME TREATMENT
+      // A THROWN REFUSAL WOULD: the concurrency bound falls, and the next
+      // refresh waits the time the host named rather than rejoining the
+      // ordinary 60 s cadence to spend the same budget asking again.
+      if (partialFullReadReaction !== null) applyReaction(entry, partialFullReadReaction);
+      scheduleNextPr(entry, startedAt, waitOf(partialFullReadReaction), backend, scheduleRate);
       // THE ROWS ARE KEPT AND THE GAP IS STILL SAID. A partial answer reached
       // here because its rows are real; recording no error would report a page
       // missing a whole host state as a complete reading, which is the quiet
@@ -1814,13 +1839,15 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // git-only group, which looks like state changing rather than data missing.
     const message = err instanceof Error ? err.message : String(err);
     entry.prError = message;
-    // A FAILED FULL READ IS RECORDED, AND ONLY A FULL READ. The next refresh
-    // follows in 60 s and the full read is still due, so without this the
-    // heaviest query on the estate repeats every minute — a 504 names no wait,
-    // so `hostReaction` has nothing to slow the board with. A failed DELTA is
-    // not recorded: it is the cheap call, and standing the full read down on it
-    // would delay the one answer that sees a deleted PR for a failure that
-    // costs nothing to retry.
+    // A FAILED FULL READ IS RECORDED, AND ONLY A FULL READ — WHETHER IT THREW
+    // OR CAME BACK PARTIAL. This is the thrown half; the happy path above
+    // records the same latch for a full-read window that answered `partial`.
+    // The next refresh follows in 60 s and the full read is still due, so
+    // without this the heaviest query on the estate repeats every minute — a
+    // 504 names no wait, so `hostReaction` has nothing to slow the board with.
+    // A failed DELTA is not recorded: it is the cheap call, and standing the
+    // full read down on it would delay the one answer that sees a deleted PR
+    // for a failure that costs nothing to retry.
     //
     // ON THE ENTRY AND NOT IN THE STORE: see `prFullReadFailedAt`. The store is
     // also deliberately untouched on this path, so a dark answer is never

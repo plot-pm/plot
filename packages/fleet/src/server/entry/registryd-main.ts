@@ -791,15 +791,23 @@ export const queueWorldForRepo = (
       // ONE CALL, JOINED BY HEAD BRANCH. `prList` bundles what `prMerged`
       // answers per branch, and the queue needs the whole set rather than one
       // answer — asked per branch it took a tick from 25 s to 357 s.
-      // THE LIMIT IS EXPLICIT AND LARGE, because the join is against the WHOLE
-      // history rather than the recent page. `pr-list` defaults to 30 and warns
-      // that "a join against this page may read older branches as 'no PR'" —
-      // measured 2026-09-06, #707 and #710 are hundreds of merges back and a
-      // default page missed both, leaving their plans blocked exactly as
-      // before.
+      // THE LIMIT IS EXPLICIT AND LARGE ON GITHUB, because the join is
+      // against the WHOLE history rather than the recent page. `pr-list`
+      // defaults to 30 and warns that "a join against this page may read
+      // older branches as 'no PR'" — measured 2026-09-06, #707 and #710 are
+      // hundreds of merges back and a default page missed both, leaving
+      // their plans blocked exactly as before.
+      //
+      // CHOSEN BY BACKEND, FOR THE SAME REASON NARROWER ON BITBUCKET. GitHub
+      // keeps the 500 the #707/#710 fix needed. Bitbucket now pages up to its
+      // own limit (`bb_state_listing`'s row-limit mode), so asking 500 there
+      // would cost 10 requests per tick; 50 keeps this call at the same
+      // 3-request budget `PR_REQUESTS_PER_REFRESH.bitbucket` already assumes.
+      const backend = await host.backend();
+      const limit = backend.ok && backend.value === 'bitbucket' ? 50 : 500;
       const full = async (): Promise<MergedListing> => {
         tally.calls += 1;
-        const answer = await host.prList('merged', 500);
+        const answer = await host.prList('merged', limit);
         // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
         // incomplete and cannot say why; the tick line prints the kind, so an
         // operator reads `unaskable(throttled)` rather than inferring a rate
@@ -835,20 +843,19 @@ export const queueWorldForRepo = (
       // exposes, by the same backend word, so a store this tick's earlier
       // `prIndexRows()` read as empty (missing/incomplete/wrong-version) also
       // decides `full` here — the two readings cannot disagree.
-      const backend = await host.backend();
       if (!backend.ok) return full();
       const held = await index.read(backend.value);
       const store = held.ok ? held.value : null;
       const window = mergedSetWindowFor(store);
       if (window.kind === 'full') return full();
       tally.calls += 1;
-      const answer = await host.prList('merged', 500, window.since);
+      const answer = await host.prList('merged', limit, window.since);
       const refusal = host.lastRefusal();
       // ANY DELTA TROUBLE FALLS THROUGH TO THE FULL CALL IN THE SAME TICK.
-      // A failed call, a left-behind refusal, or exactly `--limit 500` rows
-      // (the page may have been truncated) are each a reason not to trust
-      // this answer — none of them are unioned with the stored rows.
-      if (!answer.ok || refusal !== null || answer.value.length === 500) return full();
+      // A failed call, a left-behind refusal, or exactly `limit` rows (the
+      // page may have been truncated) are each a reason not to trust this
+      // answer — none of them are unioned with the stored rows.
+      if (!answer.ok || refusal !== null || answer.value.length === limit) return full();
       const deltaHeads = answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head);
       const merged = new Set([...deltaHeads, ...indexMergedHeads(store?.rows ?? [])]);
       return { merged, whole: true, kind: 'delta', failed: false };

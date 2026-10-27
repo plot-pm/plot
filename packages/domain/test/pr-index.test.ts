@@ -615,17 +615,33 @@ describe('the window one refresh asks for', () => {
     });
 
     it('does not reach a store with nothing to narrow against', () => {
-      // THE FALLBACK IS NOT A LICENCE TO NARROW. A cold store, a partial store
-      // and a store with no watermark each have no delta to fall back to, so
-      // they keep their cadence whatever failed — the refusals above all return
-      // before the fallback is consulted.
+      // THE FALLBACK IS NOT A LICENCE TO NARROW. A cold store and a store with
+      // no watermark have no delta to fall back to, so they keep their cadence
+      // whatever failed — the refusals above all return before the fallback is
+      // consulted. A partial store is covered separately below: it DOES have a
+      // watermark to fall back to.
       const failed = { at: now };
       expect(prWindowFor(null, now, DAY, failed, HOUR).since).toBeNull();
-      expect(prWindowFor(due({ complete: false }), now, DAY, failed, HOUR).since).toBeNull();
       expect(prWindowFor(due({ watermark: null }), now, DAY, failed, HOUR).since).toBeNull();
       // And a store with no full read on record: nothing says its rows are whole.
       const { wholeAt: _dropped, ...noRecord } = due();
       expect(prWindowFor(noRecord as PrIndex, now, DAY, failed, HOUR).since).toBeNull();
+    });
+
+    it('answers a delta for a partial store whose failure is inside its grace', () => {
+      // A PARTIAL READ IS ITSELF A FAILURE READING. `complete: false` means some
+      // state did not answer on the pass that produced this store — paging a
+      // full read on Bitbucket costs up to 24 requests, so repeating it every
+      // ordinary tick to re-ask a state that just failed spends a budget
+      // `PR_REQUESTS_PER_REFRESH.bitbucket` counts as 3. Inside the grace the
+      // next refresh asks a delta instead; once the grace expires, a full read.
+      const failed = { at: now - 30 * 60 * 1000 };
+      const partial = due({ complete: false });
+      const window = prWindowFor(partial, now, DAY, failed, HOUR);
+      expect(window.kind).toBe('delta');
+      expect(window.since).toBe('2026-09-20T18:42:10Z');
+      expect(prWindowFor(partial, now, DAY, { at: now - 2 * HOUR }, HOUR).since).toBeNull();
+      expect(prWindowFor(partial, now, DAY, null, HOUR).since).toBeNull();
     });
 
     it('leaves a store that is not yet due exactly as it was', () => {

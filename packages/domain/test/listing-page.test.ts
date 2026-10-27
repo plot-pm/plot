@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { listingPagingFor } from '../src/adapters/host/listing-paging.js';
-import { pagePossiblyTruncated, type ListingPaging } from '../src/rules/listing-page.js';
+import { listingPagingFor, walkToLimit } from '../src/adapters/host/listing-paging.js';
+import { pagePossiblyTruncated, walkStep, type ListingPaging } from '../src/rules/listing-page.js';
 
 const honours: ListingPaging = { kind: 'honours-limit' };
 const fifty: ListingPaging = { kind: 'fixed-page', pageLength: 50 };
@@ -42,9 +42,60 @@ describe('a listing page is possibly truncated', () => {
     expect(pagePossiblyTruncated({ limit: 1000, rows: 50, paging: fifty, envelopeNext: 'absent' })).toBe(false);
   });
 
-  it('falls through to paging where the envelope named a further page, or was unread', () => {
+  it('falls through to the measured length only where the envelope was unread', () => {
     expect(pagePossiblyTruncated({ limit: 1000, rows: 1, paging: unmeasured, envelopeNext: 'present' })).toBe(true);
     expect(pagePossiblyTruncated({ limit: 1000, rows: 20, paging: fifty, envelopeNext: 'unknown' })).toBe(false);
+  });
+
+  it('is possibly truncated where a fixed-page walk stopped with a further page named, at any row count', () => {
+    expect(pagePossiblyTruncated({ limit: 1000, rows: 20, paging: fifty, envelopeNext: 'present' })).toBe(true);
+    expect(pagePossiblyTruncated({ limit: 20, rows: 0, paging: fifty, envelopeNext: 'present' })).toBe(true);
+  });
+});
+
+describe('where a row-limit walk stops', () => {
+  const full = { rows: 50, envelopeNext: 'present' as const };
+
+  it('stops on a page with no further page, untrimmed, and reports that page', () => {
+    expect(walkToLimit([full, full, { rows: 20, envelopeNext: 'absent' }], 1000)).toEqual({ rows: 120, envelopeNext: 'absent' });
+  });
+
+  it('reports a further page when the trim drops a row, even on a last page', () => {
+    expect(walkToLimit([full, full, { rows: 50, envelopeNext: 'absent' }], 120)).toEqual({ rows: 120, envelopeNext: 'present' });
+    expect(walkToLimit([full], 30)).toEqual({ rows: 30, envelopeNext: 'present' });
+  });
+
+  it('stops on an empty page that still names a further page', () => {
+    expect(walkToLimit([full, { rows: 0, envelopeNext: 'present' }, full], 1000)).toEqual({ rows: 50, envelopeNext: 'present' });
+  });
+
+  it('reads at most ceil(limit / page length) pages', () => {
+    const short = { rows: 1, envelopeNext: 'present' as const };
+    expect(walkToLimit(Array.from({ length: 50 }, () => short), 1000)).toEqual({ rows: 20, envelopeNext: 'present' });
+  });
+});
+
+describe('whether a row-limit walk reads another page', () => {
+  const full = { rows: 50, envelopeNext: 'present' as const };
+
+  it('continues after a full page that names a further page, below the limit and the page bound', () => {
+    expect(walkStep([full], 1000, 50)).toEqual({ stops: false, rows: 50, envelopeNext: 'present' });
+  });
+
+  it('stops on a page that names no further page, or on no envelope', () => {
+    expect(walkStep([full, { rows: 20, envelopeNext: 'absent' }], 1000, 50).stops).toBe(true);
+    expect(walkStep([{ rows: 20, envelopeNext: 'unknown' }], 1000, 50)).toEqual({ stops: true, rows: 20, envelopeNext: 'unknown' });
+  });
+
+  it('stops at the limit, and reports a further page where the trim drops a row', () => {
+    expect(walkStep([full, full], 100, 50)).toEqual({ stops: true, rows: 100, envelopeNext: 'present' });
+    expect(walkStep([full], 30, 50)).toEqual({ stops: true, rows: 30, envelopeNext: 'present' });
+  });
+
+  it('stops on an empty page, at the page bound, and before any page is read', () => {
+    expect(walkStep([full, { rows: 0, envelopeNext: 'present' }], 1000, 50).stops).toBe(true);
+    expect(walkStep([{ rows: 1, envelopeNext: 'present' }, { rows: 1, envelopeNext: 'present' }], 100, 50).stops).toBe(true);
+    expect(walkStep([], 1000, 50)).toEqual({ stops: true, rows: 0, envelopeNext: 'unknown' });
   });
 });
 

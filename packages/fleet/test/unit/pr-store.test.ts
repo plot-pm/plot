@@ -778,6 +778,46 @@ describe('the call asks only for the delta', () => {
     expect(prListCall(next)).toBe('pr-list --rich-open --state all --limit 1000');
   });
 
+  it('a partial full read falls back to a window inside the grace, and is asked again an hour later', async () => {
+    // A PARTIAL ANSWER TO A FULL-READ WINDOW IS A FULL READ THAT FAILED FOR
+    // SOME STATES. Paging a full read on Bitbucket costs up to 24 requests, so
+    // repeating it every ordinary tick to re-ask a state that just 429'd would
+    // spend the budget `PR_REQUESTS_PER_REFRESH.bitbucket` counts as 3 — the
+    // same cost a thrown full-read failure already stands down for.
+    const home = storeHome();
+    await refresh(host([line({ updatedAt: '2026-09-20T12:00:00Z' })]), home);
+    const file = path.join(home, 'github.json');
+    const stored = decodePrIndex(fs.readFileSync(file, 'utf8'))!;
+    fs.writeFileSync(file, JSON.stringify({
+      ...stored, wholeAt: '2026-01-01T00:00:00Z', at: new Date().toISOString(),
+    }));
+
+    // The full read is due, and the merged state 429s while the rest answer.
+    const entry = freshPrState();
+    const partial = host([line({ updatedAt: '2026-09-20T12:00:00Z' })], 7, 'HTTP 429: rate limit for this resource');
+    await refresh(partial, home, entry);
+    expect(prListCall(partial)).toBe('pr-list --rich-open --state all --limit 1000');
+    expect(entry.prError).toContain('429');
+    expect(entry.prFullReadFailedAt).not.toBeNull();
+    // The rows that did answer are kept: a partial answer is not a refusal.
+    expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
+    expect(onDisk(home)?.complete).toBe(false);
+
+    // The next refresh in the same process asks a WINDOW rather than repeating
+    // the paged full read that just cost a throttled state.
+    const after = host([]);
+    await refresh(after, home, entry);
+    expect(prListCall(after)).toBe(
+      'pr-list --rich --state all --limit 1000 --since 2026-09-20T12:00:00Z');
+
+    // AND THE OTHER HALF: one hour on, the full read is asked again.
+    entry.prFullReadFailedAt = Date.now() - 61 * 60 * 1000;
+    const later = host([line({ updatedAt: '2026-09-20T12:00:00Z' })]);
+    await refresh(later, home, entry);
+    expect(prListCall(later)).toBe('pr-list --rich-open --state all --limit 1000');
+    expect(entry.prFullReadFailedAt).toBeNull();
+  });
+
   it('a partial DELTA merges and stays partial', async () => {
     // The two facts are separate and both point the same way here: the answer
     // was neither a full read nor whole, so it may only merge.

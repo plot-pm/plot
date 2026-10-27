@@ -328,12 +328,15 @@ export const readQueue = async (
   // asked by number, a request that answered on Bitbucket while the listing
   // returned HTTP 429 (#1140). `landedWithoutListing` bounds those lookups.
   //
-  // A WHOLE LISTING IS ONE PAGE. It names the host's newest 500 merged PRs, so
-  // a branch merged further back is missing from an answer that is whole. The
-  // index's MERGED rows join the set on every pass: a merged PR cannot revert,
-  // and the index never says *not merged*, so a missing row settles nothing.
-  // On 2026-10-10 three slices and both their prerequisites sat more than 800
-  // merges back and were held on `waits` (#1454).
+  // A WHOLE LISTING NAMES THE HOST'S NEWEST MERGED PRs, UP TO ITS LIMIT — 500
+  // on GitHub, 50 on Bitbucket (`registryd-main.ts`'s `mergedBranches`,
+  // chosen by `host.backend()` so Bitbucket's own paged walk stays inside its
+  // 3-request-per-refresh budget). A branch merged further back than the
+  // limit is missing from an answer that is whole. The index's MERGED rows
+  // join the set on every pass: a merged PR cannot revert, and the index
+  // never says *not merged*, so a missing row settles nothing. On 2026-10-10
+  // three slices and both their prerequisites sat more than 800 merges back
+  // and were held on `waits` (#1454).
   const listing = await world.mergedBranches();
   const rows = await world.prIndexRows();
   const merged = new Set([...listing.merged, ...indexMergedHeads(rows)]);
