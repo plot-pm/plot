@@ -2527,8 +2527,12 @@ export const run = async (
           freshScanState(),
           () => Date.now(),
           warn,
-          // THE PR READER'S LAST FAILURE rides the bridge beside the pulse:
-          // the board reads it there, because the fleet is the one PR reader.
+          // THE PR READER'S LAST FAILURE still rides the bridge beside the
+          // pulse, for a board reading `elect` with no other reader to
+          // publish a reader-lock state yet. A board reading `follow`
+          // reads `ReaderLock.readerState` instead, since fleetd is no
+          // longer the only process that can hold this lock
+          // (`the-boards-share-one-pr-reader`).
           () => prState.prError,
           // THE AUTOMATIC WRITES RUN HERE, on the pulse this scan just wrote
           // and never inside `tick`: a scan that failed calls nothing.

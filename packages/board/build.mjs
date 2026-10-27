@@ -20,6 +20,7 @@ import {
   dispatchCommandArtifact,
   continueCommandArtifact,
   deskLoopArtifact,
+  prReaderArtifact,
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -29,10 +30,10 @@ if (!fs.existsSync(clientHtml)) {
   process.exit(1);
 }
 
-// `@plot-pm/fleet` builds seven bundles: `plot-fleetd.mjs`,
+// `@plot-pm/fleet` builds eight bundles: `plot-fleetd.mjs`,
 // `plot-worker-loop.mjs`, `plot-fleet-size.mjs`, `plot-prompt.mjs`,
-// `plot-dispatch-command.mjs`, `plot-continue-command.mjs` and
-// `plot-desk-loop.mjs`. This
+// `plot-dispatch-command.mjs`, `plot-continue-command.mjs`,
+// `plot-desk-loop.mjs` and `plot-pr-reader.mjs`. This
 // file keeps their `shipped*` declarations, because the gates and
 // `bundles.generated.ts` derive the generated set from this file alone, and
 // copies each bundle from `packages/fleet/dist/` to its shipped path.
@@ -352,6 +353,16 @@ const shippedDeskLoop = path.join(here, '../../skills/plot/scripts/board/plot-de
 
 fs.copyFileSync(deskLoopArtifact, shippedDeskLoop);
 fs.chmodSync(shippedDeskLoop, 0o755);
+
+// The shared PR reader, one per machine per repository+connector, started by
+// whichever board first reads `electReader` as `elect` with no live `fleetd`
+// heartbeat. Vendored beside the board rather than given a verb on
+// plot-ask.mjs: the board starts it through the `Detached` port directly, with
+// no fleet scan and no HTTP round trip.
+const shippedPrReader = path.join(here, '../../skills/plot/scripts/board/plot-pr-reader.mjs');
+
+fs.copyFileSync(prReaderArtifact, shippedPrReader);
+fs.chmodSync(shippedPrReader, 0o755);
 
 // The task state, reachable from the classifier that answers it.
 //
