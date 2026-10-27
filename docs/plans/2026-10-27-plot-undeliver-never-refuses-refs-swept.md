@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2787 merged
 - **Started:** 2026-10-27, Jan Wloka, `bug/plot-undeliver-reads-slices`
+- **Started:** 2026-10-27, Jan Wloka, `bug/plot-reject-calls-plot-undeliver` (brief only, no claim yet)
 
 ## Changelog
 
