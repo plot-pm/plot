@@ -1158,40 +1158,41 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # IS STILL A REQUEST FAILURE: the limit changes how a CLEAN stop is reported,
 # never how a broken one is.
 _bb_paged_walk() {
-  local _path="$1" _label="$2" _detail="$3" _limit="$4" _out _spool _next _envnext _page=0 _got=0 _prev; shift 4
+  # A ROW-LIMIT WALK'S PAGE BOUND `_bound` IS ceil(limit / pagelen); with no
+  # limit it is empty and the page cap below applies instead.
+  local _path="$1" _label="$2" _detail="$3" _limit="$4" _out _spool _next _page=0 _got=0 _prev \
+    _bound="${4:+$(( ($4 + BB_LIST_PAGELEN - 1) / BB_LIST_PAGELEN ))}"; shift 4
   # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
   # `rm` on an early return; the walk only ever runs a handful of times per
   # process, so the file outliving one call costs nothing a caller can see.
   plot_tmpfile _spool host-paged-walk || return 3; while [ -n "$_path" ]; do
-    _page=$((_page + 1))
-    [ -n "$_limit" ] || [ "$_page" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
+    [ "$((++_page))" -le "${_bound:-$BB_BRANCH_QUERY_PAGE_CAP}" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
     # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
     # would turn the host's exit code into jq's, and a parse error and a spent
     # quota are not the same fact. A failure on page 2+ returns the same raw
     # code the first page would have — see the header above.
     _out="$(bb "$@" api "$_path")" || return $?
     printf '%s\n' "$_out" | jq -c '.values // []' >> "$_spool" && _next="$(jq -r '.next // empty' <<<"$_out")" || return 3
-    # THE SAME THREE-WAY ENVELOPE READ `bb_state_listing` USED FOR ITS ONE
-    # DIRECT CALL, not a bare `next`-emptiness test: an envelope missing
-    # `values`/`page` altogether (the shape a stub with no `next` support at
-    # all emits, or a narrower real response) proves nothing either way, and
-    # `[ -z "$_next" ]` could not tell that apart from "absent" — it answered
-    # "0" (complete) for a page this function has no licence to call whole.
-    _envnext="$(jq -r 'if (type=="object") and has("values") and has("page") then (if has("next") then "1" else "0" end) else "" end' <<<"$_out")" || return 3
+    # A ROW-LIMIT WALK STOPS EARLY on `$4` rows held, a page that added no
+    # rows, or its page bound; a page with no `next` ends the loop below. All
+    # four stops leave the stopping page in `_out` for the reading after it.
     if [ -n "$_limit" ]; then
       _prev="$_got"
       _got="$(jq -c -s 'add // [] | length' < "$_spool")" || return 3
-      if [ -z "$_next" ] || [ "$_got" -ge "$_limit" ] 2>/dev/null || [ "$_got" -eq "$_prev" ] || [ "$_page" -ge "$(( (_limit + BB_LIST_PAGELEN - 1) / BB_LIST_PAGELEN ))" ]; then
-        [ "$_got" -gt "$_limit" ] 2>/dev/null && _envnext=1
-        [ -n "${BB_LIST_NEXT_FILE:-}" ] && printf '%s' "$_envnext" > "$BB_LIST_NEXT_FILE"
-        jq -c -s --argjson n "$_limit" 'add // [] | .[:$n]' < "$_spool"
-        return 0
-      fi
+      [ "$_got" -ge "$_limit" ] 2>/dev/null || [ "$_got" -eq "$_prev" ] || [ "$_page" -ge "$_bound" ] && break
     fi
     if [ -z "$_next" ]; then _path=""; elif [[ "$_next" == "$BB_API_BASE"/* ]]; then _path="${_next#"$BB_API_BASE"}"
     else echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3; fi
   done
-  jq -c -s 'add // []' < "$_spool"
+  # THE SAME THREE-WAY ENVELOPE READ `bb_state_listing` USED FOR ITS ONE
+  # DIRECT CALL, not a bare `next`-emptiness test: an envelope missing
+  # `values`/`page` altogether (the shape a stub with no `next` support at
+  # all emits, or a narrower real response) proves nothing either way, and
+  # `[ -z "$_next" ]` could not tell that apart from "absent" — it answered
+  # "0" (complete) for a page this function has no licence to call whole.
+  # A trim that drops a row reads "1" whatever the envelope says.
+  [ -n "$_limit" ] && [ -n "${BB_LIST_NEXT_FILE:-}" ] && jq -r --argjson cut "$((_got > _limit))" 'if $cut == 1 then "1" elif (type=="object") and has("values") and has("page") then (if has("next") then "1" else "0" end) else "" end' <<<"$_out" > "$BB_LIST_NEXT_FILE"
+  jq -c -s --argjson n "${_limit:-null}" 'add // [] | .[:$n]' < "$_spool"
 }
 
 bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]
@@ -1418,9 +1419,9 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 # header has the stopping rule) now follows `next` until it holds
 # `PR_LIST_LIMIT` rows or the host stops offering one, so a `--limit 1000`
 # caller gets up to 1000 rows of this state rather than 50 regardless of how
-# it asked. `PR_LIST_LIMIT` empty means no `--limit` was requested, and one
-# request's worth — `pagelen=$BB_LIST_PAGELEN`, unpaged — is what every caller
-# before this slice got and still gets.
+# it asked. `PR_LIST_LIMIT` empty means no `--limit` was requested, and the
+# walk then stops at `BB_LIST_PAGELEN` rows: one request, the answer every
+# caller before this slice got and still gets.
 #
 # ONE REQUEST PER STATE AT THE OLD CEILING, WHERE `bb pr list` SPENDS UP TO
 # FIVE. `bb pr list` sends no `pagelen`, Bitbucket answers 10 rows a page, and
@@ -1452,7 +1453,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 # `bb_branch_query`: `pr_list_call` classifies once, so a `429` on any page
 # still reads as a rate limit.
 bb_state_listing() { # global bb args… --state <s> --json → one JSON array
-  local _st="" _args=() _out
+  local _st="" _args=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --state) _st="${2:?}"; shift 2 ;;
@@ -1461,15 +1462,9 @@ bb_state_listing() { # global bb args… --state <s> --json → one JSON array
     esac
   done
   [ -n "$_st" ] || die "bb_state_listing: no --state"
-  if [ -n "$PR_LIST_LIMIT" ]; then
-    _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN" \
-      "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" \
-      "$PR_LIST_LIMIT" ${_args[@]+"${_args[@]}"}
-    return $?
-  fi
-  _out="$(bb ${_args[@]+"${_args[@]}"} api "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN")" || return $?
-  [ -n "${BB_LIST_NEXT_FILE:-}" ] && printf '%s' "$_out" | jq -r 'if (type=="object") and has("values") and has("page") then (if has("next") then "1" else "0" end) else "" end' > "$BB_LIST_NEXT_FILE"
-  printf '%s' "$_out" | jq -c '.values // []'
+  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN" \
+    "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" \
+    "${PR_LIST_LIMIT:-$BB_LIST_PAGELEN}" ${_args[@]+"${_args[@]}"}
 }
 
 # The branches a sweep asks about, newline-or-space separated. Empty means the
