@@ -213,3 +213,64 @@ describe('a claim whose holder died is not followed', () => {
     }
   });
 });
+
+describe('a board following a standalone reader with no fleet', () => {
+  it('reads issues from the host on every tick, because no fleet writes the issue index', async () => {
+    const dir = fixture();
+    try {
+      const hosts = path.join(dir, 'hosts.log');
+      fs.writeFileSync(
+        path.join(dir, 'plot-host.sh'),
+        `#!/usr/bin/env bash\necho "$1" >> ${JSON.stringify(hosts)}\ncase "$1" in\n  backend) echo github ;;\nesac\nexit 0\n`,
+      );
+      const issueListed = (): number =>
+        fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter((l) => l === 'issue-list').length : 0;
+      const readerLock = readerLockFixture();
+      const now = Date.now();
+      // A standalone reader's claim: live, renewed, and no `fleetd` heartbeat or fleet bridge beside it.
+      await readerLock.elect('github', { generation: 0, pid: 999_993, startedAt: now - 60_000, at: now });
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls), processProbe: probeAnswering(true) };
+      const entry = freshCacheEntry();
+
+      await maybeRefreshPrs(opts, entry);
+      expect(entry.prReader).toBe('reader 999993');
+      const afterFirst = issueListed();
+      expect(afterFirst).toBeGreaterThan(0);
+
+      entry.prNextAt = 0;
+      entry.prNextIsBackoff = false;
+      entry.issueNextAt = 0;
+      entry.issueNextIsBackoff = false;
+      await maybeRefreshPrs(opts, entry);
+
+      expect(entry.prReader).toBe('reader 999993');
+      expect(issueListed()).toBeGreaterThan(afterFirst);
+      expect(calls).toHaveLength(0);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('writes its heartbeat before it reads, so a reader started this tick counts it even when the tick throws', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      // Starting the reader throws, so nothing after it in the tick runs.
+      const throwing: Detached = {
+        node: () => {
+          throw new Error('spawn failed');
+        },
+      };
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: throwing, processProbe: probeAnswering(false) };
+      const entry = freshCacheEntry();
+
+      await expect(maybeRefreshPrs(opts, entry)).rejects.toThrow('spawn failed');
+
+      const beats = await readerLock.heartbeats('github');
+      expect(beats.ok && beats.value.map((b) => b.name)).toContain(`board.${process.pid}`);
+    } finally {
+      cleanup(dir);
+    }
+  });
+});

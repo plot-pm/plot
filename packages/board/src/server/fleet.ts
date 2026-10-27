@@ -2490,10 +2490,13 @@ export const refreshPrs = async (
  *     overlay, same as `elect`, but nothing is started: a lock this board
  *     cannot read is a lock a spawned reader could not elect over either.
  *
- * Every verdict writes this board's own heartbeat before returning,
- * unconditionally — whether it followed, started a reader, or served its own
- * overlay — so the reader this tick may have started can count this board as
- * a live follower on its very next exit check.
+ * Every verdict writes this board's own heartbeat before any read, whether
+ * it follows, starts a reader, or serves its own overlay, so the reader this
+ * tick may have started counts this board as a live follower on its first
+ * exit check.
+ *
+ * Issues do not follow the verdict: they come from the issue index while a
+ * fleet runs and from the host otherwise.
  */
 export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.prRunning || !prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) return;
@@ -2505,36 +2508,37 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
     const fleetdLive = await fleetdHeartbeatIsLive(lock, key, now);
     entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
+    // BEFORE ANY READ, so a reader started on this tick already counts this
+    // board on its first exit check, and a tick that throws still leaves it.
+    await lock.heartbeat(key, `board.${process.pid}`, now);
     if (verdict === 'follow') {
       await readPrsFromStore(opts, entry, key);
-      // Issues stay on their own gate — `fleetOwnsScan` over the scan
-      // bridge, untouched by this slice — so a `follow` verdict over the PR
-      // lock with no fleet running reads issues from nowhere rather than
-      // from a store nothing is writing.
-      if (await fleetOwnsPrs(opts, entry)) await readIssuesFromStore(opts, entry);
-      await lock.heartbeat(key, `board.${process.pid}`, now);
-      return;
+    } else {
+      if (verdict === 'elect' && !fleetdLive) {
+        const indexDir = await indexDirFor(opts);
+        if (indexDir !== null) startReader(opts, key, indexDir);
+      }
+      // NO READER CONFIRMED LIVE: the board asks the host itself and folds the
+      // answer in memory, so the store stays the reader's to write. Inferred
+      // from the lock's own holder, which is the only liveness signal this
+      // function reads for PRs now.
+      await refreshPrs(opts, entry, overlayFor(opts, entry));
     }
-    if (verdict === 'elect' && !fleetdLive) {
-      const indexDir = await indexDirFor(opts);
-      if (indexDir !== null) startReader(opts, key, indexDir);
-    }
-    // NO READER CONFIRMED LIVE: the board asks the host itself and folds the
-    // answer in memory, so the store stays the reader's to write. Inferred
-    // from the lock's own holder, which is the only liveness signal this
-    // function reads for PRs now.
-    await refreshPrs(opts, entry, overlayFor(opts, entry));
-    // Inside the PR tick, behind the issue read's own gate (`issueNextAt`,
-    // `issueIntervalMs`), whose spend `refreshPrs` subtracts through
-    // `issueGate`. A rate limit either read names holds both gates. Sequential
-    // rather than concurrent: two calls at one instant is what a rate limit
-    // counts.
+    // ISSUES FOLLOW THE FLEET, NOT THE PR LOCK. The reader reads PRs only, and
+    // fleetd is the one writer of the issue index, so the index is served
+    // only while a fleet runs (`fleetOwnsScan` over the bridge); otherwise the
+    // board asks the host itself, whatever the PR verdict.
     //
-    // After, and outside `refreshPrs`, because the two fail independently: a
+    // Behind the issue read's own gate (`issueNextAt`, `issueIntervalMs`),
+    // whose spend `refreshPrs` subtracts through `issueGate`. A rate limit
+    // either read names holds both gates. Sequential rather than concurrent:
+    // two calls at one instant is what a rate limit counts.
+    //
+    // After, and outside the PR read, because the two fail independently: a
     // tracker outage must not blank the PR map, and a PR failure must not
     // retract the inbox.
-    if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
-    await lock.heartbeat(key, `board.${process.pid}`, now);
+    if (await fleetOwnsPrs(opts, entry)) await readIssuesFromStore(opts, entry);
+    else if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
   }
