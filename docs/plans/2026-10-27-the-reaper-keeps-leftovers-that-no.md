@@ -102,7 +102,7 @@ Each slice adds a test that fails on `4a1b8a5fa` and the opposite arms that must
 
 ### Deferred desk
 
-- `bug/a-deferred-desk-with-a-pushed-head-is-reapable` — the reaper removes a deferred desk whose head is on the remote and keeps `origin/<branch>` (#2714)
+- `bug/a-deferred-desk-with-a-pushed-head-is-reapable` — the reaper removes a deferred desk whose head is on the remote and keeps `origin/<branch>` (#2714) → #2797
 
 ## Notes
 
