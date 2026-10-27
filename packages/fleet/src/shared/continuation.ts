@@ -612,6 +612,34 @@ export const stopAndAwaitExit = async (pid: string, pollMs = 50, deadlineMs = ST
   }
 };
 
+/**
+ * Reads `.plot-worker.pid`, polling briefly — the write lands from inside the
+ * backgrounded subshell `continueOnDesk` spawns (see its own long comment),
+ * never the outer shell whose exit this function's caller already awaited,
+ * so a single read can race a write that is still a scheduler tick away.
+ * Measured landing under 50 ms on this machine; bounded generously for load.
+ *
+ * `stale`, where given, is rejected even though it is a positive number: a
+ * continued or restarted desk's pid file already names the PREVIOUS worker
+ * before this spawn's write lands, so a poll that accepts any positive value
+ * can return that leftover pid on its very first read — measured directly,
+ * `continue-command.test.ts`'s "starts a new pid through the default bridged
+ * pulse" flaked on exactly this read before the guard existed.
+ *
+ * @param worktree - the desk whose pid file is read.
+ * @param stale - a pid to keep polling past, even though it reads positive.
+ * @returns the pid, parsed; `0` where the file never holds a fresh one within the bound.
+ */
+const pollDeskPid = async (worktree: string, stale?: string): Promise<number> => {
+  const deadline = Date.now() + 2_000;
+  const staleNum = Number(stale) || 0;
+  for (;;) {
+    const pid = Number(await readDeskPid(worktree)) || 0;
+    if ((pid > 0 && pid !== staleNum) || Date.now() >= deadline) return pid;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+};
+
 /** A manifest's text, or `null` when it cannot be read. */
 const manifestText = (file: string): string | null => {
   try {
@@ -1192,28 +1220,81 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // Darwin 24.6 (see the brief) — so `plot-boardctl.sh`'s `tree_pids`, which
     // walks `ppid`, still finds this loop under the board and a `stop` reaches
     // it. A second process level is what escapes that walk: the outer `sh -c`
-    // backgrounds the whole `( cmd ); rc=$?; printf ...` sequence as ONE
-    // subshell, writes ITS pid (`$!`) to `.plot-worker.pid` itself, and exits —
-    // so `init`/pid 1 adopts the backgrounded subshell rather than Node's direct
-    // child. The outer parens around that whole sequence are load-bearing: `&`
-    // binds to the nearest command list, so without them only `( cmd )` is
-    // backgrounded and `rc=$?; printf ...` runs in the OUTER shell's foreground
-    // immediately after — reporting `&`'s own exit status, not the real
-    // command's, and writing the exit file while the command is still running
-    // (measured: a 2s `sleep` left an exit file within 0.3s). `child.pid` below
-    // names the OUTER shell, which has exited by the time this function
-    // returns; it is never recorded anywhere a reader would mistake it for the
-    // loop.
+    // backgrounds the whole `( ( cmd ) & agent=$!; wait "$agent"; ... )`
+    // sequence as ONE subshell and exits — so `init`/pid 1 adopts the
+    // backgrounded subshell rather than Node's direct child.
+    //
+    // `wait` CAN ONLY WAIT ON ITS OWN DIRECT CHILD — measured directly: a
+    // sibling subshell backgrounded alongside `agent` (rather than nesting
+    // both inside ONE subshell) gets `wait: pid N is not a child of this
+    // shell`, whatever variable it inherited by value. That is why `agent`'s
+    // own backgrounding and the `wait` that reports its death must stay
+    // nested together in the same subshell, and `.plot-worker.pid` is
+    // written from INSIDE that subshell, right after `agent=$!` — there is
+    // no legal way to make the OUTER shell both capture `agent`'s pid AND
+    // let the nested subshell `wait` on it.
+    // `child.pid` below names the OUTER shell, which has exited by the time
+    // this function returns; it is never recorded anywhere a reader would
+    // mistake it for the loop. `.plot-worker.pid` carries `$agent`'s own pid
+    // — the same identity `start_worker`'s wrapper records, and the one
+    // `test/e2e/monitors-end.test.mjs` signals directly and matches against
+    // the wrapper's own `evidence` string. Because that write happens inside
+    // the backgrounded subshell rather than the outer shell's own exiting
+    // body, it is not guaranteed done the instant `child.once('exit')` fires
+    // — measured at roughly 20ms behind it — so the read below polls rather
+    // than reading once.
     const exitFile = path.join(worktree, '.plot-worker.exit');
     const pidFile = path.join(worktree, '.plot-worker.pid');
     const spawnFn = input.spawn ?? spawn;
+    // THE SAME `gone`/`clear` LINE `start_worker` APPENDS, after the SAME
+    // `wait "$agent"`. Without it a continued or restarted worker's death
+    // reaches `.plot-worker.exit` but never the WorkerMonitor-shaped finding
+    // the board's reader and `attention.ts` key on — measured by
+    // `test/e2e/monitors-attached.test.mjs`, which this route must satisfy
+    // identically to a fresh dispatch now that `--restart` reaches here
+    // rather than `start_worker`. `plot-monitor-subject.sh` is sourced off
+    // `PLOT_SCRIPT_DIR` for `plot_watched_desk`, the same hop-aware lookup
+    // the wrapper uses, so a hopped agent's line lands on the desk it is
+    // actually watching rather than the one this run launched on.
+    //
+    // THE `[ -f ... ] &&` GUARD IS LOAD-BEARING. A `.` on a path that names no
+    // file is fatal to the subshell under `sh` — unlike a normal failing
+    // command, it is not merely non-zero, it ends the shell outright, even
+    // though `2>/dev/null` hides the message and `&&` would otherwise skip
+    // the right side. With no guard, an unresolvable `PLOT_SCRIPT_DIR` (a test
+    // fixture's `/nonexistent`, or any real misconfiguration) kills this
+    // subshell before `wd=$(plot_watched_desk ...)`, so the exit file at the
+    // tail is never written and a caller polling for it hangs.
+    //
+    // `trap '' TERM` RIGHT AFTER `agent=$!`, the same line `start_worker`'s
+    // wrapper carries. `--stop` signals the whole process GROUP (`kill -TERM
+    // -- "-$pgid"`), and this middle subshell shares a group with `agent`
+    // since neither runs under job control. With no trap, the group kill
+    // took this subshell down WITH the agent, and `wait "$agent"` never
+    // returned — so neither the exit file nor the gone/clear finding was
+    // ever written, the exact failure
+    // `test/e2e/monitors-attached.test.mjs`'s "--stop kills the agent, and
+    // the monitor, the exit record and the wrapper's own finding survive it"
+    // names. The trap makes this subshell immune to the same TERM that ends
+    // the agent, so it survives to report the death.
+    const workerGoneClear =
+      'trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; wait "$agent"; rc=$?; wd="$PLOT_WORKTREE"; ' +
+      '[ -f "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" ] && . "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" 2>/dev/null && ' +
+      'wd=$(plot_watched_desk "$PLOT_MANIFEST_FILE" "$PLOT_WORKTREE"); ' +
+      'wf="$wd/.plot-worker.monitor.worker.jsonl"; ' +
+      'if [ -n "$wd" ]; then ' +
+      'now=$(date -u +%Y-%m-%dT%H:%M:%SZ); ' +
+      'if [ "$rc" -ne 0 ]; then f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; ' +
+      'else f=clear; e="the agent pid $agent exited 0; the worker is finished"; fi; ' +
+      'printf "{\\"monitor\\":\\"WorkerMonitor\\",\\"branch\\":\\"%s\\",\\"worktree\\":\\"%s\\",\\"finding\\":\\"%s\\",\\"since\\":\\"%s\\",\\"evidence\\":\\"%s\\",\\"measuredAt\\":\\"%s\\"}\\n" ' +
+      '"$PLOT_BRANCH" "$wd" "$f" "$now" "$e" "$now" >> "$wf" 2>/dev/null; ' +
+      'fi; printf "%s" "$rc" > "$PLOT_EXIT_FILE"';
     const spawnResult = await new Promise<{ kind: 'exited' } | { kind: 'error'; err: Error }>((resolve) => {
       const child = spawnFn(
         'sh',
         [
           '-c',
-          `( ( ${cmd} ); rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE" ) &` +
-            ` printf "%s" "$!" > "$PLOT_PID_FILE"`,
+          `( ( ${cmd} ) & agent=$!; ${workerGoneClear} ) &`,
         ],
         {
           cwd: worktree,
@@ -1236,6 +1317,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
             // Refused above unless `continueTarget` found one to stamp or wrote a
             // new one, so `manifestPath` is never empty here.
             PLOT_MANIFEST_FILE: manifestPath,
+            PLOT_SCRIPT_DIR: opts.scriptsDir,
             PLOT_CAPABILITIES: capabilities.kind === 'declared' ? capabilities.list : undefined,
             [CONTINUATION_ENV]: promptPath,
           },
@@ -1254,13 +1336,14 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       return failed(`continuation failed to spawn: ${spawnResult.err.message}`);
     }
     // AWAITED, NOT UNREF'D YET. The outer shell only backgrounds the real
-    // command and writes a pid file — no `wait` in its own body — so it exits
-    // almost immediately, well before the agent it started finishes. Only once
-    // it has exited is `.plot-worker.pid` guaranteed written, which is the pid
-    // every caller (the 202 reply, the manifest stamp, the monitors) must use.
+    // command — no `wait` in its own body — so it exits almost immediately,
+    // well before the agent it started finishes. `.plot-worker.pid` is
+    // written from INSIDE the backgrounded subshell (the comment above says
+    // why it cannot be the outer shell), so the outer shell's own exit is not
+    // proof the write has landed — polled below rather than read once.
     fs.closeSync(out);
 
-    const pid = Number(await readDeskPid(worktree)) || 0;
+    const pid = await pollDeskPid(worktree, input.previousPid);
     let warning: string | undefined;
     if (pid > 0) {
       let pidRecorded = true;
