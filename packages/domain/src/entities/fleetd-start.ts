@@ -28,7 +28,7 @@ export const FleetdStartSchema = z
     startedAt: z.number().nonnegative(),
     /** The spawn contract number this process compiled with. */
     spawnContract: z.number().int().positive(),
-    /** Where the bundle this process is running from lives, relative to the repository root. */
+    /** The absolute path of the bundle this process is running from. */
     bundlePath: z.string().min(1),
     /** That bundle's content hash at start, as `refs.hashFilesSync` reports it. */
     bundleHash: z.string().min(1),

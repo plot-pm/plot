@@ -1571,15 +1571,7 @@ function stubLoadedWithBundle(box, bundlePath) {
   return bin;
 }
 
-test('--status: a bundle the loaded unit names but that no longer exists prints no BUNDLE MISSING line', () => {
-  // SUPERSEDED (#2728, docs/plans/2026-10-26-a-board-or-fleetd-older-than.md).
-  // `plot-ask.mjs spawner`'s bundle-drift evidence line now covers a rebuilt
-  // or removed bundle; this sandbox copies no `board/plot-ask.mjs` at all
-  // (the `for` loop above names only the scripts this suite needs), so the
-  // call site's own `[ -f ... ]` guard means the arm prints nothing here —
-  // proving the OLD text is gone rather than that the new line fired, which
-  // needs a `plot-ask.mjs`-carrying fixture to exercise (test/reconcile/*
-  // `fleetctl-spawner*` fixtures do that).
+test('--status: a bundle the loaded unit names but that no longer exists is reported MISSING', () => {
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('bundle-missing');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
   const missing = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-fleetd-old.mjs');
@@ -1589,7 +1581,9 @@ test('--status: a bundle the loaded unit names but that no longer exists prints 
   });
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /^supervisor: running \(pid 4242\)/m, r.out);
-  assert.doesNotMatch(r.out, /BUNDLE MISSING/, r.out);
+  assert.match(r.out, new RegExp(`^  BUNDLE MISSING: ${missing.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} no longer exists — the loaded unit still names it$`, 'm'),
+    r.out);
+  assert.match(r.out, /^    Rebuild it, or reinstall: \/plot-fleet --stop, then \/plot-fleet --start$/m, r.out);
 });
 
 test('--status: a bundle that still exists prints no BUNDLE MISSING line', () => {

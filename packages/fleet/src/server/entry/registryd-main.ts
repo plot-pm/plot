@@ -195,8 +195,42 @@ import type { Agents } from '@plot-pm/domain/ports/agents';
  */
 const MACHINE_SAMPLES = 5;
 
-/** This artifact's own path, relative to the repository root — what {@link run} records in `fleetd-start.json` and hashes at its own start. */
-export const BUNDLE_RELATIVE_PATH = join('skills', 'plot', 'scripts', 'board', 'plot-fleetd.mjs');
+/**
+ * The absolute path of the artifact this process runs: `plot-fleetd.mjs` in the
+ * directory the entry point resolved as its own. A plugin-installed repository
+ * holds no `skills/plot/`, so a path relative to the repository root names no
+ * file there.
+ *
+ * @param here - the directory of the running artifact.
+ * @returns the artifact's absolute path.
+ */
+export const fleetdBundlePath = (here: string): string => join(here, 'plot-fleetd.mjs');
+
+/**
+ * The record {@link run} writes to `fleetd-start.json` at its own start, or null
+ * where the running artifact cannot be hashed.
+ *
+ * @param repoRoot - the checkout supervised; `git` runs there.
+ * @param here - the directory of the running artifact.
+ * @param scriptsDir - where the plot helper scripts sit.
+ * @param pid - this process's id.
+ * @param now - the start time, epoch milliseconds.
+ * @returns the start record, or null when `git hash-object` fails on the artifact.
+ */
+export const fleetdStartRecord = (
+  repoRoot: string,
+  here: string,
+  scriptsDir: string,
+  pid: number,
+  now: number,
+): FleetdStart | null => {
+  const bundlePath = fleetdBundlePath(here);
+  const hashed = refsGit({ repoRoot, scriptDir: scriptsDir }).hashFilesSync([bundlePath]);
+  const bundleHash = hashed.ok ? hashed.value.get(bundlePath) ?? null : null;
+  return bundleHash === null
+    ? null
+    : { v: FLEETD_START_VERSION, pid, startedAt: now, spawnContract: SPAWN_CONTRACT, bundlePath, bundleHash };
+};
 
 /** Where the plot helper scripts sit, relative to this artifact. */
 const scriptsDirFor = (here: string): string =>
@@ -2235,21 +2269,12 @@ export const run = async (
   // `run()` is the ONLY writer, the same one-writer contract
   // `one-issue-index-writer.test.ts` holds for `issues.json`. A failed write
   // is reported and never stops the daemon from starting — report only.
-  const startHashed = refsGit({ repoRoot, scriptDir: scriptsDir }).hashFilesSync([BUNDLE_RELATIVE_PATH]);
-  const startBundleHash = startHashed.ok ? startHashed.value.get(BUNDLE_RELATIVE_PATH) ?? null : null;
-  if (startBundleHash !== null) {
-    const record: FleetdStart = {
-      v: FLEETD_START_VERSION,
-      pid: process.pid,
-      startedAt: Date.now(),
-      spawnContract: SPAWN_CONTRACT,
-      bundlePath: BUNDLE_RELATIVE_PATH,
-      bundleHash: startBundleHash,
-    };
+  const record = fleetdStartRecord(repoRoot, here, scriptsDir, process.pid, Date.now());
+  if (record !== null) {
     const written = await fleetdStartFile({ cwd: repoRoot }).write(record);
     if (!written.ok) warn(`plot-fleetd: could not write fleetd-start.json — spawner status will read unknown\n`);
   } else {
-    warn(`plot-fleetd: could not hash ${BUNDLE_RELATIVE_PATH} — spawner status will read unknown\n`);
+    warn(`plot-fleetd: could not hash ${fleetdBundlePath(here)} — spawner status will read unknown\n`);
   }
 
   const tally: HostTally = { calls: 0 };

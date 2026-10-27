@@ -177,11 +177,14 @@ export interface BuildBoardOptions {
    */
   gateContract?: GateContractReader;
   /**
-   * The board's own running bundle's content hash, held once at process
-   * start — never recomputed per build, unlike every other field on this
-   * options object. `undefined` where the process has none to offer (a test
-   * build with no real process-start hook); `spawnContractReadingFor` treats
-   * that the same as a hash it could not read itself: no drift to report.
+   * The board's own running bundle — its absolute path and its content hash,
+   * held once at process start — never recomputed per build, unlike every
+   * other field on this options object. `undefined` where the process has none
+   * to offer (a test build with no real process-start hook);
+   * `spawnContractReadingFor` then reads {@link BOARD_BUNDLE_RELATIVE_PATH} and
+   * treats the missing hash the same as a hash it could not read itself: no
+   * drift to report. A `hash` of `null` means the bundle could not be hashed
+   * at start.
    *
    * This is the one field on `BuildBoardOptions` that is NOT a port. A port
    * substitutes WHERE an answer comes from; this is the answer itself,
@@ -191,11 +194,37 @@ export interface BuildBoardOptions {
    * `buildBoard` would make bundle drift unobservable: a rebuilt file on
    * disk and "now" would always read as the same hash.
    */
-  startBundleHash?: string | null;
+  startBundle?: { path: string; hash: string | null };
 }
 
-/** The board's own running bundle, relative to the repository root. */
+/** The board's bundle in a checkout of this repository, relative to its root — the path a build with no {@link BuildBoardOptions.startBundle} reads. */
 export const BOARD_BUNDLE_RELATIVE_PATH = path.join('skills', 'plot', 'scripts', 'board', 'board-server.mjs');
+
+/**
+ * The absolute path of the artifact this board runs: `board-server.mjs` in the
+ * directory the entry point resolved as its own. A plugin-installed repository
+ * holds no `skills/plot/`, so {@link BOARD_BUNDLE_RELATIVE_PATH} names no file
+ * there.
+ *
+ * @param here - the directory of the running artifact.
+ * @returns the artifact's absolute path.
+ */
+export const boardBundlePath = (here: string): string => path.join(here, 'board-server.mjs');
+
+/**
+ * The bundle the board records at its own start: the running artifact's
+ * absolute path and its content hash, or a `null` hash where `git hash-object`
+ * fails on it.
+ *
+ * @param opts - where `git` runs.
+ * @param here - the directory of the running artifact.
+ * @returns the value {@link BuildBoardOptions.startBundle} carries.
+ */
+export const startBundleFor = (opts: BuildBoardOptions, here: string): { path: string; hash: string | null } => {
+  const bundlePath = boardBundlePath(here);
+  const hashed = refsFor(opts).hashFilesSync([bundlePath]);
+  return { path: bundlePath, hash: hashed.ok ? hashed.value.get(bundlePath) ?? null : null };
+};
 
 /**
  * The ref reader for these options — the caller's, or this repository's.
@@ -270,7 +299,7 @@ export const gateContractFor = (opts: BuildBoardOptions): GateContractReader =>
 
 /**
  * This board's own spawn contract against the gate's — {@link SPAWN_CONTRACT}
- * compiled in, and a fresh hash of {@link BOARD_BUNDLE_RELATIVE_PATH}, the same
+ * compiled in, and a fresh hash of the bundle {@link BuildBoardOptions.startBundle} names, the same
  * cost class as `checkoutClean`'s `isClean` call: one local git operation, read
  * once per board build rather than cached across builds, because a rebuilt
  * bundle on disk is exactly what the bundle-drift evidence line exists to
@@ -286,11 +315,12 @@ export const gateContractFor = (opts: BuildBoardOptions): GateContractReader =>
 export const spawnContractReadingFor = async (
   opts: BuildBoardOptions,
 ): Promise<Board['spawnContract']> => {
-  const bundleHash = opts.startBundleHash ?? null;
+  const bundlePath = opts.startBundle?.path ?? BOARD_BUNDLE_RELATIVE_PATH;
+  const bundleHash = opts.startBundle?.hash ?? null;
   // Read fresh on every call, unlike `bundleHash` above — the "now" value
   // `bundleDriftDetected` compares the process-start value against.
-  const running = refsFor(opts).hashFilesSync([BOARD_BUNDLE_RELATIVE_PATH]);
-  const runningBundleHash = running.ok ? running.value.get(BOARD_BUNDLE_RELATIVE_PATH) ?? null : null;
+  const running = refsFor(opts).hashFilesSync([bundlePath]);
+  const runningBundleHash = running.ok ? running.value.get(bundlePath) ?? null : null;
   // `resolve` always answers at least the repo-script fallback tier — it has
   // no `unaskable` path — so `gatePath` is always populated here.
   const resolved = await gateContractFor(opts).resolve(opts.repoRoot);
@@ -298,7 +328,7 @@ export const spawnContractReadingFor = async (
   const answer = resolved.ok ? await gateContractFor(opts).spawnContract(resolved.value.path) : null;
   return {
     spawnContract: SPAWN_CONTRACT,
-    bundlePath: BOARD_BUNDLE_RELATIVE_PATH,
+    bundlePath,
     bundleHash,
     runningBundleHash,
     gateNumber: answer?.ok ? answer.value : null,
@@ -2313,7 +2343,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   })();
 
   // The board's own spawn contract against the gate's. `bundleHash` rides in
-  // on `opts.startBundleHash`, captured once at process start; everything
+  // on `opts.startBundle`, captured once at process start; everything
   // else here — including the comparison "now" hash — is read fresh per
   // build, the same split `worker-loop.ts` draws for its own bundle drift.
   const spawnContract = await spawnContractReadingFor(opts);

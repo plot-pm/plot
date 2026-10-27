@@ -1498,7 +1498,7 @@ export const BoardSchema = z.object({
     .object({
       /** The board's own compiled spawn contract number. */
       spawnContract: z.number().int().positive(),
-      /** The board's own running bundle, relative to the repository root. */
+      /** The absolute path of the board's own running bundle; a build with no process start reports the repository-relative checkout path. */
       bundlePath: z.string().min(1),
       /** That bundle's content hash, held once at this process's start. `null` where it could not be hashed. */
       bundleHash: z.string().nullable(),

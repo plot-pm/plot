@@ -4,7 +4,7 @@ import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
-import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, storyTopicInput, refsFor, BOARD_BUNDLE_RELATIVE_PATH, type BuildBoardOptions } from './board.js';
+import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, storyTopicInput, startBundleFor, type BuildBoardOptions } from './board.js';
 import { issuesClosedReading, ticketLaneData } from './fleet.js';
 import { discoveryLanes } from './discovery-lanes.js';
 import { extractTopics } from './topics.js';
@@ -80,17 +80,14 @@ const opts: BuildBoardOptions = {
 };
 
 /**
- * This process's own running bundle's content hash, read exactly once — true
+ * This process's own running bundle — its absolute path and content hash, read exactly once — true
  * process start, not a per-request `buildBoard` call. `spawnContractReadingFor`
  * reads this value as `bundleHash` and compares it against a fresh hash read on
  * every request; computing both sides fresh would make a rebuild on disk
  * unobservable, since "now" would always equal "now". `null` where the bundle
  * could not be hashed at start.
  */
-const startBundleHashed = refsFor(opts).hashFilesSync([BOARD_BUNDLE_RELATIVE_PATH]);
-opts.startBundleHash = startBundleHashed.ok
-  ? startBundleHashed.value.get(BOARD_BUNDLE_RELATIVE_PATH) ?? null
-  : null;
+opts.startBundle = startBundleFor(opts, here);
 
 // ── The board's own log ──────────────────────────────────────────────────────
 //
