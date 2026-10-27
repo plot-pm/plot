@@ -138,6 +138,17 @@ export interface PrWorld {
    * Absent entirely where no issue gate runs alongside this PR pass.
    */
   issueGate?: () => Promise<IssueGateReading | null>;
+  /**
+   * Asked immediately before the fold that writes the store, so a caller
+   * electing readers can re-check who holds the lock right before the write
+   * it is fencing rather than at the top of the pass. Absent entirely where
+   * no caller fences the fold; a pass with no fence always folds.
+   *
+   * @returns `false` to skip only this pass's fold — the host answer this
+   *   pass already holds is still served from its own rows, exactly as a
+   *   pass whose fold found no store to write already does.
+   */
+  fenceFold?: () => Promise<boolean>;
   /** The clock in epoch ms; defaults to `Date.now`. A test injects one. */
   now?: () => number;
 }
@@ -1753,7 +1764,13 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // assert the file without racing it, and — since this slice — so the maps
       // it serves are derived from a fold that has already happened. The write
       // is one local `rename` against a host call measured at 29 811 ms.
-      const folded = await writePrStore(backend, rows, kind, prStore);
+      //
+      // THE FENCE GUARDS ONLY THIS CALL. `fenceFold` answering `false` means a
+      // lock this pass started under has since moved to another process; the
+      // host was already asked and that cost is sunk, so the pass still serves
+      // what it read — only the WRITE is skipped, the same shape a fold that
+      // found no store to write already falls back to below.
+      const folded = (await world.fenceFold?.()) === false ? null : await writePrStore(backend, rows, kind, prStore);
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this
       // pass hold the same rows by construction. Deriving from the fold anyway

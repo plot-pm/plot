@@ -16,6 +16,7 @@ import {
   planStoreShell,
   planStoreRef,
   prIndexFile,
+  readerLockFile,
   issueIndexFile,
   issueWriteSpoolOver,
   supervisionReportFile,
@@ -2329,6 +2330,7 @@ export const run = async (
       issueGate: issueGateOf(issueStore),
     },
     prState,
+    { lock: readerLockFile({ cwd: repoRoot }) },
     warn,
   );
   // FLEETD COMPOSES THE LOCAL AND THE REMOTE REFS READER, as `worker-loop.ts`
