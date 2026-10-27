@@ -36,8 +36,8 @@ import { pathToFileURL } from 'node:url';
  * ## The stdin format
  *
  * Sections, each opened by a `@` line, so one stream carries a walk of up to
- * 2000 merges and a section per plan without a JSON round trip the shell would
- * need `jq` for:
+ * 20 000 merges and a section per plan without a JSON round trip the shell
+ * would need `jq` for:
  *
  * ```
  * @backend <word>                 # as `plot-host.sh backend` answers it

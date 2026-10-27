@@ -469,7 +469,7 @@ fi
 # small fixture — a cap of 2000 is otherwise unreachable in a test. It is a
 # seam, not a knob: nothing in Plot sets it, and lowering it in real use buys
 # nothing but the silent misses described above.
-MERGE_SCAN_LIMIT=${PLOT_MERGE_SCAN_LIMIT:-2000}
+MERGE_SCAN_LIMIT=${PLOT_MERGE_SCAN_LIMIT:-20000}
 # `%H %s` RATHER THAN `%s`, because the age rule needs the merge COMMIT and not
 # only its sentence: a subject proves a branch for a plan only when its merge is
 # not contained in the commit that added the plan file, and that is an ancestry

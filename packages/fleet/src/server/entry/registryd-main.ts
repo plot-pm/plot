@@ -606,7 +606,7 @@ export const worldForRepo = (
 /**
  * How many merges the subject walk reads — the fleet scan's own cap.
  */
-export const MERGE_WALK_LIMIT = 2000;
+export const MERGE_WALK_LIMIT = 20000;
 
 /**
  * The refless branches a merge subject proves landed, per plan.
