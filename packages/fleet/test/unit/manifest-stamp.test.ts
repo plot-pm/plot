@@ -39,9 +39,17 @@ function firstDispatch(pid = '', extra: string[] = []): string {
 }
 
 /** The process group a stamped manifest carries, in the order both writers emit. */
-const GROUP = { wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365' };
+const GROUP = {
+  pidStartedAt: 'Thu Aug 20 09:59:58 2026',
+  wrapperPid: '7358',
+  wrapperPidStartedAt: 'Thu Aug 20 09:59:57 2026',
+  workerMonitorPid: '7364',
+  agentMonitorPid: '7365',
+};
 const GROUP_LINES = [
+  '  "pidStartedAt": "Thu Aug 20 09:59:58 2026",',
   '  "wrapperPid": "7358",',
+  '  "wrapperPidStartedAt": "Thu Aug 20 09:59:57 2026",',
   '  "workerMonitorPid": "7364",',
   '  "agentMonitorPid": "7365",',
 ];
@@ -70,9 +78,9 @@ describe('stampManifest — a first dispatch fills the pid and records the group
     assert.ok(!out.includes('relaunches'), 'a first dispatch has relaunched zero times');
     const keys = Object.keys(JSON.parse(out));
     assert.deepEqual(keys.sort(),
-      ['agentMonitorPid', 'branch', 'command', 'pid', 'session', 'startedAt',
-        'workerMonitorPid', 'worktree', 'wrapperPid'],
-      'the six launch-time keys plus the three the group adds');
+      ['agentMonitorPid', 'branch', 'command', 'pid', 'pidStartedAt', 'session', 'startedAt',
+        'workerMonitorPid', 'worktree', 'wrapperPid', 'wrapperPidStartedAt'],
+      'the six launch-time keys plus the five the group adds');
   });
 
   // ABSENT IS NOT NONE, at the writer's end. A caller that knows no group still

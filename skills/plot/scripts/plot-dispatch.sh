@@ -1571,9 +1571,10 @@ start_worker() {
       PLOT_STAMP_STARTED="$stamp_now" \
       PLOT_AGENT_MONITOR="$agent_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
+      PLOT_PID_STARTED_FILE="$wt/.plot-worker.pid.startedAt" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" '"'"'
+      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wrapperstarted=$(ps -o lstart= -p "$$" 2>/dev/null); wmon=""; amon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; agentstarted=$(ps -o lstart= -p "$agent" 2>/dev/null); printf "%s" "$agentstarted" > "$PLOT_PID_STARTED_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v pidstarted="$agentstarted" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wrapperstarted="$wrapperstarted" -v wmon="$wmon" -v amon="$amon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -1588,7 +1589,9 @@ start_worker() {
         !stamped && $0 ~ /^  "pid": "[^"]*",$/ {
           stamped = 1
           print "  \"pid\": \"" pid "\","
+          print "  \"pidStartedAt\": \"" pidstarted "\","
           print "  \"wrapperPid\": \"" wrapper "\","
+          print "  \"wrapperPidStartedAt\": \"" wrapperstarted "\","
           print "  \"workerMonitorPid\": \"" wmon "\","
           print "  \"agentMonitorPid\": \"" amon "\","
           if (relaunch) {
@@ -1597,7 +1600,9 @@ start_worker() {
           }
           next
         }
+        $0 ~ /^  "pidStartedAt": "[^"]*",$/ { next }
         $0 ~ /^  "wrapperPid": "[^"]*",$/ { next }
+        $0 ~ /^  "wrapperPidStartedAt": "[^"]*",$/ { next }
         $0 ~ /^  "workerMonitorPid": "[^"]*",$/ { next }
         $0 ~ /^  "agentMonitorPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }

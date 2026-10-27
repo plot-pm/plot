@@ -58,11 +58,25 @@ export interface ImplementHolderReadings {
  */
 export const IMPLEMENT_LOCK_SKEW_MS = 3000;
 
-/** Whether a sighting names the recorded process: alive, and started at the recorded moment. */
-const isRecorded = (sighting: ProcessSighting, recorded: LockedProcess): boolean =>
+/**
+ * Whether a sighting names the recorded process: alive, and started within
+ * `skewMs` of the recorded moment on either side.
+ *
+ * A table that cannot be asked (`alive === null`), or a start time that
+ * cannot be read (`startedAt === null`) while the pid answers alive, reads as
+ * the recorded process — *absent is not false*. This is the one rule shared
+ * by an implement lock's holder and agent, a continue lock's holder, and the
+ * reaper's desk-worker reading: each names a pid and a recorded start, and
+ * asks the same question of whatever the process table now says about it.
+ *
+ * @param sighting - what the process table now says about the pid.
+ * @param recorded - the pid and start time the lock (or manifest) recorded.
+ * @param skewMs - how far the live start may sit from the recorded one.
+ * @returns `true` where the sighting still names the recorded process.
+ */
+export const isRecordedProcess = (sighting: ProcessSighting, recorded: LockedProcess, skewMs: number): boolean =>
   sighting.alive === null ||
-  (sighting.alive &&
-    (sighting.startedAt === null || Math.abs(sighting.startedAt - recorded.startedAt) < IMPLEMENT_LOCK_SKEW_MS));
+  (sighting.alive && (sighting.startedAt === null || Math.abs(sighting.startedAt - recorded.startedAt) < skewMs));
 
 /**
  * Whether an implement lock still holds its slug.
@@ -87,8 +101,13 @@ export const implementLockHeld = (
   boundMs: number,
 ): boolean => {
   if (now - holder.at >= boundMs) return false;
-  if (isRecorded(readings.holder, holder)) return true;
-  if (holder.agent !== null && readings.agent !== null && isRecorded(readings.agent, holder.agent)) return true;
+  if (isRecordedProcess(readings.holder, holder, IMPLEMENT_LOCK_SKEW_MS)) return true;
+  if (
+    holder.agent !== null &&
+    readings.agent !== null &&
+    isRecordedProcess(readings.agent, holder.agent, IMPLEMENT_LOCK_SKEW_MS)
+  )
+    return true;
   return holder.pgid !== null && readings.holder.alive === false && readings.groupAlive !== false;
 };
 

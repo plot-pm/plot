@@ -435,6 +435,21 @@ export interface DeskContinuationInput {
  * reused, so it is handed to the same `monitors.stop` the AgentMonitor pid
  * uses rather than signalled separately.
  */
+/**
+ * `ps -o lstart=` for `pid`, raw and unconverted — the same text the
+ * dispatcher's awk writer captures for its own `pidStartedAt`/
+ * `wrapperPidStartedAt` fields, so both writers store one format and every
+ * reader (`Date.parse`, `plot_pid_is_current`) converts it exactly once.
+ * `''` where the pid cannot be read.
+ */
+const readProcessStartedAt = (pid: number): string => {
+  try {
+    return execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+};
+
 const recordedMonitorPids = (manifestFile: string): string[] => {
   try {
     const m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
@@ -1150,8 +1165,15 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     let warning: string | undefined;
     if (pid > 0) {
       let pidRecorded = true;
+      // `pidStartedAt` is read once, here, and reused both for the
+      // `.plot-worker.pid` sidecar and the manifest stamp below — the same
+      // raw `ps -o lstart` text the dispatcher's awk writer captures for its
+      // own pid file, so a reader finds the same shape regardless of which
+      // path started the worker.
+      const pidStartedAt = readProcessStartedAt(pid);
       try {
         fs.writeFileSync(path.join(worktree, '.plot-worker.pid'), String(pid), 'utf8');
+        fs.writeFileSync(path.join(worktree, '.plot-worker.pid.startedAt'), pidStartedAt, 'utf8');
       } catch (err) {
         // The worker IS running; only the record of it failed. Say so rather than
         // reporting a failure that would invite a second spawn into the same
@@ -1183,10 +1205,22 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       // No wrapper and no WorkerMonitor exist for a continued run, so those two
       // are recorded `''`; omitting them would leave the previous dispatch's
       // pids on the row. The stamp re-emits the whole group on every write.
+      //
+      // `pidStartedAt` was already read above, right after the spawn, and is
+      // reused here rather than read a second time — the fact the reaper's
+      // identity check needs to tell this run's pid apart from a later,
+      // unrelated process reusing it (`isRecordedProcess`). Raw text, not
+      // epoch milliseconds: the dispatcher's awk writer has no `date`
+      // conversion to spend, so both writers store what `ps` printed and
+      // every reader converts once, itself. `wrapperPidStartedAt` stays `''`
+      // beside the empty `wrapperPid`: there is no wrapper to have a start
+      // time.
       const stamped = writeManifestStamp(manifestPath, {
         pid: String(pid),
         startedAt: new Date().toISOString(),
+        pidStartedAt,
         wrapperPid: '',
+        wrapperPidStartedAt: '',
         workerMonitorPid: '',
         agentMonitorPid: started.agentMonitorPid,
       });

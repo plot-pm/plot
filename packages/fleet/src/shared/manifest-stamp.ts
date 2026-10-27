@@ -50,10 +50,23 @@ export interface Stamp {
   /** ISO-8601 launch time of THIS run — rewritten on a relaunch. */
   startedAt: string;
   /**
+   * When the process now holding {@link Stamp.pid} started: `ps -o lstart`'s raw
+   * text, unconverted. `''` when the caller could not read it. Raw rather than
+   * epoch milliseconds so the awk writer needs no `date` conversion of its own —
+   * a reader converts once, the way `plot_pid_is_current` and `Date.parse` both
+   * already do for this exact format. Named beside `pid` rather than reusing
+   * `startedAt`: that field is stamped at manifest-write time, before the
+   * process exists, and a relaunch rewrites it while the pid it names may
+   * still be the one from an earlier start.
+   */
+  pidStartedAt?: string;
+  /**
    * The wrapper's pid — the process that owns the agent and outlives it to write
    * `.plot-worker.exit`. `''` when the caller does not know it.
    */
   wrapperPid?: string;
+  /** When the process now holding {@link Stamp.wrapperPid} started, same shape as {@link Stamp.pidStartedAt}. */
+  wrapperPidStartedAt?: string;
   /** The WorkerMonitor's pid, or `''` when none was attached. */
   workerMonitorPid?: string;
   /** The AgentMonitor's pid, or `''` when none was attached. */
@@ -67,15 +80,16 @@ const STARTED_LINE = /^ {2}"startedAt": "[^"]*"$/;
 /** An existing `"relaunches": N,` line, captured so a relaunch increments it. */
 const RELAUNCHES_LINE = /^ {2}"relaunches": (\d+),$/;
 /**
- * The three process-group lines, dropped wherever they already sit so a fresh
- * set can be emitted after `pid`.
+ * The group lines, dropped wherever they already sit so a fresh set can be
+ * emitted after `pid`.
  *
  * UNCONDITIONAL, unlike `previousPid`/`relaunches`: the group is re-emitted on
  * EVERY stamp, including a first dispatch, so a stale copy must go whether or
  * not this is a relaunch. Gating them on relaunch would duplicate the lines when
  * `/api/continue` stamps a manifest a first dispatch had already grouped.
  */
-const GROUP_LINE = /^ {2}"(wrapperPid|workerMonitorPid|agentMonitorPid)": "[^"]*",$/;
+const GROUP_LINE =
+  /^ {2}"(pidStartedAt|wrapperPid|wrapperPidStartedAt|workerMonitorPid|agentMonitorPid)": "[^"]*",$/;
 
 /**
  * Rewrite a manifest's launch stamp, returning the new text.
@@ -118,7 +132,9 @@ export function stampManifest(text: string, stamp: Stamp): string {
   if (pidIdx === -1) return text; // Not a manifest this stamp knows how to write.
 
   const group = [
+    `  "pidStartedAt": "${stamp.pidStartedAt ?? ''}",`,
     `  "wrapperPid": "${stamp.wrapperPid ?? ''}",`,
+    `  "wrapperPidStartedAt": "${stamp.wrapperPidStartedAt ?? ''}",`,
     `  "workerMonitorPid": "${stamp.workerMonitorPid ?? ''}",`,
     `  "agentMonitorPid": "${stamp.agentMonitorPid ?? ''}",`,
   ];
