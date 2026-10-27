@@ -90,7 +90,7 @@ for b in $(bash "$script_dir/plot-plan-meta.sh" "$file" | jq -r '.waves[].branch
     case "$(_plot_merged_lookup "$b")" in found) merged=merged ;; none) merged=not-merged ;; *) merged=unknown ;; esac
     closed=unknown
     if out=$(bash "$script_dir/plot-host.sh" pr-list --state closed --branch "$b" --limit 100 2>&1) && [[ "$out" != *'possibly truncated'* ]]; then
-      cnt=$(printf '%s' "$out" | jq -s --arg b "$b" '[.. | objects | select(.head == $b and ((.mergedAt // "") == ""))] | length' 2>/dev/null) || cnt=x
+      cnt=$(printf '%s' "$out" | jq -Rn --arg b "$b" '[inputs | fromjson? | select(.head == $b and ((.mergedAt // "") == ""))] | length' 2>/dev/null) || cnt=x
       case "$cnt" in 0) closed=no ;; x) ;; *) closed=yes ;; esac
     fi
   fi
@@ -112,7 +112,7 @@ set -e
 # operator can act on -- so it reports as the bug it is.
 if [ "$rc" != 0 ]; then
   if [ "$rc" = 1 ]; then
-    echo "plot-undeliver: $(printf '%s' "$answer" | cut -f2-)" >&2
+    echo "plot-undeliver: ${answer/$'\t'/: }" >&2
   else
     echo "plot-undeliver: $answer" >&2
   fi
