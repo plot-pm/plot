@@ -1,0 +1,1 @@
+../2026-10-27-the-spend-record-counts-a-paged.md
