@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2787 merged
+- **Started:** 2026-10-27, Jan Wloka, `bug/plot-undeliver-reads-slices`
 
 ## Changelog
 
