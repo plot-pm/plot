@@ -211,6 +211,7 @@ export interface AgentListProps {
    * is not, so the shorter name would have to be renamed at every use anyway.
    */
   continueWith?: DispatchInfo;
+  restartWith?: DispatchInfo;
   /**
    * Whether this server will act on `Create plan`, and why not — the ISSUE
    * row's one action.
@@ -964,6 +965,7 @@ export function SliceRow({
   groupedWord,
   soleRow,
   continueWith,
+  restartWith,
   onOpenPlan,
   onRevealBranch,
   planHeaded = false,
@@ -1042,6 +1044,7 @@ export function SliceRow({
    */
   soleRow?: AgentRow;
   continueWith?: DispatchInfo;
+  restartWith?: DispatchInfo;
   onOpenPlan?: (planFile: string) => boolean | void;
   onRevealBranch?: (branch: string) => void;
   /**
@@ -1467,6 +1470,7 @@ export function SliceRow({
               pulse={pulse}
               onStarting={onStarting}
               continueWith={continueWith}
+              restartWith={restartWith}
               onOpenPlan={onOpenPlan}
               onRevealBranch={onRevealBranch}
             />
@@ -1665,6 +1669,7 @@ export function Row({
   dispatch,
   implement,
   continueWith,
+  restartWith,
   pulse = 0,
   onStarting,
   marked = false,
@@ -1750,6 +1755,7 @@ export function Row({
   // acts, so it needs no such binding.
   /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
+  restartWith?: DispatchInfo;
   /** The pulse counter, so a started row can watch for its own change. */
   pulse?: number;
   /** A click is outstanding (true) or has settled (false). */
@@ -2214,6 +2220,7 @@ export function Row({
           pulse={pulse}
           onStarting={onStarting}
           continueWith={continueWith}
+          restartWith={restartWith}
           onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
@@ -2293,6 +2300,7 @@ export function Row({
               // `waiting` worker, read from the scan); this says whether the
               // server would ACT on it.
               canContinue={continueWith}
+              canRestart={restartWith}
               // BRANCH and PLAN in the panel become destinations. `onOpenPlan`
               // returns whether it opened a card; the panel discards that.
               onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
@@ -2364,6 +2372,7 @@ export function RegistryRow({
   dispatch,
   implement,
   continueWith,
+  restartWith,
   drop,
   pulse = 0,
   onStarting,
@@ -2394,6 +2403,7 @@ export function RegistryRow({
   implement?: DispatchInfo;
   /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
+  restartWith?: DispatchInfo;
   /**
    * Whether this server will act on Drop, and why not — the BROKEN agent's one
    * action, removing its manifest so the row disappears. Passed only to broken
@@ -2676,6 +2686,7 @@ export function RegistryRow({
               pulse={pulse}
               onStarting={onStarting}
               continueWith={continueWith}
+              restartWith={restartWith}
               onOpenPlan={onOpenPlan}
               onRevealBranch={onRevealBranch}
             />
@@ -2688,6 +2699,7 @@ export function RegistryRow({
           branch={agent.branch}
           onClose={() => setLogOpen(false)}
           canContinue={continueWith}
+          canRestart={restartWith}
           onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
           onRevealBranch={onRevealBranch}
         />

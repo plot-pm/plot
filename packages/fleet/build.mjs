@@ -18,6 +18,7 @@ export const fleetSizeArtifact = path.join(here, 'dist/plot-fleet-size.mjs');
 export const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
 export const dispatchCommandArtifact = path.join(here, 'dist/plot-dispatch-command.mjs');
 export const continueCommandArtifact = path.join(here, 'dist/plot-continue-command.mjs');
+export const restartCommandArtifact = path.join(here, 'dist/plot-restart-command.mjs');
 export const deskLoopArtifact = path.join(here, 'dist/plot-desk-loop.mjs');
 export const prReaderArtifact = path.join(here, 'dist/plot-pr-reader.mjs');
 
@@ -98,6 +99,11 @@ export const buildFleetBundles = async () => {
     entryPoints: [path.join(here, 'src/server/entry/continue-command.ts')],
     outfile: continueCommandArtifact,
   });
+  await esbuild.build({
+    ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/restart-command.ts')],
+    outfile: restartCommandArtifact,
+  });
 
   // Whether a desk holds a live loop, for `plot-dispatch.sh --start`, `--stop`
   // and `--restart`: `deskLoopAlive` over the three recorded pids.
@@ -119,5 +125,5 @@ export const buildFleetBundles = async () => {
 // Runs when invoked as `node build.mjs`, and not when imported.
 if (import.meta.url === `file://${process.argv[1]}`) {
   await buildFleetBundles();
-  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-desk-loop.mjs, plot-pr-reader.mjs → dist/');
+  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-restart-command.mjs, plot-desk-loop.mjs, plot-pr-reader.mjs → dist/');
 }

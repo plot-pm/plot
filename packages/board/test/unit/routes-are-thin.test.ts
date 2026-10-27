@@ -29,6 +29,13 @@ describe('the routes are thin', () => {
     assert.doesNotMatch(source, /recordActionReceipt|IMPLEMENT_COMMAND_KEY|usableCommand/);
   });
 
+  it('restart.ts calls restartBranch and not continueOnDesk', () => {
+    const source = read('restart.ts');
+    const imports = importsOf(source);
+    assert.ok(imports.includes('@plot-pm/fleet/shared/restart-command'));
+    assert.doesNotMatch(source, /continueOnDesk|restartWorker|branchFromPulse/);
+  });
+
   it('continue.ts calls continueBranch and not continueOnDesk', () => {
     const source = read('continue.ts');
     const imports = importsOf(source);

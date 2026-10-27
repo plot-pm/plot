@@ -1308,6 +1308,8 @@ export const BoardSchema = z.object({
    * client hides the control rather than offering one that 403s.
    */
   continue: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /** Whether `POST /api/restart` will act; apart from `continue` for the reason `approve` records. */
+  restart: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
    * Whether "Create plan" will act — the fourth capability, kept apart from the
    * other three for the reason `approve` records at length.

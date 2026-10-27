@@ -18,6 +18,7 @@ import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
 import { agentLogDir, isUnderAgentLogDir, migrateAgentLogs, primeWorktreeRoot } from './agent-log.js';
 import { continueAvailability, handleContinue } from './continue.js';
+import { handleRestart, restartAvailability } from './restart.js';
 import { handleClaim } from './claim.js';
 import { handleFleetSettings } from './fleet-settings.js';
 import { handleTransition } from './transition.js';
@@ -280,6 +281,10 @@ async function handleRequest(
     // worktree with the brief, the answer and what already landed. The route is
     // named for what it does rather than for what a reader might wish it did.
     { path: '/api/continue', verb: 'continuing', handle: handleContinue },
+    // POST /api/restart — a NEW worker on a claimed branch whose worker is dead.
+    // The same class of route as /api/continue, and the same guards; the rule is
+    // `restartWorker`, asked in restart.ts through `restartBranch`.
+    { path: '/api/restart', verb: 'restarting', handle: handleRestart },
     { path: '/api/dispatch', verb: 'dispatching', handle: handleDispatch },
     // POST /api/idea — an issue becomes a Draft plan.
     //
@@ -492,6 +497,7 @@ async function handleRequest(
         server: await serverInfo(opts, boundPort),
         approve: approveAvailability(HOST),
         continue: continueAvailability(HOST),
+        restart: restartAvailability(HOST),
         idea: ideaAvailability(HOST),
         interrogate: interrogateAvailability(HOST, opts),
         reslice: resliceAvailability(HOST),

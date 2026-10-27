@@ -35,6 +35,8 @@ export interface RestartBranchInput {
   /** The fleet reading the branch is looked up in; `null` where there is none. */
   pulse: FleetReading | null;
   branch: string;
+  /** The worktree git reports for the branch; used where the reading names none. */
+  worktree?: string;
   /** Whether the caller runs unattended; such a caller restarts nothing. */
   unattended: boolean;
   /** Starts the desk's monitor; the shell script where absent. */
@@ -101,15 +103,16 @@ const markerFile = (worktree: string): string => {
  * @returns what {@link continueOnDesk} answers, or a refusal naming the rule that stopped the restart.
  */
 export const restartBranch = async (input: RestartBranchInput): Promise<DeskContinuation> => {
-  const found = branchFromPulse(input.pulse, input.branch);
+  const listed = branchFromPulse(input.pulse, input.branch);
+  const found = listed ?? (input.worktree ? { worktree: '', plan: '', wave: '', worker: 'elsewhere', pid: '' } : null);
   if (!found) {
     return { kind: 'refused', status: 404, reason: 'unknown-branch', detail: 'no plan on this board names that branch' };
   }
-  if (!found.worktree) {
+  const worktree = found.worktree || input.worktree || '';
+  if (!worktree) {
     return { kind: 'refused', status: 404, reason: 'no-worktree', detail: 'this machine holds no worktree for that branch' };
   }
   const { opts, branch } = input;
-  const worktree = found.worktree;
   const readers = input.readers ?? adapterReaders(opts);
   const restart = async (): Promise<RestartVerdict> => {
     const pr = await readers.pr(branch);

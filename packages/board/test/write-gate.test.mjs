@@ -39,6 +39,7 @@ const WRITE_ROUTES = [
   { path: '/api/approve', body: { slug: 'ship-the-widget' } },
   { path: '/api/continue', body: { branch: 'feature/x', answer: 'go' } },
   { path: '/api/dispatch', body: { slug: 'ship-the-widget' } },
+  { path: '/api/restart', body: { branch: 'feature/x' } },
   // Landed on the default branch while this gate was being written, and is the
   // reason the router dispatches from a TABLE rather than from a list of paths
   // beside a chain of `if`s: as a list, this route merged cleanly, typechecked,
