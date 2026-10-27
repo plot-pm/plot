@@ -178,7 +178,7 @@ describe('run — a removed repository', () => {
 });
 
 describe('run — one pass with no follower', () => {
-  it('asks the host through the scripts directory it is given, not the repository, and releases its claim on exit', async () => {
+  it('asks the host through the scripts directory it is given, not the repository, and releases its claim and its heartbeat on exit', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-reader-run-'));
     try {
       const repo = path.join(root, 'repo');
@@ -205,8 +205,9 @@ describe('run — one pass with no follower', () => {
         else process.env.PLOT_PR_INDEX_HOME = before;
       }
       expect(fs.readFileSync(calls, 'utf8')).toMatch(/pr-list/);
+      // The pass heartbeated as `reader.<pid>`; an exited reader leaves none behind.
       const beats = await readerLockFile({ home: lockDir }).heartbeats('github');
-      expect(beats.ok ? beats.value.map((b) => b.name) : []).toEqual([`reader.${process.pid}`]);
+      expect(beats.ok ? beats.value.map((b) => b.name) : []).toEqual([]);
       const holder = await readerLockFile({ home: lockDir }).holder('github');
       expect(holder.ok && holder.value).toBe(null);
     } finally {

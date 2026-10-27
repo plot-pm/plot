@@ -99,6 +99,17 @@ export interface ReaderLock {
   heartbeat(key: string, name: string, at: number): Promise<PortResult<void>>;
 
   /**
+   * Removes one heartbeat, for a process that stops following or reading the
+   * lock. A heartbeat already absent is a success.
+   *
+   * @param key - the lock's key.
+   * @param name - the heartbeat's own name, as {@link heartbeat} wrote it.
+   * @returns nothing on success; `failed` where the file exists and could not
+   *   be removed.
+   */
+  removeHeartbeat(key: string, name: string): Promise<PortResult<void>>;
+
+  /**
    * Reads every heartbeat currently published under the lock.
    *
    * @param key - the lock's key.

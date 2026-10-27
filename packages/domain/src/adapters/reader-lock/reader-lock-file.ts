@@ -508,6 +508,17 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
       }
     },
 
+    removeHeartbeat: async (key: string, name: string): Promise<PortResult<void>> => {
+      const dir = await lockDirOf(key);
+      if (dir === null) return failed<void>();
+      try {
+        await unlink(join(dir, name));
+        return answered(undefined);
+      } catch (error) {
+        return isMissing(error) ? answered(undefined) : failed<void>();
+      }
+    },
+
     heartbeats: async (key: string): Promise<PortResult<readonly { name: string; at: number }[]>> => {
       const dir = await lockDirOf(key);
       if (dir === null) return failed<readonly { name: string; at: number }[]>();

@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { issueIndexFile } from '@plot-pm/domain/adapters';
-import { ISSUE_INDEX_VERSION, type IssueIndex } from '@plot-pm/domain';
+import { issueIndexFile, readerLockFixture } from '@plot-pm/domain/adapters';
+import { ISSUE_INDEX_VERSION, type Detached, type IssueIndex } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
 
 const rates = vi.hoisted(() => ({ calls: [] as Array<{ gate: unknown; result: unknown }> }));
@@ -77,6 +77,19 @@ const calls = (dir: string): string[] => {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n') : [];
 };
 
+/**
+ * The options a board with no fleet and no reader passes to `maybeRefreshPrs`:
+ * an empty reader lock of its own, and a `Detached` that starts nothing.
+ *
+ * Without its own lock the board reads `PLOT_PR_INDEX_HOME`, which a run
+ * shares across test files: a claim another file's board or reader left there
+ * reads as `follow`, and the board serves the store instead of its own pass.
+ */
+const noReader = (dir: string) => {
+  const detached: Detached = { node: () => ({ pid: 1, exitCode: () => null }) };
+  return { repoRoot: dir, scriptsDir: dir, readerLock: readerLockFixture(), detached };
+};
+
 /** An entry whose PR gate is open and whose issue gate holds `over`. */
 const entryWith = (over: Partial<CacheEntry>): CacheEntry => ({
   ...freshCacheEntry(),
@@ -92,7 +105,7 @@ describe('the PR pass reads the board\'s own issue gate', () => {
     const nextAt = Date.now() + 360_000;
     const entry = entryWith({ issueRequests: 3, issueNextAt: nextAt, issueBackoffUntil: null });
 
-    await maybeRefreshPrs({ repoRoot: dir, scriptsDir: dir }, entry);
+    await maybeRefreshPrs(noReader(dir), entry);
 
     expect(rates.calls[0]?.gate).toEqual({
       connector: 'github', account: ACCOUNT, requests: 3, nextAt, backoffUntil: null,
@@ -106,7 +119,7 @@ describe('the PR pass reads the board\'s own issue gate', () => {
     const until = Date.now() + 300_000;
     const entry = entryWith({ issueRequests: 1, issueNextAt: until, issueNextIsBackoff: true, issueBackoffUntil: until });
 
-    await maybeRefreshPrs({ repoRoot: dir, scriptsDir: dir }, entry);
+    await maybeRefreshPrs(noReader(dir), entry);
 
     expect(calls(dir).filter((call) => call.startsWith('pr-list') || call.startsWith('issue-list'))).toEqual([]);
     expect(entry.prNextAt).toBe(until);
@@ -119,7 +132,7 @@ describe('the PR tick and the issue gate', () => {
     const dir = fixture();
     const entry = entryWith({ issueRequests: 2, issueNextAt: Date.now() + 240_000 });
 
-    await maybeRefreshPrs({ repoRoot: dir, scriptsDir: dir }, entry);
+    await maybeRefreshPrs(noReader(dir), entry);
 
     expect(calls(dir).filter((call) => call.startsWith('issue-list'))).toEqual([]);
   });
@@ -128,7 +141,7 @@ describe('the PR tick and the issue gate', () => {
     const dir = fixture();
     const entry = entryWith({ issueRequests: 2, issueNextAt: Date.now() - 1 });
 
-    await maybeRefreshPrs({ repoRoot: dir, scriptsDir: dir }, entry);
+    await maybeRefreshPrs(noReader(dir), entry);
 
     expect(calls(dir).filter((call) => call.startsWith('issue-list'))[0]).toBe('issue-list --paged --limit 1000');
   });

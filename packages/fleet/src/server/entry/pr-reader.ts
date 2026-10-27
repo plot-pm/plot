@@ -151,7 +151,7 @@ export const stillFollowed = async (
  * as `reader.<pid>`, exiting once {@link stillFollowed} reads `none` or
  * `fleetd`, `stopRequested` reads true, or `repoExists` reads false, and
  * releasing its claim on the
- * reader lock before it returns. A released claim lets a waiting fleetd elect
+ * reader lock and removing its `reader.<pid>` heartbeat before it returns. A released claim lets a waiting fleetd elect
  * on its next pass.
  *
  * @param args - the parsed `--lock-dir`/`--connector` pair.
@@ -177,7 +177,8 @@ export const run = async (
 ): Promise<number> => {
   const context = { repoRoot, scriptDir };
   const lock = readerLockFile({ home: args.lockDir });
-  const prLock: PrLock = { lock, name: `reader.${process.pid}` };
+  const heartbeatName = `reader.${process.pid}`;
+  const prLock: PrLock = { lock, name: heartbeatName };
   const state: PrState = freshPrState();
   state.backend = args.connector;
   const world: PrWorld = {
@@ -227,6 +228,8 @@ export const run = async (
   // A released claim reads as no holder, so the next board elects at once
   // rather than following a lock nobody refreshes.
   await lock.release(args.connector, process.pid);
+  // A heartbeat left behind names a reader that no longer runs.
+  await lock.removeHeartbeat(args.connector, heartbeatName);
   return 0;
 };
 

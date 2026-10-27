@@ -210,6 +210,16 @@ describe('readerLockFile', () => {
     expect(beats.find((beat) => beat.name === 'fleetd')?.at).toBe(1_756_700_000_500);
   });
 
+  it('removes one heartbeat by name, keeps the others, and answers a missing one as removed', async () => {
+    const lock = readerLockFile({ home });
+    answer(await lock.heartbeat('github', 'reader.11', 1_756_700_000_000));
+    answer(await lock.heartbeat('github', 'fleetd', 1_756_700_000_500));
+    answer(await lock.removeHeartbeat('github', 'reader.11'));
+    expect(answer(await lock.heartbeats('github')).map((beat) => beat.name)).toEqual(['fleetd']);
+    expect(readdirSync(join(home, 'github.lock'))).toEqual(['fleetd']);
+    answer(await lock.removeHeartbeat('github', 'reader.11'));
+  });
+
   it('reads no heartbeats where none were written, rather than failed', async () => {
     const lock = readerLockFile({ home });
     expect(answer(await lock.heartbeats('github'))).toEqual([]);
