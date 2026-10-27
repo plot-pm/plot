@@ -154,6 +154,29 @@ describe('scriptDirFor — the reader finds its scripts beside its own bundle', 
   });
 });
 
+describe('run — a removed repository', () => {
+  it('asks the host nothing and writes nothing once its repository root is gone', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-reader-gone-'));
+    try {
+      const repo = path.join(root, 'repo');
+      const scripts = path.join(root, 'installed-scripts');
+      const lockDir = path.join(root, 'index');
+      fs.mkdirSync(scripts);
+      fs.mkdirSync(lockDir);
+      const calls = path.join(root, 'calls.log');
+      fs.writeFileSync(path.join(scripts, 'plot-host.sh'), `#!/usr/bin/env bash\necho "$1" >> ${JSON.stringify(calls)}\nexit 0\n`);
+      fs.chmodSync(path.join(scripts, 'plot-host.sh'), 0o755);
+      const result = await run({ lockDir, connector: 'github' }, repo, scripts, () => undefined, allAlive, () => false, () => false);
+      expect(result).toBe(0);
+      expect(fs.existsSync(calls)).toBe(false);
+      expect(fs.existsSync(repo)).toBe(false);
+      expect(fs.readdirSync(lockDir)).toEqual([]);
+    } finally {
+      removeTree(root);
+    }
+  });
+});
+
 describe('run — one pass with no follower', () => {
   it('asks the host through the scripts directory it is given, not the repository, and releases its claim on exit', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-reader-run-'));

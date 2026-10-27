@@ -1,5 +1,5 @@
 import { link, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { decodeReaderState, encodeReaderState, type ReaderState } from '../../entities/reader-state.js';
@@ -57,6 +57,81 @@ export interface ReaderLockFileOptions {
   /** Reads the environment; defaults to `process.env`. */
   env?: Record<string, string | undefined>;
 }
+
+/**
+ * Where one repository's lock lives, and the directory that must already exist
+ * before anything under it is created.
+ */
+interface IndexDirs {
+  /** The resolved `.plot/state/index/` directory, or the caller's own. */
+  indexDir: string;
+  /**
+   * The directory a write creates levels below and never creates itself: the
+   * common git dir, or the parent of an explicit or environment home.
+   */
+  base: string;
+}
+
+/**
+ * Resolves the index directory the way every `readerLockFile` does: an
+ * explicit `home`, then {@link READER_LOCK_HOME_ENV}, then the COMMON git dir,
+ * `realpath`d, joined with `.plot/state/index`.
+ *
+ * @param options - the same options `readerLockFile` takes.
+ * @returns the directories, or `null` where `cwd` is not a git repository or
+ *   its common dir cannot be resolved.
+ */
+const resolveIndexDirs = async (options: ReaderLockFileOptions): Promise<IndexDirs | null> => {
+  const env = options.env ?? process.env;
+  if (options.home !== undefined && options.home !== '') return { indexDir: options.home, base: dirname(options.home) };
+  const override = env[READER_LOCK_HOME_ENV];
+  if (override !== undefined && override !== '') return { indexDir: override, base: dirname(override) };
+  const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+  const out = run.stdout.trim();
+  if (run.code !== 0 || out === '') return null;
+  try {
+    const canonical = await realpath(resolve(options.cwd ?? process.cwd(), out));
+    return { indexDir: join(canonical, '.plot', 'state', SUBDIR), base: canonical };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The index directory a `readerLockFile` built with these options reads and
+ * writes. A process that hands the directory to another process passes this
+ * string, so both open the same lock.
+ *
+ * @param options - the same options `readerLockFile` takes.
+ * @returns the absolute index directory, or `null` where it cannot be resolved.
+ */
+export const readerLockIndexDir = async (options: ReaderLockFileOptions = {}): Promise<string | null> =>
+  (await resolveIndexDirs(options))?.indexDir ?? null;
+
+/**
+ * Creates `dir` one level at a time below `base`, and never creates `base`.
+ *
+ * A write that lands after its repository was removed fails with `ENOENT`
+ * here, where a recursive `mkdir` would recreate the removed repository's git
+ * dir around the lock.
+ *
+ * @param base - a directory that must already exist.
+ * @param dir - the directory to create, at or below `base`.
+ * @throws the `mkdir` error where `base` or a level above `dir` is missing.
+ */
+const ensureBelow = async (base: string, dir: string): Promise<void> => {
+  const rel = relative(base, dir);
+  if (rel === '') return;
+  let at = base;
+  for (const segment of rel.split(sep)) {
+    at = join(at, segment);
+    try {
+      await mkdir(at);
+    } catch (error) {
+      if (!isTaken(error)) throw error;
+    }
+  }
+};
 
 /** The same claim without a `released` marker. */
 const liveClaim = (claim: ReaderClaim): ReaderClaim => ({
@@ -160,36 +235,24 @@ const pidAlive = (pid: number): boolean | null => {
  * @returns a `ReaderLock` backed by one directory per connector per repository.
  */
 export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock => {
-  const env = options.env ?? process.env;
-
   /**
-   * The index directory, from the COMMON git dir, `realpath`d.
+   * The index directory and its base, from {@link resolveIndexDirs}.
    *
    * Cached per adapter instance, exactly as `pr-index-file.ts` caches it: the
    * answer cannot change while a process runs.
    */
-  let cached: string | null | undefined;
-  const indexDirOf = async (): Promise<string | null> => {
-    if (options.home !== undefined && options.home !== '') return options.home;
-    const override = env[READER_LOCK_HOME_ENV];
-    if (override !== undefined && override !== '') return override;
-    if (cached !== undefined) return cached;
-    const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
-    const out = run.stdout.trim();
-    if (run.code !== 0 || out === '') {
-      cached = null;
-      return cached;
-    }
-    const absolute = resolve(options.cwd ?? process.cwd(), out);
-    let canonical: string;
-    try {
-      canonical = await realpath(absolute);
-    } catch {
-      cached = null;
-      return cached;
-    }
-    cached = join(canonical, '.plot', 'state', SUBDIR);
+  let cached: IndexDirs | null | undefined;
+  const dirsOf = async (): Promise<IndexDirs | null> => {
+    if (cached === undefined) cached = await resolveIndexDirs(options);
     return cached;
+  };
+  const indexDirOf = async (): Promise<string | null> => (await dirsOf())?.indexDir ?? null;
+
+  /** Creates `dir` below the resolved base; see {@link ensureBelow}. */
+  const ensureDir = async (dir: string): Promise<void> => {
+    const dirs = await dirsOf();
+    if (dirs === null) throw new Error('reader lock: no index directory');
+    await ensureBelow(dirs.base, dir);
   };
 
   const lockDirOf = async (connector: string): Promise<string | null> => {
@@ -296,7 +359,7 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
     const generation = after + 1;
     const scratch = join(dir, `.${claim.pid}.${Math.trunc(claim.at)}.${generation}.tmp`);
     try {
-      await mkdir(dir, { recursive: true });
+      await ensureDir(dir);
       await writeFile(scratch, encodeClaim({ ...claim, generation }), { encoding: 'utf8' });
     } catch {
       return 'failed';
@@ -421,7 +484,7 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
       const path = readerStateFileFor(indexDir, key);
       const temp = `${path}.${process.pid}.tmp`;
       try {
-        await mkdir(indexDir, { recursive: true });
+        await ensureDir(indexDir);
         await writeFile(temp, encodeReaderState(state), { encoding: 'utf8' });
         await rename(temp, path);
         return answered(undefined);
@@ -436,7 +499,7 @@ export const readerLockFile = (options: ReaderLockFileOptions = {}): ReaderLock 
       const path = join(dir, name);
       const temp = join(dir, `.${name}.${process.pid}.tmp`);
       try {
-        await mkdir(dir, { recursive: true });
+        await ensureDir(dir);
         await writeFile(temp, `${Math.trunc(at)}\n`, { encoding: 'utf8' });
         await rename(temp, path);
         return answered(undefined);

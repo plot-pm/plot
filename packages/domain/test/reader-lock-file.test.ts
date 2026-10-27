@@ -1,11 +1,11 @@
-import { execFile } from 'node:child_process';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { readerLockFile, READER_LOCK_HOME_ENV } from '../src/adapters/reader-lock/reader-lock-file.js';
+import { readerLockFile, readerLockIndexDir, READER_LOCK_HOME_ENV } from '../src/adapters/reader-lock/reader-lock-file.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import { READER_STALE_MS, type ReaderClaim } from '../src/rules/reader-election.js';
 
@@ -220,6 +220,42 @@ describe('readerLockFile', () => {
     const lock = readerLockFile();
     answer(await lock.elect('github', { generation: 0, ...claim(11, 1_756_700_000_000) }));
     expect(readdirSync(join(home, 'github.lock'))).toContain('owner.1');
+  });
+
+  it('names the environment home as its index directory before the git dir', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'plot-reader-lock-repo-'));
+    try {
+      execFileSync('git', ['init', '--quiet'], { cwd: repo });
+      expect(await readerLockIndexDir({ cwd: repo, env: { [READER_LOCK_HOME_ENV]: home } })).toBe(home);
+      expect(await readerLockIndexDir({ cwd: repo, env: {} })).toMatch(/\/\.git\/\.plot\/state\/index$/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('a heartbeat after the repository was removed fails and recreates nothing', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'plot-reader-lock-repo-'));
+    try {
+      execFileSync('git', ['init', '--quiet'], { cwd: repo });
+      const lock = readerLockFile({ cwd: repo, env: {} });
+      answer(await lock.heartbeat('github', 'board.1', 1_756_700_000_000));
+      expect(existsSync(join(repo, '.git', '.plot', 'state', 'index', 'github.lock', 'board.1'))).toBe(true);
+      rmSync(repo, { recursive: true, force: true });
+      expect((await lock.heartbeat('github', 'board.1', 1_756_700_001_000)).ok).toBe(false);
+      expect((await lock.writeReaderState('github', { v: 1 as const, prError: null, prNextAt: 0, prNextIsBackoff: false, prFullReadFailedAt: null, at: 0 })).ok).toBe(false);
+      expect(existsSync(repo)).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('a heartbeat after the environment home\'s parent was removed recreates nothing', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'plot-reader-lock-parent-'));
+    const lock = readerLockFile({ home: join(parent, 'pr-index') });
+    answer(await lock.heartbeat('github', 'board.1', 1_756_700_000_000));
+    rmSync(parent, { recursive: true, force: true });
+    expect((await lock.heartbeat('github', 'board.1', 1_756_700_001_000)).ok).toBe(false);
+    expect(existsSync(parent)).toBe(false);
   });
 
   it('prefers an explicit home over the environment', async () => {

@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -27,7 +27,8 @@ import { logDir, processLog } from '../../shared/process-log.js';
  * Heartbeats as `reader.<pid>`. Exits, releasing its claim, once no live
  * board heartbeat remains under the lock, or once a live `fleetd` heartbeat
  * appears: fleetd publishes one on every pass, also while this reader holds
- * the lock, and elects on the pass after this reader releases it.
+ * the lock, and elects on the pass after this reader releases it. Also exits
+ * once its repository root no longer exists, and starts no pass after that.
  */
 
 /** The usage line. */
@@ -147,7 +148,8 @@ export const stillFollowed = async (
 /**
  * Runs the reader: one `fleetPrs` pass per `PR_REFRESH_MS` tick, heartbeating
  * as `reader.<pid>`, exiting once {@link stillFollowed} reads `none` or
- * `fleetd`, or `stopRequested` reads true, and releasing its claim on the
+ * `fleetd`, `stopRequested` reads true, or `repoExists` reads false, and
+ * releasing its claim on the
  * reader lock before it returns. A released claim lets a waiting fleetd elect
  * on its next pass.
  *
@@ -157,6 +159,9 @@ export const stillFollowed = async (
  * @param warn - receives a one-line reason for a pass's own failures.
  * @param liveness - reads pid liveness in one batch; a test replaces it.
  * @param stopRequested - reads true once a signal asks the reader to stop.
+ * @param repoExists - reads whether `repoRoot` still exists; a pass after the
+ *   repository is removed would only fail, and its log line would recreate
+ *   the removed root's `.plot/logs/`.
  * @returns the process exit code: always 0 — the reader leaves because no one
  *   follows it or fleetd runs, never because it failed.
  */
@@ -167,6 +172,7 @@ export const run = async (
   warn: (line: string) => void = () => undefined,
   liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>> = psLiveness,
   stopRequested: () => boolean = () => false,
+  repoExists: () => boolean = () => existsSync(repoRoot),
 ): Promise<number> => {
   const context = { repoRoot, scriptDir };
   const lock = readerLockFile({ home: args.lockDir });
@@ -189,14 +195,23 @@ export const run = async (
     if ((await stillFollowed(read, now, liveness)) !== 'followers') stop = true;
   };
 
-  await readPrs();
-  await checkStillFollowed();
+  if (repoExists()) {
+    await readPrs();
+    await checkStillFollowed();
+  } else {
+    stop = true;
+  }
   if (!stop) {
     pulse = startPulse(clockSystem(), PR_REFRESH_MS);
     pulse.add({
       name: 'pr-reader',
       everyNthBeat: 1,
       tick: async () => {
+        if (!repoExists()) {
+          stop = true;
+          pulse?.stop();
+          return;
+        }
         await readPrs();
         await checkStillFollowed();
         if (stop) pulse?.stop();
@@ -204,7 +219,7 @@ export const run = async (
     });
   }
 
-  while (!stop && !stopRequested()) {
+  while (!stop && !stopRequested() && repoExists()) {
     await new Promise((resolve) => setTimeout(resolve, Math.min(EXIT_CHECK_MS, 5_000)));
   }
   pulse?.stop();

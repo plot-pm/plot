@@ -85,7 +85,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { issueIndexFile, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
@@ -2289,30 +2289,16 @@ export const PR_READER_BUNDLE = 'board/plot-pr-reader.mjs';
 const readerLockKey = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<string> => resolveBackend(entry, hostFor(opts));
 
 /**
- * The resolved `.plot/state/index/` directory this repository's reader lock
- * lives under — the COMMON git dir, `realpath`d, joined the same way
- * `readerLockFile`'s own (private) resolution does, so a spawned reader
- * reads the identical lock the board just elected over.
- *
- * Computed here, not inside the port: the board must hand the reader this
- * exact string over argv rather than let the reader re-derive it, so the two
- * sides cannot disagree about which lock they mean.
+ * The `.plot/state/index/` directory this repository's reader lock lives
+ * under, resolved by the lock adapter's own `readerLockIndexDir`: an explicit
+ * `PLOT_PR_INDEX_HOME` first, then the COMMON git dir, `realpath`d. A spawned
+ * reader receives this string over argv, so it opens the lock the board just
+ * elected over.
  *
  * @returns the absolute index directory, or `null` where this is not a git
  *   repository or its common dir cannot be resolved.
  */
-const indexDirFor = async (opts: BuildBoardOptions): Promise<string | null> => {
-  try {
-    const out = await run('git', ['rev-parse', '--git-common-dir'], opts.repoRoot);
-    const trimmed = out.trim();
-    if (trimmed === '') return null;
-    const absolute = path.resolve(opts.repoRoot, trimmed);
-    const canonical = await fs.promises.realpath(absolute);
-    return path.join(canonical, '.plot', 'state', 'index');
-  } catch {
-    return null;
-  }
-};
+const indexDirFor = (opts: BuildBoardOptions): Promise<string | null> => readerLockIndexDir({ cwd: opts.repoRoot });
 
 /**
  * Whether a live `fleetd` heartbeat already reads PRs under this lock — the
