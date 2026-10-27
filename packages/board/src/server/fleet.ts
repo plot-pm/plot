@@ -82,6 +82,7 @@ import {
 // it, exactly as `budgetFile` is.
 import { issueIndexFile, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
+import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
@@ -404,6 +405,13 @@ export interface CacheEntry {
    * this pulse fetched its own. What the board reports rather than implies.
    */
   listingReusedAgeMs: number | null;
+  /**
+   * The GitHub listing fleetd last read through the host, or null where
+   * `listing` did not come from such a read. Read by `scanListingWindowFor`
+   * alone; the Bitbucket arm never sets it, since the shell still sweeps for
+   * itself.
+   */
+  listingHeld: CarriedListing | null;
   pulse: FleetReading | null;
   ages: Map<string, number | null>;
   /**
@@ -2651,7 +2659,7 @@ export function freshCacheEntry(): CacheEntry {
     // Empty and null: no listing has been made, which is what lets the first
     // scan spend one whatever the account's rate says.
     listing: '', listingAt: null, listingIntervalMs: REFRESH_MS,
-    listingBranches: 0, listingReusedAgeMs: null,
+    listingBranches: 0, listingReusedAgeMs: null, listingHeld: null,
     approvedAt: new Map(),
     ideaPlans: new Map(),
     versions: new Map(),

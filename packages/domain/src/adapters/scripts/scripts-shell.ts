@@ -96,7 +96,7 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       // every other non-zero exit is an attempt that failed, which some callers
       // should wait before repeating. The sentence travels because that is the
       // only thing separating a rate limit from a DNS blip.
-      if (run.code === EXIT_OK) return { answer: 'answered', stdout: run.stdout };
+      if (run.code === EXIT_OK) return { answer: 'answered', stdout: run.stdout, stderr: run.stderr };
       const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
       // 7 IS AN INCOMPLETE ANSWER, NOT AN ABSENT ONE, and it is the only code
       // that carries both streams. `bb pr list` has no `all` state, so the

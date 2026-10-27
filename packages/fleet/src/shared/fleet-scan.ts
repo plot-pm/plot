@@ -6,6 +6,11 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
+import {
+  foldScanListing, parseScanListingRows, renderScanListing, scanListingWindowFor,
+  type CarriedListing, type ScanListingAnswer, type ScanListingWindow,
+} from '@plot-pm/domain/rules/scan-listing';
+import { PR_FULL_READ_MS } from './pr-refresh.js';
 
 /** The scan Plot ships, streamed one plan at a time. */
 export const FLEET_SCAN = 'plot-fleet-scan.sh';
@@ -50,6 +55,13 @@ export interface ScanState {
   listingBranches: number;
   /** Age in ms of a reused listing on the latest scan, or null where it fetched. */
   listingReusedAgeMs: number | null;
+  /**
+   * The GitHub listing fleetd last read through the host, with its rows'
+   * `updatedAt` and when its full read ran, or null where `listing` did not
+   * come from such a read. Read by {@link scanListingWindowFor} alone; the
+   * Bitbucket arm never sets it, since the shell still sweeps for itself.
+   */
+  listingHeld: CarriedListing | null;
 }
 
 /**
@@ -64,6 +76,7 @@ export const freshScanState = (): ScanState => ({
   listingIntervalMs: REFRESH_MS,
   listingBranches: 0,
   listingReusedAgeMs: null,
+  listingHeld: null,
 });
 
 /** What a scan reads through; every spawn goes through `scripts` or `refs`. */
@@ -365,6 +378,91 @@ export const readBranchUrlBase = async (refs: Refs): Promise<string> => {
   }
 };
 
+/** The `pr-list --limit` the scan asks with when `PLOT_PR_LIST_LIMIT` names none. */
+export const SCAN_PR_LIST_LIMIT = 3000;
+
+/**
+ * The `pr-list --limit` the scan asks with: `PLOT_PR_LIST_LIMIT` where it is
+ * a positive integer, else {@link SCAN_PR_LIST_LIMIT} — the value
+ * `plot-fleet-scan.sh`'s `PR_LIST_LIMIT` takes from the same variable.
+ *
+ * @param env - the environment to read.
+ * @returns the limit.
+ */
+export const scanPrListLimit = (env: NodeJS.ProcessEnv = process.env): number => {
+  const n = Number(env.PLOT_PR_LIST_LIMIT);
+  return Number.isInteger(n) && n > 0 ? n : SCAN_PR_LIST_LIMIT;
+};
+
+/**
+ * Asks the host one `pr-list` call and reads it into rows.
+ *
+ * @param scripts - the one place `plot-*.sh` is invoked.
+ * @param args - the `pr-list` arguments.
+ * @returns the rows and the raw stderr `foldScanListing`'s whole-page check
+ *   reads, or `verdict: 'failed'` with no rows where the call failed, could
+ *   not be asked, or printed a line that is not a PR row.
+ */
+const askPrList = async (scripts: Scripts, args: readonly string[]): Promise<ScanListingAnswer> => {
+  const said = await scripts.hostSaid(['pr-list', ...args]);
+  if (said.answer === 'failed' || said.answer === 'unaskable') {
+    return { verdict: 'failed', rows: [], stderr: said.said };
+  }
+  const rows = parseScanListingRows(said.stdout);
+  if (rows === null) return { verdict: 'failed', rows: [], stderr: 'pr-list printed a line that is not a PR row' };
+  return {
+    verdict: said.answer === 'partial' ? 'partial' : 'ok',
+    rows,
+    stderr: said.answer === 'partial' ? said.said : said.stderr,
+  };
+};
+
+/**
+ * Reads the GitHub PR listing through the host, folded against the listing
+ * the last host read held.
+ *
+ * Asks `pr-list --state open --rich` and `pr-list --state all`, both with
+ * `--limit`, the second with `--since` where {@link scanListingWindowFor}
+ * answers `delta`. A refused delta is asked again as a full read.
+ *
+ * @param scripts - the one place `plot-*.sh` is invoked.
+ * @param held - the listing the last host read held, or null.
+ * @param now - this machine's clock, in epoch milliseconds.
+ * @returns the rendered listing and the listing to hold for the next read,
+ *   or null where the full read was refused too or a row has no branch name.
+ */
+const readGithubListing = async (
+  scripts: Scripts,
+  held: CarriedListing | null,
+  now: number,
+): Promise<{ rendered: string; next: CarriedListing } | null> => {
+  const limit = ['--limit', String(scanPrListLimit())];
+  const attempt = async (window: ScanListingWindow, base: CarriedListing | null) => {
+    const open = await askPrList(scripts, ['--state', 'open', ...limit, '--rich']);
+    const since = window.kind === 'delta' ? ['--since', window.since] : [];
+    const rest = await askPrList(scripts, ['--state', 'all', ...limit, ...since]);
+    return foldScanListing(base, open, rest);
+  };
+
+  let window = scanListingWindowFor(held, now, PR_FULL_READ_MS);
+  let folded = await attempt(window, window.kind === 'delta' ? held : null);
+  if (!folded.ok && window.kind === 'delta') {
+    window = { kind: 'full' };
+    folded = await attempt(window, null);
+  }
+  if (!folded.ok) return null;
+  const rendered = renderScanListing(folded.rows, folded.complete);
+  if (rendered === null) return null;
+  return {
+    rendered,
+    next: {
+      rows: folded.rows,
+      complete: folded.complete,
+      fullReadAt: window.kind === 'full' ? now : held?.fullReadAt ?? now,
+    },
+  };
+};
+
 /**
  * Runs the fleet scan once and reads the facts that travel with its pulse.
  *
@@ -374,6 +472,10 @@ export const readBranchUrlBase = async (refs: Refs): Promise<string> => {
  * where it fetched, `listing`. A scan that throws (budget timeout or failure)
  * or ends without its reading merges its streamed terminal rows into `terminal` by branch name, and
  * replaces `listing` only where the streamed listing ends with `.list-arrived`.
+ * On GitHub a due listing is read through the host before the scan starts;
+ * where that read succeeds, it replaces `listing`, `listingAt`,
+ * `listingBranches` and `listingHeld`, and the scan's own `listing:` lines are
+ * not adopted.
  *
  * @param world - what the scan reads through.
  * @param state - the caches carried between scans; `terminal`, `listing`,
@@ -395,8 +497,9 @@ export const scanOnce = async (
   const due = state.listingAt === null || now >= state.listingAt + state.listingIntervalMs;
   let spend = true;
   let reusedAgeMs: number | null = null;
+  let backend: string | null = null;
   if (due) {
-    const backend = await world.backend();
+    backend = await world.backend();
     const verdict = listingSpend({
       intervalMs: REFRESH_MS,
       costPerListing: scanListingCost(
@@ -418,6 +521,26 @@ export const scanOnce = async (
   }
   const reusing = !spend && state.listing !== '';
   state.listingReusedAgeMs = reusing ? reusedAgeMs : null;
+
+  // ON GITHUB, A DUE SPEND READS THE LISTING ITSELF rather than leaving
+  // `PLOT_PR_LISTING` empty for the shell to fetch — `PLOT_PR_LISTING` must
+  // never be handed to the shell empty here. Bitbucket is unchanged: it needs
+  // `TRACKED_BRANCHES`, which only the shell computes per pass, so the shell
+  // keeps making its own sweep.
+  //
+  // A SUCCESSFUL HOST READ IS ADOPTED HERE, not from the scan's `listing:`
+  // lines: the shell carries a handed listing and reports none back.
+  let hostRead: { rendered: string; next: CarriedListing } | null = null;
+  if (spend && backend === 'github') {
+    hostRead = await readGithubListing(world.scripts, state.listingHeld, now);
+    state.listingHeld = hostRead?.next ?? null;
+    if (hostRead !== null) {
+      state.listing = hostRead.rendered;
+      state.listingAt = Date.now();
+      state.listingBranches = listedBranchCount(hostRead.rendered) ?? state.listingBranches;
+    }
+  }
+
   let ended = false;
   try {
     await world.scripts.stream(FLEET_SCAN, ['--stream'],
@@ -437,7 +560,7 @@ export const scanOnce = async (
         timeoutMs: FLEET_SCAN_BUDGET_MS,
         env: {
           PLOT_TERMINAL_CACHE: state.terminal,
-          PLOT_PR_LISTING: reusing ? state.listing : '',
+          PLOT_PR_LISTING: hostRead !== null ? hostRead.rendered : (reusing ? state.listing : ''),
           ...(options.record ? {} : { PLOT_SCAN_RECORD: '0' }),
         },
         onErrorLine: (line) => {
@@ -452,7 +575,7 @@ export const scanOnce = async (
     // listing ends with `.list-arrived`.
     const whole = ended && parsed !== null;
     state.terminal = whole ? learned : mergeTerminal(state.terminal, learned);
-    if (!reusing && listed !== '' && (whole || listingEnded(listed))) {
+    if (hostRead === null && !reusing && listed !== '' && (whole || listingEnded(listed))) {
       state.listing = listed;
       state.listingAt = Date.now();
       state.listingBranches = listedBranchCount(listed) ?? state.listingBranches;
