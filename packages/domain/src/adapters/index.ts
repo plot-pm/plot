@@ -172,6 +172,20 @@ export {
 } from './supervision-report/supervision-report-file.js';
 export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 
+// FLEETD'S OWN START RECORD. One file under the COMMON git dir's
+// `.plot/state/`, written once at the top of the daemon's `run()` and read by
+// `plot-ask.mjs spawner` — the same shape `supervisionReportFile` carries.
+export {
+  fleetdStartFile,
+  FLEETD_START_HOME_ENV,
+  type FleetdStartFileOptions,
+} from './fleetd-start/fleetd-start-file.js';
+
+// THE GATE-NUMBER READER. Resolves which gate a Claude Code session would
+// load for a repository and reads its `--spawn-contract` answer; used by both
+// the board's status payload and `plot-ask.mjs spawner`.
+export { gateContractFile, type GateContractFileOptions } from './gate-contract/gate-contract-file.js';
+
 // THE TEMP SWEEP. `plot-reap.sh --sweep-temp --yes`, with the time of the last
 // run kept as a marker file's modification time under `.plot/state/`.
 export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';

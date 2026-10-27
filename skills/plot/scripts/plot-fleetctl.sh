@@ -823,9 +823,18 @@ if [ "$mode" = "status" ]; then
     # THE RUNNING PROCESS ALREADY HOLDS THE OLD FILE OPEN, so a bundle removed
     # out from under it is invisible to the pid check above — the process does
     # not notice until it next restarts and the file is gone. Named here rather
-    # than repaired: the fix is a rebuild or reinstall, a person's call.
+    # than repaired: the fix is a rebuild or reinstall, a person's call. The
+    # spawn-contract line below cannot name it: its drift reading needs a hash
+    # of the bundle, and a removed file has none.
     bundle=$(supervisor_bundle_path)
     [ -n "$bundle" ] && [ ! -f "$bundle" ] && printf '  BUNDLE MISSING: %s no longer exists — the loaded unit still names it\n    Rebuild it, or reinstall: /plot-fleet --stop, then /plot-fleet --start\n' "$bundle"
+    # `plot-ask.mjs spawner` (#2728, docs/plans/2026-10-26-a-board-or-fleetd-
+    # older-than.md) reads `fleetd-start.json`, compares it against the gate's
+    # own answer through `spawnerStatus`, and hashes the bundle fresh — so a
+    # rebuilt bundle shows up as drift and a stale spawn contract as `stale:`.
+    # The bundle prints the finished lines; a missing `plot-ask.mjs` prints
+    # nothing. REPORT ONLY: nothing below restarts, reloads or repairs anything.
+    PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-ask.mjs" spawner "$sup_pid" --lines 2>/dev/null
   elif [ "$sup_loaded" = 0 ]; then
     # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
     # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`

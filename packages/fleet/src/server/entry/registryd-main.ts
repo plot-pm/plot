@@ -31,8 +31,11 @@ import {
   fleetStateFile,
   clockSystem,
   startChannel,
+  fleetdStartFile,
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
+import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
+import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
@@ -191,6 +194,43 @@ import type { Agents } from '@plot-pm/domain/ports/agents';
  * different verdicts about it in the same second.
  */
 const MACHINE_SAMPLES = 5;
+
+/**
+ * The absolute path of the artifact this process runs: `plot-fleetd.mjs` in the
+ * directory the entry point resolved as its own. A plugin-installed repository
+ * holds no `skills/plot/`, so a path relative to the repository root names no
+ * file there.
+ *
+ * @param here - the directory of the running artifact.
+ * @returns the artifact's absolute path.
+ */
+export const fleetdBundlePath = (here: string): string => join(here, 'plot-fleetd.mjs');
+
+/**
+ * The record {@link run} writes to `fleetd-start.json` at its own start, or null
+ * where the running artifact cannot be hashed.
+ *
+ * @param repoRoot - the checkout supervised; `git` runs there.
+ * @param here - the directory of the running artifact.
+ * @param scriptsDir - where the plot helper scripts sit.
+ * @param pid - this process's id.
+ * @param now - the start time, epoch milliseconds.
+ * @returns the start record, or null when `git hash-object` fails on the artifact.
+ */
+export const fleetdStartRecord = (
+  repoRoot: string,
+  here: string,
+  scriptsDir: string,
+  pid: number,
+  now: number,
+): FleetdStart | null => {
+  const bundlePath = fleetdBundlePath(here);
+  const hashed = refsGit({ repoRoot, scriptDir: scriptsDir }).hashFilesSync([bundlePath]);
+  const bundleHash = hashed.ok ? hashed.value.get(bundlePath) ?? null : null;
+  return bundleHash === null
+    ? null
+    : { v: FLEETD_START_VERSION, pid, startedAt: now, spawnContract: SPAWN_CONTRACT, bundlePath, bundleHash };
+};
 
 /** Where the plot helper scripts sit, relative to this artifact. */
 const scriptsDirFor = (here: string): string =>
@@ -2254,6 +2294,22 @@ export const run = async (
 
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
+
+  // WRITTEN ONCE, HERE, AT THE TOP OF THIS PROCESS'S LIFE — never again this
+  // run, and never read back by the daemon itself (#2728, `docs/plans/
+  // 2026-10-26-a-board-or-fleetd-older-than.md`). `plot-fleetctl.sh --status`,
+  // through `plot-ask.mjs spawner`, is the reader; `registryd-main.ts`'s
+  // `run()` is the ONLY writer, the same one-writer contract
+  // `one-issue-index-writer.test.ts` holds for `issues.json`. A failed write
+  // is reported and never stops the daemon from starting — report only.
+  const record = fleetdStartRecord(repoRoot, here, scriptsDir, process.pid, Date.now());
+  if (record !== null) {
+    const written = await fleetdStartFile({ cwd: repoRoot }).write(record);
+    if (!written.ok) warn(`plot-fleetd: could not write fleetd-start.json — spawner status will read unknown\n`);
+  } else {
+    warn(`plot-fleetd: could not hash ${fleetdBundlePath(here)} — spawner status will read unknown\n`);
+  }
+
   const tally: HostTally = { calls: 0 };
   // ONE `Checks wait` READ PER TICK, SHARED BY BOTH CONSUMERS. `queue`'s own
   // `defaultBranchRed` and `defaultBranchWorld` below each used to call

@@ -1417,6 +1417,10 @@ export function App() {
               // rides on the BOARD payload, undefined until the first board
               // lands, which `checkoutHealthStatus` reads as "say nothing".
               checkoutClean={board?.checkoutClean}
+              // THE BOARD'S OWN SPAWN CONTRACT, same rule as `checkoutClean`
+              // above: rides on the BOARD payload, undefined until the first
+              // board lands, which `spawnerStatus` reads as "unknown".
+              spawnContract={board?.spawnContract}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

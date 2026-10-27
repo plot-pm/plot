@@ -1487,6 +1487,30 @@ export const BoardSchema = z.object({
   plansUnreadable: z.boolean().default(false),
   /** The Discovery tab's story lanes (Draft/Active/Done/Archived). `.default([])` for an older server. */
   storyLanes: z.array(StoryLaneGroupSchema).default([]),
+  /**
+   * The board's own spawn contract against the gate's, read at start —
+   * `spawnerStatus` in `@plot-pm/domain` turns this into `current`/`stale`/
+   * `unknown`, and a separate bundle-hash comparison turns it into the
+   * bundle-drift evidence line. `.optional()` for an older server that
+   * predates this field; absent means *not read*, never *current*.
+   */
+  spawnContract: z
+    .object({
+      /** The board's own compiled spawn contract number. */
+      spawnContract: z.number().int().positive(),
+      /** The absolute path of the board's own running bundle; a build with no process start reports the repository-relative checkout path. */
+      bundlePath: z.string().min(1),
+      /** That bundle's content hash, held once at this process's start. `null` where it could not be hashed. */
+      bundleHash: z.string().nullable(),
+      /** The same bundle's content hash, read fresh on this request — the "now" {@link bundleHash}'s drift is measured against. `null` where it could not be hashed. */
+      runningBundleHash: z.string().nullable(),
+      /** The gate's own `--spawn-contract` answer. `null` where the gate did not answer. */
+      gateNumber: z.number().int().positive().nullable(),
+      /** The gate path this was compared against — named so an operator can judge a lookup this reader cannot verify. */
+      gatePath: z.string().min(1),
+    })
+    .nullable()
+    .optional(),
 });
 export type Board = z.infer<typeof BoardSchema>;
 

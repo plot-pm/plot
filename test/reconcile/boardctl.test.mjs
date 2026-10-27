@@ -480,3 +480,60 @@ test('port: a key that is not a number is refused, and --port still runs', () =>
   assert.equal(flagged.status, 0, flagged.out);
   assert.match(flagged.out, /port:\s+7802\b/);
 });
+
+// THE SPAWN-CONTRACT LINE (#2728, docs/plans/2026-10-26-a-board-or-fleetd-
+// older-than.md). `--status` pipes the one `/api/board` body it fetched to the
+// shipped `plot-ask.mjs spawner --from-board --lines`. A fetch run in `$(…)`
+// sets the body in a subshell and prints no line at all, for a stale board and
+// a current one alike, so both are asserted.
+
+/** A stand-in board whose `/api/board` body also carries `spawnContract`. */
+const contractBoard = (root, spawnContract) => {
+  const dir = path.join(root, 'skills', 'plot', 'scripts', 'board');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(scripts, 'board', 'plot-ask.mjs'), path.join(dir, 'plot-ask.mjs'));
+  fs.writeFileSync(path.join(dir, 'board-server.mjs'), [
+    "import http from 'node:http';",
+    'const port = Number(process.env.PORT);',
+    `const spawnContract = ${JSON.stringify(spawnContract)};`,
+    'http.createServer((req, res) => {',
+    "  res.setHeader('content-type', 'application/json');",
+    '  res.end(JSON.stringify({ server: { repo: process.cwd(), port }, spawnContract }));',
+    "}).listen(port, '127.0.0.1');",
+    'setTimeout(() => process.exit(0), 60000);',
+  ].join('\n'));
+};
+
+const contractStatus = async (label, spawnContract) => {
+  const { root, ctl } = sandbox(label);
+  const port = await freePort();
+  contractBoard(root, spawnContract);
+  try {
+    const started = run(ctl, ['--start', '--port', String(port)], root, NO_OTHER_ARTIFACT);
+    assert.equal(started.status, 0, started.out);
+    const status = run(ctl, ['--status', '--port', String(port)], root);
+    assert.equal(status.status, 0, status.out);
+    assert.match(status.out, /^answers: yes — serving THIS repository/m, status.out);
+    return status.out;
+  } finally {
+    reap(root);
+  }
+};
+
+const BOARD_BUNDLE = 'skills/plot/scripts/board/board-server.mjs';
+
+test('status: a board whose spawn contract is behind the gate prints the stale line and the drift line', async () => {
+  const out = await contractStatus('contract-stale', {
+    spawnContract: 1, bundlePath: BOARD_BUNDLE, bundleHash: 'abc', runningBundleHash: 'def', gateNumber: 2, gatePath: '/g/plot-gate.mjs',
+  });
+  assert.match(out, /^ {2}spawn contract: stale: spawn contract 1, gate expects 2$/m, out);
+  assert.match(out, new RegExp(`^ {2}bundle differs from ${BOARD_BUNDLE} \\(evidence, not the verdict\\)$`, 'm'), out);
+});
+
+test('status: a board whose spawn contract matches the gate prints current and no drift line', async () => {
+  const out = await contractStatus('contract-current', {
+    spawnContract: 1, bundlePath: BOARD_BUNDLE, bundleHash: 'abc', runningBundleHash: 'abc', gateNumber: 1, gatePath: '/g/plot-gate.mjs',
+  });
+  assert.match(out, /^ {2}spawn contract: current$/m, out);
+  assert.doesNotMatch(out, /bundle differs/, out);
+});

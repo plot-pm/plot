@@ -323,6 +323,20 @@ export interface AgentListProps {
    * nothing" rather than "clean".
    */
   checkoutClean?: boolean | null;
+  /**
+   * The board's own spawn contract against the gate's — `/api/board`'s
+   * `spawnContract`, carried the same way `checkoutClean` above is. Absent
+   * where the board has not answered yet, or from an older server that never
+   * sent the field; `spawnerStatus` reads a missing reading as `unknown`.
+   */
+  spawnContract?: {
+    spawnContract: number;
+    bundlePath: string;
+    bundleHash: string | null;
+    runningBundleHash: string | null;
+    gateNumber: number | null;
+    gatePath: string;
+  } | null;
 }
 
 /**

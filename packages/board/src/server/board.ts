@@ -58,6 +58,8 @@ import {
   sprintGoal,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
+import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
+import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import { people } from './server-info.js';
 import {
   buildShell,
@@ -69,6 +71,7 @@ import {
   sliceSpendFile,
   treesGit,
   defaultBranchFile,
+  gateContractFile,
 } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
@@ -165,7 +168,63 @@ export interface BuildBoardOptions {
    * fixture store takes no filesystem, and fleetd stays the only writer.
    */
   defaultBranchStore?: DefaultBranchStore;
+  /**
+   * Where the gate's own `--spawn-contract` answer is read from. Absent means
+   * the three-tier plugin-registry lookup against this repository.
+   *
+   * A port for the same reason as {@link defaultBranchStore}: a board handed a
+   * fixture reader spawns no `node` process and reads no plugin registry.
+   */
+  gateContract?: GateContractReader;
+  /**
+   * The board's own running bundle — its absolute path and its content hash,
+   * held once at process start — never recomputed per build, unlike every
+   * other field on this options object. `undefined` where the process has none
+   * to offer (a test build with no real process-start hook);
+   * `spawnContractReadingFor` then reads {@link BOARD_BUNDLE_RELATIVE_PATH} and
+   * treats the missing hash the same as a hash it could not read itself: no
+   * drift to report. A `hash` of `null` means the bundle could not be hashed
+   * at start.
+   *
+   * This is the one field on `BuildBoardOptions` that is NOT a port. A port
+   * substitutes WHERE an answer comes from; this is the answer itself,
+   * carried in because it can only be true once, at the moment this process
+   * started — the same role `deps.runningBundle` plays for
+   * `worker-loop.ts`'s own drift check. Computing it fresh inside
+   * `buildBoard` would make bundle drift unobservable: a rebuilt file on
+   * disk and "now" would always read as the same hash.
+   */
+  startBundle?: { path: string; hash: string | null };
 }
+
+/** The board's bundle in a checkout of this repository, relative to its root — the path a build with no {@link BuildBoardOptions.startBundle} reads. */
+export const BOARD_BUNDLE_RELATIVE_PATH = path.join('skills', 'plot', 'scripts', 'board', 'board-server.mjs');
+
+/**
+ * The absolute path of the artifact this board runs: `board-server.mjs` in the
+ * directory the entry point resolved as its own. A plugin-installed repository
+ * holds no `skills/plot/`, so {@link BOARD_BUNDLE_RELATIVE_PATH} names no file
+ * there.
+ *
+ * @param here - the directory of the running artifact.
+ * @returns the artifact's absolute path.
+ */
+export const boardBundlePath = (here: string): string => path.join(here, 'board-server.mjs');
+
+/**
+ * The bundle the board records at its own start: the running artifact's
+ * absolute path and its content hash, or a `null` hash where `git hash-object`
+ * fails on it.
+ *
+ * @param opts - where `git` runs.
+ * @param here - the directory of the running artifact.
+ * @returns the value {@link BuildBoardOptions.startBundle} carries.
+ */
+export const startBundleFor = (opts: BuildBoardOptions, here: string): { path: string; hash: string | null } => {
+  const bundlePath = boardBundlePath(here);
+  const hashed = refsFor(opts).hashFilesSync([bundlePath]);
+  return { path: bundlePath, hash: hashed.ok ? hashed.value.get(bundlePath) ?? null : null };
+};
 
 /**
  * The ref reader for these options — the caller's, or this repository's.
@@ -227,6 +286,55 @@ export const spendRecordFor = (opts: BuildBoardOptions): SliceSpendRecord =>
  */
 export const defaultBranchStoreFor = (opts: BuildBoardOptions): DefaultBranchStore =>
   opts.defaultBranchStore ?? defaultBranchFile(opts.repoRoot);
+
+/**
+ * Where this board reads the gate's own `--spawn-contract` answer from.
+ *
+ * Built per call for the same reason as {@link refsFor}: the adapter closes
+ * over the plugin registry's path and the expense is in the spawn it makes,
+ * which it caches by the gate file's own size and mtime.
+ */
+export const gateContractFor = (opts: BuildBoardOptions): GateContractReader =>
+  opts.gateContract ?? gateContractFile();
+
+/**
+ * This board's own spawn contract against the gate's — {@link SPAWN_CONTRACT}
+ * compiled in, and a fresh hash of the bundle {@link BuildBoardOptions.startBundle} names, the same
+ * cost class as `checkoutClean`'s `isClean` call: one local git operation, read
+ * once per board build rather than cached across builds, because a rebuilt
+ * bundle on disk is exactly what the bundle-drift evidence line exists to
+ * show.
+ *
+ * REPORT ONLY: this reads the gate's number and this bundle's hash, and
+ * decides nothing — `spawnerStatus` and `bundleDriftDetected` in
+ * `@plot-pm/domain` do that, from the raw fields this returns.
+ *
+ * @param opts - where to read the gate's answer and this bundle's hash from.
+ * @returns the raw wire shape {@link BoardSchema.spawnContract} carries.
+ */
+export const spawnContractReadingFor = async (
+  opts: BuildBoardOptions,
+): Promise<Board['spawnContract']> => {
+  const bundlePath = opts.startBundle?.path ?? BOARD_BUNDLE_RELATIVE_PATH;
+  const bundleHash = opts.startBundle?.hash ?? null;
+  // Read fresh on every call, unlike `bundleHash` above — the "now" value
+  // `bundleDriftDetected` compares the process-start value against.
+  const running = refsFor(opts).hashFilesSync([bundlePath]);
+  const runningBundleHash = running.ok ? running.value.get(bundlePath) ?? null : null;
+  // `resolve` always answers at least the repo-script fallback tier — it has
+  // no `unaskable` path — so `gatePath` is always populated here.
+  const resolved = await gateContractFor(opts).resolve(opts.repoRoot);
+  const gatePath = resolved.ok ? resolved.value.path : BOARD_BUNDLE_RELATIVE_PATH;
+  const answer = resolved.ok ? await gateContractFor(opts).spawnContract(resolved.value.path) : null;
+  return {
+    spawnContract: SPAWN_CONTRACT,
+    bundlePath,
+    bundleHash,
+    runningBundleHash,
+    gateNumber: answer?.ok ? answer.value : null,
+    gatePath,
+  };
+};
 
 /**
  * The script runner for these options — the ONE way this package invokes a
@@ -2234,6 +2342,12 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     return status.ok ? status.value : null;
   })();
 
+  // The board's own spawn contract against the gate's. `bundleHash` rides in
+  // on `opts.startBundle`, captured once at process start; everything
+  // else here — including the comparison "now" hash — is read fresh per
+  // build, the same split `worker-loop.ts` draws for its own bundle drift.
+  const spawnContract = await spawnContractReadingFor(opts);
+
   // EACH PLAN'S AUTHOR — ONE BATCHED GIT-LOG WALK, READ ONCE ABOVE THE LOOP.
   // Same hoist as `spendLines` above: a per-plan call here would be one `git
   // log` spawn per plan per refresh, on the same ~290-plan estate.
@@ -2565,6 +2679,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     topics: extractTopics(stories.map((s) => storyTopicInput(s))),
     defaultBranch: defaultBranchReading,
     checkoutClean,
+    spawnContract,
     // Unset until `discoveryLanes` fills them in: the Discovery lane cache
     // lives in `fleet.ts`, which this walker has no dependency on. index.ts
     // overwrites all three at response time, the same hand and the same
