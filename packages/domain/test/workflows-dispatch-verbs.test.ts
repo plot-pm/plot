@@ -9,6 +9,7 @@ import {
   type WorktreeReading,
   type BranchPrReading,
   type ClaimReleaseReadings,
+  type ClaimReleasePrReading,
 } from '../src/workflows/index.js';
 import { answered, failed, unaskable } from '../src/port-result.js';
 
@@ -314,6 +315,38 @@ describe('--release: two refusals, not the script\'s six', () => {
     const out = releaseClaim(readings({ pr: unaskable() }));
     expect(refused(out)).toBe(true);
     if (refused(out)) expect(out.reason).toBe('pr-open');
+  });
+
+  it('releases on claim-only local evidence when the host did not answer, and says so', () => {
+    for (const pr of [failed<ClaimReleasePrReading>(), unaskable<ClaimReleasePrReading>()]) {
+      const out = releaseClaim(readings({ pr, localEvidence: 'claim-only' }));
+      expect(decided(out)).toBe(true);
+      if (decided(out)) {
+        expect(out.detail).toEqual({ branch: 'feature/x', hadClaim: true, viaLocalEvidence: true });
+        expect(out.writes).toEqual([{ kind: 'claim-release', branch: 'feature/x' }]);
+      }
+    }
+  });
+
+  it('refuses an unanswered host when the local evidence is unknown', () => {
+    const out = releaseClaim(readings({ pr: failed(), localEvidence: 'unknown' }));
+    expect(refused(out)).toBe(true);
+  });
+
+  it('lets an answered open or merged PR outrank claim-only evidence', () => {
+    for (const pr of [
+      answered({ open: true, merged: false, number: 7, state: 'OPEN' }),
+      answered({ open: false, merged: true, number: 7, state: 'MERGED' }),
+    ]) {
+      const out = releaseClaim(readings({ pr, localEvidence: 'claim-only' }));
+      expect(refused(out)).toBe(true);
+    }
+  });
+
+  it('refuses a live holder even with claim-only evidence', () => {
+    const out = releaseClaim(readings({ pr: failed(), holders: ['s1'], localEvidence: 'claim-only' }));
+    expect(refused(out)).toBe(true);
+    if (refused(out)) expect(out.reason).toBe('agent-live');
   });
 
   it('releases a claimed branch with no live agent and no PR, naming one write', () => {

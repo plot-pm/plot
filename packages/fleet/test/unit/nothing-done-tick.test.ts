@@ -121,14 +121,56 @@ describe('nothingDoneDecisions', () => {
     expect(decision?.verdict).toBe('leave');
   });
 
-  it('leaves a desk alone when the host could not say whether a PR is open', async () => {
+  it('releases a claim-only desk on local evidence when the host could not say whether a PR is open', async () => {
     const [decision] = await nothingDoneDecisions(
       [candidate()],
       async () => 'no',
       async () => 'unanswerable',
       noFreshSessions,
     );
+    expect(decision).toMatchObject({ verdict: 'release-claim', branch: 'feature/x', localEvidence: true });
+  });
+
+  it('marks no local evidence on a release the host answered', async () => {
+    const [decision] = await nothingDoneDecisions(
+      [candidate()],
+      async () => 'no',
+      async () => false,
+      noFreshSessions,
+    );
+    expect(decision?.localEvidence).toBeUndefined();
+  });
+
+  it('leaves a desk with a commit beyond its claim alone when the host is unreachable', async () => {
+    const [decision] = await nothingDoneDecisions(
+      [candidate()],
+      async () => 'yes',
+      async () => 'unanswerable',
+      noFreshSessions,
+    );
     expect(decision?.verdict).toBe('leave');
+  });
+
+  it('leaves a desk alone when the commit reading itself failed', async () => {
+    const [decision] = await nothingDoneDecisions(
+      [candidate()],
+      async () => 'unanswerable',
+      async () => 'unanswerable',
+      noFreshSessions,
+    );
+    expect(decision?.verdict).toBe('leave');
+  });
+
+  it('keeps permission-denied held for a person, host reachable or not', async () => {
+    for (const open of [false, 'unanswerable'] as const) {
+      const [decision] = await nothingDoneDecisions(
+        [candidate({ ending: 'permission-denied' })],
+        async () => 'no',
+        async () => open,
+        noFreshSessions,
+      );
+      expect(decision?.verdict).not.toBe('release-claim');
+    }
   });
 
   it('leaves a desk alone when commitBeyondClaim itself answers unanswerable, asking prOpen nothing', async () => {
