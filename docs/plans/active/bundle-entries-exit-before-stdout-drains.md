@@ -1,0 +1,1 @@
+../2026-10-27-bundle-entries-exit-before-stdout-drains.md
