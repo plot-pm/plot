@@ -42,6 +42,7 @@ import {
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
 import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
+import { spawnContractEnv } from '@plot-pm/domain/rules/spawn-contract';
 import { restartAnswer, type LoopRestartReadings } from '@plot-pm/domain/rules/loop-restart';
 import { DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
 import { DEFAULT_AGENT_CONTEXT_WINDOW, DEFAULT_AGENT_MAX_TURNS, agentRunSettings } from '@plot-pm/domain/rules/agent-models';
@@ -1571,6 +1572,7 @@ const runPrompt = async (
     PLOT_SESSION_ID: handle,
     PLOT_CORRECTION_FILE: join(worktree, 'PLOT-CORRECTION.md'),
     ...backgroundGateEnv(),
+    ...spawnContractEnv(),
   };
 
   // A FRESH OUTPUT FILE PER PROMPT, as the shell's `rm -f` before each run: the

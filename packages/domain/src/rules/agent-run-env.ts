@@ -8,6 +8,7 @@
  * that makes Plot's plugin gates fail OPEN. So {@link agentRunEnv} is the one
  * place this plan builds that object, and it merges.
  */
+import { spawnContractEnv } from './spawn-contract.js';
 
 /** The variable every fleet run sets to stop the CLI backgrounding anything. */
 export const BACKGROUND_TASKS_ENV_VAR = 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS';
@@ -62,7 +63,8 @@ export const backgroundGateEnv = (): Readonly<Record<string, string>> => ({
  *
  * @param inherited - the parent process's own environment.
  * @param plotEnv - the `PLOT_*` values this run adds.
- * @returns the merged environment, with {@link backgroundGateEnv} last.
+ * @returns the merged environment, with {@link backgroundGateEnv} and the
+ *   spawn contract last.
  */
 export const agentRunEnv = (
   inherited: Readonly<Record<string, string>>,
@@ -71,6 +73,7 @@ export const agentRunEnv = (
   ...inherited,
   ...plotEnv,
   ...backgroundGateEnv(),
+  ...spawnContractEnv(),
 });
 
 /** One settings file's `env` key, as the caller read it. */
