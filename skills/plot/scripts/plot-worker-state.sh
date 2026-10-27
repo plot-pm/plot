@@ -302,6 +302,26 @@ _plot_lstart_epoch() { # $1=ps -o lstart= text → epoch seconds, or "" (non-zer
     || date -d "$1" +%s 2>/dev/null
 }
 
+# Read a worktree's pid, startedAt and pidStartedAt — manifest first, then the
+# bare `.plot-worker.pid`(`.startedAt`) fallback. Shared by `plot_worker_state`
+# and `plot_worker_readings`, which both read the same three fields the same
+# way before diverging on what they report.
+_plot_pid_readings() { # $1=worktree → "pid\tstartedAt\tpidStartedAt" (pid empty if none found)
+  local wt="$1" manifest="" manifest_data="" pid="" started="" pid_started=""
+  if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
+    if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
+      pid=$(printf '%s' "$manifest_data" | cut -f1)
+      started=$(printf '%s' "$manifest_data" | cut -f2)
+      pid_started=$(printf '%s' "$manifest_data" | cut -f3)
+    fi
+  fi
+  if [ -z "$pid" ] && [ -n "$wt" ] && [ -f "$wt/.plot-worker.pid" ]; then
+    pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
+    [ -f "$wt/.plot-worker.pid.startedAt" ] && pid_started=$(cat "$wt/.plot-worker.pid.startedAt" 2>/dev/null | tr -d '\n')
+  fi
+  printf '%s\t%s\t%s' "$pid" "$started" "$pid_started"
+}
+
 # Validate a pid against a recorded start → 0 if valid, non-zero if stale.
 #
 # A pid is stale when the process that holds it is not the one Plot recorded.
@@ -1214,36 +1234,19 @@ plot_desk_loops() { PLOT_MANIFEST_DIR="${PLOT_MANIFEST_DIR:-}" node "${_plot_wst
 # Prints "state\tpid\tcode" — pid and code empty where they do not apply.
 # Never fails; an unreadable worktree is `none`, which is the honest answer.
 plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
-  local wt="$1" has_pr="${2:-}" pid="" code="" started_at="" pid_started_at="" manifest_data="" manifest=""
+  local wt="$1" has_pr="${2:-}" pid="" code="" started_at="" pid_started_at="" readings=""
 
-  # -------------------------------------------------------------------------
-  # Read the pid — first from the manifest, then from the worktree file.
-  # -------------------------------------------------------------------------
-  #
-  # THE MANIFEST IS PRIMARY. It carries `pid`, `startedAt` and the pid's own
-  # `pidStartedAt`, so a pid read here can be validated against the process's
-  # actual start time.
-  if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
-    if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
-      pid=$(printf '%s' "$manifest_data" | cut -f1)
-      started_at=$(printf '%s' "$manifest_data" | cut -f2)
-      pid_started_at=$(printf '%s' "$manifest_data" | cut -f3)
-    fi
-  fi
-
-  # FALLBACK to the worktree pid file when the manifest has no usable pid.
-  # `started_at` stays empty — there is no manifest `startedAt` to fall back
-  # on here — but `pid_started_at` reads the pid file's OWN sidecar
-  # (`.plot-worker.pid.startedAt`, beside it), so this path gets the same
-  # two-sided check the manifest path gets, rather than trusting `kill -0`
-  # alone. A pid file written before that sidecar existed reads it as empty,
-  # which `plot_pid_is_current` already treats as "none recorded".
-  if [ -z "$pid" ]; then
-    [ -n "$wt" ] && [ -f "$wt/.plot-worker.pid" ] || { printf 'none\t\t'; return; }
-    pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-    [ -n "$pid" ] || { printf 'none\t\t'; return; }
-    [ -f "$wt/.plot-worker.pid.startedAt" ] && pid_started_at=$(cat "$wt/.plot-worker.pid.startedAt" 2>/dev/null | tr -d '\n')
-  fi
+  # THE MANIFEST IS PRIMARY, with the worktree pid file as FALLBACK — carrying
+  # `pid`, `startedAt` and the pid's own `pidStartedAt` together where a
+  # manifest exists, or just the pid and its sidecar `pidStartedAt` where it
+  # does not (a hand-started worker, or a manifest predating `startedAt`).
+  # `_plot_pid_readings` reads both paths; `plot_pid_is_current` already
+  # treats an empty `pidStartedAt` as "none recorded".
+  readings=$(_plot_pid_readings "$wt")
+  pid=$(printf '%s' "$readings" | cut -f1)
+  started_at=$(printf '%s' "$readings" | cut -f2)
+  pid_started_at=$(printf '%s' "$readings" | cut -f3)
+  [ -n "$pid" ] || { printf 'none\t\t'; return; }
 
   # -------------------------------------------------------------------------
   # Validate the pid.
@@ -1430,7 +1433,7 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
 # because it was told they differ. The PR fact is NOT here: it comes from the
 # caller, exactly as it does for `plot_worker_state`.
 plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\tdirty\tunpushed"
-  local wt="$1" pid="" started_at="" pid_started_at="" manifest_data="" manifest=""
+  local wt="$1" pid="" started_at="" pid_started_at="" manifest_data=""
   local here=1 pid_recorded=0 liveness=dead exit_field='-' blocked=0 dirty=0 ahead=""
 
   # NO WORKTREE IS ANSWERED FIRST, and it is a question about the worktree LIST
@@ -1444,18 +1447,12 @@ plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\t
 
   # THE MANIFEST IS PRIMARY, as above: it carries `pid`, `startedAt` and
   # `pidStartedAt` together, and the pid's own start is what tells a reused
-  # pid from the real worker.
-  if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
-    if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
-      pid=$(printf '%s' "$manifest_data" | cut -f1)
-      started_at=$(printf '%s' "$manifest_data" | cut -f2)
-      pid_started_at=$(printf '%s' "$manifest_data" | cut -f3)
-    fi
-  fi
-  if [ -z "$pid" ] && [ -f "$wt/.plot-worker.pid" ]; then
-    pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-    [ -f "$wt/.plot-worker.pid.startedAt" ] && pid_started_at=$(cat "$wt/.plot-worker.pid.startedAt" 2>/dev/null | tr -d '\n')
-  fi
+  # pid from the real worker. `_plot_pid_readings` reads it and the worktree
+  # pid file fallback the same way `plot_worker_state` does.
+  manifest_data=$(_plot_pid_readings "$wt")
+  pid=$(printf '%s' "$manifest_data" | cut -f1)
+  started_at=$(printf '%s' "$manifest_data" | cut -f2)
+  pid_started_at=$(printf '%s' "$manifest_data" | cut -f3)
 
   # A pid of 0 and any non-numeric junk are NOT pids. `kill -0 0` signals the
   # whole process group and succeeds, so a zero read as live reports `running`
