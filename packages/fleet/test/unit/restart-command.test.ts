@@ -9,7 +9,7 @@ import { ENDING_FILENAME, readEnding } from '@plot-pm/domain/entities/ending';
 import { killedWorkerEnding } from '@plot-pm/domain/rules/ending-action';
 import type { FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/restart-command.js';
-import { restartBranch, type RestartReaders } from '../../src/shared/restart-command.js';
+import { adapterReaders, restartBranch, type RestartReaders } from '../../src/shared/restart-command.js';
 import { continueOnDesk } from '../../src/shared/continuation.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
@@ -59,6 +59,20 @@ describe('restartBranch', () => {
   it('refuses no-worktree with 404 where the pulse lists the branch with no desk', async () => {
     const r = await restartBranch({ opts, pulse: pulseOf('feature/no-desk', ''), branch: 'feature/no-desk', unattended: false });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-worktree' });
+  });
+});
+
+describe('adapterReaders under --offline', () => {
+  const opts = { repoRoot: '/nonexistent', scriptsDir: '/nonexistent' };
+
+  it('answers no PR without asking the host, unlike a real call that fails', async () => {
+    const reading = await adapterReaders(opts, true).pr('feature/x');
+    expect(reading).toEqual({ reachedReview: false, number: 0, state: '' });
+  });
+
+  it('asks the host when offline is false, and a host with no backend reads unanswerable', async () => {
+    const reading = await adapterReaders(opts, false).pr('feature/x');
+    expect(reading.reachedReview).toBe('unanswerable');
   });
 });
 

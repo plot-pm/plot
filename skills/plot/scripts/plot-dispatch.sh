@@ -1829,12 +1829,15 @@ fi
 if [ "$mode" = "restart" ]; then
   # A LAUNCHER: `board/plot-restart-command.mjs` holds the rule (`restartWorker`),
   # the start and the refusals. The worktree is git's answer, passed in so a
-  # checkout with no bridged pulse still restarts.
+  # checkout with no bridged pulse still restarts. `--offline` is passed the
+  # same way `reached_review()` above honours it: the PR question is never
+  # put, and the restart reads no PR rather than an unanswered one.
   if [ -z "$restart_branch" ]; then
     echo "plot-dispatch: --restart needs a branch name, e.g. --restart feature/x" >&2
     exit 1
   fi
   PLOT_RESTART_WORKTREE=$(worktree_holding_branch "$restart_branch") \
+    PLOT_RESTART_OFFLINE=$([ -n "$offline" ] && echo 1 || echo 0) \
     node "$script_dir/board/plot-restart-command.mjs" "$restart_branch" || exit 1
   spend_action_receipt "restart"
   exit 0

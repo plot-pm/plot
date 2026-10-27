@@ -505,7 +505,12 @@ describe('a browser test that stubs its own state starts no board', () => {
 // the catalogue builders (`drivesAPage` counts it) to prove the story filter
 // and lane grouping match a `Story:` Markdown link once reduced to its slug
 // (#2411). It renders no page and starts no board.
-const EXPECTED_FILES = 75;
+// 75 → 76 on 2026-10-27: `restart-control.browser.test.ts`, for the Restart
+// button on a dead worker's row — which worker states offer it is the
+// domain's answer, and this file proves the button shows and posts the
+// branch to `/api/restart` (#2784). A plain addition; it serves its state
+// through the catalogue and starts no board.
+const EXPECTED_FILES = 76;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -802,7 +807,9 @@ const EXPECTED_FILES = 75;
 // test.ts`, for a stale `?deliverySprint=` slug on load reading as "all
 // Active sprints" rather than "zero rows" (bug/chip-and-inbox-tests-can-
 // fail). The file already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 624;
+// 624 → 626 on 2026-10-27: two `it(` in `restart-control.browser.test.ts`,
+// a new file counted in `EXPECTED_FILES` above.
+const EXPECTED_TESTS = 626;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

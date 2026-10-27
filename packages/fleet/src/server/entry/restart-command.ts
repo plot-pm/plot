@@ -36,6 +36,8 @@ export interface RestartCommandDeps {
   worktree?: string;
   /** Whether the caller runs unattended; `PLOT_UNATTENDED=1` where absent. */
   unattended?: boolean;
+  /** Whether the caller promised no network; `PLOT_RESTART_OFFLINE=1` where absent. */
+  offline?: boolean;
 }
 
 /**
@@ -85,6 +87,7 @@ export const run = async (
     branch,
     worktree: deps.worktree ?? process.env.PLOT_RESTART_WORKTREE,
     unattended: deps.unattended ?? process.env.PLOT_UNATTENDED === '1',
+    offline: deps.offline ?? process.env.PLOT_RESTART_OFFLINE === '1',
     monitors: deps.monitors,
     readers: deps.readers,
   });

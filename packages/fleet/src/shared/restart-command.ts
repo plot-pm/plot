@@ -39,6 +39,8 @@ export interface RestartBranchInput {
   worktree?: string;
   /** Whether the caller runs unattended; such a caller restarts nothing. */
   unattended: boolean;
+  /** Whether the caller promised no network; such a caller's PR question is never put. */
+  offline?: boolean;
   /** Starts the desk's monitor; the shell script where absent. */
   monitors?: DeskMonitors;
   /** The readings; the host and process adapters where absent. */
@@ -48,13 +50,20 @@ export interface RestartBranchInput {
 /**
  * The readers over the host and process adapters.
  *
+ * `offline` is honoured the way `reached_review()` in `plot-dispatch.sh`
+ * honours it: a flag that promised no network skips the host call rather than
+ * making one and reading its failure. That is a different reading from a host
+ * call that was MADE and failed — `unanswerable`, never silently `false`.
+ *
  * @param opts - the repository and its scripts directory.
+ * @param offline - whether to skip the host call and answer no PR.
  * @returns readers that map a failed or unaskable host to `'unanswerable'`.
  */
-export const adapterReaders = (opts: ContinuationOptions): RestartReaders => {
+export const adapterReaders = (opts: ContinuationOptions, offline = false): RestartReaders => {
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
   return {
     pr: async (branch) => {
+      if (offline) return { reachedReview: false, number: 0, state: '' };
       const asked = await hostShell(context).prState(branch);
       if (!asked.ok) return { reachedReview: 'unanswerable', number: 0, state: '' };
       if (asked.value === null) return { reachedReview: false, number: 0, state: '' };
@@ -113,7 +122,7 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
     return { kind: 'refused', status: 404, reason: 'no-worktree', detail: 'this machine holds no worktree for that branch' };
   }
   const { opts, branch } = input;
-  const readers = input.readers ?? adapterReaders(opts);
+  const readers = input.readers ?? adapterReaders(opts, input.offline);
   const restart = async (): Promise<RestartVerdict> => {
     const pr = await readers.pr(branch);
     const worker = await readers.worker(worktree, pr.reachedReview === true);
