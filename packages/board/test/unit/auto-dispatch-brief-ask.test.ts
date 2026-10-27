@@ -467,6 +467,11 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     await settle(() => f.askArgv().length, 1);
     expect(f.askArgv()).toHaveLength(1);
     expect(f.askArgv()[0]![0]).toContain('feature/slice-one');
+    // Both slices share the plan's slug, and the first writer holds its lock
+    // until its run records an end. The marker is written before the writer
+    // exits, so a second pass started earlier finds the lock held and asks
+    // nothing.
+    await boardRunsSettled();
 
     // Slice one's brief landed and the slice merged; slice two turns eligible.
     f.land('feature/slice-one');
