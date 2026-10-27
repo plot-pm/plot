@@ -1068,13 +1068,11 @@ prefill_pr_states() {
   pr_list_verdict_rank "$_v_all"
   if [ "$_r_open" -gt "$_plr" ]; then HOST_VERDICT=$_v_open; else HOST_VERDICT=$_v_all; fi
   case "$HOST_VERDICT" in ok|partial) ;; *) return 0 ;; esac
-  # THE MERGE, AND THE TRAP IT AVOIDS. An open PR can still appear in BOTH
-  # payloads — rich from the `open` call, plain from the `settled` call, since
-  # GitHub's `settled` arm is `--state all` and answers OPEN rows too — and
-  # both rows rank 1 in the dedup below. With the sort key exhausted, `sort`
-  # compares whole lines, and the plain row's `-` sentinel (0x2D) sorts before
-  # any letter: the plain row wins every time and the rollup is lost for 100%
-  # of open PRs.
+  # THE MERGE, AND THE TRAP IT AVOIDS. An open PR is in BOTH payloads — rich
+  # from the `open` call, plain from the `settled` call — and both rows rank 1
+  # in the dedup below. With the sort key exhausted, `sort` compares whole
+  # lines, and the plain row's `-` sentinel (0x2D) sorts before any letter: the
+  # plain row wins every time and the rollup is lost for 100% of open PRs.
   #
   # So the `settled` payload's OPEN rows are dropped before the concatenation,
   # and each branch contributes one OPEN row at most. Those rows are unused:
@@ -3380,14 +3378,12 @@ if [ -n "$slug" ]; then
     # Same precedence as the worktree form: the dated plan file first, then the
     # active index, then delivered. `ref_ls` is filtered rather than globbed
     # because the ref has no shell to expand `*`.
-    found=0
     for cand in $(ref_ls "$PLAN_DIR" | grep "$slug\.md$") \
                 $(ref_ls "$ACTIVE_DIR" | grep "/$slug\.md$") \
                 $(ref_ls "$DELIVERED_DIR" | grep "/$slug\.md$"); do
       add_ref_plan "$cand"
-      [ ${#plans[@]} -gt 0 ] && { found=1; break; }
+      [ ${#plans[@]} -gt 0 ] && break
     done
-    [ "$found" = 1 ] || true
   else
     for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
       [ -e "$cand" ] && {
