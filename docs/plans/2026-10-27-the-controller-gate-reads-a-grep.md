@@ -123,7 +123,7 @@ The PR records that each mutation ran and which test failed.
 
 ### Reader set
 
-- `feature/the-controller-gate-reads-a-grep` — `isReadSegment` agrees with `READERS`, with tests for the reads and the runs above <!-- builds: isReadSegment reading the full READERS set -->
+- `feature/the-controller-gate-reads-a-grep` — `isReadSegment` agrees with `READERS`, with tests for the reads and the runs above <!-- builds: isReadSegment reading the full READERS set --> → #2770
 
 ## Notes
 
