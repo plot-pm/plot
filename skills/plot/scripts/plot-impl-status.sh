@@ -240,33 +240,45 @@ index_answered() { # $1=answer line
   esac
 }
 
-# Which positions the index could NOT answer. Only those reach the host, and
-# only their shape decides whether the merged-head list is fetched at all.
+# Which branches the index could NOT answer AND which carry no annotation.
+# Only those are named to the host below, and only a non-empty set fetches
+# anything at all.
 POS=0
-UNRESOLVED_UNANNOTATED=0
+UNRESOLVED_UNANNOTATED=""
 for BR in $BRANCH_LINES; do
   POS=$((POS + 1))
   index_answered "$(index_answer_for "$POS")" && continue
-  [ -z "$(annotation_for "$BR")" ] && { UNRESOLVED_UNANNOTATED=1; break; }
+  [ -z "$(annotation_for "$BR")" ] && UNRESOLVED_UNANNOTATED="${UNRESOLVED_UNANNOTATED:+$UNRESOLVED_UNANNOTATED }$BR"
 done
 
-# The merged-PR head list, fetched ONCE for the whole plan (constant in branch
-# count) and only when some branch is un-annotated — an annotated-only plan pays
-# nothing. Loaded at TOP LEVEL, not lazily inside a `$(...)`: a function that set
-# this from within command substitution would set it in a subshell and the value
-# would not survive, re-fetching per branch. Lines are "<number>\t<head>", from
-# the host adapter's structured pr-list. A failed or unavailable host leaves it
-# empty, and an un-annotated branch then simply does not resolve — never
-# fabricated as merged.
+# The merged-PR head list, fetched ONCE for the whole plan — one `pr-list` call
+# regardless of how many branches are unresolved — and only when some branch is
+# un-annotated; an annotated-only plan pays nothing. Loaded at TOP LEVEL, not
+# lazily inside a `$(...)`: a function that set this from within command
+# substitution would set it in a subshell and the value would not survive,
+# re-fetching per branch. Lines are "<number>\t<head>", from the host adapter's
+# structured pr-list. A failed or unavailable host leaves it empty, and an
+# un-annotated branch then simply does not resolve — never fabricated as merged.
 #
 # THE INDEX NARROWS THIS FURTHER. It is now fetched only where some un-annotated
 # branch the STORE could not answer remains, so a fully merged plan skips this
 # call along with every pr-state below it.
+#
+# NAMED BY BRANCH, NOT A BLIND LISTING. Every unresolved branch above is passed
+# as a repeated `--branch` argument to this one call rather than asking an
+# unscoped listing and matching heads locally. The CALL COUNT stays at one, but
+# on Bitbucket naming branches routes `plot-host.sh` to `bb_branch_sweep`, which
+# runs one request per named branch inside that single invocation — so the
+# REQUEST count inside this one call is no longer constant in branch count; it
+# scales with how many branches are unresolved. On GitHub several `--branch`
+# values still filter the one listing call server-side.
 MERGED_HEADS=""
-if [ "$UNRESOLVED_UNANNOTATED" = 1 ]; then
+if [ -n "$UNRESOLVED_UNANNOTATED" ]; then
   # --limit 500: the host CLI pages at 30 by default, too shallow to reach an
   # old plan's merge; the same headroom plot-reconcile-scan.sh uses.
-  MERGED_HEADS=$(bash "$HERE/plot-host.sh" pr-list --state merged --limit 500 2>/dev/null \
+  BRANCH_ARGS=()
+  for BR in $UNRESOLVED_UNANNOTATED; do BRANCH_ARGS+=(--branch "$BR"); done
+  MERGED_HEADS=$(bash "$HERE/plot-host.sh" pr-list --state merged --limit 500 "${BRANCH_ARGS[@]}" 2>/dev/null \
     | jq -r 'select((.state // "MERGED") | ascii_upcase == "MERGED") | "\(.number)\t\(.head)"' 2>/dev/null || true)
 fi
 
