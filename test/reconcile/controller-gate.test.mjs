@@ -71,6 +71,7 @@ function spendReceipt(dir, script) {
 }
 
 const DISPATCH = 'bash skills/plot/scripts/plot-dispatch.sh some-slug';
+const RESTART = 'bash skills/plot/scripts/plot-dispatch.sh --restart feature/x';
 
 test('controller gate: a direct plot-dispatch.sh call is refused and names the endpoint', () => {
   const r = run(repo(), DISPATCH);
@@ -113,22 +114,23 @@ test('controller gate: every command a refusal prints is itself allowed (#1458)'
     ['bash skills/plot/scripts/plot-approve.sh some-slug', 'approve'],
     ['bash skills/plot/scripts/plot-deliver.sh some-slug', 'deliver'],
     ['bash skills/plot/scripts/plot-deliver.sh --release 1.2.3 some-slug', 'release'],
+    [RESTART, 'restart'],
   ]) {
     const r = run(dir, command);
     assert.equal(r.status, 2);
-    const escape = escapeOf(r.stderr).cmd.replace('<slug>', 'some-slug').replace('"<reason>"', '"no board"');
+    const escape = escapeOf(r.stderr).cmd.replace('<slug>', 'some-slug').replace('<branch>', 'feature/x').replace('"<reason>"', '"no board"');
     assert.equal(run(dir, escape).status, 0, `the escape printed for ${action} is allowed: ${escape}`);
     printed.push(escape);
     const bundle = r.stderr.split('\n').map((l) => l.trim()).find((l) => /^node .*\.mjs/.test(l));
-    if (bundle) assert.equal(run(dir, bundle.replace('<slug>', 'some-slug')).status, 0, `the bundle line is allowed: ${bundle}`);
+    if (bundle) assert.equal(run(dir, bundle.replace('<slug>', 'some-slug').replace('<branch>', 'feature/x')).status, 0, `the bundle line is allowed: ${bundle}`);
   }
-  assert.equal(printed.length, 4);
+  assert.equal(printed.length, 5);
 });
 
 test('controller gate: the two-call order works, and the chained form is refused', () => {
   const dir = repo();
   const r = run(dir, 'bash skills/plot/scripts/plot-approve.sh some-slug');
-  const escape = escapeOf(r.stderr).cmd.replace('<slug>', 'some-slug').replace('"<reason>"', '"no board"');
+  const escape = escapeOf(r.stderr).cmd.replace('<slug>', 'some-slug').replace('<branch>', 'feature/x').replace('"<reason>"', '"no board"');
   assert.equal(run(dir, `${escape} && bash skills/plot/scripts/plot-approve.sh some-slug`).status, 2,
     'a chained call is checked before the receipt exists');
   assert.equal(spawnSync('bash', ['-c', escape], { cwd: dir, encoding: 'utf8' }).status, 0, 'call 1 records the receipt');
@@ -326,17 +328,41 @@ test('controller gate: a read-only script is never gated', () => {
 });
 
 test('controller gate: dispatch modes with no endpoint are not gated', () => {
-  // A refusal must name a route. `--stop`, `--restart`, `--start`,
+  // A refusal must name a route. `--stop`, `--start`,
   // `--migrate` and `--release` have no endpoint, and `plot-fleetctl.sh --stop` calls
   // `plot-dispatch.sh --stop` per agent — gating it would break the fleet's own
   // orchestration to point at nothing.
   const dir = repo();
   for (const mode of ['--status', '--dry-run some-slug', '--stop feature/x',
-                      '--restart feature/x', '--start 3', '--migrate',
+                      '--start 3', '--migrate',
                       '--release feature/x']) {
     assert.equal(run(dir, `bash skills/plot/scripts/plot-dispatch.sh ${mode}`).status, 0,
       `--${mode} names no endpoint, so it is not gated`);
   }
+});
+
+test('controller gate: a bare plot-dispatch.sh --restart is refused and names the restart controller', () => {
+  const r = run(repo(), RESTART);
+  assert.equal(r.status, 2, `--restart now has an endpoint (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /plot-restart-command\.mjs <branch>/);
+  assert.match(r.stderr, /POST \/api\/restart/);
+});
+
+test('controller gate: a restart receipt clears --restart, and is spent by the script', () => {
+  const dir = repo();
+  recordReceipt(dir, 'restart', 'feature/x');
+  assert.equal(run(dir, RESTART).status, 0, 'the receipt clears it');
+  spendReceipt(dir, 'restart');
+  assert.equal(run(dir, RESTART).status, 2, 'a second --restart with the receipt spent is refused');
+});
+
+test('controller gate: a restart receipt does not clear a dispatch, nor a dispatch receipt a restart', () => {
+  const dir = repo();
+  recordReceipt(dir, 'restart', 'feature/x');
+  assert.equal(run(dir, DISPATCH).status, 2);
+  const other = repo();
+  recordReceipt(other, 'plot-dispatch.sh', 'some-slug');
+  assert.equal(run(other, RESTART).status, 2);
 });
 
 test('controller gate: git push is not gated', () => {

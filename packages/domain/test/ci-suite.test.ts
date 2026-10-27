@@ -192,12 +192,20 @@ describe('controllerInvocation', () => {
   });
 
   describe('the mode split', () => {
-    it.each(['--status', '--dry-run', '--stop', '--restart', '--start', '--migrate', '--release', '--help', '-h'])(
+    it.each(['--status', '--dry-run', '--stop', '--start', '--migrate', '--release', '--help', '-h'])(
       'plot-dispatch.sh %s has no endpoint',
       (mode) => {
         expect(controllerInvocation(`skills/plot/scripts/plot-dispatch.sh ${mode} x`)).toBeNull();
       },
     );
+
+    it('plot-dispatch.sh --restart <branch> is the restart action, not dispatch', () => {
+      expect(controllerInvocation('skills/plot/scripts/plot-dispatch.sh --restart feature/x')).toBe('restart');
+    });
+
+    it('--stop wins over --restart, because --stop has no endpoint', () => {
+      expect(controllerInvocation('skills/plot/scripts/plot-dispatch.sh --stop --restart feature/x')).toBeNull();
+    });
 
     it.each(['--dry-run', '--help', '-h'])('plot-approve.sh %s has no endpoint', (mode) => {
       expect(controllerInvocation(`skills/plot/scripts/plot-approve.sh ${mode} x`)).toBeNull();

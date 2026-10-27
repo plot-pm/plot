@@ -176,6 +176,7 @@ _action_of() { # $1=script name or action word → the action, or nothing
     plot-approve.sh|approve)   printf 'approve\n' ;;
     plot-deliver.sh|deliver)   printf 'deliver\n' ;;
     release)                   printf 'release\n' ;;
+    restart)                   printf 'restart\n' ;;
   esac
 }
 
@@ -237,7 +238,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     action_reason="$*"
     if [ -z "$action_script" ] || [ -z "$action_subject" ] || [ -z "$action_reason" ]; then
       echo "plot-state-receipt: --unowned-action needs an action, a subject and a reason." >&2
-      echo "  usage: plot-state-receipt.sh --unowned-action <dispatch|approve|deliver|release> <slug> <reason>" >&2
+      echo "  usage: plot-state-receipt.sh --unowned-action <dispatch|approve|deliver|release|restart> <subject> <reason>" >&2
       echo "" >&2
       echo "  The reason is required because each use names a routing gap, and a gap" >&2
       echo "  nobody wrote down is one nobody closes. Where the board IS running, the" >&2
@@ -254,9 +255,10 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
       approve|plot-approve.sh)   action_script="approve" ;;
       deliver|plot-deliver.sh)   action_script="deliver" ;;
       release)                   action_script="release" ;;
+      restart)                   action_script="restart" ;;
       *)
         echo "plot-state-receipt: '$action_script' is not a controller-owned action." >&2
-        echo "  The four are: dispatch, approve, deliver, release." >&2
+        echo "  The five are: dispatch, approve, deliver, release, restart." >&2
         exit 2
         ;;
     esac
