@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startPulse, type RunningPulse } from '@plot-pm/domain';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { clockSystem, hostShell, prIndexFile, readerLockFile, scriptsShell } from '@plot-pm/domain/adapters';
@@ -63,6 +63,19 @@ export const parseArgs = (argv: readonly string[]): PrReaderArgs | null => {
   if (lockDir === undefined || connector === undefined) return null;
   return { lockDir, connector };
 };
+
+/**
+ * The directory the reader finds its helper scripts in: `PLOT_SCRIPTS_DIR`
+ * where set, else the directory above this bundle's own (`board/`), which is
+ * the installed skill's `scripts/` directory — never the repository the
+ * reader runs in.
+ *
+ * @param env - the environment to read `PLOT_SCRIPTS_DIR` from.
+ * @param moduleUrl - this bundle's own `import.meta.url`.
+ * @returns the absolute scripts directory.
+ */
+export const scriptDirFor = (env: NodeJS.ProcessEnv, moduleUrl: string): string =>
+  env.PLOT_SCRIPTS_DIR ?? path.resolve(path.dirname(fileURLToPath(moduleUrl)), '..');
 
 /** How often the reader checks whether it should still be running, in ms — one PR tick. */
 const EXIT_CHECK_MS = PR_REFRESH_MS;
@@ -148,22 +161,27 @@ export const stillFollowed = async (
 
 /**
  * Runs the reader: one `fleetPrs` pass per `PR_REFRESH_MS` tick, exiting once
- * {@link stillFollowed} reads `none`.
+ * {@link stillFollowed} reads `none` or `stop` reads true, and releasing its
+ * claim on the reader lock before it returns.
  *
  * @param args - the parsed `--lock-dir`/`--connector` pair.
  * @param repoRoot - the repository root; the reader's own `cwd`.
+ * @param scriptDir - where the helper scripts live; see {@link scriptDirFor}.
  * @param warn - receives a one-line reason for a pass's own failures.
  * @param liveness - reads pid liveness in one batch; a test replaces it.
+ * @param stopRequested - reads true once a signal asks the reader to stop.
  * @returns the process exit code: always 0 — the reader leaves because no one
  *   follows it, never because it failed.
  */
 export const run = async (
   args: PrReaderArgs,
   repoRoot: string,
+  scriptDir: string,
   warn: (line: string) => void = () => undefined,
   liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>> = psLiveness,
+  stopRequested: () => boolean = () => false,
 ): Promise<number> => {
-  const context = { repoRoot, scriptDir: path.join(repoRoot, 'skills/plot/scripts') };
+  const context = { repoRoot, scriptDir };
   const lock = readerLockFile({ home: args.lockDir });
   const prLock: PrLock = { lock };
   const state: PrState = freshPrState();
@@ -208,10 +226,13 @@ export const run = async (
     });
   }
 
-  while (!stop) {
+  while (!stop && !stopRequested()) {
     await new Promise((resolve) => setTimeout(resolve, Math.min(EXIT_CHECK_MS, 5_000)));
   }
   pulse?.stop();
+  // A released claim reads as no holder, so the next board elects at once
+  // rather than following a lock nobody refreshes.
+  await lock.release(args.connector, process.pid);
   return 0;
 };
 
@@ -230,6 +251,13 @@ if (
     process.stderr.write(`plot-pr-reader: ${USAGE}\n`);
     process.exit(2);
   } else {
-    process.exitCode = await run(parsed, repoRoot, warn);
+    let signalled = false;
+    const onSignal = (signal: NodeJS.Signals): void => {
+      if (signalled) process.exit(signal === 'SIGINT' ? 130 : 143);
+      signalled = true;
+    };
+    process.on('SIGTERM', onSignal);
+    process.on('SIGINT', onSignal);
+    process.exitCode = await run(parsed, repoRoot, scriptDirFor(process.env, import.meta.url), warn, psLiveness, () => signalled);
   }
 }

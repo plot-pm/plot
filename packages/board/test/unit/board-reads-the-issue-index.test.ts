@@ -73,7 +73,9 @@ const fixture = (tracker = '') => {
   // the host on its own instead of serving the issue index these tests exercise.
   const readerLock = readerLockFixture();
   const now = Date.now();
-  void readerLock.elect('github', { generation: 0, pid: 424242, startedAt: now - 60_000, at: now });
+  // The parent's pid: a live process that is not this one, so the board's
+  // `kill(pid, 0)` reads the claim's holder as alive.
+  void readerLock.elect('github', { generation: 0, pid: process.ppid, startedAt: now - 60_000, at: now });
   void readerLock.heartbeat('github', 'fleetd', now);
   return { dir, opts: { repoRoot: dir, scriptsDir: dir, readerLock }, issueListed };
 };

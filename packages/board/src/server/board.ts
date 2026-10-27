@@ -62,6 +62,7 @@ import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
+import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { people } from './server-info.js';
 import {
   buildShell,
@@ -77,6 +78,7 @@ import {
   readerLockFile,
 } from '@plot-pm/domain/adapters';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
+import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
@@ -217,6 +219,11 @@ export interface BuildBoardOptions {
    * one test process must never race a real `Detached.node` call.
    */
   detached?: Detached;
+  /**
+   * Reads whether the reader lock's holder pid is alive. Absent means the
+   * real process table, through `kill(pid, 0)`.
+   */
+  processProbe?: ProcessProbe;
 }
 
 /** The board's bundle in a checkout of this repository, relative to its root — the path a build with no {@link BuildBoardOptions.startBundle} reads. */
@@ -377,6 +384,13 @@ export const readerLockFor = (opts: BuildBoardOptions): ReaderLock => opts.reade
  * board test never starts a real reader process.
  */
 export const detachedFor = (opts: BuildBoardOptions): Detached => opts.detached ?? detachedNode();
+
+/**
+ * The process table for these options — the caller's probe, or the real one.
+ *
+ * Built per call for the same reason as {@link refsFor}.
+ */
+export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.processProbe ?? processProbeSystem();
 
 /**
  * The script runner for these options — the ONE way this package invokes a

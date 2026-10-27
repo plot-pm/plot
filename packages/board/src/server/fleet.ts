@@ -38,10 +38,11 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
-import { electReader, heartbeatIsFresh, READER_STALE_MS, type ReaderClaim } from '@plot-pm/domain/rules/reader-election';
+import { electReader, heartbeatIsFresh, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
+import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { logDir } from '@plot-pm/fleet/shared/process-log';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -2355,16 +2356,24 @@ const startReader = (opts: BuildBoardOptions, key: string, indexDir: string): vo
  * this process already holds it, or the holder is stale; `follow` where a
  * live holder is someone else; `unknown` where the lock could not be read.
  *
- * The board never calls `ReaderLock.elect` — it is never the holder in truth,
- * only asking what it WOULD be told. `alive`/`startedAt` are `null`: the
- * board does not run the reader in its own process, so it has no pid of its
- * own to check the claim's staleness against; {@link readerIsStale} already
- * treats that as "not evidence the claim is gone" rather than as staleness.
+ * The board never calls `ReaderLock.elect`; it reads `holder()` and asks
+ * {@link electReader} what the claim means. The holder's liveness comes from
+ * `probe.alive` (`kill(pid, 0)`), so a claim whose pid has exited reads
+ * `elect` at once, and a claim from a live pid reads `elect` once it is older
+ * than `READER_STALE_MS`. The start time is not read (`null`), which skips the
+ * pid-reuse check and leaves a reused pid to the age bound — the same reading
+ * `readerLockFile`'s own `elect` makes.
  */
-const electBoardVerdict = async (lock: ReaderLock, key: string, now: number): Promise<{ verdict: 'elect' | 'follow' | 'unknown'; held: ReaderClaim | null }> => {
+const electBoardVerdict = async (
+  lock: ReaderLock,
+  probe: ProcessProbe,
+  key: string,
+  now: number,
+): Promise<{ verdict: ReaderVerdict; held: ReaderClaim | null }> => {
   const held = await lock.holder(key);
   if (!held.ok) return { verdict: 'unknown', held: null };
-  const verdict = electReader(held.value, true, process.pid, null, null, now);
+  const alive = held.value === null ? null : probe.alive(held.value.pid);
+  const verdict = electReader(held.value, true, process.pid, alive, null, now);
   return { verdict, held: held.value };
 };
 
@@ -2406,18 +2415,20 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
 
 /**
  * Who reads PRs for this board right now, for display: `fleet` where
- * `fleetd`'s own heartbeat is live under the lock, `reader <pid>` where a
- * live non-`fleetd` claim holds it, or `this board` where the lock names no
- * live holder (so the board serves this tick from its own overlay).
+ * `fleetd`'s own heartbeat is live under the lock, `reader <pid>` where the
+ * board follows another process's claim, or `this board` where the board
+ * serves this tick from its own overlay.
+ *
+ * @param held - the lock's highest claim, or null where it names none.
+ * @param verdict - the board's own verdict over that claim.
+ * @param fleetdLive - whether a fresh `fleetd` heartbeat exists under the lock.
+ * @returns the display label.
  */
-export const whoReadsPrs = (held: ReaderClaim | null, fleetdLive: boolean, now: number): string => {
+export const whoReadsPrs = (held: ReaderClaim | null, verdict: ReaderVerdict, fleetdLive: boolean): string => {
   if (fleetdLive) return 'fleet';
-  if (held !== null && !readerClaimIsStale(held, now)) return `reader ${held.pid}`;
+  if (held !== null && verdict === 'follow') return `reader ${held.pid}`;
   return 'this board';
 };
-
-/** Whether a claim counts as stale for display purposes: the same age bound {@link electReader} itself falls back to with no liveness reading. */
-const readerClaimIsStale = (held: ReaderClaim, now: number): boolean => now - held.at >= READER_STALE_MS;
 
 /**
  * Asks the host for pull requests and folds the answer into `store`. The
@@ -2491,9 +2502,9 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     const lock = readerLockFor(opts);
     const key = await readerLockKey(opts, entry);
     const now = Date.now();
-    const { verdict, held } = await electBoardVerdict(lock, key, now);
+    const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
     const fleetdLive = await fleetdHeartbeatIsLive(lock, key, now);
-    entry.prReader = whoReadsPrs(held, fleetdLive, now);
+    entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
     if (verdict === 'follow') {
       await readPrsFromStore(opts, entry, key);
       // Issues stay on their own gate — `fleetOwnsScan` over the scan

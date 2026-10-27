@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 import { readerLockFixture } from '@plot-pm/domain/adapters';
 import type { Detached } from '@plot-pm/domain';
+import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
+import { READER_STALE_MS } from '@plot-pm/domain/rules/reader-election';
 
 import { freshCacheEntry, maybeRefreshPrs } from '../../src/server/fleet.js';
 import { rmTree } from '../helpers.mjs';
@@ -50,6 +52,15 @@ const recordingDetached = (calls: { script: string; args: readonly string[] }[])
     calls.push({ script, args });
     return { pid: 1, exitCode: () => null };
   },
+});
+
+/** A probe that answers `alive` for every pid, and nothing else a board reads. */
+const probeAnswering = (alive: boolean | null): ProcessProbe => ({
+  alive: () => alive,
+  groupAlive: () => alive,
+  startedAt: () => null,
+  parentPid: () => null,
+  self: () => ({ pid: process.pid, startedAt: Date.now(), leadsGroup: false }),
 });
 
 describe('one process runs — a second board instance never starts a second reader', () => {
@@ -98,7 +109,7 @@ describe('a freshly renewed fleetd claim reads as follow, not elect', () => {
       await readerLock.heartbeat('github', 'fleetd', now);
       const calls: { script: string; args: readonly string[] }[] = [];
       const detached = recordingDetached(calls);
-      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached, processProbe: probeAnswering(true) };
       const entry = freshCacheEntry();
 
       await maybeRefreshPrs(opts, entry);
@@ -131,6 +142,72 @@ describe('a freshly renewed fleetd claim reads as follow, not elect', () => {
       await maybeRefreshPrs(opts, entry);
 
       expect(entry.prReader).not.toBe('fleet');
+    } finally {
+      cleanup(dir);
+    }
+  });
+});
+
+describe('a claim whose holder died is not followed', () => {
+  it('an unreleased claim from a dead pid, older than READER_STALE_MS, makes the board start a reader and ask the host itself', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const now = Date.now();
+      // A reader that exited without releasing, 20 minutes ago.
+      const old = now - 2 * READER_STALE_MS;
+      await readerLock.elect('github', { generation: 0, pid: 999_991, startedAt: old - 60_000, at: old });
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls), processProbe: probeAnswering(false) };
+      const entry = freshCacheEntry();
+
+      await maybeRefreshPrs(opts, entry);
+
+      expect(calls).toHaveLength(1);
+      expect(entry.prReader).toBe('this board');
+      expect(entry.prsByNumber?.has(7)).toBe(true);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('a just-renewed claim from a pid the process table reads as dead is not followed either', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      // A real pid that has exited: the default probe reads it through kill(pid, 0).
+      const gone = spawnSync(process.execPath, ['-e', '']).pid;
+      expect(gone).toBeGreaterThan(0);
+      const now = Date.now();
+      await readerLock.elect('github', { generation: 0, pid: gone as number, startedAt: now - 60_000, at: now });
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
+      const entry = freshCacheEntry();
+
+      await maybeRefreshPrs(opts, entry);
+
+      expect(calls).toHaveLength(1);
+      expect(entry.prReader).toBe('this board');
+      expect(entry.prsByNumber?.has(7)).toBe(true);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('a just-renewed claim from a live pid is followed and names that reader', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const now = Date.now();
+      await readerLock.elect('github', { generation: 0, pid: 999_992, startedAt: now - 60_000, at: now });
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls), processProbe: probeAnswering(true) };
+      const entry = freshCacheEntry();
+
+      await maybeRefreshPrs(opts, entry);
+
+      expect(calls).toHaveLength(0);
+      expect(entry.prReader).toBe('reader 999992');
     } finally {
       cleanup(dir);
     }

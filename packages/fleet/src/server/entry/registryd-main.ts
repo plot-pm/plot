@@ -2419,6 +2419,7 @@ export const run = async (
     issueState,
     warn,
   );
+  const prReaderLock = readerLockFile({ cwd: repoRoot });
   const readPrs = fleetPrs(
     {
       scripts,
@@ -2427,7 +2428,7 @@ export const run = async (
       issueGate: issueGateOf(issueStore),
     },
     prState,
-    { lock: readerLockFile({ cwd: repoRoot }) },
+    { lock: prReaderLock },
     warn,
   );
   // FLEETD COMPOSES THE LOCAL AND THE REMOTE REFS READER, as `worker-loop.ts`
@@ -2578,6 +2579,9 @@ export const run = async (
       scanClock?.stop();
       await scanClock?.idle();
       await slot.channel?.stop();
+      // A released claim reads as no holder, so a board elects at once rather
+      // than following a lock this stopped daemon no longer refreshes.
+      if (prState.backend !== null) await prReaderLock.release(prState.backend, process.pid);
       return 0;
     }
     // A THROWN TICK IS A REPORTED TICK, NOT A DEAD DAEMON.

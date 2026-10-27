@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 import { HEARTBEAT_STALE_MS } from '@plot-pm/domain/rules/reader-election';
-import { readerLockFixture } from '@plot-pm/domain/adapters';
+import { readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
 
-import { stillFollowed } from '../../src/server/entry/pr-reader.js';
+import { run, scriptDirFor, stillFollowed } from '../../src/server/entry/pr-reader.js';
 
 /** A liveness reader that always answers "alive" for the pids given. */
 const allAlive = async (pids: readonly number[]) =>
@@ -104,5 +109,53 @@ describe('stillFollowed — a fleetd-named heartbeat this reader just wrote is n
     expect(fleetdBeat?.at).toBe(now);
     expect(await stillFollowed(beats.ok ? beats.value : [], now, allDead, now)).toBe('none');
     expect(await stillFollowed(beats.ok ? beats.value : [], now, allDead, null)).toBe('fleetd');
+  });
+});
+
+describe('scriptDirFor — the reader finds its scripts beside its own bundle', () => {
+  it('resolves the directory above the bundle, whatever repository the reader runs in', () => {
+    const bundle = pathToFileURL('/opt/plot/skills/plot/scripts/board/plot-pr-reader.mjs').href;
+    expect(scriptDirFor({}, bundle)).toBe('/opt/plot/skills/plot/scripts');
+  });
+
+  it('takes PLOT_SCRIPTS_DIR over the bundle location', () => {
+    const bundle = pathToFileURL('/opt/plot/skills/plot/scripts/board/plot-pr-reader.mjs').href;
+    expect(scriptDirFor({ PLOT_SCRIPTS_DIR: '/elsewhere/scripts' }, bundle)).toBe('/elsewhere/scripts');
+  });
+});
+
+describe('run — one pass with no follower', () => {
+  it('asks the host through the scripts directory it is given, not the repository, and releases its claim on exit', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-reader-run-'));
+    try {
+      const repo = path.join(root, 'repo');
+      const scripts = path.join(root, 'installed-scripts');
+      const lockDir = path.join(root, 'index');
+      fs.mkdirSync(repo);
+      fs.mkdirSync(scripts);
+      fs.mkdirSync(lockDir);
+      execFileSync('git', ['init', '--quiet'], { cwd: repo });
+      const calls = path.join(root, 'calls.log');
+      fs.writeFileSync(
+        path.join(scripts, 'plot-host.sh'),
+        `#!/usr/bin/env bash\necho "$1" >> ${JSON.stringify(calls)}\ncase "$1" in\n  backend) echo github ;;\nesac\nexit 0\n`,
+      );
+      fs.chmodSync(path.join(scripts, 'plot-host.sh'), 0o755);
+      fs.writeFileSync(path.join(scripts, 'plot-config.sh'), `#!/usr/bin/env bash\nprintf '%s\\n' "$3"\n`);
+      fs.chmodSync(path.join(scripts, 'plot-config.sh'), 0o755);
+      const before = process.env.PLOT_PR_INDEX_HOME;
+      process.env.PLOT_PR_INDEX_HOME = lockDir;
+      try {
+        expect(await run({ lockDir, connector: 'github' }, repo, scripts, () => undefined, allDead)).toBe(0);
+      } finally {
+        if (before === undefined) delete process.env.PLOT_PR_INDEX_HOME;
+        else process.env.PLOT_PR_INDEX_HOME = before;
+      }
+      expect(fs.readFileSync(calls, 'utf8')).toMatch(/pr-list/);
+      const holder = await readerLockFile({ home: lockDir }).holder('github');
+      expect(holder.ok && holder.value).toBe(null);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
