@@ -58,6 +58,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point of a pinned verification run.
@@ -929,5 +930,5 @@ if (
   import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 ) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  process.exit(await run(process.argv.slice(2), process.cwd(), scriptDir));
+  void endEntry(await run(process.argv.slice(2), process.cwd(), scriptDir));
 }

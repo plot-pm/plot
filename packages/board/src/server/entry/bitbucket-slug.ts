@@ -3,6 +3,7 @@
 import { remoteSlug } from '@plot-pm/domain/rules/remote-slug';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The Bitbucket `<workspace>/<repo>` slug of a remote URL — `bitbucketSlug`
@@ -29,5 +30,5 @@ export const run = (argv: string[], write: (s: string) => void = (s) => process.
 // Only when RUN, never when imported. `pathToFileURL` rather than a template,
 // for the reason `merge-subject.ts` records.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  process.exit(run(process.argv.slice(2)));
+  void endEntry(run(process.argv.slice(2)));
 }

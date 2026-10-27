@@ -3,6 +3,7 @@
 import { startCommand } from '@plot-pm/domain/rules/start-command';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * Which command starts an agent — the rule `startCommand` reached without
@@ -73,5 +74,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8'), process.argv.slice(2)));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8'), process.argv.slice(2)));
 }

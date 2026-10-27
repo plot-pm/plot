@@ -1,4 +1,5 @@
 import { prIndexFile } from '@plot-pm/domain/adapters';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -155,5 +156,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const connector = process.argv[2] ?? 'github';
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(await run(Buffer.concat(chunks).toString('utf8'), connector));
+  void endEntry(await run(Buffer.concat(chunks).toString('utf8'), connector));
 }

@@ -8,6 +8,7 @@ import { TRACKER_LISTERS } from '@plot-pm/domain/adapters/tracker/tracker-lister
 import { bbIssueCommandMissing, issueSource } from '@plot-pm/domain/rules/issue-source';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * Who answers a repository's open-issue list — the rule `issueSource` reached
@@ -115,5 +116,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(process.argv.slice(2), Buffer.concat(chunks).toString('utf8')));
+  void endEntry(run(process.argv.slice(2), Buffer.concat(chunks).toString('utf8')));
 }

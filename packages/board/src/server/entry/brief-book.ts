@@ -21,6 +21,7 @@ import type { PlanStore } from '@plot-pm/domain';
 import { briefPath } from '@plot-pm/domain/rules/brief-path';
 import { briefNeedsWrite, insertStartedLine } from '@plot-pm/domain/rules/brief-booking';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -246,5 +247,5 @@ export const run = async (
 // Runs only when launched as a program; a test imports `run` without starting it.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  process.exit(await run(process.argv.slice(2), process.cwd(), scriptDir));
+  void endEntry(await run(process.argv.slice(2), process.cwd(), scriptDir));
 }

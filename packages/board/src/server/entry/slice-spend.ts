@@ -3,6 +3,7 @@ import { spendSummary } from '@plot-pm/domain/rules/slice-spend-record';
 import { readSliceSpend, recordSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-worker-loop.sh` runs, once per finished slice.
@@ -184,5 +185,5 @@ export const run = async (
 // bundle invoked from a sandbox compared two spellings of one path, the block
 // never ran, and the process exited 0 having written nothing.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  process.exit(await run(process.argv.slice(2)));
+  void endEntry(await run(process.argv.slice(2)));
 }

@@ -12,6 +12,7 @@ import {
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * Compares a Plot sprint's Must-haves against the Jira Release its
@@ -402,5 +403,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     return Buffer.concat(chunks).toString('utf8');
   };
   const collect: Collect = (args) => sprintReleaseFactsShell(context, args);
-  process.exit(await main(process.argv.slice(2), collect, readStdin, shellWorld(context)));
+  void endEntry(await main(process.argv.slice(2), collect, readStdin, shellWorld(context)));
 }

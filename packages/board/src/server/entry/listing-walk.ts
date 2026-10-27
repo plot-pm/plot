@@ -1,6 +1,7 @@
 // THROUGH THE NARROW PATHS, not the package root, for the reason
 // `merge-subject.ts` gives: the root import bundles every entity and rule.
 import { envelopeNextFor } from '@plot-pm/domain/adapters/host/listing-paging';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { walkStep } from '@plot-pm/domain/rules/listing-page';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -74,7 +75,5 @@ export const run = (
 // Only when RUN, never when imported. `pathToFileURL` rather than a template,
 // for the reason `merge-subject.ts` records.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  // `exitCode`, never `process.exit`: stdout to a pipe is asynchronous, and an
-  // exit cuts whatever is still queued — past 64 KB on macOS.
-  process.exitCode = run(process.argv.slice(2), readFileSync(0, 'utf8'));
+  void endEntry(run(process.argv.slice(2), readFileSync(0, 'utf8')));
 }

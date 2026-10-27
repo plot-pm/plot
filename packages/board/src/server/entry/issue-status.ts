@@ -11,6 +11,7 @@ import {
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * A finished plan's issue status, written through the tracker port.
@@ -200,5 +201,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   };
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(await run(process.argv.slice(2), Buffer.concat(chunks).toString('utf8'), context));
+  void endEntry(await run(process.argv.slice(2), Buffer.concat(chunks).toString('utf8'), context));
 }

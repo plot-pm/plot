@@ -24,6 +24,7 @@ import {
   treeStrandingResetDirs,
 } from '@plot-pm/domain/rules/main-checkout-write';
 import { SPAWN_CONTRACT, spawnContractReading } from '@plot-pm/domain/rules/spawn-contract';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -791,5 +792,5 @@ export const run = async (argv: readonly string[]): Promise<number> => {
 // Only when RUN, never when imported. `pathToFileURL` over the realpath, for
 // the reason `deliver.ts` records: `/tmp` is a symlink on macOS.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  process.exit(await run(process.argv.slice(2)));
+  void endEntry(await run(process.argv.slice(2)));
 }

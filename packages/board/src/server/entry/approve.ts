@@ -43,6 +43,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'no
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-approve.sh` launches, once per plan approved.
@@ -1311,5 +1312,5 @@ const userNameOf = async (ctx: Context): Promise<string> => {
 // Runs only when launched as a program; a test imports `run` without starting it.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  process.exit(await run(process.argv.slice(2), process.cwd(), scriptDir));
+  void endEntry(await run(process.argv.slice(2), process.cwd(), scriptDir));
 }

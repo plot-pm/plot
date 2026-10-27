@@ -1,6 +1,7 @@
 import { isChainedHeading, type ChainedBranchLine } from '@plot-pm/domain/rules/slice-chain';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point section 7 of `plot-reconcile-scan.sh` runs, once per
@@ -89,5 +90,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8')));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8')));
 }

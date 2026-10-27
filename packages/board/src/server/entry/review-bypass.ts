@@ -1,4 +1,5 @@
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { reviewBypasses, type MergedReview, type ReviewState } from '@plot-pm/domain/rules/review-bypass';
 import type { Host } from '@plot-pm/domain';
 import { realpathSync } from 'node:fs';
@@ -145,11 +146,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const limit = Number(flagValue(args, '--limit') ?? DEFAULT_LIMIT);
   if (since === undefined || !Number.isInteger(limit) || limit < 1) {
     process.stderr.write('usage: plot-review-bypass.mjs --since <ISO date | \'\'> [--limit <n>]\n');
-    process.exit(2);
+    void endEntry(2);
+  } else {
+    const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const repoRoot = process.env.PLOT_REPO_ROOT ?? process.cwd();
+    void endEntry(
+      await run(hostShell({ repoRoot, scriptDir }), since, limit, (l) => process.stdout.write(`${l}\n`)),
+    );
   }
-  const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const repoRoot = process.env.PLOT_REPO_ROOT ?? process.cwd();
-  process.exit(
-    await run(hostShell({ repoRoot, scriptDir }), since, limit, (l) => process.stdout.write(`${l}\n`)),
-  );
 }

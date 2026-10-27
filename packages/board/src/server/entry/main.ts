@@ -1,12 +1,13 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { scriptsFor, primeAgentSettings, readConfigAsync, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
 import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt } from './merge.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
@@ -241,12 +242,14 @@ export const run = async (
 };
 
 // Only when RUN, never when imported — a test importing `run` must not have the
-// process exit under it.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// process exit under it. `import.meta.url` is realpath-resolved and
+// percent-encoded and `process.argv[1]` is neither, so on macOS — where `/tmp`
+// is a symlink — a bundle built there never matches without `pathToFileURL`
+// on the realpath.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   // `run` awaits ports now, so the exit code arrives as a promise. Awaiting it
   // at the entry keeps the contract a NUMBER for every other caller.
-  void run(process.argv.slice(2), path.dirname(fileURLToPath(import.meta.url)))
-    .then((code) => process.exit(code));
+  void run(process.argv.slice(2), path.dirname(fileURLToPath(import.meta.url))).then(endEntry);
 }
 
 export { askOnce, askOncePerEstate, newMemory };

@@ -10,6 +10,7 @@ import {
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * A plan's phase, reflected on the issues it answers, through the tracker port.
@@ -209,5 +210,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
     scriptDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
   };
-  process.exit(await run(process.argv.slice(2), context));
+  void endEntry(await run(process.argv.slice(2), context));
 }

@@ -3,6 +3,7 @@ import { FleetReadingSchema } from '@plot-pm/domain/entities/fleet';
 import { fleetHoldsBridge } from '@plot-pm/domain/rules/scan-owner';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
  * The `node` entry point `plot-fleet-scan.sh` runs, once per pulse.
@@ -284,5 +285,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   const text = Buffer.concat(chunks).toString('utf8');
   // `--held` prints nothing: exit 0 means the fleet holds the bridge, 1 that it does not.
-  process.exit(process.argv[2] === '--held' ? (held(text, Date.now()) ? 0 : 1) : run(text));
+  void endEntry(process.argv[2] === '--held' ? (held(text, Date.now()) ? 0 : 1) : run(text));
 }

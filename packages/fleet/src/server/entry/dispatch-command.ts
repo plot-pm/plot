@@ -8,6 +8,7 @@ import type { DetachedProcess, FleetReading, Scripts } from '@plot-pm/domain';
 import { agentLogPath } from '../../shared/agent-log.js';
 import { parseRunMarker, type BoardConfigReader } from '../../shared/board-run.js';
 import { implementLogPath, implementStatePath } from '../../shared/implement-run.js';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import {
   SLUG_RE,
   briefBranchFromPulse,
@@ -222,7 +223,7 @@ if (
   const scriptDir =
     process.env.PLOT_SCRIPTS_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const [first, ...rest] = process.argv.slice(2);
-  process.exit(
+  void endEntry(
     first === FOREGROUND
       ? await run(rest, process.cwd(), scriptDir)
       : await runDetached(process.argv.slice(2), process.cwd(), scriptDir),

@@ -12,6 +12,7 @@ import {
   unnamedBranches,
   type NamedSlice,
 } from '@plot-pm/domain/rules/slice-name';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -349,21 +350,30 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   const text = Buffer.concat(chunks).toString('utf8');
   const check = process.argv.indexOf('--check-slices');
-  if (check !== -1) process.exit(checkSlices(text, process.argv[check + 1] ?? ''));
-  // `--slices <file>` rather than a twelfth stdin field, and a FILE rather than
-  // an inline argument: the parser's waves[] carry branch names and prose, and
-  // an argv limit is the one failure that would silently drop the reading.
-  const at = process.argv.indexOf('--slices');
-  let slices: readonly NamedSlice[] | undefined;
-  if (at !== -1) {
-    const parsed = slicesFrom(readFileSync(process.argv[at + 1] ?? '', 'utf8'));
-    if (parsed === null) {
-      process.stderr.write(
-        "plot-transition: cannot read the parser's waves[] from --slices — refusing rather than guessing.\n",
-      );
-      process.exit(2);
+  if (check !== -1) {
+    void endEntry(checkSlices(text, process.argv[check + 1] ?? ''));
+  } else {
+    // `--slices <file>` rather than a twelfth stdin field, and a FILE rather than
+    // an inline argument: the parser's waves[] carry branch names and prose, and
+    // an argv limit is the one failure that would silently drop the reading.
+    const at = process.argv.indexOf('--slices');
+    let slices: readonly NamedSlice[] | undefined;
+    let parseFailed = false;
+    if (at !== -1) {
+      const parsed = slicesFrom(readFileSync(process.argv[at + 1] ?? '', 'utf8'));
+      if (parsed === null) {
+        process.stderr.write(
+          "plot-transition: cannot read the parser's waves[] from --slices — refusing rather than guessing.\n",
+        );
+        parseFailed = true;
+      } else {
+        slices = parsed;
+      }
     }
-    slices = parsed;
+    if (parseFailed) {
+      void endEntry(2);
+    } else {
+      void endEntry(run(text, (out) => process.stdout.write(out), slices));
+    }
   }
-  process.exit(run(text, (out) => process.stdout.write(out), slices));
 }
