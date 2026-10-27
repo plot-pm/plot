@@ -1409,6 +1409,17 @@ jobs:
       - name: Shipped shell runs on bash 3.2
         run: ./scripts/check-bash32-syntax.sh
 
+      # `process.exit(code)` ABANDONS A PENDING STDOUT/STDERR WRITE. Node does
+      # not wait for a queued pipe write to drain before the process ends, and
+      # past about 64 KB — the pipe buffer, on both macOS and Linux — that
+      # queue is not empty. Measured: `plot-ask.mjs board` lost 89% of its
+      # answer; `plot-ask.mjs fleet` broke `jq -e .` on the receiving end.
+      # `endEntry` in `@plot-pm/domain/adapters/entry-exit` waits for both
+      # streams to confirm the queue is empty before exiting. Zero allowed
+      # sites, no ratchet.
+      - name: Entry bundles end through a drain
+        run: ./scripts/check-entry-exit.sh
+
       # ONE HELPER CREATES A SCRIPT'S TEMP PATHS, and it is `plot-tmp.sh`.
       # Measured 2026-09-30: five template-less `mktemp` sites wrote outside
       # `TMPDIR` on macOS, nine fixed-name `/tmp` paths bypassed it, and the
