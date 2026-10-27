@@ -5431,41 +5431,22 @@ ticket: PROJ-999
   }
 });
 
-test('section 23 warns that an undeclared Ticket prefixes narrows a Jira answer to the caller\'s inbox', () => {
-  // `jira https://…`, the value with a base URL after the scheme: the whole
-  // value goes to `plot-issue-source.mjs`, and its `tracker\tjira` answer is
-  // what the note reads.
-  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { tracker: 'jira https://example.atlassian.net' });
-  try {
-    const s = f.sections['23'];
-    assert.match(s, /note: Tracker: jira with no 'Ticket prefixes' declared asks only the caller's own open tickets/,
-      `the inbox-scoping trap must be named, not silently trusted:\n${s}`);
-  } finally {
-    fs.rmSync(f.tmp, { recursive: true, force: true });
-    fs.rmSync(f.shim, { recursive: true, force: true });
-  }
-});
-
-test('section 23 does not warn about Ticket prefixes once it is declared', () => {
-  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
-  try {
-    const s = f.sections['23'];
-    assert.doesNotMatch(s, /Ticket prefixes/,
-      `a declared scope needs no caveat:\n${s}`);
-  } finally {
-    fs.rmSync(f.tmp, { recursive: true, force: true });
-    fs.rmSync(f.shim, { recursive: true, force: true });
-  }
-});
-
-test('section 23 does not warn about Ticket prefixes when an override scopes the Jira read', () => {
-  // `plot-host.sh` scopes the read by `PLOT_TICKET_PREFIXES` ahead of the key,
-  // and `PLOT_JIRA_JQL` replaces the query whole: either one makes the note false.
-  for (const env of [{ PLOT_TICKET_PREFIXES: 'PROJ' }, { PLOT_JIRA_JQL: 'project = PROJ AND resolution = EMPTY' }]) {
-    const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { env });
+test('section 23 never warns about Ticket prefixes — issue-view has no inbox scope to escape', () => {
+  // The inbox-JQL note described `issue-list`'s `assignee = currentUser()`
+  // scoping, a read section 23 does not perform: `issue-view` looks up one
+  // key directly (`/rest/api/2/issue/$num` on Jira), with no assignee or
+  // resolution filter. Declaring, omitting, or overriding `Ticket prefixes`
+  // cannot matter to a call that never applies it.
+  for (const opts of [
+    { tracker: 'jira https://example.atlassian.net' },
+    { ticketPrefixes: 'PROJ' },
+    { env: { PLOT_TICKET_PREFIXES: 'PROJ' } },
+    { env: { PLOT_JIRA_JQL: 'project = PROJ AND resolution = EMPTY' } },
+  ]) {
+    const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], opts);
     try {
       assert.doesNotMatch(f.sections['23'], /Ticket prefixes/,
-        `${Object.keys(env)[0]} scopes the read, so no caveat:\n${f.sections['23']}`);
+        `issue-view has no inbox scope to warn about:\n${f.sections['23']}`);
     } finally {
       fs.rmSync(f.tmp, { recursive: true, force: true });
       fs.rmSync(f.shim, { recursive: true, force: true });
@@ -5491,6 +5472,47 @@ test('section 23 asks Jira per key, never issue-list, so no page or window appli
       `section 23 must never call issue-list any more:\n${calls.join('\n')}`);
     assert.ok(calls.some((c) => c.startsWith('issue-view')),
       `section 23 must ask issue-view per key:\n${calls.join('\n')}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 asks issue-view once for a key two plans name, directly and via ticket:', () => {
+  // THE FINDING (#2479, group 1): the default-open fixture names PROJ-101 once
+  // and a ticket:-only plan names PROJ-201 once — no existing fixture repeats
+  // ONE key across TWO plans, so none could catch a per-plan·key call. This
+  // one does: `released-open` names PROJ-101 on its `Issue:` line, and
+  // `also-open` names the SAME key in `ticket:` frontmatter with no `Issue:`
+  // line of its own — the "duplicate ticket: fallback" case the brief names.
+  // A call-counting shim, not the printed report, is the only thing that can
+  // tell "asked once" from "asked twice and both answers agreed".
+  const alsoOpen = `---
+ticket: PROJ-101
+---
+# Also open
+
+## Status
+
+- **State:** Released
+- **Type:** feature
+`;
+  const marker = markerFile();
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101'], { marker }), ['--no-fetch'], {
+    ticketPrefixes: 'PROJ',
+    extraPlans: { '2026-01-06-also-open.md': alsoOpen },
+  });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /2026-01-01-released-open\.md — released, still open: PROJ-101$/m,
+      `the Issue: line plan is reported:\n${s}`);
+    assert.match(s, /2026-01-06-also-open\.md — released, still open: PROJ-101$/m,
+      `the ticket:-only plan naming the same key is reported too:\n${s}`);
+    const calls = callsTo(marker).filter((c) => c.startsWith('issue-view'));
+    const forKey = calls.filter((c) => c.includes('PROJ-101'));
+    assert.strictEqual(forKey.length, 1,
+      `issue-view must be asked once for a key two plans name, not once per plan:\n${calls.join('\n')}`);
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
@@ -5629,5 +5651,135 @@ test('section 23 asks no host for github-issues when the backend is not GitHub',
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
     fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+// Section 24b: a heading-shape list item naming a branch no heading in its
+// wave claims. `splitSections` keys sections by a bare `\d+`, so `24a`/`24b`
+// fall outside it (see the `== N. ` regex above) — these tests grep the raw
+// report instead of `sections['24b']`.
+const headingItemFixture = (planBody) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-headingitem-'));
+  const origin = path.join(tmp, 'origin.git');
+  const repo = path.join(tmp, 'repo');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(repo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+  w('plans/2026-01-01-fixture.md', planBody);
+
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'heading-item fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+  git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+
+  const reportText = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: repo });
+  return { tmp, report: reportText };
+};
+
+const section24b = (report) => {
+  const lines = report.split('\n');
+  const start = lines.findIndex((l) => l.startsWith('== 24b.'));
+  const end = lines.findIndex((l, i) => i > start && /^== \d/.test(l));
+  return lines.slice(start, end === -1 ? undefined : end).join('\n');
+};
+
+test('section 24b names "no heading at all" when the wave claimed no branch', () => {
+  // `slice_shape` reads "heading" only when the FIRST `### ` heading in the
+  // section carries `(Branch:`; a plan with no heading-shape wave at all never
+  // reaches the heading handler. So the no-Branch: wave here is the SECOND
+  // one — a later heading omitting `(Branch:` in an already heading-shape plan.
+  const f = headingItemFixture(`# Fixture
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+### A (Branch: bug/x)
+
+- \`bug/x\` — the item
+
+### B
+
+- \`bug/orphan\` — the item
+`);
+  try {
+    const s = section24b(f.report);
+    assert.match(s, /wave 'B' holds a list item naming 'bug\/orphan', a branch no heading in that wave claims/,
+      `the orphaned item is named:\n${s}`);
+    assert.match(s, /give this wave a \(Branch: bug\/orphan\) heading — it carries none yet/,
+      `no heading at all gets the "carries none yet" repair:\n${s}`);
+    assert.doesNotMatch(s, /already claims a different branch/,
+      `a heading with no Branch: never claimed a different one:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+  }
+});
+
+test('section 24b names "already claims a different branch" when the heading read one', () => {
+  const f = headingItemFixture(`# Fixture
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+### A (Branch: bug/x)
+
+- \`bug/other\` — the item
+`);
+  try {
+    const s = section24b(f.report);
+    assert.match(s, /wave 'A' holds a list item naming 'bug\/other', a branch no heading in that wave claims/,
+      `the orphaned item is named:\n${s}`);
+    assert.match(s, /this wave's heading already claims a different branch/,
+      `a heading that read bug\/x gets the "already claims" repair:\n${s}`);
+    assert.doesNotMatch(s, /it carries none yet/,
+      `a heading that read a branch never "carries none yet":\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+  }
+});
+
+test('section 24b is silent when every heading-shape item is attributed', () => {
+  const f = headingItemFixture(`# Fixture
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+### A (Branch: bug/x)
+
+- \`bug/x\` — the item
+`);
+  try {
+    const s = section24b(f.report);
+    assert.match(s, /\(none — every heading-shape list item was attributed\)/, `nothing orphaned:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
   }
 });

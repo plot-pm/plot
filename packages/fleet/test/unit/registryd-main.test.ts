@@ -1371,6 +1371,220 @@ describe('run — a failed tick must not end the daemon', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // THE RESET PLACEMENT (#2716): `tally.calls` is zeroed after the spend
+  // reading, not at the top of the tick. The fresh-agent/nothing-done steps
+  // run AFTER that reading, so a COMPLETED tick's `mine=` line reports what
+  // the PRIOR tick's steps added to the tally, not its own — the reset at the
+  // bottom is what hands that number to the next tick's reading rather than
+  // wiping it first.
+  //
+  // Each completed tick names one `nothing-done` desk whose one commit is an
+  // empty claim marker (no commit beyond the claim), so
+  // `startNothingDoneReleases` asks the stubbed host's `pr-state` exactly
+  // once per completed tick — one host call, 60/hr at the default interval
+  // (`boardSharePerHour`, confirmed above: "two host calls a tick ... is the
+  // 120/hr ceiling"). Tick 1 reports `mine=0/hr` (nothing ran before it) and
+  // then adds its own one call to the tally; tick 2 THROWS before reaching
+  // the bottom-of-loop reset, so without the catch block's OWN reset tick 1's
+  // call would still be sitting in `tally.calls` when tick 3 reads it —
+  // reporting `mine=60/hr` for a call that happened two ticks ago. The catch
+  // block resets the tally itself, so tick 3 reads a clean `0` and reports
+  // `mine=0/hr`, exactly as tick 1 did.
+  it('counts only the completing tick\'s own calls, even after a tick in between threw', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-reset-'));
+    try {
+      const worktree = join(dir, 'desk');
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(
+        join(worktree, '.plot-worker.ending.json'),
+        JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch: 'feature/x', detail: '' }),
+      );
+      // A real git tree whose only commit beyond `origin/main` is an empty
+      // claim marker — `commitBeyondClaim` (real git, not the stubbed host)
+      // reads that as `'no'`, which is what makes the step go on to ask
+      // `prOpen` at all.
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+      execFileSync('git', ['config', 'user.email', 't@t.example'], { cwd: worktree });
+      execFileSync('git', ['config', 'user.name', 't'], { cwd: worktree });
+      execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
+      execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'plot: claim feature/x'], { cwd: worktree });
+      const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
+      execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
+      writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"NONE"}\'\nexit 0\n');
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const desk = {
+        path: worktree,
+        branch: 'feature/x',
+        isMain: false,
+        prunable: false,
+        registered: false,
+        planNamed: true,
+        plan: '2026-10-05-a-plan',
+        dirtyCount: 0,
+      };
+      const completeReport: TickReport = {
+        startedAt: 0,
+        costMs: 1,
+        agents: 1,
+        incomplete: '',
+        handOver: null,
+        trees: [desk],
+        decision: {
+          outcome: 'decided',
+          workflow: 'supervise',
+          writes: [],
+          detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [], unclaimed: [] },
+        },
+      };
+      let ticks = 0;
+      const lines: string[] = [];
+      const code = await run(
+        ['--start-agents'],
+        dir,
+        (s) => lines.push(s),
+        async () => {},
+        () => ticks >= 3,
+        () => {},
+        dir,
+        {
+          tick: async () => {
+            ticks += 1;
+            if (ticks === 2) throw new Error('mid-run tick failure');
+            return completeReport;
+          },
+        },
+      );
+      expect(code).toBe(0);
+      expect(ticks).toBe(3);
+      // Tick 2 threw before ever reaching `reportTick`, so only ticks 1 and 3
+      // print a `mine=` line.
+      const mineLines = lines.filter((l) => l.includes('mine=')).map((l) => /mine=(\d+)\/hr/.exec(l)?.[1]);
+      // Both read `0`: tick 1 because nothing ran before it, tick 3 because
+      // the catch block cleared tick 1's one call rather than letting it
+      // leak past the throwing tick 2. A reset left only at the top of the
+      // tick (the bug) would instead leave tick 3 reading `60` — tick 1's
+      // call, still sitting in `tally.calls` two ticks later.
+      expect(mineLines).toEqual(['0', '0']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * ACCEPTANCE, PER TICK (#2716): with N leftover worktrees and no manifest, of
+ * which M hold `nothing-done` with no commit beyond the claim, the step makes
+ * M `pr-state` calls that tick against N before — and `mine=` for the NEXT
+ * tick's reading (which is where a completed tick's own calls surface, see
+ * above) equals 60 times the calls counted since the previous reading.
+ */
+describe('acceptance — the step asks the host once per nothing-done desk with no commit beyond its claim, out of every leftover desk', () => {
+  it('makes M host calls for M of N desks, and reports 60 x M on the following tick', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-acceptance-'));
+    try {
+      // A REAL GIT TREE PER DESK: `commitBeyondClaim` reads real git, never
+      // the stubbed host. A desk whose only commit beyond `origin/main` is an
+      // empty claim marker reads `'no'` (asks `prOpen`); one with a real,
+      // non-claim commit reads `'yes'` (never asks).
+      const deskWithNoCommitBeyondClaim = (name: string, branch: string) => {
+        const worktree = join(dir, name);
+        mkdirSync(worktree, { recursive: true });
+        writeFileSync(
+          join(worktree, '.plot-worker.ending.json'),
+          JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch, detail: '' }),
+        );
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.email', 't@t.example'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.name', 't'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`], { cwd: worktree });
+        const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
+        execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
+        return { path: worktree, branch, isMain: false, prunable: false, registered: false, planNamed: true, plan: `2026-10-05-${name}`, dirtyCount: 0 };
+      };
+      const deskWithRealWorkBeyondClaim = (name: string, branch: string) => {
+        const worktree = join(dir, name);
+        mkdirSync(worktree, { recursive: true });
+        writeFileSync(
+          join(worktree, '.plot-worker.ending.json'),
+          JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch, detail: '' }),
+        );
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.email', 't@t.example'], { cwd: worktree });
+        execFileSync('git', ['config', 'user.name', 't'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: worktree });
+        writeFileSync(join(worktree, 'a-file.txt'), 'real work');
+        execFileSync('git', ['add', 'a-file.txt'], { cwd: worktree });
+        execFileSync('git', ['commit', '-q', '-m', 'real work on the slice'], { cwd: worktree });
+        const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: worktree }).toString().trim();
+        execFileSync('git', ['update-ref', 'refs/remotes/origin/main', base], { cwd: worktree });
+        return { path: worktree, branch, isMain: false, prunable: false, registered: false, planNamed: true, plan: `2026-10-05-${name}`, dirtyCount: 0 };
+      };
+      const deskWithOtherEnding = (name: string, branch: string) => {
+        const worktree = join(dir, name);
+        mkdirSync(worktree, { recursive: true });
+        writeFileSync(
+          join(worktree, '.plot-worker.ending.json'),
+          JSON.stringify({ reason: 'spent', actor: 'monitor', branch, detail: '' }),
+        );
+        return { path: worktree, branch, isMain: false, prunable: false, registered: false, planNamed: true, plan: `2026-10-05-${name}`, dirtyCount: 0 };
+      };
+
+      // N = 4 leftover desks; M = 2 are `nothing-done` with no commit beyond
+      // the claim (the two the step must ask about); one has real work beyond
+      // its claim (`nothing-done` but must NOT be asked `prOpen`); one ended
+      // some other way entirely (must not be asked anything).
+      const trees = [
+        deskWithNoCommitBeyondClaim('desk-a', 'feature/a'),
+        deskWithNoCommitBeyondClaim('desk-b', 'feature/b'),
+        deskWithRealWorkBeyondClaim('desk-c', 'feature/c'),
+        deskWithOtherEnding('desk-d', 'feature/d'),
+      ];
+      writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"NONE"}\'\nexit 0\n');
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+
+      const completeReport: TickReport = {
+        startedAt: 0,
+        costMs: 1,
+        agents: 1,
+        incomplete: '',
+        handOver: null,
+        trees,
+        decision: {
+          outcome: 'decided',
+          workflow: 'supervise',
+          writes: [],
+          detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [], unclaimed: [] },
+        },
+      };
+      let ticks = 0;
+      const lines: string[] = [];
+      const code = await run(
+        ['--start-agents'],
+        dir,
+        (s) => lines.push(s),
+        async () => {},
+        () => ticks >= 2,
+        () => {},
+        dir,
+        {
+          tick: async () => {
+            ticks += 1;
+            return completeReport;
+          },
+        },
+      );
+      expect(code).toBe(0);
+      expect(ticks).toBe(2);
+      const mineLines = lines.filter((l) => l.includes('mine=')).map((l) => /mine=(\d+)\/hr/.exec(l)?.[1]);
+      // Tick 1 reports `0` (nothing ran before it); tick 2 reports what tick
+      // 1's own nothing-done step added — M = 2 calls, 60 x 2 = 120/hr.
+      expect(mineLines).toEqual(['0', '120']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 /**
@@ -1826,7 +2040,11 @@ describe('the queue world asks a known PR by number when the listing fails (#114
         failed: true,
       });
       expect(await queue.prIndexRows()).toEqual([row]);
-      expect(connectors).toEqual(['bitbucket']);
+      // TWO READS, NOT ONE: `mergedBranches` now reads the index itself, to
+      // decide full vs. delta against the store — same file, no host call, so
+      // `tally.calls` below is unaffected. `prIndexRows` is a second, separate
+      // read of the same store for a different question.
+      expect(connectors).toEqual(['bitbucket', 'bitbucket']);
       expect(await queue.viewLanded(12)).toBe('landed');
       expect(await queue.viewLanded(13)).toBe('unknown');
       // 50, NOT 500: the stub's `backend` answers `bitbucket`, so the limit the
@@ -1963,6 +2181,202 @@ describe('mergedBranches asks the merged-PR limit backend chooses', () => {
       const queue = queueWorldForRepo(dir, dir, { calls: 0 });
       await queue.mergedBranches();
       expect(calls().filter((c) => c.startsWith('pr-list'))).toEqual(['pr-list --state merged --limit 50']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('mergedBranches reads a current store as a delta against the host', () => {
+  // A CURRENT, COMPLETE, VERSION-5 STORE lets `mergedBranches` narrow its one
+  // host call to `--since <watermark - 60s>`, and union the delta's heads
+  // with the store's own merged rows — rather than asking for the whole
+  // 500-row page every tick.
+  const storeOf = (rows: ReturnType<typeof row>[], over: Record<string, unknown> = {}): PrIndexStore => ({
+    location: async () => answered(''),
+    read: async (connector) =>
+      answered({
+        v: PR_INDEX_VERSION,
+        connector,
+        watermark: '2026-10-20T12:34:56Z',
+        complete: true,
+        at: '2026-10-20T12:35:00Z',
+        rows,
+        ...over,
+      } as never),
+    write: async () => answered(undefined),
+  });
+  function row(number: number, head: string, state: string, draft = false) {
+    return { number, head, state, draft, checks: 'none' as const, review: '', url: '' };
+  }
+  const fakeHost = (dir: string, listing: string) => {
+    writeFileSync(
+      join(dir, 'plot-host.sh'),
+      [
+        '#!/usr/bin/env bash',
+        'case "$1" in',
+        '  backend) echo github ;;',
+        `  pr-list) ${listing} ;;`,
+        'esac',
+      ].join('\n') + '\n',
+    );
+    chmodSync(join(dir, 'plot-host.sh'), 0o755);
+  };
+
+  it('asks one delta call and unions its heads with the store\'s merged rows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-'));
+    try {
+      fakeHost(dir, 'echo \'{"number":99,"head":"feature/fresh","state":"MERGED","draft":false,"url":"","mergeCommit":""}\'');
+      const store = storeOf([
+        row(1, 'feature/old', 'MERGED'),
+        row(2, 'feature/open', 'OPEN'),
+        row(3, 'feature/closed', 'CLOSED'),
+        row(4, 'feature/draft', 'MERGED', true),
+      ]);
+      const tally = { calls: 0 };
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, store);
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/fresh', 'feature/old']),
+        whole: true,
+        kind: 'delta',
+        failed: false,
+      });
+      expect(tally.calls).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks since the watermark minus the overlap, rendered in the host stamp format', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-since-'));
+    const log = join(dir, 'calls.log');
+    try {
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        ['#!/usr/bin/env bash', `echo "$*" >> '${log}'`, 'case "$1" in', '  backend) echo github ;;', '  pr-list) echo -n "" ;;', 'esac'].join(
+          '\n',
+        ) + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, storeOf([]));
+      await queue.mergedBranches();
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls).toContain('pr-list --state merged --limit 500 --since 2026-10-20T12:33:56Z');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls through to the full call where the delta request fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-fail-'));
+    const log = join(dir, 'calls.log');
+    try {
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        [
+          '#!/usr/bin/env bash',
+          `echo "$*" >> '${log}'`,
+          'case "$1" in',
+          '  backend) echo github ;;',
+          '  pr-list)',
+          '    if echo "$*" | grep -q -- --since; then',
+          '      echo "HTTP 429 Rate limit for this resource has been exceeded" >&2; exit 5',
+          '    else',
+          '      echo \'{"number":1,"head":"feature/old","state":"MERGED","draft":false,"url":"","mergeCommit":""}\'',
+          '    fi',
+          '    ;;',
+          'esac',
+        ].join('\n') + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const tally = { calls: 0 };
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, storeOf([row(1, 'feature/old', 'MERGED')]));
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/old']),
+        whole: true,
+        kind: null,
+        failed: false,
+      });
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls.filter((c) => c.startsWith('pr-list'))).toEqual([
+        'pr-list --state merged --limit 500 --since 2026-10-20T12:33:56Z',
+        'pr-list --state merged --limit 500',
+      ]);
+      expect(tally.calls).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls through to the full call where the delta answers exactly 500 rows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-delta-truncated-'));
+    const log = join(dir, 'calls.log');
+    try {
+      const fivehundred = Array.from({ length: 500 }, (_, i) => `feature/pr-${i}`)
+        .map((head, i) => `{"number":${i},"head":"${head}","state":"MERGED","draft":false,"url":"","mergeCommit":""}`)
+        .join('\\n');
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        [
+          '#!/usr/bin/env bash',
+          `echo "$*" >> '${log}'`,
+          'case "$1" in',
+          '  backend) echo github ;;',
+          '  pr-list)',
+          '    if echo "$*" | grep -q -- --since; then',
+          `      echo -e '${fivehundred}'`,
+          '    else',
+          '      echo \'{"number":1,"head":"feature/one","state":"MERGED","draft":false,"url":"","mergeCommit":""}\'',
+          '    fi',
+          '    ;;',
+          'esac',
+        ].join('\n') + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const tally = { calls: 0 };
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, storeOf([]));
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/one']),
+        whole: true,
+        kind: null,
+        failed: false,
+      });
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls.filter((c) => c.startsWith('pr-list')).length).toBe(2);
+      expect(tally.calls).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks the unconditional full listing, with no --since, for a full window', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registryd-merged-full-'));
+    const log = join(dir, 'calls.log');
+    try {
+      writeFileSync(
+        join(dir, 'plot-host.sh'),
+        [
+          '#!/usr/bin/env bash',
+          `echo "$*" >> '${log}'`,
+          'case "$1" in',
+          '  backend) echo github ;;',
+          '  pr-list) echo \'{"number":1,"head":"feature/one","state":"MERGED","draft":false,"url":"","mergeCommit":""}\' ;;',
+          'esac',
+        ].join('\n') + '\n',
+      );
+      chmodSync(join(dir, 'plot-host.sh'), 0o755);
+      const tally = { calls: 0 };
+      // complete: false — the refusal ladder's own `full` case.
+      const queue = queueWorldForRepo(dir, dir, tally, undefined, storeOf([], { complete: false }));
+      expect(await queue.mergedBranches()).toEqual({
+        merged: new Set(['feature/one']),
+        whole: true,
+        kind: null,
+        failed: false,
+      });
+      const calls = readFileSync(log, 'utf8').trim().split('\n');
+      expect(calls.filter((c) => c.startsWith('pr-list'))).toEqual(['pr-list --state merged --limit 500']);
+      expect(tally.calls).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

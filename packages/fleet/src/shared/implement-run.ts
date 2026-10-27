@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import { BRIEF_ONLY_ENV } from '@plot-pm/domain/rules/brief-push';
-import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import path from 'node:path';
 import {
   decodeImplementHolder,
@@ -478,14 +477,53 @@ const checkedOutBranch = (tree: string, scriptDir: string): string | null => {
 };
 
 /**
+ * `tree`'s `git status --porcelain`, or `null` where git could not answer —
+ * read the same way before and after a run so the two are comparable.
+ *
+ * @param tree - the checkout to read.
+ * @param scriptDir - the scripts directory the `Trees` port reads through.
+ */
+const mainCheckoutStatus = (tree: string, scriptDir: string): string | null => {
+  const read = treesGit({ repoRoot: tree, scriptDir }).statusSync(tree);
+  return read.ok ? read.value : null;
+};
+
+/**
+ * Logs the porcelain paths present after a run that were not present before
+ * it, by name — observability for a run that writes into the main checkout
+ * when it should not, not a guard. It removes nothing and blocks nothing: a
+ * `--brief-only` run books the brief and the `Started:` record through
+ * `plot-brief-book.sh` in a disposable worktree and should add no path here,
+ * but a run that deviates leaves a trail in the log instead of a silent
+ * leftover like the three runs on 2026-10-26 that prompted this check.
+ *
+ * @param tree - the checkout {@link startImplement} ran in.
+ * @param before - this tree's porcelain status captured before the run.
+ * @param scriptDir - the scripts directory the `Trees` port reads through.
+ */
+const logMainCheckoutDrift = (tree: string, before: string | null, scriptDir: string): void => {
+  const after = mainCheckoutStatus(tree, scriptDir);
+  if (before === null || after === null || after === before) return;
+  const beforeLines = new Set(before.split('\n').filter((line) => line !== ''));
+  const addedLines = after.split('\n').filter((line) => line !== '' && !beforeLines.has(line));
+  if (addedLines.length === 0) return;
+  console.error(`${tree} holds paths this run added and did not commit or remove: ${addedLines.join(', ')}`);
+};
+
+/**
  * Returns `tree` to `branch`, left where {@link checkedOutBranch} found it
  * before the run started. A detached HEAD (`branch === ''`) is left alone:
  * nothing in this file ever detaches it, so there is nothing to undo.
  *
  * Only ever called on the SAME tree {@link checkedOutBranch} just read, so a
- * plain `git checkout` is enough — the agent process writes no uncommitted
- * change of its own here, by the `main-checkout` gate's own contract, and a
- * commit it DID make stays on `branch`'s history rather than being discarded.
+ * plain `git checkout` is enough to move `HEAD` back. It does NOT undo an
+ * uncommitted write to the working tree — three runs on 2026-10-26 wrote a
+ * brief and a `Started:` line directly into the main checkout and left
+ * byte-identical leftovers there afterward, which this function has no part
+ * that could have caught or reversed. `--brief-only` now books both through
+ * `plot-brief-book.sh` in a disposable worktree instead, so this checkout
+ * should see no write of either kind; this restore remains only the backstop
+ * for `HEAD` itself moving, never a guarantee that the working tree is clean.
  *
  * @param tree - the checkout to restore.
  * @param branch - what {@link checkedOutBranch} answered before the run.
@@ -595,6 +633,9 @@ export const startImplement = (
   // default branch or to `branch`. A detached HEAD reads as `''`, which is
   // left alone by {@link restoreCheckedOutBranch}.
   const startedOn = checkedOutBranch(opts.repoRoot, opts.scriptsDir);
+  // Read alongside `startedOn`, for the same reason: compared against the
+  // same checkout's status once the run ends, by {@link logMainCheckoutDrift}.
+  const statusBefore = mainCheckoutStatus(opts.repoRoot, opts.scriptsDir);
 
   // NOTHING from the request is interpolated into a shell string: the prompt
   // names the slug, which is `SLUG_RE`-bounded, and travels as ONE argument.
@@ -612,9 +653,6 @@ export const startImplement = (
         // THE DECLARATION, not a switch — the same one `idea.ts` sets. On drift
         // `/plot-implement` step 2 stops and reports rather than asking.
         PLOT_UNATTENDED: '1',
-        // The brief and the `Started:` record are committed in the main
-        // checkout by design, so the `main-checkout` gate allows this run.
-        [MAIN_CHECKOUT_WRITER_ENV]: '1',
         // Read by the `brief-push` gate: this run pushes no slice branch.
         [BRIEF_ONLY_ENV]: '1',
         PLOT_PLAN_SLUG: slug,
@@ -631,6 +669,8 @@ export const startImplement = (
       // before `release()`, so a second run that was waiting on the lock
       // sees the tree already back where it started.
       restoreCheckedOutBranch(opts.repoRoot, startedOn, opts.scriptsDir);
+      // Logging only — it removes nothing. See {@link logMainCheckoutDrift}.
+      logMainCheckoutDrift(opts.repoRoot, statusBefore, opts.scriptsDir);
       // The plan-keyed state file already records the end; the branch-keyed
       // one and the lock follow before anything that can throw.
       writeState(branchStatePath, record.code);

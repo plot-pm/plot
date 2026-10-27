@@ -20,6 +20,8 @@ const PULSE = 5_000;
 const GITHUB = 1;
 /** Eleven branches on the repository measured 2026-09-20: 11 x 3 + 1. */
 const BITBUCKET_11 = 34;
+/** 1,767 PRs measured 2026-10-26: 1 + ceil(1767 / 100). */
+const GITHUB_1767 = 19;
 
 describe('listingSpend', () => {
   describe('the first reading', () => {
@@ -202,6 +204,44 @@ describe('listingSpend', () => {
           now: PULSE,
         }).intervalMs,
       ).toBe(PULSE * GITHUB);
+    });
+  });
+
+  describe('a GitHub listing priced at its real page cost', () => {
+    // 1,767 PRs page at 19 requests (packages/fleet scanListingCost). This
+    // catches a cost that is computed but never reaches the controller: priced
+    // at 1 the interval would be 5 s, shorter than the scan's own ~2 min period.
+    it('holds a 95 s interval with no rate', () => {
+      const verdict = listingSpend({
+        intervalMs: PULSE,
+        costPerListing: GITHUB_1767,
+        rate: null,
+        lastListedAt: 0,
+        now: PULSE,
+      });
+
+      expect(verdict.intervalMs).toBe(95_000);
+    });
+
+    it('converges to 760 s at the ceiling under sustained overspend', () => {
+      let lastListedAt = 0;
+      let currentIntervalMs: number | undefined;
+      let intervalMs = 95_000;
+      for (let step = 0; step < 50; step += 1) {
+        const verdict = listingSpend({
+          intervalMs: PULSE,
+          costPerListing: GITHUB_1767,
+          rate: { perHour: Number.MAX_SAFE_INTEGER },
+          lastListedAt,
+          now: lastListedAt + intervalMs,
+          currentIntervalMs,
+        });
+        intervalMs = verdict.intervalMs;
+        currentIntervalMs = verdict.intervalMs;
+        lastListedAt = verdict.nextAt;
+      }
+
+      expect(intervalMs).toBe(760_000);
     });
   });
 

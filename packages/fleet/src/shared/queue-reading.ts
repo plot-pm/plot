@@ -215,14 +215,20 @@ export interface MergedListing {
   /** Whether the listing answered in full; false on a failure or a partial answer. */
   whole: boolean;
   /**
-   * The refusal's kind where the listing did not answer whole, else `null`.
+   * The refusal's kind where the listing did not answer whole, else `null` —
+   * or `delta` where it DID answer whole, by narrowing the host call against
+   * the PR index rather than paying for the unconditional page.
    *
    * **IT TRAVELS WITH THE LISTING BECAUSE ONLY THE CALLER THAT ASKED CAN READ
    * IT.** `host.lastRefusal()` is the connector's most recent refusal, and a
    * later reading would name a different request's. The caller takes it beside
    * the answer, and {@link QueueReadings.mergedSet} carries it to the tick line.
+   *
+   * `delta` is not a refusal — it travels the same way for the same reason:
+   * only `mergedBranches` knows which read path bought a whole answer, and the
+   * tick line is the only other reader.
    */
-  kind: 'throttled' | 'secondary' | 'failed' | null;
+  kind: 'throttled' | 'secondary' | 'failed' | 'delta' | null;
   /**
    * Whether the listing request itself failed, as against answering with a
    * refusal left behind.
@@ -521,10 +527,12 @@ const claimReadingsOf = async (
 /**
  * How fully the listing answered, as the tick line reports it.
  *
- * `whole` carries no kind: there was no refusal to name. `unaskable` is a
- * request that failed and `partial` one that answered and left a refusal, and
- * the two are kept apart because their rows differ — a partial listing's rows
- * may be incomplete, an unaskable one has none.
+ * `whole` carries no kind UNLESS the listing names `delta` — the one case a
+ * whole answer still has something worth printing, because it says which read
+ * path bought it rather than naming a refusal. `unaskable` is a request that
+ * failed and `partial` one that answered and left a refusal, and the two are
+ * kept apart because their rows differ — a partial listing's rows may be
+ * incomplete, an unaskable one has none.
  *
  * A listing that is not whole and names no kind reads `failed`: something
  * refused it, and `null` would print a state with no cause.
@@ -533,7 +541,7 @@ const claimReadingsOf = async (
  * @returns the state and the refusal's kind.
  */
 const mergedSetOf = (listing: MergedListing): MergedSetState => {
-  if (listing.whole) return { state: 'whole', kind: null };
+  if (listing.whole) return { state: 'whole', kind: listing.kind === 'delta' ? 'delta' : null };
   return { state: listing.failed ? 'unaskable' : 'partial', kind: listing.kind ?? 'failed' };
 };
 

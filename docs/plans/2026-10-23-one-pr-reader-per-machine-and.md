@@ -10,7 +10,8 @@
 - **Started:** 2026-10-23, Jan Wloka, `feature/one-pr-reader-per-machine-and`
 - **Started:** 2026-10-26, Jan Wloka, `feature/pr-reader-lock-elects-one-writer`
 - **Started:** 2026-10-26, Jan Wloka, `feature/pr-index-lock-beside-the-index`
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Started:** 2026-10-26, Jan Wloka, `feature/fleetd-holds-the-pr-index-lock`
+- **Sprint:** follow-ups-2-28-3
 - **Issue:** #2386
 - **Rounds:** 2
 - **Story:** <!-- optional -->
@@ -196,11 +197,11 @@ From `CLAUDE.md`:
 
 ### Index lock
 
-- `feature/pr-index-lock-beside-the-index` — `reader-election.ts`, the `reader-lock.ts` port and the `reader-lock-file.ts` adapter (from #2436, TSDoc trimmed) over `<index dir>/<connector>.lock/`: generation owner files decided by one `link`, renewal and release through the same decision, start time compared within `CONTINUE_LOCK_SKEW_MS`, the age bound kept when liveness is unknown, the heartbeat rule, and the reader state file codec; state-inventory rows; observable: a multi-process race test in which 8 real `node` processes elect over one stale claim and exactly one wins, a renewing holder is never read as "no holder", and a superseded holder's release leaves the new claim; no caller yet
+- `feature/pr-index-lock-beside-the-index` — `reader-election.ts`, the `reader-lock.ts` port and the `reader-lock-file.ts` adapter (from #2436, TSDoc trimmed) over `<index dir>/<connector>.lock/`: generation owner files decided by one `link`, renewal and release through the same decision, start time compared within `CONTINUE_LOCK_SKEW_MS`, the age bound kept when liveness is unknown, the heartbeat rule, and the reader state file codec; state-inventory rows; observable: a multi-process race test in which 8 real `node` processes elect over one stale claim and exactly one wins, a renewing holder is never read as "no holder", and a superseded holder's release leaves the new claim; no caller yet → #2718
 
 ### fleetd lock
 
-- `feature/fleetd-holds-the-pr-index-lock` — fleetd elects on every PR beat before the cadence gate, fences before `writePrStore`, writes the reader state file and its `fleetd` heartbeat, adopts the state file at start, and skips the pass on `held` and on `failed`; observable: a fleetd restart inside a host-named backoff sends no PR request before `prNextAt`; updates the `fleet-clock.ts` docs and the `CLAUDE.md` paragraph
+- `feature/fleetd-holds-the-pr-index-lock` — fleetd elects on every PR beat before the cadence gate, fences before `writePrStore`, writes the reader state file and its `fleetd` heartbeat, adopts the state file at start, and skips the pass on `held` and on `failed`; observable: a fleetd restart inside a host-named backoff sends no PR request before `prNextAt`; updates the `fleet-clock.ts` docs and the `CLAUDE.md` paragraph → #2723
 
 ### Board reader
 

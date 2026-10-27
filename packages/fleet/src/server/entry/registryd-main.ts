@@ -14,7 +14,9 @@ import {
   treesGit,
   machineSystem,
   planStoreShell,
+  planStoreRef,
   prIndexFile,
+  readerLockFile,
   issueIndexFile,
   issueWriteSpoolOver,
   supervisionReportFile,
@@ -46,12 +48,13 @@ import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { HeldSlice, PortResult } from '@plot-pm/domain';
+import { answered } from '@plot-pm/domain';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
-import { viewLanded } from '@plot-pm/domain/rules/known-pr';
+import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
-import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
+import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
@@ -71,7 +74,7 @@ import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js'
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
-import { freshScanState } from '../../shared/fleet-scan.js';
+import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading } from '../../shared/worker-question.js';
@@ -90,7 +93,7 @@ import {
   type SupervisorWorld,
   type TreeReading,
 } from '../../shared/supervisor.js';
-import type { QueueWorld, HandOverWorld } from '../../shared/queue-reading.js';
+import type { QueueWorld, HandOverWorld, MergedListing } from '../../shared/queue-reading.js';
 import {
   tick,
   tickLine,
@@ -358,9 +361,16 @@ export const readRegistry = async (
 /**
  * How many host calls the current tick has made.
  *
- * The two worlds add one per host call, and the loop sets it to zero at the top
- * of every tick. It carries nothing into the next tick and no decision reads
- * it: it exists to put this tick's own spend on the tick line.
+ * The two worlds, the fresh-agent step's ports and the nothing-done step's
+ * `prOpen` port each add one per host call, including a release either step
+ * triggers through `releaseClaimOf`. The loop reads it for `spendForTick`
+ * directly after that reading, then zeroes it — NOT at the top of the tick,
+ * because the fresh-agent and nothing-done steps run after the spend reading
+ * and would otherwise add calls a reset-at-top wipes before the next tick's
+ * own reading sees them. A tick whose `runTick` throws resets it in the
+ * catch instead, so its partial calls do not carry into the tick that
+ * follows. It carries nothing into the next tick and no decision reads it:
+ * it exists to put this tick's own spend on the tick line.
  */
 export interface HostTally {
   calls: number;
@@ -475,8 +485,8 @@ export const worldForRepo = (
   const processes = processesShell(context);
   const trees = treesGit(context);
   const machine = machineSystem(context);
-  const plans = planStoreShell(context);
   const refs = refsGit(context);
+  const plans = fleetPlanStore(context, refs);
 
   // THE MEMO'S LIFETIME IS ONE TICK, and `readTick` is what ends it: the world
   // is built once and `beginTick` clears the memo at the top of each pass, so a
@@ -738,8 +748,8 @@ export const queueWorldForRepo = (
     checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
-  const plans = planStoreShell(context);
   const refs = refsGit(context);
+  const plans = fleetPlanStore(context, refs);
   const host = hostShell(context);
   // NO MEMO GIVEN, NO MEMO BUILT. This world has no `beginTick`, so a memo it
   // built for itself would never be cleared and would freeze every merge answer
@@ -795,37 +805,60 @@ export const queueWorldForRepo = (
       // 3-request budget `PR_REQUESTS_PER_REFRESH.bitbucket` already assumes.
       const backend = await host.backend();
       const limit = backend.ok && backend.value === 'bitbucket' ? 50 : 500;
-      tally.calls += 1;
-      const answer = await host.prList('merged', limit);
-      // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
-      // incomplete and cannot say why; the tick line prints the kind, so an
-      // operator reads `unaskable(throttled)` rather than inferring a rate
-      // limit from a count of held slices (#1094).
-      if (!answer.ok)
+      const full = async (): Promise<MergedListing> => {
+        tally.calls += 1;
+        const answer = await host.prList('merged', limit);
+        // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
+        // incomplete and cannot say why; the tick line prints the kind, so an
+        // operator reads `unaskable(throttled)` rather than inferring a rate
+        // limit from a count of held slices (#1094).
+        if (!answer.ok)
+          return {
+            merged: new Set<string>(),
+            whole: false,
+            kind: host.lastRefusal()?.kind ?? 'failed',
+            failed: true,
+          };
+        // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers
+        // the rows that arrived and leaves a refusal behind, so a branch
+        // missing from them may still have merged.
+        const refusal = host.lastRefusal();
+        const whole = refusal === null;
+        // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
+        // The repo's rule is that `mergedAt` decides *did this land* — a merged
+        // PR reports CLOSED when asked about one PR. Here `--state merged` made
+        // that distinction host-side, and `pr-list` does not carry `mergedAt` at
+        // all (`host-shell.ts:94` fills it from a field the shell never emits),
+        // so filtering on it would reject every row. Ask `prMerged` for a single
+        // branch; this is the bundle.
         return {
-          merged: new Set<string>(),
-          whole: false,
-          kind: host.lastRefusal()?.kind ?? 'failed',
-          failed: true,
+          merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
+          whole,
+          kind: refusal?.kind ?? null,
+          failed: false,
         };
-      // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers the
-      // rows that arrived and leaves a refusal behind, so a branch missing from
-      // them may still have merged.
-      const refusal = host.lastRefusal();
-      const whole = refusal === null;
-      // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
-      // The repo's rule is that `mergedAt` decides *did this land* — a merged
-      // PR reports CLOSED when asked about one PR. Here `--state merged` made
-      // that distinction host-side, and `pr-list` does not carry `mergedAt` at
-      // all (`host-shell.ts:94` fills it from a field the shell never emits),
-      // so filtering on it would reject every row. Ask `prMerged` for a single
-      // branch; this is the bundle.
-      return {
-        merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
-        whole,
-        kind: refusal?.kind ?? null,
-        failed: false,
       };
+      // A DELTA NARROWS THE CALL; IT NEVER REPLACES THE STORE'S OWN ANSWER.
+      // `mergedSetWindowFor` reads the SAME store `prIndexRows` already
+      // exposes, by the same backend word, so a store this tick's earlier
+      // `prIndexRows()` read as empty (missing/incomplete/wrong-version) also
+      // decides `full` here — the two readings cannot disagree.
+      if (!backend.ok) return full();
+      const held = await index.read(backend.value);
+      const store = held.ok ? held.value : null;
+      const window = mergedSetWindowFor(store);
+      if (window.kind === 'full') return full();
+      tally.calls += 1;
+      const answer = await host.prList('merged', limit, window.since);
+      const refusal = host.lastRefusal();
+      // ANY DELTA TROUBLE FALLS THROUGH TO THE FULL CALL IN THE SAME TICK.
+      // A failed call, a left-behind refusal, or exactly `limit` rows (the
+      // page may have been truncated) are each a reason not to trust this
+      // answer — none of them are unioned with the stored rows.
+      if (!answer.ok || refusal !== null || answer.value.length === limit) return full();
+      const deltaHeads = answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head);
+      const merged = new Set([...deltaHeads, ...indexMergedHeads(store?.rows ?? [])]);
+      return { merged, whole: true, kind: 'delta', failed: false };
     },
     // A GOING VERIFY RUN HOLDS AN AGENT SLOT, so `scaleUp` counts it.
     verifying: () => verifyingCount(repoRoot),
@@ -1111,6 +1144,56 @@ const dirtyCountOf = async (
 };
 
 /**
+ * The queue, supervisor and index monitor's own plan store: `origin/<default>`,
+ * never the checkout's working tree.
+ *
+ * A plan approved on the host moves `origin/<default>` and nothing else — the
+ * daemon's checkout is not fast-forwarded by anything but an operator's own
+ * `git fetch` + merge, so a store reading the working tree could stay behind a
+ * host-side approval indefinitely (measured 2026-10-26: a 17-minute gap between
+ * approval and the queue noticing). `refs.defaultBranch()` is asked fresh on
+ * every call rather than once at construction, so a ref that starts resolvable
+ * and later is not (a detached fixture, a deleted remote) answers the empty
+ * list the brief requires instead of the ref this function resolved at
+ * start-up.
+ *
+ * Every OTHER `PlanStore` operation on the adapters this function builds
+ * (`config`, `listDir`, `readText`, `writeText`) still reads the working
+ * tree — unrelated callers (`approve.ts`, `deliver.ts`, …) read the checkout
+ * they are about to act on, and this function's callers only ever reach
+ * `listPlans`/`readPlans`.
+ *
+ * @param context - where the scripts live and which repository to parse in.
+ * @param refs - the ref reader, already constructed by the caller.
+ * @returns a `PlanStore` whose `listPlans`/`readPlans` read `origin/<default>`.
+ */
+const fleetPlanStore = (context: { repoRoot: string; scriptDir: string }, refs: Refs): PlanStore => {
+  const scripts = scriptsShell(context);
+  const storeFor = async (): Promise<Pick<PlanStore, 'listPlans' | 'readPlans'> | null> => {
+    const base = await refs.defaultBranch();
+    if (!base.ok) return null;
+    const planDir = await planDirectory(scripts);
+    return planStoreRef(refs, context, `origin/${base.value}`, planDir);
+  };
+  const shell = planStoreShell(context);
+  return {
+    listPlans: async () => {
+      const store = await storeFor();
+      return store === null ? answered([]) : store.listPlans();
+    },
+    readPlans: async (files) => {
+      const store = await storeFor();
+      return store === null ? answered([]) : store.readPlans(files);
+    },
+    readPlan: shell.readPlan,
+    config: shell.config,
+    listDir: shell.listDir,
+    readText: shell.readText,
+    writeText: shell.writeText,
+  };
+};
+
+/**
  * Every plan line the estate holds, keyed by branch.
  *
  * **READ ONCE PER TICK, NOT ONCE PER AGENT, and the difference was measured.**
@@ -1126,7 +1209,7 @@ const dirtyCountOf = async (
  * @returns branch to its plan line; empty where the plans cannot be read.
  */
 const planLinesFor = async (
-  plans: ReturnType<typeof planStoreShell>,
+  plans: Pick<PlanStore, 'listPlans' | 'readPlans'>,
 ): Promise<ReadonlyMap<string, PlanBranchLine & { plan: string }>> => {
   const lines = new Map<string, PlanBranchLine & { plan: string }>();
   const files = await plans.listPlans();
@@ -1730,6 +1813,45 @@ export const freshAgentPortsFor = (deps: {
   release: deps.release,
 });
 
+/**
+ * Builds the {@link NothingDoneReleasePorts} {@link startNothingDoneReleases}
+ * acts through in production.
+ *
+ * Extracted from `run()` so the tick's host spend is counted the same way
+ * {@link freshAgentDeskReads} already counts its own `prOpen`/`prMerged`
+ * calls: one `tally`, shared across both steps.
+ *
+ * @param context - the repository and its scripts directory.
+ * @param record - the `.plot/state/fresh-agents.tsv` store, read for
+ *   `priorFreshSessions` — the same store {@link freshAgentDeskReads} reads.
+ * @param release - decides and, where releasable, releases a branch's claim.
+ * @param tally - the host-call counter this step's `prOpen` port adds to, one
+ *   per call actually made.
+ * @returns the ports {@link applyNothingDoneDecisions} acts through.
+ */
+export const nothingDonePortsFor = (
+  context: { repoRoot: string; scriptDir: string },
+  record: Pick<FreshAgentRecordStore, 'rowsFor'>,
+  release: (branch: string) => Promise<{ released: boolean; detail: string }>,
+  tally: HostTally = { calls: 0 },
+): NothingDoneReleasePorts => ({
+  commitBeyondClaim: async (worktree) => {
+    const commits = await treesGit(context).commitBeyondClaim(worktree);
+    return commits.ok ? commits.value : 'unanswerable';
+  },
+  prOpen: async (branch) => {
+    tally.calls += 1;
+    return prOpenReading(await hostShell(context).prState(branch));
+  },
+  // THE SAME STORE `startFreshAgents` READS, so a slice's one fresh session
+  // is shared regardless of which pipeline asks about it first.
+  priorFreshSessions: async (plan, branch) => {
+    const rows = await record.rowsFor(plan, branch);
+    return rows.ok ? rows.value.length : 0;
+  },
+  release,
+});
+
 /** The reads and the one write {@link startNothingDoneReleases} performs, injected so a test needs no git or host. */
 export interface NothingDoneReleasePorts {
   /** Reads whether a desk's branch holds a commit beyond its claim, through `Trees.commitBeyondClaim`. */
@@ -1991,7 +2113,8 @@ export const indexMonitorOver = (
   write: (s: string) => void,
 ): (() => Promise<void>) => {
   const host = hostShell(context);
-  const plans = planStoreShell(context);
+  const refs = refsGit(context);
+  const plans = fleetPlanStore(context, refs);
   const index = prIndexFile({ cwd: context.repoRoot });
   const defaultBranch = defaultBranchFile(context.repoRoot);
   return () =>
@@ -2154,10 +2277,11 @@ export const run = async (
   const endingAsks = endingAskRecordFile({ cwd: repoRoot });
   // ONE RELEASE PATH FOR BOTH STEPS: the fresh-agent step releases a
   // `bound`/`unreadable`/`quiet` desk, the nothing-done step every other
-  // `release-claim`.
+  // `release-claim`. SHARES `tally` with both steps, so a release either one
+  // triggers counts toward the tick's own host spend.
   const releaseContext = { repoRoot, scriptDir: scriptsDir };
   const releaseClaimOf = async (branch: string) => {
-    const { result } = await gatherReadingsAndRelease(branch, releaseContext);
+    const { result } = await gatherReadingsAndRelease(branch, releaseContext, tally);
     return { released: result.released, detail: result.detail };
   };
   const freshAgentDesk = deskFs(treesGit({ repoRoot, scriptDir: scriptsDir }));
@@ -2213,6 +2337,7 @@ export const run = async (
       issueGate: issueGateOf(issueStore),
     },
     prState,
+    { lock: readerLockFile({ cwd: repoRoot }) },
     warn,
   );
   // FLEETD COMPOSES THE LOCAL AND THE REMOTE REFS READER, as `worker-loop.ts`
@@ -2371,10 +2496,10 @@ export const run = async (
     // the contract already promises: the next iteration re-reads the registry
     // and the desks from disk, exactly as it does after a restart.
     let report: TickReport;
-    tally.calls = 0;
-    // CLEARED HERE, beside `tally.calls`: a tick reads `Checks wait` at most
+    // CLEARED HERE, AT THE TOP OF THE TICK: a tick reads `Checks wait` at most
     // once (`checksWaitMs` above), and a config edit on `main` takes effect
-    // on the NEXT tick rather than never.
+    // on the NEXT tick rather than never. `tally.calls` is reset separately,
+    // after the spend reading below — see the comment there.
     checksWaitCache = null;
     try {
       // THE REGISTRY IS RE-READ HERE, at the top of every tick. That is the
@@ -2414,6 +2539,10 @@ export const run = async (
       // no host call, so a failing tick does not stop desk findings reaching
       // the channel.
       await relayBeat(slot, warn);
+      // RESET HERE, NOT ONLY AFTER THE SPEND READING BELOW: this `continue`
+      // skips that reading entirely, and the NEXT tick's own spend reading
+      // must not inherit whatever calls this tick made before it threw.
+      tally.calls = 0;
       await pause();
       continue;
     }
@@ -2429,6 +2558,14 @@ export const run = async (
     if (report.incomplete === '') {
       report = { ...report, spend: await spendForTick(scripts, tally.calls, args.intervalMs) };
     }
+    // RESET HERE, NOT AT THE TOP OF THE TICK: the fresh-agent and nothing-done
+    // steps below run AFTER this reading and add to `tally.calls` themselves
+    // — a reset at the top cleared their calls before `spendForTick` next
+    // read them, so a tick's own host spend from those two steps was never
+    // reported. A tick that throws (the `continue` above) or is incomplete
+    // takes no spend reading, so it carries no calls forward either way; the
+    // next tick's own reset still runs here, once that tick completes.
+    tally.calls = 0;
     queueHolds.held = report.incomplete === '' && report.handOver !== null ? report.handOver.detail.held : null;
     const code = reportTick(report, write, warn, !args.once);
     // THE ONE CHANNEL TO THE BOARD, written beside the log and for the same
@@ -2480,21 +2617,7 @@ export const run = async (
         report,
         {
           deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
-          ports: {
-            commitBeyondClaim: async (worktree) => {
-              const commits = await treesGit(nothingDoneContext).commitBeyondClaim(worktree);
-              return commits.ok ? commits.value : 'unanswerable';
-            },
-            prOpen: async (branch) => prOpenReading(await hostShell(nothingDoneContext).prState(branch)),
-            // THE SAME STORE `startFreshAgents` READS, so a slice's one fresh
-            // session is shared regardless of which pipeline asks about it
-            // first.
-            priorFreshSessions: async (plan, branch) => {
-              const rows = await freshAgentRecord.rowsFor(plan, branch);
-              return rows.ok ? rows.value.length : 0;
-            },
-            release: releaseClaimOf,
-          },
+          ports: nothingDonePortsFor(nothingDoneContext, freshAgentRecord, releaseClaimOf, tally),
         },
         write,
         warn,

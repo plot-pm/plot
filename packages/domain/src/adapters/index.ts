@@ -19,6 +19,7 @@ export { shellContext, scriptPath, type ShellContext } from './scripts.js';
 export { scriptsShell } from './scripts/scripts-shell.js';
 
 export { planStoreShell } from './plan-store/plan-store-shell.js';
+export { planStoreRef } from './plan-store/plan-store-ref.js';
 export {
   planStoreFixture,
   planRecord,
@@ -116,6 +117,20 @@ export {
   PR_INDEX_HOME_ENV,
   type PrIndexFileOptions,
 } from './pr-index/pr-index-file.js';
+
+// THE READER LOCK'S FILE ADAPTER. One generation-numbered claim file per
+// connector, beside the PR store under the same COMMON git dir's
+// `.plot/state/index/`, so the lock and the file it protects share one
+// resolution and one symlink-collision fix.
+export {
+  readerLockFile,
+  READER_LOCK_HOME_ENV,
+  type ReaderLockFileOptions,
+} from './reader-lock/reader-lock-file.js';
+export {
+  readerLockFixture,
+  type ReaderLockFixtureOptions,
+} from './reader-lock/reader-lock-fixture.js';
 
 // THE ISSUE STORE'S FILE ADAPTER. One file under the COMMON git dir's
 // `.plot/state/index/`, so every dispatch worktree of one repository reads
