@@ -164,7 +164,7 @@ Nothing on the machine changes until every probe passes.
 
 ### 4. Read the refusal
 
-**Four refusals, each a measurement.** Each names its own repair; read it to the
+**Five refusals, each a measurement.** Each names its own repair; read it to the
 user rather than working around it.
 
 | Refusal | The repair |
@@ -173,6 +173,7 @@ user rather than working around it.
 | `node` is not Plot's pinned major, or Plot's pin is unreadable | put that major first on `PATH` (`nvm install N && nvm use N`), then run it again; an unreadable pin is a broken installation |
 | platform is neither launchd nor systemd | run the daemon by hand; there is no unit to fill |
 | a unit with that label is already loaded | the refusal names the checkout the loaded job serves: **this** repository → `--stop`, then `--start`; **another** checkout (named by path) → give this checkout its own label and leave that one running (`PLOT_FLEET_LABEL`, or the `Fleet label` config key); **cannot determine** → read the job with `launchctl print` before stopping anything |
+| the configured `Worker command` was refused every write it tried | fix the worker command's permissions, then run `--start` again — a dispatched agent under the same command would meet the same refusal |
 
 **The node refusal is the one that is easiest to talk past, and must not be.**
 The unit bakes `$NODE` in **permanently**. Measured 2026-09-05: `command -v
@@ -184,6 +185,24 @@ anybody is watching.
 **The fill is verified rather than assumed.** A surviving `__PLACEHOLDER__`
 means the unit is removed and the run refuses, and on macOS `plutil -lint` must
 also pass before `launchctl bootstrap` is called.
+
+**THE WRITE PROBE RUNS BEFORE `launchctl bootstrap`, NOT AFTER.** `--start` runs
+the configured `Worker command`'s prompt file once in a scratch desk it cuts
+and removes itself, and checks for the file it asked the command to touch — one
+prompt file governs every agent, so the probe asks the configured command
+string rather than branching on it. **Absent is not false**: only an OBSERVED
+missing file after the probe exits refuses; a probe that could not run at all
+(no harness, no scratch desk, a timeout) proceeds the same as an observed
+success, because nothing was actually tested. A refused probe loads no unit and
+starts nothing — the same fault a dispatched agent under that command would
+meet, caught before a claim exists rather than read afterward from an ended
+agent's marker.
+
+**`--once --start-agents` runs the same probe, and only when it would actually
+hand a slice over.** `plot-fleetd`'s tick reads this before `startAgents`
+applies a `worker-start` write; a tick whose queue starts nothing never reads
+`Worker command` or calls the probe, so a `--once` run against an idle estate
+stays free exactly as it always has.
 
 **AN INSTALLED UNIT DOES NOT UPDATE ITSELF.** The same property that bakes
 `$NODE` in permanently bakes in everything else the template said on the day it
@@ -263,8 +282,10 @@ Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.
 
 ## Guardrails
 
-- **`--status` and `--once` change nothing on the machine.** `--once` runs a
-  tick, and a tick decides and performs nothing.
+- **`--status` and `--once` change nothing persistent on the machine.** `--once`
+  runs a tick, and a tick decides and performs nothing — the one exception is
+  the write probe's own scratch desk, cut and removed within the same run
+  whenever the tick would hand a `worker-start` write over.
 - **Never stop a fleet unattended.** Under `PLOT_UNATTENDED=1`, report what is
   running and stop there; ending work in flight is a person's call.
 - **Never signal a worker directly.** `plot-dispatch --stop` is the one rule.
@@ -283,7 +304,7 @@ Stop one by pid if you mean to, or let the eight-hour `Worker bound` end it.
 | Mistake | Effect | Prevention |
 |---------|--------|------------|
 | Running `/plot-fleet` for a wave report | Answers about processes, not slices | That is `/plot-pulse` — this name changed on 2026-09-05 |
-| Installing the unit before `--once` passes | A crash loop with a restart policy | `--once` first; it is free |
+| Installing the unit before `--once` passes | A crash loop with a restart policy | `--once` first; it only spends a probe run when it would hand a slice over |
 | Filling the unit under the wrong `node` | A daemon that fails after everyone stops watching | The refusal exists for this; run `nvm use` |
 | Unloading the supervisor first | The agents shut down unwatched | The script orders it; do not re-order by hand |
 | Reading `--stop` as a reap | It ends processes and removes nothing | Desks and claims stand; `/plot-reconcile` owns cleanup |

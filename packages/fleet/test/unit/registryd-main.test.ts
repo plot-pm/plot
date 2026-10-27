@@ -23,6 +23,7 @@ import {
   reportTick,
   run,
   CHANNEL_SOCKET,
+  probeBeforeStarting,
   settleOnce,
   spendForTick,
   startAgents,
@@ -38,6 +39,7 @@ import type { PortResult } from '@plot-pm/domain';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 import { readQueue, type QueueWorld, type HandOverWorld } from '../../src/shared/queue-reading.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
+import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
 import { answered, failed, unaskable, PR_INDEX_VERSION } from '@plot-pm/domain';
@@ -1093,6 +1095,128 @@ describe('starting agents is the one write this daemon performs', () => {
     await startAgents(withAssign(), performer, handOverReady, (s) => out.push(s), () => {});
     expect(assigned).toEqual(['sess-1:feature/a']);
     expect(out.join('')).toContain('feature/a: handed to sess-1');
+  });
+});
+
+describe('probeBeforeStarting — a refused write never reaches startAgents', () => {
+  /** A tick whose hand-over named `n` starts. */
+  const withStarts = (n: number): TickReport => ({
+    startedAt: 0,
+    costMs: 10,
+    agents: 0,
+    incomplete: '',
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [],
+      detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [], unclaimed: [] },
+    },
+    handOver: {
+      outcome: 'decided',
+      workflow: 'assign',
+      writes: Array.from({ length: n }, () => ({ kind: 'worker-start' as const, branch: '', worktree: '' })),
+      detail: {
+        assignments: [],
+        held: [],
+        idle: [],
+        scaling: { start: n, requested: n, running: 0, headroom: 'clear' as const, shortfall: '' },
+      },
+    },
+  });
+
+  const probeAnswering = (answer: unknown, asked: string[] = []): WriteProbe =>
+    ({
+      check: async (command: string) => {
+        asked.push(command);
+        return answer;
+      },
+    }) as unknown as WriteProbe;
+
+  it('never reads the configured command when the tick starts nothing', async () => {
+    let readCalls = 0;
+    const proceed = await probeBeforeStarting(
+      withStarts(0),
+      probeAnswering({ ok: true, value: 'yes' }),
+      async () => {
+        readCalls += 1;
+        return 'claude -p';
+      },
+      () => {},
+    );
+    expect(proceed).toBe(true);
+    expect(readCalls).toBe(0);
+  });
+
+  it('proceeds without probing when the Worker command is none (#2778)', async () => {
+    const asked: string[] = [];
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: true, value: 'no' }, asked),
+      async () => 'none',
+      () => {},
+    );
+    expect(proceed).toBe(true);
+    expect(asked).toHaveLength(0);
+  });
+
+  it('proceeds on a stale print and warns with the template refresh (#2778)', async () => {
+    const warned: string[] = [];
+    const reason = 'stale-print: .plot/worker-prompt.sh has no PLOT_PRINT_INVOCATION block';
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: false, why: 'unaskable', reason }),
+      async () => 'claude -p',
+      (s) => warned.push(s),
+    );
+    expect(proceed).toBe(true);
+    expect(warned.join('')).toMatch(/^plot-fleetd: The write probe did not run/);
+    expect(warned.join('')).toContain('skills/plot/templates/worker-prompt.sh');
+  });
+
+  it('proceeds without probing when no Worker command is configured', async () => {
+    const asked: string[] = [];
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: true, value: 'yes' }, asked),
+      async () => '',
+      () => {},
+    );
+    expect(proceed).toBe(true);
+    expect(asked).toHaveLength(0);
+  });
+
+  it('proceeds and asks with the configured command on an observed yes', async () => {
+    const asked: string[] = [];
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: true, value: 'yes' }, asked),
+      async () => 'claude -p',
+      () => {},
+    );
+    expect(proceed).toBe(true);
+    expect(asked).toEqual(['claude -p']);
+  });
+
+  it('refuses on an observed no, and reports the refusal', async () => {
+    const warnings: string[] = [];
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: true, value: 'no' }),
+      async () => 'claude -p',
+      (s) => warnings.push(s),
+    );
+    expect(proceed).toBe(false);
+    expect(warnings.join('')).toMatch(/refused every write/);
+  });
+
+  it('proceeds on an unanswerable probe, never refusing it as a permission fault', async () => {
+    const proceed = await probeBeforeStarting(
+      withStarts(1),
+      probeAnswering({ ok: false, why: 'unaskable' }),
+      async () => 'claude -p',
+      () => {},
+    );
+    expect(proceed).toBe(true);
   });
 });
 

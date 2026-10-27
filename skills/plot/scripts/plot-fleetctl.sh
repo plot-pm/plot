@@ -731,7 +731,7 @@ resolve_wt_root() { # sets wt_root, wt_prefix; exits 3 when unaskable
 # and that is the arm a macOS operator uses. The fill and the parse ARE
 # assertable on Linux, which is what this guard makes reachable.
 if [ -n "${PLOT_FLEETCTL_SOURCED:-}" ]; then
-  return 0 2>/dev/null || true
+  return 0 2>/dev/null
 fi
 
 mode=""
@@ -984,7 +984,7 @@ if [ "$mode" = "status" ]; then
   # included, because a board runs on a host with no init system.
   skip_pid=""
   [ "$install_state" = running ] && skip_pid=$sup_pid
-  plot_processes_block "$skip_pid" || true
+  plot_processes_block "$skip_pid"
   # THE EXIT CODE COMES FROM THE CAPTURE, NEVER FROM A FRESH PROBE. This line
   # read `supervisor_loaded; exit $?` — a fourth call to the init system that
   # recomputed the verdict from the label alone, so a loaded-but-dead
@@ -1108,10 +1108,23 @@ if [ "$mode" = "start" ]; then
   [ "$LABEL" = com.plot-pm.fleetd ] || default_served=$(LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd; supervisor_loaded && supervisor_checkout)
   case "${default_served:-}" in this\ *) refuse_label com.plot-pm.fleetd "$default_served"; exit 1 ;; esac
 
+  # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
+  # prompt file in a scratch desk, through `plot-write-probe.mjs`
+  # (packages/domain's `writeProbeShell`, behind the `WriteProbe` port — the
+  # layering rule keeps this script a thin call-out). A worker handed a claim
+  # under the same command would meet the same refusal, so this runs BEFORE
+  # `launchctl bootstrap`: a refused probe leaves no unit loaded and pushes no
+  # ref. Absent is not false — `plot-write-probe.mjs` exits 0 for an
+  # unanswerable probe the same as for an observed yes, so a probe that could
+  # not run never blocks a start it did not actually test. An empty or `none`
+  # Worker command starts nothing and is not probed (`writeProbeNeeded`); a
+  # stale print block proceeds and names its fix (`writeProbeOutcome`).
   if [ "$dry_run" = 1 ]; then
-    printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"
+    printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould probe: node %s/board/plot-write-probe.mjs '%s'\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "$script_dir" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" "${start_count:-(default)}"
     exit 0
   fi
+
+  PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-write-probe.mjs" "$("$script_dir/plot-config.sh" get "Worker command" "" 2>/dev/null)" || exit 1
 
   mkdir -p "$repo_root/.plot/logs" "$repo_root/.plot/state"
 

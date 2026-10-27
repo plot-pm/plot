@@ -34,7 +34,7 @@ CLAUDE.md's *Gates Over Rules* asks the question that decides it: can an agent
 answer *"did I check the node version?"* without checking? In prose, yes. In the
 script, the run cannot reach `launchctl bootstrap` without passing every probe.
 
-## The four refusals, and why each is a measurement
+## The five refusals, and why each is a measurement
 
 | Refusal | Measurement |
 |---------|-------------|
@@ -42,6 +42,23 @@ script, the run cannot reach `launchctl bootstrap` without passing every probe.
 | `node` is not the pinned major | 2026-09-05: `command -v node` answered 26.7.0 against `.nvmrc` 24 — the operator's real machine |
 | platform is neither launchd nor systemd | there is no unit to fill, and Plot supervising its own supervisor is the regress the OS terminates |
 | label already loaded | launchd keys by label; a second checkout loading over the first silently supervises the wrong estate |
+| the worker command's write probe was refused | closes the gap waves 1 and 2 left: a refused write was readable only AFTER a claim existed, from an ended agent's `permission-denied` marker. This refuses it BEFORE `launchctl bootstrap`, so no unit loads and no claim is ever pushed under a command that cannot write |
+
+**The probe asks one prompt file, not the configured command's branch.**
+`.plot/worker-prompt.sh` is what every loop-worker sources regardless of which
+role string `Worker command` names, so the decision (`writeProbeAnswer` in
+`packages/domain/src/rules/write-probe.ts`) and the run itself (`writeProbeShell`,
+behind the `WriteProbe` port) both ask that one file. The shell side —
+`plot-fleetctl.sh`'s REFUSAL 5 and `registryd-main.ts`'s `probeBeforeStarting`
+— only reads the configured command, calls the bundle, and branches on its exit
+code; the layering rule keeps the decision itself out of shell.
+
+**`--once --start-agents` probes too, and only when it would spend.**
+`probeBeforeStarting` reads the tick's own `worker-start` writes before it reads
+`Worker command` or calls the probe, so a tick that starts nothing never reaches
+either — keeping `--once` free on an idle estate exactly as the Common Mistakes
+table in `SKILL.md` always claimed, now true for a reason rather than by
+omission.
 
 **`.nvmrc` is the pin, not `engines`.** Both `package.json` blocks say `>=24`,
 which is a floor. The unit needs one exact interpreter, so the comparison is

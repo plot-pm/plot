@@ -167,28 +167,28 @@ settings_args=()
 # reason `--settings` is.
 [ -n "${PLOT_BACKGROUND_DENY:-}" ] && [ "$harness" = "claude" ] && settings_args+=(--disallowedTools "$PLOT_BACKGROUND_DENY")
 
-# WHAT IT BUILT, ON REQUEST — a debug hook, and deliberately not a contract.
+# WHAT IT RUNS, ON REQUEST. Under `PLOT_PRINT_INVOCATION=1` this file prints
+# the harness and every flag of the launch line below, one per line, and exits
+# 0 without launching. It leaves out `-p` and the prompt body only.
 #
 # THE CHAIN IS OTHERWISE UNOBSERVABLE. A worker launches detached, Plot never
 # composes the command line, and reading a live process is timing-sensitive and
 # costs a real agent run. So the one honest way to prove a charter reached the
 # launch is to ask the file that assembled it.
 #
-# IT PRINTS AND EXITS 0 WITHOUT LAUNCHING, immediately before the invocation, so
-# what is printed is the argv that would have run rather than a second
-# assembly of it — a reconstruction here would pass while the real line stayed
-# wrong, which is the failure this probe exists to catch.
-#
-# NOTHING IN PLOT READS IT and nothing branches on it. A prompt file that drops
-# this block simply cannot be probed this way; no caller breaks.
+# THE PRINT AND THE LAUNCH READ THE SAME TWO ARRAYS: `head_args` goes before
+# the prompt and `tail_args` after it. Keep both arrays when you rewrite the
+# rest. fleetd's write probe (`write-probe-shell.ts`) runs the harness with
+# exactly the printed flags before it starts agents. A flag that the launch
+# passes and the print omits makes the probe test a command the fleet never
+# runs: a print without `--permission-mode bypassPermissions` cannot approve a
+# Write, and the probe then refuses every start.
+head_args=(${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} \
+  ${settings_args[@]+"${settings_args[@]}"} ${cap_args[@]+"${cap_args[@]}"})
+tail_args=(${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions)
 if [ -n "${PLOT_PRINT_INVOCATION:-}" ]; then
-  printf '%s\n' "$harness" \
-    ${model_args[@]+"${model_args[@]}"} \
-    ${effort_args[@]+"${effort_args[@]}"} \
-    ${settings_args[@]+"${settings_args[@]}"} \
-    ${cap_args[@]+"${cap_args[@]}"} \
-    ${session_args[@]+"${session_args[@]}"}
+  printf '%s\n' "$harness" ${head_args[@]+"${head_args[@]}"} "${tail_args[@]}"
   exit 0
 fi
 
-"$harness" ${model_args[@]+"${model_args[@]}"} ${effort_args[@]+"${effort_args[@]}"} ${settings_args[@]+"${settings_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the checks your change touches before each push — \`node ${PLOT_SCRIPT_DIR:-skills/plot/scripts}/board/plot-local-checks.mjs\` prints them, even where the brief lists full suites — never run a suite this project's \`CI suites\` key leaves to CI (a failure there comes back to you as a correction), and never skip a failing test. If PLOT-CORRECTION.md exists at the root of this worktree, read it before anything else: it is the loop's finding about your last turn. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." ${session_args[@]+"${session_args[@]}"} ${cap_args[@]+"${cap_args[@]}"} --permission-mode bypassPermissions
+"$harness" ${head_args[@]+"${head_args[@]}"} -p "You are implementing the branch $PLOT_BRANCH in this worktree, alone. Read .plot/briefs/${PLOT_BRANCH##*/}.md first — it is the specification: do not re-derive its decisions and do not widen its scope. If you find something it did not anticipate, implement what you can and report the discovery rather than improvising. If you must stop and ask a person something, write the question into a file named PLOT-BLOCKED.md at the root of this worktree before you exit, starting the first line with PLOT-BLOCKED: — the fleet scan looks for that FILE, not for the marker inside your log, so without it a stopped worker is restarted into the same question. Delete the file once it is answered. Follow this project's contributor guide: install dependencies if they are missing, run the checks your change touches before each push — \`node ${PLOT_SCRIPT_DIR:-skills/plot/scripts}/board/plot-local-checks.mjs\` prints them, even where the brief lists full suites — never run a suite this project's \`CI suites\` key leaves to CI (a failure there comes back to you as a correction), and never skip a failing test. If PLOT-CORRECTION.md exists at the root of this worktree, read it before anything else: it is the loop's finding about your last turn. Run every test in the FOREGROUND: you are a \`-p\` run with no next turn, so a background job's completion never reaches you and the work is stranded uncommitted. COMMIT AND PUSH BEFORE YOU VERIFY — push your first real commit as soon as it exists, and again after any rebase; work that is committed survives a stall and work that is only written does not. Open the pull request with \`skills/plot/scripts/plot-open-pr.sh\` when the branch is done — it takes the title from the plan's wave heading rather than from your last commit subject, and refuses a branch a PR already carries. End your run with a report: the PR, the judgement calls you made, and anything the brief did not anticipate." "${tail_args[@]}"

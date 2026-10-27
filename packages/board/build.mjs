@@ -1529,6 +1529,27 @@ await esbuild.build({
 
 fs.copyFileSync(briefBookArtifact, shippedBriefBook);
 fs.chmodSync(shippedBriefBook, 0o755);
+// The write probe: one `-p` run of the project's prompt file in a scratch
+// desk, reachable from `plot-fleetctl.sh --start` and from `registryd-main.ts`
+// before `--once` hands a slice to an agent. Reads no plan and writes no ref —
+// `writeProbeShell` cuts and removes its own scratch directory.
+const writeProbeArtifact = path.join(here, 'dist/plot-write-probe.mjs');
+const shippedWriteProbe = path.join(here, '../../skills/plot/scripts/board/plot-write-probe.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/write-probe.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: writeProbeArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(writeProbeArtifact, shippedWriteProbe);
+fs.chmodSync(shippedWriteProbe, 0o755);
 
 // `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
 // operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
@@ -1800,6 +1821,7 @@ const bitbucketMergeableKb = (fs.statSync(shippedBitbucketMergeable).size / 1024
 const planForBranchKb = (fs.statSync(shippedPlanForBranch).size / 1024).toFixed(1);
 const recordPrKb = (fs.statSync(shippedRecordPr).size / 1024).toFixed(1);
 const briefBookKb = (fs.statSync(shippedBriefBook).size / 1024).toFixed(1);
+const writeProbeKb = (fs.statSync(shippedWriteProbe).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1847,4 +1869,5 @@ console.log(`Built plot-bitbucket-mergeable.mjs (${bitbucketMergeableKb} KB) →
 console.log(`Built plot-plan-for-branch.mjs (${planForBranchKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-record-pr.mjs (${recordPrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-brief-book.mjs (${briefBookKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-write-probe.mjs (${writeProbeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

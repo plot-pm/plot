@@ -1,5 +1,5 @@
 // Contract test for skills/plot/scripts/plot-fleetctl.sh — fleet control's
-// mechanics, and the four refusals that stand between a person and an installed
+// mechanics, and the five refusals that stand between a person and an installed
 // unit.
 //
 // THE REFUSALS ARE THE SUBJECT, because each is a measurement and each fails
@@ -129,8 +129,14 @@ const writeProcStubs = (bin) => {
  *   regardless of LABEL, so this writes the stand-in there; `plot-registryd.mjs`
  *   is a separate name the process-classifier tests stub directly, never a
  *   file the real resolution looks for.
+ * @param opts.writeProbe - the stand-in for `board/plot-write-probe.mjs`,
+ *   REFUSAL 5's probe. Defaults to `proceed`/exit 0, same as an observed `yes`
+ *   — every case not ABOUT the probe needs one that passes, the same reason
+ *   `registryd` above defaults to a stand-in that exits 0. `'refuse'` writes
+ *   a stub that prints `refuse` and exits 1, matching an observed `no`;
+ *   `'crash'` writes no file at all, reproducing a probe that could not run.
  */
-function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
+function sandbox(label, { nvmrc = '24', registryd = true, writeProbe = 'proceed' } = {}) {
   // NESTED ONE LEVEL, and that is not tidiness. The default `Worktree root` is
   // `repo_root/..`, so a sandbox sitting directly in $TMPDIR enumerates every
   // OTHER sandbox as its own fleet — measured here on the first run, where an
@@ -153,6 +159,15 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
   fs.cpSync(units, path.join(root, 'skills', 'plot', 'units'), { recursive: true });
 
   if (registryd) fs.writeFileSync(path.join(dst, 'board', 'plot-fleetd.mjs'), 'process.exit(0);\n');
+  if (writeProbe === 'proceed') {
+    fs.writeFileSync(path.join(dst, 'board', 'plot-write-probe.mjs'), 'process.exit(0);\n');
+  } else if (writeProbe === 'refuse') {
+    fs.writeFileSync(
+      path.join(dst, 'board', 'plot-write-probe.mjs'),
+      'console.error("plot-fleetctl: The worker command was refused every write it tried (no marker file appeared after the probe run)."); process.exit(1);\n',
+    );
+  }
+  // 'crash' writes no file: the real entry point's own MODULE_NOT_FOUND.
   if (nvmrc) fs.writeFileSync(path.join(root, '.nvmrc'), `${nvmrc}\n`);
 
   // A LABEL THIS MACHINE DOES NOT HOLD, and a distinct one per sandbox.
@@ -599,8 +614,8 @@ const stubHarness = (box, name) => {
 
 // ONLY THE DIRECTORIES THE CASE NAMES, plus node's own, so a `claude` this
 // machine has installed cannot answer in the stub's place.
-const startWith = (label, { searchDirs = [], harness, systemd = !onLaunchd, editTemplate } = {}) => {
-  const { root, box, ctl, fleetLabel, guardBin } = sandbox(label);
+const startWith = (label, { searchDirs = [], harness, systemd = !onLaunchd, editTemplate, writeProbe } = {}) => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox(label, writeProbe ? { writeProbe } : {});
   if (editTemplate) {
     const tpl = path.join(root, 'skills', 'plot', 'units', onLaunchd && !systemd ? 'com.plot-pm.fleetd.plist' : 'plot-fleetd.service');
     fs.writeFileSync(tpl, editTemplate(fs.readFileSync(tpl, 'utf8')));
@@ -680,6 +695,71 @@ test('refusal: an unresolvable harness refuses --dry-run too', () => {
   });
   assert.equal(r.status, 1);
   assert.match(r.out, /my-harness/);
+});
+
+// ── REFUSAL 5 — the worker command's write probe ─────────────────────────────
+//
+// `plot-write-probe.mjs` is a generated board bundle, never committed from a
+// branch (`scripts/check-no-bundle-diff.sh` refuses one that main itself has
+// not built yet). So `sandbox()`'s `writeProbe` option writes a STAND-IN at
+// `board/plot-write-probe.mjs`, the same shape `registryd` gives
+// `board/plot-fleetd.mjs` — real tests of the probe's OWN decision belong to
+// `packages/domain/test/write-probe.test.ts`; this file only asserts that
+// `--start` reads the stand-in's exit code the way the real bundle would
+// report `proceed` or `refuse`.
+
+test('refusal 5: an observed refusal to write blocks --start, and fills no unit', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('write-probe-refuse', { writeProbe: 'refuse' });
+  const home = fakeHome(box);
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home,
+    PLOT_FLEET_LABEL: fleetLabel,
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /no marker file appeared after the probe run/, r.out);
+  assert.equal(fs.existsSync(unitFile(home, fleetLabel, ctl)), false, 'a refused probe left a unit behind');
+});
+
+test('refusal 5: the refusal runs before launchctl bootstrap — no unit loads, nothing is written', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('write-probe-no-load', { writeProbe: 'refuse' });
+  const home = path.join(box, 'home');
+  fs.mkdirSync(home);
+  run(ctl, ['--start'], root, guardBin, {
+    HOME: home,
+    PLOT_FLEET_LABEL: fleetLabel,
+  });
+  assert.equal(fs.existsSync(path.join(home, 'Library', 'LaunchAgents')), false);
+  assert.equal(fs.existsSync(path.join(home, '.config', 'systemd')), false);
+});
+
+test('refusal 5: --dry-run names the probe command and refuses nothing — a preview runs no probe', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('write-probe-dry', { writeProbe: 'refuse' });
+  const r = run(ctl, ['--start', '--dry-run'], root, guardBin, {
+    HOME: fakeHome(box),
+    PLOT_FLEET_LABEL: fleetLabel,
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /would probe: node .*board\/plot-write-probe\.mjs/, r.out);
+});
+
+test('refusal 5: a missing bundle is a hard shell failure, not a silent proceed', () => {
+  // `writeProbe: 'crash'` writes no `board/plot-write-probe.mjs` at all,
+  // reproducing the real entry point's absence. "Absent is not false" is a
+  // guarantee `write-probe.ts`'s own `run()` makes for an UNANSWERABLE PORT
+  // RESULT (no harness, no scratch desk, a timeout the probe itself catches)
+  // — it does not reach a node process that cannot even start. The shell side
+  // reads only an exit code (`plot-fleetctl.sh`'s `|| { ...; exit 1; }`), so a
+  // `MODULE_NOT_FOUND` here is indistinguishable from an observed refusal and
+  // --start refuses exactly as refusal 1 would for any other missing bundle.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('write-probe-missing', { writeProbe: 'crash' });
+  const home = fakeHome(box);
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home,
+    PLOT_FLEET_LABEL: fleetLabel,
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /Cannot find module|MODULE_NOT_FOUND/, r.out);
+  assert.equal(fs.existsSync(unitFile(home, fleetLabel, ctl)), false, 'a crashed probe left a unit behind');
 });
 
 test('a harness already on the default unit PATH resolves to the same binary', () => {
@@ -1952,6 +2032,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   if (registryd) {
     fs.writeFileSync(bundle, 'console.log("fleetd ran:", process.argv.slice(2).join(" "));\n');
   }
+  fs.writeFileSync(path.join(dst, 'board', 'plot-write-probe.mjs'), 'process.exit(0);\n');
   if (nvmrc) fs.writeFileSync(path.join(plugin, '.nvmrc'), `${nvmrc}\n`);
 
   const consumer = path.join(box, 'consumer');

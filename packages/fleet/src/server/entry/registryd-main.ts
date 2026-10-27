@@ -32,10 +32,13 @@ import {
   clockSystem,
   startChannel,
   fleetdStartFile,
+  writeProbeShell,
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
 import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
+import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
+import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write-probe';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
@@ -1351,6 +1354,49 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
 };
 
 /**
+ * Proves the configured `Worker command` can write before `startAgents` hands
+ * any `worker-start` write over to it.
+ *
+ * **ONE PROMPT FILE GOVERNS EVERY AGENT**, so the probe asks the command
+ * string itself rather than branching on it — the same reason
+ * `plot-fleetctl.sh`'s `--start` probes ahead of `launchctl bootstrap`. A
+ * refused write here means a dispatched agent would meet the same refusal, so
+ * nothing in this tick's `worker-start` writes is handed over.
+ *
+ * **A TICK WITH NOTHING TO START SPENDS NOTHING.** `report.handOver?.writes`
+ * is read before `Worker command` is, so a tick whose queue is empty, or
+ * whose free agents are all already assigned, never reaches the probe — the
+ * same reasoning that keeps `--once` free when no agent needs starting.
+ *
+ * **ABSENT IS NOT FALSE.** An empty, unconfigured or `none` `Worker command`
+ * is not probed (`writeProbeNeeded`) and is left to `startFreeAgent`'s own
+ * answer; this only refuses an OBSERVED failure to write. A stale print
+ * proceeds and reports its fix (`writeProbeOutcome`).
+ *
+ * @param report - what the tick decided.
+ * @param probe - what runs the configured command once, in a scratch desk.
+ * @param readWorkerCommand - reads the configured `Worker command`.
+ * @param warn - where a refusal is reported.
+ * @returns `true` to let `startAgents` proceed, `false` to skip it entirely.
+ */
+export const probeBeforeStarting = async (
+  report: TickReport,
+  probe: WriteProbe,
+  readWorkerCommand: () => Promise<string>,
+  warn: (s: string) => void,
+): Promise<boolean> => {
+  const hasWorkerStart = (report.handOver?.writes ?? []).some((item) => item.kind === 'worker-start');
+  if (!hasWorkerStart) return true;
+
+  const command = await readWorkerCommand();
+  if (!writeProbeNeeded(command)) return true;
+
+  const outcome = writeProbeOutcome(await probe.check(command));
+  if (outcome.message !== undefined) warn(`plot-fleetd: ${outcome.message}\n`);
+  return outcome.answer === 'proceed';
+};
+
+/**
  * Applies the tick's `agent-assign` and `worker-start` writes — what this
  * daemon performs.
  *
@@ -2338,6 +2384,9 @@ export const run = async (
   // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
   // adapter is a closure over two paths and spawns only when it is called.
   const performer = performerShell({ repoRoot, scriptDir: scriptsDir });
+  // SAME REASON: the probe cuts and removes its own scratch desk only when
+  // `startAgents` below actually calls it, ahead of the first `worker-start`.
+  const probe = writeProbeShell({ repoRoot, scriptDir: scriptsDir });
   // ONE STORE FOR THE DAEMON'S WHOLE LIFE, so the `--git-common-dir` lookup is
   // forked once rather than every tick — the adapter caches it per instance, and
   // a store rebuilt per tick would throw that away 1,440 times a day.
@@ -2681,7 +2730,17 @@ export const run = async (
     //
     // AFTER `reportTick`, so a tick whose report cannot be written still logs.
     await writeSupervisionReport(report, reportStore, warn);
-    if (args.startAgents) await startAgents(report, performer, handOverWorld, write, warn);
+    if (
+      args.startAgents &&
+      (await probeBeforeStarting(
+        report,
+        probe,
+        () => readConfigAsync({ repoRoot, scriptsDir }, 'Worker command', ''),
+        warn,
+      ))
+    ) {
+      await startAgents(report, performer, handOverWorld, write, warn);
+    }
     // UNGATED BY `args.startAgents`, the same reasoning the tick's own
     // `escalation` world follows: a question ages whether or not this daemon
     // may grow the fleet.
