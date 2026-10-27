@@ -4,11 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fleetdBundlePath, fleetdStartRecord } from '../../src/server/entry/registryd-main.js';
+import { removeTree } from '../rm-tree.mjs';
 
 const temps: string[] = [];
 
 afterEach(() => {
-  for (const dir of temps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of temps.splice(0)) removeTree(dir);
 });
 
 const scratch = (prefix: string): string => {
