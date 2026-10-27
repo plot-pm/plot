@@ -112,7 +112,7 @@ Skill and repo:
 
 ### Controller
 
-- `bug/plot-reject-calls-plot-undeliver` — `/plot-reject` moves the phase through `plot-undeliver.sh` and states what each refusal asks of the operator <!-- waits: bug/plot-undeliver-reads-slices -->
+- `bug/plot-reject-calls-plot-undeliver` — `/plot-reject` moves the phase through `plot-undeliver.sh` and states what each refusal asks of the operator <!-- waits: bug/plot-undeliver-reads-slices --> → #2800
 
 ## Notes
 
