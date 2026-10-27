@@ -37,9 +37,9 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| All (1-8) | Small | Git/gh commands, file edits — no judgment calls |
+| All (1-7) | Small | Script calls, sprint-file edit — no judgment calls |
 
-All steps are mechanical: parse input, check state, move files, update metadata.
+All steps are mechanical: parse input, check state, report scope, call `plot-undeliver.sh`, annotate the sprint, commit. The script decides refusals; the skill relays them.
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 >
@@ -72,66 +72,48 @@ Check that a delivered plan exists for this slug: `ls docs/plans/delivered/<slug
 
 ### 3. Assess Rejection Scope
 
-Read the plan's branches section (heading containing "Branches"). For each branch listed:
+Read the plan's branches section (heading containing "Branches"). For each branch listed, ask the host through the sourced `plot-pr-merged.sh` helper. It answers one of three readings: `found`, `none`, or `unaskable`.
 
 ```bash
-# Check which branches have merged PRs
-gh pr list --state merged --head <branch-name> --json number,title --jq '.[0] | "\(.number) \(.title)"'
+. ../plot/scripts/plot-pr-merged.sh
+_plot_merged_lookup <branch-name>   # prints found | none | unaskable
 ```
 
 Skip branches marked with `<!-- deferred: ... -->`.
 
+This step only reports. It decides nothing: the refusal rules live in `plot-undeliver.sh` (step 4), and this step never pre-empts them. Keep `unaskable` apart from `none` — an unreachable host is not an unmerged branch.
+
 Report to the user:
 
 - **N** branches total in plan (excluding deferred)
-- **M** branches with merged PRs (work that was completed)
-- **K** branches without merged PRs (unbuilt — the reason for rejection)
+- **M** branches read `found` (work that was completed)
+- **K** branches read `none` (unbuilt — the reason for rejection)
+- **U** branches read `unaskable` (host did not answer; listed separately)
 - Any deferred branches (listed separately)
 
 Present: "Rejecting `<slug>`: M/N branches were built. K branches remain unbuilt. Reason: *<reason>*. Proceed?"
 
-**Special case:** If ALL non-deferred branches have merged PRs (fully built), warn: "All plan branches were built and merged. Are you sure this should be rejected rather than fixed with a follow-up?" This catches cases where the issue isn't missing branches but something else (integration bugs, design problems). Require explicit confirmation.
+**Special case:** If ALL non-deferred branches read `found` (fully built), warn: "All plan branches were built and merged. Are you sure this should be rejected rather than fixed with a follow-up?" This catches cases where the issue isn't missing branches but something else (integration bugs, design problems). Require explicit confirmation.
 
 ### 4. Revert Plan Phase
 
-Update the plan file (the resolved symlink target, e.g., `docs/plans/YYYY-MM-DD-<slug>.md`):
-
-- Change `**State:** Delivered` → `**State:** Approved`, then declare the write:
-
-  ```bash
-  bash ../plot/scripts/plot-state-receipt.sh --unowned <plan file> Approved \
-    "/plot-reject has no controller — the backwards move has no rule at all"
-  ```
-
-  **`plot-state-gate.sh` refuses a `State:` line changed by anything but the
-  script that owns it**, and this is the one lifecycle move that runs backwards:
-  it has no `setPlanPhase`, no refusal, nothing that asks whether the plan was
-  ever delivered. The line above is the named escape and it is recorded, so the
-  gap stays countable until `a-rejection-is-a-controller-command` closes it.
-- If a `**Delivered:** YYYY-MM-DD` line exists, replace it with: `**Rejected:** YYYY-MM-DD (<reason>)`
-- If no Delivered line exists, add `**Rejected:** YYYY-MM-DD (<reason>)` to the Status section
-- Preserve all other content — branches, design, approvals, everything stays intact
-
-### 5. Move Symlink Back
-
-Move the symlink from `delivered/` back to `active/`:
+Run the controller once:
 
 ```bash
-git checkout main && git pull origin main
-
-# Remove from delivered/
-git rm docs/plans/delivered/<slug>.md
-
-# Re-create in active/ (same relative symlink pattern)
-ln -s ../YYYY-MM-DD-<slug>.md docs/plans/active/<slug>.md
-
-# Stage both the symlink and the plan file (Phase was updated)
-git add docs/plans/active/<slug>.md docs/plans/YYYY-MM-DD-<slug>.md
+bash ../plot/scripts/plot-undeliver.sh <slug> --why "<reason>"
 ```
 
-(Replace `YYYY-MM-DD-<slug>.md` with the actual date-prefixed filename from the resolved symlink.)
+The script performs the whole write: `State:` flips to `Approved`, the `Rejected: YYYY-MM-DD (<reason>)` record goes above the kept `Delivered:` line, the state receipt is recorded, and the `delivered/` index entry moves to `active/`. The skill edits none of these by hand. It commits nothing.
 
-### 6. Update Sprint File
+**A refusal ends the rejection.** Exit 1 means the domain refused. The script prints the refused rule and writes nothing to the plan. Stop here, do not edit `State:` or either index symlink by hand, and tell the operator the next move for the refusal named:
+
+- `refs-swept` — a branch has no ref, no host `mergedAt`, and a closed unmerged PR, so real work is unaccounted for. Write a new plan that captures the lost work, then retry. Alternatively, confirm the loss is acceptable and handle it outside `/plot-reject`.
+- `refs-unknown` — origin or the host did not answer for at least one branch. Retry once both answer. The refusal does not claim anything was deleted.
+- Any other refusal — print the script's message whole and stop.
+
+Under `PLOT_UNATTENDED=1`, a refusal ends the run with the script's message in the output.
+
+### 5. Update Sprint File
 
 If the plan has a `Sprint:` field in its Status section, find the corresponding sprint file and locate the `[<slug>]` item.
 
@@ -144,8 +126,8 @@ If the plan has a `Sprint:` field in its Status section, find the corresponding 
 ```
 
 Where:
-- `merged:` lists the PR numbers that were successfully completed
-- `remaining:` lists the branch names that were never built
+- `merged:` lists the PR numbers behind the branches step 3 read `found`
+- `remaining:` lists the branch names step 3 read `none`
 
 **No `status:` key.** The plan file carries `State: Rejected` and a dated
 `Rejected:` record, and that is what every reader now asks:
@@ -157,7 +139,9 @@ looking for it found nothing while the plan file said so plainly.
 
 If the plan has no `Sprint:` field, skip this step.
 
-### 7. Commit and Push
+### 6. Commit and Push
+
+`plot-undeliver.sh` left the plan file and both index changes in the working tree.
 
 ```bash
 git add docs/plans/ docs/sprints/
@@ -167,7 +151,8 @@ git push
 
 **Important:** RC tags are NEVER deleted. They are preserved as historical records of what was attempted. The rejection commit documents why the delivery was reversed.
 
-### 8. Summary
+### 7. Summary
+
 
 Print:
 

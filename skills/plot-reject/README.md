@@ -4,7 +4,7 @@ Reverse a premature delivery — move plan from Delivered back to Approved.
 
 ## Purpose
 
-Spoke of the Plot workflow. Handles delivery rejection — the inverse of `/plot-deliver`. When a plan was delivered prematurely (e.g., not all branches were built), this skill moves the symlink back from `delivered/` to `active/`, reverts the Phase field to Approved, unchecks the sprint item, and adds rejection metadata. RC tags are preserved as historical records.
+Spoke of the Plot workflow. Handles delivery rejection — the inverse of `/plot-deliver`. When a plan was delivered prematurely (e.g., not all branches were built), this skill calls `plot-undeliver.sh`, which reverts the State field to Approved, moves the index entry from `delivered/` to `active/`, and adds the rejection record. The skill then unchecks the sprint item. A refusal from the script (`refs-swept`, `refs-unknown`) ends the rejection; the skill never edits `State:` or the index by hand. RC tags are preserved as historical records.
 
 Only supports the Delivered→Approved transition. For reversing other phases (Approved→Draft), a separate skill would be needed.
 
