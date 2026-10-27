@@ -67,7 +67,7 @@ Slices 1 and 2 stay inside the layering rule (controller → domain → port ←
 
 ### Self-heal
 
-- `bug/claim-only-branch-returns-to-queue` — return a claim-only, PR-less branch to the queue and prune its ref and desk <!-- waits: bug/refused-writes-end-as-permission-denied -->
+- `bug/claim-only-branch-returns-to-queue` — return a claim-only, PR-less branch to the queue and prune its ref and desk <!-- waits: bug/refused-writes-end-as-permission-denied --> → #2782
 
 ## Notes
 
