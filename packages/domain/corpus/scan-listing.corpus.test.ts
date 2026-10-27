@@ -1,11 +1,13 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { foldScanListing, type ScanListingAnswer, type ScanListingRow } from '../src/rules/scan-listing.js';
+import {
+  foldScanListing, parseScanListingRows, renderScanListing, type ScanListingAnswer,
+} from '../src/rules/scan-listing.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
 
 /**
@@ -39,13 +41,9 @@ import { compareField, describingAs, type Disagreement, type Sides } from './com
 
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
 const SCAN = join(ROOT, 'skills/plot/scripts/plot-fleet-scan.sh');
+const HOST = join(ROOT, 'skills/plot/scripts/plot-host.sh');
 const SIDES: Sides = { left: 'rule', right: 'shell' };
 const report = describingAs(SIDES);
-
-const WHOLE_OPEN =
-  'plot-host: github pr-list state=open page complete (3 rows below requested limit 500) — this page holds every pull request the host has in this state';
-const WHOLE_ALL =
-  'plot-host: github pr-list state=all page complete (3 rows below requested limit 500) — this page holds every pull request the host has in this state';
 
 /** One GitHub PR row, as both the stub `gh` and the rule's answer carry it. */
 interface GhRow {
@@ -56,9 +54,6 @@ interface GhRow {
   draft?: boolean;
   checks?: string;
 }
-
-/** Encodes a branch name the way `cache_key`/`report_listing` do: `_` → `__`, `/` → `_`. */
-const encodeKey = (branch: string): string => branch.replace(/_/g, '__').replace(/\//g, '_');
 
 let sandbox = '';
 let repo = '';
@@ -133,6 +128,11 @@ const CASES: readonly Case[] = [
     ],
   },
   {
+    name: 'a draft open PR keeps its draft flag',
+    openRows: [{ number: 1, state: 'OPEN', head: 'feature/b2', updatedAt: '2026-10-26T10:00:00Z', draft: true }],
+    allRows: [{ number: 1, state: 'OPEN', head: 'feature/b2', updatedAt: '2026-10-26T10:00:00Z', draft: true }],
+  },
+  {
     name: 'an open PR with no terminal counterpart',
     openRows: [{ number: 1, state: 'OPEN', head: 'feature/b1', updatedAt: '2026-10-26T10:00:00Z' }],
     allRows: [],
@@ -143,7 +143,7 @@ const CASES: readonly Case[] = [
 const shellListing = (
   one: Case,
   index: number,
-): { verdict: 'ok' | 'failed'; rows: Map<string, { state: string }> } => {
+): { dir: string; rows: Map<string, { state: string }> } => {
   const dir = mkdtempSync(join(sandbox, `case-${index}-`));
   const openJson = `[${one.openRows.map(openRow).join(',')}]`;
   const allJson = `[${one.allRows.map(plainRow).join(',')}]`;
@@ -151,12 +151,10 @@ const shellListing = (
     'args="$*"',
     'if [[ "$args" == *"pr list --state open"* ]]; then',
     `  printf '%s' '${openJson.replace(/'/g, `'\\''`)}'`,
-    `  echo '${WHOLE_OPEN}' >&2`,
     '  exit 0',
     'fi',
     'if [[ "$args" == *"pr list --state all"* ]]; then',
     `  printf '%s' '${allJson.replace(/'/g, `'\\''`)}'`,
-    `  echo '${WHOLE_ALL}' >&2`,
     '  exit 0',
     'fi',
     'echo "unexpected gh call: $args" >&2',
@@ -184,30 +182,51 @@ const shellListing = (
   }
   const rows = new Map<string, { state: string }>();
   for (const line of stderr.split('\n')) {
-    const match = /^listing: (\S+)\t(OPEN|MERGED|CLOSED)\t/.exec(line);
+    const match = /^listing: (\S+)\t((?:OPEN|MERGED|CLOSED)\t[^\t]*\t[^\t]*)$/.exec(line);
     if (match === null) continue;
     const [, key, state] = match;
     if (key.startsWith('.') || key.includes('.json')) continue;
     rows.set(key, { state });
   }
-  return { verdict: 'ok', rows };
+  return { dir, rows };
 };
 
-/** The rule's answer to the same case, as a full read with nothing carried. */
-const ruleListing = (one: Case): Map<string, { state: string }> => {
-  const toRow = (row: GhRow): ScanListingRow => ({ head: row.head, state: row.state, updatedAt: row.updatedAt });
-  const open: ScanListingAnswer = { verdict: 'ok', rows: one.openRows.map(toRow), stderr: WHOLE_OPEN };
-  const rest: ScanListingAnswer = { verdict: 'ok', rows: one.allRows.map(toRow), stderr: WHOLE_ALL };
+/** One `plot-host.sh pr-list` call against the case's stub `gh`, read as the scan reads it. */
+const hostAnswer = (dir: string, args: readonly string[]): ScanListingAnswer => {
+  const run = spawnSync('bash', [HOST, 'pr-list', ...args], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github', PLOT_BUDGET_OFF: '1' },
+  });
+  const rows = run.status === 0 ? parseScanListingRows(run.stdout) : null;
+  return rows === null
+    ? { verdict: 'failed', rows: [], stderr: run.stderr }
+    : { verdict: 'ok', rows, stderr: run.stderr };
+};
+
+/**
+ * The rule's answer to the same case, as a full read with nothing carried:
+ * the real `plot-host.sh` answers both calls over the same stub `gh`, and the
+ * folded rows are rendered into the lines `PLOT_PR_LISTING` carries.
+ */
+const ruleListing = (dir: string): Map<string, { state: string }> => {
+  const open = hostAnswer(dir, ['--state', 'open', '--limit', '3000', '--rich']);
+  const rest = hostAnswer(dir, ['--state', 'all', '--limit', '3000']);
   const folded = foldScanListing(null, open, rest);
   const rows = new Map<string, { state: string }>();
-  if (folded.ok) for (const row of folded.rows) rows.set(encodeKey(row.head), { state: row.state });
+  const rendered = folded.ok ? renderScanListing(folded.rows, folded.complete) : null;
+  for (const line of (rendered ?? '').split('\n')) {
+    const [key, ...fields] = line.split('\t');
+    if (key === '' || key.startsWith('.')) continue;
+    rows.set(key, { state: fields.join('\t') });
+  }
   return rows;
 };
 
-let shellByCase: { one: Case; rows: Map<string, { state: string }> }[] = [];
+let shellByCase: { one: Case; dir: string; rows: Map<string, { state: string }> }[] = [];
 
 beforeAll(() => {
-  shellByCase = CASES.map((one, i) => ({ one, rows: shellListing(one, i).rows }));
+  shellByCase = CASES.map((one, i) => ({ one, ...shellListing(one, i) }));
 });
 
 describe('foldScanListing agrees with plot-fleet-scan.sh prefill_pr_states', () => {
@@ -218,8 +237,8 @@ describe('foldScanListing agrees with plot-fleet-scan.sh prefill_pr_states', () 
 
   it('produces the same listing lines, same key encoding, on every case', () => {
     const found: Disagreement[] = [];
-    for (const { one, rows: shellRows } of shellByCase) {
-      const ruleRows = ruleListing(one);
+    for (const { one, dir, rows: shellRows } of shellByCase) {
+      const ruleRows = ruleListing(dir);
       const keys = new Set([...shellRows.keys(), ...ruleRows.keys()]);
       for (const key of keys) {
         compareField(

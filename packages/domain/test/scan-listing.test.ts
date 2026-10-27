@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  foldScanListing, scanListingWindowFor,
+  encodeListingKey, foldScanListing, parseScanListingRows, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingRow,
 } from '../src/rules/scan-listing.js';
 
@@ -68,6 +68,14 @@ describe('scanListingWindowFor', () => {
       .toEqual({ kind: 'delta', since: '2026-10-26T09:59:00Z' });
   });
 
+  it('skips a row whose updatedAt does not parse when finding the watermark', () => {
+    const held = carried({
+      rows: [row({ head: 'a', updatedAt: '' }), row({ head: 'b', updatedAt: '2026-10-26T10:00:00Z' })],
+    });
+    expect(scanListingWindowFor(held, Date.parse('2026-10-26T11:00:00Z'), FULL_READ_MS))
+      .toEqual({ kind: 'delta', since: '2026-10-26T09:59:00Z' });
+  });
+
   it('takes the newest updatedAt among several rows', () => {
     const held = carried({
       rows: [
@@ -127,8 +135,8 @@ describe('foldScanListing', () => {
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
   });
 
-  it('refuses where a call makes no whole-page claim', () => {
-    const open = answer({ stderr: 'plot-host: github pr-list answered' });
+  it('refuses where a call with rows makes no whole-page claim', () => {
+    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: 'plot-host: github pr-list answered' });
     const rest = answer({ stderr: ALL_WHOLE });
     expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
   });
@@ -141,11 +149,24 @@ describe('foldScanListing', () => {
     expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: false });
   });
 
-  it('reports complete: false with no carried listing at all (a full read)', () => {
+  it('reports complete: true for a full read whose pages are both whole', () => {
     const open = answer({ rows: [row({ state: 'OPEN' })], stderr: OPEN_WHOLE });
-    const rest = answer({ rows: [] });
+    const rest = answer({ rows: [row({ state: 'OPEN' })] });
     const folded = foldScanListing(null, open, rest);
-    expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: false });
+    expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: true });
+  });
+
+  it('reads an ok page with no rows as whole, since the host owes it no claim', () => {
+    const held = carried({ rows: [row({ state: 'MERGED' })] });
+    const open = answer({ rows: [], stderr: '' });
+    const rest = answer({ rows: [], stderr: '' });
+    expect(foldScanListing(held, open, rest)).toEqual({ ok: true, rows: [row({ state: 'MERGED' })], complete: true });
+  });
+
+  it('refuses a full read whose two pages both hold no rows', () => {
+    const open = answer({ rows: [], stderr: '' });
+    const rest = answer({ rows: [], stderr: '' });
+    expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
   });
 
   it('ranks a branch with rows in both OPEN and non-OPEN state as OPEN', () => {
@@ -154,5 +175,47 @@ describe('foldScanListing', () => {
     const rest = answer({ rows: [row({ state: 'CLOSED' })] });
     const folded = foldScanListing(held, open, rest);
     expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: true });
+  });
+});
+
+describe('parseScanListingRows', () => {
+  it('reads head, and checks and draft from a rich row only', () => {
+    const rich = JSON.stringify({ number: 1, state: 'OPEN', head: 'feature/a', draft: false, checks: 'green', updatedAt: '2026-10-26T10:00:00Z' });
+    const plain = JSON.stringify({ number: 2, state: 'MERGED', head: 'feature/b', draft: false, url: 'u', updatedAt: '2026-10-25T10:00:00Z' });
+    expect(parseScanListingRows(`${rich}\n${plain}\n`)).toEqual([
+      { head: 'feature/a', state: 'OPEN', updatedAt: '2026-10-26T10:00:00Z', checks: 'green', draft: false },
+      { head: 'feature/b', state: 'MERGED', updatedAt: '2026-10-25T10:00:00Z' },
+    ]);
+  });
+
+  it('refuses a row that carries headRefName rather than head', () => {
+    expect(parseScanListingRows(JSON.stringify({ state: 'OPEN', headRefName: 'feature/a', updatedAt: 'x' }))).toBeNull();
+  });
+
+  it('refuses a line that is not JSON', () => {
+    expect(parseScanListingRows('plot-host: something went wrong\n')).toBeNull();
+  });
+});
+
+describe('renderScanListing', () => {
+  it('writes four fields per line, `-` for absent checks and draft, and .list-arrived last', () => {
+    const rendered = renderScanListing([
+      row({ head: 'feature/a_b', state: 'OPEN', checks: 'green', draft: false }),
+      row({ head: 'feature/c', state: 'MERGED' }),
+    ], true);
+    expect(rendered).toBe([
+      'feature_a__b\tOPEN\tgreen\tfalse',
+      'feature_c\tMERGED\t-\t-',
+      '.branches\t2\t-\t-',
+      '.list-complete\t1\t-\t-',
+      '.list-arrived\t1\t-\t-',
+      '',
+    ].join('\n'));
+  });
+
+  it('refuses rather than throws where a row has no head', () => {
+    const headless = { state: 'OPEN', updatedAt: '2026-10-26T10:00:00Z' } as unknown as ScanListingRow;
+    expect(renderScanListing([headless], true)).toBeNull();
+    expect(encodeListingKey(undefined)).toBeNull();
   });
 });

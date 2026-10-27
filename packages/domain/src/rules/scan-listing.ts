@@ -3,7 +3,7 @@ import { sinceWatermark } from './known-pr.js';
 
 /** One GitHub PR row as the host's plain or rich `pr-list` JSON carries it. */
 export interface ScanListingRow {
-  /** The branch the PR is opened from. */
+  /** The branch the PR is opened from — `plot-host.sh`'s `head` field. */
   head: string;
   /** The PR's state word, as the host reports it (`OPEN`, `MERGED`, or another). */
   state: string;
@@ -67,13 +67,90 @@ export const scanListingWindowFor = (
  * The newest `updatedAt` among a listing's rows.
  *
  * @param rows - the listing's rows.
- * @returns the newest stamp, or null where the listing carries no rows.
+ * @returns the newest stamp that parses, or null where no row carries one.
  */
 const newestUpdatedAt = (rows: readonly ScanListingRow[]): string | null =>
   rows.reduce<string | null>((newest, row) => {
+    if (Number.isNaN(Date.parse(row.updatedAt))) return newest;
     if (newest === null) return row.updatedAt;
     return Date.parse(row.updatedAt) > Date.parse(newest) ? row.updatedAt : newest;
   }, null);
+
+/**
+ * Reads `plot-host.sh pr-list` stdout — one compact JSON object per line —
+ * into {@link ScanListingRow}s.
+ *
+ * Reads `head`, `state` and `updatedAt` from every row. Reads `checks` and
+ * `draft` only from a row that carries a `checks` string, which is the
+ * `--rich` shape; a plain row gets neither, exactly as
+ * `plot-fleet-scan.sh`'s `prefill_pr_states` fills `-` for both.
+ *
+ * @param stdout - the call's stdout.
+ * @returns the rows, or null where a line is not JSON or a row carries no
+ *   non-empty `head` or `state` string.
+ */
+export const parseScanListingRows = (stdout: string): ScanListingRow[] | null => {
+  const rows: ScanListingRow[] = [];
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue;
+    let pr: Record<string, unknown>;
+    try {
+      pr = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+    if (pr === null || typeof pr !== 'object') return null;
+    const { head, state, updatedAt, checks, draft } = pr;
+    if (typeof head !== 'string' || head === '') return null;
+    if (typeof state !== 'string' || state === '') return null;
+    const row: ScanListingRow = { head, state, updatedAt: typeof updatedAt === 'string' ? updatedAt : '' };
+    if (typeof checks === 'string') {
+      row.checks = checks;
+      if (typeof draft === 'boolean') row.draft = draft;
+    }
+    rows.push(row);
+  }
+  return rows;
+};
+
+/**
+ * Encodes a branch name the way `plot-fleet-scan.sh`'s `cache_key` does:
+ * `_` to `__`, then `/` to `_`.
+ *
+ * @param branch - the branch name.
+ * @returns the encoded key, or null where the name is not a non-empty string.
+ */
+export const encodeListingKey = (branch: unknown): string | null =>
+  typeof branch === 'string' && branch !== ''
+    ? branch.replace(/_/g, '__').replace(/\//g, '_')
+    : null;
+
+/**
+ * Renders a listing into the shape `plot-fleet-scan.sh`'s `carried_listing`
+ * reads: one `key<TAB>state<TAB>checks<TAB>draft` line per branch, `-` for an
+ * absent checks or draft, then `.branches`, `.list-complete` where
+ * `complete`, and `.list-arrived` last.
+ *
+ * Writes exactly four fields per line: `carried_listing` reads with
+ * `read -r key st chk dft`, so a fifth field would land in `dft`.
+ *
+ * @param rows - the listing's rows.
+ * @param complete - whether the listing is whole.
+ * @returns the listing, or null where a row has no branch name to key it by.
+ */
+export const renderScanListing = (rows: readonly ScanListingRow[], complete: boolean): string | null => {
+  const lines: string[] = [];
+  for (const row of rows) {
+    const key = encodeListingKey(row.head);
+    if (key === null) return null;
+    const draft = row.draft === undefined ? '-' : String(row.draft);
+    lines.push(`${key}\t${row.state}\t${row.checks || '-'}\t${draft}\n`);
+  }
+  lines.push(`.branches\t${rows.length}\t-\t-\n`);
+  if (complete) lines.push('.list-complete\t1\t-\t-\n');
+  lines.push('.list-arrived\t1\t-\t-\n');
+  return lines.join('');
+};
 
 /** One host answer to one `pr-list` call, read for the fold below. */
 export interface ScanListingAnswer {
@@ -98,10 +175,15 @@ export type ScanListingFold =
   | { ok: true; rows: readonly ScanListingRow[]; complete: boolean }
   | { ok: false; refusal: ScanListingRefusal };
 
-/** Whether an answer's stderr claims its page arrived whole. */
-const claimsWholePage = (answer: ScanListingAnswer): boolean =>
-  extractHostNotices(answer.stderr).notices.some((notice) =>
-    /sweep complete|page complete/.test(notice.text));
+/**
+ * Whether an answer is a whole page: an `ok` answer whose stderr claims its
+ * page whole, or an `ok` answer with no rows, for which `plot-host.sh`'s
+ * `pr_list_report_truncation` owes no claim.
+ */
+const wholePage = (answer: ScanListingAnswer): boolean =>
+  answer.verdict === 'ok' && (answer.rows.length === 0
+    || extractHostNotices(answer.stderr).notices.some((notice) =>
+      /sweep complete|page complete/.test(notice.text)));
 
 /**
  * Folds a full-read-or-delta-read pair of host responses over a carried
@@ -117,13 +199,18 @@ const claimsWholePage = (answer: ScanListingAnswer): boolean =>
  * caught any change to it, so its absence is doubt, not confirmation it is
  * still open.
  *
- * `complete` is reported true only where the carried listing was already
- * complete and both new answers claim their page whole; a carried listing
- * that was never whole cannot be made whole by folding.
+ * A page is whole where its stderr claims it whole, or where it answered `ok`
+ * with no rows. A full read whose two pages both hold no rows is refused: an
+ * empty answer is not evidence of a repository with no pull requests.
+ *
+ * `complete` is true for a full read, where both pages are whole, and for a
+ * delta only where the carried listing was already complete; a carried
+ * listing that was never whole cannot be made whole by folding.
  *
  * @param carried - the listing to fold onto, or null for a full read with
  *   nothing carried.
- * @param open - the `pr-list --state open --rich` answer.
+ * @param open - the `pr-list --state open --rich` answer, never narrowed by
+ *   `--since`: it is authoritative for every OPEN row.
  * @param rest - the `pr-list --state all` (full) or `--state all --since`
  *   (delta) answer.
  * @returns the folded rows and completeness, or the refusal naming why a full
@@ -136,7 +223,10 @@ export const foldScanListing = (
 ): ScanListingFold => {
   if (open.verdict === 'failed') return { ok: false, refusal: 'open-failed' };
   if (rest.verdict === 'failed') return { ok: false, refusal: 'delta-failed' };
-  if (!claimsWholePage(open) || !claimsWholePage(rest)) {
+  if (!wholePage(open) || !wholePage(rest)) {
+    return { ok: false, refusal: 'no-whole-page-claim' };
+  }
+  if (carried === null && open.rows.length === 0 && rest.rows.length === 0) {
     return { ok: false, refusal: 'no-whole-page-claim' };
   }
 
@@ -153,7 +243,7 @@ export const foldScanListing = (
     if (existing === undefined || rank(row.state) < rank(existing.state)) ranked.set(row.head, row);
   }
 
-  return { ok: true, rows: [...ranked.values()], complete: (carried?.complete ?? false) };
+  return { ok: true, rows: [...ranked.values()], complete: carried === null ? true : carried.complete };
 };
 
 /** OPEN first, then MERGED, then everything else — the shell's own rank. */
