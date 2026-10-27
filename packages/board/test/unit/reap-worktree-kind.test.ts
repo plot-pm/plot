@@ -35,8 +35,19 @@ const tree = (): Worktree => ({
   prunable: false,
 });
 
+/** `kill -0` on this machine, as the processes adapter answers it. */
+const pidAnswers = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const idleProcesses = {
   workerState: async () => answered({ state: 'none', pid: '' }),
+  isAlive: async (pid: number) => answered(pidAnswers(pid)),
 } as unknown as Processes;
 
 const ctxFor = (markers: readonly string[], dirty: readonly string[]): Context =>
