@@ -604,7 +604,10 @@ describe('finishedWith — one rule, and each caller decides', () => {
     expect(Object.values(conditions).every((v) => v === 'true')).toBe(true);
     expect(report).toBe('false');
     // And the two existing verdicts are untouched by its existence.
-    expect(refusalsOf(every)).toEqual([
+    // `givenUp` and `openPr` are tree readings too since the reaper lifts the
+    // merge gate for a given-up branch; the reaper's own verdict is read with
+    // them off, as it reads every branch no plan gave up.
+    expect(refusalsOf({ ...every, givenUp: false, openPr: false })).toEqual([
       'live-worker', 'blocked-marker', 'uncommitted-changes',
       'on-default-branch', 'no-merged-pr',
     ]);
@@ -697,5 +700,36 @@ describe('resetRefusals — what holds an agent’s own desk', () => {
     // The agent asking is the live worker. `liveWorker` is true of every desk
     // this question is asked about, so reading it would refuse every reset.
     expect(resetRefusals(conditionsOf({ workerPid: '4242' }))).toEqual([]);
+  });
+});
+
+describe('reapProblems — a branch a plan gave up', () => {
+  const givenUp = (over: Partial<TreeReadings> = {}): TreeReadings =>
+    landed({ merge: 'not-merged', givenUp: true, openPr: false, ...over });
+
+  it('lifts no-merged-pr and refuses nothing else when the head is pushed', () => {
+    expect(refusalsOf(givenUp())).toEqual([]);
+  });
+
+  it('still refuses no-merged-pr for a branch that is not given up', () => {
+    expect(refusalsOf(givenUp({ givenUp: false }))).toEqual(['no-merged-pr']);
+    expect(refusalsOf(landed({ merge: 'not-merged' }))).toEqual(['no-merged-pr']);
+  });
+
+  it('refuses an open PR, and only where the branch is given up', () => {
+    expect(reapProblems(givenUp({ openPr: true }))).toEqual([{ refusal: 'open-pr', detail: '' }]);
+    expect(refusalsOf(landed({ openPr: true }))).toEqual([]);
+  });
+
+  it('lets a marker through only when markerRecordsWork is an explicit false', () => {
+    expect(refusalsOf(givenUp({ blockedMarker: true, markerRecordsWork: false }))).toEqual([]);
+    expect(refusalsOf(givenUp({ blockedMarker: true, markerRecordsWork: true }))).toEqual(['blocked-marker']);
+    expect(refusalsOf(givenUp({ blockedMarker: true }))).toEqual(['blocked-marker']);
+  });
+
+  it('keeps every other refusal in order', () => {
+    expect(
+      refusalsOf(givenUp({ workerPid: '1', dirtyPath: 'a', unpushed: ['abc1234'], openPr: true })),
+    ).toEqual(['live-worker', 'uncommitted-changes', 'open-pr', 'unpushed-commits']);
   });
 });

@@ -71,6 +71,22 @@ export interface TreeReadings {
    * no such reading, and nothing is refused on it.
    */
   unpushed?: readonly string[] | 'unknown';
+  /**
+   * Whether a plan gave the branch up (`deferred:` or `moved:`) and no
+   * Active-index plan still schedules it.
+   *
+   * A given-up branch never merges, so `no-merged-pr` is lifted for it; the
+   * caller reads the other readings against the branch's own remote ref. Absent
+   * means not given up.
+   */
+  givenUp?: boolean;
+  /**
+   * Whether the host reports an OPEN PR on the branch.
+   *
+   * Read only where {@link TreeReadings.givenUp} is true. A caller whose host
+   * could not be asked keeps the desk itself and does not call the rule.
+   */
+  openPr?: boolean;
 }
 
 /**
@@ -127,8 +143,13 @@ export const reapProblems = (readings: TreeReadings): ReapProblem[] => {
   if (readings.isMain || readings.branch === readings.defaultBranch) {
     problems.push({ refusal: 'on-default-branch', detail: readings.defaultBranch });
   }
-  if (readings.merge !== 'merged') {
+  if (readings.merge !== 'merged' && readings.givenUp !== true) {
     problems.push({ refusal: 'no-merged-pr', detail: '' });
+  }
+  // A given-up branch is exempt from the merge gate, so an open PR is the one
+  // sign left that somebody still treats it as live.
+  if (readings.givenUp === true && readings.openPr === true) {
+    problems.push({ refusal: 'open-pr', detail: '' });
   }
   // Last, because the merge gate already keeps every unmerged tree: this is
   // the refusal that can still hold a MERGED one, whose PR carried less than

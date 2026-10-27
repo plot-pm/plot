@@ -34,6 +34,7 @@ export const ReapRefusalSchema = z.enum([
   'blocked-marker',
   'on-default-branch',
   'no-merged-pr',
+  'open-pr',
 ]);
 export type ReapRefusal = z.infer<typeof ReapRefusalSchema>;
 
