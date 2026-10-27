@@ -13,6 +13,7 @@ import { freeWaitEnded } from '@plot-pm/domain/rules/ended-desk';
 import {
   endingAction,
   endingReleaseBranch,
+  claimOnlyOnLocalEvidence,
   holdingWorkAnswer,
   boundAnswer,
   needsPersonMarker,
@@ -1335,6 +1336,8 @@ export interface NothingDoneDecision {
   branch: string;
   worktree: string;
   verdict: ReturnType<typeof endingAction>;
+  /** Set where `release-claim` rests on claim-only local evidence because the host could not be asked. */
+  localEvidence?: true;
 }
 
 /**
@@ -1421,7 +1424,12 @@ export const nothingDoneDecisions = async (
       // reads `freeWait` never fires here either — filler, same reasoning.
       freeWait: false,
     };
-    out.push({ branch: endingReleaseBranch(readings), worktree: reading.worktree, verdict: endingAction(readings) });
+    const verdict = endingAction(readings);
+    if (verdict === 'leave' && claimOnlyOnLocalEvidence(readings)) {
+      out.push({ branch: reading.branch, worktree: reading.worktree, verdict: 'release-claim', localEvidence: true });
+      continue;
+    }
+    out.push({ branch: endingReleaseBranch(readings), worktree: reading.worktree, verdict });
   }
   return out;
 };
@@ -1462,13 +1470,13 @@ export interface NothingDoneApplied {
  */
 export const applyNothingDoneDecisions = async (
   decisions: readonly NothingDoneDecision[],
-  release: (branch: string) => Promise<{ released: boolean; detail: string }>,
+  release: (branch: string, localEvidence?: true) => Promise<{ released: boolean; detail: string }>,
 ): Promise<readonly NothingDoneApplied[]> => {
   const out: NothingDoneApplied[] = [];
   for (const decision of decisions) {
     if (decision.verdict !== 'release-claim') continue;
     try {
-      const result = await release(decision.branch);
+      const result = await release(decision.branch, decision.localEvidence);
       out.push({
         branch: decision.branch,
         outcome: result.released ? 'released' : 'refused',

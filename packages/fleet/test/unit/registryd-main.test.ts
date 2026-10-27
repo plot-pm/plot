@@ -1703,8 +1703,11 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
       expect(ticks).toBe(2);
       const mineLines = lines.filter((l) => l.includes('mine=')).map((l) => /mine=(\d+)\/hr/.exec(l)?.[1]);
       // Tick 1 reports `0` (nothing ran before it); tick 2 reports what tick
-      // 1's own nothing-done step added — M = 2 calls, 60 x 2 = 120/hr.
-      expect(mineLines).toEqual(['0', '120']);
+      // 1's own nothing-done step added. The stub's `pr-state` does not
+      // answer, so each of the M = 2 desks costs its `prOpen` call plus the
+      // one `pr-state` call of its local-evidence release: 4 calls, 60 x 4
+      // = 240/hr.
+      expect(mineLines).toEqual(['0', '240']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2859,10 +2862,27 @@ describe('startNothingDoneReleases', () => {
     expect(released).toEqual([]);
   });
 
-  it('leaves a desk alone when the host could not say whether a PR is open', async () => {
+  it('releases a claim-only desk on local evidence when the host could not say whether a PR is open', async () => {
+    const released: string[] = [];
+    const evidence: (true | undefined)[] = [];
+    const unasked = deps(released);
+    unasked.ports.prOpen = async () => 'unanswerable';
+    const release = unasked.ports.release;
+    unasked.ports.release = async (branch, localEvidence) => {
+      evidence.push(localEvidence);
+      return release(branch, localEvidence);
+    };
+    const applied = await startNothingDoneReleases(report([desk]), unasked, () => {}, () => {});
+    expect(released).toEqual(['feature/x']);
+    expect(evidence).toEqual([true]);
+    expect(applied.map((a) => a.branch)).toEqual(['feature/x']);
+  });
+
+  it('leaves a desk with a commit beyond its claim alone when the host could not say whether a PR is open', async () => {
     const released: string[] = [];
     const left = deps(released);
     left.ports.prOpen = async () => 'unanswerable';
+    left.ports.commitBeyondClaim = async () => 'yes';
     const applied = await startNothingDoneReleases(report([desk]), left, () => {}, () => {});
     expect(applied).toEqual([]);
     expect(released).toEqual([]);

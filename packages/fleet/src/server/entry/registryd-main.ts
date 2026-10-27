@@ -1952,7 +1952,7 @@ export const freshAgentPortsFor = (deps: {
 export const nothingDonePortsFor = (
   context: { repoRoot: string; scriptDir: string },
   record: Pick<FreshAgentRecordStore, 'rowsFor'>,
-  release: (branch: string) => Promise<{ released: boolean; detail: string }>,
+  release: (branch: string, localEvidence?: true) => Promise<{ released: boolean; detail: string }>,
   tally: HostTally = { calls: 0 },
 ): NothingDoneReleasePorts => ({
   commitBeyondClaim: async (worktree) => {
@@ -1984,8 +1984,8 @@ export interface NothingDoneReleasePorts {
    * shared whichever pipeline asks first.
    */
   priorFreshSessions: (plan: string, branch: string) => Promise<number>;
-  /** Decides and, where releasable, releases the branch's claim. */
-  release: (branch: string) => Promise<{ released: boolean; detail: string }>;
+  /** Decides and, where releasable, releases the branch's claim; `localEvidence` licenses it where the host cannot answer. */
+  release: (branch: string, localEvidence?: true) => Promise<{ released: boolean; detail: string }>;
 }
 
 /**
@@ -2419,8 +2419,13 @@ export const run = async (
   // `release-claim`. SHARES `tally` with both steps, so a release either one
   // triggers counts toward the tick's own host spend.
   const releaseContext = { repoRoot, scriptDir: scriptsDir };
-  const releaseClaimOf = async (branch: string) => {
-    const { result } = await gatherReadingsAndRelease(branch, releaseContext, tally);
+  const releaseClaimOf = async (branch: string, localEvidence?: true) => {
+    const { result } = await gatherReadingsAndRelease(
+      branch,
+      releaseContext,
+      tally,
+      localEvidence ? 'claim-only' : 'unknown',
+    );
     return { released: result.released, detail: result.detail };
   };
   const freshAgentDesk = deskFs(treesGit({ repoRoot, scriptDir: scriptsDir }));

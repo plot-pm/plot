@@ -287,6 +287,7 @@ release_branch=""
 # decision that has one home. It is filled from the rule below.
 start_count=""
 offline=""
+claim_only=""
 allow_local=0
 allow_waiting=0
 max=0
@@ -320,6 +321,9 @@ while [ $# -gt 0 ]; do
     --restart)  mode=restart; case "${2:-}" in */*) restart_branch="$2"; shift ;; esac ;;
     # The same rule once more: a bare `--release <slug>` must not delete a ref
     # named after a plan slug.
+    # `--claim-only` skips the host's PR question for a caller holding local
+    # evidence that the branch carries only its claim; step 3 still refuses work.
+    --claim-only) claim_only=1 ;;
     --release)  mode=release; case "${2:-}" in */*) release_branch="$2"; shift ;; esac ;;
     # `--start [N]` brings FREE agents into existence — registered, waiting, and
     # holding no slice. The count is OPTIONAL and only a bare number is consumed,
@@ -2017,7 +2021,6 @@ if [ "$mode" = "release" ]; then
   [ -n "$MAIN" ] || MAIN=$(default_branch)
   if [ -z "$MAIN" ]; then
     echo "plot-dispatch: cannot resolve the default branch — refusing to release $br." >&2
-    echo "  Nothing was written." >&2
     exit 1
   fi
 
@@ -2027,7 +2030,6 @@ if [ "$mode" = "release" ]; then
   if ! git fetch -q --prune origin </dev/null 2>/dev/null; then
     echo "plot-dispatch: cannot fetch origin — refusing to release $br." >&2
     echo "  Without a fresh reading this cannot tell a claim from pushed work." >&2
-    echo "  Nothing was written." >&2
     exit 1
   fi
   ref_present=0
@@ -2042,36 +2044,36 @@ if [ "$mode" = "release" ]; then
   # which is right for a rendering and wrong here: a deleted ref cannot be
   # re-created, so a host that cannot be asked refuses. `--offline` promises no
   # host call, so it refuses too.
-  if [ -n "$offline" ]; then
-    echo "plot-dispatch: --release asks the host whether $br has a PR, and --offline forbids that — refusing." >&2
-    echo "  Nothing was written." >&2
-    exit 1
-  fi
-  if ! pr_json=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
-    echo "plot-dispatch: the host could not be asked whether $br has a PR — refusing." >&2
-    echo "  A release deletes a ref that cannot be re-created, so silence is not" >&2
-    echo "  permission. Check the host (plot-host.sh pr-state $br) and retry." >&2
-    echo "  Nothing was written." >&2
-    exit 1
-  fi
-  pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
-  pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
-  # ANY MERGED PR, NOT ONLY THE NEWEST — `pr-merged` reads `mergedAt` over every
-  # PR for the branch, because a newer unmerged PR can mask a merged one.
-  merged_answer=$("$script_dir/plot-host.sh" pr-merged "$br" </dev/null 2>/dev/null) || merged_answer=unknown
-  case "$pr_state:$merged_answer" in
-    OPEN:*|MERGED:*|*:merged)
-      echo "plot-dispatch: $br has a pull request (#${pr_num:-?}, ${pr_state:-MERGED}) — refusing." >&2
-      echo "  An open PR is work under review; a merged branch's ref is released by" >&2
-      echo "  plot-release-refs.sh when its plan is delivered. Nothing was written." >&2
+  if [ -z "$claim_only" ]; then
+    if [ -n "$offline" ]; then
+      echo "plot-dispatch: --release asks the host whether $br has a PR, and --offline forbids that — refusing." >&2
       exit 1
-      ;;
-    *:unknown|*:)
-      echo "plot-dispatch: the host could not say whether $br ever merged — refusing." >&2
-      echo "  Check it (plot-host.sh pr-merged $br) and retry. Nothing was written." >&2
+    fi
+    if ! pr_json=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
+      echo "plot-dispatch: the host could not be asked whether $br has a PR — refusing." >&2
+      echo "  A release deletes a ref that cannot be re-created, so silence is not" >&2
+      echo "  permission. Check the host (plot-host.sh pr-state $br) and retry." >&2
       exit 1
-      ;;
-  esac
+    fi
+    pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+    pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+    # ANY MERGED PR, NOT ONLY THE NEWEST — `pr-merged` reads `mergedAt` over every
+    # PR for the branch, because a newer unmerged PR can mask a merged one.
+    merged_answer=$("$script_dir/plot-host.sh" pr-merged "$br" </dev/null 2>/dev/null) || merged_answer=unknown
+    case "$pr_state:$merged_answer" in
+      OPEN:*|MERGED:*|*:merged)
+        echo "plot-dispatch: $br has a pull request (#${pr_num:-?}, ${pr_state:-MERGED}) — refusing." >&2
+        echo "  An open PR is work under review; a merged branch's ref is released by" >&2
+        echo "  plot-release-refs.sh when its plan is delivered. Nothing was written." >&2
+        exit 1
+        ;;
+      *:unknown|*:)
+        echo "plot-dispatch: the host could not say whether $br ever merged — refusing." >&2
+        echo "  Check it (plot-host.sh pr-merged $br) and retry. Nothing was written." >&2
+        exit 1
+        ;;
+    esac
+  fi
 
   # THE DESK, ASKED OF GIT — never rebuilt from the branch name, the rule every
   # other verb here follows. A manifest naming this branch may name a desk git
@@ -2115,7 +2117,6 @@ if [ "$mode" = "release" ]; then
   if [ "$answer" = "held-by-agent" ]; then
     echo "plot-dispatch: $br is held by a live agent — refusing." >&2
     printf '%s\n' "$holder_lines" | while IFS=$'\t' read -r h_session h_wt; do echo "  $h_session (desk $h_wt)" >&2; done
-    echo "  Nothing was written." >&2
     exit 1
   fi
 
@@ -2129,7 +2130,6 @@ if [ "$mode" = "release" ]; then
         echo "plot-dispatch: a worker is alive on $br (pid $(printf '%s' "$release_state" | cut -f2)) — refusing." >&2
         echo "  A live worker has not abandoned its claim. Stop it first if you mean to:" >&2
         echo "    plot-dispatch.sh --stop $br" >&2
-        echo "  Nothing was written." >&2
         exit 1
         ;;
     esac
@@ -2145,7 +2145,6 @@ if [ "$mode" = "release" ]; then
     remote_work=$(git rev-list --count "refs/remotes/origin/$MAIN..refs/remotes/origin/$br" -- . </dev/null 2>/dev/null) || remote_work=""
     if [ -z "$remote_work" ]; then
       echo "plot-dispatch: cannot count the commits on origin/$br — refusing." >&2
-      echo "  Nothing was written." >&2
       exit 1
     fi
     if [ "$remote_work" -gt 0 ]; then

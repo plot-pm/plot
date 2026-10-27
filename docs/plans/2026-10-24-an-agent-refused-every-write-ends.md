@@ -41,7 +41,7 @@ Related: #2407, #2387.
 1. **Classify.** When the harness result or transcript shows permission denials and no tool call changed the worktree, end with `permission-denied`. The reason is a new ending reading in the domain, and the board renders "agent was refused every write — check the worker command's permissions".
 2. **Write the blocker for the agent.** When an agent ends with no commit beyond the claim and no `PLOT-BLOCKED.md`, the loop writes one from the agent's final message. The loop holds the permission the agent lacks.
 3. **Probe at start.** `plot-fleet --start` (and `--once`) runs one `-p` command that touches a file in a scratch desk, and refuses to push a claim when the write fails.
-4. **Self-heal the claim.** A claim whose branch holds only the claim commit, whose agent ended `nothing-done` or `permission-denied`, and that has no PR returns to the queue: prune the tracking ref and reap the desk. Where the host cannot be asked, the claim-only commit is local evidence that no PR carries work.
+4. **Self-heal the claim.** A claim whose branch holds only the claim commit, whose agent ended `nothing-done`, and that has no PR returns to the queue: prune the tracking ref and reap the desk. Where the host cannot be asked, the claim-only commit is local evidence that no PR carries work. A `permission-denied` claim stays held for a person: a fresh session meets the same refused permissions, and the slice 2 blocker is the person's question.
 
 Slices 1 and 2 stay inside the layering rule (controller → domain → port ← adapter). Slice 4 touches a destructive path, so it reads `mergedAt` per *One Answer To "Did This Land"* and never decides from ancestry.
 

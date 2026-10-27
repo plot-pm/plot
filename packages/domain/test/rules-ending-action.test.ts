@@ -3,6 +3,7 @@ import {
   endingAction,
   endingAsksFreshStart,
   endingReleaseBranch,
+  claimOnlyOnLocalEvidence,
   holdingWorkAnswer,
   boundAnswer,
   needsPersonMarker,
@@ -498,5 +499,33 @@ describe('killedWorkerEnding', () => {
 
   it('writes nothing for a detached desk, which names no branch to start', () => {
     expect(killedWorkerEnding(desk({ branch: '' }))).toBeNull();
+  });
+});
+
+describe('claimOnlyOnLocalEvidence', () => {
+  const unaskedHost = (over: Partial<EndingActionReadings> = {}) => readings({ prOpen: 'unanswerable', ...over });
+
+  it('holds for a nothing-done desk with no commit beyond its claim and an unanswered PR reading', () => {
+    expect(claimOnlyOnLocalEvidence(unaskedHost())).toBe(true);
+  });
+
+  it('does not hold when the host answered, whatever it said', () => {
+    expect(claimOnlyOnLocalEvidence(readings({ prOpen: false }))).toBe(false);
+    expect(claimOnlyOnLocalEvidence(readings({ prOpen: true }))).toBe(false);
+  });
+
+  it('does not hold with a commit beyond the claim, or when that reading failed', () => {
+    expect(claimOnlyOnLocalEvidence(unaskedHost({ commitBeyondClaim: 'yes' }))).toBe(false);
+    expect(claimOnlyOnLocalEvidence(unaskedHost({ commitBeyondClaim: 'unanswerable' }))).toBe(false);
+  });
+
+  it('does not hold for a manifest-named desk or another ending, permission-denied included', () => {
+    expect(claimOnlyOnLocalEvidence(unaskedHost({ hasManifest: true }))).toBe(false);
+    expect(claimOnlyOnLocalEvidence(unaskedHost({ ending: 'permission-denied' }))).toBe(false);
+    expect(claimOnlyOnLocalEvidence(unaskedHost({ ending: 'bound' }))).toBe(false);
+  });
+
+  it('leaves endingAction itself answering leave for the unanswered reading', () => {
+    expect(endingAction(unaskedHost())).toBe('leave');
   });
 });

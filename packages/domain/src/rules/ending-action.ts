@@ -322,6 +322,27 @@ export const endingAction = (readings: EndingActionReadings): EndingActionVerdic
   return verdict === 'needs-a-person' && readings.endingAsked ? 'leave' : verdict;
 };
 
+/**
+ * Whether a `nothing-done` desk with no manifest holds only its claim while
+ * the host could not say whether a PR carries the branch.
+ *
+ * {@link endingAction} answers `leave` for that desk, because an unanswered
+ * PR reading never licenses a release. This answers `true` when the desk's
+ * own commits are the evidence instead: `commitBeyondClaim` read `'no'`. The
+ * caller releases through `releaseClaim`, which re-reads the host and defers
+ * to any answer it gets, and through the script's own refusals for a live
+ * worker, unpushed or dirty desk work and a `PLOT-BLOCKED` marker.
+ *
+ * @param readings - the same readings {@link endingAction} takes.
+ * @returns `true` only for `nothing-done`, no manifest, `commitBeyondClaim`
+ *   `'no'` and `prOpen` `'unanswerable'`.
+ */
+export const claimOnlyOnLocalEvidence = (readings: EndingActionReadings): boolean =>
+  !readings.hasManifest &&
+  readings.ending === 'nothing-done' &&
+  readings.commitBeyondClaim === 'no' &&
+  readings.prOpen === 'unanswerable';
+
 /** The table {@link endingAction} answers from, before the already-asked guard. */
 const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict => {
   if (readings.hasManifest) return 'leave';

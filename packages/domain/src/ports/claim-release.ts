@@ -22,10 +22,13 @@ export interface ClaimRelease {
    * remote ref, and detaches its desk.
    *
    * @param branch - the branch to release.
+   * @param options.claimOnly - release without asking the host about a PR;
+   *   the caller holds claim-only local evidence and the script still refuses
+   *   a file-changing commit on the remote or in the desk.
    * @returns `answered` once the script ran, naming whether IT refused —
    *   `refused: false` covers both an actual release and the script's own
    *   "nothing to release" no-op, since both exit 0. `failed` when the script
    *   could not be run at all.
    */
-  release(branch: string): PortResult<ClaimReleaseRun>;
+  release(branch: string, options?: { claimOnly?: boolean }): PortResult<ClaimReleaseRun>;
 }

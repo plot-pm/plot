@@ -16,9 +16,9 @@ const DISPATCH = 'plot-dispatch.sh';
  * @returns the port.
  */
 export const claimReleaseShell = (context: ShellContext): ClaimRelease => ({
-  release: (branch: string): PortResult<ClaimReleaseRun> => {
+  release: (branch: string, options?: { claimOnly?: boolean }): PortResult<ClaimReleaseRun> => {
     const file = scriptPath(context, DISPATCH);
-    const run = runProcessSync(file, ['--release', branch], { cwd: context.repoRoot });
+    const run = runProcessSync(file, ['--release', branch, ...(options?.claimOnly ? ['--claim-only'] : [])], { cwd: context.repoRoot });
     if (run.code === 0) return answered({ refused: false, sentence: run.stdout.trim() });
     if (run.stderr.trim() === '') return failed<ClaimReleaseRun>();
     return answered({ refused: true, sentence: run.stderr.trim() });
