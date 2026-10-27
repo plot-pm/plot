@@ -105,7 +105,7 @@ The slice adds one changeset for package `plot`, with the Changelog line as its 
 
 ### Entries
 
-- `feature/bundle-entries-end-through-a-drain` — `endEntry` in `packages/domain/src/adapters/entry-exit.ts`, every entry under `packages/*/src/server/entry/` ending through it, the four control-flow exits and three early refusals rewritten as `if/else`, `scripts/check-entry-exit.sh` with its contract test, wired into `Local checks` and `ci.yml` <!-- builds: entry exit helper and check-entry-exit.sh, one drain-then-exit ending for every bundle entry and a gate that refuses process.exit in entry files -->
+- `feature/bundle-entries-end-through-a-drain` — `endEntry` in `packages/domain/src/adapters/entry-exit.ts`, every entry under `packages/*/src/server/entry/` ending through it, the four control-flow exits and three early refusals rewritten as `if/else`, `scripts/check-entry-exit.sh` with its contract test, wired into `Local checks` and `ci.yml` <!-- builds: entry exit helper and check-entry-exit.sh, one drain-then-exit ending for every bundle entry and a gate that refuses process.exit in entry files --> → #2769
 
 ## Notes
 
