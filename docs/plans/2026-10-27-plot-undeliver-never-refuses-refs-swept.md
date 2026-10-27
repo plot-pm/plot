@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2764
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2787 merged
 - **Started:** 2026-10-27, Jan Wloka, `bug/plot-undeliver-reads-slices`
 - **Started:** 2026-10-27, Jan Wloka, `bug/plot-reject-calls-plot-undeliver` (brief only, no claim yet)
+- **Delivered:** 2026-10-27
 
 ## Changelog
 
