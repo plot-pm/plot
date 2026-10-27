@@ -79,7 +79,7 @@ const argv = (file, vars) => {
     // A dispatched worker runs this suite, so its OWN launch variables are in
     // the environment; deleting them is what makes the absent cases observable.
     for (const v of ['PLOT_HARNESS', 'PLOT_MODEL', 'PLOT_EFFORT', 'PLOT_CAPABILITIES',
-      'PLOT_SESSION_ID', 'PLOT_SESSION_FLAG', 'PLOT_BACKGROUND_DENY']) delete env[v];
+      'PLOT_SESSION_ID', 'PLOT_SESSION_FLAG', 'PLOT_BACKGROUND_DENY', 'PLOT_AGENT_SETTINGS']) delete env[v];
     Object.assign(env, vars);
     const out = execFileSync('bash', ['-c', 'set -uo pipefail; . "$1"', '_', file],
       { encoding: 'utf8', env, timeout: 30_000 });
@@ -88,6 +88,26 @@ const argv = (file, vars) => {
       + 'absent or sits below the launch, and every argv assertion here would be '
       + 'reading an empty list rather than a built command line');
     return out.split('\n').filter((l) => l !== '');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+/** Runs `file` for real through a `claude` shim and returns the argv it launched. */
+const launchArgv = (file, vars) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-launch-'));
+  try {
+    const seen = path.join(dir, 'argv');
+    fs.writeFileSync(path.join(dir, 'claude'),
+      `#!/bin/sh\nfor a in "$@"; do printf '%s\\n' "$a"; done > ${JSON.stringify(seen)}\n`);
+    fs.chmodSync(path.join(dir, 'claude'), 0o755);
+    const env = { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH}`,
+      PLOT_BRANCH: 'feature/x', PLOT_WORKTREE: dir };
+    for (const v of ['PLOT_HARNESS', 'PLOT_MODEL', 'PLOT_EFFORT', 'PLOT_CAPABILITIES', 'PLOT_PRINT_INVOCATION',
+      'PLOT_SESSION_ID', 'PLOT_SESSION_FLAG', 'PLOT_BACKGROUND_DENY', 'PLOT_AGENT_SETTINGS']) delete env[v];
+    Object.assign(env, vars);
+    execFileSync('bash', ['-c', 'set -uo pipefail; . "$1"', '_', file], { encoding: 'utf8', env, timeout: 30_000 });
+    return fs.readFileSync(seen, 'utf8').split('\n').filter((l) => l !== '');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -153,8 +173,28 @@ for (const [label, file] of [['template', template], ["this repo's file", localP
     assert.ok(got.length > 0, 'the probe must print something');
     assert.equal(got.includes('-p'), false,
       `the probe must not print the prompt body it would have passed\n${got.join(' ')}`);
-    assert.equal(got.includes('--permission-mode'), false,
-      `nor the flags that follow it\n${got.join(' ')}`);
+  });
+
+  test(`${label}: the print carries every flag the launch line passes (#2778)`, () => {
+    // fleetd's write probe runs the harness with exactly the printed flags. A
+    // print that omits `--permission-mode bypassPermissions` makes a headless
+    // `-p` run unable to approve a Write, so the probe answers `no` and
+    // `plot-fleetctl.sh --start` refuses. Asserted against the REAL launch: the
+    // launched argv minus `-p` and its prompt must equal the printed flags.
+    const vars = { PLOT_MODEL: 'opus', PLOT_EFFORT: 'high', PLOT_CAPABILITIES: 'read-only',
+      PLOT_SESSION_ID: 'a94c1f30-0000-4000-8000-000000000001', PLOT_SESSION_FLAG: '--resume',
+      PLOT_AGENT_SETTINGS: '/x/settings.json', PLOT_BACKGROUND_DENY: 'Monitor,TaskStop' };
+    const printed = argv(file, vars);
+    const launched = launchArgv(file, vars);
+    const at = launched.indexOf('-p');
+    assert.notEqual(at, -1, `the launch passes -p\n${launched.join(' ')}`);
+    assert.deepEqual(printed.slice(1), [...launched.slice(0, at), ...launched.slice(at + 2)],
+      `the printed flags must be the launched ones without -p and the prompt\nprinted: ${printed.join(' ')}`);
+    const pm = printed.indexOf('--permission-mode');
+    assert.notEqual(pm, -1, `the print carries the permission mode\n${printed.join(' ')}`);
+    assert.equal(printed[pm + 1], 'bypassPermissions', printed.join(' '));
+    assert.deepEqual(argv(file, {}).slice(1), ['--permission-mode', 'bypassPermissions'],
+      'and a charter-less print still carries it');
   });
 
   test(`${label}: the loop's background deny list reaches --disallowedTools (#1322)`, () => {
@@ -257,7 +297,7 @@ test("this repo's prompt file matches the template but for its prompt text", () 
   // THE ASSERTION ELIDES THE PROMPT BODY FROM BOTH SIDES rather than diffing
   // raw text. A raw diff says the files differ and says nothing about how; this
   // says the difference is EXACTLY the licensed one.
-  const elide = (s) => s.replace(/-p ".*?" \$\{session_args/s, '-p "<PROMPT>" ${session_args');
+  const elide = (s) => s.replace(/-p ".*?" "\$\{tail_args/s, '-p "<PROMPT>" "${tail_args');
   const t = fs.readFileSync(template, 'utf8').split('\n');
   const l = fs.readFileSync(localPrompt, 'utf8').split('\n');
   assert.equal(l.length, t.length,

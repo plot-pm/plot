@@ -30,7 +30,7 @@ export interface WriteProbeShellOptions {
   exists?: (path: string) => boolean;
 }
 
-/** The argv `.plot/worker-prompt.sh` prints under `PLOT_PRINT_INVOCATION=1`, one token per line. */
+/** The harness and flags `.plot/worker-prompt.sh` prints under `PLOT_PRINT_INVOCATION=1`, one token per line, without `-p` and the prompt. */
 const parseInvocation = (stdout: string): string[] =>
   stdout.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
 
@@ -46,9 +46,9 @@ const parseInvocation = (stdout: string): string[] =>
  * to their absence. So the probe asks that file for the argv it would run,
  * under `PLOT_PRINT_INVOCATION=1`, which prints and exits 0 without
  * launching — and then runs the harness with EXACTLY those flags, substituting
- * its own one-shot prompt for the file's hardcoded one. Adding a flag the
- * printed invocation omitted (`--permission-mode`, in particular) would prove
- * a command the fleet never runs.
+ * its own one-shot prompt for the file's hardcoded one. The shipped template
+ * prints every flag of its launch line, `--permission-mode` included, from
+ * the same arrays the launch reads; the probe adds no flag of its own.
  *
  * **ABSENT IS NOT FALSE.** No prompt file on disk, a harness that cannot be
  * resolved, a scratch desk that cannot be cut, or a run that times out all

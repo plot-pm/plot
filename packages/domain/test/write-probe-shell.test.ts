@@ -1,13 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
-import { mkdtemp as mkdtempAsync, rm, writeFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdtemp as mkdtempAsync, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { writeProbeShell } from '../src/adapters/write-probe/write-probe-shell.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import { isAnswered } from '../src/port-result.js';
-import type { ScriptRun } from '../src/adapters/run-script.js';
+import { runProcess, type ScriptRun } from '../src/adapters/run-script.js';
+
+/** The prompt template Plot ships, which `plot-init` copies to `.plot/worker-prompt.sh`. */
+const templatePath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills', 'plot', 'templates', 'worker-prompt.sh');
+
+/** Launch variables a dispatched worker's own environment carries, blanked so the template reads none. */
+const unsetLaunchVars: Record<string, string> = {
+  PLOT_HARNESS: '', PLOT_MODEL: '', PLOT_EFFORT: '', PLOT_CAPABILITIES: '',
+  PLOT_SESSION_ID: '', PLOT_AGENT_SETTINGS: '', PLOT_BACKGROUND_DENY: '',
+};
 
 /**
  * A repo root carrying the one file the probe reads: `.plot/worker-prompt.sh`.
@@ -144,10 +154,9 @@ describe('writeProbeShell — an observed outcome', () => {
     }
   });
 
-  it('never appends a flag the printed invocation omitted', async () => {
-    // THE CENTRAL GUARANTEE. The 2026-10-23 incident's worker command carried
-    // no `--permission-mode` and no `--settings`; a probe that added one back
-    // in would pass regardless of what the real command does.
+  it('adds no flag of its own to the printed invocation', async () => {
+    // The prompt file owns the flags. The probe passes what it printed, then
+    // `-p` and its own prompt, and nothing else.
     const root = await repoWithPrompt();
     const seenArgs: string[][] = [];
     try {
@@ -160,8 +169,8 @@ describe('writeProbeShell — an observed outcome', () => {
       });
       await probe.check('claude -p');
       expect(seenArgs).toHaveLength(1);
-      expect(seenArgs[0]).not.toContain('--permission-mode');
-      expect(seenArgs[0]).not.toContain('--settings');
+      expect(seenArgs[0]).toHaveLength(2);
+      expect(seenArgs[0][0]).toBe('-p');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -182,6 +191,37 @@ describe('writeProbeShell — an observed outcome', () => {
       });
       await probe.check('claude -p');
       expect(seenArgs[0].slice(0, 4)).toEqual(['--settings', '/path/settings.json', '--model', 'opus']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('writeProbeShell — the shipped prompt template', () => {
+  it('runs the harness with --permission-mode bypassPermissions printed by the template (#2778)', async () => {
+    // The real template, sourced by a real bash under PLOT_PRINT_INVOCATION=1.
+    // Only the harness run is stubbed. Without the permission flag a headless
+    // `-p` run cannot approve a Write, and the probe answers `no`.
+    const root = await mkdtempAsync(join(tmpdir(), 'plot-write-probe-template-'));
+    const seen: { command: string; args: string[] }[] = [];
+    try {
+      await mkdir(join(root, '.plot'), { recursive: true });
+      await copyFile(templatePath, join(root, '.plot', 'worker-prompt.sh'));
+      const probe = writeProbeShell(shellContext(root), {
+        run: async (command, args, options): Promise<ScriptRun> => {
+          if (command === 'bash') {
+            return runProcess(command, args, { ...options, env: { ...options?.env, ...unsetLaunchVars } });
+          }
+          seen.push({ command, args: [...args] });
+          return { code: 0, stdout: '', stderr: '' };
+        },
+      });
+      await probe.check('claude -p');
+      expect(seen).toHaveLength(1);
+      expect(seen[0].command).toBe('claude');
+      const at = seen[0].args.indexOf('--permission-mode');
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(seen[0].args[at + 1]).toBe('bypassPermissions');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
