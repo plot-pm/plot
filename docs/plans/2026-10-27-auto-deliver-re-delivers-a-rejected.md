@@ -109,7 +109,7 @@ Slice 2 (a domain unit test for the classification rule, the pass test, and the 
 
 ### Claim-only slice
 
-- `bug/auto-deliver-ignores-a-claim-only-slice` — the carried-work classification moves from the board's `deliverability.ts` into a domain rule that board and fleet both call; `runAutoDeliverPass` reads each candidate's merged, non-deferred branches through `Host.prMergeCommit` and `Refs.commitFiles`, caches the answer per merged branch, and holds a plan with a claim-only or `unknown` slice; one exclusion-comment line in `deliverable.corpus.test.ts`; tests: #2422's two-empty-commit shape and a marker-only diff hold, a real file and a docs-only file deliver, a tip-equals-merge-base merge delivers, `unknown` holds, the board's `emptySlices` path is unchanged.
+- `bug/auto-deliver-ignores-a-claim-only-slice` — the carried-work classification moves from the board's `deliverability.ts` into a domain rule that board and fleet both call; `runAutoDeliverPass` reads each candidate's merged, non-deferred branches through `Host.prMergeCommit` and `Refs.commitFiles`, caches the answer per merged branch, and holds a plan with a claim-only or `unknown` slice; one exclusion-comment line in `deliverable.corpus.test.ts`; tests: #2422's two-empty-commit shape and a marker-only diff hold, a real file and a docs-only file deliver, a tip-equals-merge-base merge delivers, `unknown` holds, the board's `emptySlices` path is unchanged. → #2780
 
 ## Notes
 
