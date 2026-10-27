@@ -257,8 +257,8 @@ const unpinnedProgram = (words: readonly string[]): MergeProgram | null => {
  * The merges a command runs without pinning the head it reviewed: `gh pr
  * merge` with no `--match-head-commit`, and the host helper's `pr-merge` with
  * no `--match-head`. Quoted text and unquoted `#` comments are not read; a
- * `command`, `builtin` or `exec` prefix is skipped; a segment whose program is
- * `ls`, `cat` or `git grep` is a read.
+ * `command`, `builtin` or `exec` prefix is skipped; a segment that
+ * `isReadSegment` reads as a read is not read as a merge.
  *
  * When that segment reading finds none, the simple commands `readShell`
  * finds are read the same way, which includes a command inside `$( )` or

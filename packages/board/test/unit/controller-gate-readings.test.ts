@@ -110,6 +110,12 @@ describe('an unpinned plot-host.sh pr-merge on Bitbucket (M6)', () => {
     expect((await ask(r, 'bash plot-host.sh pr-merge 12 --match-head abc')).code).toBe(EXIT.allow);
     expect(reads.backend).toBe(0);
   });
+
+  it('#2706: a grep naming pr-merge on plot-host.sh is a read, not an unpinned merge', async () => {
+    const { r } = readings(MAIN);
+    const answer = await ask(r, 'grep -n pr-merge skills/plot/scripts/plot-host.sh');
+    expect(answer.code).toBe(EXIT.allow);
+  });
 });
 
 describe('a desk and no git', () => {

@@ -805,16 +805,24 @@ test('controller gate: a heredoc body cannot exempt a call by naming a mode', ()
   assert.equal(run(dir, cmd).status, 2, 'a mode word in prose is not a mode');
 });
 
-test('controller gate: a bare grep or sed read still refuses, on purpose', () => {
+test('controller gate: #2706 widens the reader set past ls, cat and git grep to a bare grep', () => {
+  // FIXED by #2706: `isReadSegment` now delegates to `isReader`'s wider set,
+  // so a bare `grep` naming a gated script is a read, not a run.
+  assert.equal(run(repo(), `grep -c foo ${D}`).status, 0, 'a bare grep is a read, not a run');
+});
+
+test('controller gate: sed stays refused on purpose — #2706 did not widen past isReader', () => {
   // NOT FIXED, and the plan says so rather than implying a completeness it
-  // refused. `controllerInvocation` carves out exactly the three reads #1245
-  // measured — `ls`, `cat`, `git grep` — and no others; a bare `grep` or `sed`
-  // naming a gated script is a known false positive, kept deliberately rather
-  // than widened past what was measured.
-  const dir = repo();
-  for (const cmd of [`grep -c foo ${D}`, `sed -n '1,5p' ${D}`]) {
-    assert.equal(run(dir, cmd).status, 2, `${cmd} is a known false positive, kept deliberately`);
-  }
+  // refused. `sed` runs with an `e` command and writes with a `w` flag, so it
+  // stays out of `READERS`; a `sed` naming a gated script is a known false
+  // positive, kept deliberately rather than widened past what was measured.
+  assert.equal(run(repo(), `sed -n '1,5p' ${D}`).status, 2, 'sed is a known false positive, kept deliberately');
+});
+
+test('controller gate: a substitution in a reader segment is still a run', () => {
+  // #2706's guard: a reader segment whose operand is a command substitution
+  // still runs the script the substitution names, so it stays refused.
+  assert.equal(run(repo(), `grep x $(${D} slug)`).status, 2, 'the substitution still runs the script');
 });
 
 test('controller gate: ls, cat and git grep on a gated script are reads, not runs', () => {
