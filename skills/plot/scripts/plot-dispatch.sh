@@ -2021,7 +2021,6 @@ if [ "$mode" = "release" ]; then
   [ -n "$MAIN" ] || MAIN=$(default_branch)
   if [ -z "$MAIN" ]; then
     echo "plot-dispatch: cannot resolve the default branch — refusing to release $br." >&2
-    echo "  Nothing was written." >&2
     exit 1
   fi
 
@@ -2031,7 +2030,6 @@ if [ "$mode" = "release" ]; then
   if ! git fetch -q --prune origin </dev/null 2>/dev/null; then
     echo "plot-dispatch: cannot fetch origin — refusing to release $br." >&2
     echo "  Without a fresh reading this cannot tell a claim from pushed work." >&2
-    echo "  Nothing was written." >&2
     exit 1
   fi
   ref_present=0
@@ -2049,14 +2047,12 @@ if [ "$mode" = "release" ]; then
   if [ -z "$claim_only" ]; then
     if [ -n "$offline" ]; then
       echo "plot-dispatch: --release asks the host whether $br has a PR, and --offline forbids that — refusing." >&2
-      echo "  Nothing was written." >&2
       exit 1
     fi
     if ! pr_json=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
       echo "plot-dispatch: the host could not be asked whether $br has a PR — refusing." >&2
       echo "  A release deletes a ref that cannot be re-created, so silence is not" >&2
       echo "  permission. Check the host (plot-host.sh pr-state $br) and retry." >&2
-      echo "  Nothing was written." >&2
       exit 1
     fi
     pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
@@ -2121,7 +2117,6 @@ if [ "$mode" = "release" ]; then
   if [ "$answer" = "held-by-agent" ]; then
     echo "plot-dispatch: $br is held by a live agent — refusing." >&2
     printf '%s\n' "$holder_lines" | while IFS=$'\t' read -r h_session h_wt; do echo "  $h_session (desk $h_wt)" >&2; done
-    echo "  Nothing was written." >&2
     exit 1
   fi
 
@@ -2135,7 +2130,6 @@ if [ "$mode" = "release" ]; then
         echo "plot-dispatch: a worker is alive on $br (pid $(printf '%s' "$release_state" | cut -f2)) — refusing." >&2
         echo "  A live worker has not abandoned its claim. Stop it first if you mean to:" >&2
         echo "    plot-dispatch.sh --stop $br" >&2
-        echo "  Nothing was written." >&2
         exit 1
         ;;
     esac
@@ -2151,7 +2145,6 @@ if [ "$mode" = "release" ]; then
     remote_work=$(git rev-list --count "refs/remotes/origin/$MAIN..refs/remotes/origin/$br" -- . </dev/null 2>/dev/null) || remote_work=""
     if [ -z "$remote_work" ]; then
       echo "plot-dispatch: cannot count the commits on origin/$br — refusing." >&2
-      echo "  Nothing was written." >&2
       exit 1
     fi
     if [ "$remote_work" -gt 0 ]; then
