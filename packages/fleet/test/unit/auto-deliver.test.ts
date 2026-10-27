@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { removeTree as rmTree } from '../rm-tree.mjs';
-import { planSlug, planAutoDeliver, pruneDelivering } from '@plot-pm/domain';
+import { deliveryReadings, planSlug, planAutoDeliver, pruneDelivering } from '@plot-pm/domain';
 import { maybeAutoDeliver, runAutoDeliverPass, DELIVER_COMMAND_KEY } from '../../src/shared/auto-deliver.js';
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import { allSlicesMerged } from '@plot-pm/domain';
@@ -34,6 +34,7 @@ import {
   IN_FLIGHT_DELIVER_TTL_MS,
   IN_FLIGHT_PASS_GAP_MS,
   IN_FLIGHT_RENEW_AFTER_MS,
+  updateDeliverState,
 } from '../../src/shared/in-flight-store.js';
 import { FLEET_SCAN_BUDGET_MS } from '../../src/shared/fleet-scan.js';
 import { deliverLogPath } from '../../src/shared/action-log.js';
@@ -41,6 +42,9 @@ import { AUTO_DELIVER_MAX_FAILURES, retryDelayMs } from '@plot-pm/domain';
 import type { Scripts, StartOptions } from '@plot-pm/domain/ports/scripts';
 import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
+import { refsGit } from '@plot-pm/domain/adapters';
+import { execFileSync } from 'node:child_process';
+import { pulsePlanStore } from '../../src/server/entry/registryd-main.js';
 
 const made: string[] = [];
 afterEach(() => {
@@ -1100,3 +1104,103 @@ describe('runAutoDeliverPass — a rejected plan is held, not delivered', () => 
   });
 });
 
+
+describe('runAutoDeliverPass — the hold reads the plan source the pulse read', () => {
+  const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
+  const PLAN = 'docs/plans/2026-08-27-ship-it.md';
+  const planText = (rejected: boolean): string =>
+    '# Ship it\n\n## Status\n\n- **State:** Approved\n- **Type:** feature\n' +
+    '- **Delivered:** 2026-10-15\n' +
+    (rejected ? '- **Rejected:** 2026-10-16, jwloka, re-opened\n' : '');
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' } });
+
+  /**
+   * A repository whose `origin/main` holds `onRef` and whose working tree
+   * holds `onTree`; `null` means the file is absent there.
+   */
+  const repoWith = (repoRoot: string, onRef: string | null, onTree: string | null): void => {
+    git(repoRoot, 'init', '-q', '-b', 'main');
+    git(repoRoot, 'config', 'user.email', 't@example.com');
+    git(repoRoot, 'config', 'user.name', 't');
+    fs.mkdirSync(path.join(repoRoot, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'README.md'), 'x\n');
+    git(repoRoot, 'add', 'README.md');
+    git(repoRoot, 'commit', '-q', '-m', 'base');
+    if (onRef !== null) {
+      fs.writeFileSync(path.join(repoRoot, PLAN), onRef);
+      git(repoRoot, 'add', PLAN);
+      git(repoRoot, 'commit', '-q', '-m', 'plan');
+      git(repoRoot, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+      git(repoRoot, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+      git(repoRoot, 'reset', '-q', '--hard', 'HEAD~1');
+    }
+    if (onTree === null) return;
+    fs.mkdirSync(path.join(repoRoot, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, PLAN), onTree);
+  };
+
+  const run = async (onRef: string | null, onTree: string | null): Promise<string[]> => {
+    const { opts } = fixture('');
+    repoWith(opts.repoRoot, onRef, onTree);
+    const fake = fakeScripts();
+    const refs = refsGit({ repoRoot: opts.repoRoot, scriptDir: SCRIPTS });
+    const planStore = pulsePlanStore({ repoRoot: opts.repoRoot, scriptDir: SCRIPTS }, refs);
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore }, finished());
+    return fake.started;
+  };
+
+  it('delivers a plan that only origin/main holds, not the checkout', async () => {
+    expect(await run(planText(false), null)).toEqual(['ship-it']);
+  });
+
+  it('holds a plan whose Rejected: record only origin/main holds', async () => {
+    expect(await run(planText(true), planText(false))).toEqual([]);
+  });
+
+  it('reads the working tree when origin/main does not resolve, as the pulse does', async () => {
+    expect(await run(null, planText(true))).toEqual([]);
+    expect(await run(null, planText(false))).toEqual(['ship-it']);
+  });
+});
+
+describe('runAutoDeliverPass — an exit during the plan reads survives the pass', () => {
+  // A delivery's exit writes the record while the pass waits on the plan
+  // store. The pass must write from the record as it stands after the wait.
+  it('keeps the failure and the retired mark an exit wrote while the plans were read', async () => {
+    const { opts } = fixture('');
+    const fake = fakeScripts();
+    const t0 = Date.now();
+    const p = pulse([
+      ['2026-08-27-ship-it.md', 'approved', [slice('W', [['feature/a', 'merged']])]],
+      ['2026-08-27-other.md', 'approved', [slice('W', [['feature/b', 'merged']])]],
+    ]);
+    const file = inFlightPath(opts.repoRoot, 'deliver');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ marks: { other: t0 } }));
+    const store = planStoreFixture({
+      plans: [
+        planRecord({ file: '2026-08-27-ship-it.md', phase: 'approved' }),
+        planRecord({ file: '2026-08-27-other.md', phase: 'approved' }),
+      ],
+    });
+    const reading = deliveryReadings(p).get('other') ?? '';
+    const racing: PlanStore = {
+      ...store,
+      listPlans: async () => {
+        // What `onEnd` writes for a failed delivery of `other`.
+        updateDeliverState(opts.repoRoot, (f) => ({
+          marks: Object.fromEntries(Object.entries(f.marks).filter(([slug]) => slug !== 'other')),
+          pids: f.pids,
+          failures: { ...f.failures, other: { count: 1, lastAt: t0, reading } },
+        }));
+        return store.listPlans();
+      },
+    };
+    await runAutoDeliverPass({ ...opts, scripts: fake.scripts, planStore: racing }, p, t0);
+    const after = deliverFile(opts.repoRoot);
+    expect(after.failures?.other?.count).toBe(1);
+    expect(after.marks.other).toBeUndefined();
+    expect(fake.started).toEqual(['ship-it']);
+  });
+});

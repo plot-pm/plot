@@ -1194,6 +1194,39 @@ const fleetPlanStore = (context: { repoRoot: string; scriptDir: string }, refs: 
 };
 
 /**
+ * The plan store auto-deliver reads a candidate's `Rejected:` record from: the
+ * source the pulse read its plans from.
+ *
+ * `plot-fleet-scan.sh` reads plans from `origin/<default>` when that ref
+ * resolves to a commit, and from the working tree when it does not. This store
+ * applies the same rule on every call, so a plan the pulse names is read from
+ * the tree the pulse read it in — never from a checkout that lags the ref.
+ *
+ * @param context - where the scripts live and which repository to read.
+ * @param refs - the ref reader, already constructed by the caller.
+ * @returns a `PlanStore` whose `listPlans`, `readPlans` and `readPlan` read the
+ *   pulse's plan source; every other operation reads the working tree.
+ */
+export const pulsePlanStore = (context: { repoRoot: string; scriptDir: string }, refs: Refs): PlanStore => {
+  const scripts = scriptsShell(context);
+  const shell = planStoreShell(context);
+  const storeFor = async (): Promise<PlanStore> => {
+    const base = await refs.defaultBranch();
+    if (!base.ok) return shell;
+    const ref = `origin/${base.value}`;
+    const resolved = await refs.resolve(`${ref}^{commit}`);
+    if (!resolved.ok) return shell;
+    return planStoreRef(refs, context, ref, await planDirectory(scripts));
+  };
+  return {
+    ...shell,
+    listPlans: async () => (await storeFor()).listPlans(),
+    readPlans: async (files) => (await storeFor()).readPlans(files),
+    readPlan: async (file) => (await storeFor()).readPlan(file),
+  };
+};
+
+/**
  * Every plan line the estate holds, keyed by branch.
  *
  * **READ ONCE PER TICK, NOT ONCE PER AGENT, and the difference was measured.**
@@ -2442,7 +2475,22 @@ export const run = async (
           () => prState.prError,
           // THE AUTOMATIC WRITES RUN HERE, on the pulse this scan just wrote
           // and never inside `tick`: a scan that failed calls nothing.
-          fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn, () => queueHolds.held, stop),
+          fleetAutoWrites(
+            {
+              repoRoot,
+              scriptsDir,
+              scripts,
+              // THE PULSE'S PLAN SOURCE, so the rejection hold reads the plan
+              // the pulse named rather than the daemon's lagging checkout.
+              planStore: pulsePlanStore(
+                { repoRoot, scriptDir: scriptsDir },
+                refsGit({ repoRoot, scriptDir: scriptsDir }),
+              ),
+            },
+            warn,
+            () => queueHolds.held,
+            stop,
+          ),
         ),
         prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
         issues: seams.readIssues ?? readIssues,

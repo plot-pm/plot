@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import {
   deliveryReadings,
@@ -8,9 +9,12 @@ import {
   pruneFailures,
   recordDeliveryFailure,
   retryVerdict,
+  answered,
+  type AutoDeliverHold,
   type AutoDeliverPlan,
   type DeliveryFailure,
   type FleetReading,
+  type PlanStore,
 } from '@plot-pm/domain';
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
@@ -510,10 +514,54 @@ export const runAutoDeliverPass = async (
   now: number = Date.now(),
   heldLogged: Set<string> = new Set(),
 ): Promise<void> => {
+  // THE PLAN READS COME FIRST, and the in-flight record is read again after
+  // them. A delivery's exit can update the record while the reads wait; a pass
+  // that wrote from the record it read before the wait would undo that update.
+  const first = settleInFlight(opts, pulse, now);
+  if (first === null) return;
+  if (first.candidates.length === 0) return finishPass(opts, pulse, now, first, []);
+  const holds = await readHolds(planStoreOf(opts), first.candidates);
+  const pass = settleInFlight(opts, pulse, now);
+  if (pass === null) return;
+  const plans: AutoDeliverPlan[] = [];
+  for (const candidate of pass.candidates) {
+    // A candidate that was not one before the reads waits for the next pass.
+    if (!holds.has(candidate.slug)) continue;
+    const hold = holds.get(candidate.slug) ?? null;
+    if (hold === null) {
+      plans.push(candidate);
+      continue;
+    }
+    if (!heldLogged.has(candidate.slug)) {
+      heldLogged.add(candidate.slug);
+      console.log(`auto-deliver: holding ${candidate.slug} (${hold}) — needs a person to deliver it`);
+    }
+  }
+  return finishPass(opts, pulse, now, pass, plans);
+};
+
+/** What one read of the in-flight record decides before any plan is started. */
+interface SettledPass {
+  read: InFlightReading;
+  mine: Set<string>;
+  live: (slug: string) => boolean;
+  held: Set<string>;
+  failures: Record<string, DeliveryFailure>;
+  stopped: string[];
+  candidates: AutoDeliverPlan[];
+}
+
+/**
+ * Read the in-flight record and settle it against the pulse: retire the
+ * confirmed, count the lapsed, and name the candidates.
+ *
+ * @returns the settled pass, or `null` when the record cannot be read.
+ */
+const settleInFlight = (opts: ActOptions, pulse: FleetReading | null, now: number): SettledPass | null => {
   const read = readInFlight(opts.repoRoot, now, 'deliver');
   if (read.branches === null) {
     console.log(`auto-deliver: cannot read the in-flight record (${read.error}); starting nothing this pass`);
-    return;
+    return null;
   }
   const mine = runningIn(opts.repoRoot);
   const live = (slug: string): boolean => mine.has(slug) || pidAlive(read.pids[slug]);
@@ -532,24 +580,60 @@ export const runAutoDeliverPass = async (
     failures[slug] = recordDeliveryFailure(failures[slug], reading, now);
     if (retryVerdict(failures[slug], reading, now) === 'stopped') stopped.push(slug);
   }
-
   const candidates = planAutoDeliver({ pulse, inFlight: held, complete, failures, now });
-  const plans: AutoDeliverPlan[] = [];
-  if (candidates.length > 0) {
-    const planStore = planStoreOf(opts);
-    for (const candidate of candidates) {
-      const reading = await planStore.readPlan(candidate.file);
-      const hold = holdFromRejection(reading);
-      if (hold === null) {
-        plans.push(candidate);
-        continue;
-      }
-      if (!heldLogged.has(candidate.slug)) {
-        heldLogged.add(candidate.slug);
-        console.log(`auto-deliver: holding ${candidate.slug} (${hold}) — needs a person to deliver it`);
-      }
-    }
+  return { read, mine, live, held, failures, stopped, candidates };
+};
+
+/**
+ * The hold each candidate's plan file earns, read in one batch.
+ *
+ * A pulse names a plan by its basename and a store names it by its path, so
+ * the candidates are matched through the store's own listing; where a listing
+ * holds one basename twice, the shorter path wins. A candidate that the
+ * listing or the read does not answer holds as `'unknown'`.
+ *
+ * @param planStore - the store to read; fleetd's reads the ref the pulse read.
+ * @param candidates - the plans `planAutoDeliver` named.
+ * @returns the hold per candidate slug, `null` for a plan that is not held.
+ */
+const readHolds = async (
+  planStore: PlanStore,
+  candidates: readonly AutoDeliverPlan[],
+): Promise<Map<string, AutoDeliverHold | null>> => {
+  const holds = new Map<string, AutoDeliverHold | null>(candidates.map((c) => [c.slug, 'unknown']));
+  const listing = await planStore.listPlans();
+  if (!listing.ok) return holds;
+  const pathOf = new Map<string, string>();
+  for (const file of listing.value) {
+    const known = pathOf.get(path.basename(file));
+    if (known === undefined || file.length < known.length) pathOf.set(path.basename(file), file);
   }
+  const slugOf = new Map(candidates.map((c) => [path.basename(c.file), c.slug] as const));
+  const wanted = candidates.flatMap((c) => pathOf.get(path.basename(c.file)) ?? []);
+  const read = await planStore.readPlans(wanted);
+  if (!read.ok) return holds;
+  for (const record of read.value) {
+    const slug = slugOf.get(path.basename(record.file));
+    if (slug !== undefined) holds.set(slug, holdFromRejection(answered(record)));
+  }
+  return holds;
+};
+
+/**
+ * Write the marks for the settled pass and start `plans`.
+ *
+ * Runs with no `await` between the record's read in {@link settleInFlight}
+ * and the write here, so no delivery's exit can land between them.
+ */
+const finishPass = (
+  opts: ActOptions,
+  pulse: FleetReading | null,
+  now: number,
+  pass: SettledPass,
+  plans: AutoDeliverPlan[],
+): void => {
+  const { read, mine, live, held, failures, stopped } = pass;
+  const readings = deliveryReadings(pulse);
   const marks: Record<string, number> = {};
   for (const slug of held) {
     const at = read.stamps[slug] ?? read.expired[slug];
