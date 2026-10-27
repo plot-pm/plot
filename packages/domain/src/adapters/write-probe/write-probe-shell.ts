@@ -8,6 +8,7 @@ import type { WriteProbe } from '../../ports/write-probe.js';
 import { FALLBACK_PROMPT } from '../../rules/prompt.js';
 import {
   flagMissingFromPrint,
+  probeRunReading,
   promptPrintsInvocation,
   stalePrintReason,
   type WriteProbeReading,
@@ -64,8 +65,10 @@ const parseInvocation = (stdout: string): string[] =>
  * `unanswerable` with a `stalePrintReason`, which `writeProbeOutcome` reports.
  *
  * **ABSENT IS NOT FALSE.** No prompt file on disk, a harness that cannot be
- * resolved, a scratch desk that cannot be cut, or a run that times out all
- * answer `unanswerable`: none of them observed a refused write.
+ * resolved or started, a scratch desk that cannot be cut, or a run that times
+ * out, is ended by a signal or exits non-zero without the marker all answer
+ * `unanswerable`: none of them observed a refused write. Only an exit 0
+ * without the marker is `no` ({@link probeRunReading}).
  */
 export const writeProbeShell = (context: ShellContext, options: WriteProbeShellOptions = {}): WriteProbe => {
   const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
@@ -121,8 +124,7 @@ export const writeProbeShell = (context: ShellContext, options: WriteProbeShellO
         const prompt = `Write the single character x to the file at ${marker}, creating it if it does not exist, then stop. Do nothing else.`;
         const probed = await run(harness, [...flags, '-p', prompt], { cwd: scratch, timeoutMs });
         if (probed.interrupted === 'timeout') return unaskable<WriteProbeReading>('the probe run timed out');
-
-        return answered<WriteProbeReading>(exists(marker) ? 'yes' : 'no');
+        return answered<WriteProbeReading>(probeRunReading(probed, exists(marker)));
       } finally {
         await removeScratch(scratch, { recursive: true, force: true }).catch(() => {});
       }

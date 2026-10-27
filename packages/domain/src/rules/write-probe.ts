@@ -14,10 +14,10 @@ export type WriteProbeReading = 'yes' | 'no' | 'unanswerable';
  * Whether a probe reading permits a claim to be pushed.
  *
  * **ABSENT IS NOT FALSE.** A probe that could not run — no harness on `PATH`,
- * the scratch desk could not be cut, the command timed out — did not observe a
- * refused write, so `unanswerable` proceeds exactly as `yes` does. Only an
- * OBSERVED absence of the touched file after the command exited is `no`, and
- * only `no` refuses.
+ * the scratch desk could not be cut, the command timed out or exited non-zero
+ * — did not observe a refused write, so `unanswerable` proceeds exactly as
+ * `yes` does. Only an OBSERVED absence of the touched file after the command
+ * exited 0 is `no` (see {@link probeRunReading}), and only `no` refuses.
  *
  * @param reading - what the probe observed.
  * @returns `proceed` to hand over, `refuse` to stop before any claim is pushed.
@@ -135,4 +135,31 @@ export const writeProbeOutcome = (result: PortResult<WriteProbeReading>): WriteP
       `Fix: copy the PLOT_PRINT_INVOCATION block and the launch line from Plot's skills/plot/templates/worker-prompt.sh ` +
       `into .plot/worker-prompt.sh, so the print carries every flag the launch passes.`,
   };
+};
+
+/** How one probe run of the harness ended, as `runProcess` reports it. */
+export interface ProbeRun {
+  /** The exit code; `runProcess` reports 1 for a spawn failure, a signal and a timeout. */
+  code: number;
+  /** Set when the run did not end by itself. */
+  interrupted?: 'timeout' | 'signal';
+}
+
+/**
+ * Reads one probe run of the harness.
+ *
+ * Only a run that exited 0 by itself and left no marker observed a refused
+ * write. A non-zero exit also covers a harness that could not start, an
+ * expired login, a usage limit and a server error, none of which is a
+ * permission fault, so it answers `unanswerable` and the start proceeds.
+ *
+ * @param run - how the harness run ended.
+ * @param markerExists - whether the marker file exists after the run.
+ * @returns `yes` when the marker exists; `no` for a clean exit 0 without it;
+ *   `unanswerable` for a timeout, a signal or a non-zero exit without it.
+ */
+export const probeRunReading = (run: ProbeRun, markerExists: boolean): WriteProbeReading => {
+  if (markerExists) return 'yes';
+  if (run.interrupted !== undefined || run.code !== 0) return 'unanswerable';
+  return 'no';
 };

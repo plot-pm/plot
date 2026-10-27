@@ -143,18 +143,52 @@ describe('writeProbeShell — an observed outcome', () => {
     }
   });
 
-  it('answers no where the harness itself exits non-zero', async () => {
+  it('answers unanswerable where the harness exits non-zero and leaves no marker', async () => {
+    // A non-zero exit also covers an expired login, a usage limit and a server
+    // error. None of them observed a refused write.
     const root = await repoWithPrompt();
     try {
       const probe = writeProbeShell(shellContext(root), {
         run: async (command): Promise<ScriptRun> => {
           if (command === 'bash') return { code: 0, stdout: 'claude\n', stderr: '' };
-          return { code: 1, stdout: '', stderr: 'permission denied' };
+          return { code: 1, stdout: '', stderr: 'API Error: 529 overloaded' };
         },
       });
       const reading = await probe.check('claude -p');
-      expect(isAnswered(reading)).toBe(true);
-      expect(isAnswered(reading) && reading.value).toBe('no');
+      expect(isAnswered(reading) && reading.value).toBe('unanswerable');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('answers unanswerable where the harness is not on PATH', async () => {
+    // The real `runProcess`, so the spawn failure is the one it reports.
+    const root = await repoWithPrompt();
+    try {
+      const probe = writeProbeShell(shellContext(root), {
+        run: async (command, args, options): Promise<ScriptRun> => {
+          if (command === 'bash') return { code: 0, stdout: 'plot-no-such-harness-2778\n', stderr: '' };
+          return runProcess(command, args, options);
+        },
+      });
+      const reading = await probe.check('claude -p');
+      expect(isAnswered(reading) && reading.value).toBe('unanswerable');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('answers unanswerable where the harness is ended by a signal', async () => {
+    const root = await repoWithPrompt();
+    try {
+      const probe = writeProbeShell(shellContext(root), {
+        run: async (command): Promise<ScriptRun> => {
+          if (command === 'bash') return { code: 0, stdout: 'claude\n', stderr: '' };
+          return { code: 1, stdout: '', stderr: '', interrupted: 'signal' };
+        },
+      });
+      const reading = await probe.check('claude -p');
+      expect(isAnswered(reading) && reading.value).toBe('unanswerable');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

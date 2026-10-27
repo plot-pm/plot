@@ -1354,46 +1354,6 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
 };
 
 /**
- * Applies the tick's `agent-assign` and `worker-start` writes — what this
- * daemon performs.
- *
- * **IT APPLIES TWO KINDS AND SKIPS EVERY OTHER.** The tick names reaps, blocked
- * markers and corrections too, and none of them is performed here, so a write
- * it does not own is left for whoever does. Naming the kind rather than falling
- * through a default is `perform-fs.ts`'s discipline — *skipped on purpose* and
- * *a kind the author forgot* look identical from inside a loop.
- *
- * **`agent-assign` WAS THE SECOND KIND AND IT WAS MISSING.** Measured
- * 2026-09-06: a tick reported `handed=8` while all eight agents stayed
- * `branch: ""`, because this loop filtered to `worker-start` alone. Six were
- * written into their manifests by hand, twice in one day. A summary naming a
- * write nobody makes is worse than no summary.
- *
- * **THE ASSIGNMENT GOES FIRST**, so an agent started by this same pass is not
- * handed a slice in the pass that created it. `matchQueue` read the fleet as it
- * was; a new desk was not in that reading and must wait for the next one.
- *
- * **A START THAT FAILS COSTS ONE TICK.** The next tick re-derives the queue and
- * the fleet from disk and reaches the same decision if the shortage is still
- * there, which is the same recovery a `kill -9` gets. So a failure is reported
- * and the loop continues; there is nothing to retry and nothing to remember.
- *
- * **A HAND-OVER IS CHECKED AGAIN, IMMEDIATELY BEFORE IT IS MADE.** #1149
- * measured a 78-minute-old tick reading that handed a merged, refless branch
- * to an agent. `handOverCheck` reads the reading's age plus a fresh
- * `remoteHead` and `queuedHasLanded`, asked only for a branch about to be
- * handed over — at most this tick's free agents. Every answer but
- * `hand-over` withholds the write and reports why; nothing is retried or
- * remembered, the same recovery a failed `assignSlice` call already gets.
- *
- * @param report - what the tick decided.
- * @param performer - what starts an agent on this machine.
- * @param world - what a hand-over is checked against, asked fresh per branch.
- * @param write - where the started agents are reported.
- * @param warn - where a start that could not be made is reported.
- * @returns how many agents were actually started.
- */
-/**
  * Proves the configured `Worker command` can write before `startAgents` hands
  * any `worker-start` write over to it.
  *
@@ -1436,6 +1396,46 @@ export const probeBeforeStarting = async (
   return outcome.answer === 'proceed';
 };
 
+/**
+ * Applies the tick's `agent-assign` and `worker-start` writes — what this
+ * daemon performs.
+ *
+ * **IT APPLIES TWO KINDS AND SKIPS EVERY OTHER.** The tick names reaps, blocked
+ * markers and corrections too, and none of them is performed here, so a write
+ * it does not own is left for whoever does. Naming the kind rather than falling
+ * through a default is `perform-fs.ts`'s discipline — *skipped on purpose* and
+ * *a kind the author forgot* look identical from inside a loop.
+ *
+ * **`agent-assign` WAS THE SECOND KIND AND IT WAS MISSING.** Measured
+ * 2026-09-06: a tick reported `handed=8` while all eight agents stayed
+ * `branch: ""`, because this loop filtered to `worker-start` alone. Six were
+ * written into their manifests by hand, twice in one day. A summary naming a
+ * write nobody makes is worse than no summary.
+ *
+ * **THE ASSIGNMENT GOES FIRST**, so an agent started by this same pass is not
+ * handed a slice in the pass that created it. `matchQueue` read the fleet as it
+ * was; a new desk was not in that reading and must wait for the next one.
+ *
+ * **A START THAT FAILS COSTS ONE TICK.** The next tick re-derives the queue and
+ * the fleet from disk and reaches the same decision if the shortage is still
+ * there, which is the same recovery a `kill -9` gets. So a failure is reported
+ * and the loop continues; there is nothing to retry and nothing to remember.
+ *
+ * **A HAND-OVER IS CHECKED AGAIN, IMMEDIATELY BEFORE IT IS MADE.** #1149
+ * measured a 78-minute-old tick reading that handed a merged, refless branch
+ * to an agent. `handOverCheck` reads the reading's age plus a fresh
+ * `remoteHead` and `queuedHasLanded`, asked only for a branch about to be
+ * handed over — at most this tick's free agents. Every answer but
+ * `hand-over` withholds the write and reports why; nothing is retried or
+ * remembered, the same recovery a failed `assignSlice` call already gets.
+ *
+ * @param report - what the tick decided.
+ * @param performer - what starts an agent on this machine.
+ * @param world - what a hand-over is checked against, asked fresh per branch.
+ * @param write - where the started agents are reported.
+ * @param warn - where a start that could not be made is reported.
+ * @returns how many agents were actually started.
+ */
 export const startAgents = async (
   report: TickReport,
   performer: Performer,

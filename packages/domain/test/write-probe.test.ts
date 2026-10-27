@@ -7,6 +7,7 @@ import { answered, failed, unaskable, type PortResult } from '../src/port-result
 import {
   type WriteProbeReading,
   flagMissingFromPrint,
+  probeRunReading,
   promptPrintsInvocation,
   stalePrintReason,
   writeProbeAnswer,
@@ -117,5 +118,22 @@ describe('writeProbeOutcome — one answer for both callers', () => {
     expect(outcome.message).toContain('launches with --permission-mode');
     expect(outcome.message).toContain('skills/plot/templates/worker-prompt.sh');
     expect(outcome.message).not.toMatch(/permissions, then try again/);
+  });
+});
+
+describe('probeRunReading — only a clean exit without the marker is no (#2778)', () => {
+  it('answers no for exit 0 and no marker', () => {
+    expect(probeRunReading({ code: 0 }, false)).toBe('no');
+  });
+
+  it('answers unanswerable for a non-zero exit, a signal or a timeout without the marker', () => {
+    expect(probeRunReading({ code: 1 }, false)).toBe('unanswerable');
+    expect(probeRunReading({ code: 1, interrupted: 'signal' }, false)).toBe('unanswerable');
+    expect(probeRunReading({ code: 1, interrupted: 'timeout' }, false)).toBe('unanswerable');
+  });
+
+  it('answers yes whenever the marker exists', () => {
+    expect(probeRunReading({ code: 0 }, true)).toBe('yes');
+    expect(probeRunReading({ code: 1 }, true)).toBe('yes');
   });
 });
