@@ -13,6 +13,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2748 merged
+- **Started:** 2026-10-27, Jan Wloka, `feature/bundle-entries-end-through-a-drain`
 
 ## Changelog
 
