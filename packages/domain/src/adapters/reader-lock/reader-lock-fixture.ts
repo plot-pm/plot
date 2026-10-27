@@ -99,6 +99,12 @@ export const readerLockFixture = (options: ReaderLockFixtureOptions = {}): Reade
       return answered(undefined);
     },
 
+    removeHeartbeat: async (key: string, name: string): Promise<PortResult<void>> => {
+      if (options.broken === true) return failed<void>();
+      heartbeatsByKey.get(key)?.delete(name);
+      return answered(undefined);
+    },
+
     heartbeats: async (key: string): Promise<PortResult<readonly { name: string; at: number }[]>> => {
       if (options.broken === true) return failed<readonly { name: string; at: number }[]>();
       const beats = heartbeatsByKey.get(key);

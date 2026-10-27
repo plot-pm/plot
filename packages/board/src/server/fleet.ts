@@ -38,8 +38,13 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
+import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
+import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
+import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
+import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
+import { logDir } from '@plot-pm/fleet/shared/process-log';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
 // is asserted as arithmetic in `packages/domain/test/cadence.test.ts` rather
@@ -80,7 +85,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { issueIndexFile, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
@@ -570,6 +575,8 @@ export interface CacheEntry {
    * no history to show.
    */
   runs: Map<string, StuckRun[]>;
+  /** Who read PRs on the last tick — `fleet`, `reader <pid>`, or `this board`; see {@link whoReadsPrs}. */
+  prReader: string;
   prAt: number | null;
   prError: string | null;
   /**
@@ -2258,6 +2265,12 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
 /**
  * Whether the fleet owns the PR index: the supervisor reads `up` and the bridge
  * is fresh. The same signal as the scan's, so one fleet answers both.
+ *
+ * Issues only, since `the-boards-share-one-pr-reader`: the PR read's own
+ * ownership question is {@link electReader}'s, over the reader lock rather
+ * than the scan's supervisor/bridge pair. This gate stays exactly as it was
+ * for {@link issueCadence} and `readIssuesFromStore`'s dispatch — nothing
+ * here moves PRs back onto it.
  */
 const fleetOwnsPrs = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<boolean> => {
   const bridge = await fleetStateFor(opts).read();
@@ -2265,14 +2278,132 @@ const fleetOwnsPrs = async (opts: BuildBoardOptions, entry: CacheEntry): Promise
   return fleetOwnsScan({ supervisor: entry.supervisor, bridgeAt: bridge.value.at, now: Date.now() });
 };
 
+/** The bundle a board starts as its machine's PR reader, relative to the scripts directory. */
+export const PR_READER_BUNDLE = 'board/plot-pr-reader.mjs';
+
 /**
- * Serves the maps the fleet's last fold left in the store, and asks the host
- * nothing. CI runs are still read here: the board owns them.
+ * The reader lock's key for these options: the connector `resolveBackend`
+ * resolves, scoped to one repository by the adapter itself — never derived
+ * here a second way.
  */
-const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+const readerLockKey = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<string> => resolveBackend(entry, hostFor(opts));
+
+/**
+ * The `.plot/state/index/` directory this repository's reader lock lives
+ * under, resolved by the lock adapter's own `readerLockIndexDir`: an explicit
+ * `PLOT_PR_INDEX_HOME` first, then the COMMON git dir, `realpath`d. A spawned
+ * reader receives this string over argv, so it opens the lock the board just
+ * elected over.
+ *
+ * @returns the absolute index directory, or `null` where this is not a git
+ *   repository or its common dir cannot be resolved.
+ */
+const indexDirFor = (opts: BuildBoardOptions): Promise<string | null> => readerLockIndexDir({ cwd: opts.repoRoot });
+
+/**
+ * Whether a live `fleetd` heartbeat already reads PRs under this lock — the
+ * one check the board's spawn guard and the reader's own exit check must read
+ * identically, per the brief, so the board never starts a second reader while
+ * fleetd already holds.
+ */
+const fleetdHeartbeatIsLive = async (lock: ReaderLock, key: string, now: number): Promise<boolean> => {
+  const held = await lock.heartbeats(key);
+  if (!held.ok) return false;
+  return held.value.some((h) => h.name === 'fleetd' && heartbeatIsFresh(h.at, now));
+};
+
+/**
+ * Creates `dir` one level at a time below `root`, and never creates `root`.
+ *
+ * @param root - a directory that must already exist.
+ * @param dir - the directory to create, at or below `root`.
+ * @returns `true` where `dir` exists afterwards; `false` where `root` or a
+ *   level above `dir` is missing, or a `mkdir` fails for another reason.
+ */
+const ensureBelowRoot = (root: string, dir: string): boolean => {
+  let at = root;
+  for (const segment of path.relative(root, dir).split(path.sep).filter((s) => s !== '')) {
+    at = path.join(at, segment);
+    try {
+      fs.mkdirSync(at);
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'EEXIST') return false;
+    }
+  }
+  return fs.existsSync(dir);
+};
+
+/** The reader this board process last started per repository, index directory and connector, and when. */
+const startedReaders = new Map<string, { child: DetachedProcess; at: number }>();
+
+/**
+ * Starts this machine's PR reader for `key`, unless the reader this board
+ * process last started for the same key still runs, or started less than
+ * {@link HEARTBEAT_STALE_MS} ago. The bound limits a reader that exits at
+ * once to one start per bound. Mirrors `handleNeedsDesign`'s spawn shape: the
+ * `Detached` port starts the bundle, logging to
+ * `<repoRoot>/.plot/logs/pr-reader.log`, truncated at each start.
+ *
+ * Starts nothing where `repoRoot` no longer exists: the log directory is
+ * created one level at a time below `repoRoot`, never `repoRoot` itself, so a
+ * start after the repository was removed recreates nothing.
+ *
+ * @param opts - the board's options.
+ * @param key - the reader lock's key.
+ * @param indexDir - the lock directory handed to the reader.
+ * @param now - epoch milliseconds.
+ */
+const startReader = (opts: BuildBoardOptions, key: string, indexDir: string, now: number): void => {
+  const guardKey = `${opts.repoRoot}\0${indexDir}\0${key}`;
+  const last = startedReaders.get(guardKey);
+  if (last !== undefined && (last.child.exitCode() === null || now - last.at < HEARTBEAT_STALE_MS)) return;
+  const log = path.join(logDir(opts.repoRoot), 'pr-reader.log');
+  const script = path.join(opts.scriptsDir, PR_READER_BUNDLE);
+  if (!ensureBelowRoot(opts.repoRoot, path.dirname(log))) return;
+  const child = detachedFor(opts).node(script, ['--lock-dir', indexDir, '--connector', key], opts.repoRoot, log);
+  startedReaders.set(guardKey, { child, at: now });
+};
+
+/**
+ * This board's own verdict on the reader lock: `elect` where no claim is held,
+ * this process already holds it, or the holder is stale; `follow` where a
+ * live holder is someone else; `unknown` where the lock could not be read.
+ *
+ * The board never calls `ReaderLock.elect`; it reads `holder()` and asks
+ * {@link electReader} what the claim means. The holder's liveness comes from
+ * `probe.alive` (`kill(pid, 0)`), so a claim whose pid has exited reads
+ * `elect` at once, and a claim from a live pid reads `elect` once it is older
+ * than `READER_STALE_MS`. The start time is not read (`null`), which skips the
+ * pid-reuse check and leaves a reused pid to the age bound — the same reading
+ * `readerLockFile`'s own `elect` makes.
+ */
+const electBoardVerdict = async (
+  lock: ReaderLock,
+  probe: ProcessProbe,
+  key: string,
+  now: number,
+): Promise<{ verdict: ReaderVerdict; held: ReaderClaim | null }> => {
+  const held = await lock.holder(key);
+  if (!held.ok) return { verdict: 'unknown', held: null };
+  const alive = held.value === null ? null : probe.alive(held.value.pid);
+  const verdict = electReader(held.value, true, process.pid, alive, null, now);
+  return { verdict, held: held.value };
+};
+
+/**
+ * Serves the maps the reader's last fold left in the store, and asks the host
+ * nothing. CI runs are still read here: the board owns them.
+ *
+ * `prError`/`prNextAt`/`prNextIsBackoff`/`prFullReadFailedAt` come from
+ * {@link ReaderLock.readerState}, the one process reading PRs' own published
+ * cadence — never the fleet bridge, which only `fleetd` ever writes and which
+ * a machine-local reader never touches.
+ */
+const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key: string): Promise<void> => {
   const startedAt = Date.now();
   const backend = await resolveBackend(entry, hostFor(opts));
   const held = await prStoreFor(opts.repoRoot).read(backend);
+  const published = await readerLockFor(opts).readerState(key);
   if (!held.ok || held.value === null) {
     // Nothing to serve and nothing served before: say so rather than keep the
     // `null` a fleet-less run left, which reads as a healthy reader.
@@ -2282,14 +2413,34 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): Pro
     applyPrMaps(entry, maps);
     const at = Date.parse(held.value.at);
     entry.prAt = Number.isNaN(at) ? startedAt : at;
-    // The fleet is the one process that asks the host here, so its last failure
-    // is the board's. Carried on the bridge; null where the bridge is absent.
-    const bridge = await fleetStateFor(opts).read();
-    entry.prError = bridge.ok && bridge.value !== null ? bridge.value.prError : null;
     await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
   }
-  entry.prNextAt = startedAt + PR_REFRESH_MS;
-  entry.prNextIsBackoff = false;
+  if (published.ok && published.value !== null) {
+    entry.prError = published.value.prError;
+    entry.prNextAt = published.value.prNextAt;
+    entry.prNextIsBackoff = published.value.prNextIsBackoff;
+    entry.prFullReadFailedAt = published.value.prFullReadFailedAt;
+  } else {
+    entry.prNextAt = startedAt + PR_REFRESH_MS;
+    entry.prNextIsBackoff = false;
+  }
+};
+
+/**
+ * Who reads PRs for this board right now, for display: `fleet` where
+ * `fleetd`'s own heartbeat is live under the lock, `reader <pid>` where the
+ * board follows another process's claim, or `this board` where the board
+ * serves this tick from its own overlay.
+ *
+ * @param held - the lock's highest claim, or null where it names none.
+ * @param verdict - the board's own verdict over that claim.
+ * @param fleetdLive - whether a fresh `fleetd` heartbeat exists under the lock.
+ * @returns the display label.
+ */
+export const whoReadsPrs = (held: ReaderClaim | null, verdict: ReaderVerdict, fleetdLive: boolean): string => {
+  if (fleetdLive) return 'fleet';
+  if (held !== null && verdict === 'follow') return `reader ${held.pid}`;
+  return 'this board';
 };
 
 /**
@@ -2332,30 +2483,94 @@ export const refreshPrs = async (
  * is still compared exactly and still holds for its full delay; the tolerance
  * applies only to the ordinary cadence, where the timer and the gate are two
  * clocks trying to agree on the same instant.
+ *
+ * ELECTS OVER THE READER LOCK FIRST, NEVER OVER `fleetOwnsPrs`. The board
+ * never calls `ReaderLock.elect` — only {@link electBoardVerdict}'s read-only
+ * `holder()` + `electReader` — so this function only ever asks "would I win",
+ * never claims the lock itself:
+ *
+ *   * `elect` — no live holder, or this reads as the one that would win. The
+ *     board serves this tick from its own overlay, same as a fleet-less run
+ *     always has, and starts this machine's reader unless a live `fleetd`
+ *     heartbeat already reads for this lock (checked separately, since
+ *     `electReader`'s own staleness math uses a ten-minute claim bound while
+ *     the spawn guard needs the tighter, heartbeat-age-only bound the reader's
+ *     own exit check uses).
+ *   * `follow` — a live holder is someone else. Served from the index store
+ *     via {@link readPrsFromStore}, which now reads its cadence fields from
+ *     the reader lock's published state rather than the fleet bridge.
+ *   * `unknown` — the lock itself could not be read. Served from the
+ *     overlay, same as `elect`, but nothing is started: a lock this board
+ *     cannot read is a lock a spawned reader could not elect over either.
+ *
+ * A board whose git host answers no backend has no connector to key a lock
+ * by: it reads and writes no lock, starts no reader, and serves its own
+ * overlay.
+ *
+ * Every tick writes this board's own heartbeat, also while the PR gate is
+ * closed, and an open tick writes it before any read, whether it follows,
+ * starts a reader, or serves its own overlay, so the reader this tick may
+ * have started counts this board as a live follower on its first exit check.
+ *
+ * Issues do not follow the verdict: they come from the issue index while a
+ * fleet runs and from the host otherwise.
  */
 export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
-  if (entry.prRunning || !prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) return;
+  if (entry.prRunning) return;
+  if (!prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) {
+    // A CLOSED GATE STILL HEARTBEATS. During a reader backoff longer than
+    // HEARTBEAT_STALE_MS, a board that wrote no heartbeat would read as gone,
+    // and the reader would exit while this board still follows it.
+    if (entry.backend !== null && entry.backend !== '') await readerLockFor(opts).heartbeat(entry.backend, `board.${process.pid}`, Date.now());
+    return;
+  }
   entry.prRunning = true;
   try {
-    if (await fleetOwnsPrs(opts, entry)) {
-      await readPrsFromStore(opts, entry);
-      await readIssuesFromStore(opts, entry);
-      return;
+    const lock = readerLockFor(opts);
+    const key = await readerLockKey(opts, entry);
+    const now = Date.now();
+    if (key === '') {
+      // NO GIT HOST ANSWERED: no connector names a lock, so the board elects
+      // nothing, heartbeats nothing and starts no reader. It serves its own
+      // overlay, as a board with no reader does.
+      entry.prReader = whoReadsPrs(null, 'unknown', false);
+      await refreshPrs(opts, entry, overlayFor(opts, entry));
+    } else {
+      const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
+      const fleetdLive = await fleetdHeartbeatIsLive(lock, key, now);
+      entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
+      // BEFORE ANY READ, so a reader started on this tick already counts this
+      // board on its first exit check, and a tick that throws still leaves it.
+      await lock.heartbeat(key, `board.${process.pid}`, now);
+      if (verdict === 'follow') {
+        await readPrsFromStore(opts, entry, key);
+      } else {
+        if (verdict === 'elect' && !fleetdLive) {
+          const indexDir = await indexDirFor(opts);
+          if (indexDir !== null) startReader(opts, key, indexDir, now);
+        }
+        // NO READER CONFIRMED LIVE: the board asks the host itself and folds the
+        // answer in memory, so the store stays the reader's to write. Inferred
+        // from the lock's own holder, which is the only liveness signal this
+        // function reads for PRs now.
+        await refreshPrs(opts, entry, overlayFor(opts, entry));
+      }
     }
-    // NO FLEET RUNS: the board asks the host itself and folds the answer in
-    // memory, so the store stays the fleet's to write. Inferred from the pulse
-    // answer, which is the only liveness signal the board reads.
-    await refreshPrs(opts, entry, overlayFor(opts, entry));
-    // Inside the PR tick, behind the issue read's own gate (`issueNextAt`,
-    // `issueIntervalMs`), whose spend `refreshPrs` subtracts through
-    // `issueGate`. A rate limit either read names holds both gates. Sequential
-    // rather than concurrent: two calls at one instant is what a rate limit
-    // counts.
+    // ISSUES FOLLOW THE FLEET, NOT THE PR LOCK. The reader reads PRs only, and
+    // fleetd is the one writer of the issue index, so the index is served
+    // only while a fleet runs (`fleetOwnsScan` over the bridge); otherwise the
+    // board asks the host itself, whatever the PR verdict.
     //
-    // After, and outside `refreshPrs`, because the two fail independently: a
+    // Behind the issue read's own gate (`issueNextAt`, `issueIntervalMs`),
+    // whose spend `refreshPrs` subtracts through `issueGate`. A rate limit
+    // either read names holds both gates. Sequential rather than concurrent:
+    // two calls at one instant is what a rate limit counts.
+    //
+    // After, and outside the PR read, because the two fail independently: a
     // tracker outage must not blank the PR map, and a PR failure must not
     // retract the inbox.
-    if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
+    if (await fleetOwnsPrs(opts, entry)) await readIssuesFromStore(opts, entry);
+    else if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
   }
@@ -2678,7 +2893,7 @@ export function freshCacheEntry(): CacheEntry {
     supervisor: undefined,
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
-    prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, appliedBridgeAt: null, prSpendPerHour: null,
+    prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prReader: 'this board', prAt: null, prError: null, appliedBridgeAt: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
     prLimit: null, prFullReadFailedAt: null, prPendingReaskStreak: new Map(), prReaskAt: new Map(),
     prLimitBasis: 'unknown',
@@ -7406,6 +7621,7 @@ export async function buildFleet(
     // A counter incremented in parallel with a classification is a second
     // implementation of it, and the two drift the first time a state is added.
     stuck: summarizeStuck(rows.map((r) => r.stuck)),
+    prReader: entry.prReader,
     prAgeSeconds: entry.prAt === null ? null : Math.round((now - entry.prAt) / 1000),
     // The cadence `prAgeSeconds` is measured against — `entry.prIntervalMs`
     // rather than the module constant, because `scheduleNextPr` stretches it

@@ -1,4 +1,4 @@
-// Bundles the fleet's seven entries to packages/fleet/dist/.
+// Bundles the fleet's eight entries to packages/fleet/dist/.
 //
 // `packages/board/build.mjs` calls `buildFleetBundles` and copies each bundle
 // to its shipped path under skills/plot/scripts/board/. The board's file keeps
@@ -19,6 +19,7 @@ export const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
 export const dispatchCommandArtifact = path.join(here, 'dist/plot-dispatch-command.mjs');
 export const continueCommandArtifact = path.join(here, 'dist/plot-continue-command.mjs');
 export const deskLoopArtifact = path.join(here, 'dist/plot-desk-loop.mjs');
+export const prReaderArtifact = path.join(here, 'dist/plot-pr-reader.mjs');
 
 const SHARED_OPTIONS = {
   bundle: true,
@@ -31,11 +32,11 @@ const SHARED_OPTIONS = {
 };
 
 /**
- * Builds the seven fleet bundles into this package's `dist/`.
+ * Builds the eight fleet bundles into this package's `dist/`.
  *
  * Creates `dist/` when it is absent and writes nothing outside it.
  *
- * @returns a promise that resolves when all seven bundles are written, and
+ * @returns a promise that resolves when all eight bundles are written, and
  *   rejects with esbuild's error when one fails to build.
  */
 export const buildFleetBundles = async () => {
@@ -105,10 +106,18 @@ export const buildFleetBundles = async () => {
     entryPoints: [path.join(here, 'src/server/entry/desk-loop.ts')],
     outfile: deskLoopArtifact,
   });
+
+  // The PR reader a board starts when no fleetd holds the lock: one `fleetPrs`
+  // loop, driven by `startPulse` directly, with no scan and no issue read.
+  await esbuild.build({
+    ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/pr-reader.ts')],
+    outfile: prReaderArtifact,
+  });
 };
 
 // Runs when invoked as `node build.mjs`, and not when imported.
 if (import.meta.url === `file://${process.argv[1]}`) {
   await buildFleetBundles();
-  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-desk-loop.mjs → dist/');
+  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs, plot-desk-loop.mjs, plot-pr-reader.mjs → dist/');
 }

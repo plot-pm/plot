@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fleetStateFile, issueIndexFile } from '@plot-pm/domain/adapters';
+import { fleetStateFile, issueIndexFile, readerLockFixture } from '@plot-pm/domain/adapters';
 import { ISSUE_INDEX_VERSION, type IssueIndex } from '@plot-pm/domain';
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
@@ -67,7 +67,17 @@ const fixture = (tracker = '') => {
   vi.stubEnv('PLOT_ISSUE_INDEX_HOME', path.join(dir, 'issue-index'));
   const issueListed = (): number =>
     fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter((l) => l === 'issue-list').length : 0;
-  return { dir, opts: { repoRoot: dir, scriptsDir: dir }, issueListed };
+  // A fleet owning the PR lock holds a live `fleetd` claim and heartbeat, the
+  // same pair `fleetPrs` itself publishes on every pass — without it,
+  // `electBoardVerdict` reads `elect` rather than `follow` and the board asks
+  // the host on its own instead of serving the issue index these tests exercise.
+  const readerLock = readerLockFixture();
+  const now = Date.now();
+  // The parent's pid: a live process that is not this one, so the board's
+  // `kill(pid, 0)` reads the claim's holder as alive.
+  void readerLock.elect('github', { generation: 0, pid: process.ppid, startedAt: now - 60_000, at: now });
+  void readerLock.heartbeat('github', 'fleetd', now);
+  return { dir, opts: { repoRoot: dir, scriptsDir: dir, readerLock }, issueListed };
 };
 
 /** An answered index of `n` open issues numbered from 1. */

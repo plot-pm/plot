@@ -4381,6 +4381,17 @@ export const FleetShape = z.object({
     ci: z.number(),
   }).default({ stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 }),
   /**
+   * Who read PRs on this board's last tick: `fleet` where `fleetd`'s own
+   * heartbeat is live under the reader lock, `reader <pid>` where a live
+   * non-`fleetd` claim holds it, or `this board` where the lock names no
+   * live holder.
+   *
+   * Defaulted, not optional: an older server that predates the reader lock
+   * has no concept of this field, and `this board` is the one answer that was
+   * already true of every board before the lock existed.
+   */
+  prReader: z.string().default('this board'),
+  /**
    * PR data ages separately from the pulse, because the two sources fail
    * separately. null means it has never landed — not that it is fresh.
    */

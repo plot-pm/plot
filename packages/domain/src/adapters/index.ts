@@ -124,6 +124,7 @@ export {
 // resolution and one symlink-collision fix.
 export {
   readerLockFile,
+  readerLockIndexDir,
   READER_LOCK_HOME_ENV,
   type ReaderLockFileOptions,
 } from './reader-lock/reader-lock-file.js';

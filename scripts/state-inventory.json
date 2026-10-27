@@ -15,6 +15,7 @@
     { "base": "pr-index", "glob": "*.lock/owner.*", "bound": "rotated", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts (elect prunes all but the two highest generations)" },
     { "base": "pr-index", "glob": "*.lock/.*.tmp", "bound": "spent", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
     { "base": "pr-index", "glob": "*.lock/board.*", "bound": "overwritten", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
+    { "base": "pr-index", "glob": "*.lock/reader.*", "bound": "removed on exit", "writer": "packages/fleet/src/server/entry/pr-reader.ts (run heartbeats through reader-lock-file.ts and removes its own on exit)" },
     { "base": "pr-index", "glob": "*.lock/fleetd", "bound": "overwritten", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
     { "base": "pr-index", "glob": "*.reader.json", "bound": "overwritten", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
     { "base": "pr-index", "glob": "*.reader.json.*.tmp", "bound": "spent", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },

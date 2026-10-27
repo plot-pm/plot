@@ -4,9 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rmTree } from '../helpers.mjs';
-import { fleetStateFile, bridgePath } from '@plot-pm/domain/adapters';
+import { fleetStateFile, bridgePath, readerLockFixture } from '@plot-pm/domain/adapters';
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
+import { READER_STATE_VERSION } from '@plot-pm/domain';
+import type { Detached } from '@plot-pm/domain';
 
 const fold = vi.hoisted(() => ({ calls: 0 }));
 vi.mock('@plot-pm/domain', async (importOriginal) => {
@@ -83,11 +85,35 @@ const fixture = (supervisorUp: boolean) => {
   execFileSync('git', ['init', '--quiet'], { cwd: dir });
   fs.mkdirSync(path.join(dir, 'pr-index'));
   vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
-  const opts = { repoRoot: dir, scriptsDir: dir };
+  // A fleet owning the PR lock holds a live `fleetd` claim and heartbeat, the
+  // same pair `fleetPrs` itself publishes on every pass; a board whose fixture
+  // simulates the fleet via the bridge alone would read `electBoardVerdict` as
+  // `elect` and ask the host on its own, which no real fleet ever leaves room for.
+  const readerLock = supervisorUp ? readerLockFixture() : undefined;
+  if (readerLock !== undefined) {
+    const now = Date.now();
+    // The parent's pid: a live process that is not this one, so the board's
+    // `kill(pid, 0)` reads the claim's holder as alive.
+    void readerLock.elect('github', { generation: 0, pid: process.ppid, startedAt: now - 60_000, at: now });
+    void readerLock.heartbeat('github', 'fleetd', now);
+  }
+  // Without a live reader-lock claim (supervisorUp: false), `maybeRefreshPrs`
+  // reads `elect` and would start a real machine reader through the real
+  // `Detached` adapter. A recording fake keeps that path in memory — the same
+  // seam `needs-design.test.ts` uses for its own spawn — so a test exercising
+  // `maybeRefreshPrs` alone never spawns a real `plot-pr-reader.mjs` process.
+  const detachedCalls: { script: string; args: readonly string[] }[] = [];
+  const detached: Detached = {
+    node: (script, args) => {
+      detachedCalls.push({ script, args });
+      return { pid: 1, exitCode: () => null };
+    },
+  };
+  const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
   const prListed = (): number => (fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter(Boolean).length : 0);
   const spawned = (): string[] => (fs.existsSync(scans) ? fs.readFileSync(scans, 'utf8').split('\n').filter(Boolean) : []);
   const supervisorReads = (): number => (fs.existsSync(path.join(dir, 'ctl.log')) ? fs.readFileSync(path.join(dir, 'ctl.log'), 'utf8').split('\n').filter(Boolean).length : 0);
-  return { dir, opts, spawned, prListed, supervisorReads };
+  return { dir, opts, spawned, prListed, supervisorReads, detachedCalls };
 };
 
 beforeEach(() => {
@@ -184,7 +210,7 @@ describe('the PR side of the board', () => {
   });
 
   it('alone, asks the host and folds in memory without writing the index', async () => {
-    const { dir, opts, prListed } = fixture(false);
+    const { dir, opts, prListed, detachedCalls } = fixture(false);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
     await refresh(opts, entry);
@@ -193,6 +219,10 @@ describe('the PR side of the board', () => {
     expect(entry.prsByNumber?.get(7)?.head).toBe('feature/a');
     const file = await prIndexFile({ cwd: dir }).location('github');
     expect(fs.existsSync(file.ok ? file.value : '')).toBe(false);
+    // No live fleetd heartbeat under this lock: the board's own verdict reads
+    // `elect`, and this proves it reached for the recording `Detached` fake
+    // rather than a real process — a board test run starts no real reader.
+    expect(detachedCalls).toHaveLength(1);
   });
 });
 
@@ -203,22 +233,30 @@ describe('the PR reader while a fleet runs', () => {
     await index.write('github', foldPrIndex(null, { connector: 'github', rows: [heldRow], kind: 'whole', at: new Date().toISOString() }));
   };
 
-  it('shows the fleet\'s last PR error beside the maps it served', async () => {
+  it('shows the reader\'s last PR error beside the maps it served', async () => {
     const { dir, opts } = fixture(true);
     await seedStore(dir);
-    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000, 'gh: HTTP 502'));
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const now = Date.now();
+    await opts.readerLock?.writeReaderState('github', {
+      v: READER_STATE_VERSION, prError: 'gh: HTTP 502', prNextAt: now + 60_000, prNextIsBackoff: false, prFullReadFailedAt: now, at: now,
+    });
     const entry = freshCacheEntry();
     await refresh(opts, entry);
     await maybeRefreshPrs(opts, entry);
     expect(entry.prError).toBe('gh: HTTP 502');
   });
 
-  it('clears the error once the fleet bridges none', async () => {
+  it('clears the error once the reader publishes none', async () => {
     const { dir, opts } = fixture(true);
     await seedStore(dir);
     const entry = freshCacheEntry();
     entry.prError = 'old';
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const now = Date.now();
+    await opts.readerLock?.writeReaderState('github', {
+      v: READER_STATE_VERSION, prError: null, prNextAt: now + 60_000, prNextIsBackoff: false, prFullReadFailedAt: null, at: now,
+    });
     await refresh(opts, entry);
     await maybeRefreshPrs(opts, entry);
     expect(entry.prError).toBeNull();

@@ -68,6 +68,8 @@ export default defineConfig({
           // Takes neither a port nor a browser.
           name: 'parallel',
           include: ['test/unit/**/*.test.ts'],
+          // Fails a test that reaches the real `Detached` adapter.
+          setupFiles: ['test/unit/setup/no-real-detached.ts'],
           testTimeout,
           hookTimeout,
           fileParallelism: true,

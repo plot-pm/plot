@@ -129,6 +129,14 @@ describe('readerLockFixture', () => {
     expect(answer(await lock.heartbeats('bitbucket'))).toEqual([{ name: 'fleetd', at: 1_756_700_000_500 }]);
   });
 
+  it('removes one heartbeat by name and keeps the others', async () => {
+    const lock = readerLockFixture();
+    answer(await lock.heartbeat('github', 'reader.11', 1_756_700_000_000));
+    answer(await lock.heartbeat('github', 'fleetd', 1_756_700_000_500));
+    answer(await lock.removeHeartbeat('github', 'reader.11'));
+    expect(answer(await lock.heartbeats('github'))).toEqual([{ name: 'fleetd', at: 1_756_700_000_500 }]);
+  });
+
   it('reads no heartbeats where none were written, rather than failed', async () => {
     const lock = readerLockFixture();
     expect(answer(await lock.heartbeats('github'))).toEqual([]);
@@ -154,5 +162,6 @@ describe('readerLockFixture', () => {
     ).toBe(false);
     expect(isAnswered(await lock.heartbeat('github', 'fleetd', 1))).toBe(false);
     expect(isAnswered(await lock.heartbeats('github'))).toBe(false);
+    expect(isAnswered(await lock.removeHeartbeat('github', 'fleetd'))).toBe(false);
   });
 });

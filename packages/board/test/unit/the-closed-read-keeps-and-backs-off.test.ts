@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fleetStateFile, issueIndexFile } from '@plot-pm/domain/adapters';
+import { fleetStateFile, issueIndexFile, readerLockFixture } from '@plot-pm/domain/adapters';
+import type { Detached } from '@plot-pm/domain';
 import { ISSUE_INDEX_VERSION, type IssueIndex } from '@plot-pm/domain';
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
@@ -103,7 +104,21 @@ const fixture = () => {
     fs.existsSync(hosts)
       ? fs.readFileSync(hosts, 'utf8').split('\n').filter((l) => l.startsWith('issue-list') && l.includes('--state closed')).length
       : 0;
-  return { dir, opts: { repoRoot: dir, scriptsDir: dir }, closedCalls, script };
+  // This file's issue tests never exercise the PR-reader election path on
+  // purpose, but `ensureCache` fires `maybeRefreshPrs` on first build
+  // regardless — a real git repo here with no fake lock/detached seam would
+  // otherwise spawn a real `plot-pr-reader.mjs` process on every test. A
+  // fixture `readerLock` and a recording `detached` keep that path entirely
+  // in memory, matching the seam `needs-design.test.ts` uses for its own spawn.
+  const readerLock = readerLockFixture();
+  const detachedCalls: { script: string; args: readonly string[] }[] = [];
+  const detached: Detached = {
+    node: (script_, args) => {
+      detachedCalls.push({ script: script_, args });
+      return { pid: 1, exitCode: () => null };
+    },
+  };
+  return { dir, opts: { repoRoot: dir, scriptsDir: dir, readerLock, detached }, closedCalls, script, detachedCalls };
 };
 
 /** The board's cache entry, with the pulse's first pass finished so it cannot overwrite what a test sets. */
