@@ -241,14 +241,15 @@ index_answered() { # $1=answer line
 }
 
 # Which branches the index could NOT answer AND which carry no annotation.
-# Only those are named to the host below, and only a non-empty set fetches
+# Only those are named to the host below, as the repeated `--branch` arguments
+# the one pr-list call below takes — and only a non-empty BRANCH_ARGS fetches
 # anything at all.
 POS=0
-UNRESOLVED_UNANNOTATED=""
+BRANCH_ARGS=()
 for BR in $BRANCH_LINES; do
   POS=$((POS + 1))
   index_answered "$(index_answer_for "$POS")" && continue
-  [ -z "$(annotation_for "$BR")" ] && UNRESOLVED_UNANNOTATED="${UNRESOLVED_UNANNOTATED:+$UNRESOLVED_UNANNOTATED }$BR"
+  [ -z "$(annotation_for "$BR")" ] && BRANCH_ARGS+=(--branch "$BR")
 done
 
 # The merged-PR head list, fetched ONCE for the whole plan — one `pr-list` call
@@ -273,11 +274,9 @@ done
 # scales with how many branches are unresolved. On GitHub several `--branch`
 # values still filter the one listing call server-side.
 MERGED_HEADS=""
-if [ -n "$UNRESOLVED_UNANNOTATED" ]; then
+if [ "${#BRANCH_ARGS[@]}" -gt 0 ]; then
   # --limit 500: the host CLI pages at 30 by default, too shallow to reach an
   # old plan's merge; the same headroom plot-reconcile-scan.sh uses.
-  BRANCH_ARGS=()
-  for BR in $UNRESOLVED_UNANNOTATED; do BRANCH_ARGS+=(--branch "$BR"); done
   MERGED_HEADS=$(bash "$HERE/plot-host.sh" pr-list --state merged --limit 500 "${BRANCH_ARGS[@]}" 2>/dev/null \
     | jq -r 'select((.state // "MERGED") | ascii_upcase == "MERGED") | "\(.number)\t\(.head)"' 2>/dev/null || true)
 fi
