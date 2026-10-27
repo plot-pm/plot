@@ -823,6 +823,13 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
   # which `${VAR:+…}` reads as nothing — so a broken config cannot stop a brief
   # being written.
   _brief_settings="$(bash "$(dirname "${BASH_SOURCE[0]}")/plot-agent-settings.sh" 2>/dev/null || echo "")"
+  # THE SPAWN CONTRACT, READ FROM THE BUNDLE — not hand-constructed, so a gate
+  # version bump changes one number in one file (spawn-contract.ts) and every
+  # spawner, including this shell one, picks it up with no shell edit. `export`
+  # ahead of `exec`, never a `${var:+VAR=...}` prefix: bash recognises an
+  # assignment prefix before expanding parameters, so that conditional form is
+  # not an assignment at all and fails `command not found` on the non-empty case.
+  export PLOT_SPAWN_CONTRACT="$(node "$script_dir/board/plot-prompt.mjs" --background-gate 2>/dev/null | sed -n "s/^export PLOT_SPAWN_CONTRACT='\\(.*\\)'$/\\1/p")"
   ( set -m; cd "$repo_root" \
     && PLOT_UNATTENDED=1 PLOT_MAIN_CHECKOUT_WRITER=1 PLOT_PLAN_SLUG="$bslug" PLOT_BRIEF_BRANCH="$branch" \
        PLOT_AGENT_SETTINGS="$_brief_settings" \
@@ -1096,8 +1103,7 @@ ask_start_command() { # $1 = free | assigned
 }
 
 start_worker() {
-  local branch="$1" wt="$2"
-  local cmd
+  local branch="$1" wt="$2" cmd
 
   # THE PLAN IS THE DEFAULT AND THE FLAG IS THE OVERRIDE.
   #

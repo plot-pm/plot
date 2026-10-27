@@ -25,6 +25,7 @@ import type { AgentRun, AgentRunRequest, AgentRunResult } from '../../ports/agen
 import type { BoundedRun } from '../../ports/bounded-run.js';
 import { backgroundGateEnv } from '../../rules/agent-run-env.js';
 import { promptExit, type LimitPatterns } from '../../rules/prompt-exit.js';
+import { spawnContractEnv } from '../../rules/spawn-contract.js';
 
 /** What this adapter needs beyond the request itself. */
 export interface AgentRunCommandDeps {
@@ -64,7 +65,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', `${deps.fragment} "$@"`, '_', request.prompt],
       {
         cwd: request.worktree,
-        env: { ...request.env, ...backgroundGateEnv() },
+        env: { ...request.env, ...backgroundGateEnv(), ...spawnContractEnv() },
         boundSeconds: request.boundSeconds,
         outFile: request.logFile,
         onStarted: request.onStarted,

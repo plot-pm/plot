@@ -8,12 +8,14 @@
  * the environment. The caller decides whether a directory is a linked worktree.
  */
 import { programWords, withoutComments, withoutQuotes, wordBasename } from './ci-suite.js';
+import { SPAWN_CONTRACT, type SpawnContractReading } from './spawn-contract.js';
 
 /**
  * The variable a spawn sets to `1` when its agent writes the main checkout by
- * design: the `Brief command` and the implement, deliver, reslice and story
- * runs, which commit a brief, a `Started:` record or a plan there. A desk
- * worker's launch sets it empty.
+ * design: the `Brief command` and the deliver, reslice, story and auto-deliver
+ * runs, and the dispatch brief launch, which commit a brief, a `Started:`
+ * record or a plan there. A desk worker's launch sets it empty. The implement
+ * run does NOT set it (#2740, `a98afb890`, 2026-10-26, removed it there).
  */
 export const MAIN_CHECKOUT_WRITER_ENV = 'PLOT_MAIN_CHECKOUT_WRITER';
 
@@ -381,27 +383,106 @@ export const gitPushCalls = (command: string): readonly (readonly string[])[] =>
 };
 
 /**
+ * The desk-worktree instruction every main-checkout refusal gives, and the
+ * mixed-reset paragraph both arms of {@link mainCheckoutGateOf} can trigger.
+ *
+ * @param scriptDir - the absolute directory holding the plot scripts, so the
+ *   refusal names the desk helper by path.
+ * @returns the lines common to both refusals.
+ */
+const commonRefusalLines = (scriptDir: string): readonly string[] => [
+  'plot-main-checkout-gate: this command mutates git state in the MAIN checkout, not a desk worktree,',
+  '  and PLOT_UNATTENDED=1 marks the caller as an unattended agent. An unattended agent writes to its own',
+  '  worktree, never to the checkout the board reads.',
+  '',
+  `  Resolve the desk worktree first: . "${scriptDir}/plot-desk-root.sh"; plot_desk_root`,
+  '  then run this command with that path as the working directory (or `git -C <desk> ...`).',
+  '',
+  '  A mixed `git reset` (no --hard/--soft) moves HEAD and leaves the working tree behind it, so a later',
+  '  `git add -A` commits the reverse of the commits it skipped. Allowed: `git reset --hard <ref>` on files',
+  '  you own, or a re-cut in a disposable worktree.',
+];
+
+/** A {@link SpawnContractReading} that proves a skew: see {@link provenSkew}. */
+type SkewedReading = 'absent' | { readonly number: number };
+
+/**
+ * Whether `reading` proves this process's spawner carried a different
+ * {@link SPAWN_CONTRACT} number than this gate — `absent`, or a number that
+ * differs. `empty` and `unreadable` are "no information," not "stale," and
+ * prove nothing: treating them as `absent` would accuse a corrupted-but-not-
+ * stale environment of being a stale spawner.
+ *
+ * Narrows to {@link SkewedReading} so {@link spawnerSkewLines} never has to
+ * handle the `empty`/`unreadable` cases this function has already ruled out.
+ */
+const provenSkew = (reading: SpawnContractReading): reading is SkewedReading =>
+  reading === 'absent' || (typeof reading === 'object' && reading.number !== SPAWN_CONTRACT);
+
+/**
+ * The paragraph naming a proven spawn-contract skew: the spawner's number (or
+ * `none` for `absent`) against this gate's, and the instruction to stop and
+ * report rather than route around the refusal — the one sentence #2725's agent
+ * needed and did not have (#2728).
+ *
+ * @param reading - a reading {@link provenSkew} has already proven skewed.
+ * @returns the paragraph's lines, newest-spawner-direction included.
+ */
+const spawnerSkewLines = (reading: SkewedReading): readonly string[] => {
+  const spawner = reading === 'absent' ? 'none' : String(reading.number);
+  const direction = reading === 'absent' || reading.number < SPAWN_CONTRACT ? 'older' : 'newer';
+  return [
+    '',
+    `  The process that spawned this agent carried spawn contract ${spawner}, against this gate's ${SPAWN_CONTRACT} — it`,
+    `  loaded ${direction} gate-reading code than this gate. If this run writes the main checkout BY DESIGN`,
+    '  (deliver, reslice, story, auto-deliver or brief), stop and report this refusal rather than working',
+    '  around it: a stale spawner is the likely cause, not a mistake in this command.',
+  ];
+};
+
+/**
  * The refusal text for a mutating git call an unattended agent
  * (`PLOT_UNATTENDED=1`) ran against the main checkout.
+ *
+ * A proven spawn-contract skew ({@link provenSkew}) adds a paragraph naming
+ * both numbers and telling a by-design writer to stop and report rather than
+ * route around the refusal — and that paragraph's case DROPS the "disposable
+ * worktree" sentence below, because that sentence is what sent #2725's agent
+ * around the refusal instead of reporting it (#2728). `empty`, `unreadable`
+ * or an equal number add no such paragraph, and the sentence stays.
+ *
+ * @param scriptDir - the absolute directory holding the plot scripts, so the
+ *   refusal names the desk helper by path.
+ * @param reading - the gate's reading of its own spawn contract.
+ * @returns the text for stderr.
+ */
+export const mainCheckoutWriteRefusal = (scriptDir: string, reading: SpawnContractReading): string => {
+  const skewed = provenSkew(reading);
+  const lines = [
+    ...commonRefusalLines(scriptDir),
+    ...(skewed ? spawnerSkewLines(reading) : []),
+  ];
+  if (!skewed) {
+    lines.push(
+      '',
+      '  If this really is bookkeeping that belongs on the main checkout (e.g. advancing a shared ref), route it',
+      '  through a disposable worktree the way plot-dispatch.sh books its Started record, rather than writing here.',
+    );
+  }
+  lines.push('');
+  return lines.join('\n');
+};
+
+/**
+ * The refusal text for a mixed `git reset` ({@link strandsTree}) an
+ * unattended agent ran against the main checkout — the arm {@link
+ * gatesStrandingReset} fires regardless of {@link MAIN_CHECKOUT_WRITER_ENV},
+ * so a marked writer must never read a sentence about a missing marker when
+ * only this arm fired.
  *
  * @param scriptDir - the absolute directory holding the plot scripts, so the
  *   refusal names the desk helper by path.
  * @returns the text for stderr.
  */
-export const mainCheckoutWriteRefusal = (scriptDir: string): string =>
-  [
-    'plot-main-checkout-gate: this command mutates git state in the MAIN checkout, not a desk worktree,',
-    '  and PLOT_UNATTENDED=1 marks the caller as an unattended agent. An unattended agent writes to its own',
-    '  worktree, never to the checkout the board reads.',
-    '',
-    `  Resolve the desk worktree first: . "${scriptDir}/plot-desk-root.sh"; plot_desk_root`,
-    '  then run this command with that path as the working directory (or `git -C <desk> ...`).',
-    '',
-    '  A mixed `git reset` (no --hard/--soft) moves HEAD and leaves the working tree behind it, so a later',
-    '  `git add -A` commits the reverse of the commits it skipped. Allowed: `git reset --hard <ref>` on files',
-    '  you own, or a re-cut in a disposable worktree.',
-    '',
-    '  If this really is bookkeeping that belongs on the main checkout (e.g. advancing a shared ref), route it',
-    '  through a disposable worktree the way plot-dispatch.sh books its Started record, rather than writing here.',
-    '',
-  ].join('\n');
+export const strandingResetRefusal = (scriptDir: string): string =>
+  [...commonRefusalLines(scriptDir), ''].join('\n');

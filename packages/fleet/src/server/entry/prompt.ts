@@ -6,6 +6,7 @@
 import { readCharter, charterPath, type CharterReading } from '@plot-pm/domain/entities/charter';
 import { resolveLaunch, resolvePrompt } from '@plot-pm/domain/rules/prompt';
 import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
+import { spawnContractEnv } from '@plot-pm/domain/rules/spawn-contract';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -154,12 +155,14 @@ export const capabilities = (repoRoot: string, name: string): { text: string; re
 /**
  * The background gate every prompt run receives, as `export` lines that
  * `plot-worker-loop.sh` evaluates: `backgroundGateEnv`, the definition the SDK
- * runner and the JS loop read. Each value is single-quoted for the shell.
+ * runner and the JS loop read, plus the spawn contract ({@link
+ * spawnContractEnv}) every unattended spawn carries. Each value is
+ * single-quoted for the shell.
  *
  * @returns one `export NAME='VALUE'` line per variable.
  */
 export const backgroundGate = (): string =>
-  Object.entries(backgroundGateEnv())
+  Object.entries({ ...backgroundGateEnv(), ...spawnContractEnv() })
     .map(([name, value]) => `export ${name}='${value.replace(/'/g, `'\\''`)}'\n`)
     .join('');
 

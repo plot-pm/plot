@@ -19,9 +19,11 @@ import {
   gitWriteDirs,
   mainCheckoutWriteRefusal,
   mutatesGitState,
+  strandingResetRefusal,
   strandsTree,
   treeStrandingResetDirs,
 } from '@plot-pm/domain/rules/main-checkout-write';
+import { SPAWN_CONTRACT, spawnContractReading } from '@plot-pm/domain/rules/spawn-contract';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -506,7 +508,7 @@ export interface MainCheckoutReadings {
  *
  * Without `PLOT_UNATTENDED=1`, or with `PLOT_MAIN_CHECKOUT_WRITER=1`, it allows
  * everything and reads nothing ({@link gatesMainCheckout}): an interactive
- * session, and the brief, implement, deliver, reslice and story runs whose
+ * session, and the deliver, reslice, story, auto-deliver and brief runs whose
  * spawn sets the marker, commit in the main checkout by design. Otherwise
  * `wants` is a string test over {@link mutatesGitState}, so a read-only
  * command never reads git. `ask` reads, for each mutating call, the directory
@@ -518,7 +520,11 @@ export interface MainCheckoutReadings {
  *
  * A second arm ignores the marker: a mixed `git reset` in the main checkout is
  * refused for every unattended caller ({@link gatesStrandingReset}), because it
- * leaves the working tree behind `HEAD`.
+ * leaves the working tree behind `HEAD`. Each arm returns its OWN text: a
+ * marked writer whose mixed reset trips the second arm reads {@link
+ * strandingResetRefusal}, never a sentence about a missing marker it does
+ * carry; the first arm's {@link mainCheckoutWriteRefusal} additionally names a
+ * proven spawn-contract skew (#2728), read via {@link spawnContractReading}.
  */
 export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
   name: 'main-checkout',
@@ -528,10 +534,15 @@ export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     // A marked writer is exempt from the gate but not from the mixed-reset refusal.
-    const dirs = gatesMainCheckout(process.env) ? gitWriteDirs(command) : treeStrandingResetDirs(command);
+    const mainCheckoutArm = gatesMainCheckout(process.env);
+    const dirs = mainCheckoutArm ? gitWriteDirs(command) : treeStrandingResetDirs(command);
     for (const dir of dirs) {
       const where = await readings.where(dir === null ? cwd : resolve(cwd, dir), scriptDir);
-      if (where.root.ok && !where.linked) return mainCheckoutWriteRefusal(scriptDir);
+      if (where.root.ok && !where.linked) {
+        return mainCheckoutArm
+          ? mainCheckoutWriteRefusal(scriptDir, spawnContractReading(process.env))
+          : strandingResetRefusal(scriptDir);
+      }
     }
     return null;
   },
@@ -758,10 +769,16 @@ const readStdin = async (): Promise<string> => {
   return Buffer.concat(chunks).toString('utf8');
 };
 
-/** The CLI: `--list`, `--all`, or gate names. Writes refusals to stderr. */
+/** The CLI: `--list`, `--all`, `--spawn-contract`, or gate names. Writes refusals to stderr. */
 export const run = async (argv: readonly string[]): Promise<number> => {
   if (argv.includes('--list')) {
     for (const gate of GATES) process.stdout.write(`${gate.name}\n`);
+    return EXIT.allow;
+  }
+  // SERVES WAVE 2 ONLY — this wave never calls it. A reader asks an installed
+  // gate's own number without loading its whole module graph (#2728).
+  if (argv.includes('--spawn-contract')) {
+    process.stdout.write(`${SPAWN_CONTRACT}\n`);
     return EXIT.allow;
   }
   const names = argv.filter((a) => !a.startsWith('--'));
