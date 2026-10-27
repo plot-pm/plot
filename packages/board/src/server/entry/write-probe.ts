@@ -1,4 +1,5 @@
 import { writeProbeShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
 import { writeProbeAnswer, writeProbeRefusal } from '@plot-pm/domain/rules/write-probe';
 import { realpathSync } from 'node:fs';
@@ -57,5 +58,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
     scriptDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
   };
-  process.exit(await run(process.argv.slice(2), writeProbeShell(context)));
+  void endEntry(await run(process.argv.slice(2), writeProbeShell(context)));
 }
