@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+var d=n=>Number.isInteger(n)&&n>0?Math.ceil(n/100):1,l=n=>d(n)-1;var u=n=>new Promise((s,i)=>{let e=()=>{process.exit(n)},r=!1,t=!1,a=()=>{r||(r=!0,t&&e())},p=()=>{t||(t=!0,r&&e())};process.stdout.once("error",o=>{o.code==="EPIPE"&&e()}),process.stderr.once("error",o=>{o.code==="EPIPE"&&e()}),process.stdout.write("",a),process.stderr.write("",p)});import{readFileSync as c,realpathSync as g}from"node:fs";import{pathToFileURL as f}from"node:url";var m=(n,s,i=e=>process.stdout.write(e))=>{let e=n[0]===void 0?void 0:Number(n[0]);if(e===void 0)try{let r=JSON.parse(s());e=Array.isArray(r)?r.length:void 0}catch{e=void 0}return typeof e!="number"||!Number.isInteger(e)||e<0?(process.stderr.write(`plot-listing-pages: usage: plot-listing-pages.mjs <rows> | < json-array
+`),3):(i(`${l(e)}
+`),0)};process.argv[1]&&import.meta.url===f(g(process.argv[1])).href&&u(m(process.argv.slice(2),()=>c(0,"utf8")));export{m as run};
