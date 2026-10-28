@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2811
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `feature/waiting-hidden-split`
 - **Started:** 2026-10-28, Jan Wloka, `feature/mine-mode-control`
 - **Started:** 2026-10-28, Jan Wloka, `feature/is-mine-removed`
+- **Delivered:** 2026-10-28
 
 ## Changelog
 
