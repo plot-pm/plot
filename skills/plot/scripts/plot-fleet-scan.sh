@@ -3050,6 +3050,7 @@ plan_meta_phases=()
 plan_meta_types=()
 plan_meta_spikes=()
 plan_meta_waves=()
+plan_meta_unread=()
 
 # WHERE THE LAST LOOKUP LANDED, so the next one starts there instead of at 0.
 #
@@ -3116,6 +3117,11 @@ for line in sys.stdin:
     print("\t".join(["P", clean(f), clean(d.get("phase", "")) or "-", clean(d.get("type", "")) or "-",
                      "1" if d.get("tracer") else "0",
                      "1" if d.get("spike_approved_raw") else "0", ",".join(spikes) or "-", str(len(spikes))]))
+    # unread_branch_items: a non-claim list item naming a branch, plan-level —
+    # `landed()` (packages/domain/src/rules/deliverable.ts) refuses delivery on
+    # one. One row per item, since `line` is free prose and may hold a comma.
+    for u in d.get("unread_branch_items", []) or []:
+        print("\t".join(["U", clean(f), clean(u.get("wave") or ""), clean(u.get("branch") or ""), clean(u.get("line") or "")]))
     for i, w in enumerate(d.get("waves", []) or []):
         name = w.get("name")
         for b in w.get("branches", []) or []:
@@ -3165,6 +3171,7 @@ for line in sys.stdin:
         plan_meta_types+=("${_ty#-}")
         plan_meta_spikes+=("$_sp")
         plan_meta_waves+=("")
+        plan_meta_unread+=("")
         ;;
       W)
         # Wave rows follow their plan's P row, so the last-appended entry is
@@ -3174,6 +3181,14 @@ for line in sys.stdin:
         [ "$last" -ge 0 ] || continue
         [ "${plan_meta_files[$last]}" = "$file" ] || continue
         plan_meta_waves[$last]="${plan_meta_waves[$last]}$rest"$'\n'
+        ;;
+      U)
+        # Unread-item rows follow their plan's P row, by the same ordering W
+        # rows rely on.
+        local last=$((${#plan_meta_files[@]} - 1))
+        [ "$last" -ge 0 ] || continue
+        [ "${plan_meta_files[$last]}" = "$file" ] || continue
+        plan_meta_unread[$last]="${plan_meta_unread[$last]}$rest"$'\n'
         ;;
     esac
   done <<< "$records"
@@ -5012,6 +5027,17 @@ for plan in "${plans[@]}"; do
     # anything reads.
     json_plan+=",\"phase\":\"$(json_str "$plan_phase")\""
     [ "${_plan_spike[0]}" = 1 ] && json_plan+=",\"tracer\":true"
+    # A non-claim list item naming a branch, plan-level — `landed()`
+    # (packages/domain/src/rules/deliverable.ts) refuses delivery on one.
+    json_unread=""
+    unread_lines="${plan_meta_unread[$meta_i]}"
+    unread_lines="${unread_lines%$'\n'}"
+    if [ -n "$unread_lines" ]; then
+      while IFS=$'\t' read -r _uw _ub _ul; do
+        json_unread+="${json_unread:+,}{\"wave\":\"$(json_str "$_uw")\",\"branch\":\"$(json_str "$_ub")\",\"line\":\"$(json_str "$_ul")\"}"
+      done <<< "$unread_lines"
+    fi
+    json_plan+=",\"unreadBranchItems\":[$json_unread]"
     json_plan+=",\"waves\":[$json_waves]}"
     json_plans+="${json_plans:+,}$json_plan"
     # THE STREAM'S POINT: this plan is fully derived, so a consumer can render
