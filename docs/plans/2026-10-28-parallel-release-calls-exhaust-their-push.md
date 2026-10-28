@@ -109,7 +109,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-pa
 
 ### Booking branches
 
-- `bug/booking-branches-carry-no-upstream` — `addBranch` and `resetBranch` pass `--no-track`; a `trees-git` test asserts no upstream key and 10 parallel worktrees <!-- builds: --no-track in trees-git.ts addBranch and resetBranch -->
+- `bug/booking-branches-carry-no-upstream` — `addBranch` and `resetBranch` pass `--no-track`; a `trees-git` test asserts no upstream key and 10 parallel worktrees <!-- builds: --no-track in trees-git.ts addBranch and resetBranch --> → #2838
 
 ### Default-branch lock
 
