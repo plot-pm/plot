@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ReapRecordRow } from '../src/ports/reap-record.js';
+import type { ReapRecordRow, ReapRecordSnapshot } from '../src/ports/reap-record.js';
 import {
   recordedBranchVerdict,
   recordedWorktreeVerdict,
+  recordRefusal,
   stillPrMerged,
   type BranchRowCheck,
 } from '../src/rules/recorded-reap.js';
@@ -122,5 +123,36 @@ describe('stillPrMerged', () => {
 
   it('is false for a failed or throttled re-ask', () => {
     expect(stillPrMerged(null)).toBe(false);
+  });
+});
+
+const snap = (overrides: Partial<ReapRecordSnapshot> = {}): ReapRecordSnapshot => ({
+  repoIdentity: '/repo/.git',
+  defaultBranch: 'main',
+  defaultBranchSha: 'abc1234',
+  at: '2026-10-28T12:00:00.000Z',
+  rows: [],
+  ...overrides,
+});
+
+const NOW = Date.parse('2026-10-28T12:30:00.000Z');
+const CHECKS_WAIT_MS = 3600 * 1000;
+
+describe('recordRefusal', () => {
+  it('allows a record from this repo, within the staleness bound', () => {
+    expect(recordRefusal(snap(), '/repo/.git', NOW, CHECKS_WAIT_MS)).toBeNull();
+  });
+
+  it('refuses a record written for a different repository', () => {
+    expect(recordRefusal(snap(), '/other/.git', NOW, CHECKS_WAIT_MS)).toBe('foreign-repo');
+  });
+
+  it('refuses a record older than the staleness bound', () => {
+    const tooOld = Date.parse('2026-10-28T12:00:00.000Z') + CHECKS_WAIT_MS + 1;
+    expect(recordRefusal(snap(), '/repo/.git', tooOld, CHECKS_WAIT_MS)).toBe('stale');
+  });
+
+  it('refuses a record whose timestamp does not parse', () => {
+    expect(recordRefusal(snap({ at: 'not-a-date' }), '/repo/.git', NOW, CHECKS_WAIT_MS)).toBe('stale');
   });
 });

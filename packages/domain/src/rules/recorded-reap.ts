@@ -1,5 +1,35 @@
-import type { ReapRecordRow } from '../ports/reap-record.js';
+import type { ReapRecordRow, ReapRecordSnapshot } from '../ports/reap-record.js';
 import { reapProblems, type ReapProblem, type TreeReadings } from './reapable.js';
+
+/** Why a whole record is refused before any row is checked. */
+export type RecordRefusal = 'foreign-repo' | 'stale';
+
+/**
+ * Whether a record may be acted on at all, before any row is checked.
+ *
+ * Two whole-record gates, checked once rather than per row: a record written
+ * for a different checkout (`repoIdentity` mismatch — a copied or shared
+ * file), and a record old enough that `Checks wait` no longer vouches for it.
+ * Neither is a per-row concern, so neither belongs in
+ * {@link recordedBranchVerdict} or {@link recordedWorktreeVerdict}.
+ *
+ * @param snapshot - the record `--dry-run` wrote.
+ * @param currentRepoIdentity - this run's own `git rev-parse --git-common-dir` realpath.
+ * @param nowMs - the current time, in epoch milliseconds.
+ * @param checksWaitMs - how long a record stays trustworthy, in milliseconds.
+ * @returns the refusal, or `null` when the record may be read for rows.
+ */
+export const recordRefusal = (
+  snapshot: ReapRecordSnapshot,
+  currentRepoIdentity: string,
+  nowMs: number,
+  checksWaitMs: number,
+): RecordRefusal | null => {
+  if (snapshot.repoIdentity !== currentRepoIdentity) return 'foreign-repo';
+  const at = Date.parse(snapshot.at);
+  if (!Number.isFinite(at) || nowMs - at > checksWaitMs) return 'stale';
+  return null;
+};
 
 /**
  * Why a recorded row no longer survives the intersection `--yes` runs against
