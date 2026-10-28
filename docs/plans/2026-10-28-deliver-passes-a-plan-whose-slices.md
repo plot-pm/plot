@@ -112,7 +112,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-de
 
 ### Per-line references
 
-- `bug/a-cross-repo-reference-is-read-per-line` — `crossRepoReferences`, `branchesOf` and `plot-impl-status.sh` key references by (repository, branch); `crossRepoReferences` reads `PR: owner/repo#N` on headings
+- `bug/a-cross-repo-reference-is-read-per-line` — `crossRepoReferences`, `branchesOf` and `plot-impl-status.sh` key references by (repository, branch); `crossRepoReferences` reads `PR: owner/repo#N` on headings → #2883
 
 ### Foreign slice form
 
