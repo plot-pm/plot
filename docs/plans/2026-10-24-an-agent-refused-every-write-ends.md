@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2428
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-26, Jan Wloka, `bug/fleet-start-probes-worker-writes`
 - **Started:** 2026-10-27, Jan Wloka, `bug/claim-only-branch-returns-to-queue`
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
