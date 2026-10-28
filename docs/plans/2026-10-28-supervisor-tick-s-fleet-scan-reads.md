@@ -95,7 +95,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-su
 
 ### Refusal back-off
 
-- `bug/a-refused-scan-listing-backs-off` — a refused (exit 5/6) or failed listing sets a bounded back-off; the scan keeps running with the carried listing and keeps writing the bridge <!-- builds: a refusal back-off rule beside listingSpend, a backoffUntil on ScanState -->
+- `bug/a-refused-scan-listing-backs-off` — a refused (exit 5/6) or failed listing sets a bounded back-off; the scan keeps running with the carried listing and keeps writing the bridge <!-- builds: a refusal back-off rule beside listingSpend, a backoffUntil on ScanState --> → #2847
 
 ### Limit-aware stretch
 
