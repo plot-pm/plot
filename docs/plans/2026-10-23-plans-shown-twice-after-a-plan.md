@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2410
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2434 merged
 - **Started:** 2026-10-23, jwloka, `bug/plans-shown-twice-after-a-plan`
 - **Delivered:** 2026-10-23
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
