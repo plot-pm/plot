@@ -93,7 +93,7 @@ Decided 2026-10-28 by Jan Wloka after plot-review #2813 on plan PR #2809 and its
 
 ### Duplicates
 
-- `bug/ticket-rows-appear-once` — one row per ticket key in `foldIssueRows` (including a duplicate in `held`), through `foldChangedIssueRows` and `issueWriteThrough`, and at every `waitingTickets` arm, under the existing `replaces` rule, with regression tests
+- `bug/ticket-rows-appear-once` — one row per ticket key in `foldIssueRows` (including a duplicate in `held`), through `foldChangedIssueRows` and `issueWriteThrough`, and at every `waitingTickets` arm, under the existing `replaces` rule, with regression tests → #2845
 
 ### Draft rows
 
