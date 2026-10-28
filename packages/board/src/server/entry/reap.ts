@@ -448,6 +448,28 @@ const isWhollyEmptyClaim = async (refs: Refs, range: string): Promise<boolean> =
   return subjects.value.every((s) => isEmptyClaim({ subject: s.subject, tree: s.tree, parentTree: s.parentTree }));
 };
 
+/** How far back `hasCommitOfItsOwn` walks `origin/<default>`'s first-parent line. */
+const FIRST_PARENT_WALK_MAX = 500;
+
+/**
+ * Whether a branch contained in the default branch landed by something other
+ * than a fast-forward — the brief's distinction between a branch that never
+ * diverged (reads `contains === 'yes'` just as readily) and one that merged
+ * its own commits in. `git merge-base` alone cannot tell the two apart: a
+ * `--no-ff` merge puts the branch's tip on main's SECOND-parent line, so the
+ * raw `origin/<default>..<branch>` range reads empty even though the branch
+ * carried a real commit. The first-parent line is what a fast-forward merge
+ * would have left the tip sitting on; the branch's tip is NOT on it exactly
+ * when something merged it in rather than the branch having never diverged.
+ */
+const hasCommitOfItsOwn = async (refs: Refs, branch: string, defaultBranch: string): Promise<boolean> => {
+  const tip = await refs.resolve(branch);
+  if (!tip.ok) return false;
+  const line = await refs.firstParentLine(`origin/${defaultBranch}`, FIRST_PARENT_WALK_MAX);
+  if (!line.ok) return false;
+  return !line.value.includes(tip.value);
+};
+
 /**
  * Whether a branch's tip is NOT reachable from any merged PR head the host
  * can resolve.
@@ -1065,25 +1087,27 @@ export const runBranchKind = async (
     let mergedAnswer: LocalBranchReadings['mergedAnswer'] = 'not-merged';
     let refusalKind: LocalBranchReadings['refusalKind'] = null;
     let bwhy = '';
-    const hostMerged = await ctx.host.prMerged(br);
-    if (hostMerged.ok) {
-      mergedAnswer = hostMerged.value;
-      if (mergedAnswer === 'merged') {
-        bwhy = 'PR merged (squash)';
-      }
-    } else {
-      refusalKind = ctx.host.lastRefusal()?.kind ?? 'failed';
-    }
-
     const contained = await ctx.refs.contains(br, `origin/${defaultBranch}`);
     const containedInDefault = contained.ok && contained.value === 'yes';
-    if (containedInDefault && mergedAnswer !== 'merged') {
+    if (containedInDefault) {
       bwhy = `merged into ${defaultBranch}`;
+    } else {
+      const hostMerged = await ctx.host.prMerged(br);
+      if (hostMerged.ok) {
+        mergedAnswer = hostMerged.value;
+        if (mergedAnswer === 'merged') {
+          bwhy = 'PR merged (squash)';
+        }
+      } else {
+        refusalKind = ctx.host.lastRefusal()?.kind ?? 'failed';
+      }
     }
 
-    const hasOwnCommits = mergedAnswer === 'merged' || containedInDefault
-      ? (await fileChangingCommitCount(ctx.refs, range)) !== 0
-      : true;
+    const hasOwnCommits = containedInDefault
+      ? await hasCommitOfItsOwn(ctx.refs, br, defaultBranch)
+      : mergedAnswer === 'merged'
+        ? (await fileChangingCommitCount(ctx.refs, range)) !== 0
+        : true;
 
     const tipPastMergedHead =
       mergedAnswer === 'merged' ? await tipPastMergedHeads(ctx, br) : false;
