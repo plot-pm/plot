@@ -95,7 +95,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-mi
 
 ### Waiting hidden split
 
-- `feature/waiting-hidden-split` — Domain: `waitingTickets` splits `hidden` into `unassigned` and `assignedToOthers`, and `hiddenSentence` names both; independent of the other slices. <!-- builds: unassigned and assigned-to-others counts -->
+- `feature/waiting-hidden-split` — Domain: `waitingTickets` splits `hidden` into `unassigned` and `assignedToOthers`, and `hiddenSentence` names both; independent of the other slices. <!-- builds: unassigned and assigned-to-others counts --> → #2829
 
 ### Mine mode control
 
