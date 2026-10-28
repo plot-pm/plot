@@ -1,5 +1,5 @@
 import { isMine, isMineStrict, ownedTicket, ownership, readerIsKnown, type MineMode, type OwnedRow, type Reader } from '@plot-pm/domain';
-import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
+import { type AgentEntry, type AgentRow, type Board, type Card, type DraftPlan, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
  * Where the "only my work" preference lives.
@@ -195,6 +195,23 @@ export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'auth
   if (mode === 'all') return rows;
   const owns = mode === 'mine' ? isMineStrict : isMine;
   return rows.filter((r) => owns(ownedFromRow(r), reader));
+};
+
+/**
+ * The Draft plan rows that stay in view, given the reader and the effective
+ * «Mine» mode.
+ *
+ * `all` returns the array untouched, for the reason {@link rowsForReader}
+ * gives. A Draft plan carries the same `assignee`/`author`/`approver` shape a
+ * Discovery card does, so it goes through {@link ownedFromCard} rather than a
+ * fourth variant of the mapping. `mine-and-unknown` hides a plan only where
+ * {@link isMine} answers false, so a plan naming nobody stays visible; `mine`
+ * keeps only a plan {@link isMineStrict} answers true for.
+ */
+export const draftsForReader = (drafts: DraftPlan[], reader: Reader, mode: MineMode): DraftPlan[] => {
+  if (mode === 'all') return drafts;
+  const owns = mode === 'mine' ? isMineStrict : isMine;
+  return drafts.filter((d) => owns(ownedFromCard(d), reader));
 };
 
 /**

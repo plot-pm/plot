@@ -2884,3 +2884,137 @@ First slice.
   assert.equal(byName['docs/one'].deferred_reason, 'superseded 2026-08-27',
     'the bare item does not erase the heading\'s reason');
 });
+
+// ---------------------------------------------------------------------------
+// unread_branch_items: a list item in a slice section that is not a claim
+// (branch_claim_re) and yet names a branch-prefixed token, in or out of a
+// code span. Catches a foreign-repository branch named in prose rather than
+// claimed — ewz-kus-portal plan 3853 names one branch across six repositories
+// in six such items; plan 3819's only branch line is a non-claim item with
+// its branch inside a code span, `` - Umsetzung: `bug/…` ``.
+// ---------------------------------------------------------------------------
+
+const REPOS_3853 = [
+  'ewz-kus-contracts', 'ewz-kus-billing', 'ewz-kus-crm',
+  'ewz-kus-notify', 'ewz-kus-reports', 'ewz-kus-auth',
+];
+const BRANCH_3853 = 'infra/EWZKUS-3853-monotonie-waechter';
+const LINES_3853 = REPOS_3853
+  .map((repo) => `- **${repo}** (dort eigener Branch ${BRANCH_3853}) — slice`)
+  .join('\n');
+const VNULL_LINE_3853 = '- **`vnull` in ewz-kus-contracts** — no branch named here';
+
+test('plan-meta: the 3853 lines verbatim give 6 unread_branch_items and none for vnull', () => {
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Draft
+- **Type:** bug
+
+## Slices
+
+- \`infra/ewzkus-3853-build-identitaet\` — the one claimed branch → #3722
+${LINES_3853}
+${VNULL_LINE_3853}
+`);
+  assert.equal(meta.unread_branch_items.length, 6);
+  for (const item of meta.unread_branch_items) assert.equal(item.branch, BRANCH_3853);
+  assert.ok(!meta.unread_branch_items.some((i) => i.line.includes('vnull')),
+    'the vnull line names no branch, and the token rule must not widen to catch it');
+});
+
+test('plan-meta: a list-dialect copy of the 3853 lines gives the same 6', () => {
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Draft
+- **Type:** bug
+
+## Branches
+
+- \`infra/ewzkus-3853-build-identitaet\` — the one claimed branch → #3722
+${LINES_3853}
+${VNULL_LINE_3853}
+`);
+  assert.equal(meta.unread_branch_items.length, 6);
+});
+
+test('plan-meta: the 3819 line — a backticked branch inside a non-claim item — is read inside its code span', () => {
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- Umsetzung: \`bug/ewzkus-3819-mandats-whitelist-rechnungsliste\`
+`);
+  assert.deepEqual(meta.branches, [], 'the item is not a claim, so no branch is claimed');
+  assert.deepEqual(meta.unread_branch_items, [
+    { wave: '', branch: 'bug/ewzkus-3819-mandats-whitelist-rechnungsliste', line: "- Umsetzung: `bug/ewzkus-3819-mandats-whitelist-rechnungsliste`" },
+  ], 'read inside the code span, so the item is reported rather than silently dropped — ' +
+     'this wave only reports it; whether delivery treats a backticked, unclaimed branch with ' +
+     'no PR yet as pending or as blocking is wave 2 (slices-unread) territory');
+});
+
+test('plan-meta: German, French and a line reading "siehe" each give exactly one item — no keyword', () => {
+  const german = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- siehe auch bug/eine-deutsche-zeile für Details\n');
+  const french = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- voir aussi bug/une-ligne-francaise pour les détails\n');
+  const siehe = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- siehe bug/noch-eine-zeile\n');
+  assert.equal(german.unread_branch_items.length, 1);
+  assert.equal(french.unread_branch_items.length, 1);
+  assert.equal(siehe.unread_branch_items.length, 1);
+});
+
+test('plan-meta: a claim line, a file path, idea/* and an idea/ plan line all give no unread_branch_items', () => {
+  const claim = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- `bug/claimed` — the claim → #1\n');
+  const filePath = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- see `docs/plans/x.md` for the full plan\n');
+  const glob = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- an idea/* glob token means every idea plan\n');
+  const ideaRef = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- see the plan idea/some-idea-slug for context\n');
+  assert.deepEqual(claim.branches, ['bug/claimed']);
+  assert.deepEqual(claim.unread_branch_items, []);
+  assert.deepEqual(filePath.unread_branch_items, [], 'a `.` after the prefix means a file path, not a branch');
+  assert.deepEqual(glob.unread_branch_items, []);
+  assert.deepEqual(ideaRef.unread_branch_items, [], '`idea/` names a plan, never a branch a slice can claim');
+});
+
+test('plan-meta: an item carrying <!-- deferred: ... --> gives no unread_branch_items', () => {
+  const meta = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- a deferred item <!-- deferred: waiting on upstream --> bug/deferred-example\n');
+  assert.deepEqual(meta.unread_branch_items, [],
+    'a person already accepted this item has no branch yet, read before comments are masked');
+});
+
+test('plan-meta: a line naming an excluded token before a real one still reports the real one', () => {
+  const meta = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- see idea/some-plan and also bug/the-real-branch for the fix\n');
+  assert.equal(meta.unread_branch_items.length, 1);
+  assert.equal(meta.unread_branch_items[0].branch, 'bug/the-real-branch');
+});
+
+test('plan-meta: a missing file carries an empty unread_branch_items', () => {
+  const out = execFileSync('bash', [parser, path.join(tmpdir(), 'no-such-plan-2026.md')], { encoding: 'utf8' });
+  assert.deepEqual(JSON.parse(out).unread_branch_items, []);
+});
+
+test('plan-meta: every plan in docs/plans gives the measured count — 2, both in 2026-08-20-a-row-is-a-tuple.md', () => {
+  // Measured 2026-10-28: the panel's "1-2 borderline hits in 601 plans" case.
+  // Both are heading-dialect, non-claim list items naming another branch in
+  // prose ("Absorbs bug/…", "Absorbs feature/…"), inside `## Slices`.
+  const files = readdirSync(path.join(repoRoot, 'docs', 'plans')).filter((f) => f.endsWith('.md'));
+  let total = 0;
+  const hits = [];
+  for (const f of files) {
+    const meta = parseFile(realPlan(f));
+    total += meta.unread_branch_items.length;
+    if (meta.unread_branch_items.length > 0) hits.push(f);
+  }
+  assert.equal(total, 2);
+  assert.deepEqual(hits, ['2026-08-20-a-row-is-a-tuple.md']);
+  const meta = parseFile(realPlan('2026-08-20-a-row-is-a-tuple.md'));
+  assert.deepEqual(meta.unread_branch_items.map((i) => i.branch).sort(), [
+    'bug/one-column-one-kind-of-fact', 'feature/the-row-leads-with-its-subject',
+  ]);
+});

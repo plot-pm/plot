@@ -143,6 +143,51 @@ function hasBranch(repo, branch) {
   }
 }
 
+/** The sha a pinned ref for `branch` resolves to, or null when none exists. */
+function pinnedSha(repo, branch) {
+  try {
+    const refs = git(repo, 'for-each-ref', `refs/plot/reaped/${branch}/`, '--format=%(objectname) %(refname)')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    if (refs.length === 0) return null;
+    return refs[0].split(' ')[0];
+  } catch {
+    return null;
+  }
+}
+
+/** Every pinned ref for `branch`, across every sha it has been reaped at. */
+function pinnedRefs(repo, branch) {
+  try {
+    return git(repo, 'for-each-ref', `refs/plot/reaped/${branch}/`, '--format=%(refname)')
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Drops every reflog entry and runs a real gc, the survival bar a pin must clear. */
+function gcHard(repo) {
+  git(repo, 'reflog', 'expire', '--expire=now', '--all');
+  git(repo, 'gc', '--prune=now', '-q');
+}
+
+/** Reads the TSV row's `at` timestamp for a ref, backdating it by `ageMs`. */
+function backdatePin(repo, ref, ageMs) {
+  const common = git(repo, 'rev-parse', '--git-common-dir').trim();
+  const tsvPath = path.join(path.isAbsolute(common) ? common : path.join(repo, common), '.plot', 'state', 'reaped.tsv');
+  const rows = fs.readFileSync(tsvPath, 'utf8').split('\n').filter(Boolean);
+  const at = new Date(Date.now() - ageMs).toISOString();
+  const rewritten = rows.map((line) => {
+    const [r, sha] = line.split('\t');
+    return r === ref ? `${r}\t${sha}\t${at}` : line;
+  });
+  fs.writeFileSync(tsvPath, `${rewritten.join('\n')}\n`);
+}
+
 // ---------------------------------------------------------------------------
 // Kind 2: local branches
 // ---------------------------------------------------------------------------
@@ -154,14 +199,24 @@ test('a squash-merged local branch no worktree holds is deleted', () => {
   const { tmp, repo } = makeRepo();
   const branch = 'feature/squash-landed';
   squashedBranch(repo, branch);
+  const tip = git(repo, 'rev-parse', branch).trim();
   const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-01T10:00:00Z', number: 500 }] });
 
   const dry = run(repo, bin, '--dry-run');
   assert.match(lineFor(dry, branch), /^would/, `a merged branch must be swept:\n${dry}`);
   assert.ok(hasBranch(repo, branch), 'a dry run must delete nothing');
 
-  run(repo, bin, '--yes');
+  const out = run(repo, bin, '--yes');
   assert.ok(!hasBranch(repo, branch), 'under --yes the local ref is actually deleted');
+  assert.equal(pinnedSha(repo, branch), tip, 'the deleted tip is pinned under refs/plot/reaped');
+  assert.match(out, new RegExp(`restore: git branch ${branch.replace(/\//g, '\\/')} refs/plot/reaped/${branch}/${tip}`),
+    `the deleted row must print its restore command:\n${out}`);
+
+  gcHard(repo);
+  assert.equal(git(repo, 'cat-file', '-t', pinnedRefs(repo, branch)[0]).trim(), 'commit',
+    'the pin must survive reflog expiry and a real gc');
+  git(repo, 'branch', branch, pinnedRefs(repo, branch)[0]);
+  assert.equal(git(repo, 'rev-parse', branch).trim(), tip, 'the restore command recreates the branch at the exact tip');
 });
 
 test('the gate is not ancestry and not `git branch -d`', () => {
@@ -270,6 +325,92 @@ test('--max bounds the branch sweep', () => {
   assert.match(out, /--max 2 reached/);
 });
 
+test('`feature` and `feature/x` are both pinned, with no ref clash', () => {
+  // The brief's accepted edge case is a DIFFERENT clash — a branch whose leaf
+  // is itself a sha matching another's leaf. A plain name/namespace pair like
+  // this one must pin cleanly: refs/plot/reaped/feature/<sha> and
+  // refs/plot/reaped/feature/x/<sha> are siblings, not a collision.
+  //
+  // Git's loose-ref storage cannot hold refs/heads/feature and
+  // refs/heads/feature/x at once (one is a file where the other needs a
+  // directory), so the two branches are reaped one at a time rather than
+  // created together.
+  const { tmp, repo } = makeRepo();
+  squashedBranch(repo, 'feature');
+  const tipA = git(repo, 'rev-parse', 'feature').trim();
+  const binA = stubGh(tmp, { feature: [{ mergedAt: '2026-09-01T10:00:00Z', number: 700 }] });
+  run(repo, binA, '--yes');
+  assert.ok(!hasBranch(repo, 'feature'), 'feature is deleted');
+
+  squashedBranch(repo, 'feature/x');
+  const tipB = git(repo, 'rev-parse', 'feature/x').trim();
+  const binB = stubGh(tmp, { 'feature/x': [{ mergedAt: '2026-09-01T10:00:00Z', number: 701 }] });
+  run(repo, binB, '--yes');
+  assert.ok(!hasBranch(repo, 'feature/x'), 'feature/x is deleted');
+
+  assert.equal(pinnedSha(repo, 'feature'), tipA, 'feature is pinned at its own tip');
+  assert.equal(pinnedSha(repo, 'feature/x'), tipB, 'feature/x is pinned at its own tip');
+});
+
+test('the same branch reaped twice at two different tips keeps two pins', () => {
+  // A LOG, NOT A SET: a branch recreated and reaped again must not overwrite
+  // the first pin — both tips stay recoverable.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/reaped-twice';
+  squashedBranch(repo, branch);
+  const firstTip = git(repo, 'rev-parse', branch).trim();
+  const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-01T10:00:00Z', number: 702 }] });
+  run(repo, bin, '--yes');
+  assert.ok(!hasBranch(repo, branch));
+
+  squashedBranch(repo, branch);
+  const secondTip = git(repo, 'rev-parse', branch).trim();
+  assert.notEqual(firstTip, secondTip, 'the second pass must be a genuinely different tip');
+  run(repo, bin, '--yes');
+  assert.ok(!hasBranch(repo, branch));
+
+  const refs = pinnedRefs(repo, branch);
+  assert.equal(refs.length, 2, `both tips must stay pinned:\n${refs.join('\n')}`);
+  assert.ok(refs.includes(`refs/plot/reaped/${branch}/${firstTip}`));
+  assert.ok(refs.includes(`refs/plot/reaped/${branch}/${secondTip}`));
+});
+
+test('a 31-day-old pinned ref and row are pruned on the next --yes run', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/pin-aged-out';
+  squashedBranch(repo, branch);
+  const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-01T10:00:00Z', number: 703 }] });
+
+  run(repo, bin, '--yes');
+  const ref = pinnedRefs(repo, branch)[0];
+  backdatePin(repo, ref, 31 * 24 * 60 * 60 * 1000);
+
+  // A second, unrelated branch so the run has pruning work to do beyond the
+  // aged pin itself.
+  squashedBranch(repo, 'feature/unrelated');
+  const bin2 = stubGh(tmp, { 'feature/unrelated': [{ mergedAt: '2026-09-01T10:00:00Z', number: 704 }] });
+  run(repo, bin2, '--yes');
+
+  assert.throws(() => git(repo, 'rev-parse', '--verify', ref), 'a 31-day-old pin must be pruned');
+});
+
+test('a 29-day-old pinned ref and row survive the prune', () => {
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/pin-still-young';
+  squashedBranch(repo, branch);
+  const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-01T10:00:00Z', number: 705 }] });
+
+  run(repo, bin, '--yes');
+  const ref = pinnedRefs(repo, branch)[0];
+  backdatePin(repo, ref, 29 * 24 * 60 * 60 * 1000);
+
+  squashedBranch(repo, 'feature/unrelated2');
+  const bin2 = stubGh(tmp, { 'feature/unrelated2': [{ mergedAt: '2026-09-01T10:00:00Z', number: 706 }] });
+  run(repo, bin2, '--yes');
+
+  assert.doesNotThrow(() => git(repo, 'rev-parse', '--verify', ref), 'a 29-day-old pin must survive');
+});
+
 // ---------------------------------------------------------------------------
 // Kind 3: orphaned claim refs
 // ---------------------------------------------------------------------------
@@ -281,6 +422,7 @@ test('an abandoned claim ref is swept', () => {
   const { tmp, repo } = makeRepo();
   const branch = 'feature/claim-given-up';
   claimBranch(repo, branch);
+  const tip = git(repo, 'rev-parse', branch).trim();
   plan(repo, 'a-plan', branch, { deferred: true });
   const bin = stubGh(tmp, {});
 
@@ -288,8 +430,11 @@ test('an abandoned claim ref is swept', () => {
   assert.match(dry, /abandoned claim/, `an abandoned claim must be named:\n${dry}`);
   assert.ok(hasBranch(repo, branch), 'a dry run deletes nothing');
 
-  run(repo, bin, '--yes');
+  const out = run(repo, bin, '--yes');
   assert.ok(!hasBranch(repo, branch), 'under --yes the claim ref goes');
+  assert.equal(pinnedSha(repo, branch), tip, 'the abandoned claim\'s tip is pinned before its delete');
+  assert.match(out, new RegExp(`restore: git branch ${branch.replace(/\//g, '\\/')} refs/plot/reaped/${branch}/${tip}`),
+    `the deleted claim row must print its restore command:\n${out}`);
 });
 
 /** A plan file in `docs/plans/` linked from no index, or only from `delivered/`. */

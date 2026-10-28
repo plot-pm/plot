@@ -84,6 +84,13 @@ describe('waitingTickets, type and owner', () => {
     expect(result.tickets[0].type).toBe('bug');
   });
 
+  it('names the reader as owner where the reader is the second of two GitHub assignees', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { eins78: 'eins78', jwloka: 'jwloka' } };
+    const rows = [row('1', { assignees: ['eins78', 'jwloka'] })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.tickets[0].owner).toBe('jwloka');
+  });
+
   it('shows an undeclared assignee as written', () => {
     const reader: Reader = {};
     const rows = [row('1', { assignees: ['someone-undeclared'] })];
@@ -189,6 +196,22 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toBeNull();
   });
 
+  it('a Jira source with no declared spelling shows a repeated candidate key once', () => {
+    const reader: Reader = { hostUser: 'jwloka' };
+    const rows = [row('J-1', { assignees: ['someone'] }), row('J-1', { assignees: ['someone'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.tickets.map((t) => t.number)).toEqual(['J-1']);
+    expect(result.hidden).toBe(0);
+  });
+
+  it('a Jira source with a declared spelling that matches no candidate shows a repeated candidate key once', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('J-1', { assignees: ['a-colleague@quatico.com'] }), row('J-1', { assignees: ['a-colleague@quatico.com'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.tickets.map((t) => t.number)).toEqual(['J-1']);
+    expect(result.hidden).toBe(0);
+  });
+
   it('an inbox read that failed with no kept rows answers 0 tickets and says the inbox could not be read', () => {
     const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
     const rows = [row('o1', { assignees: ['a-colleague@quatico.com'] }), ...unassigned(4)];
@@ -261,6 +284,20 @@ describe('waitingTickets, the unmatched reader', () => {
     const result = waitingTickets(rows, inbox, reader, JIRA, true);
     expect(result.shown).toBe(1);
     expect(result.notice).toBeNull();
+  });
+
+  it('a Jira reader named by the second of two declared assignees is matched and not hidden', () => {
+    const reader: Reader = {
+      hostUser: 'jwloka',
+      directory: { 'jira:margit.ruepp@quatico.com': 'mruepp', 'jira:jan.wloka@quatico.com': 'jwloka' },
+    };
+    const rows = [
+      row('both', { assignees: ['margit.ruepp@quatico.com', 'jan.wloka@quatico.com'] }),
+      row('other-only', { assignees: ['margit.ruepp@quatico.com'] }),
+    ];
+    const result = waitingTickets(rows, [], reader, JIRA, true);
+    expect(result.tickets.map((t) => t.number)).toContain('both');
+    expect(result.hidden).toBe(1);
   });
 
   it('a Jira reader whose own prefix-spelling resolves to somebody else leaves the candidate unmatched with no notice', () => {

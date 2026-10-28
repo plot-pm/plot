@@ -5,6 +5,7 @@ import type {
   PlanRecord,
   PlanRecordBranch,
   PlanRecordSlice,
+  PlanRecordUnreadBranchItem,
   PlanStore,
 } from '../../ports/plan-store.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -41,7 +42,14 @@ export interface RawPlan {
   delivered_raw?: string;
   released_raw?: string;
   started_raw?: string[];
+  unread_branch_items?: RawUnreadBranchItem[];
   error?: string;
+}
+
+interface RawUnreadBranchItem {
+  wave?: string;
+  branch?: string;
+  line?: string;
 }
 
 interface RawSlice {
@@ -91,6 +99,12 @@ export const branchOf = (raw: RawBranch): PlanRecordBranch => ({
 const sliceOf = (raw: RawSlice): PlanRecordSlice => ({
   name: raw.name ?? '',
   branches: (raw.branches ?? []).map(branchOf),
+});
+
+const unreadBranchItemOf = (raw: RawUnreadBranchItem): PlanRecordUnreadBranchItem => ({
+  wave: raw.wave ?? '',
+  branch: raw.branch ?? '',
+  line: raw.line ?? '',
 });
 
 /**
@@ -156,6 +170,7 @@ export const planOf = (raw: RawPlan, rejectedRaw = ''): PlanRecord => ({
   releasedRaw: raw.released_raw ?? '',
   startedRaw: raw.started_raw ?? [],
   rejectedRaw,
+  unreadBranchItems: (raw.unread_branch_items ?? []).map(unreadBranchItemOf),
 });
 
 /**

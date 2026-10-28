@@ -1,6 +1,6 @@
 import { isMine, isMineStrict, ownership, ownedTicket, type OwnedRow, type Reader } from './ownership.js';
 import type { MineMode } from './mine-mode.js';
-import type { TicketLaneGroups, TicketLaneRow } from './ticket-lanes.js';
+import { ownerOf, type TicketLaneGroups, type TicketLaneRow } from './ticket-lanes.js';
 
 /** A story row, as `lanesForReader` needs it to read ownership. */
 export interface ReaderStory {
@@ -90,6 +90,20 @@ const ownedFromTicketLaneRow = (row: Pick<TicketLaneRow, 'assignees' | 'source'>
   ownedTicket(row.assignees, row.source);
 
 /**
+ * A kept ticket row, labeled with the reader's own handle where `ownerOf`
+ * resolves the reader among its assignees.
+ *
+ * `ticketLanes` builds `row.owner` with no reader in scope, so a reader who
+ * is any assignee but the first still reads another handle until this
+ * relabels it — the label is a domain property, decided here rather than in
+ * the component that renders it.
+ */
+const labeledForReader = (row: TicketLaneRow, reader: Reader): TicketLaneRow => ({
+  ...row,
+  owner: ownerOf(row.assignees, { source: row.source, directory: reader.directory }, reader),
+});
+
+/**
  * A story row, as the ownership rule reads it.
  *
  * Not exported: this is `lanesForReader`'s own mapping to `{ kind: 'story', author }`,
@@ -121,7 +135,10 @@ export const lanesForReader = <S extends ReaderStory, L extends string>(
   reader: Reader,
   mode: MineMode,
 ): LanesForReader<S, L> => {
-  const ticketLane = (rows: readonly TicketLaneRow[]) => filterByReader(rows, ownedFromTicketLaneRow, reader, mode);
+  const ticketLane = (rows: readonly TicketLaneRow[]) => {
+    const filtered = filterByReader(rows, ownedFromTicketLaneRow, reader, mode);
+    return { ...filtered, rows: filtered.rows.map((row) => labeledForReader(row, reader)) };
+  };
   const storyLanes = storyLaneGroups.map((group) => ({
     lane: group.lane,
     ...filterByReader(group.stories, ownedFromStory, reader, mode),

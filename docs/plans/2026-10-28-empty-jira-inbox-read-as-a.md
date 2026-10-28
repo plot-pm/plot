@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2809 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/an-absent-inbox-guesses-no-spelling`
 - **Started:** 2026-10-28, Jan Wloka, `bug/ticket-rows-appear-once`
+- **Started:** 2026-10-28, Jan Wloka, `bug/draft-rows-obey-mine`
 
 ## Changelog
 
@@ -93,11 +94,11 @@ Decided 2026-10-28 by Jan Wloka after plot-review #2813 on plan PR #2809 and its
 
 ### Duplicates
 
-- `bug/ticket-rows-appear-once` — one row per ticket key in `foldIssueRows` (including a duplicate in `held`), through `foldChangedIssueRows` and `issueWriteThrough`, and at every `waitingTickets` arm, under the existing `replaces` rule, with regression tests
+- `bug/ticket-rows-appear-once` — one row per ticket key in `foldIssueRows` (including a duplicate in `held`), through `foldChangedIssueRows` and `issueWriteThrough`, and at every `waitingTickets` arm, under the existing `replaces` rule, with regression tests → #2845
 
 ### Draft rows
 
-- `bug/draft-rows-obey-mine` — a Draft plan row carries its `PlanOwnerFields`, `ownership({ kind: 'plan', … })` answers whose it is, and the row passes the «Mine» filter; `unknown` stays visible; the `People` text names the Bitbucket nickname match
+- `bug/draft-rows-obey-mine` — a Draft plan row carries its `PlanOwnerFields`, `ownership({ kind: 'plan', … })` answers whose it is, and the row passes the «Mine» filter; `unknown` stays visible; the `People` text names the Bitbucket nickname match → #2856
 
 ## Notes
 

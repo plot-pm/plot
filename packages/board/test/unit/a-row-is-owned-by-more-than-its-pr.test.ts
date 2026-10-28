@@ -8,17 +8,20 @@ import {
   BoardSchema,
   CardSchema,
   ColumnSchema,
+  DraftPlanSchema,
   FleetSchema,
   type AgentEntry,
   type AgentRow,
   type Board,
   type Card,
   type Column,
+  type DraftPlan,
   type Fleet,
 } from '../../src/contract/schema.js';
 import {
   agentsForReader,
   boardForReader,
+  draftsForReader,
   ownedFromCard,
   ownedFromRow,
   readerFrom,
@@ -69,6 +72,9 @@ const card = (over: Partial<Card> = {}): Card => CardSchema.parse({
   controls: { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: false }, ...over,
 });
 const column = (over: Partial<Column> = {}): Column => ColumnSchema.parse({ phase: 'Development', cards: [], ...over });
+const draft = (over: Partial<DraftPlan> = {}): DraftPlan => DraftPlanSchema.parse({
+  plan: 'a-plan', planFile: '2026-08-24-a-plan.md', title: 'A plan', ...over,
+});
 const board = (over: Partial<Board> = {}): Board => BoardSchema.parse({
   generatedAt: '2026-08-30T12:00:00.000Z', columns: [], sprints: [], stories: [], checklist: null, ...over,
 });
@@ -244,6 +250,56 @@ describe('a row with no PR is owned by its plan\'s assignee, author or approver'
     const legacy = { pr: null, assignee: undefined, author: undefined, approver: undefined };
     expect(ownedFromRow(legacy)).toEqual({ kind: 'other' });
     expect(rowsForReader([legacy], jwloka, 'mine-and-unknown')).toHaveLength(1);
+  });
+});
+
+describe('a Draft plan row is owned by its assignee, author or approver', () => {
+  // Same reported shape as the branch-row case above: `ckehl` is not in this
+  // repository's own `People` config, so the fixture declares its own
+  // directory mapping it to a third person, distinct from `reader`.
+  const directory = parsePersonDirectory('jwloka = Jan Wloka; ckehl = Christian Kehl');
+  const jwloka = readerFrom({ hostUser: 'jwloka', people: directory });
+
+  it('stays visible with the filter on when the assignee resolves to the reader', () => {
+    // Catches the filter never being wired at all.
+    const mine = draft({ assignee: 'jwloka' });
+    expect(draftsForReader([mine], jwloka, 'mine-and-unknown')).toEqual([mine]);
+  });
+
+  it('is hidden with the filter on when assignee, author and approver all name a declared stranger', () => {
+    // Catches a no-op filter that always keeps everything.
+    const theirs = draft({ assignee: 'ckehl', author: 'ckehl', approver: 'ckehl' });
+    expect(draftsForReader([theirs], jwloka, 'mine-and-unknown')).toEqual([]);
+  });
+
+  it('stays visible with the filter on when all three fields are empty', () => {
+    // Catches a stricter-than-`unknown` default — the regression this slice
+    // must not introduce. An unowned Draft plan is `unknown`, not `theirs`.
+    const unowned = draft();
+    expect(unowned.assignee).toBe('');
+    expect(unowned.author).toBe('');
+    expect(unowned.approver).toBe('');
+    expect(draftsForReader([unowned], jwloka, 'mine-and-unknown')).toEqual([unowned]);
+  });
+
+  it('is hidden in the strict mode when all three fields are empty', () => {
+    // Catches `mine` reading an unowned Draft plan as the reader's own.
+    expect(draftsForReader([draft()], jwloka, 'mine')).toEqual([]);
+  });
+
+  it('keeps every Draft plan, whoever owns it, when the filter is off', () => {
+    // Catches the on/off contract breaking.
+    const rows = [draft({ assignee: 'jwloka' }), draft({ plan: 'b', assignee: 'ckehl', author: 'ckehl', approver: 'ckehl' })];
+    expect(draftsForReader(rows, jwloka, 'all')).toBe(rows);
+  });
+
+  it('maps a Draft plan to a plan row through the same shape a card uses', () => {
+    expect(ownedFromCard(draft({ assignee: 'jwloka', author: 'eins78', approver: 'Jan Wloka' }))).toEqual({
+      kind: 'plan',
+      assignee: 'jwloka',
+      author: 'eins78',
+      approver: 'Jan Wloka',
+    });
   });
 });
 

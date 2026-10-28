@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2817 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-refused-scan-listing-backs-off`
+- **Started:** 2026-10-28, Jan Wloka, `bug/the-scan-listing-honours-the-limit`
 
 ## Changelog
 
@@ -95,11 +96,11 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-su
 
 ### Refusal back-off
 
-- `bug/a-refused-scan-listing-backs-off` — a refused (exit 5/6) or failed listing sets a bounded back-off; the scan keeps running with the carried listing and keeps writing the bridge <!-- builds: a refusal back-off rule beside listingSpend, a backoffUntil on ScanState -->
+- `bug/a-refused-scan-listing-backs-off` — a refused (exit 5/6) or failed listing sets a bounded back-off; the scan keeps running with the carried listing and keeps writing the bridge <!-- builds: a refusal back-off rule beside listingSpend, a backoffUntil on ScanState --> → #2847
 
 ### Limit-aware stretch
 
-- `bug/the-scan-listing-honours-the-limit` — the listing stretch reads `SpendRate.limit` and `basis`, and the listing's base share uses 60 s <!-- builds: a limit input to listingSpend and cadenceStretch, a 60 s listing base in scanOnce -->
+- `bug/the-scan-listing-honours-the-limit` — the listing stretch reads `SpendRate.limit` and `basis`, and the listing's base share uses 60 s <!-- builds: a limit input to listingSpend and cadenceStretch, a 60 s listing base in scanOnce --> → #2864
 
 ### Per-loop counters
 

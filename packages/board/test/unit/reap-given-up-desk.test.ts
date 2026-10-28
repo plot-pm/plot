@@ -63,6 +63,10 @@ interface Opts {
   fetchOk?: boolean;
   /** Commits `origin/<branch>..HEAD` holds that change files. */
   extraCommits?: number;
+  /** Whether resolving the branch's tip fails, so the pin cannot be written. */
+  resolveFails?: boolean;
+  /** Whether the pin write (ref + TSV append) fails. */
+  pinFails?: boolean;
 }
 
 const ctxFor = (o: Opts = {}): Context => {
@@ -91,6 +95,10 @@ const ctxFor = (o: Opts = {}): Context => {
     refs: {
       contains: async () => answered('no'),
       commitSubjects: async () => answered([]),
+      resolve: async (ref: string) => {
+        if (o.resolveFails) return failed();
+        return answered(execFileSync('git', ['-C', desk, 'rev-parse', ref], { encoding: 'utf8' }).trim());
+      },
     },
     host: {
       prMerged: async () => answered('not-merged'),
@@ -135,6 +143,13 @@ const ctxFor = (o: Opts = {}): Context => {
       workerState: async () => answered({ state: o.workerPid ? 'running' : 'none', pid: o.workerPid ?? '' }),
       isAlive: async () => answered(false),
     } as unknown as Processes,
+    pinnedTips: {
+      pin: async (branch: string, sha: string) => {
+        calls.push(`pin ${branch} ${sha}`);
+        return o.pinFails ? failed() : answered(`refs/plot/reaped/${branch}/${sha}`);
+      },
+      prune: async () => answered([]),
+    },
     fetch: async () => undefined,
   } as unknown as Context;
 };
@@ -152,6 +167,7 @@ describe('a desk on a given-up branch with its head on the remote', () => {
 
     expect(out).toContain('reaped');
     expect(out).toContain('local branch deleted');
+    expect(out).toContain(`restore: git branch ${BRANCH} refs/plot/reaped/${BRANCH}/`);
     expect(calls).toEqual(expect.arrayContaining(['fetch', 'removeOnly', `deleteBranch ${BRANCH}`]));
     expect(calls.indexOf('fetch')).toBeLessThan(calls.indexOf('removeOnly'));
     expect(readFileSync(path.join(root, '.plot/state/refusals.tsv'), 'utf8')).toContain('PLOT-BLOCKED: parked');
@@ -189,4 +205,28 @@ describe('a given-up desk is kept when one reading differs', () => {
   it('one unpushed commit, named by its sha', () => keeps({ unpushed: ['abc1234'] }, 'unpushed commits: abc1234'));
   it('a branch an Active-index plan still schedules', () => keeps({ activeScheduled: true }, 'PLOT-BLOCKED marker'));
   it('a file-changing commit beyond the pushed head', () => keeps({ extraCommits: 1 }, 'PLOT-BLOCKED marker'));
+});
+
+describe('the given-up branch is pinned before its local ref is deleted', () => {
+  it('pins the pre-delete tip before deleteBranch runs', async () => {
+    const tip = execFileSync('git', ['-C', desk, 'rev-parse', BRANCH], { encoding: 'utf8' }).trim();
+    await run({}, true);
+
+    expect(calls).toContain(`pin ${BRANCH} ${tip}`);
+    expect(calls.indexOf(`pin ${BRANCH} ${tip}`)).toBeLessThan(calls.indexOf(`deleteBranch ${BRANCH}`));
+  });
+
+  it('keeps the branch and never deletes it when resolving the tip fails', async () => {
+    const out = await run({ resolveFails: true }, true);
+
+    expect(out).toContain('could not pin the tip');
+    expect(calls.some((c) => c.startsWith('deleteBranch'))).toBe(false);
+  });
+
+  it('keeps the branch and never deletes it when the pin write fails', async () => {
+    const out = await run({ pinFails: true }, true);
+
+    expect(out).toContain('could not pin the tip');
+    expect(calls.some((c) => c.startsWith('deleteBranch'))).toBe(false);
+  });
 });

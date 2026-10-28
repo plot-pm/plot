@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
-import { listingSpend, type LimitBasis } from '@plot-pm/domain';
+import { listingBackoff, listingSpend, type LimitBasis } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
@@ -36,6 +36,10 @@ export const FLEET_SCAN_BUDGET_MS = 90_000;
  * (`PLOT_TERMINAL_CACHE`) and the PR listing (`PLOT_PR_LISTING`) with the
  * cadence it was fetched on. A process that holds this holds the cost of the
  * scan down; a fresh one re-derives everything, which is correct and slow.
+ *
+ * `backoffUntil`/`backoffMs` hold a listing back-off: while it is open, the
+ * scan skips only the host listing — it still runs every beat, hands the
+ * shell its carried listing, and still writes the bridge.
  */
 export interface ScanState {
   /**
@@ -63,6 +67,13 @@ export interface ScanState {
    * Bitbucket arm never sets it, since the shell still sweeps for itself.
    */
   listingHeld: CarriedListing | null;
+  /**
+   * When the held listing back-off ends, or null where none is held. Set by a
+   * refused or failed listing attempt, cleared by the next adopted one.
+   */
+  backoffUntil: number | null;
+  /** The back-off interval that produced `backoffUntil`, or null where none is held. */
+  backoffMs: number | null;
 }
 
 /**
@@ -78,6 +89,8 @@ export const freshScanState = (): ScanState => ({
   listingBranches: 0,
   listingReusedAgeMs: null,
   listingHeld: null,
+  backoffUntil: null,
+  backoffMs: null,
 });
 
 /** What a scan reads through; every spawn goes through `scripts` or `refs`. */
@@ -464,24 +477,39 @@ const readGithubListing = async (
   };
 };
 
+/** A parameter, not a closure read — narrowing a `let` mutated inside a nested callback inside the same `try` does not hold past the callback. */
+const hostVerdictOf = (reading: FleetReading | null): FleetReading['summary']['host'] | null =>
+  reading !== null ? reading.summary.host : null;
+
 /**
  * Runs the fleet scan once and reads the facts that travel with its pulse.
  *
- * Spends the PR listing only where `listingSpend` permits, hands the scan the
- * two cost caches in `state`, and writes the `terminal:`/`listing:` lines the
- * scan streamed back into `state`. A completed scan replaces `terminal` and,
- * where it fetched, `listing`. A scan that throws (budget timeout or failure)
- * or ends without its reading merges its streamed terminal rows into `terminal` by branch name, and
- * replaces `listing` only where the streamed listing ends with `.list-arrived`.
- * On GitHub a due listing is read through the host before the scan starts;
- * where that read succeeds, it replaces `listing`, `listingAt`,
- * `listingBranches` and `listingHeld`, and the scan's own `listing:` lines are
- * not adopted.
+ * Spends the PR listing only where `listingSpend` permits and no listing
+ * back-off is held, hands the scan the cost caches in `state`, and writes the
+ * `terminal:`/`listing:` lines the scan streamed back into `state`. A
+ * completed scan replaces `terminal` and, where it fetched, `listing`. A scan
+ * that throws (budget timeout or failure) or ends without its reading merges
+ * its streamed terminal rows into `terminal` by branch name, and replaces
+ * `listing` only where the streamed listing ends with `.list-arrived`. On
+ * GitHub a due listing is read through the host before the scan starts; where
+ * that read succeeds, it replaces `listing`, `listingAt`, `listingBranches`
+ * and `listingHeld`, and the scan's own `listing:` lines are not adopted.
+ *
+ * A refused listing attempt (a null GitHub host read, or a Bitbucket sweep the
+ * reading's `summary.host` reports as `throttled`, `secondary` or `failed`)
+ * opens or grows a back-off on `state.backoffUntil`/`backoffMs`, bounded and
+ * growing on repeat (`listingBackoff`). While it holds, the scan skips only
+ * the host listing: it still runs every beat, hands the shell its carried
+ * listing so the shell makes no per-branch `pr-state --ask` call, and still
+ * writes the bridge — the back-off never stops the scan itself. The next
+ * adopted listing clears the back-off, so the refusal after a success starts
+ * from the base again.
  *
  * @param world - what the scan reads through.
  * @param state - the caches carried between scans; `terminal`, `listing`,
  *   `listingAt` and `listingBranches` are mutated as above, on success or
- *   throw; `listingIntervalMs` and `listingReusedAgeMs` record the verdict.
+ *   throw; `listingIntervalMs`, `listingReusedAgeMs`, `backoffUntil` and
+ *   `backoffMs` record the verdict.
  * @param options - whether the script records, and a hook on every raw line.
  * @returns the pulse and the facts read beside it.
  * @throws where the scan fails, times out, or ends without its terminal line.
@@ -496,10 +524,11 @@ export const scanOnce = async (
   let listed = '';
   const now = Date.now();
   const due = state.listingAt === null || now >= state.listingAt + state.listingIntervalMs;
+  const backoff = listingBackoff({ backoffUntil: state.backoffUntil, backoffMs: state.backoffMs, now });
   let spend = true;
   let reusedAgeMs: number | null = null;
   let backend: string | null = null;
-  if (due) {
+  if (due && backoff.open) {
     backend = await world.backend();
     const verdict = listingSpend({
       intervalMs: REFRESH_MS,
@@ -532,6 +561,7 @@ export const scanOnce = async (
   // A SUCCESSFUL HOST READ IS ADOPTED HERE, not from the scan's `listing:`
   // lines: the shell carries a handed listing and reports none back.
   let hostRead: { rendered: string; next: CarriedListing } | null = null;
+  let githubRefused = false;
   if (spend && backend === 'github') {
     hostRead = await readGithubListing(world.scripts, state.listingHeld, now);
     state.listingHeld = hostRead?.next ?? null;
@@ -539,6 +569,8 @@ export const scanOnce = async (
       state.listing = hostRead.rendered;
       state.listingAt = Date.now();
       state.listingBranches = listedBranchCount(hostRead.rendered) ?? state.listingBranches;
+    } else {
+      githubRefused = true;
     }
   }
 
@@ -576,10 +608,38 @@ export const scanOnce = async (
     // listing ends with `.list-arrived`.
     const whole = ended && parsed !== null;
     state.terminal = whole ? learned : mergeTerminal(state.terminal, learned);
-    if (hostRead === null && !reusing && listed !== '' && (whole || listingEnded(listed))) {
+    const adopted = hostRead === null && !reusing && listed !== '' && (whole || listingEnded(listed));
+    if (adopted) {
       state.listing = listed;
       state.listingAt = Date.now();
       state.listingBranches = listedBranchCount(listed) ?? state.listingBranches;
+    }
+
+    // A SPEND ATTEMPT THAT NEITHER ADOPTED THROUGH THE HOST NOR ADOPTED A
+    // STREAMED LISTING REFUSED. Bitbucket's shell sweep carries its own
+    // verdict in `summary.host` (`throttled`/`secondary`/`failed`), read only
+    // once `parsed` exists; a scan that threw or never reported is also a
+    // refusal, since nothing was adopted. The GitHub arm already knows its own
+    // verdict from `hostRead`. A reused or backed-off pass spent nothing and
+    // neither opens nor clears the back-off.
+    if (spend && backend === 'github') {
+      if (githubRefused) {
+        state.backoffUntil = now + backoff.onRefusalMs;
+        state.backoffMs = backoff.onRefusalMs;
+      } else {
+        state.backoffUntil = null;
+        state.backoffMs = null;
+      }
+    } else if (spend) {
+      const hostVerdict = whole ? hostVerdictOf(parsed) : null;
+      const refused = adopted ? false : (hostVerdict === null || hostVerdict !== 'ok');
+      if (refused) {
+        state.backoffUntil = now + backoff.onRefusalMs;
+        state.backoffMs = backoff.onRefusalMs;
+      } else {
+        state.backoffUntil = null;
+        state.backoffMs = null;
+      }
     }
   }
   if (parsed === null) throw new Error('fleet scan ended without a terminal pulse line');

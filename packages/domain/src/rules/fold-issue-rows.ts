@@ -36,8 +36,9 @@ export const foldIssueRows = (
   const byKey = new Map<string, IssueIndexRow>();
   const order: string[] = [];
   for (const row of held) {
-    byKey.set(row.number, row);
-    order.push(row.number);
+    const current = byKey.get(row.number);
+    if (current === undefined || replaces(current, row)) byKey.set(row.number, row);
+    if (!order.includes(row.number)) order.push(row.number);
   }
   for (const row of incoming) {
     const current = byKey.get(row.number);
