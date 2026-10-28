@@ -98,7 +98,7 @@ Decided 2026-10-28 by Jan Wloka after plot-review #2813 on plan PR #2809 and its
 
 ### Draft rows
 
-- `bug/draft-rows-obey-mine` — a Draft plan row carries its `PlanOwnerFields`, `ownership({ kind: 'plan', … })` answers whose it is, and the row passes the «Mine» filter; `unknown` stays visible; the `People` text names the Bitbucket nickname match
+- `bug/draft-rows-obey-mine` — a Draft plan row carries its `PlanOwnerFields`, `ownership({ kind: 'plan', … })` answers whose it is, and the row passes the «Mine» filter; `unknown` stays visible; the `People` text names the Bitbucket nickname match → #2856
 
 ## Notes
 
