@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2407
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2417 merged
 - **Started:** 2026-10-23, Jan Wloka, `bug/plot-approve-reports-no-pr-found`
 - **Delivered:** 2026-10-23
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
