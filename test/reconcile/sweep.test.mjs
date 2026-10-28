@@ -317,6 +317,39 @@ test('the default branch is never deleted', () => {
   assert.ok(hasBranch(repo, 'main'), 'main survives whatever the host says about it');
 });
 
+test('a branch with a commit after the merged PR head survives --yes', () => {
+  // THE DEFECT SLICE 3 FIXES. The host says a PR for this branch merged, but a
+  // commit was added to the local branch AFTER that PR's head — exactly the
+  // shape the worktree kind's `unpushedCommits`/`unpushedPatches` guard refuses
+  // for a checked-out branch. The branch kind must refuse it too, with no
+  // worktree in the picture at all.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/commits-after-the-merge';
+  squashedBranch(repo, branch);
+  const mergedHead = git(repo, 'rev-parse', branch).trim();
+
+  // A commit made after the PR's head merged — never pushed, never reviewed.
+  git(repo, 'checkout', '-q', branch);
+  fs.writeFileSync(path.join(repo, 'after-the-merge.txt'), 'added after the PR merged\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'one more commit, after the PR merged');
+  git(repo, 'checkout', '-q', 'main');
+
+  const bin = stubGh(tmp, {
+    [branch]: [{ mergedAt: '2026-09-01T10:00:00Z', number: 506, headRefOid: mergedHead }],
+  });
+
+  const dry = run(repo, bin, '--dry-run');
+  assert.match(lineFor(dry, branch), /^keep/, `a tip past the merged head must be kept:\n${dry}`);
+  assert.match(lineFor(dry, branch), /commits past the merged PR head/);
+
+  run(repo, bin, '--yes');
+  assert.ok(hasBranch(repo, branch), 'the local ref must survive --yes');
+  assert.equal(git(repo, 'rev-parse', branch).trim(),
+    git(repo, 'log', '-1', '--format=%H', branch).trim(),
+    'nothing deleted the branch, so its tip is unchanged');
+});
+
 test('--max bounds the branch sweep', () => {
   const { tmp, repo } = makeRepo();
   const branches = ['feature/one', 'feature/two', 'feature/three'];
@@ -443,6 +476,55 @@ test('an abandoned claim ref is swept', () => {
   assert.equal(pinnedSha(repo, branch), tip, 'the abandoned claim\'s tip is pinned before its delete');
   assert.match(out, new RegExp(`restore: git branch ${branch.replace(/\//g, '\\/')} refs/plot/reaped/${branch}/${tip}`),
     `the deleted claim row must print its restore command:\n${out}`);
+});
+
+test('a claim-only branch is kept by the branch kind and decided by the claim kind', () => {
+  // Case 1 of the branch/claim cooperation rule (slice 3): every commit past
+  // the default branch is an empty claim marker. The branch kind must not
+  // decide this branch at all — it keeps it and names the claim kind as the
+  // decider — and the claim kind's own section still carries its row.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/claim-only-and-deferred';
+  claimBranch(repo, branch);
+  plan(repo, 'a-plan', branch, { deferred: true });
+  const bin = stubGh(tmp, {});
+
+  const dry = run(repo, bin, '--dry-run');
+  const branchSection = dry.slice(dry.indexOf('-- local branches --'), dry.indexOf('-- orphaned claim refs --'));
+  const claimSection = dry.slice(dry.indexOf('-- orphaned claim refs --'));
+
+  const branchRows = branchSection.split('\n').filter((l) => l.includes(` ${branch} `) || l.includes(` ${branch}`));
+  assert.equal(branchRows.length, 1, `exactly one branch-kind row for ${branch}:\n${branchSection}`);
+  assert.match(branchRows[0], /^keep.*an empty claim; the claim kind decides/, branchRows[0]);
+
+  const claimRows = claimSection.split('\n').filter((l) => l.includes(` ${branch} `) || l.includes(` ${branch}`));
+  assert.equal(claimRows.length, 1, `exactly one claim-kind row for ${branch}:\n${claimSection}`);
+});
+
+test('a contained branch with no commits of its own is kept by both kinds', () => {
+  // Case 2 of the cooperation rule: a branch at an ancestor of the default
+  // branch (never diverged) is contained by ancestry but carries no commit of
+  // its own. The branch kind keeps it after slice 3; `isWhollyEmptyClaim`
+  // answers false on the empty range, so the claim kind skips it too — the
+  // branch stays for a person, decided by neither kind.
+  const { tmp, repo } = makeRepo();
+  const branch = 'feature/never-diverged';
+  git(repo, 'branch', branch, 'main');
+  const bin = stubGh(tmp, { [branch]: [{ mergedAt: null, number: 507, open: true }] });
+
+  const dry = run(repo, bin, '--dry-run');
+  const branchSection = dry.slice(dry.indexOf('-- local branches --'), dry.indexOf('-- orphaned claim refs --'));
+  const claimSection = dry.slice(dry.indexOf('-- orphaned claim refs --'));
+
+  const branchRows = branchSection.split('\n').filter((l) => l.includes(` ${branch} `) || l.includes(` ${branch}`));
+  assert.equal(branchRows.length, 1, `exactly one branch-kind keep row for ${branch}:\n${branchSection}`);
+  assert.match(branchRows[0], /^keep/, branchRows[0]);
+
+  const claimRows = claimSection.split('\n').filter((l) => l.includes(` ${branch} `) || l.includes(` ${branch}`));
+  assert.equal(claimRows.length, 0, `no claim-kind row for ${branch}:\n${claimSection}`);
+
+  run(repo, bin, '--yes');
+  assert.ok(hasBranch(repo, branch), 'a contained branch with no commits of its own survives --yes');
 });
 
 /** A plan file in `docs/plans/` linked from no index, or only from `delivered/`. */

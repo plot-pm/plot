@@ -449,30 +449,27 @@ const isWhollyEmptyClaim = async (refs: Refs, range: string): Promise<boolean> =
 };
 
 /**
- * Whether a branch's tip is NOT reachable from any of its merged PR heads.
+ * Whether a branch's tip is NOT reachable from any merged PR head the host
+ * can resolve.
  *
  * The branch kind's population holds no worktree, so `unpushedCommits`
  * and `unpushedPatches` (`:460-487` below) cannot run — both are bound to a
  * checkout's `HEAD`. This reuses their DECISION rather than their git
- * invocation: a merged head the branch's tip is reachable from means the
- * tip is not past it; where no head resolves, or none contains the tip, the
- * fallback is the same containment check already asked of `origin/<default>`
- * — a repository that squash-merges absorbs the branch's patches into a
- * single commit on main, so a tip past every PR head and not contained in
- * the default branch has commits nothing has recorded.
+ * invocation, for the one case it can: a merged head the branch's tip is
+ * reachable from means the tip is not past it. Where the host answers no
+ * heads at all — the ordinary squash-merge shape, which rewrites the commits
+ * so no head survives to compare against — there is nothing to be past, and
+ * this answers `false` exactly as slice 2 already did before this guard
+ * existed: the host's `merged` verdict stands on its own.
  */
-const tipPastMergedHeads = async (
-  ctx: Context,
-  branch: string,
-  containedInDefault: boolean,
-): Promise<boolean> => {
+const tipPastMergedHeads = async (ctx: Context, branch: string): Promise<boolean> => {
   const heads = await ctx.host.prMergedHeads(branch);
-  if (!heads.ok) return !containedInDefault;
+  if (!heads.ok || heads.value.length === 0) return false;
   for (const head of heads.value) {
     const reachable = await ctx.refs.contains(branch, head);
     if (reachable.ok && reachable.value === 'yes') return false;
   }
-  return !containedInDefault;
+  return true;
 };
 
 /**
@@ -1089,7 +1086,7 @@ export const runBranchKind = async (
       : true;
 
     const tipPastMergedHead =
-      mergedAnswer === 'merged' ? await tipPastMergedHeads(ctx, br, containedInDefault) : false;
+      mergedAnswer === 'merged' ? await tipPastMergedHeads(ctx, br) : false;
 
     const held = checkedOut.has(br);
 
