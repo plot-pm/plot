@@ -193,6 +193,8 @@ For each non-deferred branch:
 
 **This is a hard gate.** Do not proceed to Step 5 if branches are unaccounted for.
 
+**A non-claim list item naming a branch is its own refusal, with no override.** `plot-deliver.sh` reads `slices-unread` from the domain before any of the checks above run, and reports it unchanged — this skill offers no "deliver anyway" for it, because an unread item is not a judgement call about scope, it is a line in `## Branches` that names a branch and that no claim line resolves. The refusal names each item's wave (or `(no slice)`), the branch, and the line itself, with the remedy inline: rewrite it as a claim (`` - `branch` — owner/repo: ... → owner/repo#N ``) or defer it (`<!-- deferred: <reason> -->`). Fix every item it names and re-run; there is no flag or confirmation that proceeds past it.
+
 ### 5. Verify Plan Completeness
 
 > **Model tiers for this step:**
