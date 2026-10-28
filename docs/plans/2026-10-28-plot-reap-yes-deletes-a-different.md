@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2828 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-pins-every-tip-it-deletes`
+- **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-names-an-unknown-host-answer`
 
 ## Changelog
 
