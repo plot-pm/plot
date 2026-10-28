@@ -124,7 +124,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-pa
 
 ### Shared issues
 
-- `bug/shared-issue-reads-the-post-push-tree` — the release arm reads sibling plans from the booking worktree after the push, so the last plan to release closes a shared issue
+- `bug/shared-issue-reads-the-post-push-tree` — the release arm reads sibling plans from the booking worktree after the push, so the last plan to release closes a shared issue → #2880
 
 ### Release outcomes
 
