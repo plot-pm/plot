@@ -1220,11 +1220,7 @@ if [ "$mode" = "start" ]; then
   # its default live in `plot-dispatch.sh --start`, which owns the machine bound
   # and the shortfall report; passing it through keeps one answer to "how many".
   echo "starting agents"
-  if [ -n "$start_count" ]; then
-    "$script_dir/plot-dispatch.sh" --start "$start_count"
-  else
-    "$script_dir/plot-dispatch.sh" --start
-  fi
+  "$script_dir/plot-dispatch.sh" --start ${start_count:+"$start_count"}
   start_rc=$?
 
   # EXACTLY WHAT THE LAST "--stop" STOPPED, through the restart controller —
