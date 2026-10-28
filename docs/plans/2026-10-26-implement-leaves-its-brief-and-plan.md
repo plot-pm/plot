@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2725
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-26, Jan Wloka, `bug/implement-books-the-brief-in-a-worktree`
 - **Started:** 2026-10-26, Jan Wloka, `bug/fleetd-plan-store-reads-the-ref`
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
