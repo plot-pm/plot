@@ -1229,20 +1229,33 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // both inside ONE subshell) gets `wait: pid N is not a child of this
     // shell`, whatever variable it inherited by value. That is why `agent`'s
     // own backgrounding and the `wait` that reports its death must stay
-    // nested together in the same subshell, and `.plot-worker.pid` is
-    // written from INSIDE that subshell, right after `agent=$!` — there is
-    // no legal way to make the OUTER shell both capture `agent`'s pid AND
-    // let the nested subshell `wait` on it.
+    // nested together in the same subshell.
+    //
+    // AND THAT IS EXACTLY WHY `agent`'S OWN PID IS NOT WHAT `.plot-worker.pid`
+    // NAMES. `agent` is a child of the MIDDLE subshell — the one holding this
+    // `wait` — so `agent`'s ppid is that subshell's pid, never `1` directly
+    // (measured: a process adopted by init cannot also be `wait`-able by the
+    // shell that forked it, which is the shell this `wait` runs in). The
+    // middle subshell itself is what the OUTER `sh -c`'s own `$!` names, and
+    // IT is what init adopts the moment the outer shell exits — so the pid
+    // file is written from the OUTER shell's body, right after it backgrounds
+    // the middle subshell, not from inside `workerGoneClear`.
     // `child.pid` below names the OUTER shell, which has exited by the time
     // this function returns; it is never recorded anywhere a reader would
-    // mistake it for the loop. `.plot-worker.pid` carries `$agent`'s own pid
-    // — the same identity `start_worker`'s wrapper records, and the one
-    // `test/e2e/monitors-end.test.mjs` signals directly and matches against
-    // the wrapper's own `evidence` string. Because that write happens inside
-    // the backgrounded subshell rather than the outer shell's own exiting
-    // body, it is not guaranteed done the instant `child.once('exit')` fires
-    // — measured at roughly 20ms behind it — so the read below polls rather
-    // than reading once.
+    // mistake it for the loop. `.plot-worker.pid` carries the middle
+    // subshell's pid — reparented to init, and still alive for as long as
+    // `agent` runs, which is what lets `continue-route.test.ts`'s "the loop
+    // is adopted by init, not left under this process" read its `ppid` as
+    // `1`. Because that write happens from the outer shell's own foreground
+    // body rather than something `workerGoneClear` races against `wait`, it
+    // is guaranteed done before the outer shell's own `exit` event — unlike
+    // the pid `start_worker`'s wrapper records, which is `agent`'s own and
+    // carries the ppid the wrapper itself has, not `1` (see `plot-dispatch.sh`
+    // `start_worker`: the WRAPPER reparents, `agent`'s pid is merely what it
+    // watches). The two routes record different identities for the same
+    // reason the wrapper keeps a separate `.plot-worker.wrapper.pid` file —
+    // `continueOnDesk` has no such second file, so `.plot-worker.pid` here is
+    // the reparented identity rather than the agent's.
     const exitFile = path.join(worktree, '.plot-worker.exit');
     const pidFile = path.join(worktree, '.plot-worker.pid');
     const spawnFn = input.spawn ?? spawn;
@@ -1278,7 +1291,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // names. The trap makes this subshell immune to the same TERM that ends
     // the agent, so it survives to report the death.
     const workerGoneClear =
-      'trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; wait "$agent"; rc=$?; wd="$PLOT_WORKTREE"; ' +
+      'trap "" TERM; wait "$agent"; rc=$?; wd="$PLOT_WORKTREE"; ' +
       '[ -f "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" ] && . "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" 2>/dev/null && ' +
       'wd=$(plot_watched_desk "$PLOT_MANIFEST_FILE" "$PLOT_WORKTREE"); ' +
       'wf="$wd/.plot-worker.monitor.worker.jsonl"; ' +
@@ -1294,7 +1307,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         'sh',
         [
           '-c',
-          `( ( ${cmd} ) & agent=$!; ${workerGoneClear} ) &`,
+          `( ( ${cmd} ) & agent=$!; ${workerGoneClear} ) & printf "%s" "$!" > "$PLOT_PID_FILE"`,
         ],
         {
           cwd: worktree,
@@ -1335,12 +1348,14 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       fs.closeSync(out);
       return failed(`continuation failed to spawn: ${spawnResult.err.message}`);
     }
-    // AWAITED, NOT UNREF'D YET. The outer shell only backgrounds the real
-    // command — no `wait` in its own body — so it exits almost immediately,
-    // well before the agent it started finishes. `.plot-worker.pid` is
-    // written from INSIDE the backgrounded subshell (the comment above says
-    // why it cannot be the outer shell), so the outer shell's own exit is not
-    // proof the write has landed — polled below rather than read once.
+    // AWAITED, NOT UNREF'D YET. The outer shell backgrounds the middle
+    // subshell, writes `.plot-worker.pid` itself right after — the comment
+    // above says why that pid, not `agent`'s — and exits, well before the
+    // agent it started finishes. The write is in the outer shell's own
+    // foreground body, so `child.once('exit')` already proves it landed; the
+    // poll below stays for `continueTarget`'s stale-pid race (a continued or
+    // restarted desk's pid file still names the PREVIOUS worker for a moment),
+    // not for this write.
     fs.closeSync(out);
 
     const pid = await pollDeskPid(worktree, input.previousPid);
