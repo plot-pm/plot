@@ -531,6 +531,30 @@ test('a branch stopped directly via plot-dispatch.sh --stop, bypassing plot-flee
   fs.rmSync(desk, { recursive: true, force: true });
 });
 
+test('--start runs the restart pass before dispatch, so dispatch counts the restarted loops', () => {
+  // `plot-dispatch.sh --start` counts live loops against the machine bound. A
+  // restart pass after it starts workers that count never saw, so N stopped
+  // agents restarted beside N new ones run 2N. Both stand-ins append their
+  // name to one log, and the log's order is the assertion.
+  const { root, box, ctl, guardBin } = sandbox('restart-order');
+  const scriptsDir = path.join(root, 'skills', 'plot', 'scripts');
+  const order = path.join(box, 'call-order');
+  fs.writeFileSync(path.join(scriptsDir, 'plot-dispatch.sh'), `#!/usr/bin/env bash\necho dispatch >> '${order}'\nexit 0\n`);
+  fs.chmodSync(path.join(scriptsDir, 'plot-dispatch.sh'), 0o755);
+  fs.writeFileSync(path.join(scriptsDir, 'board', 'plot-restart-stopped-command.mjs'),
+    `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(order)}, 'restart\\n');\n`);
+  const bin = stubPlatform(box, {});
+  // A launchd that accepts the bootstrap, so the run reaches the agents. Every
+  // other question answers 113, the absent label `supervisor_loaded` reads.
+  fs.writeFileSync(path.join(bin, 'launchctl'),
+    '#!/bin/sh\n[ "$1" = list ] && exit 0\n[ "$1" = bootstrap ] && exit 0\nexit 113\n');
+  fs.chmodSync(path.join(bin, 'launchctl'), 0o755);
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: fakeHome(box), PATH: withHarness(box, bin, process.env.PATH) });
+  assert.equal(r.status, 0, r.out);
+  assert.deepEqual(fs.readFileSync(order, 'utf8').trim().split('\n'), ['restart', 'dispatch'],
+    `the restart pass did not run before dispatch:\n${r.out}`);
+});
+
 // ── The unload is VERIFIED to a bound, and a reported failure exits non-zero ──
 //
 // EXIT CODES ARE ASSERTED EXACTLY, never merely zero/non-zero, for the reason

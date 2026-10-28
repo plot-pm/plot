@@ -1216,17 +1216,17 @@ if [ "$mode" = "start" ]; then
   echo "supervisor loaded${pid:+ (pid $pid)} — $LABEL"
   echo "  log: $repo_root/.plot/logs/fleetd.log"
 
+  # EXACTLY WHAT THE LAST "--stop" STOPPED, through the restart controller —
+  # never a branch stopped by other means. It runs BEFORE dispatch, so the
+  # live-loop count below includes every agent restarted here.
+  PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-restart-stopped-command.mjs"
+
   # THE AGENTS, because a supervisor with no agents does nothing. The count and
   # its default live in `plot-dispatch.sh --start`, which owns the machine bound
   # and the shortfall report; passing it through keeps one answer to "how many".
   echo "starting agents"
   "$script_dir/plot-dispatch.sh" --start ${start_count:+"$start_count"}
   start_rc=$?
-
-  # EXACTLY WHAT THE LAST "--stop" STOPPED, through the restart controller —
-  # never a branch stopped by other means. The domain decides eligibility;
-  # this calls the bundle and reports what it says.
-  PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-restart-stopped-command.mjs"
 
   # THE RECORD THAT THE RUN FINISHED — the whole point of this file. Everything
   # above it can be interrupted, and cutting desks is where a run measurably
