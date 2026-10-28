@@ -231,7 +231,7 @@ export const waitingTickets = (
   }
 
   const mine = rows.filter((row) => ownership(ownedTicket(row, source), reader) === 'mine');
-  const union = unionDedup(inbox ?? [], mine);
+  const union = unionDedup(inbox, mine);
   return render(union, null);
 };
 

@@ -278,6 +278,34 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.shown).toBe(1);
     expect(result.notice).toBeNull();
   });
+
+  it('a reader with a declared spelling under a different assignee string names that declared spelling in the notice', () => {
+    // The reader already has a `jira:` spelling of their own — just not the
+    // one the tracker used for this assignee — so the notice names it
+    // instead of the "declares no spelling" wording.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const inbox = [row('i1', { assignees: ['j.wloka@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBe(
+      'The tracker names your tickets\' assignee `j.wloka@quatico.com`; `People` declares `jira:jan.wloka@quatico.com` for jwloka — add `jira:j.wloka@quatico.com` to match.',
+    );
+  });
+
+  it('a reader with no declared spelling of their own, on a source where someone else has one, gets the "declares no spelling" wording', () => {
+    // `declaresAnyAccountSpelling` only asks whether the PREFIX is declared
+    // for anyone — a reader with no entry of their own still reaches the
+    // notice, and it must say "declares no spelling", not name a colleague's.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:markus.ruepp@quatico.com': 'mruepp' } };
+    const inbox = [row('i1', { assignees: ['someone.new@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBe(
+      'The tracker names your tickets\' assignee `someone.new@quatico.com`, and `People` declares no `jira:` spelling for jwloka — add `jira:someone.new@quatico.com` to match.',
+    );
+  });
 });
 
 describe('waitingTickets, planned tickets', () => {
