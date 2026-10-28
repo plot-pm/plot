@@ -1,4 +1,4 @@
-import type { IssueIndexRow } from '../entities/issue-index.js';
+import type { InboxAnswer, IssueIndexRow } from '../entities/issue-index.js';
 import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
 import { ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
 import { ownerOf, typeOf } from './ticket-lanes.js';
@@ -121,7 +121,16 @@ const ISSUE_LIMIT = 50;
  * and the default view hides it rather than showing it as if it matched. An
  * unmatched reader — no host login, a `null` source, or a declared
  * `tracker-account` reader whose spellings name no candidate's assignee —
- * sees `inbox`, or every row where `inbox` is absent, with a notice naming why.
+ * sees `inbox`, with a notice naming why. Where `inbox` is absent on a
+ * `tracker-account` source, `inboxAnswer` decides what stands in for it. An
+ * `unaskable` read means the open read is already person-scoped, so `rows`
+ * are the reader's own tickets and serve as the candidates; an absent
+ * `inboxAnswer` (unknown) does the same. A `failed` or `not-read` inbox
+ * answers 0 tickets and a notice saying the inbox could not be read or was
+ * not read: there `rows` say whose tickets exist project-wide, and the rule
+ * never guesses the reader's spelling from them. A `host-login` source is
+ * unaffected — its matched reader is found through `ownership`, never through
+ * `inbox` as a stand-in for `rows`.
  *
  * `rows` and `inbox` are read exactly as given, planned rows included; the
  * caller holds the `ISSUE_LIMIT` cap. A row that a plan in `plans` names shows
@@ -133,11 +142,12 @@ const ISSUE_LIMIT = 50;
  * `hidden`; `hidden` counts only the open rows not selected for the reader.
  *
  * @param rows - every open row the read holds.
- * @param inbox - the rows of the reader's own tracker-account read, where one exists.
+ * @param inbox - the rows of the reader's own tracker-account read; `undefined` where the read did not happen, never collapsed with `rows` or `[]`.
  * @param reader - who is reading.
  * @param source - how this read's tickets name their assignees, or `null`.
  * @param complete - whether `rows` is every open row, or the read's cap stopped first.
  * @param plans - the plans naming each ticket, keyed by the row's `number`; absent for an unplanned ticket.
+ * @param inboxAnswer - how the inbox read ended; absent where the caller does not know.
  * @returns the rows to show, the shown/hidden counts, and the notice.
  */
 export const waitingTickets = (
@@ -147,6 +157,7 @@ export const waitingTickets = (
   source: TicketSource | null,
   complete: boolean,
   plans: ReadonlyMap<string, readonly TicketPlan[]> = new Map(),
+  inboxAnswer?: InboxAnswer,
 ): WaitingTickets => {
   const now = Date.now();
   const total = rows.length;
@@ -191,14 +202,20 @@ export const waitingTickets = (
   }
 
   // tracker-account: matched only through a declared `prefix`-spelling.
+  if (inbox === undefined && inboxAnswer === 'failed') {
+    return render([], 'The inbox could not be read — showing none of your tickets rather than the project\'s.');
+  }
+  if (inbox === undefined && (inboxAnswer === 'not-read' || inboxAnswer === 'answered')) {
+    return render([], 'The inbox was not read — showing none of your tickets rather than the project\'s.');
+  }
+  // An unaskable inbox read leaves the person-scoped open rows as the reader's own.
+  const candidates = inbox ?? rows;
   const directory = reader.directory ?? {};
   const prefix = source.prefix;
   if (!declaresAnyAccountSpelling(directory, prefix)) {
-    const fallback = inbox !== undefined ? [...inbox].sort(byNewestFirst) : [...rows].sort(byNewestFirst);
-    return render(fallback, null);
+    return render([...candidates].sort(byNewestFirst), null);
   }
 
-  const candidates = inbox !== undefined ? inbox : rows;
   const matched = candidates.some((row) => accountMatches(row, prefix, directory, reader));
   if (!matched && candidates.length > 0) {
     const raw = candidates
@@ -211,8 +228,12 @@ export const waitingTickets = (
       ([key, handle]) => key.startsWith(prefix) && handle === self.handle,
     )?.[0];
     const fallback = [...candidates].sort(byNewestFirst);
+    const suggestedTakenByAnother =
+      raw !== undefined &&
+      declaresSpelling(`${prefix}${raw}`, directory) &&
+      resolvePerson(`${prefix}${raw}`, directory).handle !== self.handle;
     const notice =
-      raw === undefined
+      raw === undefined || suggestedTakenByAnother
         ? null
         : declaredSpelling !== undefined
           ? `The tracker names your tickets' assignee \`${raw}\`; \`People\` declares \`${declaredSpelling}\` for ${self.handle} — add \`${prefix}${raw}\` to match.`

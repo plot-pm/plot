@@ -154,12 +154,50 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toBeNull();
   });
 
-  it('an unmatched Jira reader with no inbox answers the open rows', () => {
-    const reader: Reader = { hostUser: 'jwloka' };
-    const rows = unassigned(5);
-    const result = waitingTickets(rows, undefined, reader, JIRA, true);
-    expect(result.shown).toBe(5);
+  it('a Jira source with no ticket projects, whose inbox read is unaskable, answers the open rows as the reader\'s own and no notice', () => {
+    // With no `Ticket prefixes` the Jira open read is person-scoped
+    // (`assignee = currentUser()`), so `rows` holds exactly the reader's tickets.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('J-1', { assignees: ['jan.wloka@quatico.com'] }), row('J-2', { assignees: ['jan.wloka@quatico.com'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.shown).toBe(2);
+    expect(result.tickets.map((t) => t.number).sort()).toEqual(['J-1', 'J-2']);
     expect(result.notice).toBeNull();
+  });
+
+  it('a Jira source with no ticket projects and no People spelling answers the open rows when the inbox read is unaskable', () => {
+    const reader: Reader = { hostUser: 'jwloka' };
+    const rows = [row('J-1', { assignees: ['5b10ac8d82e05b22cc7d4ef5'] }), row('J-2', { assignees: ['5b10ac8d82e05b22cc7d4ef5'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.shown).toBe(2);
+    expect(result.notice).toBeNull();
+  });
+
+  it('an inbox read that failed with no kept rows answers 0 tickets and says the inbox could not be read', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('o1', { assignees: ['a-colleague@quatico.com'] }), ...unassigned(4)];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'failed');
+    expect(result.shown).toBe(0);
+    expect(result.notice).toBe('The inbox could not be read — showing none of your tickets rather than the project\'s.');
+  });
+
+  it('an index written before the inbox answer was stored answers the open rows, as an unaskable read does', () => {
+    const reader: Reader = { hostUser: 'jwloka' };
+    const rows = [row('J-1', { assignees: ['jan.wloka@quatico.com'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), undefined);
+    expect(result.shown).toBe(1);
+  });
+
+  it('a Jira reader with no declared spelling and an inbox that was not read answers 0 tickets and no spelling notice', () => {
+    // Catches fixing only the matched/unmatched arm: `declaresAnyAccountSpelling`
+    // is false here, and `rows`' first assignee is a colleague — the project
+    // rows must never stand in for an inbox that was never read.
+    const reader: Reader = { hostUser: 'jwloka' };
+    const rows = unassigned(5).map((r, i) => ({ ...r, assignees: [i === 0 ? 'a-colleague' : ''] }));
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'not-read');
+    expect(result.shown).toBe(0);
+    expect(result.notice).not.toBeNull();
+    expect(result.notice).not.toContain('add `');
   });
 
   it('a Jira reader who declares jira:<email> over inbox rows whose assignee is an accountId answers the inbox rows and a notice naming the accountId', () => {
@@ -172,12 +210,15 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toContain('jira:jan.wloka@quatico.com');
   });
 
-  it('the same Jira reader with no inbox answers the open rows and the same notice', () => {
+  it('the same Jira reader with an inbox that was not read answers 0 tickets and no spelling notice, never the project rows', () => {
+    // The `markus.ruepp` banner, reproduced: an absent inbox must never let a
+    // project-wide row's first assignee stand in for the reader's own ticket.
     const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
     const rows = [row('o1', { assignees: ['5b10ac8d82e05b22cc7d4ef5'] }), ...unassigned(4)];
-    const result = waitingTickets(rows, undefined, reader, JIRA, true);
-    expect(result.shown).toBe(5);
-    expect(result.notice).toContain('5b10ac8d82e05b22cc7d4ef5');
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'not-read');
+    expect(result.shown).toBe(0);
+    expect(result.notice).not.toContain('5b10ac8d82e05b22cc7d4ef5');
+    expect(result.notice).not.toBeNull();
   });
 
   it('a GitHub reader whose login is shaped like an email answers every row and the no-login notice', () => {
@@ -206,7 +247,9 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toBeNull();
   });
 
-  it('a Jira reader whose own prefix-spelling resolves to somebody else leaves the candidate unmatched', () => {
+  it('a Jira reader whose own prefix-spelling resolves to somebody else leaves the candidate unmatched with no notice', () => {
+    // The spelling People would suggest is already declared for `eins78` —
+    // the notice must not offer to reassign it to this reader.
     const reader: Reader = {
       hostUser: 'jwloka',
       directory: { 'jira:jan.wloka@quatico.com': 'jwloka', 'jira:other@quatico.com': 'eins78' },
@@ -215,7 +258,7 @@ describe('waitingTickets, the unmatched reader', () => {
     const rows = unassigned(5);
     const result = waitingTickets(rows, inbox, reader, JIRA, true);
     expect(result.shown).toBe(1);
-    expect(result.notice).toContain('other@quatico.com');
+    expect(result.notice).toBeNull();
   });
 
   it('a candidate row with no assignees field at all is treated as unassigned', () => {
@@ -227,22 +270,75 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toBeNull();
   });
 
-  it('a Jira reader with no host login over a candidate assigned to someone else leaves it unmatched with no declared spelling', () => {
+  it('a Jira reader with no host login over a candidate assigned to someone else leaves it unmatched with no notice', () => {
+    // The candidate's spelling is already declared, for `eins78` — the notice
+    // must not offer it to a reader with no resolvable identity either.
     const reader: Reader = { directory: { 'jira:other@quatico.com': 'eins78' } };
     const inbox = [row('i1', { assignees: ['other@quatico.com'] })];
     const rows = unassigned(5);
     const result = waitingTickets(rows, inbox, reader, JIRA, true);
     expect(result.shown).toBe(1);
-    expect(result.notice).toContain('declares no');
+    expect(result.notice).toBeNull();
   });
 
-  it('a matched Jira reader with no inbox answers the union of the open rows alone', () => {
+  it('a matched Jira reader whose inbox was not read answers 0 tickets rather than the open rows', () => {
+    // Even a reader who WOULD match if the inbox had been read gets nothing
+    // from `rows` while the inbox is absent — `rows` never stands in for it.
     const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
     const rows = [row('mine', { assignees: ['jan.wloka@quatico.com'] }), ...unassigned(4)];
-    const result = waitingTickets(rows, undefined, reader, JIRA, true);
-    expect(result.shown).toBe(1);
-    expect(result.tickets.some((t) => t.number === 'mine')).toBe(true);
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'not-read');
+    expect(result.shown).toBe(0);
+    expect(result.tickets.some((t) => t.number === 'mine')).toBe(false);
+    expect(result.notice).not.toBeNull();
+  });
+
+  it('an unmatched Jira reader with an answered-empty inbox answers 0 tickets and no notice, distinct from an absent one', () => {
+    // `inbox: []` is an answer, not a missing read — it must give 0 tickets
+    // and no notice, never collapsed with `undefined` via `?? []`.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('someone-else', { assignees: ['a-colleague@quatico.com'] }), ...unassigned(4)];
+    const result = waitingTickets(rows, [], reader, JIRA, true);
+    expect(result.shown).toBe(0);
     expect(result.notice).toBeNull();
+  });
+
+  it('a non-empty inbox with no match never suggests a spelling People declares for another person', () => {
+    // The `markus.ruepp` banner: the inbox's first assignee is already
+    // declared for a colleague, so the notice must not offer to reassign it.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka', 'jira:markus.ruepp@quatico.com': 'mruepp' } };
+    const inbox = [row('i1', { assignees: ['markus.ruepp@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBeNull();
+  });
+
+  it('a reader with a declared spelling under a different assignee string names that declared spelling in the notice', () => {
+    // The reader already has a `jira:` spelling of their own — just not the
+    // one the tracker used for this assignee — so the notice names it
+    // instead of the "declares no spelling" wording.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const inbox = [row('i1', { assignees: ['j.wloka@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBe(
+      'The tracker names your tickets\' assignee `j.wloka@quatico.com`; `People` declares `jira:jan.wloka@quatico.com` for jwloka — add `jira:j.wloka@quatico.com` to match.',
+    );
+  });
+
+  it('a reader with no declared spelling of their own, on a source where someone else has one, gets the "declares no spelling" wording', () => {
+    // `declaresAnyAccountSpelling` only asks whether the PREFIX is declared
+    // for anyone — a reader with no entry of their own still reaches the
+    // notice, and it must say "declares no spelling", not name a colleague's.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:markus.ruepp@quatico.com': 'mruepp' } };
+    const inbox = [row('i1', { assignees: ['someone.new@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBe(
+      'The tracker names your tickets\' assignee `someone.new@quatico.com`, and `People` declares no `jira:` spelling for jwloka — add `jira:someone.new@quatico.com` to match.',
+    );
   });
 });
 
@@ -282,7 +378,8 @@ describe('waitingTickets, planned tickets', () => {
       row('JIRA-1', { assignees: ['jan.wloka@quatico.com'], status: 'In Progress', createdAt: '2026-03-01T00:00:00.000Z' }),
       row('JIRA-2', { assignees: ['jan.wloka@quatico.com'], status: 'To Do', createdAt: '2026-01-01T00:00:00.000Z' }),
     ];
-    const result = waitingTickets(rows, undefined, jiraReader, JIRA, true, plans({ 'JIRA-1': [{ state: 'approved', total: 2, merged: 1 }] }));
+    const inbox = [...rows];
+    const result = waitingTickets(rows, inbox, jiraReader, JIRA, true, plans({ 'JIRA-1': [{ state: 'approved', total: 2, merged: 1 }] }));
     expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['JIRA-2', 'To Do'], ['JIRA-1', 'In Progress']]);
   });
 

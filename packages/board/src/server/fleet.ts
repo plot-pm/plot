@@ -63,6 +63,7 @@ import {
   offlineIssueRows,
   type OfflineIssueRows,
   ISSUE_INDEX_OPEN_LIMIT,
+  type InboxAnswer,
   type IssueIndex,
   type IssueIndexRow,
   draftPlacement,
@@ -109,7 +110,7 @@ import {
   type PrWorld,
 } from '@plot-pm/fleet/shared/pr-refresh';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
-import { closedOutcomeOf, closedSince, issueIndexRowOf } from '@plot-pm/fleet/shared/issue-refresh';
+import { closedOutcomeOf, closedSince, inboxOutcomeOf, inboxSkipped, issueIndexRowOf } from '@plot-pm/fleet/shared/issue-refresh';
 // The PR reader moved to the fleet package; these names stay importable from
 // here because the board's tests and its payload assembly read them.
 export {
@@ -839,8 +840,8 @@ export interface CacheEntry {
   issueAt: number | null;
 }
 
-/** The two issue sets one read leaves, in the issue index's own shape. */
-export type IssueSets = Pick<IssueIndex, 'answer' | 'at' | 'failedAt' | 'reason' | 'rows' | 'complete' | 'closed'>;
+/** The sets one read leaves, in the issue index's own shape. */
+export type IssueSets = Pick<IssueIndex, 'answer' | 'at' | 'failedAt' | 'reason' | 'rows' | 'complete' | 'closed' | 'inbox' | 'inboxAt' | 'inboxAnswer'>;
 
 const caches = new Map<string, CacheEntry>();
 
@@ -1911,6 +1912,7 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
  * @param complete - whether `rows` is every open row, or the read's own cap stopped first.
  * @param inbox - the reader's own open tickets from a separate D23 inbox read,
  *   or `undefined` where no inbox read happened.
+ * @param inboxAnswer - how that inbox read ended; `undefined` where unknown.
  * @returns the wire shape for `FleetShape.waiting`.
  */
 const waitingOf = async (
@@ -1920,10 +1922,11 @@ const waitingOf = async (
   source: import('@plot-pm/domain').TicketSource | null,
   complete: boolean,
   inbox: readonly IssueIndexRow[] | undefined = undefined,
+  inboxAnswer: InboxAnswer | undefined = undefined,
 ): Promise<FleetWaiting> => {
   const [who, directory] = await Promise.all([identity(opts), people(opts)]);
   const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
-  const result = waitingTickets(rows, inbox, reader, source, complete, plans);
+  const result = waitingTickets(rows, inbox, reader, source, complete, plans, inboxAnswer);
   return {
     tickets: result.tickets.map((t) => ({
       kind: 'ticket' as const,
@@ -1952,9 +1955,13 @@ const waitingOf = async (
  * Runs on the PR timer beside `refreshPrs`, behind its own gate
  * (`issueNextAt`). It reads the same rows the fleet's issue pass folds: up to
  * `ISSUE_INDEX_OPEN_LIMIT` open issues page by page, then the issues closed in
- * the last 14 days. Both sets stay unfiltered on `entry.issueSets`, and
- * `issueRequests` counts the pages both reads spent. The inbox filter and the
- * {@link ISSUE_LIMIT} cap apply only to `entry.issues`.
+ * the last 14 days, then — unless the closed read itself failed —
+ * {@link Tracker.issueListInbox}, the reader's own person-scoped read, mirroring
+ * fleetd's {@link inboxOutcomeOf}. All three sets stay unfiltered on
+ * `entry.issueSets`, and `issueRequests` counts the pages all three reads
+ * spent. The inbox filter and the {@link ISSUE_LIMIT} cap apply only to
+ * `entry.issues`; `entry.waiting` is given the inbox read's own rows, never
+ * `entry.issueSets.rows` standing in for it.
  *
  * THE THREE OUTCOMES STAY APART, and the port is where they are decided: it
  * answers `unaskable` for a host with no issue listing at all, `failed` for an
@@ -2069,17 +2076,41 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   // leaves the open rows and the inbox as the open read set them.
   const since = closedSince(startedAt);
   const closedRead = await tracker.issueListClosed(since, ISSUE_INDEX_OPEN_LIMIT);
-  const finishedAt = Date.now();
-  const outcome = closedOutcomeOf(closedRead, kept?.closed, since, stamp, tracker.lastRefusal(), finishedAt);
-  entry.issueRequests = said.value.pages + outcome.spent;
+  const closedRefusal = tracker.lastRefusal();
+  const closedFinishedAt = Date.now();
+  const outcome = closedOutcomeOf(closedRead, kept?.closed, since, stamp, closedRefusal, closedFinishedAt);
+  // A closed read that failed outright (not merely unaskable) skips the inbox
+  // read too, as fleetd's own pass does — its previous inbox rows and age stay.
+  const closedRefused = !closedRead.ok && closedRead.why !== 'unaskable';
+  let inboxOutcome = inboxSkipped(kept?.inbox, kept?.inboxAt, kept === null ? 'not-read' : kept.inboxAnswer);
+  let finishedAt = closedFinishedAt;
+  if (!closedRefused) {
+    const inboxRead = await tracker.issueListInbox(ISSUE_INDEX_OPEN_LIMIT);
+    finishedAt = Date.now();
+    inboxOutcome = inboxOutcomeOf(inboxRead, kept?.inbox, kept?.inboxAt, stamp, tracker.lastRefusal(), finishedAt);
+  }
+  entry.issueRequests = said.value.pages + outcome.spent + inboxOutcome.spent;
   entry.issueNextAt = startedAt + issueIntervalMs(entry.issueRequests);
-  if (outcome.wait !== null) {
-    entry.issueBackoffUntil = finishedAt + outcome.wait;
+  const ends = [
+    outcome.wait === null ? null : closedFinishedAt + outcome.wait,
+    inboxOutcome.wait === null ? null : finishedAt + inboxOutcome.wait,
+  ].filter((until): until is number => until !== null);
+  if (ends.length > 0) {
+    entry.issueBackoffUntil = Math.max(...ends);
     entry.issueNextAt = entry.issueBackoffUntil;
     entry.issueNextIsBackoff = true;
   }
   const rows = said.value.issues.map(issueIndexRowOf);
-  entry.issueSets = { answer: 'answered', at: stamp, rows, complete: said.value.complete, closed: outcome.closed };
+  entry.issueSets = {
+    answer: 'answered',
+    at: stamp,
+    rows,
+    complete: said.value.complete,
+    closed: outcome.closed,
+    ...(inboxOutcome.inbox === undefined ? {} : { inbox: inboxOutcome.inbox }),
+    ...(inboxOutcome.inboxAt === undefined ? {} : { inboxAt: inboxOutcome.inboxAt }),
+    ...(inboxOutcome.answer === undefined ? {} : { inboxAnswer: inboxOutcome.answer }),
+  };
   const plans = await ticketPlansOf(opts, entry);
   if (plans === null) {
     // The plans could not be read, so "which of these is unplanned" has no
@@ -2095,7 +2126,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, said.value.complete);
+  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, said.value.complete, inboxOutcome.inbox, inboxOutcome.answer);
 }
 
 const overlays = new WeakMap<CacheEntry, PrIndexStore>();
@@ -2120,6 +2151,9 @@ const setsOf = (index: IssueIndex): IssueSets => ({
   ...(index.rows === undefined ? {} : { rows: index.rows }),
   ...(index.complete === undefined ? {} : { complete: index.complete }),
   ...(index.closed === undefined ? {} : { closed: index.closed }),
+  ...(index.inbox === undefined ? {} : { inbox: index.inbox }),
+  ...(index.inboxAt === undefined ? {} : { inboxAt: index.inboxAt }),
+  ...(index.inboxAnswer === undefined ? {} : { inboxAnswer: index.inboxAnswer }),
 });
 
 /** The issue index store for a repo root, cached so its `git rev-parse` runs once. */
@@ -2259,7 +2293,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, index.complete ?? true, index.inbox);
+  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, index.complete ?? true, index.inbox, index.inboxAnswer);
 };
 
 /**
