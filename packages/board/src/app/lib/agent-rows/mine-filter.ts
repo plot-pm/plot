@@ -1,5 +1,5 @@
 import { isMine, ownedTicket, readerIsKnown, type OwnedRow, type Reader } from '@plot-pm/domain';
-import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
+import { type AgentEntry, type AgentRow, type Board, type Card, type DraftPlan, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
  * Where the "only my work" preference lives.
@@ -157,6 +157,20 @@ export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'auth
   reader: Reader,
   on: boolean,
 ): T[] => (on ? rows.filter((r) => isMine(ownedFromRow(r), reader)) : rows);
+
+/**
+ * The Draft plan rows that stay in view, given the reader and whether the
+ * filter is on.
+ *
+ * Off returns the array untouched, for the reason {@link rowsForReader}
+ * gives. On, a row is hidden only where {@link isMine} answers false for
+ * {@link ownedFromCard} — a Draft plan carries the same `assignee`/`author`/
+ * `approver` shape a Discovery card does, so it goes through the identical
+ * mapping rather than a fourth variant of it. A plan naming nobody stays
+ * visible, same as every other row shape.
+ */
+export const draftsForReader = (drafts: DraftPlan[], reader: Reader, on: boolean): DraftPlan[] =>
+  (on ? drafts.filter((d) => isMine(ownedFromCard(d), reader)) : drafts);
 
 /**
  * The registry agents that stay in view, given the reader and whether the
