@@ -418,6 +418,18 @@ export interface CacheEntry {
    * itself.
    */
   listingHeld: CarriedListing | null;
+  /**
+   * When the held listing back-off ends, or null where none is held. Set by a
+   * refused or failed listing attempt, cleared by the next adopted one — the
+   * same field `scanOnce` reads and writes directly, since this entry is the
+   * `ScanState` it runs against.
+   */
+  backoffUntil: number | null;
+  /**
+   * The back-off interval that produced {@link backoffUntil}, or null where
+   * none is held.
+   */
+  backoffMs: number | null;
   pulse: FleetReading | null;
   ages: Map<string, number | null>;
   /**
@@ -2909,6 +2921,9 @@ export function freshCacheEntry(): CacheEntry {
     // scan spend one whatever the account's rate says.
     listing: '', listingAt: null, listingIntervalMs: REFRESH_MS,
     listingBranches: 0, listingReusedAgeMs: null, listingHeld: null,
+    // No back-off held at cold start: the first scan is unconditional, same as
+    // the empty listing above.
+    backoffUntil: null, backoffMs: null,
     approvedAt: new Map(),
     ideaPlans: new Map(),
     versions: new Map(),
