@@ -1,4 +1,5 @@
-import { comparableLogin, isMine, type OwnedRow, type Reader } from './ownership.js';
+import { comparableLogin, isMine, isMineStrict, type OwnedRow, type Reader } from './ownership.js';
+import type { MineMode } from './mine-mode.js';
 import { rowInSprintSelection } from './sprint-selection.js';
 
 /**
@@ -62,10 +63,12 @@ export interface SprintChipReadings {
 export interface MineChipReadings {
   /** Who is reading, as the ownership rule takes it. */
   readonly reader: Reader;
-  /** Whether the ownership filter is currently on. */
-  readonly on: boolean;
+  /** The effective «Mine» mode. */
+  readonly mode: MineMode;
   /** Rows not already hidden by another filter, before this chip's own effect. */
   readonly visibleRows: readonly OwnedRow[];
+  /** Registry agents not already hidden by another filter, before this chip's own effect. */
+  readonly visibleAgents: readonly OwnedRow[];
 }
 
 /** What `chipRow` reads for the `Waiting on me` chip. */
@@ -137,7 +140,7 @@ const perSprintChip = (readings: SprintChipReadings, sprint: ActiveSprintReading
  * @returns the reason for an email-shaped `hostUser`, for a `gitEmail`-only
  *   reader, or for a reader with neither.
  */
-const mineDisabledReason = (reader: Reader): string => {
+export const mineDisabledReason = (reader: Reader): string => {
   if (reader.hostUser?.trim()) {
     return 'hostUser is an email, not a host login — set hostUser to the host login.';
   }
@@ -151,12 +154,17 @@ const mineDisabledReason = (reader: Reader): string => {
  * The `Mine` chip: carries the reader's host login in its label, disabled
  * where no comparable host login exists.
  *
- * The label reads `comparableLogin`, the login `isMine` matches against, so a
- * blank `hostUser`, an email-shaped `hostUser` and a `gitEmail`-only reader all
- * disable the chip: `isMine` can match none of them to a row's owner. Each
- * reason names `hostUser` as the fix.
+ * The label reads `comparableLogin`, the login `isMine`/`isMineStrict` match
+ * against, so a blank `hostUser`, an email-shaped `hostUser` and a
+ * `gitEmail`-only reader all disable the chip: neither rule can match them to
+ * a row's owner. Each reason names `hostUser` as the fix.
  *
- * @param readings - who is reading, the chip's state, and the rows it would act on.
+ * In `mine-and-unknown` mode, `hiddenCount` counts only the rows and agents
+ * `isMine` answers false for — somebody else's. In `mine` mode it additionally
+ * counts the `unknown` ones, so the number always names everything the filter
+ * currently hides.
+ *
+ * @param readings - who is reading, the effective mode, and the rows/agents it would act on.
  * @returns the chip.
  */
 const mineChip = (readings: MineChipReadings): Chip => {
@@ -165,8 +173,10 @@ const mineChip = (readings: MineChipReadings): Chip => {
     return { label: 'Mine', on: false, hiddenCount: 0, disabledReason: mineDisabledReason(readings.reader) };
   }
   const label = `Mine (${identity})`;
-  const hiddenCount = readings.visibleRows.filter((row) => !isMine(row, readings.reader)).length;
-  return { label, on: readings.on, hiddenCount, disabledReason: null };
+  const owns = readings.mode === 'mine' ? isMineStrict : isMine;
+  const hiddenCount = [...readings.visibleRows, ...readings.visibleAgents]
+    .filter((row) => !owns(row, readings.reader)).length;
+  return { label, on: readings.mode !== 'all', hiddenCount, disabledReason: null };
 };
 
 /**

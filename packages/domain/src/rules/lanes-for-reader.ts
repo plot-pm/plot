@@ -1,4 +1,5 @@
-import { isMine, ownedTicket, type OwnedRow, type Reader } from './ownership.js';
+import { isMine, isMineStrict, ownedTicket, type OwnedRow, type Reader } from './ownership.js';
+import type { MineMode } from './mine-mode.js';
 import type { TicketLaneGroups, TicketLaneRow } from './ticket-lanes.js';
 
 /** A story row, as `lanesForReader` needs it to read ownership. */
@@ -21,6 +22,8 @@ export interface OwnerFilteredLane<T> {
   readonly rows: T[];
   /** True where the lane held rows before the ownership filter and holds none after it. */
   readonly hiddenByOwner: boolean;
+  /** How many of the lane's rows the ownership filter hid. */
+  readonly hiddenCount: number;
 }
 
 /** One story lane after the ownership filter. */
@@ -43,29 +46,32 @@ export interface LanesForReader<S, L extends string = string> {
 }
 
 /**
- * Keeps the rows the reader owns, or whose owner cannot be determined.
+ * Keeps the rows the reader owns under the effective mode.
  *
- * A row the reader does NOT own is dropped; `hiddenByOwner` answers false
- * where the lane was already empty before filtering, the same discipline
- * {@link import('./lanes-for-topic.js').filterLane} applies for its own
- * reason — a lane empty because nothing in it has an owner must never read as
- * hidden-by-filter.
+ * `all` keeps every row untouched. `mine-and-unknown` drops a row only where
+ * {@link isMine} answers false — a row whose owner cannot be determined
+ * stays. `mine` keeps only a row {@link isMineStrict} answers true for.
+ * `hiddenByOwner` answers false where the lane was already empty before
+ * filtering, the same discipline {@link import('./lanes-for-topic.js').filterLane}
+ * applies for its own reason — a lane empty because nothing in it has an
+ * owner must never read as hidden-by-filter.
  *
  * @param rows - one lane's rows.
  * @param ownedOf - reads what a row carries that names an owner.
  * @param reader - who is reading.
- * @param on - whether the filter is active; off keeps every row untouched.
- * @returns the kept rows in their original order, and whether the filter emptied a non-empty lane.
+ * @param mode - the effective «Mine» mode; `all` keeps every row untouched.
+ * @returns the kept rows in their original order, whether the filter emptied a non-empty lane, and how many rows it hid.
  */
 const filterByReader = <T>(
   rows: readonly T[],
   ownedOf: (row: T) => OwnedRow,
   reader: Reader,
-  on: boolean,
+  mode: MineMode,
 ): OwnerFilteredLane<T> => {
-  if (!on) return { rows: [...rows], hiddenByOwner: false };
-  const kept = rows.filter((row) => isMine(ownedOf(row), reader));
-  return { rows: kept, hiddenByOwner: rows.length > 0 && kept.length === 0 };
+  if (mode === 'all') return { rows: [...rows], hiddenByOwner: false, hiddenCount: 0 };
+  const owns = mode === 'mine' ? isMineStrict : isMine;
+  const kept = rows.filter((row) => owns(ownedOf(row), reader));
+  return { rows: kept, hiddenByOwner: rows.length > 0 && kept.length === 0, hiddenCount: rows.length - kept.length };
 };
 
 /**
@@ -99,20 +105,20 @@ const ownedFromStory = (story: Pick<ReaderStory, 'author'>): OwnedRow => ({ kind
  * @param storyLaneGroups - the story lane groups.
  * @param tickets - the ticket lane groups, or `null` where none were read.
  * @param reader - who is reading.
- * @param on - whether the "Only my work" filter is active.
- * @returns both lane kinds, each lane carrying its kept rows and `hiddenByOwner`.
+ * @param mode - the effective «Mine» mode; `all` keeps every row untouched.
+ * @returns both lane kinds, each lane carrying its kept rows, `hiddenByOwner` and `hiddenCount`.
  */
 export const lanesForReader = <S extends ReaderStory, L extends string>(
   storyLaneGroups: readonly { readonly lane: L; readonly stories: readonly S[] }[],
   tickets: TicketLaneGroups | null,
   reader: Reader,
-  on: boolean,
+  mode: MineMode,
 ): LanesForReader<S, L> => {
-  const ticketLane = (rows: readonly TicketLaneRow[]) => filterByReader(rows, ownedFromTicketLaneRow, reader, on);
+  const ticketLane = (rows: readonly TicketLaneRow[]) => filterByReader(rows, ownedFromTicketLaneRow, reader, mode);
   return {
     storyLanes: storyLaneGroups.map((group) => ({
       lane: group.lane,
-      ...filterByReader(group.stories, ownedFromStory, reader, on),
+      ...filterByReader(group.stories, ownedFromStory, reader, mode),
     })),
     tickets: tickets
       ? {
