@@ -110,14 +110,14 @@ WAVES_SECTION=$(echo "$PLAN_CONTENT" | sed -nE '/^## (Waves|Slices)/,/^## [A-Z]/
 # an empty branch set reports as a plan with nothing to deliver.
 #
 # The cost of the cross product is a duplicate line, which `sort -u` removes.
-BRANCH_LINES=$({ { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
+PLAN_BRANCHES=$({ { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
   | grep -oE '^- `[A-Za-z0-9_./-]+`' \
   | sed 's/^- `//; s/`$//'
   printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
   | grep -oE '^### .*\(Branch: [A-Za-z0-9_./-]+' \
   | sed 's/.*(Branch: //'; } | grep -v '^$' | sort -u; } || true)
 
-# Annotation for a given branch, if its line carries one. Empty otherwise.
+# Every annotation a branch's lines carry, one per line. Empty where none do.
 # `|| true` on the greps: a branch with no annotation is the ORDINARY case this
 # whole change exists for, and under `set -e` a no-match grep (exit 1) inside
 # the `$(...)` would abort the script rather than report "un-annotated".
@@ -126,7 +126,7 @@ BRANCH_LINES=$({ { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
 # A trailing arrow on a Waves plan parses as no annotation at all, which is why
 # both forms are read here rather than one being normalised into the other.
 #
-# BOTH ANNOTATION FORMS RUN OVER BOTH SECTIONS, for the reason `BRANCH_LINES`
+# BOTH ANNOTATION FORMS RUN OVER BOTH SECTIONS, for the reason `PLAN_BRANCHES`
 # above already gives: the layout and the heading word are independent, so a
 # plan may say `## Slices` and still carry LIST-ITEM branches with a trailing
 # `→ #N`. Reading the arrow out of `BRANCHES_SECTION` alone found nothing for
@@ -134,23 +134,65 @@ BRANCH_LINES=$({ { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
 # where `feature/one — … → #1` resolved to NO annotation from either lookup.
 # The branch was still found (that cross product was already correct) and only
 # its PR number was lost, so the plan reported every branch unmerged.
-annotation_for() { # $1=branch → "#N" | "owner/repo#N" | ""
-  local a
-  a=$({ printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
+#
+# EVERY LINE, NOT THE FIRST. A branch name used identically across repositories
+# is claimed on several lines, one per repository, and each line's annotation
+# is its own claim — `head -1` on this would silently drop every reference but
+# one, the defect this change exists to fix.
+annotations_for() { # $1=branch → zero or more lines of "#N" | "owner/repo#N"
+  { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
     | grep -F -- "\`$1\`" \
     | grep -oE '→ [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
-    | head -1 \
-    | sed 's/^→ //'; } || true)
-  [ -n "$a" ] && { printf '%s' "$a"; return; }
+    | sed 's/^→ //'; } || true
   # The heading form reads both sections for the same reason, in the mirror
   # direction: a plan mid-reslice carries `## Branches` AND `## Waves` at once,
   # and a `### Name (Branch: x, PR: #N)` heading under the former would
-  # otherwise be invisible here while `BRANCH_LINES` finds its branch.
+  # otherwise be invisible here while `PLAN_BRANCHES` finds its branch.
   { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
     | grep -F -- "(Branch: $1" \
     | grep -oE 'PR: [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
-    | head -1 \
     | sed 's/^PR: //'; } || true
+}
+
+# One row per (repository, branch) the plan claims — a branch named in several
+# repositories is one claim per repository, and each must be checked on its
+# own. A branch with no annotation at all gets one row, repository "-", so an
+# un-annotated claim still resolves by name below. `sort -u` on the composite
+# key rather than on each half separately, so two branches sharing a repository
+# are not folded into one.
+BRANCH_LINES=""
+for BR in $PLAN_BRANCHES; do
+  REFS=$(annotations_for "$BR")
+  if [ -z "$REFS" ]; then
+    BRANCH_LINES="${BRANCH_LINES}-	${BR}
+"
+    continue
+  fi
+  while IFS= read -r ONE_REF; do
+    [ -n "$ONE_REF" ] || continue
+    REPO="${ONE_REF%#*}"
+    BRANCH_LINES="${BRANCH_LINES}${REPO:--}	${BR}
+"
+  done <<< "$REFS"
+done
+BRANCH_LINES=$(printf '%s' "$BRANCH_LINES" | sort -u)
+
+# The annotation for one (repository, branch) row: the repository names a
+# cross-repo claim, so the matching annotation is looked up again by branch and
+# filtered to that repository; "-" names a same-repo or un-annotated claim, so
+# only a same-repo (bare `#N`) annotation applies.
+annotation_for() { # $1=repo ("-" for same-repo/none) $2=branch → "#N" | "owner/repo#N" | ""
+  local repo="$1" branch="$2" one
+  while IFS= read -r one; do
+    [ -n "$one" ] || continue
+    if [ "$repo" = "-" ]; then
+      [ -z "${one%%#*}" ] && { printf '%s' "$one"; return; }
+    elif [ "${one%#*}" = "$repo" ]; then
+      printf '%s' "$one"
+      return
+    fi
+  done <<< "$(annotations_for "$branch")"
+  printf ''
 }
 
 if [ -z "$BRANCH_LINES" ]; then
@@ -204,8 +246,9 @@ if [ -f "$INDEX_LOOKUP" ] && command -v node >/dev/null 2>&1; then
     # two lists must stay in step — the bundle refuses a malformed batch rather
     # than dropping a line, for exactly that reason.
     INDEX_QUERIES=""
-    for BR in $BRANCH_LINES; do
-      REF=$(annotation_for "$BR")
+    while IFS='	' read -r REPO_KEY BR; do
+      [ -n "$BR" ] || continue
+      REF=$(annotation_for "$REPO_KEY" "$BR")
       if [ -n "$REF" ] && [ -z "${REF%#*}" ]; then
         # A LOCAL annotation only. A cross-repo `owner/repo#N` names a PR in
         # another repository, and this store holds THIS checkout's — answering
@@ -219,7 +262,7 @@ if [ -f "$INDEX_LOOKUP" ] && command -v node >/dev/null 2>&1; then
         INDEX_QUERIES="${INDEX_QUERIES}-	${BR}
 "
       fi
-    done
+    done <<< "$BRANCH_LINES"
     INDEX_ANSWERS=$(printf '%s' "$INDEX_QUERIES" \
       | node "$INDEX_LOOKUP" "$INDEX_CONNECTOR" 2>/dev/null || true)
   fi
@@ -246,11 +289,12 @@ index_answered() { # $1=answer line
 # anything at all.
 POS=0
 BRANCH_ARGS=()
-for BR in $BRANCH_LINES; do
+while IFS='	' read -r REPO_KEY BR; do
+  [ -n "$BR" ] || continue
   POS=$((POS + 1))
   index_answered "$(index_answer_for "$POS")" && continue
-  [ -z "$(annotation_for "$BR")" ] && BRANCH_ARGS+=(--branch "$BR")
-done
+  [ -z "$(annotation_for "$REPO_KEY" "$BR")" ] && BRANCH_ARGS+=(--branch "$BR")
+done <<< "$BRANCH_LINES"
 
 # The merged-PR head list, fetched ONCE for the whole plan — one `pr-list` call
 # regardless of how many branches are unresolved — and only when some branch is
@@ -297,9 +341,10 @@ append() { # $1=compact PR JSON
 }
 
 POS=0
-for BR in $BRANCH_LINES; do
+while IFS='	' read -r REPO_KEY BR; do
+  [ -n "$BR" ] || continue
   POS=$((POS + 1))
-  REF=$(annotation_for "$BR")
+  REF=$(annotation_for "$REPO_KEY" "$BR")
 
   # THE INDEX FIRST, AND ONLY WHERE IT COMMITTED. An answered line is a MERGED
   # row, which is the one answer that cannot change — so the host is not asked
@@ -346,7 +391,7 @@ for BR in $BRANCH_LINES; do
     [ "$(echo "$PR_JSON" | jq -r .state)" = "NONE" ] && continue
     append "$(echo "$PR_JSON" | jq -c --arg branch "$BR" '. + {repo: "", branch: $branch}')"
   fi
-done
+done <<< "$BRANCH_LINES"
 RESULT="${RESULT}]"
 
 jq -n --argjson prs "$RESULT" '{prs: $prs}'

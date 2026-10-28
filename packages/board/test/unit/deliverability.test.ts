@@ -486,3 +486,59 @@ describe('deliverabilityOf reads a cross-repo reference from the plan text', () 
     expect(answer.reason).toBe('cannot-tell');
   });
 });
+
+describe('deliverabilityOf reads every cross-repo reference a branch names, not only the first', () => {
+  // Models ewz-kus-portal plan 3853: one branch name claimed identically in six
+  // repositories. Before this slice, `crossRepoReferences` kept only the first
+  // line's reference, so `deliverabilityOf` asked about #11 alone and reported
+  // `deliverable: true` while #22 and #33 sat open.
+  const branch = 'infra/shared-name';
+  const text = [
+    '# X',
+    '',
+    '## Slices',
+    '',
+    `- \`${branch}\` — repo one → quatico/one#11`,
+    `- \`${branch}\` — repo two → quatico/two#22`,
+    `- \`${branch}\` — repo three → quatico/three#33`,
+    '',
+  ].join('\n');
+  const portsWithText = (host: Host): DeliverabilityPorts => ({
+    planStore: planStoreFixture({ plans: [plan([branch])], files: { [FILE]: text } }),
+    host,
+    refs: { commitFiles: async () => ({ ok: true, value: [] }) } as never,
+    prIndex: prIndexFixture(null),
+  });
+
+  it('asks every reference and refuses, naming the branch, when two of three are unmerged', async () => {
+    const asked: unknown[] = [];
+    const host: Host = {
+      ...throwingHostExceptMergeCommit(),
+      prState: async (ref, opts) => {
+        asked.push([ref, opts]);
+        const merged = ref === 11;
+        return { ok: true, value: { state: merged ? 'MERGED' : 'OPEN' } } as never;
+      },
+    };
+    const answer = await deliverabilityOf(portsWithText(host), SLUG, FILE);
+
+    expect(asked).toEqual([
+      [11, { repo: 'quatico/one' }],
+      [22, { repo: 'quatico/two' }],
+      [33, { repo: 'quatico/three' }],
+    ]);
+    expect(answer.deliverable).toBe(false);
+    expect(answer.unmerged).toEqual([branch]);
+  });
+
+  it('delivers only once every reference answers merged', async () => {
+    const host: Host = {
+      ...throwingHostExceptMergeCommit(),
+      prState: async () => ({ ok: true, value: { state: 'MERGED' } }) as never,
+    };
+    const answer = await deliverabilityOf(portsWithText(host), SLUG, FILE);
+
+    expect(answer.deliverable).toBe(true);
+    expect(answer.merged).toBe(1);
+  });
+});

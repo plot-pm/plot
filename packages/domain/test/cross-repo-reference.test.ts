@@ -8,23 +8,31 @@ const plan = (...body: string[]): string =>
 describe('crossRepoReferences', () => {
   it('reads a list claim’s cross-repo reference', () => {
     const refs = crossRepoReferences(plan('## Slices', '', '- `feature/x` — the work → quatico/other#4711'));
-    expect(refs.get('feature/x')).toEqual({ repo: 'quatico/other', number: 4711 });
+    expect(refs.get('feature/x')).toEqual([{ repo: 'quatico/other', number: 4711 }]);
   });
 
   it('reads a heading claim’s cross-repo reference', () => {
     const refs = crossRepoReferences(plan('## Waves', '', '### One (Branch: feature/y) → acme/widget.js#7'));
-    expect(refs.get('feature/y')).toEqual({ repo: 'acme/widget.js', number: 7 });
+    expect(refs.get('feature/y')).toEqual([{ repo: 'acme/widget.js', number: 7 }]);
+  });
+
+  it('reads a heading’s `PR: owner/repo#N` form', () => {
+    const refs = crossRepoReferences(plan('## Waves', '', '### One (Branch: feature/y, PR: acme/widget.js#7)'));
+    expect(refs.get('feature/y')).toEqual([{ repo: 'acme/widget.js', number: 7 }]);
   });
 
   it('ignores a same-repo reference', () => {
     expect(crossRepoReferences(plan('## Branches', '', '- `feature/x` — work → #12')).size).toBe(0);
   });
 
-  it('keeps the first line that names a reference', () => {
+  it('keeps every line that names a reference, one per repository', () => {
     const refs = crossRepoReferences(
       plan('## Slices', '', '### One (Branch: feature/x)', '', '- `feature/x` → a/b#1', '- `feature/x` → c/d#2'),
     );
-    expect(refs.get('feature/x')).toEqual({ repo: 'a/b', number: 1 });
+    expect(refs.get('feature/x')).toEqual([
+      { repo: 'a/b', number: 1 },
+      { repo: 'c/d', number: 2 },
+    ]);
   });
 
   it('reads nothing outside the slice sections or inside a fence', () => {
