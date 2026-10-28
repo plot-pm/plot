@@ -22,6 +22,9 @@ const GITHUB = 1;
 const BITBUCKET_11 = 34;
 /** 1,767 PRs measured 2026-10-26: 1 + ceil(1767 / 100). */
 const GITHUB_1767 = 19;
+/** The listing's own unstretched base since this slice — `LISTING_REFRESH_MS`. */
+const LISTING_BASE = 60_000;
+const HOUR = 60 * 60 * 1000;
 
 describe('listingSpend', () => {
   describe('the first reading', () => {
@@ -242,6 +245,165 @@ describe('listingSpend', () => {
       }
 
       expect(intervalMs).toBe(760_000);
+    });
+  });
+
+  describe('the 60 s base', () => {
+    /**
+     * THE PROPERTY THIS BLOCK EXISTS FOR: a fix that only raises the cadence
+     * ceiling still leaves the unstretched share at 720/hr unless `scanOnce`
+     * also passes the 60 s base — measured 2026-10-28, slice 2's own "done
+     * when". `LISTING_BASE` stands in for `LISTING_REFRESH_MS`.
+     */
+    it('spends at most 60 requests an hour on an idle account reading null', () => {
+      let listings = 0;
+      let lastListedAt: number | null = null;
+      for (let now = 0; now < HOUR; now += LISTING_BASE) {
+        const verdict = listingSpend({
+          intervalMs: LISTING_BASE,
+          costPerListing: GITHUB,
+          rate: { perHour: null },
+          lastListedAt,
+          now,
+        });
+        if (verdict.spend) {
+          listings += 1;
+          lastListedAt = now;
+        }
+      }
+
+      expect(listings).toBeLessThanOrEqual(60);
+    });
+
+    it('spends at most 60 requests an hour on an idle account reading zero', () => {
+      let listings = 0;
+      let lastListedAt: number | null = null;
+      for (let now = 0; now < HOUR; now += LISTING_BASE) {
+        const verdict = listingSpend({
+          intervalMs: LISTING_BASE,
+          costPerListing: GITHUB,
+          rate: { perHour: 0 },
+          lastListedAt,
+          now,
+        });
+        if (verdict.spend) {
+          listings += 1;
+          lastListedAt = now;
+        }
+      }
+
+      expect(listings).toBeLessThanOrEqual(60);
+    });
+  });
+
+  describe('a limit the account has reached', () => {
+    const LIMIT = 1_000;
+
+    /**
+     * THE ASSERTION A STRETCH-CEILING-ONLY FIX CANNOT SATISFY: eight times a
+     * non-zero rate is never zero, however high the ceiling goes. Only a
+     * separate wait-for-reset path can spend nothing before the reset.
+     *
+     * `lastListedAt` sits one base interval before `now`, so without the
+     * limit-wait branch the unstretched (and even the 8x-damped) interval
+     * would already be due — only the wait past `resetAt` defers it.
+     */
+    it('spends 0 requests before the reported reset, at an actual limit', () => {
+      const now = 10 * 60_000;
+      const resetAt = now + 20 * 60_000;
+      const verdict = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: LIMIT, limit: LIMIT, basis: 'actual', resetAt },
+        lastListedAt: now - LISTING_BASE,
+        now,
+      });
+
+      expect(verdict.spend).toBe(false);
+      expect(verdict.nextAt).toBe(now - LISTING_BASE + (resetAt - now));
+    });
+
+    it('spends 0 requests before the reported reset, at a predicted limit', () => {
+      const now = 10 * 60_000;
+      const resetAt = now + 20 * 60_000;
+      const verdict = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: LIMIT, limit: LIMIT, basis: 'predicted', resetAt },
+        lastListedAt: now - LISTING_BASE,
+        now,
+      });
+
+      expect(verdict.spend).toBe(false);
+    });
+
+    it('falls back to the damped path once a fresh reading reports the account back under its limit', () => {
+      // The reset passing does not relabel a stale over-limit reading by
+      // itself — what unblocks the limit-wait is the connector's own next
+      // reading, observed back under the limit. From there the damped path
+      // decides, exactly as it would with no limit at all.
+      const withLimit = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: LIMIT - 1, limit: LIMIT, basis: 'actual', resetAt: null },
+        lastListedAt: 0,
+        now: 1,
+      });
+      const withoutLimit = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: LIMIT - 1 },
+        lastListedAt: 0,
+        now: 1,
+      });
+
+      expect(withLimit.intervalMs).toBe(withoutLimit.intervalMs);
+      expect(withLimit.spend).toBe(withoutLimit.spend);
+    });
+
+    it('stretches exactly as today below the limit', () => {
+      // 100/hr against a limit of 1,000 is well under it — the existing
+      // 8x-damped path, unaffected by the new optional fields.
+      const withLimit = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: 100, limit: LIMIT, basis: 'actual' },
+        lastListedAt: 0,
+        now: 1,
+      });
+      const withoutLimit = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: 100 },
+        lastListedAt: 0,
+        now: 1,
+      });
+
+      expect(withLimit.intervalMs).toBe(withoutLimit.intervalMs);
+    });
+  });
+
+  describe('a limit with an unknown basis', () => {
+    it('behaves exactly as a null rate, whatever perHour reads', () => {
+      for (const perHour of [0, 100, 1_000, 100_000]) {
+        const unknownBasis = listingSpend({
+          intervalMs: LISTING_BASE,
+          costPerListing: GITHUB,
+          rate: { perHour, limit: null, basis: 'unknown' },
+          lastListedAt: 0,
+          now: 1,
+        });
+        const noLimit = listingSpend({
+          intervalMs: LISTING_BASE,
+          costPerListing: GITHUB,
+          rate: { perHour },
+          lastListedAt: 0,
+          now: 1,
+        });
+
+        expect(unknownBasis.intervalMs).toBe(noLimit.intervalMs);
+        expect(unknownBasis.spend).toBe(noLimit.spend);
+      }
     });
   });
 

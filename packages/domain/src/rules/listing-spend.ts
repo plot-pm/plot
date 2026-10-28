@@ -1,5 +1,5 @@
 import type { SpendRate } from './budget-record.js';
-import { refreshIntervalMs } from './cadence.js';
+import { refreshIntervalMs, type RateLimitFields } from './cadence.js';
 
 /** What the caller knows when it asks whether it may list now. */
 export interface ListingSpendInput {
@@ -9,9 +9,12 @@ export interface ListingSpendInput {
   readonly costPerListing: number;
   /**
    * What the record says this account is spending, or null where it was not
-   * read or holds no rate to read.
+   * read or holds no rate to read. `limit`, `basis` and `resetAt` are
+   * optional and, where omitted, never gate the limit-aware wait — only a
+   * `basis` of `actual`/`predicted` with a `perHour` at or above `limit`
+   * does.
    */
-  readonly rate: Pick<SpendRate, 'perHour'> | null;
+  readonly rate: (Pick<SpendRate, 'perHour'> & RateLimitFields) | null;
   /**
    * When this caller last completed a listing, in ms on the same clock as
    * `now`, or null where it has never listed.
@@ -72,7 +75,7 @@ export interface ListingSpendVerdict {
 export const listingSpend = (input: ListingSpendInput): ListingSpendVerdict => {
   const { intervalMs, costPerListing, rate, lastListedAt, now } = input;
   const current = input.currentIntervalMs ?? intervalMs * costPerListing;
-  const stretched = refreshIntervalMs(intervalMs, costPerListing, rate, current);
+  const stretched = refreshIntervalMs(intervalMs, costPerListing, rate, current, now);
   // NO PREVIOUS LISTING IS NOT A STALE ONE. A caller that has never listed is
   // permitted whatever the rate says, and reports no reuse rather than an age
   // measured from a listing that never happened.

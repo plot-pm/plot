@@ -23,6 +23,21 @@ export const REFRESH_MS = 5_000;
 export const PR_REFRESH_MS = 60_000;
 
 /**
+ * The listing's own unstretched base, in ms — the board's own 60 s share, and
+ * deliberately its own name rather than a reuse of {@link REFRESH_MS} or
+ * {@link PR_REFRESH_MS}.
+ *
+ * NEITHER OF THE OTHER TWO NAMES THIS NUMBER. `REFRESH_MS` is how often
+ * `scanOnce` runs at all, independent of whether a listing is due — passing it
+ * to `listingSpend` as the listing's own base made an idle fleetd's
+ * unstretched listing spend 720 requests an hour, twelve times the board's own
+ * 60/hr share, before any stretch ran. `PR_REFRESH_MS` is a different reader's
+ * cadence, the PR pass's; reusing it would let a future change to the PR
+ * pass's own interval silently retune the listing's share, and vice versa.
+ */
+export const LISTING_REFRESH_MS = 60_000;
+
+/**
  * The scan's budget, in ms. Measured 34–52 s on this repository and 84 s before
  * the per-plan reads were batched; 90 s is headroom over the loaded cost, not
  * cover for a regression.
@@ -85,7 +100,7 @@ export const freshScanState = (): ScanState => ({
   terminal: '',
   listing: '',
   listingAt: null,
-  listingIntervalMs: REFRESH_MS,
+  listingIntervalMs: LISTING_REFRESH_MS,
   listingBranches: 0,
   listingReusedAgeMs: null,
   listingHeld: null,
@@ -531,7 +546,7 @@ export const scanOnce = async (
   if (due && backoff.open) {
     backend = await world.backend();
     const verdict = listingSpend({
-      intervalMs: REFRESH_MS,
+      intervalMs: LISTING_REFRESH_MS,
       costPerListing: scanListingCost(
         backend,
         state.listingBranches,
