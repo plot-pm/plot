@@ -108,6 +108,14 @@ const ACTIVITY_VALUES = ['working', 'idle', ''];
 const UNCARRIED_TOP = ['fetch_failed', 'fetch_error', 'plan_source'];
 const UNCARRIED_SUMMARY = ['merge_detect', 'host'];
 /**
+ * `unreadBranchItems` is read by `plan-store-shell.ts`, the port `deliverable.ts`
+ * reads to refuse `slices-unread` — a different port than `Refs`, which this
+ * suite compares. `Refs` answers fleet-pulse questions (waves, verdicts, worker
+ * activity); it has no reader for a delivery-time refusal and carrying the
+ * field here would be speculative, the same reasoning `UNCARRIED_TOP` states.
+ */
+const UNCARRIED_PLAN = ['unreadBranchItems'];
+/**
  * Branch fields the scan writes that the Refs adapter does not reproduce yet.
  * `evidence` and `subjectIgnored` come from the merge-subject walk, which the
  * refs port gains in the next slice of `a-merge-subject-proves-a-landing-the-host-cannot`
@@ -499,7 +507,7 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
 
     for (const plan of asArray(raw.plans)) {
       for (const key of Object.keys(plan)) {
-        if (!planMapped.has(key)) unexpected.add(`plan.${key}`);
+        if (!planMapped.has(key) && !UNCARRIED_PLAN.includes(key)) unexpected.add(`plan.${key}`);
       }
       for (const slice of wireSlices(plan)) {
         for (const key of Object.keys(slice)) {
