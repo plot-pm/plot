@@ -323,6 +323,12 @@ async function readMasterAgentBranch(opts: BuildBoardOptions): Promise<string> {
 // it is already holding.
 export interface CacheEntry {
   /**
+   * Host calls the fleet's tick line counts per loop (`PrState.calls`,
+   * `ScanState.calls`). The board holds this entry in those states' place and
+   * never reads it; fleetd is the reader.
+   */
+  calls: number;
+  /**
    * The section each row was given by the last SUCCESSFUL scan, by
    * {@link sectionKey}.
    *
@@ -2911,6 +2917,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
  */
 export function freshCacheEntry(): CacheEntry {
   return {
+    calls: 0,
     pulse: null, ages: new Map(), tipAt: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
     // Empty until the first SUCCESSFUL scan. A restart therefore remembers no
     // section, so every row is unplaced until one completes — which is the
