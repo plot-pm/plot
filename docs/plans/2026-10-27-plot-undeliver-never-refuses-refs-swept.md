@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2764
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-27, Jan Wloka, `bug/plot-undeliver-reads-slices`
 - **Started:** 2026-10-27, Jan Wloka, `bug/plot-reject-calls-plot-undeliver` (brief only, no claim yet)
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
