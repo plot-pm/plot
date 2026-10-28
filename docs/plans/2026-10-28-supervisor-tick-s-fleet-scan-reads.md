@@ -105,7 +105,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-su
 
 ### Per-loop counters
 
-- `bug/the-tick-line-counts-each-loop` — the tick line names the requests per hour of the tick, the scan, the PR reader and the issue reader from in-process counters <!-- builds: per-loop request counters, a domain per-hour rule, a scan spend line on stderr -->
+- `bug/the-tick-line-counts-each-loop` — the tick line names the requests per hour of the tick, the scan, the PR reader and the issue reader from in-process counters <!-- builds: per-loop request counters, a domain per-hour rule, a scan spend line on stderr --> → #2876
 
 ### Bitbucket delta
 
