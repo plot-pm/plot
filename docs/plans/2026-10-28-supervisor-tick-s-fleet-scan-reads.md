@@ -100,7 +100,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-su
 
 ### Limit-aware stretch
 
-- `bug/the-scan-listing-honours-the-limit` — the listing stretch reads `SpendRate.limit` and `basis`, and the listing's base share uses 60 s <!-- builds: a limit input to listingSpend and cadenceStretch, a 60 s listing base in scanOnce -->
+- `bug/the-scan-listing-honours-the-limit` — the listing stretch reads `SpendRate.limit` and `basis`, and the listing's base share uses 60 s <!-- builds: a limit input to listingSpend and cadenceStretch, a 60 s listing base in scanOnce --> → #2864
 
 ### Per-loop counters
 
