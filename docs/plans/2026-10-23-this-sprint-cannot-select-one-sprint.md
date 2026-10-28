@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2399
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-23, jwloka, `bug/this-sprint-selects-a-sprint-subset-rule`
 - **Started:** 2026-10-24, Jan Wloka, `bug/this-sprint-selects-a-sprint-subset-ui`
 - **Delivered:** 2026-10-24
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
