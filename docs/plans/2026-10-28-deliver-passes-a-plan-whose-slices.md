@@ -102,7 +102,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-de
 
 ### Unread item records
 
-- `bug/deliver-reads-unread-branch-items` — `plot-plan-meta.sh` emits `unread_branch_items` with deferred items excluded; `PlanMetaSchema`, `PlanRecord` and the pulse plan carry it; reconcile section 24c lists each item with its rewrite and says it blocks delivery; the PR names the shell lines removed for `check-shell-lines.sh` <!-- builds: unread_branch_items in plot-plan-meta.sh, reconcile section 24c -->
+- `bug/deliver-reads-unread-branch-items` — `plot-plan-meta.sh` emits `unread_branch_items` with deferred items excluded; `PlanMetaSchema`, `PlanRecord` and the pulse plan carry it; reconcile section 24c lists each item with its rewrite and says it blocks delivery; the PR names the shell lines removed for `check-shell-lines.sh` <!-- builds: unread_branch_items in plot-plan-meta.sh, reconcile section 24c --> → #2858
 
 ### Deliver refusal
 
