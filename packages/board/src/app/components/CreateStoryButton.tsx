@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
+import { createFromIssueVerdict } from '@plot-pm/domain/rules/create-from-issue';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
 /**
@@ -46,8 +47,11 @@ export interface CreateStoryButtonProps {
   issue: IssueRow;
   /** Whether this board will act — `Board.story`. Half the question; see below. */
   story: DispatchInfo;
-  /** Whether the tracker can be asked at all — `Fleet.issueAnswer`. The other half. */
-  issueAnswer: IssueAnswer;
+  /**
+   * Whether the tracker can be asked at all — `Board.issueAnswer` or
+   * `Fleet.issueAnswer`. The other half. `null` before the first read.
+   */
+  issueAnswer: IssueAnswer | null;
 }
 
 type State =
@@ -76,29 +80,23 @@ export function armedLabel(issue: IssueRow): string {
 /**
  * Why the control will not act, or "" when it will.
  *
- * **TWO INDEPENDENT QUESTIONS, and both must pass** — the shape
- * `CreatePlanButton.refusalReason` established, and the same two questions: the
- * binding says whether this board can spawn anything, `issueAnswer` says whether
- * the tracker can be asked at all.
+ * Delegates to the domain's `createFromIssueVerdict` — see that function for
+ * the two-question shape and the refusal order. A `pending` verdict (the
+ * tracker has not been read yet) also reads as "": the button is inactive
+ * either way, and `pending` carries no sentence to show.
  *
- * **What it no longer does is refuse categorically.** The function this replaces
- * took no arguments and returned a constant, which is what made it a claim about
- * stories rather than a fact about this board. Everything here is a fact about
- * this board and this host, and the two repo-level facts it cannot see —
- * an unset `Story command`, several declared homes — come back from the route as
- * refusals that name the key.
+ * **What this no longer does is refuse categorically.** The function this
+ * replaced took no arguments and returned a constant, which is what made it a
+ * claim about stories rather than a fact about this board. Everything here is
+ * a fact about this board and this host, and the two repo-level facts it
+ * cannot see — an unset `Story command`, several declared homes — come back
+ * from the route as refusals that name the key.
  *
- * Exported for test — the branches are the plan's own requirement.
+ * Exported for test.
  */
-export function refusalReason(story: DispatchInfo, issueAnswer: IssueAnswer): string {
-  if (issueAnswer === 'unsupported') {
-    return 'this git host has no issue read, so a ticket cannot become a story from here';
-  }
-  if (issueAnswer === 'failed') {
-    return 'the issue lookup is failing, so this ticket cannot be read — nothing was created';
-  }
-  if (!story.available) return story.reason || 'this board cannot create stories';
-  return '';
+export function refusalReason(story: DispatchInfo, issueAnswer: IssueAnswer | null): string {
+  const verdict = createFromIssueVerdict(story, issueAnswer, 'story');
+  return verdict.kind === 'refused' ? verdict.reason : '';
 }
 
 export function CreateStoryButton({ issue, story, issueAnswer }: CreateStoryButtonProps) {
@@ -221,8 +219,9 @@ export function CreateStoryButton({ issue, story, issueAnswer }: CreateStoryButt
     }
   };
 
-  const refusal = refusalReason(story, issueAnswer);
-  const blocked = running || refusal !== '';
+  const verdict = createFromIssueVerdict(story, issueAnswer, 'story');
+  const refusal = verdict.kind === 'refused' ? verdict.reason : '';
+  const blocked = running || verdict.kind !== 'available';
 
   const onClick = () => {
     // `aria-disabled` does not stop a click the way `disabled` does, so the

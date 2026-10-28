@@ -1246,6 +1246,24 @@ export const TicketLaneRowSchema = z.object({
 });
 export type TicketLaneRow = z.infer<typeof TicketLaneRowSchema>;
 
+/**
+ * Whether the tracker could be asked at all — THREE answers, kept apart.
+ *
+ * - `answered` — the host replied; `issues` is what it said, and an empty array
+ *   honestly means there are none unplanned.
+ * - `unsupported` — this host has no issue listing (Bitbucket; `bb` exposes
+ *   none). Nothing is missing and nothing is broken, so the board renders no
+ *   section rather than an empty one implying an empty tracker.
+ * - `failed` — the question was asked and did not come back.
+ *
+ * COLLAPSING ANY TWO REBUILDS `an-outage-is-not-an-answer`. An empty list is a
+ * claim about the tracker; a failed lookup is the absence of one, and a board
+ * that renders the second as the first tells a reader their inbox is clear
+ * using data it never received.
+ */
+export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
+export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
+
 /** The Discovery tab's tickets, grouped into D7's three visible lanes. */
 export const TicketLaneGroupsSchema = z.object({
   open: z.array(TicketLaneRowSchema),
@@ -1487,6 +1505,21 @@ export const BoardSchema = z.object({
    * plan-named ticket as unnamed; see `ticketLane`'s own doc comment.
    */
   plansUnreadable: z.boolean().default(false),
+  /**
+   * Whether the tracker can be asked at all, read from the SAME cache entry
+   * `Fleet.issueAnswer` reads — so Discovery's Create plan/Create story
+   * controls work without a Delivery-tab fleet poll. `null` before the first
+   * read. `.optional()` rather than `.default(null)`: absent means an older
+   * server that predates this field, read the same as a cold one — the
+   * button stays quietly `pending`, never a wrongly-stated refusal.
+   */
+  issueAnswer: IssueAnswerSchema.nullable().optional(),
+  /**
+   * The standing sentence for a `nobody`-source tracker absence, read from
+   * the same cache entry as `issueAnswer` above. `.optional()` for an older
+   * server; absent is drawn the same as a cold read.
+   */
+  issueAbsence: z.string().nullable().optional(),
   /** The Discovery tab's story lanes (Draft/Active/Done/Archived). `.default([])` for an older server. */
   storyLanes: z.array(StoryLaneGroupSchema).default([]),
   /**
@@ -3647,24 +3680,6 @@ export const FleetWaitingSchema = z.object({
 export type FleetWaiting = z.infer<typeof FleetWaitingSchema>;
 
 /**
- * Whether the tracker could be asked at all — THREE answers, kept apart.
- *
- * - `answered` — the host replied; `issues` is what it said, and an empty array
- *   honestly means there are none unplanned.
- * - `unsupported` — this host has no issue listing (Bitbucket; `bb` exposes
- *   none). Nothing is missing and nothing is broken, so the board renders no
- *   section rather than an empty one implying an empty tracker.
- * - `failed` — the question was asked and did not come back.
- *
- * COLLAPSING ANY TWO REBUILDS `an-outage-is-not-an-answer`. An empty list is a
- * claim about the tracker; a failed lookup is the absence of one, and a board
- * that renders the second as the first tells a reader their inbox is clear
- * using data it never received.
- */
-export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
-export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
-
-/**
  * How the registry answers *is this agent still running?* — one fact per pulse.
  *
  * The domain's eight, plus `unknown`. Six describe the PROCESS — `running`,
@@ -4553,12 +4568,15 @@ export const FleetShape = z.object({
    */
   supervisor: SupervisorSchema.optional(),
   /**
-   * Whether the tracker could be asked. Defaults to `unsupported`, which is the
-   * only safe default: an older server sends no issues and no answer, and
-   * reading that silence as `answered` would render "your inbox is clear" from
-   * a server that was never asked the question.
+   * Whether the tracker could be asked. `.nullable()` because the cache entry
+   * this reads now seeds `null` ("not read yet") rather than `unsupported` —
+   * see `freshCacheEntry`. Defaults to `unsupported` only for an OLDER server
+   * that sends nothing at all: that server never asked the question, and
+   * `unsupported`, not `null`, is what keeps a client built against this
+   * schema from showing a pending button forever against a server that will
+   * never answer.
    */
-  issueAnswer: IssueAnswerSchema.default('unsupported'),
+  issueAnswer: IssueAnswerSchema.nullable().default('unsupported'),
   /** The failure, when `issueAnswer` is `failed` — shown, never swallowed. */
   issueError: z.string().nullable().default(null),
   /**

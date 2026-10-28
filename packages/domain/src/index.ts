@@ -75,6 +75,7 @@ export * from './rules/plan-status-counts.js';
 export * from './rules/sprint-line.js';
 export * from './rules/filtered-estate-totals.js';
 export * from './rules/discovery-groups.js';
+export * from './rules/create-from-issue.js';
 export * from './rules/story-lane.js';
 export * from './rules/card-controls.js';
 export * from './rules/plan-link-click.js';

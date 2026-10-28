@@ -1,6 +1,6 @@
 import { storyLanes, phaseOfStory, ticketLanes, type StoryLaneMap, type TicketLaneGroups } from '@plot-pm/domain';
 import { readConfigAsync, declaredPhaseMap, deriveStoryStatus, type BuildBoardOptions } from './board.js';
-import { ticketLaneData, keptClosedRows } from './fleet.js';
+import { ticketLaneData, keptClosedRows, ensureCache } from './fleet.js';
 
 /**
  * The last ticket lanes `discoveryLanes` computed successfully, by repo root and toggle state —
@@ -29,10 +29,16 @@ const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
  * reports `plansUnreadable: true` and serves {@link lastGoodTicketLanes} instead
  * of recomputing with a degraded reading.
  *
+ * **`issueAnswer`/`issueAbsence` are read from `ensureCache(opts)` directly**,
+ * never from `ticketLaneData`'s return — that return is `null` whenever
+ * `entry.issueSets === null`, which loses the `nobody`-source absence
+ * sentence along with the tickets. The two facts live on the cache entry
+ * itself, so they survive a `null` ticket read.
+ *
  * @param opts - the board's repo root and scripts directory.
  * @param board - the board payload already built by `boardState`.
  * @param archived - whether the Discovery tab's `?archived=1` toggle is on.
- * @returns tickets grouped by lane and stories grouped by lane.
+ * @returns tickets grouped by lane, stories grouped by lane, and the tracker answer.
  */
 export const discoveryLanes = async (
   opts: BuildBoardOptions,
@@ -72,6 +78,7 @@ export const discoveryLanes = async (
       Date.now(),
     );
   if (lanes !== null && !plansUnreadable) lastGoodTicketLanes.set(keptKey, lanes);
+  const { issueAnswer, issueAbsence } = ensureCache(opts);
   const liveStories = board.stories.map((s) => ({
     story: s,
     standing: deriveStoryStatus(s.status, s.plans),
@@ -89,5 +96,5 @@ export const discoveryLanes = async (
     stories: g.stories.map((s) => s.story),
   }));
 
-  return { tickets: lanes, plansUnreadable, storyLanes: storyLaneGroups };
+  return { tickets: lanes, plansUnreadable, storyLanes: storyLaneGroups, issueAnswer, issueAbsence };
 };

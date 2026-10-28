@@ -49,12 +49,16 @@ describe('the Discovery ticket card shows its number, state and age', () => {
   const open = async (): Promise<Page> => {
     const page = await cat.open('an-empty-estate', {
       over: {
+        // `issueAnswer` here, and NOT on the `fleet` stub below, is the point of
+        // this scenario: Discovery reads `/api/board`, never a Delivery-tab-only
+        // fleet poll, so an `unsupported` fleet must not leave the buttons refused.
         board: buildBoard({
           tickets: TICKETS,
           idea: { available: true, reason: '' },
           story: { available: true, reason: '' },
+          issueAnswer: 'answered',
         }),
-        fleet: buildFleet({ issueAnswer: 'answered' }),
+        fleet: buildFleet({ issueAnswer: 'unsupported' }),
       },
       tab: 'discovery',
       viewport: { width: 1400, height: 1400 },
@@ -94,6 +98,19 @@ describe('the Discovery ticket card shows its number, state and age', () => {
       await expect.poll(() => card(page, '1688').count(), { timeout: 10_000 }).toBe(1);
       await expect.poll(() => card(page, '1688').locator('[data-create-plan]').count()).toBe(1);
       await expect.poll(() => card(page, '1688').locator('[data-create-story]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('does not disable Create plan or Create story on a fresh load — the Discovery tab never polled the fleet', async () => {
+    const page = await open();
+    try {
+      await expect.poll(() => card(page, '1688').count(), { timeout: 10_000 }).toBe(1);
+      await expect.poll(() => card(page, '1688').locator('[data-create-plan="1688"]').count()).toBe(1);
+      await expect.poll(() => card(page, '1688').locator('[data-create-story="1688"]').count()).toBe(1);
+      expect(await card(page, '1688').locator('[data-create-plan="1688"]').getAttribute('aria-disabled')).toBeNull();
+      expect(await card(page, '1688').locator('[data-create-story="1688"]').getAttribute('aria-disabled')).toBeNull();
     } finally {
       await page.close();
     }

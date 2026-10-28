@@ -208,7 +208,7 @@ export function runLinkLabel(row: Pick<AgentRow, 'pr' | 'stuck'>): string {
  *
  * Exported for test.
  */
-export function storyRefusal(story: DispatchInfo, issueAnswer: IssueAnswer): string {
+export function storyRefusal(story: DispatchInfo, issueAnswer: IssueAnswer | null): string {
   return storyRefusalReason(story, issueAnswer);
 }
 
@@ -1661,7 +1661,7 @@ export function PlanActions({
  */
 export function IssueRowActions(
   { issue, idea, story, issueAnswer }:
-  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer },
+  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer | null },
 ) {
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
