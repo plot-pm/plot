@@ -5417,6 +5417,4 @@ echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_cla
 # `readGithubListing` makes; the two `pr-list` calls in `prefill_pr_states`
 # and every real `pr-state` call `host_pr_state --ask` makes are this
 # script's own, and this is the one line that hands that count back (#2815).
-[ -n "$HOST_STATE_CACHE" ] && [ -f "$HOST_STATE_CACHE/.spend" ] \
-  && printf 'spend: %s\n' "$(wc -c < "$HOST_STATE_CACHE/.spend" | tr -d ' ')" >&2
-true
+printf 'spend: %s\n' "$(cat "$HOST_STATE_CACHE/.spend" 2>/dev/null | wc -c | tr -d ' ')" >&2
