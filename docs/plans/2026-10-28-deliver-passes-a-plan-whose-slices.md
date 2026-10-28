@@ -16,6 +16,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/deliver-reads-unread-branch-items`
 - **Started:** 2026-10-28, Jan Wloka, `bug/deliver-refuses-unread-branch-items`
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-cross-repo-reference-is-read-per-line`
+- **Started:** 2026-10-29, Jan Wloka, `docs/a-foreign-slice-has-one-written-form`
 
 ## Changelog
 
