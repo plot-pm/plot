@@ -6,6 +6,7 @@ import {
   reconcile,
 } from '@plot-pm/domain/workflows/reconcile';
 import { type Decision, type Refusal, refused } from '@plot-pm/domain/workflows/decision';
+import type { HostRefusal, MergedAnswer } from '@plot-pm/domain/ports/host';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -172,11 +173,38 @@ const sprintFrom = (value: unknown) => {
 };
 
 /**
+ * Read a {@link MergedAnswer} from a request, defaulting to the degraded one.
+ *
+ * `'unknown'` is the default rather than `'not-merged'`: a field this request
+ * shape never sent, or sent as something unrecognised, carries no trustworthy
+ * answer either way, and only `'unknown'` keeps that silence from reading as
+ * permission to delete.
+ *
+ * @param value - what the field held.
+ * @returns the answer, or `'unknown'` where it was absent or not one of the
+ *   three recognised strings.
+ */
+const mergedAnswerOr = (value: unknown): MergedAnswer =>
+  value === 'merged' || value === 'not-merged' ? value : 'unknown';
+
+/**
+ * Read a {@link HostRefusal}'s `kind` from a request, or `null` where none
+ * was given.
+ *
+ * @param value - what the field held.
+ * @returns the refusal kind, or `null` where it was absent or not one of the
+ *   three recognised strings.
+ */
+const refusalKindOr = (value: unknown): HostRefusal['kind'] | null =>
+  value === 'throttled' || value === 'secondary' || value === 'failed' ? value : null;
+
+/**
  * Read what the shell measured of one local branch.
  *
- * `hasMergedPr` is read as false unless the host said true — an unreachable
- * host answers *not merged*, so silence is never permission and a degraded
- * reading cannot become a list of deletion candidates.
+ * `mergedAnswer` defaults to `'unknown'` rather than `'not-merged'` — an
+ * unreachable host, or a request that never sent this field, carries no
+ * trustworthy answer, and only `'unknown'` keeps that silence from becoming a
+ * list of deletion candidates.
  *
  * @param value - one entry of the request's `branches` array.
  * @returns the branch's readings.
@@ -186,7 +214,8 @@ const branchFrom = (value: unknown) => {
   return {
     branch: stringOr(given.branch),
     defaultBranch: stringOr(given.defaultBranch),
-    hasMergedPr: given.hasMergedPr === true,
+    mergedAnswer: mergedAnswerOr(given.mergedAnswer),
+    refusalKind: refusalKindOr(given.refusalKind),
     checkedOut: given.checkedOut === true,
   };
 };

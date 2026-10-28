@@ -24,7 +24,8 @@ import {
 const landed = (over: Partial<LocalBranchReadings> = {}): LocalBranchReadings => ({
   branch: 'feature/one',
   defaultBranch: 'main',
-  hasMergedPr: true,
+  mergedAnswer: 'merged',
+  refusalKind: null,
   checkedOut: false,
   ...over,
 });
@@ -43,7 +44,7 @@ describe('branchSweepProblems — the gate is the host and the checkout', () => 
   });
 
   it('keeps a branch the host did not merge — unlanded work', () => {
-    expect(branchSweepProblems(landed({ hasMergedPr: false }))).toEqual(['no-merged-pr']);
+    expect(branchSweepProblems(landed({ mergedAnswer: 'not-merged' }))).toEqual(['no-merged-pr']);
   });
 
   it('keeps a merged branch a worktree still holds', () => {
@@ -54,9 +55,36 @@ describe('branchSweepProblems — the gate is the host and the checkout', () => 
   });
 
   it('reports the most urgent refusal first when several apply', () => {
-    const both = landed({ hasMergedPr: false, checkedOut: true });
+    const both = landed({ mergedAnswer: 'not-merged', checkedOut: true });
     expect(branchSweepProblems(both)).toEqual(['no-merged-pr', 'checked-out']);
     expect(firstBranchRefusal(both)).toBe('no-merged-pr');
+  });
+
+  it('keeps a branch the host answered unknown — never unlanded work', () => {
+    // THE DEFECT THIS WAVE FIXES. An `unknown` answer is not a `not-merged`
+    // answer: the host did not say the work is missing, it said it could not
+    // tell. Collapsing the two into one boolean is the root cause, and this is
+    // the case that boolean could never express.
+    const readings = landed({ mergedAnswer: 'unknown', refusalKind: null });
+    expect(branchSweepProblems(readings)).toEqual(['host-unknown']);
+    expect(branchSweepProblems(readings)).not.toContain('no-merged-pr');
+    expect(isSweepableBranch(readings)).toBe(false);
+  });
+
+  it('keeps a branch whose host call failed with kind "throttled"', () => {
+    const readings = landed({ mergedAnswer: 'not-merged', refusalKind: 'throttled' });
+    expect(branchSweepProblems(readings)).toEqual(['host-throttled']);
+    expect(branchSweepProblems(readings)).not.toContain('no-merged-pr');
+  });
+
+  it('keeps a branch whose host call failed with kind "secondary"', () => {
+    const readings = landed({ mergedAnswer: 'not-merged', refusalKind: 'secondary' });
+    expect(branchSweepProblems(readings)).toEqual(['host-throttled']);
+  });
+
+  it('keeps a branch whose host call failed with kind "failed" as host-unknown', () => {
+    const readings = landed({ mergedAnswer: 'not-merged', refusalKind: 'failed' });
+    expect(branchSweepProblems(readings)).toEqual(['host-unknown']);
   });
 });
 
@@ -68,7 +96,7 @@ describe('branchSweepProblems — the gate is NOT `git branch -d`', () => {
     // this estate were merged, and `-d` would have kept all 85 for the wrong
     // reason. Nothing in the readings is ancestry, so nothing here can regress
     // to it: a branch the host merged is swept whether or not git agrees.
-    expect(isSweepableBranch(landed({ hasMergedPr: true }))).toBe(true);
+    expect(isSweepableBranch(landed({ mergedAnswer: 'merged' }))).toBe(true);
   });
 
   it('reads the host, never the PR state — a merged PR reports CLOSED', () => {
@@ -81,9 +109,9 @@ describe('branchSweepProblems — the gate is NOT `git branch -d`', () => {
   });
 
   it('deletes nothing when the host cannot be asked', () => {
-    // An unreachable host answers "not merged", so silence is never permission.
-    expect(isSweepableBranch(landed({ hasMergedPr: false }))).toBe(false);
-    expect(firstBranchRefusal(landed({ hasMergedPr: false }))).toBe('no-merged-pr');
+    // An unreachable host answers "unknown", so silence is never permission.
+    expect(isSweepableBranch(landed({ mergedAnswer: 'unknown' }))).toBe(false);
+    expect(firstBranchRefusal(landed({ mergedAnswer: 'unknown' }))).toBe('host-unknown');
   });
 });
 

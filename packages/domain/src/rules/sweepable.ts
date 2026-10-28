@@ -1,3 +1,5 @@
+import type { MergedAnswer, HostRefusal } from '../ports/host.js';
+
 /**
  * What kind of leftover a finding is about.
  *
@@ -28,14 +30,26 @@ export interface LocalBranchReadings {
   /** The repository's default branch. */
   defaultBranch: string;
   /**
-   * Whether the host merged ANY PR for this branch.
+   * What the host said about ANY PR for this branch.
    *
    * Read from the merge timestamp and never from the PR's state — a merged PR
    * reports `CLOSED` — and never from ancestry, which a squash-merge leaves
-   * permanently ahead. An unreachable host answers false, so silence is never
-   * permission.
+   * permanently ahead. `'unknown'` is a genuine host answer (the PR state could
+   * not be determined), distinct from `'not-merged'` (the host affirmatively
+   * found no merged PR) — collapsing the two into one boolean is the defect
+   * this type exists to fix.
    */
-  hasMergedPr: boolean;
+  mergedAnswer: MergedAnswer;
+  /**
+   * Why the host call behind {@link mergedAnswer} failed, or `null` when it
+   * answered.
+   *
+   * Read regardless of what {@link mergedAnswer} holds: a failed call carries
+   * no trustworthy `MergedAnswer` at all, so this is what tells a degraded
+   * read apart from a genuine one — `'throttled'`/`'secondary'` (the host is
+   * rate-limiting) from `'failed'` (everything else that broke).
+   */
+  refusalKind: HostRefusal['kind'] | null;
   /** Whether any worktree on this machine holds the branch. */
   checkedOut: boolean;
 }
@@ -51,8 +65,18 @@ export interface LocalBranchReadings {
  * `BranchRefusal`, and the two answer opposite questions about one noun: that
  * one says why a branch cannot be STARTED, this one says why it cannot be
  * DELETED. Collapsing them would let a dispatch reason reach a deletion.
+ *
+ * `host-unknown` and `host-throttled` are both "the host did not say
+ * not-merged" and neither is `no-merged-pr`: that reason is reserved for a
+ * genuine `not-merged` answer, so an operator reading "unlanded work" can
+ * trust it rather than wondering if the host just never answered.
  */
-export type BranchSweepRefusal = 'default-branch' | 'no-merged-pr' | 'checked-out';
+export type BranchSweepRefusal =
+  | 'default-branch'
+  | 'no-merged-pr'
+  | 'host-unknown'
+  | 'host-throttled'
+  | 'checked-out';
 
 /**
  * Every reason this local branch stays, in the order they are tested.
@@ -70,7 +94,13 @@ export const branchSweepProblems = (readings: LocalBranchReadings): BranchSweepR
   if (readings.branch === readings.defaultBranch) {
     problems.push('default-branch');
   }
-  if (!readings.hasMergedPr) {
+  if (readings.refusalKind === 'throttled' || readings.refusalKind === 'secondary') {
+    problems.push('host-throttled');
+  } else if (readings.refusalKind === 'failed') {
+    problems.push('host-unknown');
+  } else if (readings.mergedAnswer === 'unknown') {
+    problems.push('host-unknown');
+  } else if (readings.mergedAnswer === 'not-merged') {
     problems.push('no-merged-pr');
   }
   if (readings.checkedOut) {

@@ -731,6 +731,38 @@ test('host: an absent CLI is not a lookup miss', () => {
   assert.equal(res.stdout.trim(), 'unknown', 'an absent binary cannot answer not-merged');
 });
 
+// THE DEFECT ISSUE #2825 TRACED TO. `miss_or_unknown` read empty stderr as a
+// lookup miss and answered `not-merged` — so a `gh` that failed and said
+// nothing at all told `plot-reap.sh` the same thing a genuine "no PR for this
+// branch" would, and `--yes` deleted a branch whose host call had simply gone
+// silent. `unknown` is the one answer that keeps silence from reading as
+// permission.
+test('host: pr-merged answers unknown, not not-merged, for empty stderr', () => {
+  const stubs = makeStubs({ ghFail: '' });
+  const res = runAllowFail(['pr-merged', 'feature/nope'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, 'unknown is an answer, not a failure');
+  assert.equal(res.stdout.trim(), 'unknown', 'empty stderr is not a lookup miss');
+});
+
+// `is_lookup_miss`'s bare `not found` alternative matches this message too —
+// it is a repository the token cannot see, not a branch with no PR — and
+// `pr-merged` must not read it as `not-merged`: that answer is what tells a
+// caller the branch is safe to delete.
+test('host: pr-merged answers unknown for "repository not found", not a genuine miss', () => {
+  const stubs = makeStubs({ ghFail: 'GraphQL: Could not resolve to a Repository with the name \'x/y\'. (repository) HTTP 404: Not Found' });
+  const res = runAllowFail(['pr-merged', 'feature/nope'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.stdout.trim(), 'unknown', '"not found" alone does not name a missing PR');
+});
+
+// THE REGRESSION GUARD: narrowing the miss phrasing must not turn a genuine
+// "no PR for this branch" answer into `unknown` — that would make every
+// unmerged branch unsweepable.
+test('host: pr-merged still answers not-merged for a genuine PR lookup miss', () => {
+  const stubs = makeStubs({ ghFail: 'no pull requests found for branch "feature/nope"' });
+  const res = runAllowFail(['pr-merged', 'feature/nope'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.stdout.trim(), 'not-merged', 'a genuine miss still answers not-merged');
+});
+
 // `pr-merged-heads` sends the reaper to a weaker reading when it answers
 // empty, so a silent CLI failure must fail rather than read as a lookup miss.
 test('host: pr-merged-heads prints only the heads of merged PRs', () => {
