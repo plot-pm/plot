@@ -403,11 +403,9 @@ fi
 # degrades to strict and says so: an unverifiable claim of readiness is not
 # readiness.
 loose_verifiable=0
-if [ "$loose" = 1 ]; then
-  if [ "$do_fetch" = 1 ] && "$script_dir/plot-host.sh" backend >/dev/null 2>&1 \
-     && [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ]; then
-    loose_verifiable=1
-  fi
+if [ "$loose" = 1 ] && [ "$do_fetch" = 1 ]; then
+  loose_backend=$("$script_dir/plot-host.sh" backend 2>/dev/null)
+  [ -n "$loose_backend" ] && [ "$loose_backend" != "none" ] && loose_verifiable=1
 fi
 
 # ---------------------------------------------------------------------------
