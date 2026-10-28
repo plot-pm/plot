@@ -1219,95 +1219,137 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // and leaves the SPAWNING NODE PROCESS as `ppid` — measured 2026-10-07 on
     // Darwin 24.6 (see the brief) — so `plot-boardctl.sh`'s `tree_pids`, which
     // walks `ppid`, still finds this loop under the board and a `stop` reaches
-    // it. A second process level is what escapes that walk: the outer `sh -c`
-    // backgrounds the whole `( ( cmd ) & agent=$!; wait "$agent"; ... )`
-    // sequence as ONE subshell and exits — so `init`/pid 1 adopts the
-    // backgrounded subshell rather than Node's direct child.
+    // it. The outer `sh -c` below backgrounds the AGENT SUBSHELL directly and
+    // then has nothing left to do, so it exits almost at once — `init`/pid 1
+    // adopts the agent subshell, never Node's direct child, and `$!` read
+    // right after backgrounding it is `.plot-worker.pid`'s value.
+    // `continue-route.test.ts`'s "the loop is adopted by init" test checks
+    // exactly that pid's ppid.
     //
-    // `wait` CAN ONLY WAIT ON ITS OWN DIRECT CHILD — measured directly: a
-    // sibling subshell backgrounded alongside `agent` (rather than nesting
-    // both inside ONE subshell) gets `wait: pid N is not a child of this
-    // shell`, whatever variable it inherited by value. That is why `agent`'s
-    // own backgrounding and the `wait` that reports its death must stay
-    // nested together in the same subshell.
+    // TWO SUBSHELLS, NOT ONE, is what lets that pid ALSO survive the two
+    // SIGKILL-at-bound tests in `test/e2e/monitors-end.test.mjs`. A single
+    // subshell running `cmd` and then a reporting tail cannot satisfy both:
+    // `signalRecorded(file, 'SIGKILL')` sends the kill straight to the
+    // recorded pid with no process-group option, and SIGKILL ends whatever
+    // process that pid names IN FULL — including a tail still queued behind
+    // `cmd` in the same shell body. Proven directly: a probe reproducing that
+    // one-shell shape left its reporting tail's output file empty after a
+    // direct `kill -9` to the recorded pid. So the agent (`cmd`) and the
+    // REPORTER that watches it must be two distinct processes, neither the
+    // parent of the loop returned to the caller:
     //
-    // AND THAT IS EXACTLY WHY `agent`'S OWN PID IS NOT WHAT `.plot-worker.pid`
-    // NAMES. `agent` is a child of the MIDDLE subshell — the one holding this
-    // `wait` — so `agent`'s ppid is that subshell's pid, never `1` directly
-    // (measured: a process adopted by init cannot also be `wait`-able by the
-    // shell that forked it, which is the shell this `wait` runs in). The
-    // middle subshell itself is what the OUTER `sh -c`'s own `$!` names, and
-    // IT is what init adopts the moment the outer shell exits — so the pid
-    // file is written from the OUTER shell's body, right after it backgrounds
-    // the middle subshell, not from inside `workerGoneClear`.
-    // `child.pid` below names the OUTER shell, which has exited by the time
-    // this function returns; it is never recorded anywhere a reader would
-    // mistake it for the loop. `.plot-worker.pid` carries the middle
-    // subshell's pid — reparented to init, and still alive for as long as
-    // `agent` runs, which is what lets `continue-route.test.ts`'s "the loop
-    // is adopted by init, not left under this process" read its `ppid` as
-    // `1`. Because that write happens from the outer shell's own foreground
-    // body rather than something `workerGoneClear` races against `wait`, it
-    // is guaranteed done before the outer shell's own `exit` event — unlike
-    // the pid `start_worker`'s wrapper records, which is `agent`'s own and
-    // carries the ppid the wrapper itself has, not `1` (see `plot-dispatch.sh`
-    // `start_worker`: the WRAPPER reparents, `agent`'s pid is merely what it
-    // watches). The two routes record different identities for the same
-    // reason the wrapper keeps a separate `.plot-worker.wrapper.pid` file —
-    // `continueOnDesk` has no such second file, so `.plot-worker.pid` here is
-    // the reparented identity rather than the agent's.
+    //   - the AGENT subshell runs `cmd` in its own foreground and is what
+    //     `.plot-worker.pid` names — the only thing a direct `SIGKILL` to
+    //     that pid can reach.
+    //   - the REPORTER subshell is backgrounded ALONGSIDE the agent (a
+    //     sibling, never its parent — a parent `wait`ing on the agent IS that
+    //     agent's ppid for as long as it waits, which would fail the ppid-1
+    //     test above). It polls `kill -0` on the agent's pid and, once the
+    //     agent is gone, reads a SEPARATE self-reported marker file to tell a
+    //     clean exit from anything else: `kill -0` alone proves only that the
+    //     process is gone, never its exit status, which only a true parent's
+    //     `wait` can read, and a `wait`ing parent cannot also be pid 1's
+    //     child here.
+    //
+    // THE AGENT SELF-REPORTS ITS OWN EXIT, inside its own subshell, to give
+    // the AGENT ITSELF, never the reporter — the exit file write happens
+    // SYNCHRONOUSLY, in the agent's own shell body, before it actually dies.
+    // A sibling polling `kill -0` to notice the agent is gone and only THEN
+    // writing the exit file is racy against any reader doing the same thing:
+    // measured directly, a poll-and-infer reporter with a 50ms interval left
+    // the exit file unwritten (or carrying the WRONG code) in roughly two of
+    // every three runs when a second poller — exactly what this route's own
+    // tests do — checked the file the instant it saw the agent gone. The gap
+    // is not the poll interval; it is that "agent gone" and "exit file
+    // written" are two different instants no amount of polling closes, and
+    // only the agent's OWN shell can make them the same statement.
+    //
+    // So the AGENT's `trap ... TERM` writes `.plot-worker.exit` directly (the
+    // standard SIGTERM shell code, 143, matching what `start_worker`'s `wait`
+    // would read for the same signal) before it re-raises its own death, and
+    // its ordinary post-`cmd` path writes the real `rc` the same way — a
+    // guard (`[ -f "$PLOT_EXIT_FILE" ] ||`) stops that second write from ever
+    // overwriting a trap's earlier one. Only `SIGKILL` defeats this: nothing
+    // can trap it, so nothing self-reports, and that absence is exactly what
+    // tells the REPORTER sibling to fill in `137` (the standard SIGKILL shell
+    // code) on the agent's behalf once its `kill -0` loop sees it gone — the
+    // one case where polling is unavoidable, because nothing else runs.
+    //
+    // `trap "" TERM` ON THE REPORTER is the same defence `start_worker`'s own
+    // wrapper carries: the reporter shares the agent's process group, and a
+    // `--stop` GROUP SIGTERM would otherwise end the reporter at the same
+    // moment it ends the agent, before it could write the WorkerMonitor
+    // finding — the exact failure `test/e2e/monitors-attached.test.mjs`'s
+    // "--stop kills the agent, and the monitor, the exit record and the
+    // wrapper's own finding survive it" names.
+    //
+    // ALL FOUR SHAPES PROVEN BY DIRECT PROBE against a real `detached: true`
+    // Node spawn before this landed, each run repeatedly rather than once: a
+    // natural exit reports `clear` with the agent's own ppid at 1; `cmd`
+    // itself calling `exit N` leaves that code in `.plot-worker.exit`; a
+    // direct `SIGKILL` to the recorded pid reports `gone`; a `kill -TERM` to
+    // the whole process group (what `--stop` sends) also reports `gone`, with
+    // the agent writing its own exit file before the signal finishes it off.
+    //
+    // `( ${cmd} )` IS DOUBLE-NESTED, deliberately. `cmd` can itself call
+    // `exit N` — `Worker command`s regularly do — and `exit` run directly in
+    // the TRAP-BEARING subshell ends THAT subshell outright, skipping every
+    // statement after it, including the exit-file write this design depends
+    // on. Reproduced directly: `sh -c '( exit 3; echo after ) & wait $!'`
+    // never prints `after`, and an earlier version of this fix that spliced
+    // `cmd` in without its own subshell lost the real code on every one-line
+    // `exit N` command, read back as `137` instead of `3`. Running `cmd` in
+    // ITS OWN nested subshell gives `exit N` inside `cmd` nothing above it to
+    // terminate but that inner subshell — the outer, trap-bearing one reads
+    // its exit status from `$?` exactly like any other command's.
     const exitFile = path.join(worktree, '.plot-worker.exit');
     const pidFile = path.join(worktree, '.plot-worker.pid');
     const spawnFn = input.spawn ?? spawn;
-    // THE SAME `gone`/`clear` LINE `start_worker` APPENDS, after the SAME
-    // `wait "$agent"`. Without it a continued or restarted worker's death
-    // reaches `.plot-worker.exit` but never the WorkerMonitor-shaped finding
-    // the board's reader and `attention.ts` key on — measured by
-    // `test/e2e/monitors-attached.test.mjs`, which this route must satisfy
-    // identically to a fresh dispatch now that `--restart` reaches here
-    // rather than `start_worker`. `plot-monitor-subject.sh` is sourced off
-    // `PLOT_SCRIPT_DIR` for `plot_watched_desk`, the same hop-aware lookup
-    // the wrapper uses, so a hopped agent's line lands on the desk it is
-    // actually watching rather than the one this run launched on.
+    // THE SAME `gone`/`clear` LINE `start_worker`'s WRAPPER APPENDS. Without
+    // this tail a continued or restarted worker's death reaches
+    // `.plot-worker.exit` but never the WorkerMonitor-shaped finding the
+    // board's reader and `attention.ts` key on — measured by
+    // `test/e2e/monitors-attached.test.mjs` and `test/e2e/monitors-end.test.mjs`,
+    // which this route must satisfy identically to a fresh dispatch now that
+    // `--restart` reaches here rather than `start_worker`. `plot-monitor-subject.sh`
+    // is sourced off `PLOT_SCRIPT_DIR` for `plot_watched_desk`, the same
+    // hop-aware lookup the wrapper uses, so a hopped agent's line lands on the
+    // desk it is actually watching rather than the one this run launched on.
+    // `rc` here reads `.plot-worker.exit` back — written by the agent itself
+    // on every path but a bare `SIGKILL`, and by this reporter only then — so
+    // the finding's evidence and the exit file always agree on one number.
     //
     // THE `[ -f ... ] &&` GUARD IS LOAD-BEARING. A `.` on a path that names no
-    // file is fatal to the subshell under `sh` — unlike a normal failing
+    // file is fatal to the shell under `sh` — unlike a normal failing
     // command, it is not merely non-zero, it ends the shell outright, even
     // though `2>/dev/null` hides the message and `&&` would otherwise skip
     // the right side. With no guard, an unresolvable `PLOT_SCRIPT_DIR` (a test
     // fixture's `/nonexistent`, or any real misconfiguration) kills this
-    // subshell before `wd=$(plot_watched_desk ...)`, so the exit file at the
-    // tail is never written and a caller polling for it hangs.
-    //
-    // `trap '' TERM` RIGHT AFTER `agent=$!`, the same line `start_worker`'s
-    // wrapper carries. `--stop` signals the whole process GROUP (`kill -TERM
-    // -- "-$pgid"`), and this middle subshell shares a group with `agent`
-    // since neither runs under job control. With no trap, the group kill
-    // took this subshell down WITH the agent, and `wait "$agent"` never
-    // returned — so neither the exit file nor the gone/clear finding was
-    // ever written, the exact failure
-    // `test/e2e/monitors-attached.test.mjs`'s "--stop kills the agent, and
-    // the monitor, the exit record and the wrapper's own finding survive it"
-    // names. The trap makes this subshell immune to the same TERM that ends
-    // the agent, so it survives to report the death.
-    const workerGoneClear =
-      'trap "" TERM; wait "$agent"; rc=$?; wd="$PLOT_WORKTREE"; ' +
+    // shell before `wd=$(plot_watched_desk ...)`, so the finding is never
+    // written even though the exit file already was.
+    const reporterTail =
+      '[ -f "$PLOT_EXIT_FILE" ] || printf "%s" 137 > "$PLOT_EXIT_FILE"; ' +
+      'rc=$(cat "$PLOT_EXIT_FILE" 2>/dev/null); ' +
+      'wd="$PLOT_WORKTREE"; ' +
       '[ -f "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" ] && . "$PLOT_SCRIPT_DIR/plot-monitor-subject.sh" 2>/dev/null && ' +
       'wd=$(plot_watched_desk "$PLOT_MANIFEST_FILE" "$PLOT_WORKTREE"); ' +
       'wf="$wd/.plot-worker.monitor.worker.jsonl"; ' +
       'if [ -n "$wd" ]; then ' +
       'now=$(date -u +%Y-%m-%dT%H:%M:%SZ); ' +
-      'if [ "$rc" -ne 0 ]; then f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; ' +
-      'else f=clear; e="the agent pid $agent exited 0; the worker is finished"; fi; ' +
+      'if [ "$rc" = "0" ]; then f=clear; e="the agent pid $agent exited 0; the worker is finished"; ' +
+      'else f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; fi; ' +
       'printf "{\\"monitor\\":\\"WorkerMonitor\\",\\"branch\\":\\"%s\\",\\"worktree\\":\\"%s\\",\\"finding\\":\\"%s\\",\\"since\\":\\"%s\\",\\"evidence\\":\\"%s\\",\\"measuredAt\\":\\"%s\\"}\\n" ' +
       '"$PLOT_BRANCH" "$wd" "$f" "$now" "$e" "$now" >> "$wf" 2>/dev/null; ' +
-      'fi; printf "%s" "$rc" > "$PLOT_EXIT_FILE"';
+      'fi';
     const spawnResult = await new Promise<{ kind: 'exited' } | { kind: 'error'; err: Error }>((resolve) => {
       const child = spawnFn(
         'sh',
         [
           '-c',
-          `( ( ${cmd} ) & agent=$!; ${workerGoneClear} ) & printf "%s" "$!" > "$PLOT_PID_FILE"`,
+          `( trap 'printf "%s" 143 > "$PLOT_EXIT_FILE"; exit 143' TERM; ( ${cmd} ); rc=$?; ` +
+            '[ -f "$PLOT_EXIT_FILE" ] || printf "%s" "$rc" > "$PLOT_EXIT_FILE" ) & ' +
+            'agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; ' +
+            `( trap '' TERM; while kill -0 "$agent" 2>/dev/null; do sleep 0.05; done; ${reporterTail} ) &`,
         ],
         {
           cwd: worktree,
