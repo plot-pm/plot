@@ -342,7 +342,16 @@ describe('reconcile — the leftovers come from sweepable.ts', () => {
     const out = reconcile(
       estate({
         branches: [
-          { branch: 'feature/landed', defaultBranch: 'main', mergedAnswer: 'merged', refusalKind: null, checkedOut: false },
+          {
+            branch: 'feature/landed',
+            defaultBranch: 'main',
+            mergedAnswer: 'merged',
+            refusalKind: null,
+            containedInDefault: false,
+            hasOwnCommits: true,
+            tipPastMergedHead: false,
+            checkedOut: false,
+          },
         ],
       }),
       { kind: 'workspace' },
@@ -357,7 +366,16 @@ describe('reconcile — the leftovers come from sweepable.ts', () => {
     const out = reconcile(
       estate({
         branches: [
-          { branch: 'feature/live', defaultBranch: 'main', mergedAnswer: 'not-merged', refusalKind: null, checkedOut: false },
+          {
+            branch: 'feature/live',
+            defaultBranch: 'main',
+            mergedAnswer: 'not-merged',
+            refusalKind: null,
+            containedInDefault: false,
+            hasOwnCommits: true,
+            tipPastMergedHead: false,
+            checkedOut: false,
+          },
         ],
       }),
       { kind: 'workspace' },

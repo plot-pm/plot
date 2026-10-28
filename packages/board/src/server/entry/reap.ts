@@ -448,6 +448,52 @@ const isWhollyEmptyClaim = async (refs: Refs, range: string): Promise<boolean> =
   return subjects.value.every((s) => isEmptyClaim({ subject: s.subject, tree: s.tree, parentTree: s.parentTree }));
 };
 
+/** How far back `hasCommitOfItsOwn` walks `origin/<default>`'s first-parent line. */
+const FIRST_PARENT_WALK_MAX = 500;
+
+/**
+ * Whether a branch contained in the default branch landed by something other
+ * than a fast-forward — the brief's distinction between a branch that never
+ * diverged (reads `contains === 'yes'` just as readily) and one that merged
+ * its own commits in. `git merge-base` alone cannot tell the two apart: a
+ * `--no-ff` merge puts the branch's tip on main's SECOND-parent line, so the
+ * raw `origin/<default>..<branch>` range reads empty even though the branch
+ * carried a real commit. The first-parent line is what a fast-forward merge
+ * would have left the tip sitting on; the branch's tip is NOT on it exactly
+ * when something merged it in rather than the branch having never diverged.
+ */
+const hasCommitOfItsOwn = async (refs: Refs, branch: string, defaultBranch: string): Promise<boolean> => {
+  const tip = await refs.resolve(branch);
+  if (!tip.ok) return false;
+  const line = await refs.firstParentLine(`origin/${defaultBranch}`, FIRST_PARENT_WALK_MAX);
+  if (!line.ok) return false;
+  return !line.value.includes(tip.value);
+};
+
+/**
+ * Whether a branch's tip is NOT reachable from any merged PR head the host
+ * can resolve.
+ *
+ * The branch kind's population holds no worktree, so `unpushedCommits`
+ * and `unpushedPatches` (`:460-487` below) cannot run — both are bound to a
+ * checkout's `HEAD`. This reuses their DECISION rather than their git
+ * invocation, for the one case it can: a merged head the branch's tip is
+ * reachable from means the tip is not past it. Where the host answers no
+ * heads at all — the ordinary squash-merge shape, which rewrites the commits
+ * so no head survives to compare against — there is nothing to be past, and
+ * this answers `false` exactly as slice 2 already did before this guard
+ * existed: the host's `merged` verdict stands on its own.
+ */
+const tipPastMergedHeads = async (ctx: Context, branch: string): Promise<boolean> => {
+  const heads = await ctx.host.prMergedHeads(branch);
+  if (!heads.ok || heads.value.length === 0) return false;
+  for (const head of heads.value) {
+    const reachable = await ctx.refs.contains(branch, head);
+    if (reachable.ok && reachable.value === 'yes') return false;
+  }
+  return true;
+};
+
 /**
  * Commits on `HEAD` no remote holds, short SHAs, or `'unknown'` when they
  * could not be counted.
@@ -1028,12 +1074,22 @@ export const runBranchKind = async (
   const branches = branchesResult.ok ? branchesResult.value : [];
 
   for (const br of branches) {
+    const range = `origin/${defaultBranch}..${br}`;
+    if (await isWhollyEmptyClaim(ctx.refs, range)) {
+      // Case 1 of the branch/claim cooperation rule: every commit past the
+      // default branch is an empty claim marker. The claim kind owns this
+      // branch (`firstClaimRefusal`), so the branch kind keeps it unacted.
+      write(row('keep', br, 'an empty claim; the claim kind decides'));
+      counters.kept += 1;
+      continue;
+    }
+
     let mergedAnswer: LocalBranchReadings['mergedAnswer'] = 'not-merged';
     let refusalKind: LocalBranchReadings['refusalKind'] = null;
     let bwhy = '';
     const contained = await ctx.refs.contains(br, `origin/${defaultBranch}`);
-    if (contained.ok && contained.value === 'yes') {
-      mergedAnswer = 'merged';
+    const containedInDefault = contained.ok && contained.value === 'yes';
+    if (containedInDefault) {
       bwhy = `merged into ${defaultBranch}`;
     } else {
       const hostMerged = await ctx.host.prMerged(br);
@@ -1047,9 +1103,27 @@ export const runBranchKind = async (
       }
     }
 
+    const hasOwnCommits = containedInDefault
+      ? await hasCommitOfItsOwn(ctx.refs, br, defaultBranch)
+      : mergedAnswer === 'merged'
+        ? (await fileChangingCommitCount(ctx.refs, range)) !== 0
+        : true;
+
+    const tipPastMergedHead =
+      mergedAnswer === 'merged' ? await tipPastMergedHeads(ctx, br) : false;
+
     const held = checkedOut.has(br);
 
-    const refusal = firstBranchRefusal({ branch: br, defaultBranch, mergedAnswer, refusalKind, checkedOut: held });
+    const refusal = firstBranchRefusal({
+      branch: br,
+      defaultBranch,
+      mergedAnswer,
+      refusalKind,
+      containedInDefault,
+      hasOwnCommits,
+      tipPastMergedHead,
+      checkedOut: held,
+    });
 
     if (refusal !== null) {
       let reason: string;
@@ -1065,6 +1139,12 @@ export const runBranchKind = async (
           break;
         case 'host-throttled':
           reason = 'the host could not answer, rate-limited';
+          break;
+        case 'unpushed-commits':
+          reason = 'commits past the merged PR head';
+          break;
+        case 'no-commits-of-its-own':
+          reason = 'contained in the default branch, but carries no commit of its own';
           break;
         case 'checked-out':
           reason = 'checked out in a worktree — somebody is reading it';

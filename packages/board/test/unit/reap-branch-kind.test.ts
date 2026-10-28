@@ -31,7 +31,12 @@ const ctxFor = (host: Host): Context =>
     repoRoot: root,
     invokedFrom: root,
     scriptDir: '/nowhere',
-    refs: { listBranches: async () => answered(['feature/x']), contains: async () => answered('no'), resolve: async () => failed() },
+    refs: {
+      listBranches: async () => answered(['feature/x']),
+      contains: async () => answered('no'),
+      resolve: async () => failed(),
+      commitSubjects: async () => answered([]),
+    },
     host,
     scripts: {},
     trees: { list: async () => answered([]), deleteBranch: async () => answered(undefined) } as unknown as Trees,
