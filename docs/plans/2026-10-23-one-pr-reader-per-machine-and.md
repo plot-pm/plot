@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2401 merged
 - **Started:** 2026-10-23, Jan Wloka, `feature/one-pr-reader-per-machine-and`
@@ -16,6 +16,7 @@
 - **Issue:** #2386
 - **Rounds:** 2
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 - **Story:** <!-- optional -->
 - **Review:** pr
 - **Impl:** own branches
