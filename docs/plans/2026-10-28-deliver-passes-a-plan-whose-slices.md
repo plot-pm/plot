@@ -107,7 +107,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-de
 
 ### Deliver refusal
 
-- `bug/deliver-refuses-unread-branch-items` — `deliver()` refuses `slices-unread` through `deliverabilityOf`, also with zero parsed branches; `landed()` answers `not-merged` so `allSlicesConfirmed` and auto-delivery agree; step 4b reports the refusal <!-- builds: slices-unread in deliver() -->
+- `bug/deliver-refuses-unread-branch-items` — `deliver()` refuses `slices-unread` through `deliverabilityOf`, also with zero parsed branches; `landed()` answers `not-merged` so `allSlicesConfirmed` and auto-delivery agree; step 4b reports the refusal <!-- builds: slices-unread in deliver() --> → #2877
 
 ### Per-line references
 
