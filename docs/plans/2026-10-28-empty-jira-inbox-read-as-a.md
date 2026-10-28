@@ -1,6 +1,6 @@
-# Board: empty Jira inbox read as a spelling mismatch; «Mine» keeps unknown-owner rows
+# Board: a missing Jira inbox read as a spelling mismatch; ticket rows repeat; Draft rows ignore «Mine»
 
-> An empty Jira inbox makes *Waiting on you* suggest a colleague's account as the reader's spelling, and the «Mine» filter keeps every row whose owner it cannot resolve.
+> A board with no fleet never reads the reader's Jira inbox, then takes a colleague's account from the project-wide tickets as the reader's spelling. Ticket rows can appear twice, and Draft plan rows ignore the «Mine» filter.
 
 ## Status
 
@@ -11,26 +11,28 @@
 - **Story:**
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- *Waiting on you* shows no tickets and no spelling notice when the tracker's inbox for the reader is empty.
-- The spelling notice fires only when the inbox is non-empty and none of its rows match the reader, and it names a spelling taken from the inbox.
-- «Mine» hides `unknown` rows and shows their count beside the toggle; unassigned tickets move to a collapsed *Unassigned* section.
+- A board with no fleet reads the reader's Jira inbox, so *Waiting on you* shows the reader's own tickets instead of the project's.
+- With no inbox reading, *Waiting on you* never guesses the reader's spelling from project-wide tickets, and the spelling notice never suggests a spelling `People` gives another person.
+- Each ticket appears once in *Waiting on you*, whichever path read it.
+- Draft plan rows obey «Mine» like every other row: rows owned by another person hide, and rows with no known owner stay visible.
 
-<!-- Board impact: yes. Changes `waitingTickets` in the domain and the «Mine» filter, the section list and the toolbar in packages/board. The plan format, template, helper scripts and docs/plans layout do not change. A board artifact rebuild follows from the board change. -->
+<!-- Board impact: yes. Changes `waitingTickets` in the domain, the board's no-fleet issue refresh in packages/board, the issue index fold in packages/fleet, and the Draft plan row's ownership. The plan format, template, helper scripts and docs/plans layout do not change. A board artifact rebuild follows from the board change. -->
 
 ## Motivation
 
 Observed on the Delivery board of ewz-kus-portal (Plot 2.29.0, `Tracker: jira`, `Ticket prefixes: EWZKUS`) with two developers, jwloka and mruepp. The reader is jwloka. Jira `myself` is jan.wloka@quatico.com.
 
-**1. An empty inbox reads as a spelling mismatch.** The query `assignee = currentUser() AND resolution = EMPTY AND project = EWZKUS` returns 0 issues, and `plot-host.sh issue-list --state inbox` prints nothing and exits 0. `waitingTickets` (`packages/domain/src/rules/waiting-tickets.ts:201-220`) then falls back to all open rows, finds none that match the reader, and takes the first assignee of any row as the reader's spelling. The banner reads: *The tracker names your tickets' assignee `markus.ruepp@quatico.com`; `People` declares `jira:jan.wloka@quatico.com` for jwloka — add `jira:markus.ruepp@quatico.com` to match.* Following that advice maps jwloka to a colleague's account. The 40 project-wide open tickets do not belong under *Waiting on you*.
+**1. A missing inbox reads as a spelling mismatch.** The reader's Jira inbox holds 0 issues. The banner reads: *The tracker names your tickets' assignee `markus.ruepp@quatico.com`; `People` declares `jira:jan.wloka@quatico.com` for jwloka — add `jira:markus.ruepp@quatico.com` to match.* `waitingTickets` (`packages/domain/src/rules/waiting-tickets.ts`) gives 0 tickets and no notice for an inbox that answered empty (`inbox: []`, `:201-203`); four independent probes in panel round 1 confirm it. The banner reproduces word for word only with `inbox: undefined`: the rule then falls back to all open project rows and takes the first assignee as the reader's spelling. The board with no fleet always takes that arm, because `refreshIssues` calls `waitingOf` with no inbox (`packages/board/src/server/fleet.ts:2096-2098`); only fleetd reads the inbox (`packages/fleet/src/shared/issue-refresh.ts:501`), and a failed first fleetd read also leaves it absent (`issue-refresh.ts:259-262`). The arm at `waiting-tickets.ts:196-198` (no `jira:` spelling declared) has the same defect. The suggested spelling already belongs to mruepp in `People`; following the advice would drop it for both people (`packages/domain/src/entities/person.ts:99-101`). `waiting-tickets.test.ts:175` pins the wrong advice as current behaviour.
 
-**2. Ticket rows are duplicated.** About twelve rows (EWZKUS-3897 … 3849) appear twice in sequence in the same list. Jira holds 40 open tickets and the board rendered more rows. `unionDedup` (`waiting-tickets.ts:99`) dedups the union by `number`, so the duplicate comes from another path. The cause is not yet found.
+**2. Ticket rows are duplicated.** About twelve rows (EWZKUS-3897 … 3849) appear twice in sequence. Only the matched arms of `waitingTickets` call `unionDedup` (`waiting-tickets.ts:99`); the fallback arms render `[...candidates]` (`:213`). Upstream, the paged read `walk` (`packages/domain/src/adapters/tracker/tracker-shell.ts:277-299`) drops repeated page tokens but not repeated issue keys, and the index write and `foldIssueRows` keep a key that the held rows already carry. The duplicated keys are the newest tickets, which points at the held index plus the changed-since fold; Jira's cursor was clean on pages 1–2 of 3 (202 open rows). The live ewz `issues.json` was not measured.
 
-**3. «Mine» keeps rows that are not provably mine.** `rowsForReader` and `ticketsForReader` (`packages/board/src/app/lib/agent-rows/mine-filter.ts`) hide only rows that `isMine` answers `theirs`, and `unknown` rows stay. With «Mine (Jan Wloka)» on, the board still showed 16 unassigned tickets, tickets assigned to a person not in `People`, and three Draft plans whose plan PRs (#3509, #3526, #3527) are authored by «Christian Kehl». The existing design keeps `unknown` visible so that a mis-resolved identity cannot silently empty the board. That concern holds, so the hidden part stays visible as a count.
+**3. Draft plan rows ignore «Mine».** With «Mine (Jan Wloka)» on, three Draft plans stayed visible. Draft plan rows skip the filter entirely (`packages/board/src/app/components/AgentList.tsx:514,1176`), and `DraftPlanSchema` has no owner field.
 
-**4. Plan-PR authors resolve to `unknown`.** `ckehl = Christian Kehl, jira:christian.kehl@quatico.com` is declared in `People`, and the Bitbucket PR author «Christian Kehl» does not resolve to `ckehl`. Either `People` needs a host spelling (the syntax for Bitbucket is undocumented), or the PR author field carries a different identifier than the display name. The `People` documentation does not say which.
+**Not a defect: Bitbucket PR authors.** A Bitbucket PR author arrives as `.author.nickname` (`skills/plot/scripts/plot-host.sh:4971-4983`). «Christian Kehl» on #3509, #3526 and #3527 resolves to `ckehl` through its declared display name, and `prOwnership` answers `theirs`. No `People` spelling makes a PR row `unknown`; the issue's question 4 rests on rows that were Draft plan rows (problem 3).
 
 Related: #2807 (reap keeps merged desks with worker files only).
 
@@ -38,40 +40,46 @@ Related: #2807 (reap keeps merged desks with worker files only).
 
 ### Approach
 
-**Slice 1 — an empty inbox is zero.** In `waitingTickets`, the tracker-account arm treats `inbox` as the candidate set when the tracker answered the inbox query, including when the answer is empty. An empty inbox returns count 0 and no notice. It never falls back to the project-wide rows. The spelling notice fires only when the inbox is non-empty and no row matches, and `raw` comes from an inbox row. The host-login arm and the arm where the inbox query did not run (`inbox === undefined`) keep their current behaviour. The rule lives in the domain, so a unit test asserts the banner without a browser.
+**Slice 1 — the inbox is read, and an absent one guesses nothing.**
 
-**Slice 2 — duplicate rows.** Reproduce the duplicate with the ewz-kus-portal shape (inbox plus project rows plus the issue index), name the path that emits a row twice, and fix it at that path. Add a regression test that fails on the duplicate.
+- The board's no-fleet issue refresh reads the reader's tracker inbox (`issue-list --state inbox`) and passes it to `waitingOf`, as fleetd does. One extra tracker call per refresh, on the same timer.
+- `waitingTickets` distinguishes an inbox that answered from one that is absent. With an absent inbox on a project-scoped read, the tracker-account arm has no candidates: 0 tickets, no spelling notice, and a reason the view can name (*the inbox was not read*). It never takes a spelling from project-wide rows. The same holds for the arm at `:196-198`.
+- The spelling notice fires only when the inbox is non-empty and none of its rows match the reader, takes its spelling from an inbox row, and never names a spelling `People` declares for another person.
+- The rule lives in the domain; domain unit tests assert each arm without a browser. Replace the expectation at `waiting-tickets.test.ts:175`.
 
-**Slice 3 — «Mine» hides `unknown`, and counts it.**
+**Slice 2 — one row per ticket key.** Enforce one row per key at both funnels: where the issue index is written (`foldIssueRows` and the index write in `packages/fleet`) and where `waitingTickets` renders every arm, not only the matched ones. A later row for the same key replaces the earlier one. Regression tests feed overlapping pages and an overlapping fold and assert that no key appears twice on any arm, and that the hidden count never exceeds the number of distinct keys.
 
-- «Mine» on keeps only `mine` rows. The ownership rule in `packages/domain/src/rules/ownership.ts` stays the single source of the three answers.
-- The toolbar shows `N others · M unknown ▸` while «Mine» is on and the unknown count is above 0. A click adds the `unknown` rows back. It is one control with three states, and it is absent while «Mine» is off.
-- The counts come from a domain property, not from `.tsx`, per *Every rendered state is a domain property*.
-- Unassigned tickets (empty assignee list) leave *Waiting on you* and go to their own collapsed *Unassigned* section.
-- Resolve question 4: find why «Christian Kehl» does not resolve, then either fix the resolution or document the `People` spelling for each host in the `People` docs.
+**Slice 3 — Draft plan rows obey «Mine».** A Draft plan row carries an owner (the plan PR's author where a plan PR exists) and passes through the same `isMine` filter as other rows. The released contract holds: `unknown` stays visible (`2026-09-24-the-board-shows-me-only-my-work.md:123`). The ownership comes from a domain property, not from `.tsx`.
 
-### Open Questions
+**Out of scope, planned separately.** «Mine» hiding `unknown` rows behind a count, and an *Unassigned* section, reverse the released contract above and reach Discovery (`lanes-for-reader.ts:67`). They move to their own feature plan, which states that contract and the Bitbucket case where no login is known (`plot-host.sh account` exits 4) and every PR row reads `unknown`.
 
-- [ ] Where does the duplicate row come from (slice 2)? The issue shows twelve rows twice; the path is unmeasured.
-- [ ] Does the Bitbucket PR author arrive as a display name, an account id or a nickname, and which `People` spelling does `resolvePerson` match (question 4)?
-- [ ] Does the *Unassigned* section also apply with «Mine» off, or only with it on? The issue says unassigned tickets are not anybody's, which points to both.
-- [ ] Does the existing *Only my work* toggle become the «Mine» control of the proposal, or does the proposal replace it? Name the toggle in the plan before slice 3 starts.
+### Decisions
+
+Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-empty-jira-inbox-read-as-a/panel.md`):
+
+- [x] «Mine» hides unknown, the count and *Unassigned*: move to their own feature plan.
+- [x] Slice 1: the no-fleet board reads the inbox, an absent inbox takes no spelling from project rows, and the notice never suggests another person's spelling.
+- [x] Duplicates: fix at both funnels (index write and `waitingTickets` read) without waiting for the ewz `issues.json` measurement.
+- [x] Draft plan rows ignoring «Mine»: a bug slice in this plan.
+- [x] Is «Only my work» the same control as «Mine»? Yes: the chip row replaced the checkbox in #2080 (`DeliveryFilters.tsx:8-9`), with the same state and storage key.
+- [x] Bitbucket PR author spelling: the nickname, matched as a plain spelling; no new `People` syntax.
 
 ## Slices
 
 ### Inbox
 
-- `bug/empty-jira-inbox-is-zero` — an empty tracker inbox returns no tickets and no notice; the notice names an inbox spelling only
+- `bug/an-absent-inbox-guesses-no-spelling` — the no-fleet board reads the inbox; an absent inbox gives no tickets and no notice; the notice never names another person's spelling <!-- builds: an inbox read in the board's refreshIssues, an absent-inbox arm in waitingTickets -->
 
 ### Duplicates
 
-- `bug/ticket-rows-appear-once` — find the path that renders a ticket row twice and fix it, with a regression test
+- `bug/ticket-rows-appear-once` — one row per ticket key at the issue index write and at every `waitingTickets` arm, with regression tests
 
-### Mine
+### Draft rows
 
-- `feature/mine-counts-what-it-hides` — «Mine» keeps only `mine` rows, shows the unknown count as one control, and moves unassigned tickets to a collapsed section; the `People` docs state the host spelling
+- `bug/draft-rows-obey-mine` — a Draft plan row carries its owner and passes the «Mine» filter; `unknown` stays visible
 
 ## Notes
 
 - Issue: https://github.com/plot-pm/plot/issues/2808. The plan names it in `Issue:` and writes nothing to the tracker.
-- Earlier work in the same area: `2026-09-09-jira-inbox-is-instance-wide-the`, `2026-10-16-jira-inbox-and-issue-index`, `2026-10-23-only-my-work-waiting-on-you` (Released). Check each before slice 3 changes the filter's contract.
+- Earlier work in the same area: `2026-09-09-jira-inbox-is-instance-wide-the`, `2026-10-16-jira-inbox-and-issue-index`, `2026-09-24-the-board-shows-me-only-my-work` (the rule that `unknown` stays visible), `2026-10-23-only-my-work-waiting-on-you` (Released).
+- The three slices touch separate files and merge in any order; slice 1 first is preferred because it removes the visible wrong advice.
