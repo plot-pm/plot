@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2817 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-refused-scan-listing-backs-off`
+- **Started:** 2026-10-28, Jan Wloka, `bug/the-scan-listing-honours-the-limit`
 
 ## Changelog
 
