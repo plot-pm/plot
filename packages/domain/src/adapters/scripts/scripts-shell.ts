@@ -121,8 +121,10 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       // branches it claimed; `plot-approve.sh` explains its refusal across
       // several stderr lines. Folding either into a `PortResult` would discard
       // the claim or the reason, so both streams travel with the code.
+      // A `.mjs` helper runs under this process's own Node; `bash` cannot run it.
+      const interpreter = script.endsWith('.mjs') ? process.execPath : 'bash';
       const run = await runProcess(
-        'bash',
+        interpreter,
         [scriptPath(context, script), ...args],
         withRepo(options),
       );

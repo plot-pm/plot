@@ -5,7 +5,6 @@
 // formats are one implementation; a second copy would be an undeclared
 // duplicate of the pair `state-receipt.corpus.test.ts` already keeps in sync
 // against the shell.
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -149,56 +148,31 @@ let holderSeq = 0;
 /** A lock-holder id unique to one `commitAndPush` call, even across concurrent calls in this process. */
 const nextHolderId = (): string => `${process.pid}${String(++holderSeq).padStart(6, '0')}`;
 
-/**
- * Runs `node <args>` and reports its exit code and stderr.
- *
- * Inlined rather than `@plot-pm/domain/adapters/run-script`'s `runProcess`:
- * that module's own relative import of `port-result.js` does not resolve
- * under Node's native type-stripping loader (the file on disk is
- * `port-result.ts`), which only surfaces when something reaches the module
- * with no bundler in front of it — a raw `import()` of this file, as
- * `state-gate.test.mjs` does. `realLockFor` needs only the exit code and
- * stderr a plain `execFile` already gives it.
- */
-const runNode = (args: readonly string[], cwd: string): Promise<{ code: number; stderr: string }> =>
-  new Promise((resolve) => {
-    execFile('node', args, { cwd }, (error, _stdout, stderr) => {
-      const code = error === null ? 0 : typeof error.code === 'number' ? error.code : 1;
-      resolve({ code, stderr });
-    });
-  });
+/** The default-branch lock helper `plot-push-main.sh` also takes. */
+const LOCK = 'plot-push-lock.mjs';
 
 /**
- * The real {@link PushLock}: `plot-push-lock.mjs`, run as a `node` subprocess
- * directly — the `Scripts` port's `awaited` always wraps a script in `bash`,
- * which cannot run this file's `node` shebang.
+ * The real {@link PushLock}: `plot-push-lock.mjs`, run through the `Scripts`
+ * port's `awaited`, which runs a `.mjs` helper under Node in `repoRoot`.
  *
  * `take` makes one attempt per call; a 6 (`locked`, the wait outlived
  * `PLOT_PUSH_LOCK_WAIT` with no progress) is the caller's to decide on, not
  * retried in here — see `commitAndPush`'s own exit-6 branch, which loops back
  * to retake without spending an attempt.
  */
-const realLockFor = (scripts: Scripts, repoRoot: string): PushLock => {
-  const lockPath = scripts.pathOf('plot-push-lock.mjs');
-  // `cwd` must match the nested `plot-push-main.sh` call's: `plot-push-lock.mjs`
-  // resolves the lock directory from `git rev-parse --git-common-dir` in ITS
-  // OWN cwd, so a caller that omits it locks against wherever this Node
-  // process happens to be running rather than `ctx.repoRoot` — a different
-  // repository's lock file, racing the wrong writers entirely.
-  return {
-    take: async (holder, action, write) => {
-      const ran = await runNode([lockPath, 'take', holder, action], repoRoot);
-      if (ran.code === 0) return 'held';
-      if (ran.code !== 6) throw new Refused(`could not take the default-branch push lock.\n${ran.stderr}`);
-      const held = ran.stderr.match(/held by pid (\S+) running (.+?);/);
-      write(`step: waiting for the default-branch lock held by pid ${held?.[1] ?? 'unknown'} (${held?.[2] ?? 'an unknown action'})\n`);
-      return 'locked';
-    },
-    release: async (holder) => {
-      await runNode([lockPath, 'release', holder], repoRoot);
-    },
-  };
-};
+const realLockFor = (scripts: Scripts): PushLock => ({
+  take: async (holder, action, write) => {
+    const ran = await scripts.awaited(LOCK, ['take', holder, action]);
+    if (ran.code === 0) return 'held';
+    if (ran.code !== 6) throw new Refused(`could not take the default-branch push lock.\n${ran.stderr}`);
+    const held = ran.stderr.match(/held by pid (\S+) running (.+?);/);
+    write(`step: waiting for the default-branch lock held by pid ${held?.[1] ?? 'unknown'} (${held?.[2] ?? 'an unknown action'})\n`);
+    return 'locked';
+  },
+  release: async (holder) => {
+    await scripts.awaited(LOCK, ['release', holder]);
+  },
+});
 
 /**
  * Runs a booking commit+push: commit whatever the caller already staged
@@ -251,7 +225,7 @@ export const commitAndPush = async (
 ): Promise<{ pushed: string } | { rejected: true }> => {
   const holder = nextHolderId();
   const action = `push ${bookbr}`;
-  const lock = ctx.lock ?? realLockFor(ctx.scripts, ctx.repoRoot);
+  const lock = ctx.lock ?? realLockFor(ctx.scripts);
   // The lock spans the fetch/commit/push, not just the push line (the-push-
   // lock-spans-the-booking): a queued writer must not read a base that goes
   // stale the instant another writer's push lands. Taken before the

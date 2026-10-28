@@ -176,6 +176,15 @@ describe('an awaited run hands back both streams and the code', () => {
     expect(ran.interrupted).toBeUndefined();
   });
 
+  it('runs a .mjs helper under node, in the repository', async () => {
+    const dir = scriptDir({
+      'plot-push-lock.mjs': "console.log(process.cwd()); console.error(process.argv.slice(2).join(' ')); process.exit(6);\n",
+    });
+    const ran = await at(dir).awaited('plot-push-lock.mjs', ['take', '42', 'push main']);
+    expect(ran).toMatchObject({ code: 6, stderr: 'take 42 push main\n' });
+    expect(fs.realpathSync(ran.stdout.trim())).toBe(fs.realpathSync(dir));
+  });
+
   it('marks a run cut short by its timeout, keeping what it printed', async () => {
     const dir = scriptDir({ 'plot-fleetctl.sh': '#!/usr/bin/env bash\necho "summary: supervisor=up"\nsleep 30\n' });
     const ran = await at(dir).awaited('plot-fleetctl.sh', ['--status'], { timeoutMs: 500 });
