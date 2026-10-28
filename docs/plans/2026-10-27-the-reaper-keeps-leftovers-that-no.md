@@ -7,7 +7,7 @@
 - **State:** Released
 - **Type:** feature
 - **Sprint:**
-- **Issue:** #2757
+- **Issue:** #2757, #2697, #2705, #2714
 - **Rounds:** 1
 - **Story:**
 - **Review:** pr
