@@ -946,7 +946,6 @@ EOF
   # one licenses. The AGE is the board's to report, because the board is what
   # knows when it listed — this scan is spawned fresh and cannot know.
   HOST_VERDICT=ok
-  return 0
 }
 
 # Report the listing this run fetched, for the next pulse to carry.
