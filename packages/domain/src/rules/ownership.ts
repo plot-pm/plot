@@ -241,14 +241,13 @@ export const ticketSourceOf = (
 /**
  * Whose an agent row is, by the machine's own record.
  *
- * `mine` where this machine's registry declared the agent and its desk is on
- * this machine. Unknown for an agent inferred from a desk with no manifest,
- * and for one whose state says no desk is here.
+ * `mine` where the state shows a desk is on this machine, whether a manifest
+ * declared the agent or the registry synthesized it from that desk — the
+ * board's machine is the reader's machine either way. Unknown where the state
+ * is absent, empty, or says no desk is here ({@link NO_DESK_HERE}).
  */
-const agentOwnership = (identity: string | undefined, state: string | undefined): Ownership =>
-  identity === 'manifest' && state !== undefined && state !== '' && !NO_DESK_HERE.includes(state)
-    ? 'mine'
-    : 'unknown';
+const agentOwnership = (state: string | undefined): Ownership =>
+  state !== undefined && state !== '' && !NO_DESK_HERE.includes(state) ? 'mine' : 'unknown';
 
 /**
  * Whose a row is.
@@ -263,7 +262,7 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
     case 'pr':
       return prOwnership(row.author, reader);
     case 'agent':
-      return agentOwnership(row.identity, row.state);
+      return agentOwnership(row.state);
     case 'plan':
       return planOwnership([row.assignee, row.author, row.approver], reader);
     case 'story':
@@ -286,6 +285,18 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
  * @returns false only where the row is somebody else's.
  */
 export const isMine = (row: OwnedRow, reader: Reader): boolean => ownership(row, reader) !== 'theirs';
+
+/**
+ * Whether a row stays in view under the stricter «Mine» mode.
+ *
+ * True only where {@link ownership} answers `mine`. Unlike {@link isMine}, a
+ * row whose owner cannot be determined is hidden.
+ *
+ * @param row - what the row carries that names an owner.
+ * @param reader - who is reading.
+ * @returns true only where the row is the reader's.
+ */
+export const isMineStrict = (row: OwnedRow, reader: Reader): boolean => ownership(row, reader) === 'mine';
 
 /**
  * Whether the board can place this reader at all.
