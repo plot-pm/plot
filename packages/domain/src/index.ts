@@ -589,6 +589,7 @@ export type { MachineReading } from './ports/machine.js';
 export type { Machine as MachinePort } from './ports/machine.js';
 export type * from './ports/detached.js';
 export type * from './ports/process-probe.js';
+export type * from './ports/agent-capabilities.js';
 export type * from './ports/reexec.js';
 export type * from './ports/fleet-state.js';
 export * from './rules/auto-dispatch.js';

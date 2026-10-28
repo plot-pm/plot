@@ -16,6 +16,8 @@ import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { endingAsksFreshStart } from '@plot-pm/domain/rules/ending-action';
 import { readDeskPid, resolveManifestDir } from './registry.js';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
+import { agentCapabilitiesSystem } from '@plot-pm/domain/adapters/agent-capabilities/agent-capabilities-system';
+import type { CapabilityReading } from '@plot-pm/domain/ports/agent-capabilities';
 import { takeContinueLock, releaseContinueLock } from './continue-lock.js';
 import { CONTINUATION_NAME } from './continuation-name.js';
 import { runLimitRefusal, DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
@@ -35,11 +37,6 @@ import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-wr
  */
 
 /** Where the repository and its scripts directory are, for {@link continueOnDesk}. */
-/** What the charter of a named agent declares it may touch. */
-type CapabilityReading =
-  | { kind: 'none' }
-  | { kind: 'declared'; list: string }
-  | { kind: 'unreadable'; detail: string };
 
 /**
  * Asks `plot-prompt.mjs --capabilities` what an agent's charter declares.
@@ -48,22 +45,8 @@ type CapabilityReading =
  * @param agent - the agent name `PLOT_AGENT` carries; empty names none.
  * @returns `none` for no agent, no bundle, no charter or no capabilities; `unreadable` for exit 3.
  */
-const resolveCapabilities = (opts: ContinuationOptions, agent: string): CapabilityReading => {
-  if (agent === '') return { kind: 'none' };
-  const bundle = path.join(opts.scriptsDir, 'board', 'plot-prompt.mjs');
-  if (!fs.existsSync(bundle)) return { kind: 'none' };
-  try {
-    const list = execFileSync('node', [bundle, '--capabilities', opts.repoRoot, agent], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-    return list === '' ? { kind: 'none' } : { kind: 'declared', list };
-  } catch (err) {
-    const failure = err as { status?: number; stderr?: string };
-    if (failure.status === 3) return { kind: 'unreadable', detail: (failure.stderr ?? '').trim() };
-    return { kind: 'none' };
-  }
-};
+const resolveCapabilities = (opts: ContinuationOptions, agent: string): CapabilityReading =>
+  agentCapabilitiesSystem(opts.scriptsDir).declaredFor(opts.repoRoot, agent);
 
 export interface ContinuationOptions {
   repoRoot: string;
