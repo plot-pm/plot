@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2479
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-26, Jan Wloka, `bug/reconcile-scan-sections-1-and-7`
 - **Started:** 2026-10-26, Jan Wloka, `bug/reconcile-scan-sections-22-24`
 - **Delivered:** 2026-10-26
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
