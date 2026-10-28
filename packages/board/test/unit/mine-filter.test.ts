@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { ticketsForReader, ownedFromTicket, readMineStrict, writeMineStrict } from '../../src/app/lib/agent-rows/mine-filter.js';
 import type { IssueRow, TicketLaneRow, TicketSourceShape } from '../../src/contract/schema.js';
-import { isMine, lanesForReader, type Reader } from '@plot-pm/domain';
+import { lanesForReader, ownership, type Reader } from '@plot-pm/domain';
 
 /**
- * `ticketsForReader` is a thin wrapper around `isMine` over `OwnedRow`'s
- * `ticket` arm — this file asserts the wrapping, not `ticketOwnership` itself,
- * which `packages/domain/test/ownership.test.ts` already covers.
+ * `ticketsForReader` is a thin wrapper around the lenient
+ * `ownership(...) !== 'theirs'` test over `OwnedRow`'s `ticket` arm — this
+ * file asserts the wrapping, not `ticketOwnership` itself, which
+ * `packages/domain/test/ownership.test.ts` already covers.
  */
 
 const ticket = (overrides: Partial<IssueRow> = {}): IssueRow => ({
@@ -60,8 +61,9 @@ describe('ticketsForReader — a null source cannot be resolved, so nothing is h
 });
 
 // CONTRACT CHANGE (feature/mine-mode-control): the plan's "the box wins"
-// decision — this ticket box stays lenient (`isMine`) even in `mine` mode,
-// unlike every other `mine`-mode call site, which switches to `isMineStrict`.
+// decision — this ticket box stays lenient (`ownership(...) !== 'theirs'`)
+// even in `mine` mode, unlike every other `mine`-mode call site, which
+// switches to `isMineStrict`.
 describe('ticketsForReader — stays lenient under `mine` mode', () => {
   const reader: Reader = { hostUser: 'jwloka' };
 
@@ -115,7 +117,7 @@ describe('Discovery and Delivery answer alike for one ticket', () => {
   ];
 
   it.each(cases)('keeps or hides alike for %s', (_name, assignees, source, expected) => {
-    expect(isMine(ownedFromTicket(ticket({ assignees }), source), reader)).toBe(expected);
+    expect(ownership(ownedFromTicket(ticket({ assignees }), source), reader) !== 'theirs').toBe(expected);
     expect(deliveryKeeps(assignees, source, reader)).toBe(expected);
     expect(discoveryKeeps(laneRow(assignees, source), reader)).toBe(expected);
   });

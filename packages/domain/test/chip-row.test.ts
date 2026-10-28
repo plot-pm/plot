@@ -89,13 +89,13 @@ describe('chipRow — Mine', () => {
     expect(actual.mine.on).toBe(false);
   });
 
-  // ISSUE #2476: `isMine`'s ownership match never compares a host login to an
+  // ISSUE #2476: `ownership`'s match never compares a host login to an
   // email (`ownership.ts`'s `comparableLogin`), so a `gitEmail`-only identity
   // can never match a row's author. Before this fix the chip enabled on
   // `gitEmail` and reported a `hiddenCount` that could never move — "Mine" on
   // looked actionable but filtered nothing. Now it disables with a reason
   // naming WHY, distinct from "nothing configured at all".
-  it('is disabled with only gitEmail set — isMine can never match an email', () => {
+  it('is disabled with only gitEmail set — ownership can never match an email', () => {
     const actual = chipRow(base({
       mine: {
         reader: { gitEmail: 'jan.wloka@quatico.com' },
@@ -112,8 +112,8 @@ describe('chipRow — Mine', () => {
   });
 
   // ISSUE #2526: `comparableLogin` reads an email-shaped `hostUser` as no
-  // login, so `isMine` never answers `theirs` for it. The chip must not enable
-  // on it and report a count it cannot act on.
+  // login, so `ownership` never answers `theirs` for it. The chip must not
+  // enable on it and report a count it cannot act on.
   it('is disabled with an email-shaped hostUser, naming hostUser as the fix', () => {
     const actual = chipRow(base({
       mine: {
@@ -165,9 +165,9 @@ describe('chipRow — Mine', () => {
   });
 
   // CONTRACT CHANGE (feature/mine-mode-control): `mine` mode switches the
-  // chip's own match from `isMine` to `isMineStrict`, so a row whose owner
-  // cannot be determined now counts as hidden too — unlike `mine-and-unknown`,
-  // which keeps it (the test above).
+  // chip's own match from the lenient `ownership(...) !== 'theirs'` test to
+  // `isMineStrict`, so a row whose owner cannot be determined now counts as
+  // hidden too — unlike `mine-and-unknown`, which keeps it (the test above).
   it('in `mine` mode, also counts a row whose owner cannot be determined as hidden', () => {
     const actual = chipRow(base({
       mine: {

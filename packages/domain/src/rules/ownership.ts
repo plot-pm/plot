@@ -290,22 +290,11 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
 };
 
 /**
- * Whether a row stays in view when the board shows only the reader's work.
- *
- * True for `mine` and for `unknown`: a row whose owner cannot be determined is
- * shown. Only a row somebody else owns answers false.
- *
- * @param row - what the row carries that names an owner.
- * @param reader - who is reading.
- * @returns false only where the row is somebody else's.
- */
-export const isMine = (row: OwnedRow, reader: Reader): boolean => ownership(row, reader) !== 'theirs';
-
-/**
  * Whether a row stays in view under the stricter «Mine» mode.
  *
- * True only where {@link ownership} answers `mine`. Unlike {@link isMine}, a
- * row whose owner cannot be determined is hidden.
+ * True only where {@link ownership} answers `mine`. Unlike the lenient
+ * `ownership(row, reader) !== 'theirs'` test, a row whose owner cannot be
+ * determined is hidden.
  *
  * @param row - what the row carries that names an owner.
  * @param reader - who is reading.

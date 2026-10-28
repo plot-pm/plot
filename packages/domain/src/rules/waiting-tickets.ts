@@ -104,7 +104,7 @@ const ISSUE_LIMIT = 50;
  * that names at least one candidate row's assignee — sees the union of
  * `inbox` and the rows `ownership` over `{ kind: 'ticket', assignees, source
  * }` answers `mine` for, newest first, without duplicates. `mine` is required
- * rather than `isMine`'s looser "not theirs": an unassigned row is `unknown`,
+ * rather than the looser "not theirs" test: an unassigned row is `unknown`,
  * and the default view hides it rather than showing it as if it matched. An
  * unmatched reader — no host login, a `null` source, or a declared
  * `tracker-account` reader whose spellings name no candidate's assignee —

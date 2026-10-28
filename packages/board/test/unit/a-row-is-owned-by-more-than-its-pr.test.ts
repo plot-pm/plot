@@ -38,7 +38,7 @@ import { AgentList } from '../../src/app/components/AgentList.js';
  * Albrecht, who added each of the four plans carrying that spelling.
  */
 
-/** Every row `isMine` is asked about, recorded through the production module. */
+/** Every row `ownership` is asked about, recorded through the production module. */
 const asked = vi.hoisted(() => [] as OwnedRow[]);
 /** Set to make the spied rule refuse every agent, so its answer is visible. */
 const refuseAgents = vi.hoisted(() => ({ on: false }));
@@ -47,10 +47,10 @@ vi.mock('@plot-pm/domain', async (importOriginal) => {
   const real = await importOriginal<typeof import('@plot-pm/domain')>();
   return {
     ...real,
-    isMine: (owned: OwnedRow, reader: Parameters<typeof real.isMine>[1]) => {
+    ownership: (owned: OwnedRow, reader: Parameters<typeof real.ownership>[1]) => {
       asked.push(owned);
-      if (refuseAgents.on && owned.kind === 'agent') return false;
-      return real.isMine(owned, reader);
+      if (refuseAgents.on && owned.kind === 'agent') return 'theirs';
+      return real.ownership(owned, reader);
     },
   };
 });
