@@ -141,4 +141,9 @@ describe('issueWriteThrough', () => {
     expect(after.rows!.map((r) => r.number)).toEqual(['A-2']);
     expect(after.closed).toBeUndefined();
   });
+
+  it('yields one row for a key already held, not two, for a write that stays in rows', () => {
+    const after = issueWriteThrough(held(), [write({ updatedAt: '2026-10-13T11:00:00Z' })])!;
+    expect(after.rows!.filter((r) => r.number === 'A-1')).toHaveLength(1);
+  });
 });

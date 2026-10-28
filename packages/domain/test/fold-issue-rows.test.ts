@@ -72,6 +72,13 @@ describe('foldIssueRows', () => {
     expect(foldIssueRows([a], [b])).toEqual([b]);
     expect(foldIssueRows([b], [a])).toEqual([b]);
   });
+
+  it('resolves a duplicate key inside held the same way it would resolve the two as held vs incoming', () => {
+    const older = row({ number: '1', title: 'older', updatedAt: '2026-10-01T00:00:00Z' });
+    const newer = row({ number: '1', title: 'newer', updatedAt: '2026-10-02T00:00:00Z' });
+    expect(foldIssueRows([older, newer], [])).toEqual(foldIssueRows([older], [newer]));
+    expect(foldIssueRows([newer, older], [])).toEqual(foldIssueRows([older], [newer]));
+  });
 });
 
 describe('foldChangedIssueRows', () => {
@@ -95,5 +102,12 @@ describe('foldChangedIssueRows', () => {
     const reopened = row({ statusCategory: 'To Do' });
     const held = row({ statusCategory: 'Done', closedAt: '2026-10-05T00:00:00Z' });
     expect(foldChangedIssueRows([], [held], SINCE, [reopened])).toEqual({ rows: [reopened], closedRows: [] });
+  });
+
+  it('yields one row for a key present in both the held open set and the changed read', () => {
+    const held = row({ title: 'held', updatedAt: '2026-10-01T00:00:00Z' });
+    const changed = row({ title: 'changed', updatedAt: '2026-10-02T00:00:00Z' });
+    const result = foldChangedIssueRows([held], [], SINCE, [changed]);
+    expect(result.rows).toEqual([changed]);
   });
 });

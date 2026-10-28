@@ -220,7 +220,7 @@ export const waitingTickets = (
   const directory = reader.directory ?? {};
   const prefix = source.prefix;
   if (!declaresAnyAccountSpelling(directory, prefix)) {
-    return render([...candidates].sort(byNewestFirst), null);
+    return render(unionDedup(candidates, []), null);
   }
 
   const matched = candidates.some((row) => accountMatches(row, prefix, directory, reader));
@@ -234,7 +234,7 @@ export const waitingTickets = (
     const declaredSpelling = Object.entries(directory).find(
       ([key, handle]) => key.startsWith(prefix) && handle === self.handle,
     )?.[0];
-    const fallback = [...candidates].sort(byNewestFirst);
+    const fallback = unionDedup(candidates, []);
     const suggestedTakenByAnother =
       raw !== undefined &&
       declaresSpelling(`${prefix}${raw}`, directory) &&

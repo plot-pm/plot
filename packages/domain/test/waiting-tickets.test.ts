@@ -189,6 +189,22 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toBeNull();
   });
 
+  it('a Jira source with no declared spelling shows a repeated candidate key once', () => {
+    const reader: Reader = { hostUser: 'jwloka' };
+    const rows = [row('J-1', { assignees: ['someone'] }), row('J-1', { assignees: ['someone'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.tickets.map((t) => t.number)).toEqual(['J-1']);
+    expect(result.hidden).toBe(0);
+  });
+
+  it('a Jira source with a declared spelling that matches no candidate shows a repeated candidate key once', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('J-1', { assignees: ['a-colleague@quatico.com'] }), row('J-1', { assignees: ['a-colleague@quatico.com'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.tickets.map((t) => t.number)).toEqual(['J-1']);
+    expect(result.hidden).toBe(0);
+  });
+
   it('an inbox read that failed with no kept rows answers 0 tickets and says the inbox could not be read', () => {
     const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
     const rows = [row('o1', { assignees: ['a-colleague@quatico.com'] }), ...unassigned(4)];
