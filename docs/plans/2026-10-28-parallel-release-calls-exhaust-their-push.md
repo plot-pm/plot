@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2816 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/booking-branches-carry-no-upstream`
 - **Started:** 2026-10-28, Jan Wloka, `bug/the-push-lock-spans-the-booking`
+- **Started:** 2026-10-28, Jan Wloka, `bug/one-release-job-per-plan`
 
 ## Changelog
 
