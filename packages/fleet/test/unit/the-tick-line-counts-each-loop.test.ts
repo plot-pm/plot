@@ -13,8 +13,11 @@ import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // #2815: the tick line prints one requests-an-hour figure per loop, and the
 // figures account for every host call the budget record holds. The fake host
-// appends one `budget.tsv` line per call; each loop counts the call in its own
-// tally exactly where the production loop does.
+// appends one `budget.tsv` line per call, and this file bumps each loop's tally
+// itself, so it checks the per-hour pricing and the read-and-zero window only.
+// The counting sites are tested where they live: the shell's `spend:` line
+// under `--stream` in `test/reconcile/fleetlisting.test.mjs`, and `scanOnce`
+// folding it in `fleet-scan.test.ts`.
 
 const BEAT_MS = 5_000;
 const BEATS_PER_HOUR = 720;

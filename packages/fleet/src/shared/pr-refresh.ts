@@ -915,8 +915,8 @@ export const withHostSlot = async <T>(entry: PrState, call: () => Promise<T>): P
     // slot leaked on that path would lower the account's real cap by one for
     // ten minutes, which is the staleness bound rather than a fault anybody
     // would notice.
-    if (index !== null) await slots.release(account, index);
     entry.calls += 1;
+    if (index !== null) await slots.release(account, index);
   }
 };
 

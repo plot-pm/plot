@@ -922,7 +922,7 @@ describe('a source that cannot be asked (M3)', () => {
 describe('the issue gate (M1)', () => {
   it('opens on the 24th beat after a pass that started 50 ms after its beat', () => {
     const beat = NOW;
-    const state: IssueState = { issueNextAt: beat + 50 + 120_000, issueNextIsBackoff: false, issueError: null };
+    const state: IssueState = { issueNextAt: beat + 50 + 120_000, issueNextIsBackoff: false, issueError: null, calls: 0 };
     expect(issueGateOpen(state.issueNextAt, state.issueNextIsBackoff, () => beat + 24 * 5_000)).toBe(true);
   });
 
@@ -933,7 +933,7 @@ describe('the issue gate (M1)', () => {
 
   it('runs no pass while the gate is shut', async () => {
     const { dir, argv } = fakeHost({ rows: 1 });
-    const state: IssueState = { issueNextAt: NOW + 60_000, issueNextIsBackoff: false, issueError: null };
+    const state: IssueState = { issueNextAt: NOW + 60_000, issueNextIsBackoff: false, issueError: null, calls: 0 };
     await fleetIssues(worldOf(dir, issueIndexFile({ home: storeHome() })), state, () => undefined)();
     expect(argv()).toEqual([]);
   });

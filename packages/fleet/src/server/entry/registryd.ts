@@ -169,6 +169,8 @@ export interface TickSpend {
    * never summed into a single number: the loops run on independent
    * cadences, and a fleetd whose scan alone burns hundreds of requests an
    * hour must not be able to hide behind a calm tick-only figure (#2815).
+   * `pr-reader` counts every call made through the PR reader's host slot,
+   * which on `github-actions` includes the default-branch CI reads.
    */
   perLoop: Record<string, number>;
 }

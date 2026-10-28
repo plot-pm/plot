@@ -595,6 +595,16 @@ fi
 # `REF_TMP` trap below replaced it, so every scan left one `tmp.*` directory of
 # ~955 files behind (measured 2026-09-30).
 HOST_STATE_CACHE=""
+# WHAT THIS SCAN SPENT ON THE HOST, ON STDERR AND TAGGED like `listing:` and
+# `terminal:` — `fleet-scan.ts`'s `onErrorLine` parses all three the same way.
+# TypeScript sees only the in-process `askPrList` calls; the two `pr-list`
+# calls in `prefill_pr_states` and every real `pr-state` call `host_pr_state
+# --ask` makes are this script's own (#2815). It runs at exit, so every exit
+# path prints it — `--stream`, which fleetd starts, leaves through its own
+# `exit 0`. Registered BEFORE the cache, because the exit handler runs in
+# registration order and removes the cache that holds the count. A scan that
+# spent nothing prints no line.
+plot_on_exit '[ -s "$HOST_STATE_CACHE/.spend" ] && printf "spend: %s\n" "$(wc -c < "$HOST_STATE_CACHE/.spend" | tr -d " ")" >&2'
 if [ "$HOST_LOOKUP_OK" = 1 ]; then
   plot_tmpdir HOST_STATE_CACHE fleet-host-state 2>/dev/null || HOST_STATE_CACHE=""
 fi
@@ -5411,10 +5421,3 @@ echo "Pulse complete. This report is derived — nothing was changed."
 # only this one has an explanation an operator can act on, which is that a
 # later plan reused a merged branch name.
 echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed claimable=$n_eligible eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT subject_predates_plan=$SUBJECT_PREDATES_PLAN host=$HOST_VERDICT main=$MAIN"
-# WHAT THIS SCAN ITSELF SPENT ON THE HOST, ON STDERR AND TAGGED like
-# `listing:`/`terminal:` above — `fleet-scan.ts`'s `onErrorLine` parses all
-# three the same way. TypeScript sees only the in-process `askPrList` calls
-# `readGithubListing` makes; the two `pr-list` calls in `prefill_pr_states`
-# and every real `pr-state` call `host_pr_state --ask` makes are this
-# script's own, and this is the one line that hands that count back (#2815).
-printf 'spend: %s\n' "$(cat "$HOST_STATE_CACHE/.spend" 2>/dev/null | wc -c | tr -d ' ')" >&2
