@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2475
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-24, Jan Wloka, `bug/mergeability-uses-the-prs-own-base`
 - **Started:** 2026-10-24, Jan Wloka, `bug/continuation-tests-assert-their-names`
 - **Delivered:** 2026-10-24
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
