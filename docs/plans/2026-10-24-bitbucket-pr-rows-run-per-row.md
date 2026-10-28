@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2481
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-25, Jan Wloka, `bug/bitbucket-bind-coverage-and-docs`
 - **Started:** 2026-10-25, Jan Wloka, `docs/one-pr-reader-plan-figures`
 - **Delivered:** 2026-10-25
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
