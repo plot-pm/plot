@@ -9,9 +9,10 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
+import { pinnedTipsFile } from '@plot-pm/domain/adapters/pinned-tips/pinned-tips-file';
 import { branchGivenUp } from '@plot-pm/domain/rules/branch-given-up';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
-import type { Host, Processes, Refs, Scripts, Trees } from '@plot-pm/domain';
+import type { Host, PinnedTips, Processes, Refs, Scripts, Trees } from '@plot-pm/domain';
 import { firstReapRefusal } from '@plot-pm/domain/rules/reapable';
 import { firstBranchRefusal, firstClaimRefusal, dirtyTreeOwner } from '@plot-pm/domain/rules/sweepable';
 import { realCommits, isEmptyClaim, type CommitReading } from '@plot-pm/domain/rules/empty-claim';
@@ -265,9 +266,28 @@ export interface Context {
   trees: Trees;
   processes: Processes;
   plans: PlanStore;
+  pinnedTips: PinnedTips;
   /** Fetches one branch from `origin`. */
   fetch: (branch: string) => Promise<unknown>;
 }
+
+/** How long a pinned ref outlives its delete before the next run prunes it. */
+const PIN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Resolves a branch's tip and pins it before it is deleted.
+ *
+ * @returns the restore command for a `deleted` row's `why`; `null` where
+ *   either the tip could not be resolved, the ref write failed, or the TSV
+ *   append failed — the caller must keep the branch rather than delete it.
+ */
+const pinTip = async (ctx: Context, branch: string): Promise<string | null> => {
+  const resolved = await ctx.refs.resolve(branch);
+  if (!resolved.ok) return null;
+  const pinned = await ctx.pinnedTips.pin(branch, resolved.value);
+  if (!pinned.ok) return null;
+  return `restore: git branch ${branch} ${pinned.value}`;
+};
 
 /** Prints to stdout, matching the script's unprefixed verdict lines. */
 type Printer = (s: string) => void;
@@ -908,8 +928,16 @@ export const runWorktreeKind = async (
 
     let finalWhy = why;
     if (givenUp) {
-      const deleted = branchDeletable ? await ctx.trees.deleteBranch(short) : null;
-      finalWhy = `${finalWhy}, local branch ${deleted !== null && deleted.ok ? 'deleted' : 'kept'}`;
+      let restore: string | null = null;
+      if (branchDeletable) restore = await pinTip(ctx, short);
+      const deleted = restore !== null ? await ctx.trees.deleteBranch(short) : null;
+      if (branchDeletable && restore === null) {
+        finalWhy = `${finalWhy}, local branch kept — could not pin the tip`;
+      } else if (deleted !== null && deleted.ok) {
+        finalWhy = `${finalWhy}, local branch deleted, ${restore}`;
+      } else {
+        finalWhy = `${finalWhy}, local branch kept`;
+      }
     }
     const m = manifestFor(manifestDir, wtReal);
     if (m !== null) {
@@ -977,7 +1005,7 @@ interface BranchCounters {
   kept: number;
 }
 
-const runBranchKind = async (
+export const runBranchKind = async (
   ctx: Context,
   args: Args,
   defaultBranch: string,
@@ -1045,9 +1073,16 @@ const runBranchKind = async (
       continue;
     }
 
+    const restore = await pinTip(ctx, br);
+    if (restore === null) {
+      write(row('keep', br, 'could not pin the tip'));
+      counters.kept += 1;
+      continue;
+    }
+
     const deleted = await ctx.trees.deleteBranch(br);
     if (deleted.ok) {
-      write(row('deleted', br, `${bwhy}, local ref deleted`));
+      write(row('deleted', br, `${bwhy}, local ref deleted, ${restore}`));
       counters.deleted += 1;
     } else {
       write(row('FAILED', br, 'git branch -D refused'));
@@ -1168,9 +1203,16 @@ const runClaimKind = async (
       continue;
     }
 
+    const restore = await pinTip(ctx, br);
+    if (restore === null) {
+      write(row('keep', br, 'could not pin the tip'));
+      counters.kept += 1;
+      continue;
+    }
+
     const deleted = await ctx.trees.deleteBranch(br);
     if (deleted.ok) {
-      write(row('deleted', br, 'abandoned claim — local ref deleted'));
+      write(row('deleted', br, `abandoned claim — local ref deleted, ${restore}`));
       counters.deleted += 1;
     } else {
       write(row('FAILED', br, 'git branch -D refused'));
@@ -1270,6 +1312,8 @@ const runReap = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const cl = await runClaimKind(ctx, args, defaultBranch, planDir, activeDir, write);
   const dirtyTrees = await runDirtyKind(ctx, manifestDir, write);
 
+  if (args.yes) await ctx.pinnedTips.prune(PIN_MAX_AGE_MS, new Date());
+
   write(
     `summary: reapable=${wt.reap} removed=${wt.removed} kept=${wt.kept} vanished=${wt.vanished} unplaced=${wt.unplaced} cleared=${wt.cleared} branches=${br.swept} branches_deleted=${br.deleted} branches_kept=${br.kept} claims=${cl.swept} claims_deleted=${cl.deleted} claims_kept=${cl.kept} dirty_trees=${dirtyTrees} dry_run=${args.dryRun ? 1 : 0}\n`,
   );
@@ -1333,6 +1377,7 @@ export const run = async (
     trees: treesGit(context),
     processes: processesShell(context),
     plans: planStoreShell(context),
+    pinnedTips: pinnedTipsFile({ cwd: repoRoot }),
   };
 
   return runReap(ctx, parsed, write, warn);
