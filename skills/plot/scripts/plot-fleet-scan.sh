@@ -930,7 +930,7 @@ EOF
   # the direction that errs costs a fabricated `NONE`. The MARKER carries the
   # claim, so arrival decides and the row count does not.
   [ "$arrived" = 1 ] || return 1
-  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null
   [ "$complete" = 1 ] && { printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true; }
   # `ok`, AND A NEW WORD HERE WOULD STOP THE FLEET. `reachFrom`
   # (`entry/branch-state.ts:113`) maps any word it does not know to `failed`, so
@@ -1147,7 +1147,7 @@ prefill_pr_states() {
     # Cache format: STATE<TAB>checks<TAB>draft — one line per branch.
     # `checks` is one of: green, failing, pending, none, unknown (or empty when
     # the response was not `--rich`); `draft` is true or false (or empty).
-    printf '%s\t%s\t%s' "$st" "$chk" "$dft" > "$HOST_STATE_CACHE/$br" 2>/dev/null || true
+    printf '%s\t%s\t%s' "$st" "$chk" "$dft" > "$HOST_STATE_CACHE/$br" 2>/dev/null
   done <<EOF
 $(printf '%s\n' "$js" \
   | sed -n -e 's/.*"state":"\([A-Z]*\)","head":"\([^"]*\)","draft":\([a-z]*\),"checks":"\([a-z]*\)".*/\1	\4	\3	\2/p' \
@@ -1186,7 +1186,7 @@ EOF
   # collide with one: `git check-ref-format` rejects a branch whose name starts
   # with a dot, and the key encoding maps only `_` and `/`, so no branch key can
   # begin with one either. The separation is git's rule, not a lucky prefix.
-  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null
   # THE LIST WAS WHOLE — a stronger claim than `.list-arrived`, and the only one
   # that licenses deriving `NONE` from a cache miss.
   #
@@ -1278,10 +1278,10 @@ EOF
     return 1
   }
   if _list_whole "$host_err" && _list_whole "$open_err"; then
-    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null
   elif [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] \
        && [ "$_pr_open_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
-    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null
   fi
   report_listing
 }
