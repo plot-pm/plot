@@ -2594,7 +2594,14 @@ export function RegistryRow({
           // does not make it a slice row — it makes the slice it is working on
           // addressable. A row with no branch, or whose branch belongs to no
           // slice, carries neither: absent is not empty.
+          //
+          // THE ROW CARRIES ITS OWN PLAN. WORKING mixes the agents of every plan
+          // in one grid, so no wrapper above the row can name the plan: a grid
+          // tagged with the first plan left every other plan's blocker
+          // unreachable. Reported from a screenshot 2026-10-28: four of six
+          // blocked-by marks in NOT STARTED jumped nowhere.
           ...(row?.wave ? { 'data-slice-row': row.wave } : {}),
+          ...(row?.wave && row?.plan ? { 'data-slice-plan': row.plan } : {}),
           // FREE IS RENDERED AS AN ATTRIBUTE, NOT AS THE STATUS WORD. The two
           // are different questions — *what is it doing?* and *can it take
           // work?* — and a `running` agent between slices answers `running` and
