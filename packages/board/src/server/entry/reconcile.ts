@@ -313,6 +313,8 @@ const candidateFrom = (value: unknown) => {
 export const readingsFrom = (value: unknown): ReconcileReadings => {
   const given = objectOr(value);
   const desks = objectOr(given.desks);
+  const branchPrefixes = arrayOr(given.branchPrefixes)
+    .filter((p): p is string => typeof p === 'string' && p !== '');
   return {
     plans: arrayOr(given.plans).map(planFrom),
     sprints: arrayOr(given.sprints).map(sprintFrom),
@@ -327,6 +329,7 @@ export const readingsFrom = (value: unknown): ReconcileReadings => {
       }),
       defaultBranch: stringOr(desks.defaultBranch),
     },
+    ...(branchPrefixes.length > 0 ? { branchPrefixes } : {}),
   };
 };
 

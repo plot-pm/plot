@@ -157,7 +157,18 @@ const ctxFor = (o: Opts = {}): Context => {
 const run = async (o: Opts, yes: boolean): Promise<string> => {
   const lines: string[] = [];
   const args = { dryRun: !yes, yes, max: 0, sweepTemp: false };
-  await runWorktreeKind(ctxFor(o), args, 'main', path.join(root, 'agents'), '', (s) => lines.push(s), planDir, activeDir);
+  const mode = yes ? { kind: 'act-scoped' as const, branches: new Set([BRANCH]) } : { kind: 'dry-run' as const };
+  await runWorktreeKind(
+    ctxFor(o),
+    args,
+    mode,
+    'main',
+    path.join(root, 'agents'),
+    '',
+    (s) => lines.push(s),
+    planDir,
+    activeDir,
+  );
   return lines.join('');
 };
 

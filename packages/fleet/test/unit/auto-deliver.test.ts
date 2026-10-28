@@ -411,11 +411,12 @@ describe('maybeAutoDeliver — the act', () => {
     expect(releaseAt).toBeGreaterThan(reapAt);
   });
 
-  // The release is PLAN-SCOPED, where the reap beside it is slug-blind, and
-  // that asymmetry is the whole safety argument: a removed checkout is
-  // re-creatable with `git worktree add`, a deleted ref is not. A release
+  // The release is PLAN-SCOPED, and so is the reap beside it since #2825: a
+  // bare `--yes` acts on a recorded dry run's intersection, and this caller
+  // has none to read — it runs right after the delivery it drove. A release
   // called without its slug would act on branches belonging to plans nobody
-  // delivered.
+  // delivered; a reap called without `--plan-slug` would find no record and
+  // act on nothing.
   it('ITEM 14: the release is told WHICH plan finished, and to act', async () => {
     const { opts, runs } = fixture('');
     maybeAutoDeliver(opts, finished(), new Set());
@@ -423,11 +424,11 @@ describe('maybeAutoDeliver — the act', () => {
     expect(runs().find((l) => l.startsWith('release'))).toBe('release --yes ship-it');
   });
 
-  it('ITEM 4, and it reaps with --yes — without it the wire ends in a dry run', async () => {
+  it('ITEM 4, and it reaps with --yes --plan-slug — without the slug no record backs it', async () => {
     const { opts, runs } = fixture('');
     maybeAutoDeliver(opts, finished(), new Set());
     await settle();
-    expect(runs()[1]).toBe('reap --yes');
+    expect(runs()[1]).toBe('reap --yes --plan-slug ship-it');
   });
 
   // The other half of the ordering: the reap is gated on the delivery's EXIT

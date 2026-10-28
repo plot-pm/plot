@@ -153,8 +153,9 @@ describe('both units start the daemon with --start-agents', () => {
 describe('both units run the temp sweep', () => {
   /**
    * Nothing else schedules the backstop for temp paths a SIGKILL left behind:
-   * no script runs `plot-reap.sh --yes`, and `crontab -l` was empty on
-   * 2026-09-30. The flag is opt-in in the parser, so the unit is what turns it on.
+   * `auto-deliver.ts` runs `plot-reap.sh --yes --plan-slug <slug>`, never
+   * `--sweep-temp`, and `crontab -l` was empty on 2026-09-30. The flag is
+   * opt-in in the parser, so the unit is what turns it on.
    */
   it('launchd passes --sweep-temp', () => {
     expect(read(PLIST)).toMatch(/<string>--sweep-temp<\/string>/);

@@ -90,7 +90,13 @@ function manifest(registryDir, session, wt, extra = {}) {
   return file;
 }
 
+/**
+ * `--yes` now acts only on what a `--dry-run` recorded (#2825), so a call that
+ * passes `--yes` runs a `--dry-run` pass first to produce that record — a bare
+ * `--yes` with no record acts on nothing.
+ */
 function run(repo, ...args) {
+  if (args.includes('--yes')) execFileSync('bash', [reap, '--dry-run'], { encoding: 'utf8', cwd: repo });
   return execFileSync('bash', [reap, ...args], { encoding: 'utf8', cwd: repo });
 }
 

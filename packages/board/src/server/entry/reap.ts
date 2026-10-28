@@ -10,8 +10,11 @@ import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { pinnedTipsFile } from '@plot-pm/domain/adapters/pinned-tips/pinned-tips-file';
+import { reapRecordFile } from '@plot-pm/domain/adapters/reap-record/reap-record-file';
 import { branchGivenUp } from '@plot-pm/domain/rules/branch-given-up';
+import { planPathFor } from '@plot-pm/domain/rules/phase-gate';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
+import type { ReapRecord, ReapRecordRow } from '@plot-pm/domain/ports/reap-record';
 import type { Host, PinnedTips, Processes, Refs, Scripts, Trees } from '@plot-pm/domain';
 import { firstReapRefusal } from '@plot-pm/domain/rules/reapable';
 import {
@@ -20,6 +23,12 @@ import {
   dirtyTreeOwner,
   type LocalBranchReadings,
 } from '@plot-pm/domain/rules/sweepable';
+import {
+  recordedBranchVerdict,
+  recordedWorktreeVerdict,
+  recordRefusal,
+} from '@plot-pm/domain/rules/recorded-reap';
+import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { realCommits, isEmptyClaim, type CommitReading } from '@plot-pm/domain/rules/empty-claim';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import {
@@ -32,6 +41,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSy
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
+import { runProcess } from '@plot-pm/domain/adapters/run-script';
 
 /**
  * The `node` entry point `plot-reap.sh` now launches, once per estate sweep.
@@ -61,6 +71,8 @@ interface Args {
   yes: boolean;
   max: number;
   sweepTemp: boolean;
+  /** `--yes --plan-slug <slug>`: decide and act in one run, scoped to one plan's branches, no record needed. */
+  planSlug: string | null;
 }
 
 /** Parses argv the way the shell's `while [ $# -gt 0 ]` loop did. */
@@ -68,6 +80,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
   let yes = false;
   let max = 0;
   let sweepTemp = false;
+  let planSlug: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--yes') yes = true;
@@ -76,10 +89,15 @@ const parseArgs = (argv: readonly string[]): Args | string => {
     else if (arg === '--max') {
       const value = argv[++i];
       max = value === undefined ? 0 : Number(value) || 0;
+    } else if (arg === '--plan-slug') {
+      const value = argv[++i];
+      if (value === undefined || value === '') return '--plan-slug needs a value';
+      planSlug = value;
     } else if (arg === '-h' || arg === '--help') return '__help__';
     else return `unknown argument: ${arg}`;
   }
-  return { dryRun: !yes, yes, max, sweepTemp };
+  if (planSlug !== null && !yes) return '--plan-slug needs --yes';
+  return { dryRun: !yes, yes, max, sweepTemp, planSlug };
 };
 
 /**
@@ -156,9 +174,36 @@ every tree and says so per tree rather than skipping them silently.
 
 DEFAULT IS --dry-run. Removal happens only under --yes.
 
-  plot-reap.sh                # report what WOULD be reaped
-  plot-reap.sh --yes          # actually remove them
+  plot-reap.sh                # report what WOULD be reaped, and RECORD it
+  plot-reap.sh --yes          # act on the INTERSECTION of that record with a
+                              # fresh, narrow re-check — never a fresh full
+                              # re-decision
   plot-reap.sh --yes --max 5  # bound it
+
+\`--yes\` ACTS ON THE RECORDED RUN, NOT A FRESH DECISION. \`--dry-run\` writes one
+row per worktree/branch/claim it would act on — this repository's identity,
+the default branch, \`origin/<default>\`'s sha, and a UTC timestamp — under the
+common git dir. A later \`--yes\` reads that record, re-checks each row's tip
+sha and a handful of other live facts narrowly, and acts only where both
+agree. It never re-decides a branch/worktree/claim \`--dry-run\` never showed,
+and a row a person removed from the record by hand is kept rather than
+reaped. This is the fix for #2825: a bare \`--dry-run\` then \`--yes\` could act
+on a DIFFERENT set than what was shown, because a host answer, a worktree's
+given-up cascade, or \`origin/<default>\` moving between the two runs let
+\`--yes\`'s fresh full re-decision diverge from what an operator approved.
+
+A record older than \`Checks wait\` is refused as stale, and a record written
+for a different checkout is refused as foreign — both refusals act on
+NOTHING and say so, rather than falling back to the old re-decide-everything
+behaviour.
+
+  plot-reap.sh --yes --plan-slug <slug>  # no record needed: acts only on
+                                          # that plan's own branches
+
+\`--plan-slug\` IS THE ONE EXCEPTION, for the two unattended callers that act
+right after producing the branches themselves and have no dry run to read.
+It carries no record and no staleness bound; it narrows to exactly the named
+plan's branches and nothing else.
 
 What is NEVER reaped, in the order the tests run:
   1. a worktree with a LIVE worker process        (a desk someone is at)
@@ -272,12 +317,53 @@ export interface Context {
   processes: Processes;
   plans: PlanStore;
   pinnedTips: PinnedTips;
+  reapRecord: ReapRecord;
   /** Fetches one branch from `origin`. */
   fetch: (branch: string) => Promise<unknown>;
 }
 
 /** How long a pinned ref outlives its delete before the next run prunes it. */
 const PIN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** `--dry-run`'s rows, keyed by kind then identity, for `--yes` to look a recorded row up by. */
+type RecordIndex = ReadonlyMap<string, ReapRecordRow>;
+
+const recordKey = (kind: ReapRecordRow['kind'], identity: string): string => `${kind}:${identity}`;
+
+const indexRows = (rows: readonly ReapRecordRow[]): RecordIndex => {
+  const index = new Map<string, ReapRecordRow>();
+  for (const r of rows) index.set(recordKey(r.kind, r.identity), r);
+  return index;
+};
+
+/** The realpath of `git rev-parse --git-common-dir`, for comparing against a record's `repoIdentity`. */
+const repoIdentityOf = async (cwd: string): Promise<string | null> => {
+  const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd });
+  const out = run.stdout.trim();
+  if (run.code !== 0 || out === '') return null;
+  return realpathSync(path.resolve(cwd, out));
+};
+
+/**
+ * How this run decides, settled once in {@link runReap} before any kind runs.
+ *
+ * - `dry-run` — report only; a record is written at the end.
+ * - `act-recorded` — act only on what the loaded record's rows and a fresh,
+ *   narrow re-check both agree on; nothing outside the record is even
+ *   considered.
+ * - `act-scoped` — `--yes --plan-slug <slug>`: no record, decide and act in
+ *   one pass, same live gates as an unrecorded `--yes` always ran, narrowed
+ *   to one plan's branches.
+ * - `act-none` — a bare `--yes` found no usable record: act on nothing.
+ */
+type RunMode =
+  | { readonly kind: 'dry-run' }
+  | { readonly kind: 'act-recorded'; readonly index: RecordIndex }
+  | { readonly kind: 'act-scoped'; readonly branches: ReadonlySet<string> }
+  | { readonly kind: 'act-none' };
+
+/** Whether this mode ever deletes anything. */
+const acts = (mode: RunMode): boolean => mode.kind === 'act-recorded' || mode.kind === 'act-scoped';
 
 /**
  * Resolves a branch's tip and pins it before it is deleted.
@@ -741,14 +827,23 @@ interface ReapCounters {
 export const runWorktreeKind = async (
   ctx: Context,
   args: Args,
+  mode: RunMode,
   defaultBranch: string,
   manifestDir: string,
   wtRoot: string,
   write: Printer,
   planDir = '',
   activeDir = '',
-): Promise<ReapCounters> => {
-  const counters: ReapCounters = { reap: 0, kept: 0, removed: 0, vanished: 0, unplaced: 0, cleared: 0 };
+): Promise<ReapCounters & { rows: ReapRecordRow[] }> => {
+  const counters: ReapCounters & { rows: ReapRecordRow[] } = {
+    reap: 0,
+    kept: 0,
+    removed: 0,
+    vanished: 0,
+    unplaced: 0,
+    cleared: 0,
+    rows: [],
+  };
   write('verdict  branch                                               why\n');
 
   const listed = await ctx.trees.list();
@@ -876,6 +971,12 @@ export const runWorktreeKind = async (
     // commit from an unpushed one once the remote ref is gone.
     const unpushed = await unpushedCommits(ctx, tree.path, short, merge, defaultBranch);
 
+    // The worktree's own HEAD, for a dry run's record and a recorded row's
+    // tip-changed check — never the branch name, which a detached desk has
+    // none of.
+    const tipResolved = await refsGit({ repoRoot: tree.path, scriptDir: ctx.scriptDir }).resolve('HEAD');
+    const tipSha = tipResolved.ok ? tipResolved.value : '';
+
     const problem = firstReapRefusal({
       branch: short,
       defaultBranch,
@@ -928,11 +1029,47 @@ export const runWorktreeKind = async (
       continue;
     }
 
+    // Everything above is the live gate — the same readings an unrecorded
+    // `--yes` always ran. What differs by mode is whether this row, having
+    // passed the live gate, is actually acted on.
+    if (mode.kind === 'act-recorded') {
+      const recorded = mode.index.get(recordKey('worktree', tree.path));
+      const verdict = recordedWorktreeVerdict(recorded, {
+        branch: short,
+        defaultBranch,
+        isMain: false,
+        workerPid: pid === '' ? null : pid,
+        dirtyPath: dirty,
+        blockedMarker: marker,
+        markerRecordsWork,
+        merge,
+        unpushed,
+        givenUp,
+        openPr,
+        tipSha,
+      });
+      if (!verdict.act) {
+        write(row('keep', label, `not in the recorded dry run: ${verdict.refusals.join(', ')}`));
+        counters.kept += 1;
+        continue;
+      }
+    } else if (mode.kind === 'act-scoped') {
+      if (!mode.branches.has(short)) {
+        write(row('keep', label, 'not in --plan-slug’s plan'));
+        counters.kept += 1;
+        continue;
+      }
+    } else if (mode.kind === 'act-none') {
+      write(row('keep', label, 'no recorded dry run — run plot-reap --dry-run first'));
+      counters.kept += 1;
+      continue;
+    }
+
     const wtReal = canonical(tree.path);
     const logFiles = branchLogFiles(wtRoot, short);
     const logs = presentLogs(logFiles);
 
-    if (args.yes && marker && markerFile !== '') {
+    if (acts(mode) && marker && markerFile !== '') {
       const refusalsLog = path.join(ctx.repoRoot, '.plot/state/refusals.tsv');
       let markerText = '';
       try {
@@ -954,8 +1091,9 @@ export const runWorktreeKind = async (
     }
 
     counters.reap += 1;
-    if (args.dryRun) {
+    if (mode.kind === 'dry-run') {
       write(row('would', label, `${why}${logs !== '' ? `, log ${logs}` : ''}`));
+      counters.rows.push({ kind: 'worktree', identity: tree.path, tipSha, reason: why });
       continue;
     }
 
@@ -1007,9 +1145,10 @@ export const runWorktreeKind = async (
     counters.removed += 1;
   }
 
-  if (args.yes) await ctx.trees.prune();
+  if (acts(mode)) await ctx.trees.prune();
 
-  // The manifests whose worktree is already gone.
+  // The manifests whose worktree is already gone — a local, re-derived-every-run
+  // fact with no host answer behind it, so it carries no recorded row.
   if (existsSync(manifestDir)) {
     let names: string[] = [];
     try {
@@ -1030,7 +1169,7 @@ export const runWorktreeKind = async (
       if (existsSync(match[1])) continue;
       counters.cleared += 1;
       const base = path.basename(match[1]);
-      if (args.dryRun) {
+      if (!acts(mode)) {
         write(row('would', base, 'orphaned manifest — worktree absent'));
       } else {
         try {
@@ -1059,10 +1198,11 @@ interface BranchCounters {
 export const runBranchKind = async (
   ctx: Context,
   args: Args,
+  mode: RunMode,
   defaultBranch: string,
   write: Printer,
-): Promise<BranchCounters> => {
-  const counters: BranchCounters = { swept: 0, deleted: 0, kept: 0 };
+): Promise<BranchCounters & { rows: ReapRecordRow[] }> => {
+  const counters: BranchCounters & { rows: ReapRecordRow[] } = { swept: 0, deleted: 0, kept: 0, rows: [] };
   write('\n-- local branches --\n');
 
   const checkedOutResult = await ctx.trees.list();
@@ -1163,9 +1303,33 @@ export const runBranchKind = async (
       continue;
     }
 
+    const tipResolved = await ctx.refs.resolve(br);
+    const tipSha = tipResolved.ok ? tipResolved.value : '';
+
+    if (mode.kind === 'act-recorded') {
+      const recorded = mode.index.get(recordKey('branch', br));
+      const verdict = recordedBranchVerdict(recorded, { tipSha, checkedOut: held, defaultBranch });
+      if (!verdict.act) {
+        write(row('keep', br, `not in the recorded dry run: ${verdict.refusals.join(', ')}`));
+        counters.kept += 1;
+        continue;
+      }
+    } else if (mode.kind === 'act-scoped') {
+      if (!mode.branches.has(br)) {
+        write(row('keep', br, 'not in --plan-slug’s plan'));
+        counters.kept += 1;
+        continue;
+      }
+    } else if (mode.kind === 'act-none') {
+      write(row('keep', br, 'no recorded dry run — run plot-reap --dry-run first'));
+      counters.kept += 1;
+      continue;
+    }
+
     counters.swept += 1;
-    if (args.dryRun) {
+    if (mode.kind === 'dry-run') {
       write(row('would', br, `${bwhy}, no worktree holds it`));
+      counters.rows.push({ kind: 'branch', identity: br, tipSha, reason: bwhy });
       continue;
     }
 
@@ -1255,12 +1419,13 @@ const claimDisposition = async (
 const runClaimKind = async (
   ctx: Context,
   args: Args,
+  mode: RunMode,
   defaultBranch: string,
   planDir: string,
   activeDir: string,
   write: Printer,
-): Promise<ClaimCounters> => {
-  const counters: ClaimCounters = { swept: 0, deleted: 0, kept: 0 };
+): Promise<ClaimCounters & { rows: ReapRecordRow[] }> => {
+  const counters: ClaimCounters & { rows: ReapRecordRow[] } = { swept: 0, deleted: 0, kept: 0, rows: [] };
   write('\n-- orphaned claim refs --\n');
 
   const branchesResult = await ctx.refs.listBranches(false);
@@ -1293,9 +1458,33 @@ const runClaimKind = async (
       continue;
     }
 
+    const tipResolved = await ctx.refs.resolve(br);
+    const tipSha = tipResolved.ok ? tipResolved.value : '';
+
+    if (mode.kind === 'act-recorded') {
+      const recorded = mode.index.get(recordKey('claim', br));
+      const verdict = recordedBranchVerdict(recorded, { tipSha, checkedOut: false, defaultBranch });
+      if (!verdict.act) {
+        write(row('keep', br, `not in the recorded dry run: ${verdict.refusals.join(', ')}`));
+        counters.kept += 1;
+        continue;
+      }
+    } else if (mode.kind === 'act-scoped') {
+      if (!mode.branches.has(br)) {
+        write(row('keep', br, 'not in --plan-slug’s plan'));
+        counters.kept += 1;
+        continue;
+      }
+    } else if (mode.kind === 'act-none') {
+      write(row('keep', br, 'no recorded dry run — run plot-reap --dry-run first'));
+      counters.kept += 1;
+      continue;
+    }
+
     counters.swept += 1;
-    if (args.dryRun) {
+    if (mode.kind === 'dry-run') {
       write(row('would', br, 'abandoned claim (plan says deferred/moved)'));
+      counters.rows.push({ kind: 'claim', identity: br, tipSha, reason: 'abandoned claim (plan says deferred/moved)' });
       continue;
     }
 
@@ -1381,6 +1570,8 @@ const runReap = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const defaultBranch = hostDefault.ok && hostDefault.value.trim() !== '' ? hostDefault.value.trim() : 'main';
 
   await ctx.fetch(defaultBranch);
+  const defaultBranchResolved = await ctx.refs.resolve(`origin/${defaultBranch}`);
+  const defaultBranchSha = defaultBranchResolved.ok ? defaultBranchResolved.value : '';
 
   const manifestDirCfg = await ctx.scripts.config('Agent registry', '.plot/agents');
   const manifestDirRaw = manifestDirCfg.ok && manifestDirCfg.value.trim() !== '' ? manifestDirCfg.value.trim() : '.plot/agents';
@@ -1403,15 +1594,63 @@ const runReap = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const planDirRaw = planDirCfg.ok && planDirCfg.value.trim() !== '' ? planDirCfg.value.trim() : 'docs/plans/';
   const planDir = path.isAbsolute(planDirRaw) ? planDirRaw : path.join(ctx.repoRoot, planDirRaw);
 
-  const wt = await runWorktreeKind(ctx, args, defaultBranch, manifestDir, wtRoot, write, planDir, activeDir);
-  const br = await runBranchKind(ctx, args, defaultBranch, write);
-  const cl = await runClaimKind(ctx, args, defaultBranch, planDir, activeDir, write);
+  // THE MODE, SETTLED ONCE. Everything below reads it; nothing re-derives
+  // dry-run/act from `args` again.
+  let mode: RunMode;
+  if (args.planSlug !== null) {
+    const paths = await ctx.plans.listPlans();
+    const planPath = paths.ok ? planPathFor(paths.value, planDirRaw, args.planSlug) : null;
+    const planRead = planPath !== null ? await ctx.plans.readPlan(planPath) : null;
+    const branches = planRead !== null && planRead.ok ? planRead.value.branches : [];
+    mode = { kind: 'act-scoped', branches: new Set(branches) };
+  } else if (args.yes) {
+    const checksWaitCfg = await ctx.scripts.config('Checks wait', '3600');
+    const checksWaitMs = checksWaitMsOf(checksWaitCfg.ok ? checksWaitCfg.value.trim() : '3600');
+    const repoIdentity = await repoIdentityOf(ctx.repoRoot);
+    const recordRead = await ctx.reapRecord.read();
+    const snapshot = recordRead.ok ? recordRead.value : null;
+    const refusal =
+      snapshot === null || repoIdentity === null
+        ? 'no-record'
+        : recordRefusal(snapshot, repoIdentity, Date.now(), checksWaitMs);
+    if (snapshot !== null && refusal === null) {
+      mode = { kind: 'act-recorded', index: indexRows(snapshot.rows) };
+    } else {
+      warn(
+        refusal === 'foreign-repo'
+          ? 'plot-reap: the recorded dry run is from a different checkout — acting on nothing. Run plot-reap --dry-run here first.\n'
+          : refusal === 'stale'
+            ? 'plot-reap: the recorded dry run is too old — acting on nothing. Run plot-reap --dry-run again.\n'
+            : 'plot-reap: no recorded dry run — acting on nothing. Run plot-reap --dry-run first.\n',
+      );
+      mode = { kind: 'act-none' };
+    }
+  } else {
+    mode = { kind: 'dry-run' };
+  }
+
+  const wt = await runWorktreeKind(ctx, args, mode, defaultBranch, manifestDir, wtRoot, write, planDir, activeDir);
+  const br = await runBranchKind(ctx, args, mode, defaultBranch, write);
+  const cl = await runClaimKind(ctx, args, mode, defaultBranch, planDir, activeDir, write);
   const dirtyTrees = await runDirtyKind(ctx, manifestDir, write);
 
-  if (args.yes) await ctx.pinnedTips.prune(PIN_MAX_AGE_MS, new Date());
+  if (acts(mode)) await ctx.pinnedTips.prune(PIN_MAX_AGE_MS, new Date());
+
+  if (mode.kind === 'dry-run') {
+    const repoIdentity = await repoIdentityOf(ctx.repoRoot);
+    if (repoIdentity !== null) {
+      await ctx.reapRecord.write({
+        repoIdentity,
+        defaultBranch,
+        defaultBranchSha,
+        at: new Date().toISOString(),
+        rows: [...wt.rows, ...br.rows, ...cl.rows],
+      });
+    }
+  }
 
   write(
-    `summary: reapable=${wt.reap} removed=${wt.removed} kept=${wt.kept} vanished=${wt.vanished} unplaced=${wt.unplaced} cleared=${wt.cleared} branches=${br.swept} branches_deleted=${br.deleted} branches_kept=${br.kept} claims=${cl.swept} claims_deleted=${cl.deleted} claims_kept=${cl.kept} dirty_trees=${dirtyTrees} dry_run=${args.dryRun ? 1 : 0}\n`,
+    `summary: reapable=${wt.reap} removed=${wt.removed} kept=${wt.kept} vanished=${wt.vanished} unplaced=${wt.unplaced} cleared=${wt.cleared} branches=${br.swept} branches_deleted=${br.deleted} branches_kept=${br.kept} claims=${cl.swept} claims_deleted=${cl.deleted} claims_kept=${cl.kept} dirty_trees=${dirtyTrees} dry_run=${mode.kind === 'dry-run' ? 1 : 0}\n`,
   );
   return 0;
 };
@@ -1474,6 +1713,7 @@ export const run = async (
     processes: processesShell(context),
     plans: planStoreShell(context),
     pinnedTips: pinnedTipsFile({ cwd: repoRoot }),
+    reapRecord: reapRecordFile({ cwd: repoRoot }),
   };
 
   return runReap(ctx, parsed, write, warn);

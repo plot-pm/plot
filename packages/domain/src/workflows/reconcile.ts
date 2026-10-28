@@ -9,8 +9,12 @@ import {
   isUnownedDirtyTree,
 } from '../rules/sweepable.js';
 import { deskExit, deskState, type DeskReadings } from '../rules/desk-lifecycle.js';
+import { implementationPrefixesOf, slugOfBranch } from '../rules/phase-gate.js';
 import { type Decision, type Refusal, decide, refuse } from './decision.js';
 import { type ReapCandidate, type ReapReadings } from './reap.js';
+
+/** The prefixes a caller that sends none is read under — same default as {@link implementationPrefixesOf}. */
+const DEFAULT_BRANCH_PREFIXES = implementationPrefixesOf('');
 
 /**
  * What a reconcile was asked about.
@@ -147,6 +151,17 @@ export interface ReconcileReadings {
    * `/plot-reap --yes` performs the writes this workflow discards.
    */
   readonly desks: ReapReadings;
+  /**
+   * The `Branch prefixes` config value, split — for resolving a desk's branch
+   * to its plan slug in the `copy-then-reap` repair text.
+   *
+   * `plot-reconcile-scan.sh` §21 has never sent this field, the same gap
+   * `deskReadingsOf`'s doc comment records for `manifest`: wiring the shell
+   * to read `Branch prefixes` and pass it through is unbuilt and out of this
+   * slice's scope. Absent, the standard four prefixes are read, same as an
+   * adopting repo's own default.
+   */
+  readonly branchPrefixes?: readonly string[];
 }
 
 /** What a reconcile decided. */
@@ -389,10 +404,12 @@ const deskReadingsOf = ({ tree, evidence }: ReapCandidate): DeskReadings => ({
  * named. Reporting it is what this workflow adds; classifying it is not.
  *
  * @param readings - the desks, as the reaper reads them.
+ * @param branchPrefixes - from {@link implementationPrefixesOf}, for naming
+ *   the plan a `copy-then-reap` desk's branch belongs to.
  * @returns one finding per desk whose state is not `working`, or which could
  *   not be classified at all.
  */
-const deskFindings = (readings: ReapReadings): DriftFinding[] => {
+const deskFindings = (readings: ReapReadings, branchPrefixes: readonly string[]): DriftFinding[] => {
   const findings: DriftFinding[] = [];
 
   for (const candidate of readings.candidates) {
@@ -414,17 +431,27 @@ const deskFindings = (readings: ReapReadings): DriftFinding[] => {
             : state;
 
     // ONE REPAIR PER EXIT KIND, and no two are the same command. `reap` is a
-    // bare removal; `copy-then-reap` is `plot-reap.sh --yes`, which copies the
+    // bare removal; `copy-then-reap` is `plot-reap.sh`, which copies the
     // marker's text to `.plot/state/refusals.tsv` before it removes anything.
     // `detach-then-reap` names no command: the detach `plot-dispatch.sh
     // --release` performs is scoped to the branch its OWN release names, and
     // no existing tool detaches an arbitrary orphaned desk found by a sweep —
     // printing one here would claim a fix that does not exist.
+    //
+    // `copy-then-reap` NAMES `--plan-slug` WHEN THE BRANCH RESOLVES TO ONE,
+    // never a bare `--yes`: an unrecorded `--yes` now acts on nothing (a
+    // `--dry-run` must run first), so the one-shot form is the repair that
+    // actually performs the removal in a single command. A branch under no
+    // configured implementation prefix (or a detached desk, which names none)
+    // falls back to naming the dry-run-then-yes pair instead.
+    const slug = candidate.tree.branch === '' ? null : slugOfBranch(candidate.tree.branch, branchPrefixes);
     const repair =
       exit.kind === 'reap'
         ? `git worktree remove ${candidate.tree.path}`
         : exit.kind === 'copy-then-reap'
-          ? 'skills/plot/scripts/plot-reap.sh --yes'
+          ? slug !== null
+            ? `skills/plot/scripts/plot-reap.sh --yes --plan-slug ${slug}`
+            : 'skills/plot/scripts/plot-reap.sh --dry-run, then skills/plot/scripts/plot-reap.sh --yes'
           : '';
 
     findings.push({
@@ -572,7 +599,7 @@ export const reconcile = (
   if (scope.kind === 'workspace') {
     for (const sprint of readings.sprints) findings.push(...sprintFindings(sprint));
     findings.push(...leftoverFindings(readings));
-    findings.push(...deskFindings(readings.desks));
+    findings.push(...deskFindings(readings.desks, readings.branchPrefixes ?? DEFAULT_BRANCH_PREFIXES));
   }
 
   const ordered = [
