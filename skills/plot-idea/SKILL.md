@@ -229,6 +229,16 @@ recorded answers drive `/plot-approve`, `/plot-implement`, and
   tracker and merges share state → recommend `pr`.
 - `Implementation home` names other repos → `Impl: other repo`.
   `Implementation home: none` → `Impl: none`.
+
+**Writing a slice for `Impl: other repo`:** a branch in another repository is
+claimed the same way as one in this repository, plus a repo-naming reference:
+`` - `<branch>` — <repo>: <description> → owner/repo#N ``, Bitbucket's `owner`
+being the workspace slug. Before that PR exists, write the bare branch with no
+arrow — an arrow with no PR yet would be checked against this repository's
+host instead of the foreign one — and add `→ owner/repo#N` as soon as the
+foreign PR opens. `owner/repo@branch` is not a form: `@` already names a
+commit in another repository (`skills/plot/SKILL.md`, "Slices Completed by a
+Direct Push"), so a second meaning for `@` would make that line ambiguous.
 - **`pr` + `same branch`** is a defined combination, not a contradiction:
   the plan's draft PR opens from the *work branch* (no idea branch), the
   plan is reviewed inline there, approval is recorded **in the file**

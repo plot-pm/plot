@@ -2982,6 +2982,17 @@ test('plan-meta: a claim line, a file path, idea/* and an idea/ plan line all gi
   assert.deepEqual(ideaRef.unread_branch_items, [], '`idea/` names a plan, never a branch a slice can claim');
 });
 
+test('plan-meta: the template\'s foreign-slice example gives 0 unread_branch_items', () => {
+  // The documented form for Impl: other repo (skills/plot/templates/plan.md,
+  // skills/plot/SKILL.md "Slices in Another Repository", skills/plot-idea/SKILL.md
+  // step 4) must not trip the wave-1 detector above — a backticked branch
+  // followed by free repo prose and a cross-repo arrow is a claim, not a
+  // branch named loose in prose.
+  const meta = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** feature\n- **Impl:** other repo\n\n## Slices\n\n- `feature/x` — ewz-kus-portal (Bitbucket): the slice → ewz-kus-ws/ewz-kus-portal#42\n');
+  assert.deepEqual(meta.unread_branch_items, []);
+  assert.deepEqual(meta.branches, ['feature/x']);
+});
+
 test('plan-meta: an item carrying <!-- deferred: ... --> gives no unread_branch_items', () => {
   const meta = parseSource('# Plan\n\n## Status\n\n- **Phase:** Draft\n- **Type:** bug\n\n## Slices\n\n- a deferred item <!-- deferred: waiting on upstream --> bug/deferred-example\n');
   assert.deepEqual(meta.unread_branch_items, [],
