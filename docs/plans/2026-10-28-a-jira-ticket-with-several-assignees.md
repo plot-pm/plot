@@ -90,7 +90,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-a-
 
 ### Ownership across assignees
 
-- `bug/a-jira-ticket-with-several-assignees` — fold every `tracker-account` assignee as `planOwnership` does, replace `accountMatches` with the shared predicate, make `ownerOf` name the reader, and add the failing assertions <!-- builds: order-independent tracker-account ownership, one shared predicate, reader-first owner label -->
+- `bug/a-jira-ticket-with-several-assignees` — fold every `tracker-account` assignee as `planOwnership` does, replace `accountMatches` with the shared predicate, make `ownerOf` name the reader, and add the failing assertions <!-- builds: order-independent tracker-account ownership, one shared predicate, reader-first owner label --> → #2840
 
 ## Notes
 
