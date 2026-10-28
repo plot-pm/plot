@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2482
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-24, jwloka, `bug/story-lint-reduces-link-form-story`
 - **Started:** 2026-10-25, jwloka, `bug/plot-sprint-verdict-reports-partial-comparison`
 - **Delivered:** 2026-10-25
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
