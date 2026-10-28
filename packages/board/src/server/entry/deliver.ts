@@ -71,7 +71,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  */
 
 /** What the command line asked for. */
-interface Args {
+export interface Args {
   dryRun: boolean;
   who: string;
   releaseVersion: string;
@@ -105,7 +105,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
 };
 
 /** Where the ports and scripts this entry needs live. */
-interface Context {
+export interface Context {
   repoRoot: string;
   scriptDir: string;
   refs: Refs;
@@ -755,8 +755,15 @@ export const bookRelease = async (
   return { phase, record };
 };
 
-/** Runs the release arm. */
-const runRelease = async (
+/**
+ * Runs the release arm.
+ *
+ * Exported for the real-repo unit test that proves the shared-issue sibling
+ * read sees every push that landed before this one in a sweep — `run` builds
+ * its own `Context` from real host/tracker adapters that need a configured
+ * git host, so that test builds a `Context` of its own instead.
+ */
+export const runRelease = async (
   ctx: Context,
   args: Args,
   planFile: string,
@@ -895,7 +902,6 @@ const runRelease = async (
   if (!booked.ok || booked.value === null || !(await ctx.planStore.writeText(bookedPlanFile, booked.value)).ok) {
     throw new Refused(`could not keep a copy of the released plan at ${bookedPlanFile} for the tracker.\n  Re-run this — it is idempotent.`);
   }
-  await cleanup();
 
   // AN ISSUE ANOTHER UNFINISHED PLAN ALSO NAMES STAYS OPEN — shared, and the
   // last plan to release is the one that closes it. Read BEFORE either
@@ -903,10 +909,21 @@ const runRelease = async (
   // no skip list is the defect this guards against (#2374 (2)). `planDirCfg`
   // is read fresh here rather than threaded in: `runDeliver` resolves its own
   // directory config the same way, once per arm.
+  //
+  // READ FROM `tmpwt`, NOT `ctx.repoRoot` — and before `cleanup()` removes it.
+  // `tmpwt` holds `origin/${main}` as of the moment THIS release's booking
+  // branch was cut, which is after every push that landed before it in a
+  // sweep; the main checkout holds whatever was last fetched into it, which
+  // is unrelated to release ordering and can be arbitrarily stale (#shared-
+  // issue-reads-the-post-push-tree). `scriptDir` stays `ctx.scriptDir` — only
+  // the tree being read moves.
+  const bookedPlanStore = planStoreShell({ repoRoot: tmpwt, scriptDir: ctx.scriptDir });
+  const bookedScripts = scriptsShell({ repoRoot: tmpwt, scriptDir: ctx.scriptDir });
   const planDirCfg = await ctx.scripts.config('Plan directory', 'docs/plans/');
   const planDir = planDirCfg.ok ? planDirCfg.value.trim() : 'docs/plans/';
-  const siblingLines = await siblingLinesOf(ctx.planStore, ctx.scripts, planDir, rel);
+  const siblingLines = await siblingLinesOf(bookedPlanStore, bookedScripts, planDir, rel);
   const unfinishedIssues = siblingLines === null ? 'unreadable' : unfinishedIssuesOf(siblingLines);
+  await cleanup();
   const releasedLine = await (async () => {
     const releasedMeta = await ctx.scripts.planMeta([bookedPlanFile]);
     return releasedMeta.ok ? releasedMeta.value.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
