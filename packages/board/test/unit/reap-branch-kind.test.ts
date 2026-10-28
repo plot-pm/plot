@@ -45,10 +45,11 @@ const ctxFor = (host: Host): Context =>
   }) as unknown as Context;
 
 const reapArgs = { dryRun: true, yes: false, max: 0, sweepTemp: false };
+const dryRunMode = { kind: 'dry-run' as const };
 
 const reapOutput = async (ctx: Context): Promise<string> => {
   const lines: string[] = [];
-  await runBranchKind(ctx, reapArgs, 'main', (s) => lines.push(s));
+  await runBranchKind(ctx, reapArgs, dryRunMode, 'main', (s) => lines.push(s));
   return lines.join('');
 };
 
