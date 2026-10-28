@@ -26,6 +26,9 @@ const landed = (over: Partial<LocalBranchReadings> = {}): LocalBranchReadings =>
   defaultBranch: 'main',
   mergedAnswer: 'merged',
   refusalKind: null,
+  containedInDefault: false,
+  hasOwnCommits: true,
+  tipPastMergedHead: false,
   checkedOut: false,
   ...over,
 });
@@ -85,6 +88,43 @@ describe('branchSweepProblems — the gate is the host and the checkout', () => 
   it('keeps a branch whose host call failed with kind "failed" as host-unknown', () => {
     const readings = landed({ mergedAnswer: 'not-merged', refusalKind: 'failed' });
     expect(branchSweepProblems(readings)).toEqual(['host-unknown']);
+  });
+
+  it('keeps a branch whose tip is past every merged PR head', () => {
+    // THE DEFECT THIS SLICE FIXES (case 1). The host says a PR for this
+    // branch merged, but the local tip carries commits past that PR's head —
+    // the worktree kind already refuses this shape via `unpushedCommits`; the
+    // branch kind must refuse it too rather than deleting on "a PR merged"
+    // alone.
+    const readings = landed({ mergedAnswer: 'merged', tipPastMergedHead: true });
+    expect(branchSweepProblems(readings)).toEqual(['unpushed-commits']);
+    expect(isSweepableBranch(readings)).toBe(false);
+  });
+
+  it('keeps a contained branch with no commits of its own', () => {
+    // THE DEFECT THIS SLICE FIXES (case 2). `git merge-base --is-ancestor`
+    // answers yes for a branch that never diverged from main, exactly as
+    // readily as for a genuinely merged one. Containment alone is not
+    // evidence of real work — only `hasOwnCommits` tells the two apart.
+    const readings = landed({
+      mergedAnswer: 'not-merged',
+      containedInDefault: true,
+      hasOwnCommits: false,
+    });
+    expect(branchSweepProblems(readings)).toEqual(['no-commits-of-its-own']);
+    expect(isSweepableBranch(readings)).toBe(false);
+  });
+
+  it('sweeps a contained branch that has commits of its own', () => {
+    // The safe direction the plan names: a fast-forward merge still deletes,
+    // because the branch's own commits are now reachable from main.
+    const readings = landed({
+      mergedAnswer: 'not-merged',
+      containedInDefault: true,
+      hasOwnCommits: true,
+    });
+    expect(branchSweepProblems(readings)).toEqual([]);
+    expect(isSweepableBranch(readings)).toBe(true);
   });
 });
 

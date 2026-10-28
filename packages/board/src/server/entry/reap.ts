@@ -449,6 +449,33 @@ const isWhollyEmptyClaim = async (refs: Refs, range: string): Promise<boolean> =
 };
 
 /**
+ * Whether a branch's tip is NOT reachable from any of its merged PR heads.
+ *
+ * The branch kind's population holds no worktree, so `unpushedCommits`
+ * and `unpushedPatches` (`:460-487` below) cannot run — both are bound to a
+ * checkout's `HEAD`. This reuses their DECISION rather than their git
+ * invocation: a merged head the branch's tip is reachable from means the
+ * tip is not past it; where no head resolves, or none contains the tip, the
+ * fallback is the same containment check already asked of `origin/<default>`
+ * — a repository that squash-merges absorbs the branch's patches into a
+ * single commit on main, so a tip past every PR head and not contained in
+ * the default branch has commits nothing has recorded.
+ */
+const tipPastMergedHeads = async (
+  ctx: Context,
+  branch: string,
+  containedInDefault: boolean,
+): Promise<boolean> => {
+  const heads = await ctx.host.prMergedHeads(branch);
+  if (!heads.ok) return !containedInDefault;
+  for (const head of heads.value) {
+    const reachable = await ctx.refs.contains(branch, head);
+    if (reachable.ok && reachable.value === 'yes') return false;
+  }
+  return !containedInDefault;
+};
+
+/**
  * Commits on `HEAD` no remote holds, short SHAs, or `'unknown'` when they
  * could not be counted.
  *
@@ -1028,28 +1055,54 @@ export const runBranchKind = async (
   const branches = branchesResult.ok ? branchesResult.value : [];
 
   for (const br of branches) {
+    const range = `origin/${defaultBranch}..${br}`;
+    if (await isWhollyEmptyClaim(ctx.refs, range)) {
+      // Case 1 of the branch/claim cooperation rule: every commit past the
+      // default branch is an empty claim marker. The claim kind owns this
+      // branch (`firstClaimRefusal`), so the branch kind keeps it unacted.
+      write(row('keep', br, 'an empty claim; the claim kind decides'));
+      counters.kept += 1;
+      continue;
+    }
+
     let mergedAnswer: LocalBranchReadings['mergedAnswer'] = 'not-merged';
     let refusalKind: LocalBranchReadings['refusalKind'] = null;
     let bwhy = '';
-    const contained = await ctx.refs.contains(br, `origin/${defaultBranch}`);
-    if (contained.ok && contained.value === 'yes') {
-      mergedAnswer = 'merged';
-      bwhy = `merged into ${defaultBranch}`;
-    } else {
-      const hostMerged = await ctx.host.prMerged(br);
-      if (hostMerged.ok) {
-        mergedAnswer = hostMerged.value;
-        if (mergedAnswer === 'merged') {
-          bwhy = 'PR merged (squash)';
-        }
-      } else {
-        refusalKind = ctx.host.lastRefusal()?.kind ?? 'failed';
+    const hostMerged = await ctx.host.prMerged(br);
+    if (hostMerged.ok) {
+      mergedAnswer = hostMerged.value;
+      if (mergedAnswer === 'merged') {
+        bwhy = 'PR merged (squash)';
       }
+    } else {
+      refusalKind = ctx.host.lastRefusal()?.kind ?? 'failed';
     }
+
+    const contained = await ctx.refs.contains(br, `origin/${defaultBranch}`);
+    const containedInDefault = contained.ok && contained.value === 'yes';
+    if (containedInDefault && mergedAnswer !== 'merged') {
+      bwhy = `merged into ${defaultBranch}`;
+    }
+
+    const hasOwnCommits = mergedAnswer === 'merged' || containedInDefault
+      ? (await fileChangingCommitCount(ctx.refs, range)) !== 0
+      : true;
+
+    const tipPastMergedHead =
+      mergedAnswer === 'merged' ? await tipPastMergedHeads(ctx, br, containedInDefault) : false;
 
     const held = checkedOut.has(br);
 
-    const refusal = firstBranchRefusal({ branch: br, defaultBranch, mergedAnswer, refusalKind, checkedOut: held });
+    const refusal = firstBranchRefusal({
+      branch: br,
+      defaultBranch,
+      mergedAnswer,
+      refusalKind,
+      containedInDefault,
+      hasOwnCommits,
+      tipPastMergedHead,
+      checkedOut: held,
+    });
 
     if (refusal !== null) {
       let reason: string;
@@ -1065,6 +1118,12 @@ export const runBranchKind = async (
           break;
         case 'host-throttled':
           reason = 'the host could not answer, rate-limited';
+          break;
+        case 'unpushed-commits':
+          reason = 'commits past the merged PR head';
+          break;
+        case 'no-commits-of-its-own':
+          reason = 'contained in the default branch, but carries no commit of its own';
           break;
         case 'checked-out':
           reason = 'checked out in a worktree — somebody is reading it';

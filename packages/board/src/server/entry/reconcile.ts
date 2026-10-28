@@ -216,6 +216,9 @@ const branchFrom = (value: unknown) => {
     defaultBranch: stringOr(given.defaultBranch),
     mergedAnswer: mergedAnswerOr(given.mergedAnswer),
     refusalKind: refusalKindOr(given.refusalKind),
+    containedInDefault: given.containedInDefault === true,
+    hasOwnCommits: given.hasOwnCommits === true,
+    tipPastMergedHead: given.tipPastMergedHead === true,
     checkedOut: given.checkedOut === true,
   };
 };
