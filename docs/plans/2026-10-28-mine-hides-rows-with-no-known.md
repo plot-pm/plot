@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2812 merged
 - **Started:** 2026-10-28, Jan Wloka, `feature/mine-strict-ownership-rule`
+- **Started:** 2026-10-28, Jan Wloka, `feature/waiting-hidden-split`
 
 ## Changelog
 
