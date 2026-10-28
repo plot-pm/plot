@@ -3120,9 +3120,8 @@ for line in sys.stdin:
     # has only to store the row — never to parse or re-escape one.
     unread_json = json.dumps([{k: u.get(k) or "" for k in ("wave", "branch", "line")} for u in d.get("unread_branch_items", []) or []])
     print("\t".join(["P", clean(f), clean(d.get("phase", "")) or "-", clean(d.get("type", "")) or "-",
-                     "1" if d.get("tracer") else "0",
-                     "1" if d.get("spike_approved_raw") else "0", ",".join(spikes) or "-", str(len(spikes)),
-                     clean(unread_json)]))
+                     "1" if d.get("tracer") else "0", "1" if d.get("spike_approved_raw") else "0",
+                     ",".join(spikes) or "-", str(len(spikes)), clean(unread_json)]))
     for i, w in enumerate(d.get("waves", []) or []):
         name = w.get("name")
         for b in w.get("branches", []) or []:
