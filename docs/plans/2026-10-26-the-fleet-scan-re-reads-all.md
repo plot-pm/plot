@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2720
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-26, Jan Wloka, `bug/the-scan-listing-is-priced-in-pages`
 - **Started:** 2026-10-26, Jan Wloka, `feature/the-scan-listing-is-a-host-delta`
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
