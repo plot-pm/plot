@@ -3118,8 +3118,7 @@ for line in sys.stdin:
     # one. Rendered here as its own JSON array (json.dumps escapes everything
     # the bash side would otherwise need json_str for), so the consumer below
     # has only to store the row — never to parse or re-escape one.
-    unread_json = json.dumps([{"wave": u.get("wave") or "", "branch": u.get("branch") or "", "line": u.get("line") or ""}
-                               for u in d.get("unread_branch_items", []) or []])
+    unread_json = json.dumps([{k: u.get(k) or "" for k in ("wave", "branch", "line")} for u in d.get("unread_branch_items", []) or []])
     print("\t".join(["P", clean(f), clean(d.get("phase", "")) or "-", clean(d.get("type", "")) or "-",
                      "1" if d.get("tracer") else "0",
                      "1" if d.get("spike_approved_raw") else "0", ",".join(spikes) or "-", str(len(spikes)),
