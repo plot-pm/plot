@@ -3050,7 +3050,6 @@ plan_meta_phases=()
 plan_meta_types=()
 plan_meta_spikes=()
 plan_meta_waves=()
-plan_meta_unread=()
 
 # WHERE THE LAST LOOKUP LANDED, so the next one starts there instead of at 0.
 #
@@ -3114,14 +3113,17 @@ for line in sys.stdin:
     # Facts only: which slice holds the plan spike is the domain answer, spikeSliceOf.
     spikes = [str(i) for i, w in enumerate(d.get("waves", []) or [])
               for b in w.get("branches", []) or [] if b.get("spike")]
-    print("\t".join(["P", clean(f), clean(d.get("phase", "")) or "-", clean(d.get("type", "")) or "-",
-                     "1" if d.get("tracer") else "0",
-                     "1" if d.get("spike_approved_raw") else "0", ",".join(spikes) or "-", str(len(spikes))]))
     # unread_branch_items: a non-claim list item naming a branch, plan-level —
     # `landed()` (packages/domain/src/rules/deliverable.ts) refuses delivery on
-    # one. One row per item, since `line` is free prose and may hold a comma.
-    for u in d.get("unread_branch_items", []) or []:
-        print("\t".join(["U", clean(f), clean(u.get("wave") or ""), clean(u.get("branch") or ""), clean(u.get("line") or "")]))
+    # one. Rendered here as its own JSON array (json.dumps escapes everything
+    # the bash side would otherwise need json_str for), so the consumer below
+    # has only to store the row — never to parse or re-escape one.
+    unread_json = json.dumps([{"wave": u.get("wave") or "", "branch": u.get("branch") or "", "line": u.get("line") or ""}
+                               for u in d.get("unread_branch_items", []) or []])
+    print("\t".join(["P", clean(f), clean(d.get("phase", "")) or "-", clean(d.get("type", "")) or "-",
+                     "1" if d.get("tracer") else "0",
+                     "1" if d.get("spike_approved_raw") else "0", ",".join(spikes) or "-", str(len(spikes)),
+                     clean(unread_json)]))
     for i, w in enumerate(d.get("waves", []) or []):
         name = w.get("name")
         for b in w.get("branches", []) or []:
@@ -3164,27 +3166,24 @@ for line in sys.stdin:
     case "$kind" in
       P)
         plan_meta_files+=("$file")
-        # `rest` is "<phase>\t<type>\t<tracer>\t<spike approved>\t<spike waves>\t<spikes>",
-        # no token holding a tab. The last four travel together.
+        # `rest` is "<phase>\t<type>\t<tracer>\t<spike approved>\t<spike waves>\t<spikes>\t<unread JSON>".
+        # The last five travel together; `unread_branch_items` is JSON text
+        # with no raw tab or newline byte, so it cannot be mistaken for a
+        # field boundary.
         IFS=$'\t' read -r _ph _ty _sp <<< "$rest"
         plan_meta_phases+=("${_ph#-}")
         plan_meta_types+=("${_ty#-}")
         plan_meta_spikes+=("$_sp")
         plan_meta_waves+=("")
-        plan_meta_unread+=("")
         ;;
-      W|U)
-        # Wave and unread-item rows both follow their plan's P row, so the
-        # last-appended entry is the one a row belongs to — the helper emits
-        # one object per file and this pass prints them in that order.
+      W)
+        # Wave rows follow their plan's P row, so the last-appended entry is
+        # the one this row belongs to — the helper emits one object per file
+        # and this pass prints them in that order.
         local last=$((${#plan_meta_files[@]} - 1))
         [ "$last" -ge 0 ] || continue
         [ "${plan_meta_files[$last]}" = "$file" ] || continue
-        if [ "$kind" = "W" ]; then
-          plan_meta_waves[$last]="${plan_meta_waves[$last]}$rest"$'\n'
-        else
-          plan_meta_unread[$last]="${plan_meta_unread[$last]}$rest"$'\n'
-        fi
+        plan_meta_waves[$last]="${plan_meta_waves[$last]}$rest"$'\n'
         ;;
     esac
   done <<< "$records"
@@ -5025,15 +5024,9 @@ for plan in "${plans[@]}"; do
     [ "${_plan_spike[0]}" = 1 ] && json_plan+=",\"tracer\":true"
     # A non-claim list item naming a branch, plan-level — `landed()`
     # (packages/domain/src/rules/deliverable.ts) refuses delivery on one.
-    json_unread=""
-    unread_lines="${plan_meta_unread[$meta_i]}"
-    unread_lines="${unread_lines%$'\n'}"
-    if [ -n "$unread_lines" ]; then
-      while IFS=$'\t' read -r _uw _ub _ul; do
-        json_unread+="${json_unread:+,}{\"wave\":\"$(json_str "$_uw")\",\"branch\":\"$(json_str "$_ub")\",\"line\":\"$(json_str "$_ul")\"}"
-      done <<< "$unread_lines"
-    fi
-    json_plan+=",\"unreadBranchItems\":[$json_unread]"
+    # The filter already rendered this as JSON (json.dumps), so there is
+    # nothing left to escape here.
+    json_plan+=",\"unreadBranchItems\":${_plan_spike[4]:-[]}"
     json_plan+=",\"waves\":[$json_waves]}"
     json_plans+="${json_plans:+,}$json_plan"
     # THE STREAM'S POINT: this plan is fully derived, so a consumer can render
