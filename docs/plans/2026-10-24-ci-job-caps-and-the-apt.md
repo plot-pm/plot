@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2485
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-24, Claude, `infra/ci-job-caps-exceed-their-step-caps`
 - **Started:** 2026-10-24, Jan Wloka, `infra/ci-comments-state-current-behaviour`
 - **Delivered:** 2026-10-24
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
