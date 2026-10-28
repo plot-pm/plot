@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #2385, #2400
 - **Review:** pr
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-27, Jan Wloka, `bug/the-merge-walk-reads-the-whole-log`
 - **Started:** 2026-10-27, Jan Wloka, `bug/impl-status-asks-merged-prs-by-branch`
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
