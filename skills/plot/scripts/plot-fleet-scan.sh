@@ -3111,8 +3111,7 @@ for line in sys.stdin:
     # follow: `Tracer: yes` (1/0), a `Spike approved:` record (1/0), the wave
     # index of each annotated branch (one entry per branch), and their count.
     # Facts only: which slice holds the plan spike is the domain answer, spikeSliceOf.
-    spikes = [str(i) for i, w in enumerate(d.get("waves", []) or [])
-              for b in w.get("branches", []) or [] if b.get("spike")]
+    spikes = [str(i) for i, w in enumerate(d.get("waves", []) or []) for b in w.get("branches", []) or [] if b.get("spike")]
     # unread_branch_items: a non-claim list item naming a branch, plan-level —
     # `landed()` (packages/domain/src/rules/deliverable.ts) refuses delivery on
     # one. Rendered here as its own JSON array (json.dumps escapes everything
