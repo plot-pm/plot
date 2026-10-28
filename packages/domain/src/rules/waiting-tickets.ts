@@ -1,6 +1,6 @@
 import type { InboxAnswer, IssueIndexRow } from '../entities/issue-index.js';
 import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
-import { ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
+import { accountNamesReader, ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
 import { ownerOf, typeOf } from './ticket-lanes.js';
 import { allFinished, ticketPhase, type TicketPlan } from './ticket-phase.js';
 
@@ -49,7 +49,8 @@ const ageMinutesOf = (createdAt: string | undefined, now: number): number | null
 const toWaitingTicket = (
   row: IssueIndexRow,
   now: number,
-  reading: Pick<Reader, 'directory'> & { source: TicketSource | null },
+  source: TicketSource | null,
+  reader: Reader,
   phase: string | null,
 ): WaitingTicket => ({
   kind: 'ticket',
@@ -61,7 +62,7 @@ const toWaitingTicket = (
   statusCategory: row.statusCategory ?? '',
   assignees: row.assignees ?? [],
   type: typeOf(row.type),
-  owner: ownerOf(row.assignees, { source: reading.source, directory: reading.directory }),
+  owner: ownerOf(row.assignees, { source, directory: reader.directory }, reader),
 });
 
 const byNewestFirst = (a: IssueIndexRow, b: IssueIndexRow): number => {
@@ -77,24 +78,6 @@ const ownedTicket = (row: IssueIndexRow, source: TicketSource | null): OwnedRow 
   assignees: row.assignees,
   source,
 });
-
-/**
- * Whether any of `reader`'s declared handle's `prefix`-spellings name an
- * assignee of `row`. Only called once `declaresAnyAccountSpelling` has
- * confirmed `reader.directory` declares at least one `prefix`-spelling, so
- * the directory here is never empty.
- */
-const accountMatches = (row: IssueIndexRow, prefix: string, directory: PersonDirectory, reader: Reader): boolean => {
-  const login = reader.hostUser?.trim() ?? '';
-  if (login === '') return false;
-  const self = resolvePerson(login, directory);
-  for (const assignee of row.assignees ?? []) {
-    const spelling = `${prefix}${assignee.trim()}`;
-    if (!declaresSpelling(spelling, directory)) continue;
-    if (resolvePerson(spelling, directory).handle === self.handle) return true;
-  }
-  return false;
-};
 
 /** Whether `reader` declares any `prefix`-spelling at all. */
 const declaresAnyAccountSpelling = (directory: PersonDirectory, prefix: string): boolean =>
@@ -182,7 +165,7 @@ export const waitingTickets = (
         ...phased.filter(({ unplanned }) => !unplanned),
       ]
         .slice(0, ISSUE_LIMIT)
-        .map(({ row, phase }) => toWaitingTicket(row, now, { source, directory: reader.directory }, keepsTrackerState ? null : phase?.label ?? null)),
+        .map(({ row, phase }) => toWaitingTicket(row, now, source, reader, keepsTrackerState ? null : phase?.label ?? null)),
       shown: phased.length,
       hidden: hiddenRows.length,
       unassigned: hiddenRows.filter((row) => (row.assignees ?? []).length === 0).length,
@@ -223,7 +206,7 @@ export const waitingTickets = (
     return render(unionDedup(candidates, []), null);
   }
 
-  const matched = candidates.some((row) => accountMatches(row, prefix, directory, reader));
+  const matched = candidates.some((row) => accountNamesReader(row.assignees ?? [], prefix, reader));
   if (!matched && candidates.length > 0) {
     const raw = candidates
       .flatMap((row) => row.assignees ?? [])

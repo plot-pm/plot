@@ -137,5 +137,22 @@ describe('lanesForReader', () => {
       expect(keeps(row, jiraReader)).toBe(deliveryKeeps(row, jiraReader));
       expect(keeps(row, jiraReader)).toBe(true);
     });
+
+    it('keeps a tracker-account ticket whose reader is the second of two declared assignees', () => {
+      const jiraReader: Reader = {
+        hostUser: 'jwloka',
+        directory: parsePersonDirectory('mruepp = jira:margit.ruepp@quatico.com; jwloka = jira:jan.wloka@quatico.com'),
+      };
+      const row = ticket('9', ['margit.ruepp@quatico.com', 'jan.wloka@quatico.com'], jira);
+      expect(keeps(row, jiraReader)).toBe(deliveryKeeps(row, jiraReader));
+      expect(keeps(row, jiraReader)).toBe(true);
+    });
+  });
+
+  it('labels a kept ticket\'s owner as the reader where the reader is the second assignee', () => {
+    const row = ticket('9', ['eins78', 'jwloka']);
+    const tickets: TicketLaneGroups = { open: [row], 'in-progress': [], done: [], moreCount: 0 };
+    const actual = lanesForReader(STORIES, tickets, reader, true);
+    expect(actual.tickets?.open.rows[0]?.owner).toBe('jwloka');
   });
 });
