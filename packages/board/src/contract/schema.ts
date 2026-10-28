@@ -197,6 +197,19 @@ export const PlanMetaSchema = z.preprocess(readEitherSpelling, z.object({
    * A plan whose metadata block is malformed reports it the same way.
    */
   rounds: z.number().optional(),
+  /**
+   * A non-claim list item in a `## Slices`/`## Branches`/`## Waves` section
+   * that names a branch-prefixed token no claim reads — a foreign-repository
+   * branch cited in prose rather than claimed, or a backticked branch with no
+   * PR yet. Defaulted, so output from a parser predating the field still
+   * validates. No board code reads this field today; it exists to feed
+   * `plot-reconcile-scan.sh` section 24c.
+   */
+  unread_branch_items: z.array(z.object({
+    wave: z.string().default(''),
+    branch: z.string(),
+    line: z.string(),
+  })).default([]),
   error: z.string().optional(),
 }));
 export type PlanMeta = z.infer<typeof PlanMetaSchema>;

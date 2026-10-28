@@ -7,15 +7,24 @@
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
-#         it. THE BLOCKING SET IS FIVE SECTIONS, 1-5. It was six until
-#         2026-09-18, when `6. Delivered but already released` moved below the
-#         marker: it asks which release contains a plan, not whether the plan's
-#         delivery landed, and on a host that answers no merge commit it reported
-#         every delivered plan, so no delivery could clear the gate. Sections
-#         below the marker are NOT in printed order — the number is a label and
-#         the marker is the boundary.
+#         it. THE BLOCKING SET IS SIX SECTIONS: 1-5, PLUS 24c. It was five
+#         until 2026-10-28, when `24c. Unread branch items` joined above the
+#         marker — a list item in a slices/branches/waves section naming a
+#         branch no claim reads, which a plan can carry while still reporting
+#         every OTHER branch verified (#3853, #3819 on ewz-kus-portal: a plan
+#         whose branches were mostly cited in prose, never claimed, read as
+#         deliverable). It keeps the "24c" label for continuity with its
+#         siblings 24/24a/24b, documented together below the marker — the
+#         label is documentation, not position; the marker decides blocking.
+#         It was six until 2026-09-18, when `6. Delivered but already
+#         released` moved below the marker: it asks which release contains a
+#         plan, not whether the plan's delivery landed, and on a host that
+#         answers no merge commit it reported every delivered plan, so no
+#         delivery could clear the gate. Sections below the marker are NOT in
+#         printed order — the number is a label and the marker is the
+#         boundary.
 #         The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 unread_heading_items=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 unread_heading_items=0 unread_branch_items=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -246,6 +255,22 @@
 #                                 unattributable, not the slice broken — so it
 #                                 carries `unread_heading_items=` and stays out
 #                                 of `attention`.
+#  24c. Unread branch items     — a list item in a slices/branches/waves
+#                                 section that is not a branch claim and yet
+#                                 names a branch-prefixed token, read from the
+#                                 parser field `unread_branch_items`. Printed
+#                                 here with its siblings for documentation
+#                                 continuity, but PRINTED ABOVE THE MARKER AND
+#                                 BLOCKS DELIVERY, unlike 24/24a/24b: those
+#                                 annotate a claim that still reads, so the
+#                                 slice is accounted for; this item names a
+#                                 branch no claim reads at all, so a plan
+#                                 could report every OTHER branch verified
+#                                 while this one was never read
+#                                 (ewz-kus-portal #3853, #3819). It carries
+#                                 its own counter, `unread_branch_items=`, and
+#                                 /plot-deliver's gate reads it from ABOVE the
+#                                 marker rather than through `attention=`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -1436,6 +1461,31 @@ echo
 
 echo "== 5. Needs attention (malformed / non-conforming / broken pointers) =="
 if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (none)"; fi
+echo
+
+# ---------------------------------------------------------------------------
+# 24c. Unread branch items — BLOCKING, unlike 24/24a/24b below the marker.
+#
+# A list item in a `## Slices`/`## Branches`/`## Waves` section that is not a
+# branch claim (`branch_claim_re`) and yet names a branch-prefixed token, read
+# from the parser field `unread_branch_items` out of the one parse the sweep
+# already makes. A foreign-repository branch cited in prose instead of
+# claimed — ewz-kus-portal plan 3853 names one branch across six such items —
+# makes `plot-deliver.sh --dry-run` report a plan verified when six of its
+# seven branches were never read at all.
+#
+# ABOVE THE MARKER AND NOT BELOW IT, unlike every other `unread_*` sibling:
+# those report an annotation the parser could not place while the branch
+# claim itself still reads, so the slice is accounted for even while the
+# detail is lost. Here there IS no claim — the branch exists only as this
+# item — so a plan with no OTHER way to read the branch would silently pass
+# delivery with that branch unverified. Reporting it below the marker would
+# be the shape #3853 and #3819 both measured.
+echo "== 24c. Unread branch items (a list item names a branch no claim reads — BLOCKS delivery) =="
+report_unread_pairs unread_branch_items '.branch, .line, .branch' \
+  "  %s — branch '%s' is named by a list item no claim reads: %s\n    rewrite: either a claim line (- \`%s\` — <repo>: ... -> owner/repo#N) or <!-- deferred: <reason> -->\n    delivery refuses until this line changes\n" \
+  "(none — every list item naming a branch is a claim or a deferral)"
+n_unread_branch_items=$REPORT_UNREAD_PAIRS_N
 echo
 
 # ---------------------------------------------------------------------------
@@ -3498,5 +3548,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits unread_heading_items=$n_unread_heading_items temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits unread_heading_items=$n_unread_heading_items unread_branch_items=$n_unread_branch_items temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0

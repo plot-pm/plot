@@ -243,6 +243,21 @@
 #                  heading's branch is read instead (see the heading handler).
 #                  `wave` is the wave NAME, not an index. ALWAYS present; []
 #                  when every such item was attributed.
+#   unread_branch_items
+#                  `{ wave, branch, line }` triples, in document order, for a
+#                  list item in a slice section that is NOT a claim
+#                  (branch_claim_re) and yet holds a token matching a
+#                  configured branch prefix, inside or outside a code span —
+#                  a report, not a refusal. Catches a foreign-repository
+#                  branch named in prose rather than claimed, which the claim
+#                  grammar never reads at all (unlike unread_heading_items,
+#                  whose items are already claims the heading cannot
+#                  attribute). `idea/` tokens, names holding `*`, and file
+#                  paths (a `.` after the prefix) are not read as a branch. An
+#                  item carrying `<!-- deferred: ... -->` is excluded: a
+#                  person already accepted it has no branch yet. `wave` is the
+#                  wave NAME, "" when the item precedes any heading. ALWAYS
+#                  present; [] when none.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -337,7 +352,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"unread_heading_items":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"unread_heading_items":[],"unread_branch_items":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -389,6 +404,13 @@ function sorted_insert(arr, n, v,   j) {
 function emit_pairs(n, k1, arr1, k2, arr2,   i, out) {
   for (i = 1; i <= n; i++)
     out = out (i > 1 ? "," : "") "{\"" k1 "\":\"" jesc(arr1[i]) "\",\"" k2 "\":\"" jesc(arr2[i]) "\"}"
+  return out
+}
+# Renders `n` `{"k1":"...","k2":"...","k3":"..."}` objects, reading
+# arr1[i]/arr2[i]/arr3[i] for i=1..n — the shape unread_branch_items emits.
+function emit_triples(n, k1, arr1, k2, arr2, k3, arr3,   i, out) {
+  for (i = 1; i <= n; i++)
+    out = out (i > 1 ? "," : "") "{\"" k1 "\":\"" jesc(arr1[i]) "\",\"" k2 "\":\"" jesc(arr2[i]) "\",\"" k3 "\":\"" jesc(arr3[i]) "\"}"
   return out
 }
 # Every `<!-- waits: … -->` marker on a line, each value split on commas, in
@@ -555,6 +577,7 @@ function reset_state() {
   delete branch_heading; delete waits_of; delete waits_set; delete waits_n
   delete unread_waits_branch; delete unread_waits_value; n_unread_waits = 0
   delete unread_heading_item_wave; delete unread_heading_item_branch; n_unread_heading_items = 0
+  delete unread_branch_item_wave; delete unread_branch_item_branch; delete unread_branch_item_line; n_unread_branch_items = 0
   heading_branch = ""; heading_branch_n = 0
   delete builds_of; delete agent_of; delete commits_of; delete started; n_started = 0
   fm_changelog = ""
@@ -778,6 +801,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   # store_waits(), so it stays silent, as today.
   out = out ",\"unread_waits\":[" emit_pairs(n_unread_waits, "branch", unread_waits_branch, "value", unread_waits_value) "]"
   out = out ",\"unread_heading_items\":[" emit_pairs(n_unread_heading_items, "wave", unread_heading_item_wave, "branch", unread_heading_item_branch) "]"
+  out = out ",\"unread_branch_items\":[" emit_triples(n_unread_branch_items, "wave", unread_branch_item_wave, "branch", unread_branch_item_branch, "line", unread_branch_item_line) "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
@@ -1034,6 +1058,34 @@ function extract_prs(raw, defer,   line, p) {
   }
   line = raw
   while (match(line, /→#[0-9]+/)) { malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH) }
+}
+# The first branch-prefixed token on a NON-CLAIM list item, read for
+# unread_branch_items. Scans $0 AS WRITTEN — backticks included — since the
+# 3819 line (`` - Umsetzung: `bug/…` ``) names its branch inside a code span,
+# unlike mask_code() callers, which strip spans before reading. A boundary
+# character ahead of the prefix keeps "feature/x" from matching inside a
+# longer word such as "mifeature/x"; none of the real prefixes end a word
+# that would otherwise collide.
+#
+# Three kinds of token read as something OTHER than a branch, and are
+# skipped rather than reported: `idea/` names a plan, not a branch a slice
+# can claim; a name holding `*` is a glob a plan writes to mean "every
+# branch"; and a `.` anywhere after the prefix means a file path
+# (`docs/plans/x.md`), since no branch name in this estate ever carries one.
+# Loops past a skipped token rather than stopping at the first
+# match, so a line naming an excluded token before a real one (prose citing
+# both an `idea/` plan and a `bug/` branch) still reports the real one.
+function unread_branch_token(s,   re, tok, pfx, rest) {
+  re = "(^|[^A-Za-z0-9_/-])(" PREFIXES ")/[^ \t,)`:]+"
+  while (match(s, re)) {
+    tok = substr(s, RSTART, RLENGTH)
+    sub("^[^A-Za-z0-9_/-]*", "", tok)
+    s = substr(s, RSTART + RLENGTH)
+    pfx = tok; sub(/\/.*/, "", pfx)
+    rest = substr(tok, length(pfx) + 2)
+    if (pfx != "idea" && index(tok, "*") == 0 && index(rest, ".") == 0) return tok
+  }
+  return ""
 }
 # The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
 # a measurement: the longest legitimate name in the estate is `Offered first`
@@ -1328,6 +1380,13 @@ section == "slices" && slice_shape != "heading" {
     if (n_waves == 0) { wave_names[++n_waves] = "" }
     wave_of[n_branches] = n_waves; ++wave_count[n_waves]
     keep_branch(n_branches, b, 0)
+  } else if ($0 ~ /^[ \t]*-[ \t]+/ && $0 !~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
+    utok = unread_branch_token($0)
+    if (utok != "") {
+      unread_branch_item_wave[++n_unread_branch_items] = (n_waves > 0 ? wave_names[n_waves] : "")
+      unread_branch_item_branch[n_unread_branch_items] = utok
+      unread_branch_item_line[n_unread_branch_items] = trim($0)
+    }
   }
   extract_prs($0)
   next
@@ -1431,6 +1490,15 @@ section == "slices" && slice_shape == "heading" {
       # heading branch at all) — the parser cannot attribute it, so it is
       # reported rather than silently dropped and never read as a second claim.
       unread_heading_item_wave[++n_unread_heading_items] = wave_names[n_waves]; unread_heading_item_branch[n_unread_heading_items] = item_branch
+    }
+  } else if ($0 ~ /^[ \t]*-[ \t]+/ && $0 !~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
+    # Not a claim at all — a non-claim item in a `## Waves` section can still
+    # name a branch in prose, exactly as a list item in the old shape can.
+    utok = unread_branch_token($0)
+    if (utok != "") {
+      unread_branch_item_wave[++n_unread_branch_items] = (n_waves > 0 ? wave_names[n_waves] : "")
+      unread_branch_item_branch[n_unread_branch_items] = utok
+      unread_branch_item_line[n_unread_branch_items] = trim($0)
     }
   }
   next
