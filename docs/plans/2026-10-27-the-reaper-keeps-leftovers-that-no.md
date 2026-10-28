@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #2757
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-27, Jan Wloka, `bug/a-local-only-empty-claim-branch-has-a-controller`
 - **Started:** 2026-10-27, Jan Wloka, `bug/a-deferred-desk-with-a-pushed-head-is-reapable` (brief only, no claim yet)
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
