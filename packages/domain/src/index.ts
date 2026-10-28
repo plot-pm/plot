@@ -42,6 +42,7 @@ export * from './entities/channel-message.js';
 export * from './entities/workflow.js';
 export * from './entities/plan.js';
 export * from './entities/default-branch.js';
+export * from './entities/fleet-stopped.js';
 export * from './rules/deliverable.js';
 export * from './rules/story-date.js';
 export * from './rules/reapable.js';

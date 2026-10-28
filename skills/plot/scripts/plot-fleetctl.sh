@@ -1216,15 +1216,16 @@ if [ "$mode" = "start" ]; then
   echo "supervisor loaded${pid:+ (pid $pid)} — $LABEL"
   echo "  log: $repo_root/.plot/logs/fleetd.log"
 
+  # EXACTLY WHAT THE LAST "--stop" STOPPED, through the restart controller —
+  # never a branch stopped by other means. It runs BEFORE dispatch, so the
+  # live-loop count below includes every agent restarted here.
+  PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-restart-stopped-command.mjs"
+
   # THE AGENTS, because a supervisor with no agents does nothing. The count and
   # its default live in `plot-dispatch.sh --start`, which owns the machine bound
   # and the shortfall report; passing it through keeps one answer to "how many".
   echo "starting agents"
-  if [ -n "$start_count" ]; then
-    "$script_dir/plot-dispatch.sh" --start "$start_count"
-  else
-    "$script_dir/plot-dispatch.sh" --start
-  fi
+  "$script_dir/plot-dispatch.sh" --start ${start_count:+"$start_count"}
   start_rc=$?
 
   # THE RECORD THAT THE RUN FINISHED — the whole point of this file. Everything
@@ -1284,7 +1285,7 @@ if [ "$mode" = "stop" ]; then
     echo "  or let the eight-hour Worker bound end it."
   fi
 
-  still=""
+  still="" stopped_ok=""
   n_still=0
   while IFS= read -r br; do
     [ -n "$br" ] || continue
@@ -1303,6 +1304,9 @@ if [ "$mode" = "stop" ]; then
     exited=$?
     elapsed=$(( $(date +%s) - started ))
     if [ "$exited" = 0 ]; then
+      # ONLY A CONFIRMED EXIT GOES ON THE RESTART LIST. A branch still running
+      # at the bound is not known stopped, so `--start` must not be told it was.
+      stopped_ok="$stopped_ok$br"$'\t'"$wt"$'\n'
       # A REBUILT BUNDLE ALONE IS NOT "UNCOMMITTED WORK" — `main` rebuilds and
       # pushes every generated board bundle (`bug/main-builds-its-bundles`,
       # #1249), so a desk that locally rebuilt one to test holds nothing an
@@ -1324,6 +1328,11 @@ if [ "$mode" = "stop" ]; then
   done <<EOF
 $branches
 EOF
+
+  # THE RECORD "--start" READS. Exactly the branches confirmed stopped above —
+  # never a branch stopped by a direct `plot-dispatch.sh --stop`, which never
+  # runs through this loop. The domain decides what a later `--start` restarts.
+  printf '%s' "$stopped_ok" | PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-restart-stopped-command.mjs" --record
 
   # THE SUPERVISOR GOES LAST. It is what would notice a desk falling idle, so
   # unloading it first leaves the agents unwatched for the length of the
