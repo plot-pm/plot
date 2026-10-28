@@ -114,13 +114,9 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git rep
 # Declared, `take` returns at once and this script releases nothing on exit —
 # the holder named by the env var is the one that released it, same as any
 # other caller whose pid does not match the owner file.
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -n "${PLOT_PUSH_LOCK_HOLDER:-}" ]; then
-  node "$here/plot-push-lock.mjs" take "$PLOT_PUSH_LOCK_HOLDER" "push $branch" || exit $?
-else
-  node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?
-  . "$here/plot-tmp.sh"; plot_on_exit node "$here/plot-push-lock.mjs" release "$$"
-fi
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; . "$here/plot-tmp.sh"
+node "$here/plot-push-lock.mjs" take "${PLOT_PUSH_LOCK_HOLDER:-$$}" "push $branch" || exit $?
+plot_on_exit "[ -n \"\${PLOT_PUSH_LOCK_HOLDER:-}\" ] || node '$here/plot-push-lock.mjs' release '$$'"
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
