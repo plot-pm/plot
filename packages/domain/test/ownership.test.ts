@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ownership, isMine, parsePersonDirectory, readerIsKnown, ticketSourceOf,
+  ownership, isMine, isMineStrict, parsePersonDirectory, readerIsKnown, ticketSourceOf,
   type OwnedRow, type Reader, type TicketSource,
 } from '../src/index.js';
 import { TICKET_SOURCES } from '../src/adapters/tracker/tracker-listers.js';
@@ -104,14 +104,24 @@ describe('the agent row reports the machine\'s own record', () => {
     expect(ownership({ kind: 'agent', identity: 'manifest', state: 'running' }, {})).toBe('mine');
   });
 
-  it('is unknown for a desk no manifest declared', () => {
-    expect(ownership({ kind: 'agent', identity: 'synthesized', state: 'running' }, reader)).toBe('unknown');
+  it('is the reader\'s for a desk no manifest declared, as long as it is here', () => {
+    // CHANGED DELIBERATELY: the board's machine is the reader's machine
+    // whether a manifest declared the agent or the registry synthesized it.
+    expect(ownership({ kind: 'agent', identity: 'synthesized', state: 'running' }, reader)).toBe('mine');
   });
 
-  it('is unknown where an older server sent no identity or no state', () => {
-    expect(ownership({ kind: 'agent', state: 'running' }, reader)).toBe('unknown');
+  it('is unknown for an agent whose state says no desk is here', () => {
+    for (const state of ['elsewhere', 'unknown']) {
+      expect(ownership({ kind: 'agent', identity: 'manifest', state }, reader)).toBe('unknown');
+      expect(ownership({ kind: 'agent', identity: 'synthesized', state }, reader)).toBe('unknown');
+    }
+  });
+
+  it('is unknown where an older server sent no state, whatever identity it sent', () => {
+    expect(ownership({ kind: 'agent', state: undefined }, reader)).toBe('unknown');
     expect(ownership({ kind: 'agent', identity: 'manifest' }, reader)).toBe('unknown');
-    expect(ownership({ kind: 'agent', identity: 'manifest', state: 'unknown' }, reader)).toBe('unknown');
+    expect(ownership({ kind: 'agent', identity: 'synthesized' }, reader)).toBe('unknown');
+    expect(ownership({ kind: 'agent', identity: 'manifest', state: '' }, reader)).toBe('unknown');
   });
 });
 
@@ -368,5 +378,37 @@ describe('a plan is owned by any of its assignee, author and approver', () => {
 
   it('reads undeclared spellings alone as unknown', () => {
     expect(ownership(planOf({ author: 'Someone Else', approver: 'Another' }), declared)).toBe('unknown');
+  });
+});
+
+describe('isMineStrict keeps only what it can classify as the reader\'s', () => {
+  it('agrees with isMine where ownership is mine', () => {
+    expect(isMineStrict(pr('jwloka'), reader)).toBe(true);
+    expect(isMine(pr('jwloka'), reader)).toBe(true);
+  });
+
+  it('agrees with isMine where ownership is theirs', () => {
+    expect(isMineStrict(plan('eins78'), declared)).toBe(false);
+    expect(isMine(plan('eins78'), declared)).toBe(false);
+  });
+
+  it('disagrees with isMine where ownership is unknown: strict hides, isMine shows', () => {
+    expect(isMineStrict({ kind: 'other' }, declared)).toBe(false);
+    expect(isMine({ kind: 'other' }, declared)).toBe(true);
+    expect(isMineStrict(plan(''), declared)).toBe(false);
+    expect(isMine(plan(''), declared)).toBe(true);
+    expect(isMineStrict(pr(undefined), reader)).toBe(false);
+    expect(isMine(pr(undefined), reader)).toBe(true);
+  });
+
+  it('hides an elsewhere agent, the same row isMine shows', () => {
+    const row: OwnedRow = { kind: 'agent', identity: 'manifest', state: 'elsewhere' };
+    expect(isMineStrict(row, reader)).toBe(false);
+    expect(isMine(row, reader)).toBe(true);
+  });
+
+  it('keeps a synthesized desk whose state shows it is on this machine', () => {
+    const row: OwnedRow = { kind: 'agent', identity: 'synthesized', state: 'running' };
+    expect(isMineStrict(row, reader)).toBe(true);
   });
 });
