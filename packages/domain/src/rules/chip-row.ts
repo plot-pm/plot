@@ -160,8 +160,8 @@ export const mineDisabledReason = (reader: Reader): string => {
  * The `Mine` chip: carries the reader's host login in its label, disabled
  * where no comparable host login exists.
  *
- * The label reads `comparableLogin`, the login `isMine`/`isMineStrict` match
- * against, so a blank `hostUser`, an email-shaped `hostUser` and a
+ * The label reads `comparableLogin`, the login `ownership`/`isMineStrict`
+ * match against, so a blank `hostUser`, an email-shaped `hostUser` and a
  * `gitEmail`-only reader all disable the chip: neither rule can match them to
  * a row's owner. Each reason names `hostUser` as the fix.
  *

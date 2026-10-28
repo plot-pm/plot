@@ -408,9 +408,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // so it satisfies this gate's rule rather than being admitted past it.
 //
 // What only a rendered page can settle is that the control hides the rows
-// `isMine` answered false for and restores every one of them when unticked —
-// both arms over a MIXED-ownership fixture, since a filter that hides nothing
-// looks identical to one that works on a single-contributor estate.
+// `ownership` answered `theirs` for and restores every one of them when
+// unticked — both arms over a MIXED-ownership fixture, since a filter that
+// hides nothing looks identical to one that works on a single-contributor
+// estate.
 // 51 → 52 on 2026-09-26: `interrogate-card.browser.test.ts`, six `it(`, for the
 // Draft card's Interrogate button. A PLAIN ADDITION: nothing moved. What only a
 // rendered page settles is that the button sits on Draft cards and on no

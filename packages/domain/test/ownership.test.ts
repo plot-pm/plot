@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ownership, isMine, isMineStrict, parsePersonDirectory, readerIsKnown, ticketSourceOf,
+  ownership, isMineStrict, parsePersonDirectory, readerIsKnown, ticketSourceOf,
   type OwnedRow, type Reader, type TicketSource,
 } from '../src/index.js';
 import { TICKET_SOURCES } from '../src/adapters/tracker/tracker-listers.js';
@@ -26,7 +26,7 @@ const estate: readonly OwnedRow[] = [
 
 describe('ownership on #967\'s four-contributor estate', () => {
   it('keeps exactly the reader\'s two of eleven open PRs', () => {
-    const kept = estate.filter((row) => isMine(row, reader));
+    const kept = estate.filter((row) => ownership(row, reader) !== 'theirs');
     expect(estate).toHaveLength(11);
     expect(kept).toHaveLength(2);
     expect(kept.every((row) => row.kind === 'pr' && row.author === 'jwloka')).toBe(true);
@@ -43,13 +43,11 @@ describe('ownership on #967\'s four-contributor estate', () => {
 describe('a row with no determinable owner is shown', () => {
   it('shows a PR when the payload carries no identity', () => {
     expect(ownership(pr('eins78'), {})).toBe('unknown');
-    expect(isMine(pr('eins78'), {})).toBe(true);
   });
 
   it('shows a PR when the reader\'s login is empty, as on Bitbucket', () => {
     const bitbucket: Reader = { hostUser: '', gitEmail: 'jan.wloka@quatico.com' };
     expect(ownership(pr('Michael Aemisegger'), bitbucket)).toBe('unknown');
-    expect(isMine(pr('Michael Aemisegger'), bitbucket)).toBe(true);
   });
 
   it('does not read an empty identity against an empty author as a match', () => {
@@ -60,18 +58,15 @@ describe('a row with no determinable owner is shown', () => {
   it('shows a PR whose author the host did not answer', () => {
     expect(ownership(pr(''), reader)).toBe('unknown');
     expect(ownership(pr(undefined), reader)).toBe('unknown');
-    expect(isMine(pr(undefined), reader)).toBe(true);
   });
 
   it('shows an agent in state elsewhere, whose desk is not on this machine', () => {
     const row: OwnedRow = { kind: 'agent', identity: 'manifest', state: 'elsewhere' };
     expect(ownership(row, reader)).toBe('unknown');
-    expect(isMine(row, reader)).toBe(true);
   });
 
   it('shows a plan card, an issue row and a bare branch row', () => {
     expect(ownership({ kind: 'other' }, reader)).toBe('unknown');
-    expect(isMine({ kind: 'other' }, reader)).toBe(true);
   });
 });
 
@@ -157,7 +152,6 @@ describe('a plan is owned by its assignee, resolved through the directory', () =
   it('reads a spelling the directory declares for another person as theirs', () => {
     expect(ownership(plan('eins78'), declared)).toBe('theirs');
     expect(ownership(plan('Max Albrecht'), declared)).toBe('theirs');
-    expect(isMine(plan('eins78'), declared)).toBe(false);
   });
 
   it('keeps the reader\'s 113 plans on the measured estate, and hides the other 4', () => {
@@ -166,20 +160,18 @@ describe('a plan is owned by its assignee, resolved through the directory', () =
       ...Array.from({ length: 51 }, () => plan('Jan Wloka')),
       ...Array.from({ length: 4 }, () => plan('eins78')),
     ];
-    expect(estatePlans.filter((row) => isMine(row, declared))).toHaveLength(113);
+    expect(estatePlans.filter((row) => ownership(row, declared) !== 'theirs')).toHaveLength(113);
   });
 
   it('hides none of the reader\'s plans without a directory', () => {
     // WITHOUT A DIRECTORY `Jan Wloka` is undeclared rather than somebody else.
     // An exact-match rule hid 51 of the reader's 113 plans here.
     expect(ownership(plan('Jan Wloka'), reader)).toBe('unknown');
-    expect(isMine(plan('Jan Wloka'), reader)).toBe(true);
     expect(ownership(plan('jwloka'), reader)).toBe('mine');
   });
 
   it('keeps a plan whose assignee spelling the directory does not declare', () => {
     expect(ownership(plan('Someone New'), declared)).toBe('unknown');
-    expect(isMine(plan('Someone New'), declared)).toBe(true);
   });
 
   it('keeps a plan that names nobody', () => {
@@ -206,14 +198,13 @@ describe('a PR author resolves through the same directory', () => {
   });
 });
 
-describe('isMine keeps what it cannot classify', () => {
-  it('answers true for unknown, the permissive default', () => {
+describe('ownership answers unknown for what it cannot classify, the lenient filter\'s permissive default', () => {
+  it('answers unknown rather than theirs', () => {
     // A LATER CHANGE THAT MAKES UNKNOWN HIDE fails here. Every population the
     // board has no owner for — issues, builds, bare branches — is `other`.
     expect(ownership({ kind: 'other' }, declared)).toBe('unknown');
-    expect(isMine({ kind: 'other' }, declared)).toBe(true);
-    expect(isMine(plan(''), declared)).toBe(true);
-    expect(isMine(pr(''), declared)).toBe(true);
+    expect(ownership(plan(''), declared)).toBe('unknown');
+    expect(ownership(pr(''), declared)).toBe('unknown');
   });
 });
 
@@ -273,12 +264,10 @@ describe('a ticket is owned by its assignees, resolved by source', () => {
 
   it('reads another declared person as theirs', () => {
     expect(ownership(ticket(['eins78']), declared)).toBe('theirs');
-    expect(isMine(ticket(['eins78']), declared)).toBe(false);
   });
 
-  it('reads [] as unknown, and isMine keeps it', () => {
+  it('reads [] as unknown', () => {
     expect(ownership(ticket([]), reader)).toBe('unknown');
-    expect(isMine(ticket([]), reader)).toBe(true);
   });
 
   it('reads a Jira assignee named by a jira: spelling of the reader\'s handle as mine', () => {
@@ -346,14 +335,13 @@ describe('a story is owned by its author, resolved through the directory', () =>
 
   it('reads a spelling the directory declares for another person as theirs', () => {
     expect(ownership(story('Max Albrecht'), declared)).toBe('theirs');
-    expect(isMine(story('eins78'), declared)).toBe(false);
+    expect(ownership(story('eins78'), declared)).toBe('theirs');
   });
 
   it('reads an absent or empty author as unknown, not theirs', () => {
     expect(ownership(story(undefined), declared)).toBe('unknown');
     expect(ownership(story(''), declared)).toBe('unknown');
     expect(ownership(story('  '), declared)).toBe('unknown');
-    expect(isMine(story(), declared)).toBe(true);
   });
 
   it('reads an undeclared spelling that differs from the login as unknown', () => {
@@ -396,29 +384,29 @@ describe('a plan is owned by any of its assignee, author and approver', () => {
 });
 
 describe('isMineStrict keeps only what it can classify as the reader\'s', () => {
-  it('agrees with isMine where ownership is mine', () => {
+  it('agrees with the lenient ownership !== theirs test where ownership is mine', () => {
     expect(isMineStrict(pr('jwloka'), reader)).toBe(true);
-    expect(isMine(pr('jwloka'), reader)).toBe(true);
+    expect(ownership(pr('jwloka'), reader)).toBe('mine');
   });
 
-  it('agrees with isMine where ownership is theirs', () => {
+  it('agrees with the lenient ownership !== theirs test where ownership is theirs', () => {
     expect(isMineStrict(plan('eins78'), declared)).toBe(false);
-    expect(isMine(plan('eins78'), declared)).toBe(false);
+    expect(ownership(plan('eins78'), declared)).toBe('theirs');
   });
 
-  it('disagrees with isMine where ownership is unknown: strict hides, isMine shows', () => {
+  it('disagrees with the lenient ownership !== theirs test where ownership is unknown: strict hides, lenient shows', () => {
     expect(isMineStrict({ kind: 'other' }, declared)).toBe(false);
-    expect(isMine({ kind: 'other' }, declared)).toBe(true);
+    expect(ownership({ kind: 'other' }, declared)).toBe('unknown');
     expect(isMineStrict(plan(''), declared)).toBe(false);
-    expect(isMine(plan(''), declared)).toBe(true);
+    expect(ownership(plan(''), declared)).toBe('unknown');
     expect(isMineStrict(pr(undefined), reader)).toBe(false);
-    expect(isMine(pr(undefined), reader)).toBe(true);
+    expect(ownership(pr(undefined), reader)).toBe('unknown');
   });
 
-  it('hides an elsewhere agent, the same row isMine shows', () => {
+  it('hides an elsewhere agent, the same row the lenient test shows', () => {
     const row: OwnedRow = { kind: 'agent', identity: 'manifest', state: 'elsewhere' };
     expect(isMineStrict(row, reader)).toBe(false);
-    expect(isMine(row, reader)).toBe(true);
+    expect(ownership(row, reader)).toBe('unknown');
   });
 
   it('keeps a synthesized desk whose state shows it is on this machine', () => {

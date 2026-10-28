@@ -142,7 +142,7 @@ describe('the board filters to my work', () => {
     }
   });
 
-  it('hides the rows isMine returned false for, and only those', async () => {
+  it('hides the rows ownership answered theirs for, and only those', async () => {
     const page = await open();
     try {
       const before = await branches(page);
@@ -155,9 +155,10 @@ describe('the board filters to my work', () => {
       // THE ONE ROW SOMEBODY ELSE OWNS IS GONE.
       expect(after).not.toContain(THEIRS);
       // AND THE OTHER THREE ARE NOT. A row with no owner and a row whose author
-      // the host never answered both stay: `isMine` answers false only for a row
-      // that is somebody else's, never for one it cannot place. An implementation
-      // keeping "only what matches me" passes the assertion above and fails here.
+      // the host never answered both stay: the lenient `ownership(...) !==
+      // 'theirs'` test answers false only for a row that is somebody else's,
+      // never for one it cannot place. An implementation keeping "only what
+      // matches me" passes the assertion above and fails here.
       expect(after).toContain(MINE);
       expect(after).toContain(NOBODYS);
       expect(after).toContain(UNSIGNED);

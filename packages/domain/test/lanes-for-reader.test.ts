@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { lanesForReader } from '../src/rules/lanes-for-reader.js';
 import type { TicketLaneGroups, TicketLaneRow } from '../src/rules/ticket-lanes.js';
-import { isMine, ownedTicket, type Reader, type TicketSource } from '../src/rules/ownership.js';
+import { ownership, ownedTicket, type Reader, type TicketSource } from '../src/rules/ownership.js';
 import { parsePersonDirectory } from '../src/entities/person.js';
 
 const directory = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
@@ -183,7 +183,8 @@ describe('lanesForReader', () => {
     const keeps = (row: TicketLaneRow, who: Reader): boolean =>
       lanesForReader(STORIES, { open: [row], 'in-progress': [], done: [], moreCount: 0 }, who, 'mine-and-unknown')
         .tickets!.open.rows.some((r) => r.id === row.id);
-    const deliveryKeeps = (row: TicketLaneRow, who: Reader): boolean => isMine(ownedTicket(row.assignees, row.source), who);
+    const deliveryKeeps = (row: TicketLaneRow, who: Reader): boolean =>
+      ownership(ownedTicket(row.assignees, row.source), who) !== 'theirs';
 
     const cases: Array<[string, TicketLaneRow, Reader, boolean]> = [
       ['the reader as the only host-login assignee', ticket('9', ['jwloka']), reader, true],

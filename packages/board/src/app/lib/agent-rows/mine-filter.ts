@@ -1,5 +1,15 @@
-import { isMine, isMineStrict, ownedTicket, ownership, readerIsKnown, type MineMode, type OwnedRow, type Reader } from '@plot-pm/domain';
+import { isMineStrict, ownedTicket, ownership, readerIsKnown, type MineMode, type OwnedRow, type Reader } from '@plot-pm/domain';
 import { type AgentEntry, type AgentRow, type Board, type Card, type DraftPlan, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
+
+/**
+ * The lenient «Mine» match: true for `mine` and for `unknown`, false only
+ * where {@link ownership} answers `theirs`. The domain dropped its own
+ * `isMine` export once every production caller but this file's switched to
+ * {@link isMineStrict} alone — this file still needs the lenient arm at every
+ * `mode === 'mine' ? isMineStrict : …` site, so the comparison is inlined here
+ * rather than re-exported from the domain under a new name.
+ */
+const ownsLeniently = (row: OwnedRow, reader: Reader): boolean => ownership(row, reader) !== 'theirs';
 
 /**
  * Where the "only my work" preference lives.
@@ -124,8 +134,8 @@ export const writeMineStrict = (on: boolean, storage?: Pick<Storage, 'setItem'>)
  *
  * Every field here is `''` where the plan (or the host, for `pr.author`) did
  * not answer, and `undefined` on a payload the client cast from an older
- * server. Both reach {@link isMine} as unknown, which shows the row — so the
- * values are passed through here rather than normalised, the way
+ * server. Both reach {@link ownsLeniently} as unknown, which shows the row —
+ * so the values are passed through here rather than normalised, the way
  * {@link ownedFromCard} already does.
  */
 export const ownedFromRow = (row: Pick<AgentRow, 'pr' | 'assignee' | 'author' | 'approver'>): OwnedRow => {
@@ -182,10 +192,10 @@ export { readerIsKnown };
  * that happens to admit everything: the identity of the array is what lets the
  * caller's `rowsBySection` memoise, and an unfiltered view must cost nothing.
  *
- * `mine-and-unknown` hides a row only where {@link isMine} answers false —
- * which it does only for a row somebody ELSE owns; a row whose owner cannot be
- * determined stays. `mine` keeps only a row {@link isMineStrict} answers true
- * for.
+ * `mine-and-unknown` hides a row only where {@link ownsLeniently} answers
+ * false — which it does only for a row somebody ELSE owns; a row whose owner
+ * cannot be determined stays. `mine` keeps only a row {@link isMineStrict}
+ * answers true for.
  */
 export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'author' | 'approver'>>(
   rows: T[],
@@ -193,7 +203,7 @@ export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'auth
   mode: MineMode,
 ): T[] => {
   if (mode === 'all') return rows;
-  const owns = mode === 'mine' ? isMineStrict : isMine;
+  const owns = mode === 'mine' ? isMineStrict : ownsLeniently;
   return rows.filter((r) => owns(ownedFromRow(r), reader));
 };
 
@@ -205,12 +215,12 @@ export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'auth
  * gives. A Draft plan carries the same `assignee`/`author`/`approver` shape a
  * Discovery card does, so it goes through {@link ownedFromCard} rather than a
  * fourth variant of the mapping. `mine-and-unknown` hides a plan only where
- * {@link isMine} answers false, so a plan naming nobody stays visible; `mine`
- * keeps only a plan {@link isMineStrict} answers true for.
+ * {@link ownsLeniently} answers false, so a plan naming nobody stays visible;
+ * `mine` keeps only a plan {@link isMineStrict} answers true for.
  */
 export const draftsForReader = (drafts: DraftPlan[], reader: Reader, mode: MineMode): DraftPlan[] => {
   if (mode === 'all') return drafts;
-  const owns = mode === 'mine' ? isMineStrict : isMine;
+  const owns = mode === 'mine' ? isMineStrict : ownsLeniently;
   return drafts.filter((d) => owns(ownedFromCard(d), reader));
 };
 
@@ -219,8 +229,8 @@ export const draftsForReader = (drafts: DraftPlan[], reader: Reader, mode: MineM
  * «Mine» mode.
  *
  * `all` returns the array untouched, for the reason {@link rowsForReader}
- * gives. `mine-and-unknown` hides an agent only where {@link isMine} answers
- * false for {@link ownedFromAgent}; `mine` keeps only an agent
+ * gives. `mine-and-unknown` hides an agent only where {@link ownsLeniently}
+ * answers false for {@link ownedFromAgent}; `mine` keeps only an agent
  * {@link isMineStrict} answers true for.
  */
 export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>>(
@@ -229,7 +239,7 @@ export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>
   mode: MineMode,
 ): T[] => {
   if (mode === 'all') return agents;
-  const owns = mode === 'mine' ? isMineStrict : isMine;
+  const owns = mode === 'mine' ? isMineStrict : ownsLeniently;
   return agents.filter((a) => owns(ownedFromAgent(a), reader));
 };
 
@@ -238,9 +248,10 @@ export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>
  * `ownedTicket` — the mapping Discovery's `lanesForReader` uses too.
  *
  * `source` is `null` where the board could not resolve how this read's
- * tickets name their assignees — {@link isMine} then sees `{ source: null }`
- * on the `ticket` arm, which `ticketOwnership` answers `unknown` for, same as
- * an unassigned row. Either way the row stays visible with the filter on.
+ * tickets name their assignees — {@link ownsLeniently} then sees
+ * `{ source: null }` on the `ticket` arm, which `ticketOwnership` answers
+ * `unknown` for, same as an unassigned row. Either way the row stays visible
+ * with the filter on.
  */
 export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: TicketSourceShape | null): OwnedRow =>
   ownedTicket(row.assignees, source);
@@ -250,15 +261,16 @@ export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: Ticket
  * name their assignees, and the effective «Mine» mode.
  *
  * `all` returns the array untouched, for the reason {@link rowsForReader}
- * gives. Otherwise a ticket is hidden only where {@link isMine} answers false
- * for {@link ownedFromTicket} — an unassigned ticket, or one whose owner
+ * gives. Otherwise a ticket is hidden only where {@link ownsLeniently} answers
+ * false for {@link ownedFromTicket} — an unassigned ticket, or one whose owner
  * cannot be determined because `source` is `null`, stays visible.
  *
- * **This filter always uses the lenient `isMine` rule, never the strict one —
- * `mine` mode does not sharpen it.** The panel decided *the box wins*: this
- * view shows every open ticket, narrowed only by the `mine-and-unknown`
- * answer, so an unassigned ticket comes back here even while the stricter
- * mode hides unknown rows everywhere else. *Waiting on you*'s own inbox logic
+ * **This filter always uses the lenient `ownsLeniently` rule, never the
+ * strict one — `mine` mode does not sharpen it.** The panel decided *the box
+ * wins*: this view shows every open ticket, narrowed only by the
+ * `mine-and-unknown` answer, so an unassigned ticket comes back here even
+ * while the stricter mode hides unknown rows everywhere else. *Waiting on
+ * you*'s own inbox logic
  * (hide and count an unassigned ticket) lives separately in the domain's
  * `waitingTickets`, applied upstream by the server; this filter narrows what
  * `waitingTickets` already chose to show, the same way `rowsForReader`
@@ -269,7 +281,7 @@ export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'>>(
   reader: Reader,
   source: TicketSourceShape | null,
   mode: MineMode,
-): T[] => (mode === 'all' ? tickets : tickets.filter((t) => isMine(ownedFromTicket(t, source), reader)));
+): T[] => (mode === 'all' ? tickets : tickets.filter((t) => ownsLeniently(ownedFromTicket(t, source), reader)));
 
 /**
  * The board with only the plan cards that stay in view, how many cards the
@@ -278,10 +290,10 @@ export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'>>(
  * `all` returns the board untouched and both counts `0`. `unknownCount`
  * counts every card answering `unknown`, before the filter, so it is the
  * same in `mine-and-unknown` and `mine`. Otherwise each column
- * keeps the cards {@link isMine} (`mine-and-unknown`) or {@link isMineStrict}
- * (`mine`) keeps for {@link ownedFromCard}; a card whose assignee is empty or
- * undeclared stays only under the lenient rule. Nothing but the columns'
- * cards changes.
+ * keeps the cards {@link ownsLeniently} (`mine-and-unknown`) or
+ * {@link isMineStrict} (`mine`) keeps for {@link ownedFromCard}; a card whose
+ * assignee is empty or undeclared stays only under the lenient rule. Nothing
+ * but the columns' cards changes.
  */
 export const boardForReader = (
   board: Board,
@@ -289,7 +301,7 @@ export const boardForReader = (
   mode: MineMode,
 ): { board: Board; hiddenCount: number; unknownCount: number } => {
   if (mode === 'all') return { board, hiddenCount: 0, unknownCount: 0 };
-  const owns = mode === 'mine' ? isMineStrict : isMine;
+  const owns = mode === 'mine' ? isMineStrict : ownsLeniently;
   let hiddenCount = 0;
   let unknownCount = 0;
   const columns = board.columns.map((column) => {

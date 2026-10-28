@@ -1,4 +1,4 @@
-import { isMine, isMineStrict, ownership, ownedTicket, type OwnedRow, type Reader } from './ownership.js';
+import { isMineStrict, ownership, ownedTicket, type OwnedRow, type Reader } from './ownership.js';
 import type { MineMode } from './mine-mode.js';
 import { ownerOf, type TicketLaneGroups, type TicketLaneRow } from './ticket-lanes.js';
 
@@ -55,7 +55,7 @@ export interface LanesForReader<S, L extends string = string> {
  * Keeps the rows the reader owns under the effective mode.
  *
  * `all` keeps every row untouched. `mine-and-unknown` drops a row only where
- * {@link isMine} answers false — a row whose owner cannot be determined
+ * {@link ownership} answers `theirs` — a row whose owner cannot be determined
  * stays. `mine` keeps only a row {@link isMineStrict} answers true for.
  * `hiddenByOwner` answers false where the lane was already empty before
  * filtering, the same discipline {@link import('./lanes-for-topic.js').filterLane}
@@ -75,7 +75,7 @@ const filterByReader = <T>(
   mode: MineMode,
 ): OwnerFilteredLane<T> => {
   if (mode === 'all') return { rows: [...rows], hiddenByOwner: false, hiddenCount: 0, unknownCount: 0 };
-  const owns = mode === 'mine' ? isMineStrict : isMine;
+  const owns = mode === 'mine' ? isMineStrict : (row: OwnedRow, who: Reader) => ownership(row, who) !== 'theirs';
   const kept = rows.filter((row) => owns(ownedOf(row), reader));
   const unknownCount = rows.filter((row) => ownership(ownedOf(row), reader) === 'unknown').length;
   return { rows: kept, hiddenByOwner: rows.length > 0 && kept.length === 0, hiddenCount: rows.length - kept.length, unknownCount };

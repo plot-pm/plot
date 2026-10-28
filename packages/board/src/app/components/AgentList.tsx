@@ -534,7 +534,7 @@ export function AgentList({
   // FILTERED BY OWNERSHIP THE SAME PLACE `visibleRows` IS — a Draft plan row
   // now carries `assignee`/`author`/`approver` like every other owned row, so
   // «Mine» applies to it too. Under `mine-and-unknown` a plan naming nobody,
-  // or naming only someone `isMine` cannot resolve, stays visible and only a
+  // or naming only someone ownership cannot resolve, stays visible and only a
   // row somebody ELSE owns hides; under `mine` only the reader's own stays.
   const draftRows = draftsForReader(draftPlanRows(fleet?.draftPlans ?? [], fleet?.rows ?? []), reader, mode);
   // THE FLEET'S OWN VERIFY RUNS — a run ON A PLAN, not on a branch. `halted`,
