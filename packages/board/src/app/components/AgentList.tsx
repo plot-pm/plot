@@ -1165,15 +1165,6 @@ export function AgentList({
           quiet: quietRows.length,
           planLevel: { working: workingPlanRows.length, waiting: verificationWaitingRows.length },
         });
-        // The plan scope the blocked-by jump needs ABOVE the row. WORKING orders
-        // by agent, so there is no per-plan `<ul>` to tag the way the grouped
-        // sections have; the section's own grid carries it instead. First match
-        // wins — a jump names ONE slice, and where several plans have live slices
-        // the mark still names its target in its label, which is the same
-        // degradation the query already has for a row on another tab.
-        const workingSliceListPlan = workingSection
-          ? workingRows.find(({ row: r }) => r?.wave && r?.plan)?.row?.plan
-          : undefined;
         // WAITING ON YOU is the section for what needs a human DECISION, and an
         // unplanned issue is exactly that — the decision being *is this worth a
         // plan?* rather than *fix it*. No other section can hold it: the row has
@@ -1564,7 +1555,6 @@ export function AgentList({
             <ul
               role="grid"
               aria-label={`${label} — agent branches`}
-              {...(workingSliceListPlan ? { 'data-slice-list': workingSliceListPlan } : {})}
               className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
             >
               <HeaderRow />

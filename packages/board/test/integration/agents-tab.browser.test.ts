@@ -1299,6 +1299,68 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('reveals a WORKING blocker of the second plan, not only the first', async () => {
+    // WORKING holds every plan's agents in one grid, so a plan tag on the grid
+    // could name only one plan. Reported from a screenshot 2026-10-28: the marks
+    // of the first plan jumped, and the marks of every other plan went nowhere.
+    // Both plans name their blocker `Named`, so a jump that ignores the plan
+    // lands on the wrong row.
+    const slicesOf = (plan: string, file: string, prefix: string) => ({
+      rows: [
+        row({
+          branch: `feature/${prefix}-named`, plan, planFile: file, wave: 'Named',
+          group: 'working', state: 'wip', ageMinutes: 5,
+          note: 'worker running (pid 12345)',
+          branchUrl: `${GH}feature/${prefix}-named`, kind: 'wave' as const,
+        }),
+        row({
+          branch: `feature/${prefix}-spoken`, plan, planFile: file, wave: 'Spoken',
+          group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+          waitingOn: 'time' as const, verdict: 'blocked', blockedBy: 'Named',
+          branchUrl: `${GH}feature/${prefix}-spoken`, waitingDays: 1,
+          kind: 'wave' as const,
+        }),
+      ],
+      slices: [
+        {
+          plan, name: 'Named', branches: [`feature/${prefix}-named`],
+          verdict: 'wip', section: 'working', complete: false, planSliceCount: 2,
+        },
+        {
+          plan, name: 'Spoken', branches: [`feature/${prefix}-spoken`],
+          verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 2,
+        },
+      ] as Slice[],
+    });
+    const first = slicesOf('first-plan', '2026-10-28-first-plan.md', 'fp');
+    const second = slicesOf('second-plan', '2026-10-28-second-plan.md', 'sp');
+    const payload: Fleet = {
+      ...fleet({ rows: [...first.rows, ...second.rows] }),
+      slices: [...first.slices, ...second.slices],
+    };
+
+    const page = await openAgents(payload);
+    try {
+      const secondBlocker = group(page, 'Working')
+        .locator('[data-slice-row="Named"][data-slice-plan="second-plan"]');
+      await expect.poll(() => secondBlocker.count()).toBe(1);
+
+      // The SECOND plan's mark, found through its own blocked row.
+      const mark = group(page, 'Not started')
+        .locator('[data-slice-list="second-plan"] [data-slice-blocked-by="Named"]');
+      await expect.poll(() => mark.count()).toBeGreaterThan(0);
+      await mark.first().click();
+
+      await expect.poll(() => secondBlocker.first().getAttribute('class'))
+        .toContain('ring-amber-400');
+      const firstBlocker = group(page, 'Working')
+        .locator('[data-slice-row="Named"][data-slice-plan="first-plan"]');
+      expect(await firstBlocker.first().getAttribute('class')).not.toContain('ring-amber-400');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('keeps a REFUSED menu focusable, so its explanation stays reachable', async () => {
     // A REFUSAL IS NOT AN ABSENCE, and this is the case that survived the
     // withdrawal above. A row whose act the server declines still HAS something

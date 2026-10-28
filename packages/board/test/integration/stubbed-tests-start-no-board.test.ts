@@ -818,7 +818,11 @@ const EXPECTED_FILES = 76;
 // 627 → 630 on 2026-10-28: three `it(` in `mine-filter.browser.test.ts`, for
 // the hide/show-unknown control gated on the unknown count (plot-mine-mode-
 // control). The file already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 630;
+// 630 → 631 on 2026-10-28: one `it(` in `agents-tab.browser.test.ts`, for a
+// blocked-by mark that reaches a WORKING blocker of the second plan
+// (bug/a-blocked-slice-links-to-its-blocker). The file already drove a page,
+// so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 631;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
