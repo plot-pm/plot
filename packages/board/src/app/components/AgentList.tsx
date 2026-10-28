@@ -77,6 +77,7 @@ import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/
 import {
   readMineOnly,
   agentsForReader,
+  draftsForReader,
   readerFrom,
   rowsForReader,
   ticketsForReader,
@@ -511,7 +512,13 @@ export function AgentList({
   // the unfiltered `fleet.rows`, like the joins above: a row the sprint filter
   // hides still means the plan has one. `?? []` because the client casts the
   // fleet, and an older server sends no `draftPlans` at all.
-  const draftRows = draftPlanRows(fleet?.draftPlans ?? [], fleet?.rows ?? []);
+  //
+  // FILTERED BY OWNERSHIP THE SAME PLACE `visibleRows` IS — a Draft plan row
+  // now carries `assignee`/`author`/`approver` like every other owned row, so
+  // «Mine» applies to it too. A plan naming nobody, or naming only someone
+  // `isMine` cannot resolve, stays visible; only a row somebody ELSE owns
+  // hides.
+  const draftRows = draftsForReader(draftPlanRows(fleet?.draftPlans ?? [], fleet?.rows ?? []), reader, mineOnly);
   // THE FLEET'S OWN VERIFY RUNS — a run ON A PLAN, not on a branch. `halted`,
   // `running` and `rows` come from `.plot/state/auto-verify-in-flight.json` as
   // the daemon last wrote it; `null` (the file unreadable) answers no rows and

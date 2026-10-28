@@ -4201,6 +4201,15 @@ export const DraftPlanSchema = z.object({
   rounds: z.number().optional(),
   /** The tracker keys the plan answers, as `CardSchema.issues` carries them. */
   issues: z.array(z.string()).default([]),
+  /**
+   * The plan's assignee, author and approver — the same `PlanOwnerFields`
+   * shape an `AgentRow` with no PR carries, so the ownership rule can tell
+   * whose this row is. `''` where the plan names nobody, same as `title`, so
+   * a payload from a server that predates these fields still parses.
+   */
+  assignee: z.string().default(''),
+  author: z.string().default(''),
+  approver: z.string().default(''),
 });
 export type DraftPlan = z.infer<typeof DraftPlanSchema>;
 

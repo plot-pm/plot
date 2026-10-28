@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { draftPlanOf } from '../../src/server/board.js';
+import { draftPlanOf, type PlanOwnerFields } from '../../src/server/board.js';
 import { draftPlanRows, draftRoundsText } from '../../src/app/lib/agent-rows/working-agents.js';
 import { PlanMetaSchema, type AgentRow } from '../../src/contract/schema.js';
+
+// No owner named — the common case these fixtures exercise; `planEstate` tests
+// below cover a Draft plan whose fields resolve to someone.
+const NO_OWNER: PlanOwnerFields = { assignee: '', author: '', approver: '' };
 
 // A DRAFT PLAN ASKS FOR A DECISION.
 //
@@ -23,12 +27,15 @@ const branchRow = (plan: string): AgentRow =>
 
 describe('a Draft plan with no branch row', () => {
   it('becomes one WAITING ON YOU row naming its rounds', () => {
-    const draft = draftPlanOf(meta('draft', { rounds: 2 }), PATH);
+    const draft = draftPlanOf(meta('draft', { rounds: 2 }), PATH, NO_OWNER);
     expect(draft).toEqual({
       plan: 'zucchini-glut',
       planFile: '2026-09-26-zucchini-glut.md',
       title: 'Zucchini glut',
       issues: [],
+      assignee: '',
+      author: '',
+      approver: '',
       rounds: 2,
     });
     const rows = draftPlanRows([draft!], []);
@@ -40,7 +47,7 @@ describe('a Draft plan with no branch row', () => {
     // `Impl: same branch` puts a Draft plan on its work branch, and the
     // classifier's `draft` arm already places that row in WAITING ON YOU. A
     // source filtering on phase alone would name the plan twice.
-    const draft = draftPlanOf(meta('draft', { rounds: 1 }), PATH)!;
+    const draft = draftPlanOf(meta('draft', { rounds: 1 }), PATH, NO_OWNER)!;
     expect(draftPlanRows([draft], [branchRow('zucchini-glut')])).toEqual([]);
     // Control: a row belonging to ANOTHER plan does not suppress it.
     expect(draftPlanRows([draft], [branchRow('other-plan')])).toEqual([draft]);
@@ -58,19 +65,29 @@ describe('a plan past Draft', () => {
   // and has no row either, so a source keyed on the row set alone would list it.
   for (const phase of ['approved', 'delivered', 'released']) {
     it(`produces no row at ${phase}`, () => {
-      expect(draftPlanOf(meta(phase, { rounds: 3 }), PATH)).toBeNull();
+      expect(draftPlanOf(meta(phase, { rounds: 3 }), PATH, NO_OWNER)).toBeNull();
     });
   }
 });
 
 describe('rounds is reported, never defaulted', () => {
   it('no Rounds: field and Rounds: 0 stay two different answers', () => {
-    const absent = draftPlanOf(meta('draft'), PATH)!;
-    const zero = draftPlanOf(meta('draft', { rounds: 0 }), PATH)!;
+    const absent = draftPlanOf(meta('draft'), PATH, NO_OWNER)!;
+    const zero = draftPlanOf(meta('draft', { rounds: 0 }), PATH, NO_OWNER)!;
     expect('rounds' in absent).toBe(false);
     expect(zero.rounds).toBe(0);
     expect(draftRoundsText(absent.rounds)).toBe('not interrogated');
     expect(draftRoundsText(zero.rounds)).toBe('0 rounds');
     expect(draftRoundsText(1)).toBe('1 round');
+  });
+});
+
+describe('a Draft plan row carries its owner fields', () => {
+  it('passes assignee, author and approver through from the caller', () => {
+    const owner: PlanOwnerFields = { assignee: 'jwloka', author: 'eins78', approver: 'Jan Wloka' };
+    const draft = draftPlanOf(meta('draft'), PATH, owner)!;
+    expect(draft.assignee).toBe('jwloka');
+    expect(draft.author).toBe('eins78');
+    expect(draft.approver).toBe('Jan Wloka');
   });
 });

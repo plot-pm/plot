@@ -2785,14 +2785,19 @@ export async function planStatusBySlug(
  *
  * @param meta - the plan as `plot-plan-meta.sh` parsed it.
  * @param relPath - the plan's canonical path; its basename is the plan file.
+ * @param ownerFields - the same `assignee`/`author`/`approver` the caller
+ *   already computed for `fieldsBySlug` from this `meta`/`relPath` pair.
  */
-export const draftPlanOf = (meta: PlanMeta, relPath: string): DraftPlan | null =>
+export const draftPlanOf = (meta: PlanMeta, relPath: string, ownerFields: PlanOwnerFields): DraftPlan | null =>
   meta.phase === 'draft'
     ? {
       plan: planSlug(relPath),
       planFile: path.basename(relPath),
       title: meta.title,
       issues: meta.issues.map(String),
+      assignee: ownerFields.assignee,
+      author: ownerFields.author,
+      approver: ownerFields.approver,
       ...(meta.rounds === undefined ? {} : { rounds: meta.rounds }),
     }
     : null;
@@ -2925,12 +2930,13 @@ async function readPlanEstate(
         continue;
       }
       bySlug.set(slug, planStatus(meta, pulse, complete));
-      fieldsBySlug.set(slug, {
+      const ownerFields: PlanOwnerFields = {
         assignee: meta.assignee,
         author: planAuthors.get(relPath) ?? '',
         approver: approverOf(meta.approved_raw),
-      });
-      const draft = draftPlanOf(meta, relPath);
+      };
+      fieldsBySlug.set(slug, ownerFields);
+      const draft = draftPlanOf(meta, relPath, ownerFields);
       if (draft) draftPlans.push(draft);
       const spike = approvedSpikeOf(meta);
       if (spike !== undefined) approvedSpikes.add(approvedSpikeKey(relPath, spike));
