@@ -3122,7 +3122,6 @@ for line in sys.stdin:
                      "1" if d.get("tracer") else "0", "1" if d.get("spike_approved_raw") else "0",
                      ",".join(spikes) or "-", str(len(spikes)), clean(unread_json)]))
     for i, w in enumerate(d.get("waves", []) or []):
-        name = w.get("name")
         for b in w.get("branches", []) or []:
             ref = b.get("branch") or ""
             # Not every prefixed token in a ## Branches section is
@@ -3154,7 +3153,7 @@ for line in sys.stdin:
                 "W", f, str(i), ref, str(b.get("deferred")).lower(),
                 (b.get("deferred_reason") or "-"),
                 (",".join(waits_on) if isinstance(waits_on, list) else waits_on) or "-",
-                name or "-", b.get("claimed") or "-", ",".join(b.get("commits") or []) or "-"]))
+                w.get("name") or "-", b.get("claimed") or "-", ",".join(b.get("commits") or []) or "-"]))
 ' 2>/dev/null) || records=""
 
   local kind file rest
