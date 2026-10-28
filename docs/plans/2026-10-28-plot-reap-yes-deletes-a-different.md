@@ -154,7 +154,7 @@ Decided 2026-10-28 by Jan Wloka after plot-review #2837 on plan PR #2828:
 
 ### Unknown host answers
 
-- `bug/plot-reap-names-an-unknown-host-answer` — `LocalBranchReadings` carries `MergedAnswer` and the refusal kind; an `unknown` answer, a failed port result, a failed call with empty stderr and a bare `not found` failure each print their own `keep` reason instead of "unlanded work — no merged PR"; narrow `miss_or_unknown` (`plot-host.sh:658`)
+- `bug/plot-reap-names-an-unknown-host-answer` — `LocalBranchReadings` carries `MergedAnswer` and the refusal kind; an `unknown` answer, a failed port result, a failed call with empty stderr and a bare `not found` failure each print their own `keep` reason instead of "unlanded work — no merged PR"; narrow `miss_or_unknown` (`plot-host.sh:658`) → #2861
 
 ### Commits after merge
 
