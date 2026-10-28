@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #2747
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2748 merged
 - **Started:** 2026-10-27, Jan Wloka, `feature/bundle-entries-end-through-a-drain`
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
