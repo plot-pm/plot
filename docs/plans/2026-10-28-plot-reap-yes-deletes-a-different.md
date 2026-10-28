@@ -149,7 +149,7 @@ Decided 2026-10-28 by Jan Wloka after plot-review #2837 on plan PR #2828:
 
 ### Recoverable deletes
 
-- `bug/plot-reap-pins-every-tip-it-deletes` — write `refs/plot/reaped/<branch>/<sha>` and a `.plot/state/reaped.tsv` row before each local delete at `reap.ts:911,1048,1171`; no pin, no delete; print a restore command per `deleted` row; prune reaped refs whose row is older than 30 days; keep the checked-out refusal; correct `skills/plot/scripts/README.md:49` <!-- builds: refs/plot/reaped/<branch>/<sha>, .plot/state/reaped.tsv and the 30-day prune -->
+- `bug/plot-reap-pins-every-tip-it-deletes` — write `refs/plot/reaped/<branch>/<sha>` and a `.plot/state/reaped.tsv` row before each local delete at `reap.ts:911,1048,1171`; no pin, no delete; print a restore command per `deleted` row; prune reaped refs whose row is older than 30 days; keep the checked-out refusal; correct `skills/plot/scripts/README.md:49` <!-- builds: refs/plot/reaped/<branch>/<sha>, .plot/state/reaped.tsv and the 30-day prune --> → #2850
 
 ### Unknown host answers
 
