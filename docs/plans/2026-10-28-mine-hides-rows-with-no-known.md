@@ -1,86 +1,110 @@
 # «Mine» hides rows with no known owner and counts them
 
-> With «Mine» on, the board keeps only rows that `isMine` answers `mine`, counts the `unknown` rows it hid, and lets the reader add them back with one control.
+> «Mine» gets a stricter mode that keeps only rows the reader owns and counts the rows with no known owner in the existing `N hidden`. Today's view stays the default, one domain value decides the filter on all three tabs, and *Waiting on you* splits its hidden count into unassigned and assigned to others.
 
 ## Status
 
 - **State:** Draft
 - **Type:** feature
-- **Sprint:**
+- **Sprint:** follow-ups-2-29-1
 - **Issue:** #2811
 - **Story:**
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- «Mine» shows only the reader's own rows. A «N unknown ▸» control appears beside the chip while «Mine» is on and N is above 0, and a click adds the rows with no known owner back. Unassigned tickets move to a collapsed *Unassigned* section.
+- With «Mine» on, a control beside the filter hides the rows with no known owner too, and `N hidden` then counts them. The choice persists across reloads. The default view does not change.
+- «Mine» filters nothing while the board cannot compare the reader's login with a row's owner, whatever the stored setting says, and every tab names the reason.
+- The reader's own desks on this machine count as the reader's, with or without a manifest.
+- *Waiting on you* names how many hidden tickets are unassigned and how many are assigned to someone else.
 
-Board impact: changes the Delivery and Discovery filters in `packages/board`, and `isMine` or a stricter sibling in `packages/domain`. No change to the plan format, the template or the helper scripts. The board artifact needs a rebuild on merge.
+Board impact: changes the Delivery chip row, the Planning and Discovery «Only my work» header, and every «Mine» filter site in `packages/board`, and adds rules in `packages/domain` (`ownership`, `chip-row`, `lanes-for-reader`, `waiting-tickets`). The `WaitingTickets` wire shape gains two count fields. No change to the plan format, the template or the helper scripts. The board artifact needs a rebuild on merge.
 
 ## Motivation
 
-A reader who turns on «Mine» asks for their own work. Today `rowsForReader` and `ticketsForReader` (`packages/board/src/app/lib/agent-rows/mine-filter.ts`) hide only rows that `isMine` answers `theirs`. A row with no determinable owner answers `unknown` and stays, so «Mine» shows work that is not known to be the reader's, and nothing says how many such rows there are.
+A reader who turns on «Mine» asks for their own work. `isMine` answers true for `mine` and for `unknown` (`packages/domain/src/rules/ownership.ts:288`), so «Mine» keeps every row whose owner the board cannot determine, and no count says how many such rows there are.
 
-A high `unknown` count is a configuration signal: `People` lacks spellings for the assignees and authors on the board. Hiding the rows without counting them hides that signal too.
-
-Issue #2811 was split from #2808 by panel round 1 (`.plot/panels/2026-10-28-empty-jira-inbox-read-as-a/panel.md` on branch `idea/empty-jira-inbox-read-as-a`). The bug plan for #2808 keeps the released rule that unknown rows stay visible. This plan holds the behaviour change.
+`unknown` has several causes. Some rows carry an owner spelling that `People` does not declare, and a `People` entry fixes them. Other rows carry no owner at all: builds and bare branches (`ownedFromRow`'s `other` fallback), unassigned tickets, and agents whose desk is not on this machine. No configuration fixes those rows. So the unknown count is not a `People` signal, and this plan does not present it as one.
 
 ## Design
 
 ### Approach
 
-The proposed control, with «Mine» on:
+**One domain value decides «Mine».** The domain computes the effective «Mine» mode from the reader and the two stored strings:
+
+- `all` — «Mine» is off, or `comparableLogin(reader)` is `''` (the chip's own test, `packages/domain/src/rules/chip-row.ts:163`). Every row shows.
+- `mine-and-unknown` — «Mine» is on and the stricter mode is off. Rows answering `theirs` hide. This is today's view.
+- `mine` — «Mine» is on and the stricter mode is on. Only rows answering `mine` stay.
+
+Every filter site reads this value, never the raw stored flag. Today the filters read the stored `mineOnly` directly (`packages/board/src/app/components/AgentList.tsx:499,726,758,1085`, `packages/board/src/app/App.tsx:1481`) while a disabled chip reports `on: false` (`chip-row.ts:165`). Under a strict mode that mismatch would empty the board behind a greyed chip. The value closes it.
+
+**The gate is `comparableLogin`, not `readerIsKnown`.** `readerIsKnown` answers true for a reader with only a git email (`ownership.ts:301-302`) and has no production caller. Every ownership arm compares `comparableLogin` (`ownership.ts:104,120,154,184`). On a Bitbucket checkout where `plot-host.sh account` exits 4 and `PLOT_BUDGET_ACCOUNT` is unset, `comparableLogin` is `''`, the mode is `all`, and the Delivery chip and the Planning and Discovery checkbox both show the chip's disabled reason.
+
+**Stored state.** The existing key `plot-board:agents:mine-only` (`packages/board/src/app/lib/agent-rows/mine-filter.ts:17`) keeps its meaning: `1` is «Mine» on with unknown rows shown. A new key holds the stricter mode, and an absent new key reads as off. A reader who never touches the new control sees today's view exactly. Both keys are per browser origin in `localStorage`, as the existing key is, and all three tabs share them.
+
+**The control.** The chip's `N hidden` already counts the branch and PR rows that answer `theirs` (`chip-row.ts:168`, `packages/board/src/app/lib/agent-rows/chip-readings.ts:47`). It counts no registry agents and no tickets. The control reuses that count and adds no second number for the same rows:
 
 ```
-[This sprint]  [Mine (Jan Wloka)]  14 others · 23 unknown ▸   [Waiting on me]
+mine-and-unknown:  [Mine (jwloka) 14 hidden]  hide 23 unknown
+mine:              [Mine (jwloka) 37 hidden]  show 23 unknown
 ```
 
-- «Mine» on keeps only `mine` rows.
-- «23 unknown» renders only while «Mine» is on and the count is above 0. A click adds the `unknown` rows back. It is one control, not two toggles.
-- Unassigned tickets go to their own collapsed *Unassigned* section instead of *Waiting on you*.
-- The count and the visibility of the control are domain properties, asserted in unit tests. One browser test proves the control shows them.
+- The control shows only while the mode is `mine-and-unknown` or `mine` and the unknown count is above 0.
+- In `mine`, `N hidden` counts the `theirs` rows plus the `unknown` rows, so the number always names every row the filter hides.
+- The unknown count covers branch and PR rows and registry agents. Tickets stay out of it: *Waiting on you* counts its own hidden tickets.
+- The labels and both counts are domain properties of `chipRow`. `ChipRowReadings` widens to take the registry agents. One browser test proves the chip row renders them.
 
-The rest of this section lists what the design must settle before approval. Each item is a measured fact from the panel, not a choice made here.
+**Planning and Discovery.** These tabs have no chip row. They share one «Only my work» header checkbox (`App.tsx:1305-1316`), which reads the same key as the Delivery chip. The same control renders beside that checkbox with the active tab's counts: Planning counts the plan cards `boardForReader` hides (`mine-filter.ts:216-225`), and Discovery counts the lane rows `lanesForReader` hides. `lanesForReader` returns its counts beside `hiddenByOwner` (`packages/domain/src/rules/lanes-for-reader.ts:23`). The checkbox gets the chip's disabled state and reason while the mode is `all` because of an empty `comparableLogin`.
 
-**The released contract this reverses.** `docs/plans/2026-09-24-the-board-shows-me-only-my-work.md:123` says an unknown row is shown. Tests pin it: `ownership.test.ts:200,269`, `chip-row.test.ts:141`, `mine-filter.test.ts:45,74-100`. The plan states the reversal and amends that plan's line instead of leaving two contradicting plans.
+**Agents.** `agentOwnership` answers `mine` only for a manifest agent with a desk here (`ownership.ts:247-250`). A synthesized desk whose state shows it is on this machine also answers `mine`, because the board's machine is the reader's machine. An agent whose state is `elsewhere` or `unknown` stays `unknown` (`NO_DESK_HERE`, `ownership.ts:82`), so it hides in the `mine` mode and the unknown count includes it.
 
-**Every `isMine` caller.** There are five, including Discovery's `lanes-for-reader.ts:67` and the chip's `hiddenCount` (`chip-row.ts:168`). The plan chooses between redefining `isMine` (all five change at once) and a stricter filter for Delivery only (Discovery keeps the released rule).
+**The stricter rule sits beside `isMine`.** Slice 1 adds the strict answer and the mode with no change to `isMine` or its tests. Slice 3 moves all six `isMine` call sites to the mode: `rowsForReader`, `agentsForReader`, `ticketsForReader` and `boardForReader` (`mine-filter.ts:159,173,207,222`), `lanesForReader` (`lanes-for-reader.ts:67`) and the chip's `hiddenCount` (`chip-row.ts:168`). Slice 4 removes `isMine` once nothing calls it.
 
-**Agents.** `agentOwnership` never answers `theirs`. A mine-only filter therefore hides the reader's own desks that have no manifest, and every `elsewhere` agent (`ownership.ts:247-250`). The plan decides whether agent rows are exempt, counted as `unknown`, or fixed at the source.
+**The *Waiting on you* hidden count splits.** `waitingTickets` already keeps only the reader's tickets and counts the rest in one `hidden` number, which `hiddenSentence` renders as *N open tickets are not assigned to you* (`packages/domain/src/rules/waiting-tickets.ts:235-238`). The rule adds two fields, `unassigned` and `assignedToOthers`, whose sum is `hidden`, and the sentence names both, for example *3 open tickets are not assigned to you — 1 unassigned*. `hidden` keeps its meaning, so an older consumer of the wire shape still reads it. The section's rule does not change.
 
-**Bitbucket with no login.** `plot-host.sh account` exits 4 on Bitbucket. `hostUser` is then empty unless `PLOT_BUDGET_ACCOUNT` is set, every PR row reads `unknown`, and hiding `unknown` empties the board. That is the failure the 2026-09-24 rule prevents. The plan defines what «Mine» does when `readerIsKnown` is false.
+### Contract Change
 
-**Stored state.** A stored `mine-only=1` hides more after the upgrade, though the reader did nothing. The plan decides between a new storage key, a one-time notice, or accepting the change.
+- `docs/plans/2026-09-24-the-board-shows-me-only-my-work.md:123` says a row whose owner cannot be determined is shown, never hidden. The `mine` mode reverses that line for a reader who turns it on. The default mode keeps it. The released plan stays unchanged as the record of 2026-09-24.
+- `docs/plans/2026-09-24-the-board-shows-me-only-my-work.md:120` says the filter subtracts from the view and never changes *Waiting on you*'s rule. That line still holds: the hidden-count split changes the sentence, not which tickets the section selects.
+- Applied as the only rule, the strict answer breaks 37 unit tests in 7 files: `packages/domain/test/ownership.test.ts` (10), `packages/domain/test/lanes-for-reader.test.ts` (7), `packages/domain/test/chip-row.test.ts` (1), `packages/board/test/unit/mine-filter.test.ts` (4), `packages/board/test/unit/a-row-is-owned-by-more-than-its-pr.test.ts` (10), `packages/board/test/unit/agent-list.test.ts` (3) and `packages/board/test/unit/plan-estate-branch-owner.test.ts` (2). It also breaks two browser tests, `packages/board/test/integration/mine-filter.browser.test.ts:145` and `:576`. The tests that pin the lenient view keep their meaning as the `mine-and-unknown` mode. Each test that slice 3 or slice 4 rewrites is a named contract change in that slice's PR.
+- The `mine` mode also hides the reader's own work where the owner reads `unknown`: plan cards with free-text owner names when `People` is absent (51 of 113 plans, `ownership.test.ts:162`), and tickets whose tracker spelling `People` does not declare (`lanes-for-reader.test.ts:74`). The `show N unknown` control is the way back, and the default mode is unaffected.
 
-**Signals that exist.** The chip shows `N hidden` for agent rows only (`DeliveryFilters.tsx:87-91`). Discovery's `hiddenByOwner` is an "it hid everything" signal that Delivery can reuse.
+### Decisions
 
-**A defect in `accountTicketOwnership`.** It answers `theirs` at the first declared assignee who is someone else, so `[mruepp, me]` gives `theirs`. Its own doc comment (`ownership.ts:176`) says any match is `mine`. A mine-only filter turns this from a visible-anyway quirk into a hidden own ticket, so the fix belongs in this plan's first slice or in a bug plan that lands before it.
+Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-mine-hides-rows-with-no-known/panel.md`):
 
-### Open Questions
-
-- [ ] Redefine `isMine`, or add a stricter filter for Delivery only?
-- [ ] Do agent rows count toward «N unknown», stay exempt, or get an owner from the registry?
-- [ ] What does «Mine» do while `readerIsKnown` is false?
-- [ ] How does a stored `mine-only=1` behave after the upgrade?
-- [ ] Does the *Unassigned* section replace the unknown count for tickets, or do both show?
-- [ ] Does the `[mruepp, me]` fix ship as a bug plan first?
+- [x] The `[other, me]` multi-assignee defect in `accountTicketOwnership` leaves this plan. It is issue #2819, planned separately and shipping first.
+- [x] Rule shape: a stricter rule beside `isMine` first, with no change to `isMine` or its tests; then one effective «Mine» value gated on `comparableLogin !== ''` that all six call sites and every raw-flag reader use; then `isMine` goes once nothing calls it.
+- [x] Agents: a desk on this machine answers `mine` at the source; an `elsewhere` agent stays `unknown`.
+- [x] The *Unassigned* section is dropped. *Waiting on you*'s hidden count splits into unassigned and assigned to others, as a domain field in `waitingTickets`, in its own slice because it is independent of the strict rule.
+- [x] Stored state: the existing key keeps meaning «Mine» on with unknown shown; the stricter mode lives under a new key.
+- [x] The control reuses `N hidden` and adds no «N others» count.
+- [x] Is the unknown count a `People` signal? No: it mixes fixable spellings with rows nothing can fix. A split by cause is not in this plan.
+- [x] *Show every ticket* in the `mine` mode: the box wins. It shows every open ticket, narrowed only by the `mine-and-unknown` answer, so an unassigned ticket comes back (`waiting-view.ts:97`, `mine-filter.browser.test.ts:576`). The mode filters the other sections.
 
 ## Slices
 
-### Ownership rule
+### Strict ownership rule
 
-- `feature/mine-keeps-only-mine-rule` — Domain: a strict mode of the ownership answer, an unknown count per row kind, and the `accountTicketOwnership` multi-assignee fix. <!-- builds: unknown count per row kind, strict mine filter -->
+- `feature/mine-strict-ownership-rule` — Domain only: a strict ownership answer beside `isMine`, the effective «Mine» mode with its stored-key reader, and a synthesized desk on this machine answering `mine`. `isMine` and its tests stay unchanged; `ownership.test.ts:107` changes deliberately. <!-- builds: strict ownership answer, effective Mine mode, local desk answers mine -->
 
-### Board control
+### Waiting hidden split
 
-- `feature/mine-unknown-control` — Delivery and Discovery use the strict answer, render the «N unknown ▸» control, apply the stored-state decision, and show the reader-unknown fallback.
+- `feature/waiting-hidden-split` — Domain: `waitingTickets` splits `hidden` into `unassigned` and `assignedToOthers`, and `hiddenSentence` names both; independent of the other slices. <!-- builds: unassigned and assigned-to-others counts -->
 
-### Unassigned tickets
+### Mine mode control
 
-- `feature/unassigned-tickets-section` — A collapsed *Unassigned* section for tickets with no assignee, out of *Waiting on you*. <!-- builds: Unassigned section -->
+- `feature/mine-mode-control` — Board: all six `isMine` call sites and every raw-flag reader move to the effective mode; the hide/show unknown control on the Delivery chip row and the Planning and Discovery header; counts from `chipRow` and `lanesForReader`; the new storage key. <!-- builds: hide/show unknown control, disabled Only my work checkbox -->
+
+### isMine removal
+
+- `feature/is-mine-removed` — Domain: removes `isMine` and its tests once no production code calls it.
 
 ## Notes
 
-- Created from issue #2811 by `/plot-idea`. Stops at Draft: whether the reversal is worth making is the reviewer's decision.
-- Slice names and the wave order are a first proposal. The answers to the open questions can merge or reorder them.
+- Created from issue #2811 by `/plot-idea`.
+- Depends on #2819 (`[other, me]` answers `theirs` in `accountTicketOwnership`). That bug ships first: under the `mine` mode a wrongly `theirs` ticket is hidden with no count to bring it back.
+- `bug/draft-rows-obey-mine` in `2026-10-28-empty-jira-inbox-read-as-a` adds a seventh `isMine` caller for Draft plan rows. If it merges first, slice 3 moves that caller too.
+- Slice order: slices 1 and 2 merge in any order; slice 3 needs slice 1; slice 4 needs slice 3. Each slice leaves `main` green on its own.

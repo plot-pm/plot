@@ -1,0 +1,61 @@
+# Juror verdict: testability
+
+Position: amend
+
+Evidence: Read the plan, issue #2811, `ownership.ts`, `chip-row.ts`, `lanes-for-reader.ts`, `waiting-tickets.ts`, `mine-filter.ts`, `chip-readings.ts`, `DeliveryFilters.tsx`, `AgentList.tsx`, `App.tsx`, `StoriesTab.tsx`, `mine-filter.browser.test.ts`, and `2026-09-24-the-board-shows-me-only-my-work.md:118-128`. Ran: the five named contract files on the worktree at baseline (domain 93/93, board 28/28 pass), and four more board unit files at baseline (350/350 pass). Then ran a mutation in a scratch copy (`juror2811-testability/repo`): `isMine` changed from `!== 'theirs'` to `=== 'mine'`, and the same files ran against it. Also ran a probe test of `accountTicketOwnership` with `[m.ruepp, jan.wloka]`. Did not run browser tests. Only read them.
+
+## (a) Problem statement
+
+- **Measured: the strict rule breaks 37 unit tests in 7 files, and the plan names 3 of the files.** Under the mutation, these tests fail: `ownership.test.ts` (10), `lanes-for-reader.test.ts` (7), `chip-row.test.ts` (1), `mine-filter.test.ts` (4), `a-row-is-owned-by-more-than-its-pr.test.ts` (10), `agent-list.test.ts` (3) and `plan-estate-branch-owner.test.ts` (2). `waiting-view.test.ts` and `chip-readings.test.ts` still pass: `waitingView` takes the filter as an injected function, and `chipReadings` only maps the rows. The plan cites only `ownership.test.ts:200,269`, `chip-row.test.ts:141` and `mine-filter.test.ts:45,74-100`. Those line numbers are correct.
+- **There are six `isMine` call sites, not five.** They are `mine-filter.ts:159` (rows), `:173` (agents), `:207` (tickets), `:222` (`boardForReader`, plan cards), `lanes-for-reader.ts:67` and `chip-row.ts:168`. The plan does not name `boardForReader`. It filters the Planning tab's Kanban (`App.tsx:1481,1494`), which is neither Delivery nor Discovery. The stored preference is shared (`mine-filter.browser.test.ts:435` *"shares one preference with the agents tab"*). A Delivery-only strict filter therefore gives one stored toggle two meanings on three tabs.
+- **A cause is missing: the reader's own plans read `unknown` when `People` is absent.** `ownership.test.ts:162` *"hides none of the reader's plans without a directory"* records that an exact-match rule hid 51 of the reader's 113 plans. That test fails under the mutation, as does `lanes-for-reader.test.ts:74` *"keeps the reader's own ticket even where their tracker spelling is undeclared"*. So the strict rule hides the reader's own work in two more populations than agents. The plan lists agents and Bitbucket but not plan cards with free-text names or undeclared tracker spellings.
+- **The chip's `N hidden` counts branch rows, not agents.** `chipReadings` builds `visibleRows` from `sprintFilteredRows` (`chip-readings.ts:47`), which are `AgentRow` branch rows. Registry agents and tickets are not counted. The plan's phrase "for agent rows only" uses the type name and reads as "registry agents". The fix is to name the populations.
+- **Confirmed by running it: the `accountTicketOwnership` defect depends on order.** With `jwloka = jira:jan.wloka; mruepp = jira:m.ruepp`, `[m.ruepp, jan.wloka]` answers `theirs`, while `[jan.wloka, m.ruepp]` and `[jan.wloka]` answer `mine` (`ownership.ts:158-163`). The doc comment that contradicts this is also at `ownership.ts:146-151`, on the function itself. `:176` is the doc comment of the caller, `ticketOwnership`.
+
+## (b) Approach
+
+- **Today the filter does not read the domain's `on` state.** `mineChip` answers `on: false` while the chip is disabled (`chip-row.ts:164-166`). The filters read the raw stored `mineOnly` (`AgentList.tsx:422,499,726,758`, `App.tsx:280,1481`). Today this is harmless because `unknown` stays visible. Under the strict rule, a stored `mine-only=1` with `readerIsKnown` false hides every PR row behind a disabled chip, and the reader has no control on Delivery to undo it. localStorage is per origin, so a toggle set on one repository's board carries to another board on the same port. This is the Bitbucket open question in a form that a test can pin. The effective filter state must come from the domain (`chips.mine.on`). Today no test covers "stored on, reader unknown".
+- **The control adds a third state, and the plan does not name it as a type.** The states are off, mine only, and mine plus unknown. `readMineOnly` and `writeMineOnly` store `'1'`/`'0'` (`mine-filter.ts:54-71`). The stored-state question and the «N unknown ▸» click are both transitions of one state. Put it in the domain as a value, for example `MineMode = 'all' | 'mine' | 'mine-and-unknown'`, with a pure reader for the old key. Then the upgrade behaviour is a unit test, not a browser test.
+- **The plan does not define what `hiddenCount` means after the change.** The mockup shows `14 others · 23 unknown`, which is two numbers. `chip-row.ts:168` has one `hiddenCount`, and `DeliveryFilters.tsx:87-91` renders it as `N hidden`. State whether `hiddenCount` becomes "theirs" and `unknownCount` is added, and change the `chip-row.test.ts` cases to match.
+- **The count spans populations that `chipRow` does not read today.** `MineChipReadings.visibleRows` holds branch rows only (`chip-row.ts:62-69`). Tickets are filtered inside `waitingView`'s callback (`AgentList.tsx:757-759`), and agents are filtered at `:499`. An `unknownCount` that includes them needs `ChipRowReadings` to take tickets and agents. Without that change, the count is computed in a component, which "Every rendered state is a domain property" forbids. Discovery needs `OwnerFilteredLane` (`lanes-for-reader.ts:19-24`) to carry a count, not only `hiddenByOwner: boolean`.
+- **The *Unassigned* slice reverses a second released line that the plan does not name.** `2026-09-24-the-board-shows-me-only-my-work.md:121` says the filter "does not change what WAITING ON YOU means … never from the section's rule". `waitingTickets` already requires `mine` and hides unassigned tickets by default (`waiting-tickets.ts:117-124`). So an *Unassigned* section changes the section's rule or the wire shape (`WaitingTickets`). It is not a filter change.
+- **The Discovery/Delivery parity test is the test that forces the redefine-or-sibling decision.** `mine-filter.test.ts:74-100` asserts that `isMine`, `ticketsForReader` and `lanesForReader` agree on five cases. With a Delivery-only strict filter, that test must be deliberately split. With a redefined `isMine`, the expected values must flip. In both cases the plan must state the contract change.
+
+## (c) Slices
+
+- **The board slice cannot merge before the rule slice.** It consumes the strict answer and the count. The order rule → board is right.
+- **The rule slice can merge on its own only if it adds a sibling and leaves `isMine` unchanged.** A redefined `isMine` changes all six call sites at merge. The board then hides `unknown` with no «N unknown» control to add the rows back, which is the 2026-09-24 failure. Write into the slice: "adds `strictOwnership`/`unknownCount` and leaves `isMine` and every existing test green". Then the rule slice is a pure addition, and the board slice carries every contract change listed in (a).
+- **The `[mruepp, me]` fix is a bug and must ship first, on its own branch.** It has a one-assertion test, no dependency, and it is wrong today: `ticketsForReader` hides that ticket now, because `theirs` is hidden even under the permissive rule. Bundling it into a Draft feature delays a live defect.
+- **The *Unassigned* slice is independent of the strict filter,** because it touches `waitingTickets` and the wire, not `isMine`. It can merge in any order. Name its schema change.
+- **The board slice is too big for one reviewer.** It covers Delivery, Discovery, the Planning tab, stored-state migration and the reader-unknown fallback, with 6 test files to rewrite plus browser tests. Consider splitting Discovery and Planning from Delivery once the mode type is in the domain.
+
+## (d) Open questions
+
+1. *Redefine or sibling?* Add a sibling for the rule slice (see (c)). The board slice then moves all call sites at once, including `boardForReader`, so the shared stored toggle keeps one meaning. Then delete or rewrite the parity test deliberately. 37 test expectations change either way, and the sibling route lets them change in one reviewed diff.
+2. *Agents?* Under the mutation, `a-row-is-owned-by-more-than-its-pr.test.ts` *"keeps every agent, since the agent arm never answers theirs"* fails: 1 of 3 agents remains. Exempt agent rows, as `workersHiddenByFilter` already exempts workers (`AgentList.tsx:761-775`), or count them. Do not hide them silently.
+3. *`readerIsKnown` false?* The filter follows `chips.mine.on`, which is false while disabled. Test it in `chip-row.test.ts` and assert it with one browser test that has a stored `'1'` and `hostUser: ''`.
+4. *Stored `mine-only=1`?* With a mode type, the old `'1'` maps to `mine-and-unknown`. That keeps today's view and makes the new behaviour opt-in. This needs no notice and is unit-testable through `readMineOnly(storage)`.
+5. *Unassigned and count:* this needs a decision outside this lens. Testability requires that the two never double-count one ticket. A domain test should assert `unknownCount + unassigned.length` against a fixture.
+6. *Bug first?* Yes. See (c).
+
+New questions:
+- Does the strict filter apply to the Planning tab (`boardForReader`)? The tab shares the stored key.
+- What does `hiddenCount` mean after the change, and does `This sprint`'s count stay separate (`AgentList.tsx:707-716`)?
+- How does the plan avoid hiding the reader's own plans when `People` is empty (`ownership.test.ts:162`)? Does «N unknown» then show 51 own plans as "unknown"?
+
+## (e) Tests per slice, lowest tier
+
+- **Bug: `[m.ruepp, me]`.** Domain unit in `ownership.test.ts`: `ownership(ticket(['m.ruepp','jan.wloka'], jira), jiraReader) === 'mine'`. It fails today; the probe answered `theirs`. Add a tracker-account row to the parity table at `mine-filter.test.ts:89-95`.
+- **Rule slice.** Domain unit only. Strict answer for each `OwnedRow` kind. `unknownCount` per kind. `MineMode` transitions and `readMineOnly`'s mapping of `'1'`/`'0'`/absent. `chipRow` → `mine.unknownCount`, and `mine.on` false when disabled even with stored on. `lanesForReader` lane count. Every existing test stays green, which proves the slice is additive.
+- **Board slice.** Board unit: rewrite the 19 failing cases in `mine-filter`, `a-row-is-owned-by-more-than-its-pr`, `agent-list` and `plan-estate-branch-owner` as explicit contract changes, and extend `chip-readings.test.ts` with tickets and agents in the readings. Browser: one test that «N unknown ▸» renders the domain's count and that a click restores the rows. Rewrite `mine-filter.browser.test.ts:145-167` and `:576-598`, which assert that rows with no owner stay. Add one test for stored `'1'` with `hostUser: ''`.
+- **Unassigned slice.** Domain unit on `waitingTickets` (partition and counts), board unit on `waitingView`, and one browser test for the collapsed section.
+
+## Amendments
+
+1. List all 7 test files and 37 unit expectations that the strict rule breaks (measured), plus browser tests `mine-filter.browser.test.ts:145`, `:576`. State each as a contract change.
+2. Name the sixth call site, `boardForReader` (`mine-filter.ts:222`, `App.tsx:1481,1494`), and decide the Planning tab's behaviour under the shared key.
+3. Add the reader's own plans without `People` (`ownership.test.ts:162`, 51 of 113) and undeclared tracker spellings (`lanes-for-reader.test.ts:74`) to the populations that the strict rule hides.
+4. Make the effective filter state a domain property (`chips.mine.on` or a `MineMode`). Stop reading the raw stored flag in `AgentList.tsx` and `App.tsx`, and test "stored on, reader unknown".
+5. Define `hiddenCount` and `unknownCount`, and widen `ChipRowReadings` and `OwnerFilteredLane` so that every rendered count is computed in the domain.
+6. Make the rule slice additive (a sibling of `isMine`, with no existing test changing). Move the `[mruepp, me]` fix to a bug plan that merges first.
+7. Name the second reversal: `2026-09-24-…:121` (*Waiting on you*'s rule) for the *Unassigned* slice, and that slice's wire-schema change.
