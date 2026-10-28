@@ -44,8 +44,12 @@ interface NamedBranch {
   deferred: boolean;
   /** Commits the slice line names as its completion; empty where it names none. */
   commits: readonly string[];
-  /** The cross-repo PR the slice line names (`→ owner/repo#N`), or undefined where it names none. */
-  prRef?: CrossRepoReference;
+  /**
+   * Every cross-repo PR the plan's lines name for this branch (`→ owner/repo#N`
+   * or a heading's `PR: owner/repo#N`) — one per repository it is claimed in.
+   * Empty where no line names one.
+   */
+  prRefs: readonly CrossRepoReference[];
 }
 
 /**
@@ -64,12 +68,12 @@ interface NamedBranch {
  * A branch named twice keeps every commit either mention names.
  *
  * @param meta the parsed plan, as `plot-plan-meta.sh` emitted it
- * @param refs the cross-repo PR reference each branch's slice line names
+ * @param refs every cross-repo PR reference each branch's slice lines name
  * @returns one reading per branch, merge state left for the host to fill
  */
 const branchesOf = (
   plan: { slices: readonly { branches: readonly { branch: string; deferred: boolean; commits?: readonly string[] }[] }[] },
-  refs: ReadonlyMap<string, CrossRepoReference>,
+  refs: ReadonlyMap<string, readonly CrossRepoReference[]>,
 ): NamedBranch[] => {
   const seen = new Map<string, NamedBranch>();
   for (const slice of plan.slices) {
@@ -82,7 +86,7 @@ const branchesOf = (
         branch: b.branch,
         deferred: (held?.deferred ?? true) && b.deferred,
         commits: [...new Set([...(held?.commits ?? []), ...(b.commits ?? [])])],
-        prRef: refs.get(b.branch),
+        prRefs: refs.get(b.branch) ?? [],
       });
     }
   }
@@ -91,6 +95,16 @@ const branchesOf = (
 
 /** How one branch's merge state resolved. */
 type BranchMergeState = 'merged' | 'not-merged' | 'unknown';
+
+/** One branch's merge state, and what a refusal names for it. */
+interface BranchMerge {
+  state: BranchMergeState;
+  /**
+   * The branch name; for a branch decided by cross-repo references, each
+   * `owner/repo#N (branch)` whose own answer is `state`.
+   */
+  names: readonly string[];
+}
 
 /**
  * Whether the default branch of THIS repository contains every named commit.
@@ -144,29 +158,32 @@ const commitMergeState = async (
  * @param ports - the store to read first, and the host to ask for the rest.
  * @param connector - which connector's store to read (the host's own backend word).
  * @param branches - the plan's branch names.
- * @returns one state per branch, in the same order.
+ * @returns one state per branch, keyed by branch name.
  */
 const mergedBranches = async (
   ports: { host: Host; prIndex: PrIndexStore; refs: Refs; defaultBranch?: string },
   connector: string,
   branches: readonly NamedBranch[],
-): Promise<Map<string, BranchMergeState>> => {
+): Promise<Map<string, BranchMerge>> => {
   const read = await ports.prIndex.read(connector);
   const held = read.ok ? read.value : null;
 
-  const states = new Map<string, BranchMergeState>();
-  for (const { branch, commits, prRef } of branches) {
+  const states = new Map<string, BranchMerge>();
+  const set = (branch: string, state: BranchMergeState): void => {
+    states.set(branch, { state, names: [branch] });
+  };
+  for (const { branch, commits, prRefs } of branches) {
     // A SLICE THAT NAMES COMMITS IS DECIDED BY THEM, and by nothing else. The
     // PR store and the host answer for a PR that carried the work; this slice
     // was completed by a direct push, so a PR under its name, merged or not,
     // says nothing about it. A named commit the default branch lacks keeps the
     // slice open.
     if (commits.length > 0) {
-      states.set(branch, await commitMergeState(ports, commits));
+      set(branch, await commitMergeState(ports, commits));
       continue;
     }
     if (held !== null && mergedRowByHead(held, branch) !== undefined) {
-      states.set(branch, 'merged');
+      set(branch, 'merged');
       continue;
     }
     // A CROSS-REPO REFERENCE NAMES A PR ON A DIFFERENT HOST THAN THIS
@@ -174,15 +191,33 @@ const mergedBranches = async (
     // PR keyed by branch, which cannot locate a PR in another repository —
     // `Host.prState` takes the PR's own number and a `repo` to probe the other
     // drivable backend when the checkout's own answers a clean miss.
-    if (prRef !== undefined) {
-      const answer = await ports.host.prState(prRef.number, { repo: prRef.repo });
-      if (!answer.ok) states.set(branch, 'unknown');
-      else states.set(branch, answer.value !== null && answer.value.state === 'MERGED' ? 'merged' : 'not-merged');
+    //
+    // ONE BRANCH CAN NAME SEVERAL REFERENCES — one per repository it is
+    // claimed in — and EVERY ONE IS ASKED: a branch named in three repos with
+    // two still-open PRs must refuse delivery, not merge-and-ignore the
+    // stragglers. `unknown` wins over `not-merged`, which wins over `merged`,
+    // so one host that could not answer is never masked by another that could.
+    // Each reference stays its own entry, so a refusal names the `owner/repo#N`
+    // still open rather than a branch name that six repositories share.
+    if (prRefs.length > 0) {
+      const answers = await Promise.all(
+        prRefs.map((ref) => ports.host.prState(ref.number, { repo: ref.repo })),
+      );
+      const refStates = answers.map((answer): BranchMergeState => {
+        if (!answer.ok) return 'unknown';
+        return answer.value !== null && answer.value.state === 'MERGED' ? 'merged' : 'not-merged';
+      });
+      const state = refStates.includes('unknown') ? 'unknown' : refStates.includes('not-merged') ? 'not-merged' : 'merged';
+      states.set(branch, {
+        state,
+        names: state === 'merged'
+          ? [branch]
+          : prRefs.filter((_, i) => refStates[i] === state).map((ref) => `${ref.repo}#${ref.number} (${branch})`),
+      });
       continue;
     }
     const answer = await ports.host.prMerged(branch);
-    if (!answer.ok) states.set(branch, 'unknown');
-    else states.set(branch, answer.value);
+    set(branch, answer.ok ? answer.value : 'unknown');
   }
   return states;
 };
@@ -282,10 +317,13 @@ export const deliverabilityOf = async (
   // and `allSlicesConfirmed`'s three-way mapping in `rules/deliverable.ts`
   // stays untouched either way, so the narrower change is the one this
   // controller can make alone.
-  const unresolved = named.filter((b) => merged.get(b.branch) === 'unknown');
+  const stateOf = (branch: string): BranchMergeState | undefined => merged.get(branch)?.state;
+  const unresolved = named
+    .filter((b) => stateOf(b.branch) === 'unknown')
+    .flatMap((b) => merged.get(b.branch)?.names ?? [b.branch]);
   if (unresolved.length > 0) {
-    const confirmed = named.filter((b) => merged.get(b.branch) === 'merged').length;
-    const names = unresolved.map((b) => b.branch).join(', ');
+    const confirmed = named.filter((b) => stateOf(b.branch) === 'merged').length;
+    const names = unresolved.join(', ');
     return {
       ...empty,
       deliverable: false,
@@ -297,7 +335,15 @@ export const deliverabilityOf = async (
 
   const branches: DeliverBranchReading[] = [];
   for (const b of named) {
-    const didMerge = merged.get(b.branch) === 'merged';
+    const didMerge = stateOf(b.branch) === 'merged';
+    // AN UNMERGED CROSS-REPO BRANCH IS ONE READING PER OPEN REFERENCE, so the
+    // domain's refusal and `unmerged` name `owner/repo#N (branch)` for each.
+    if (!didMerge && !b.deferred) {
+      for (const name of merged.get(b.branch)?.names ?? [b.branch]) {
+        branches.push({ branch: name, deferred: false, merged: false, carriedWork: 'unknown' });
+      }
+      continue;
+    }
     // ASKED ONLY WHERE IT COULD REPORT. A deferred branch is silent by rule and
     // an unmerged one refuses the delivery outright, so neither is worth a host
     // call — which is what keeps this inside the per-branch budget delivery
