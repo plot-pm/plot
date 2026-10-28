@@ -21,6 +21,13 @@ describe('crossRepoReferences', () => {
     expect(refs.get('feature/y')).toEqual([{ repo: 'acme/widget.js', number: 7 }]);
   });
 
+  it('reads the template\'s documented Bitbucket example, owner as the workspace', () => {
+    const refs = crossRepoReferences(
+      plan('## Slices', '', '- `feature/x` — ewz-kus-portal (Bitbucket): the slice → ewz-kus-ws/ewz-kus-portal#42'),
+    );
+    expect(refs.get('feature/x')).toEqual([{ repo: 'ewz-kus-ws/ewz-kus-portal', number: 42 }]);
+  });
+
   it('ignores a same-repo reference', () => {
     expect(crossRepoReferences(plan('## Branches', '', '- `feature/x` — work → #12')).size).toBe(0);
   });
