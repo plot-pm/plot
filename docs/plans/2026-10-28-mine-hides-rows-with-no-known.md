@@ -105,7 +105,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-mi
 
 ### isMine removal
 
-- `feature/is-mine-removed` — Domain: removes `isMine` and its tests once no production code calls it.
+- `feature/is-mine-removed` — Domain: removes `isMine` and its tests once no production code calls it. → #2870
 
 ## Notes
 
