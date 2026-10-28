@@ -93,7 +93,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-di
 
 ### Board-carried issue answer
 
-- `bug/discovery-tab-disables-create-plan-story` — `/api/board` carries `issueAnswer` and `issueAbsence` from the cache entry; the cold cache starts at `null`; one domain rule decides Create plan and Create story for both tabs; Discovery reads both fields from the board payload; domain unit tests and one browser assertion that the board is the source <!-- builds: issueAnswer and issueAbsence on BoardSchema, a nullable cold issueAnswer, a create-from-issue domain rule -->
+- `bug/discovery-tab-disables-create-plan-story` — `/api/board` carries `issueAnswer` and `issueAbsence` from the cache entry; the cold cache starts at `null`; one domain rule decides Create plan and Create story for both tabs; Discovery reads both fields from the board payload; domain unit tests and one browser assertion that the board is the source <!-- builds: issueAnswer and issueAbsence on BoardSchema, a nullable cold issueAnswer, a create-from-issue domain rule --> → #2851
 
 ## Notes
 
