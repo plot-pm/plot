@@ -722,7 +722,9 @@ export const prConcurrencyBound = (entry: PrState): number | null => {
  * @param backend - the configured host, which decides what one refresh costs.
  * @param rate - what the record says this account is spending, or null where it
  *   was not read or holds no rate to read. Null leaves the cadence exactly where
- *   the cost multiplier alone puts it.
+ *   the cost multiplier alone puts it. Only `perHour` is read: the PR pass
+ *   passes no limit gate, so a `limit`, `basis` or `resetAt` on the same record
+ *   never stretches it past the damped ceiling.
  * @param currentMs - the interval this board is refreshing at right now, which
  *   is what lets it subtract its own contribution from the observed rate.
  *   Defaults to the unstretched interval, which is where a board starts.

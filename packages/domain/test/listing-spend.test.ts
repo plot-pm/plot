@@ -320,7 +320,57 @@ describe('listingSpend', () => {
       });
 
       expect(verdict.spend).toBe(false);
-      expect(verdict.nextAt).toBe(now - LISTING_BASE + (resetAt - now));
+      expect(verdict.nextAt).toBe(resetAt);
+    });
+
+    it('spends nothing before the reset as the reset draws near', () => {
+      // One minute before the reset the wait reads as one base interval; the
+      // listing still waits for the reset itself.
+      const resetAt = 30 * 60_000;
+      const now = resetAt - 60_000;
+      const verdict = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: LIMIT, limit: LIMIT, basis: 'actual', resetAt },
+        lastListedAt: 9 * 60_000,
+        now,
+        currentIntervalMs: 20 * 60_000,
+      });
+
+      expect(verdict.spend).toBe(false);
+      expect(verdict.nextAt).toBe(resetAt);
+    });
+
+    it('spends nothing before the reset where the gate engages after a long stretch', () => {
+      // Last listed 8 minutes ago, reset 5 minutes away: last + wait is already
+      // past, and the reset still holds the listing.
+      const now = 100 * 60_000;
+      const resetAt = now + 5 * 60_000;
+      const verdict = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: LIMIT, limit: LIMIT, basis: 'actual', resetAt },
+        lastListedAt: now - 8 * 60_000,
+        now,
+        currentIntervalMs: 8 * LISTING_BASE,
+      });
+
+      expect(verdict.spend).toBe(false);
+      expect(verdict.nextAt).toBe(resetAt);
+    });
+
+    it('spends at the reset itself', () => {
+      const resetAt = 30 * 60_000;
+      const verdict = listingSpend({
+        intervalMs: LISTING_BASE,
+        costPerListing: GITHUB,
+        rate: { perHour: LIMIT, limit: LIMIT, basis: 'actual', resetAt },
+        lastListedAt: 9 * 60_000,
+        now: resetAt,
+        currentIntervalMs: 20 * 60_000,
+      });
+
+      expect(verdict.spend).toBe(true);
     });
 
     it('spends 0 requests before the reported reset, at a predicted limit', () => {

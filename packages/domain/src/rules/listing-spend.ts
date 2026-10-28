@@ -1,5 +1,5 @@
 import type { SpendRate } from './budget-record.js';
-import { refreshIntervalMs, type RateLimitFields } from './cadence.js';
+import { limitWaitMs, refreshIntervalMs, type LimitGate, type RateLimitFields } from './cadence.js';
 
 /** What the caller knows when it asks whether it may list now. */
 export interface ListingSpendInput {
@@ -67,6 +67,10 @@ export interface ListingSpendVerdict {
  * An absent rate leaves the cadence at the unstretched interval, so a caller on
  * an unread record lists exactly as often as it did before this rule existed.
  *
+ * A rate at or above a stated limit with a reset ahead defers the next listing
+ * to that reset at the earliest: `nextAt` is never before `resetAt` while the
+ * limit gates.
+ *
  * @param input - the interval, the cost of one listing, the account's rate, when
  *   this caller last listed, and now.
  * @returns whether to spend, the previous listing to reuse where it may not, the
@@ -75,14 +79,24 @@ export interface ListingSpendVerdict {
 export const listingSpend = (input: ListingSpendInput): ListingSpendVerdict => {
   const { intervalMs, costPerListing, rate, lastListedAt, now } = input;
   const current = input.currentIntervalMs ?? intervalMs * costPerListing;
-  const stretched = refreshIntervalMs(intervalMs, costPerListing, rate, current, now);
+  const gate: LimitGate | null = rate === null
+    ? null
+    : { limit: rate.limit ?? null, basis: rate.basis ?? 'unknown', resetAt: rate.resetAt ?? null, now };
+  const stretched = refreshIntervalMs(intervalMs, costPerListing, rate, current, gate);
+  const gated = gate !== null
+    && limitWaitMs(rate?.perHour ?? null, gate.limit, gate.basis, gate.resetAt, now) !== null;
   // NO PREVIOUS LISTING IS NOT A STALE ONE. A caller that has never listed is
   // permitted whatever the rate says, and reports no reuse rather than an age
   // measured from a listing that never happened.
   if (lastListedAt === null) {
     return { spend: true, reuse: null, intervalMs: stretched, nextAt: now };
   }
-  const nextAt = lastListedAt + stretched;
+  // THE RESET IS A FLOOR. `stretched` measures the wait from `now`, so adding
+  // it to `lastListedAt` alone would land before the reset.
+  const resetFloor = gated && gate.resetAt !== null && Number.isFinite(gate.resetAt)
+    ? gate.resetAt
+    : Number.NEGATIVE_INFINITY;
+  const nextAt = Math.max(lastListedAt + stretched, resetFloor);
   if (now >= nextAt) {
     return { spend: true, reuse: null, intervalMs: stretched, nextAt };
   }

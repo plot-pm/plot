@@ -344,9 +344,16 @@ describe('a limit the account has actually reached', () => {
     expect(limitWaitMs(LIMIT, LIMIT, 'actual', null, 0)).toBe(MAX_LIMIT_WAIT_MS);
   });
 
-  it('falls back to the bounded maximum where the stated reset has already passed', () => {
+  it('owes no wait where the stated reset has already passed', () => {
     const now = 100_000;
-    expect(limitWaitMs(LIMIT, LIMIT, 'actual', now - 1, now)).toBe(MAX_LIMIT_WAIT_MS);
+    expect(limitWaitMs(LIMIT, LIMIT, 'actual', now - 1, now)).toBe(0);
+    expect(limitWaitMs(LIMIT, LIMIT, 'actual', now, now)).toBe(0);
+  });
+
+  it('holds the unstretched interval where the stated reset has already passed', () => {
+    const now = 100_000;
+    const gate = { limit: LIMIT, basis: 'actual' as const, resetAt: now - 1, now };
+    expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: LIMIT }, INTERVAL, gate)).toBe(INTERVAL);
   });
 
   it('skips the damped path entirely at the limit, in cadenceStretch', () => {
@@ -356,14 +363,18 @@ describe('a limit the account has actually reached', () => {
     // the damped path could never reach in a single adjustment.
     const now = 1_000;
     const resetAt = now + 20 * INTERVAL;
-    const stretch = cadenceStretch(LIMIT, INTERVAL, INTERVAL, GITHUB, LIMIT, 'actual', resetAt, now);
+    const stretch = cadenceStretch(LIMIT, INTERVAL, INTERVAL, GITHUB, {
+      limit: LIMIT, basis: 'actual', resetAt, now,
+    });
     expect(stretch).toBeGreaterThan(MAX_CADENCE_STRETCH);
     expect(stretch).toBeCloseTo((resetAt - now) / INTERVAL, 5);
   });
 
   it('stretches exactly as the limit-free path does, below the limit', () => {
     for (const perHour of [60, 120, 600, LIMIT - 1]) {
-      const withLimit = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB, LIMIT, 'actual', null, 0);
+      const withLimit = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB, {
+        limit: LIMIT, basis: 'actual', resetAt: null, now: 0,
+      });
       const withoutLimit = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB);
       expect(withLimit).toBe(withoutLimit);
     }
@@ -371,7 +382,9 @@ describe('a limit the account has actually reached', () => {
 
   it('stretches exactly as the limit-free path does, on an unknown basis at any perHour', () => {
     for (const perHour of [0, 60, LIMIT, LIMIT * 10]) {
-      const withUnknown = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB, null, 'unknown', null, 0);
+      const withUnknown = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB, {
+        limit: null, basis: 'unknown', resetAt: null, now: 0,
+      });
       const withoutLimit = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB);
       expect(withUnknown).toBe(withoutLimit);
     }
@@ -383,11 +396,27 @@ describe('a limit the account has actually reached', () => {
     const ms = refreshIntervalMs(
       INTERVAL,
       GITHUB,
-      { perHour: LIMIT, limit: LIMIT, basis: 'actual', resetAt },
+      { perHour: LIMIT },
       INTERVAL,
-      now,
+      { limit: LIMIT, basis: 'actual', resetAt, now },
     );
     expect(ms).toBeGreaterThanOrEqual(resetAt - now);
+  });
+
+  it('refreshIntervalMs reads no limit fields off the rate itself', () => {
+    // The PR pass hands its whole spend record through. A limit on that record
+    // must not gate: with no `now` its reset would read as an epoch-long wait.
+    const record = { perHour: LIMIT, limit: LIMIT, basis: 'actual' as const, resetAt: 1_790_000_000_000 };
+    expect(refreshIntervalMs(INTERVAL, GITHUB, record, INTERVAL))
+      .toBe(refreshIntervalMs(INTERVAL, GITHUB, { perHour: LIMIT }, INTERVAL));
+    expect(refreshIntervalMs(INTERVAL, GITHUB, record, INTERVAL))
+      .toBeLessThanOrEqual(MAX_CADENCE_STRETCH * INTERVAL);
+  });
+
+  it('returns to the ceiling, not above it, where the rate goes absent after a gated wait', () => {
+    const waited = 60 * INTERVAL;
+    expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: null }, waited)).toBe(MAX_CADENCE_STRETCH * INTERVAL);
+    expect(refreshIntervalMs(INTERVAL, GITHUB, null, waited)).toBe(MAX_CADENCE_STRETCH * INTERVAL);
   });
 });
 
