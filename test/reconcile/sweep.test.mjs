@@ -63,18 +63,26 @@ function makeRepo() {
   return { tmp, repo };
 }
 
+/** How many squashed branches this file has cut; makes each one's content unique. */
+let squashedCount = 0;
+
 /**
  * A local branch carrying a commit that is NOT an ancestor of main — the
  * squash-merge shape, and the only shape whose merge state the host alone can
  * answer. No worktree is created: this is the population no script looks at.
+ *
+ * Each call writes distinct content. The same branch cut twice from the same
+ * parent with the same content and message gets the same SHA when both commits
+ * land in one second.
  */
-function squashedBranch(repo, branch) {
+const squashedBranch = (repo, branch) => {
+  squashedCount += 1;
   git(repo, 'checkout', '-q', '-b', branch);
-  fs.writeFileSync(path.join(repo, `${branch.replace(/\//g, '-')}.txt`), branch);
+  fs.writeFileSync(path.join(repo, `${branch.replace(/\//g, '-')}.txt`), `${branch}\n${squashedCount}\n`);
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', `work on ${branch}`);
   git(repo, 'checkout', '-q', 'main');
-}
+};
 
 /** A branch carrying nothing but an empty `plot: claim` marker. */
 function claimBranch(repo, branch) {
