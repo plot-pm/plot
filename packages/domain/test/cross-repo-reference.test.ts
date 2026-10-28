@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { crossRepoReferences } from '../src/rules/cross-repo-reference.js';
+import { branchClaims, crossRepoReferences } from '../src/rules/cross-repo-reference.js';
 
 const plan = (...body: string[]): string =>
   ['# A plan', '', '## Status', '', '- **State:** Approved', '', ...body].join('\n');
@@ -44,5 +44,69 @@ describe('crossRepoReferences', () => {
       ),
     );
     expect(refs.size).toBe(0);
+  });
+});
+
+describe('branchClaims', () => {
+  it('gives one row per PR, same-repo and cross-repo, and one empty row for a branch naming none', () => {
+    const rows = branchClaims(
+      plan(
+        '## Slices', '',
+        '- `feature/a` — local → #12',
+        '- `infra/shared` — one → quatico/one#11',
+        '- `infra/shared` — two → quatico/two#22',
+        '- `feature/bare` — no annotation',
+      ),
+    );
+    expect(rows).toEqual([
+      { branch: 'feature/a', reference: { repo: '', number: 12 } },
+      { branch: 'infra/shared', reference: { repo: 'quatico/one', number: 11 } },
+      { branch: 'infra/shared', reference: { repo: 'quatico/two', number: 22 } },
+      { branch: 'feature/bare', reference: null },
+    ]);
+  });
+
+  it('keeps two PRs of one branch in one repository, and every arrow on one line', () => {
+    const rows = branchClaims(
+      plan('## Slices', '', '- `feature/x` — first → a/b#1', '- `feature/x` — second → a/b#2', '- `feature/y` → #585 → #588'),
+    );
+    expect(rows.map((r) => [r.branch, r.reference?.repo, r.reference?.number])).toEqual([
+      ['feature/x', 'a/b', 1],
+      ['feature/x', 'a/b', 2],
+      ['feature/y', '', 585],
+      ['feature/y', '', 588],
+    ]);
+  });
+
+  it('reads the heading arrow form, the heading PR: form, and PR: on a list item', () => {
+    const rows = branchClaims(
+      plan(
+        '## Waves', '',
+        '### One (Branch: feature/one) → a/b#1',
+        '### Two (Branch: feature/two, PR: #2)',
+        '',
+        '## Branches', '',
+        '- `feature/three` — PR: c/d#3',
+      ),
+    );
+    expect(rows).toEqual([
+      { branch: 'feature/one', reference: { repo: 'a/b', number: 1 } },
+      { branch: 'feature/two', reference: { repo: '', number: 2 } },
+      { branch: 'feature/three', reference: { repo: 'c/d', number: 3 } },
+    ]);
+  });
+
+  it('reads one row for a PR named under both Branches and Waves', () => {
+    const rows = branchClaims(
+      plan('## Branches', '', '- `feature/x` → #7', '', '## Waves', '', '### X (Branch: feature/x, PR: #7)'),
+    );
+    expect(rows).toEqual([{ branch: 'feature/x', reference: { repo: '', number: 7 } }]);
+  });
+
+  it('claims no indented item and no backticked prose term', () => {
+    const rows = branchClaims(
+      plan('## Slices', '', '- `feature/x` — work', '  - `src/a.ts` → #9', '- `buildFleet()` + refresh → #10'),
+    );
+    expect(rows).toEqual([{ branch: 'feature/x', reference: null }]);
   });
 });

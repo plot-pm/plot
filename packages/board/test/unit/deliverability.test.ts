@@ -510,7 +510,7 @@ describe('deliverabilityOf reads every cross-repo reference a branch names, not 
     prIndex: prIndexFixture(null),
   });
 
-  it('asks every reference and refuses, naming the branch, when two of three are unmerged', async () => {
+  it('asks every reference and refuses, naming each unmerged reference, when two of three are unmerged', async () => {
     const asked: unknown[] = [];
     const host: Host = {
       ...throwingHostExceptMergeCommit(),
@@ -528,7 +528,21 @@ describe('deliverabilityOf reads every cross-repo reference a branch names, not 
       [33, { repo: 'quatico/three' }],
     ]);
     expect(answer.deliverable).toBe(false);
-    expect(answer.unmerged).toEqual([branch]);
+    expect(answer.reason).toBe('branches-unmerged');
+    expect(answer.unmerged).toEqual([`quatico/two#22 (${branch})`, `quatico/three#33 (${branch})`]);
+    expect(answer.refusal).toContain(`2 branch(es) not merged: quatico/two#22 (${branch}), quatico/three#33 (${branch})`);
+  });
+
+  it('names only the reference whose host could not answer, when one cannot tell', async () => {
+    const host: Host = {
+      ...throwingHostExceptMergeCommit(),
+      prState: async (ref) =>
+        (ref === 22 ? { ok: false, why: 'failed' } : { ok: true, value: { state: 'MERGED' } }) as never,
+    };
+    const answer = await deliverabilityOf(portsWithText(host), SLUG, FILE);
+
+    expect(answer.reason).toBe('cannot-tell');
+    expect(answer.refusal).toContain(`1 branch(es) merged: quatico/two#22 (${branch}).`);
   });
 
   it('delivers only once every reference answers merged', async () => {

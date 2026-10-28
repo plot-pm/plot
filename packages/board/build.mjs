@@ -290,6 +290,27 @@ await esbuild.build({
 fs.copyFileSync(prStateArtifact, shippedPrState);
 fs.chmodSync(shippedPrState, 0o755);
 
+// The (reference, branch) rows a plan claims, through `branchClaims`, for
+// plot-impl-status.sh. Once per plan of one operator command; reads stdin only,
+// so the shell keeps no copy of the claim and reference reading.
+const sliceClaimsArtifact = path.join(here, 'dist/plot-slice-claims.mjs');
+const shippedSliceClaims = path.join(here, '../../skills/plot/scripts/board/plot-slice-claims.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/slice-claims.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: sliceClaimsArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(sliceClaimsArtifact, shippedSliceClaims);
+fs.chmodSync(shippedSliceClaims, 0o755);
+
 // The lifecycle transition, reachable from the two scripts that write it.
 //
 // A FIFTH artifact, for the reason the third and fourth ones give: plot-ask.mjs
