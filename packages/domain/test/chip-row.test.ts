@@ -27,8 +27,9 @@ const base = (overrides: Partial<ChipRowReadings> = {}): ChipRowReadings => ({
   sprint: sprintReadings([]),
   mine: {
     reader: { hostUser: 'jwloka', directory },
-    on: false,
+    mode: 'all',
     visibleRows: [{ kind: 'pr', author: 'jwloka' }, { kind: 'pr', author: 'eins78' }],
+    visibleAgents: [],
   },
   waitingOnMe: { on: false },
   ...overrides,
@@ -73,7 +74,7 @@ describe('chipRow — Mine', () => {
 
   it('falls back to the raw login where the directory declares no display name', () => {
     const actual = chipRow(base({
-      mine: { reader: { hostUser: 'nobody' }, on: false, visibleRows: [] },
+      mine: { reader: { hostUser: 'nobody' }, mode: 'all', visibleRows: [], visibleAgents: [] },
     }));
     expect(actual.mine.label).toBe('Mine (nobody)');
     expect(actual.mine.disabledReason).toBeNull();
@@ -81,7 +82,7 @@ describe('chipRow — Mine', () => {
 
   it('is disabled with an empty identity, and never reports a hidden count', () => {
     const actual = chipRow(base({
-      mine: { reader: {}, on: false, visibleRows: [{ kind: 'pr', author: 'eins78' }] },
+      mine: { reader: {}, mode: 'all', visibleRows: [{ kind: 'pr', author: 'eins78' }], visibleAgents: [] },
     }));
     expect(actual.mine.disabledReason).toBe('No identity configured — set hostUser.');
     expect(actual.mine.hiddenCount).toBe(0);
@@ -96,7 +97,12 @@ describe('chipRow — Mine', () => {
   // naming WHY, distinct from "nothing configured at all".
   it('is disabled with only gitEmail set — isMine can never match an email', () => {
     const actual = chipRow(base({
-      mine: { reader: { gitEmail: 'jan.wloka@quatico.com' }, on: true, visibleRows: [] },
+      mine: {
+        reader: { gitEmail: 'jan.wloka@quatico.com' },
+        mode: 'mine-and-unknown',
+        visibleRows: [],
+        visibleAgents: [],
+      },
     }));
     expect(actual.mine.label).toBe('Mine');
     expect(actual.mine.disabledReason)
@@ -112,8 +118,9 @@ describe('chipRow — Mine', () => {
     const actual = chipRow(base({
       mine: {
         reader: { hostUser: 'jan.wloka@quatico.com', directory },
-        on: true,
+        mode: 'mine-and-unknown',
         visibleRows: [{ kind: 'pr', author: 'eins78' }],
+        visibleAgents: [],
       },
     }));
     expect(actual.mine).toEqual({
@@ -126,7 +133,7 @@ describe('chipRow — Mine', () => {
 
   it('reports the same hidden count once the filter is on', () => {
     const actual = chipRow(base({
-      mine: { ...base().mine, on: true },
+      mine: { ...base().mine, mode: 'mine-and-unknown' },
     }));
     expect(actual.mine.hiddenCount).toBe(1);
     expect(actual.mine.hiddenCount).toBe(chipRow(base()).mine.hiddenCount);
@@ -142,18 +149,63 @@ describe('chipRow — Mine', () => {
     const actual = chipRow(base({
       mine: {
         reader: { hostUser: 'jwloka', directory },
-        on: true,
+        mode: 'mine-and-unknown',
         visibleRows: [
           { kind: 'pr', author: 'jwloka' },
           { kind: 'pr', author: 'eins78' },
           { kind: 'pr', author: undefined },
           { kind: 'other' },
         ],
+        visibleAgents: [],
       },
     }));
     // Only the row that resolves to someone else is hidden; the unresolvable
     // PR author and the ownerless `other` row both stay, same as `jwloka`'s own.
     expect(actual.mine.hiddenCount).toBe(1);
+  });
+
+  // CONTRACT CHANGE (feature/mine-mode-control): `mine` mode switches the
+  // chip's own match from `isMine` to `isMineStrict`, so a row whose owner
+  // cannot be determined now counts as hidden too — unlike `mine-and-unknown`,
+  // which keeps it (the test above).
+  it('in `mine` mode, also counts a row whose owner cannot be determined as hidden', () => {
+    const actual = chipRow(base({
+      mine: {
+        reader: { hostUser: 'jwloka', directory },
+        mode: 'mine',
+        visibleRows: [
+          { kind: 'pr', author: 'jwloka' },
+          { kind: 'pr', author: 'eins78' },
+          { kind: 'pr', author: undefined },
+          { kind: 'other' },
+        ],
+        visibleAgents: [],
+      },
+    }));
+    // jwloka's own row stays; the other three — somebody else's, unresolvable,
+    // and ownerless — all count as hidden under the strict match.
+    expect(actual.mine.hiddenCount).toBe(3);
+    expect(actual.mine.on).toBe(true);
+  });
+
+  // CONTRACT CHANGE (feature/mine-mode-control): `MineChipReadings` widened to
+  // carry `visibleAgents` alongside `visibleRows`, so the chip's hidden count
+  // also covers registry agents — an agent with no desk on this machine is
+  // `unknown` (`agentOwnership`), which `mine-and-unknown` keeps and `mine`
+  // hides, same as an unowned row.
+  it('keeps an agent with no desk here under `mine-and-unknown`, hides it under `mine`', () => {
+    const reader = { hostUser: 'jwloka', directory };
+    const agents = [{ kind: 'agent' as const, state: 'running' }, { kind: 'agent' as const, state: 'elsewhere' }];
+    const lenient = chipRow(base({
+      mine: { reader, mode: 'mine-and-unknown', visibleRows: [], visibleAgents: agents },
+    }));
+    const strict = chipRow(base({
+      mine: { reader, mode: 'mine', visibleRows: [], visibleAgents: agents },
+    }));
+    // `mine-and-unknown` hides nothing — both agents have a desk or are unknown, never `theirs`.
+    expect(lenient.mine.hiddenCount).toBe(0);
+    // `mine` additionally hides the agent with no desk here.
+    expect(strict.mine.hiddenCount).toBe(1);
   });
 });
 

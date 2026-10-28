@@ -4336,6 +4336,10 @@ describe('readMineOnly / writeMineOnly — the filter that is off until asked', 
   });
 });
 
+// CONTRACT CHANGE (feature/mine-mode-control): `rowsForReader`'s 4th
+// parameter is now the `MineMode` string (`'all' | 'mine-and-unknown' |
+// 'mine'`), not a raw boolean. `false` becomes `'all'`; the old `true`
+// (lenient «mine» filter) becomes `'mine-and-unknown'`.
 describe('rowsForReader — what the filter hides, and what it must not', () => {
   const me = { hostUser: 'gardener', gitEmail: 'gardener@example.com' };
   const mine = row({ branch: 'feature/mine', pr: { number: 1, url: 'u', draft: false, state: 'green', author: 'gardener' } as never });
@@ -4347,18 +4351,18 @@ describe('rowsForReader — what the filter hides, and what it must not', () => 
     // IDENTITY, not a copy admitting everything: an unfiltered view must cost
     // nothing, and the caller's sectioning reads this array.
     const rows = [mine, theirs, unowned];
-    expect(rowsForReader(rows, me, false)).toBe(rows);
+    expect(rowsForReader(rows, me, 'all')).toBe(rows);
   });
 
   it('hides only the rows somebody else owns', () => {
-    const kept = rowsForReader([mine, theirs, unowned], me, true).map((r) => r.branch);
+    const kept = rowsForReader([mine, theirs, unowned], me, 'mine-and-unknown').map((r) => r.branch);
     expect(kept).toEqual(['feature/mine', 'feature/unowned']);
   });
 
   it('keeps a row whose PR names no author', () => {
     // `''` is the host declining to answer, not a claim that nobody owns it.
     // Hiding it would withhold a row on the strength of a missing reading.
-    expect(rowsForReader([unattributed], me, true)).toHaveLength(1);
+    expect(rowsForReader([unattributed], me, 'mine-and-unknown')).toHaveLength(1);
   });
 
   it('hides NOTHING when the reader has no identity', () => {
@@ -4366,8 +4370,8 @@ describe('rowsForReader — what the filter hides, and what it must not', () => 
     // either field, and a filter that treated it as matching nothing would
     // empty the view for every reader whose host CLI names nobody.
     const all = [mine, theirs, unowned, unattributed];
-    expect(rowsForReader(all, { hostUser: '', gitEmail: '' }, true)).toHaveLength(4);
-    expect(rowsForReader(all, {}, true)).toHaveLength(4);
+    expect(rowsForReader(all, { hostUser: '', gitEmail: '' }, 'mine-and-unknown')).toHaveLength(4);
+    expect(rowsForReader(all, {}, 'mine-and-unknown')).toHaveLength(4);
   });
 
   it('never reads the branch name for ownership', () => {
@@ -4378,7 +4382,14 @@ describe('rowsForReader — what the filter hides, and what it must not', () => 
       branch: 'feature/gardener-tidy-up',
       pr: { number: 4, url: 'u', draft: false, state: 'green', author: 'somebody-else' } as never,
     });
-    expect(rowsForReader([named], me, true)).toHaveLength(0);
+    expect(rowsForReader([named], me, 'mine-and-unknown')).toHaveLength(0);
+  });
+
+  // CONTRACT CHANGE (feature/mine-mode-control): `mine` mode hides a row with
+  // no PR (`unowned`), unlike `mine-and-unknown`, which keeps it.
+  it('additionally hides an unowned row under `mine` mode', () => {
+    const kept = rowsForReader([mine, theirs, unowned], me, 'mine').map((r) => r.branch);
+    expect(kept).toEqual(['feature/mine']);
   });
 });
 

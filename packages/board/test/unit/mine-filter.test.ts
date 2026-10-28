@@ -22,10 +22,14 @@ const ticket = (overrides: Partial<IssueRow> = {}): IssueRow => ({
 
 const hostLoginSource: TicketSourceShape = { service: 'github', match: 'host-login' };
 
+// CONTRACT CHANGE (feature/mine-mode-control): `ticketsForReader`'s 4th
+// parameter is now the `MineMode` string (`'all' | 'mine-and-unknown' |
+// 'mine'`), not a raw boolean. `false` becomes `'all'`; the old `true`
+// (lenient «mine» filter) becomes `'mine-and-unknown'`.
 describe('ticketsForReader — off returns the array untouched', () => {
   it('returns the same array identity with the filter off', () => {
     const tickets = [ticket()];
-    expect(ticketsForReader(tickets, {}, hostLoginSource, false)).toBe(tickets);
+    expect(ticketsForReader(tickets, {}, hostLoginSource, 'all')).toBe(tickets);
   });
 });
 
@@ -34,24 +38,41 @@ describe('ticketsForReader — on, by host-login assignees', () => {
 
   it('keeps a ticket assigned to the reader', () => {
     const mine = ticket({ assignees: ['jwloka'] });
-    expect(ticketsForReader([mine], reader, hostLoginSource, true)).toEqual([mine]);
+    expect(ticketsForReader([mine], reader, hostLoginSource, 'mine-and-unknown')).toEqual([mine]);
   });
 
   it('hides a ticket assigned to somebody else', () => {
     const theirs = ticket({ assignees: ['eins78'] });
-    expect(ticketsForReader([theirs], reader, hostLoginSource, true)).toEqual([]);
+    expect(ticketsForReader([theirs], reader, hostLoginSource, 'mine-and-unknown')).toEqual([]);
   });
 
   it('keeps an unassigned ticket — unknown stays visible, same as rowsForReader', () => {
     const unassigned = ticket({ assignees: [] });
-    expect(ticketsForReader([unassigned], reader, hostLoginSource, true)).toEqual([unassigned]);
+    expect(ticketsForReader([unassigned], reader, hostLoginSource, 'mine-and-unknown')).toEqual([unassigned]);
   });
 });
 
 describe('ticketsForReader — a null source cannot be resolved, so nothing is hidden', () => {
   it('keeps every ticket when the board could not resolve how assignees are written', () => {
     const tickets = [ticket({ assignees: ['jwloka'] }), ticket({ assignees: ['eins78'] })];
-    expect(ticketsForReader(tickets, { hostUser: 'jwloka' }, null, true)).toEqual(tickets);
+    expect(ticketsForReader(tickets, { hostUser: 'jwloka' }, null, 'mine-and-unknown')).toEqual(tickets);
+  });
+});
+
+// CONTRACT CHANGE (feature/mine-mode-control): the plan's "the box wins"
+// decision — this ticket box stays lenient (`isMine`) even in `mine` mode,
+// unlike every other `mine`-mode call site, which switches to `isMineStrict`.
+describe('ticketsForReader — stays lenient under `mine` mode', () => {
+  const reader: Reader = { hostUser: 'jwloka' };
+
+  it('keeps an unassigned ticket even in `mine` mode', () => {
+    const unassigned = ticket({ assignees: [] });
+    expect(ticketsForReader([unassigned], reader, hostLoginSource, 'mine')).toEqual([unassigned]);
+  });
+
+  it('still hides a ticket assigned to somebody else in `mine` mode', () => {
+    const theirs = ticket({ assignees: ['eins78'] });
+    expect(ticketsForReader([theirs], reader, hostLoginSource, 'mine')).toEqual([]);
   });
 });
 
@@ -80,9 +101,9 @@ describe('Discovery and Delivery answer alike for one ticket', () => {
     closedAt: null, type: null, owner: assignees[0] ?? null, assignees, source,
   });
   const discoveryKeeps = (row: TicketLaneRow, reader: Reader): boolean =>
-    lanesForReader([], { open: [row], 'in-progress': [], done: [], moreCount: 0 }, reader, true).tickets!.open.rows.length === 1;
+    lanesForReader([], { open: [row], 'in-progress': [], done: [], moreCount: 0 }, reader, 'mine-and-unknown').tickets!.open.rows.length === 1;
   const deliveryKeeps = (assignees: string[], source: TicketSourceShape | null, reader: Reader): boolean =>
-    ticketsForReader([ticket({ assignees })], reader, source, true).length === 1;
+    ticketsForReader([ticket({ assignees })], reader, source, 'mine-and-unknown').length === 1;
 
   const reader: Reader = { hostUser: 'jwloka', directory: {} };
   const cases: Array<[string, string[], TicketSourceShape | null, boolean]> = [

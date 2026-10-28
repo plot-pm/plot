@@ -123,23 +123,25 @@ describe('plan cards reach the rule by their assignee', () => {
     });
   });
 
+  // CONTRACT CHANGE (feature/mine-mode-control): `boardForReader` now returns
+  // `{ board, hiddenCount }`, not a bare `Board` — every call site destructures `.board`.
   it('returns the board untouched when off', () => {
-    expect(boardForReader(kanban, reader, false)).toBe(kanban);
+    expect(boardForReader(kanban, reader, 'all').board).toBe(kanban);
   });
 
   it('hides only the card the directory declares for another person', () => {
-    expect(slugs(boardForReader(kanban, reader, true))).toEqual(['by-login', 'by-name', 'by-nobody', 'by-stranger']);
+    expect(slugs(boardForReader(kanban, reader, 'mine-and-unknown').board)).toEqual(['by-login', 'by-name', 'by-nobody', 'by-stranger']);
   });
 
   it('hides no card without a directory, and keeps the reader\'s other spelling', () => {
     // An exact-match rule would hide `Jan Wloka` here: 51 of the reader's 113
     // assigned plans on this estate.
     const bare = readerFrom({ hostUser: 'jwloka' });
-    expect(slugs(boardForReader(kanban, bare, true))).toEqual(slugs(kanban));
+    expect(slugs(boardForReader(kanban, bare, 'mine-and-unknown').board)).toEqual(slugs(kanban));
   });
 
   it('hides no card when the board names no reader', () => {
-    expect(slugs(boardForReader(kanban, readerFrom({ people }), true))).toEqual(slugs(kanban));
+    expect(slugs(boardForReader(kanban, readerFrom({ people }), 'mine-and-unknown').board)).toEqual(slugs(kanban));
   });
 });
 
@@ -147,24 +149,24 @@ describe('each population the rule cannot place answers unknown and stays', () =
   it('keeps a build row', () => {
     const build = row({ kind: 'build', branch: 'main', pr: null });
     expect(ownedFromRow(build)).toEqual({ kind: 'other' });
-    expect(rowsForReader([build], reader, true)).toHaveLength(1);
+    expect(rowsForReader([build], reader, 'mine-and-unknown')).toHaveLength(1);
   });
 
   it('keeps a bare branch row, whatever its name says', () => {
     const branch = row({ kind: 'branch', branch: 'feature/eins78-something', pr: null });
     expect(ownedFromRow(branch)).toEqual({ kind: 'other' });
-    expect(rowsForReader([branch], reader, true)).toHaveLength(1);
+    expect(rowsForReader([branch], reader, 'mine-and-unknown')).toHaveLength(1);
   });
 
   it('keeps a plan row on the Agents tab, which carries no assignee', () => {
     const planRow = row({ kind: 'plan', branch: '', pr: null });
     expect(ownedFromRow(planRow)).toEqual({ kind: 'other' });
-    expect(rowsForReader([planRow], reader, true)).toHaveLength(1);
+    expect(rowsForReader([planRow], reader, 'mine-and-unknown')).toHaveLength(1);
   });
 
   it('keeps a card whose assignee is empty or undeclared', () => {
-    expect(boardForReader(board({ columns: [column({ cards: [card({ assignee: '' }), card({ slug: 'b', assignee: 'Someone New' })] })] }), reader, true)
-      .columns[0]?.cards).toHaveLength(2);
+    expect(boardForReader(board({ columns: [column({ cards: [card({ assignee: '' }), card({ slug: 'b', assignee: 'Someone New' })] })] }), reader, 'mine-and-unknown')
+      .board.columns[0]?.cards).toHaveLength(2);
   });
 
   it('keeps every agent, since the agent arm never answers theirs', () => {
@@ -173,8 +175,8 @@ describe('each population the rule cannot place answers unknown and stays', () =
       agent({ branch: 'b', identity: 'synthesized', state: 'running' }),
       agent({ branch: 'c', identity: 'manifest', state: 'elsewhere' }),
     ];
-    expect(agentsForReader(agents, reader, true)).toHaveLength(3);
-    expect(agentsForReader(agents, reader, false)).toBe(agents);
+    expect(agentsForReader(agents, reader, 'mine-and-unknown')).toHaveLength(3);
+    expect(agentsForReader(agents, reader, 'all')).toBe(agents);
   });
 });
 
@@ -190,18 +192,18 @@ describe('a row with no PR is owned by its plan\'s assignee, author or approver'
   it('hides the reported row from a reader the assignee does not resolve to', () => {
     const delivery = row({ kind: 'branch', branch: 'feature/ckehl-work', pr: null, assignee: 'ckehl' });
     expect(ownedFromRow(delivery)).toEqual({ kind: 'plan', assignee: 'ckehl', author: '', approver: '' });
-    expect(rowsForReader([delivery], jwloka, true)).toHaveLength(0);
+    expect(rowsForReader([delivery], jwloka, 'mine-and-unknown')).toHaveLength(0);
   });
 
   it('shows the same row to the reader the assignee resolves to', () => {
     const delivery = row({ kind: 'branch', branch: 'feature/ckehl-work', pr: null, assignee: 'ckehl' });
-    expect(rowsForReader([delivery], ckehl, true)).toHaveLength(1);
+    expect(rowsForReader([delivery], ckehl, 'mine-and-unknown')).toHaveLength(1);
   });
 
   it('keeps a row with no PR whose plan names nobody', () => {
     const unnamed = row({ kind: 'branch', branch: 'feature/unnamed', pr: null, assignee: '', author: '', approver: '' });
     expect(ownedFromRow(unnamed)).toEqual({ kind: 'other' });
-    expect(rowsForReader([unnamed], jwloka, true)).toHaveLength(1);
+    expect(rowsForReader([unnamed], jwloka, 'mine-and-unknown')).toHaveLength(1);
   });
 
   it('keeps a PR row whose author is another person hidden, and the reader\'s shown, whatever the plan fields say', () => {
@@ -215,13 +217,13 @@ describe('a row with no PR is owned by its plan\'s assignee, author or approver'
     });
     expect(ownedFromRow(theirs)).toEqual({ kind: 'pr', author: 'ckehl' });
     expect(ownedFromRow(mine)).toEqual({ kind: 'pr', author: 'jwloka' });
-    expect(rowsForReader([theirs, mine], jwloka, true)).toEqual([mine]);
+    expect(rowsForReader([theirs, mine], jwloka, 'mine-and-unknown')).toEqual([mine]);
   });
 
   it('keeps a row whose assignee, author and approver are all undefined, as an older payload sends', () => {
     const legacy = { pr: null, assignee: undefined, author: undefined, approver: undefined };
     expect(ownedFromRow(legacy)).toEqual({ kind: 'other' });
-    expect(rowsForReader([legacy], jwloka, true)).toHaveLength(1);
+    expect(rowsForReader([legacy], jwloka, 'mine-and-unknown')).toHaveLength(1);
   });
 });
 
