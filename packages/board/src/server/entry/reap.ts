@@ -14,7 +14,12 @@ import { branchGivenUp } from '@plot-pm/domain/rules/branch-given-up';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Host, PinnedTips, Processes, Refs, Scripts, Trees } from '@plot-pm/domain';
 import { firstReapRefusal } from '@plot-pm/domain/rules/reapable';
-import { firstBranchRefusal, firstClaimRefusal, dirtyTreeOwner } from '@plot-pm/domain/rules/sweepable';
+import {
+  firstBranchRefusal,
+  firstClaimRefusal,
+  dirtyTreeOwner,
+  type LocalBranchReadings,
+} from '@plot-pm/domain/rules/sweepable';
 import { realCommits, isEmptyClaim, type CommitReading } from '@plot-pm/domain/rules/empty-claim';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import {
@@ -1023,23 +1028,28 @@ export const runBranchKind = async (
   const branches = branchesResult.ok ? branchesResult.value : [];
 
   for (const br of branches) {
-    let merged = false;
+    let mergedAnswer: LocalBranchReadings['mergedAnswer'] = 'not-merged';
+    let refusalKind: LocalBranchReadings['refusalKind'] = null;
     let bwhy = '';
     const contained = await ctx.refs.contains(br, `origin/${defaultBranch}`);
     if (contained.ok && contained.value === 'yes') {
-      merged = true;
+      mergedAnswer = 'merged';
       bwhy = `merged into ${defaultBranch}`;
     } else {
       const hostMerged = await ctx.host.prMerged(br);
-      if (hostMerged.ok && hostMerged.value === 'merged') {
-        merged = true;
-        bwhy = 'PR merged (squash)';
+      if (hostMerged.ok) {
+        mergedAnswer = hostMerged.value;
+        if (mergedAnswer === 'merged') {
+          bwhy = 'PR merged (squash)';
+        }
+      } else {
+        refusalKind = ctx.host.lastRefusal()?.kind ?? 'failed';
       }
     }
 
     const held = checkedOut.has(br);
 
-    const refusal = firstBranchRefusal({ branch: br, defaultBranch, hasMergedPr: merged, checkedOut: held });
+    const refusal = firstBranchRefusal({ branch: br, defaultBranch, mergedAnswer, refusalKind, checkedOut: held });
 
     if (refusal !== null) {
       let reason: string;
@@ -1049,6 +1059,12 @@ export const runBranchKind = async (
           break;
         case 'no-merged-pr':
           reason = 'unlanded work — no merged PR';
+          break;
+        case 'host-unknown':
+          reason = 'the host could not answer';
+          break;
+        case 'host-throttled':
+          reason = 'the host could not answer, rate-limited';
           break;
         case 'checked-out':
           reason = 'checked out in a worktree — somebody is reading it';
