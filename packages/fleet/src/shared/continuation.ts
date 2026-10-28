@@ -1133,11 +1133,22 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       manifestPath = target.path;
     } else {
       const recorded = ending.read === 'ended' ? ending.ending.resumeId : '';
+      // A FIRST-EVER DESK HAS NEITHER: no ending to carry a handle forward and
+      // no transcript yet to recover one from, since the prompt that would
+      // write one has not run. Leaving `resumeId` '' here is not "mint one
+      // later" — the loop only mints on a BRANCH HOP (`hopFrom !== manifest.branch`
+      // in `worker-loop.ts`), which a brand-new desk's first run never is, and
+      // `PLOT_SESSION_ID` is not set on this route either. An empty handle
+      // reaches `Transcript.spoken`, which answers `false` for '' by contract —
+      // so the loop's idle watch could never see this conversation as spoken,
+      // and could never publish `idle`. Minting here, where the manifest is
+      // being written for the first time, gives every run a real handle.
+      const resumeId = recorded !== '' ? recorded : resumeIdFromTranscript(worktree) || randomUUID();
       const written = writeDeskManifest(resolveManifestDir(opts.repoRoot, opts), {
         worktree,
         branch,
         command: cmd,
-        resumeId: recorded !== '' ? recorded : resumeIdFromTranscript(worktree),
+        resumeId,
         // THIS CONTINUATION IS RUN 1 — see DeskManifestFields.sliceRuns. With no
         // previous manifest to carry a count forward from, leaving the field
         // absent would read as `0` forever and this path would never count
