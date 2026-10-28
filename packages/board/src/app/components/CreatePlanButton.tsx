@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
+import { createFromIssueVerdict } from '@plot-pm/domain/rules/create-from-issue';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
 /**
@@ -38,8 +39,11 @@ export interface CreatePlanButtonProps {
   issue: IssueRow;
   /** Whether this board will act — `Board.idea`. Half the question; see below. */
   idea: DispatchInfo;
-  /** Whether the tracker can be asked at all — `Fleet.issueAnswer`. The other half. */
-  issueAnswer: IssueAnswer;
+  /**
+   * Whether the tracker can be asked at all — `Board.issueAnswer` or
+   * `Fleet.issueAnswer`. The other half. `null` before the first read.
+   */
+  issueAnswer: IssueAnswer | null;
 }
 
 type State =
@@ -66,29 +70,16 @@ export function armedLabel(issue: IssueRow): string {
 /**
  * Why the control will not act, or "" when it will.
  *
- * **TWO INDEPENDENT QUESTIONS, and both must pass.** The binding says whether
- * this board can spawn anything; `issueAnswer` says whether the tracker can be
- * asked at all. A Bitbucket repo (`unsupported`) and a tracker whose lookup
- * broke (`failed`) each make the action impossible for reasons the binding
- * knows nothing about — and offering a button that cannot work is worse than
- * offering none, because the reader spends a click to learn it.
+ * Delegates to the domain's `createFromIssueVerdict` — see that function for
+ * the two-question shape and the refusal order. A `pending` verdict (the
+ * tracker has not been read yet) also reads as "": the button is inactive
+ * either way, and `pending` carries no sentence to show.
  *
- * `failed` is refused rather than attempted, and it does NOT read as "no
- * issues": the row is on screen precisely because the last good lookup found
- * it, and the message says the lookup is broken rather than implying the issue
- * is gone. An outage is not an answer, in this direction too.
- *
- * Exported for test — the four branches are the brief's own requirement.
+ * Exported for test.
  */
-export function refusalReason(idea: DispatchInfo, issueAnswer: IssueAnswer): string {
-  if (issueAnswer === 'unsupported') {
-    return 'this git host has no issue read, so an issue cannot become a plan from here';
-  }
-  if (issueAnswer === 'failed') {
-    return 'the issue lookup is failing, so this issue cannot be read — nothing was created';
-  }
-  if (!idea.available) return idea.reason || 'this board cannot create plans';
-  return '';
+export function refusalReason(idea: DispatchInfo, issueAnswer: IssueAnswer | null): string {
+  const verdict = createFromIssueVerdict(idea, issueAnswer, 'plan');
+  return verdict.kind === 'refused' ? verdict.reason : '';
 }
 
 export function CreatePlanButton({ issue, idea, issueAnswer }: CreatePlanButtonProps) {
@@ -209,8 +200,9 @@ export function CreatePlanButton({ issue, idea, issueAnswer }: CreatePlanButtonP
     }
   };
 
-  const refusal = refusalReason(idea, issueAnswer);
-  const blocked = running || refusal !== '';
+  const verdict = createFromIssueVerdict(idea, issueAnswer, 'plan');
+  const refusal = verdict.kind === 'refused' ? verdict.reason : '';
+  const blocked = running || verdict.kind !== 'available';
 
   const onClick = () => {
     // `aria-disabled` does not stop a click the way `disabled` does, so the

@@ -809,7 +809,12 @@ const EXPECTED_FILES = 76;
 // fail). The file already drove a page, so `EXPECTED_FILES` is unchanged.
 // 624 → 626 on 2026-10-27: two `it(` in `restart-control.browser.test.ts`,
 // a new file counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 626;
+// 626 → 627 on 2026-10-28: one `it(` in `discovery-ticket-card.browser.
+// test.ts`, proving a fresh `?tab=discovery` load leaves Create plan and
+// Create story enabled rather than reading the Delivery-tab-only fleet poll
+// as refused (bug/discovery-tab-disables-create-plan-story). The file already
+// drove a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 627;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

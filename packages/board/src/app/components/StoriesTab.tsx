@@ -60,8 +60,12 @@ export interface StoriesTabProps {
   idea: DispatchInfo;
   /** Whether *Create story* can act — the same binding `AgentList`'s issue rows read. */
   story: DispatchInfo;
-  /** Whether the tracker can be asked at all — read together with `idea`/`story` the same way `fleet.issueAnswer` is elsewhere. */
-  issueAnswer: IssueAnswer;
+  /**
+   * Whether the tracker can be asked at all — read together with `idea`/`story`
+   * the same way `Board.issueAnswer`/`Fleet.issueAnswer` is elsewhere. `null`
+   * before the first read.
+   */
+  issueAnswer: IssueAnswer | null;
   /** Who is reading — read together with `mineOnly` to narrow lanes to the reader's own work. */
   reader: Reader;
   /** Whether the "Only my work" filter is on. */
@@ -463,7 +467,7 @@ interface TicketRowViewProps {
   lane: 'open' | 'in-progress' | 'done';
   idea: DispatchInfo;
   story: DispatchInfo;
-  issueAnswer: IssueAnswer;
+  issueAnswer: IssueAnswer | null;
 }
 
 /** A ticket row in the ticket lane group — the card helper's view, rendered. */

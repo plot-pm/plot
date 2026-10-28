@@ -69,6 +69,7 @@ describe('the discovery tab filters to my work', () => {
           storyLanes: STORY_LANES,
           idea: { available: true, reason: '' },
           story: { available: true, reason: '' },
+          issueAnswer: 'answered',
           server: {
             restartCommand: 'pnpm board',
             port: 4711,
@@ -78,7 +79,7 @@ describe('the discovery tab filters to my work', () => {
             people: { [ME]: ME, [THEM]: THEM },
           },
         }),
-        fleet: buildFleet({ issueAnswer: 'answered' }),
+        fleet: buildFleet(),
       },
       tab: 'discovery',
       viewport: { width: 1400, height: 1400 },
