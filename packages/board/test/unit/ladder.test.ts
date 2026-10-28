@@ -5,9 +5,16 @@ import { describe, it, expect } from 'vitest';
 import type { PortResult } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import { commitAndPush, type LadderContext } from '../../src/server/entry/ladder.js';
+import { commitAndPush, lockTakeTimeoutMs, realLockFor, Refused, type LadderContext, type PushLock } from '../../src/server/entry/ladder.js';
 
 const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
+
+/** A lock that is always free at once — the right fake for every test that
+ * is not itself testing lock contention or the exit-6 branch. */
+const freeLock: PushLock = {
+  take: async () => 'held',
+  release: async () => {},
+};
 
 /** A `Trees` stub that records every `resetBranch` base, so a test can
  * assert the retry re-cut from a fresh base rather than re-pushing the stale
@@ -49,6 +56,7 @@ describe('commitAndPush — retry on rejection', () => {
       repoRoot: '/repo',
       scripts: scriptsStub(2, calls),
       trees: treesStub(bases),
+      lock: freeLock,
     };
 
     const result = await commitAndPush(
@@ -86,6 +94,7 @@ describe('commitAndPush — retry on rejection', () => {
       repoRoot: '/repo',
       scripts: scriptsStub(5, calls),
       trees: treesStub(bases),
+      lock: freeLock,
     };
 
     const result = await commitAndPush(
@@ -126,6 +135,7 @@ describe('commitAndPush — a Writer App refusal stops the ladder', () => {
         },
       } as unknown as Scripts,
       trees: treesStub(bases),
+      lock: freeLock,
     };
 
     const result = await commitAndPush(
@@ -160,6 +170,7 @@ describe('commitAndPush — a Writer App refusal stops the ladder', () => {
         },
       } as unknown as Scripts,
       trees: treesStub([]),
+      lock: freeLock,
     };
 
     const result = await commitAndPush(
@@ -195,7 +206,7 @@ describe('ladder.ts — no micro-PR vocabulary left', () => {
 describe('commitAndPush — a retry step that fails is named', () => {
   const attempt = async (trees: Trees, reapply: () => Promise<void> = async () => {}) => {
     const lines: string[] = [];
-    const ctx: LadderContext = { repoRoot: '/repo', scripts: scriptsStub(5, []), trees, retryWait: noWait };
+    const ctx: LadderContext = { repoRoot: '/repo', scripts: scriptsStub(5, []), trees, retryWait: noWait, lock: freeLock };
     const run = commitAndPush(ctx, '/wt', 'plot/deliver-p', 'main', 'jw', 'm', 'delivery', 'nothing', reapply, (s) => lines.push(s));
     return { run, lines };
   };
@@ -220,5 +231,203 @@ describe('commitAndPush — a retry step that fails is named', () => {
     });
     await expect(run).rejects.toThrow('boom');
     expect(lines.join('')).toContain('step: retry stopped — re-applying the delivery to origin/main failed\n');
+  });
+});
+
+/**
+ * A FIFO fake {@link PushLock}: concurrent `take()` callers queue in arrival
+ * order and each is granted the lock only once every earlier caller has
+ * `release()`d. No real timers — a waiting `take()` resolves via a promise
+ * released by its predecessor's `release()`, never a `setTimeout`.
+ *
+ * `heldBy` answers the action of the call that holds the lock (or `null`) —
+ * `push <bookbr>`, unique per writer — so a test can assert a `trees` call
+ * happened only while its OWN writer held it.
+ */
+const fifoLock = () => {
+  let held: string | null = null;
+  let tail: Promise<void> = Promise.resolve();
+  const releasers = new Map<string, () => void>();
+  const lock: PushLock = {
+    take: async (holder, action) => {
+      const myTurn = tail;
+      tail = new Promise((resolve) => {
+        releasers.set(holder, resolve);
+      });
+      await myTurn;
+      held = action;
+      return 'held';
+    },
+    release: async (holder) => {
+      held = null;
+      releasers.get(holder)?.();
+      releasers.delete(holder);
+    },
+  };
+  return { lock, heldBy: () => held };
+};
+
+describe('commitAndPush — the lock spans the booking, not just the push', () => {
+  it('lands all 6 of 6 concurrent writers over one shared fake remote', async () => {
+    const { lock } = fifoLock();
+    const remote = { tip: 'origin-0' };
+    const retryWait = async (): Promise<void> => {};
+
+    const run = async (id: number) => {
+      let base = 'origin-0';
+      const trees = {
+        hasStagedChanges: async () => answered(true),
+        commitAs: async () => answered(undefined),
+        push: async () => answered(undefined),
+        fetch: async () => answered(undefined),
+        resetBranch: async () => {
+          base = remote.tip;
+          return answered(undefined);
+        },
+      } as unknown as Trees;
+
+      const scripts = {
+        awaited: async (_name: string, _args: string[]) => {
+          if (base !== remote.tip) return { stdout: '', stderr: 'remote: rejected\n', code: 1 };
+          remote.tip = `writer-${id}`;
+          return { stdout: `push: clean — plot/release-${id} → main\n`, stderr: '', code: 0 };
+        },
+      } as unknown as Scripts;
+
+      const ctx: LadderContext = { repoRoot: '/repo', scripts, trees, retryWait, lock };
+      return commitAndPush(ctx, `/wt-${id}`, `plot/release-${id}`, 'main', 'jwloka', `plot: release ${id}`, 'release', 'nothing', async () => {}, () => {}, 10);
+    };
+
+    const results = await Promise.all(Array.from({ length: 6 }, (_v, i) => run(i)));
+    expect(results.filter((r) => 'pushed' in r)).toHaveLength(6);
+  });
+
+  it('runs fetch and resetBranch only while the lock is held', async () => {
+    const { lock, heldBy } = fifoLock();
+    const remote = { tip: 'origin-0' };
+    const retryWait = async (): Promise<void> => {};
+    const violations: string[] = [];
+    let fetches = 0;
+
+    const run = async (id: number) => {
+      let base = 'origin-0';
+      const holderName = `writer-${id}`;
+      const trees = {
+        hasStagedChanges: async () => answered(true),
+        commitAs: async () => answered(undefined),
+        push: async () => answered(undefined),
+        fetch: async () => {
+          fetches += 1;
+          if (heldBy() !== `push plot/release-${id}`) violations.push(`fetch ${id} ran while ${heldBy()} held the lock`);
+          return answered(undefined);
+        },
+        resetBranch: async () => {
+          if (heldBy() !== `push plot/release-${id}`) violations.push(`resetBranch ${id} ran while ${heldBy()} held the lock`);
+          base = remote.tip;
+          return answered(undefined);
+        },
+      } as unknown as Trees;
+
+      const scripts = {
+        awaited: async () => {
+          if (base !== remote.tip) return { stdout: '', stderr: 'remote: rejected\n', code: 1 };
+          remote.tip = holderName;
+          return { stdout: 'push: clean — plot/release → main\n', stderr: '', code: 0 };
+        },
+      } as unknown as Scripts;
+
+      const ctx: LadderContext = { repoRoot: '/repo', scripts, trees, retryWait, lock };
+      return commitAndPush(ctx, `/wt-${id}`, `plot/release-${id}`, 'main', 'jwloka', `plot: release ${id}`, 'release', 'nothing', async () => {}, () => {}, 10);
+    };
+
+    const results = await Promise.all(Array.from({ length: 6 }, (_v, i) => run(i)));
+    expect(results.filter((r) => 'pushed' in r)).toHaveLength(6);
+    expect(fetches).toBeGreaterThan(0);
+    expect(violations).toEqual([]);
+  });
+});
+
+describe('commitAndPush — exit 6 (locked) consumes no attempt', () => {
+  it('loops back to retake the lock without spending an attempt or calling resetBranch', async () => {
+    const lines: string[] = [];
+    const resetCalls: string[] = [];
+    let takeCalls = 0;
+    const lock: PushLock = {
+      take: async (_holder, _action, write) => {
+        takeCalls += 1;
+        if (takeCalls === 1) {
+          write('step: waiting for the default-branch lock held by pid 999 (push other-branch)\n');
+          return 'locked';
+        }
+        return 'held';
+      },
+      release: async () => {},
+    };
+
+    const trees = {
+      hasStagedChanges: async () => answered(true),
+      commitAs: async () => answered(undefined),
+      push: async () => answered(undefined),
+      fetch: async () => answered(undefined),
+      resetBranch: async (_tmpwt: string, _branch: string, start: string) => {
+        resetCalls.push(start);
+        return answered(undefined);
+      },
+    } as unknown as Trees;
+
+    const scripts = scriptsStub(0, []);
+    const ctx: LadderContext = { repoRoot: '/repo', scripts, trees, retryWait: noWait, lock };
+
+    // One attempt in total: a `locked` that spent it would leave none to push.
+    const result = await commitAndPush(ctx, '/wt', 'plot/release-x', 'main', 'jwloka', 'plot: release x', 'release', 'nothing', async () => {}, (s) => lines.push(s), 1);
+
+    expect(result).toEqual({ pushed: 'clean' });
+    expect(takeCalls).toBe(2);
+    expect(resetCalls).toEqual([]);
+    expect(lines.join('')).toContain('step: waiting for the default-branch lock held by pid 999 (push other-branch)\n');
+  });
+});
+
+describe('realLockFor — the helper bounds the take, not the port', () => {
+  type Call = { args: readonly string[]; timeoutMs?: number };
+  const recording = (takeAnswer: { code: number; stderr?: string; interrupted?: 'timeout' | 'signal' }) => {
+    const calls: Call[] = [];
+    const scripts = {
+      awaited: async (_name: string, args: readonly string[], options?: { timeoutMs?: number }) => {
+        calls.push({ args, timeoutMs: options?.timeoutMs });
+        if (args[0] === 'take') return { stdout: '', stderr: takeAnswer.stderr ?? '', code: takeAnswer.code, interrupted: takeAnswer.interrupted };
+        return { stdout: '', stderr: '', code: 0 };
+      },
+    } as unknown as Scripts;
+    return { scripts, calls };
+  };
+
+  it('passes a take timeout past the no-progress and stale bounds of the helper', async () => {
+    const { scripts, calls } = recording({ code: 0 });
+    expect(await realLockFor(scripts, {}).take('1.1', 'push x', () => {})).toBe('held');
+    // The port's default is 120 s, which ends the take before the helper's own exit 6.
+    expect(calls[0]?.timeoutMs).toBe((120 + 600 + 60) * 1000);
+  });
+
+  it('follows PLOT_PUSH_LOCK_WAIT and PLOT_PUSH_LOCK_STALE_S', () => {
+    expect(lockTakeTimeoutMs({ PLOT_PUSH_LOCK_WAIT: '900', PLOT_PUSH_LOCK_STALE_S: '30' })).toBe((900 + 30 + 60) * 1000);
+    expect(lockTakeTimeoutMs({ PLOT_PUSH_LOCK_WAIT: 'x' })).toBe((120 + 600 + 60) * 1000);
+  });
+
+  it('answers locked on exit 6 and releases nothing', async () => {
+    const { scripts, calls } = recording({ code: 6, stderr: 'push: locked — held by pid 7.2 running push y; waited 120s\n' });
+    const lines: string[] = [];
+    expect(await realLockFor(scripts, {}).take('1.1', 'push x', (s) => lines.push(s))).toBe('locked');
+    expect(lines).toEqual(['step: waiting for the default-branch lock held by pid 7.2 (push y)\n']);
+    expect(calls.map((c) => c.args[0])).toEqual(['take']);
+  });
+
+  it('releases its own holder when the take is cut short, then refuses', async () => {
+    const { scripts, calls } = recording({ code: 1, interrupted: 'timeout' });
+    await expect(realLockFor(scripts, {}).take('1.1', 'push x', () => {})).rejects.toThrow(Refused);
+    expect(calls.map((c) => c.args.slice(0, 2))).toEqual([
+      ['take', '1.1'],
+      ['release', '1.1'],
+    ]);
   });
 });

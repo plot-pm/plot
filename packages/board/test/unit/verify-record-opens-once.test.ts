@@ -12,10 +12,17 @@ import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { jurorPath } from '@plot-pm/domain/rules/panel';
 import type { IssueOpen, PlanStore, Scripts } from '@plot-pm/domain';
 import { record, type Context } from '../../src/server/entry/verify.js';
+import type { PushLock } from '../../src/server/entry/ladder.js';
 
 const PLAN = 'docs/plans/p.md';
 const JUDGED = 'b'.repeat(40);
 const ON_MAIN = '# P\n\n## Status\n\n- **Delivered:** 2026-10-01\n\n## Changelog\n\n- one\n';
+
+/** A lock that is always free, for a test with one writer and no contention to model. */
+const freeLock: PushLock = {
+  take: async () => 'held',
+  release: async () => {},
+};
 
 describe('record opens one issue across a rejected push', () => {
   const roots: string[] = [];
@@ -79,6 +86,7 @@ describe('record opens one issue across a rejected push', () => {
         return trackerFixture({ scheme: 'jira', opened });
       },
       retryWait: async () => undefined,
+      lock: freeLock,
     });
     const args = { command: 'record' as const, slug: 'p', at: '', sha: '' };
     const quiet = () => undefined;
@@ -139,6 +147,7 @@ describe('record opens one issue across a rejected push', () => {
       },
       issueTracker: () => trackerFixture({ scheme: 'jira', opened }),
       retryWait: async () => undefined,
+      lock: freeLock,
     };
     const quiet = () => undefined;
 

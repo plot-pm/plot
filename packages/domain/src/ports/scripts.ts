@@ -220,6 +220,9 @@ export interface Scripts {
    * A run cut short by `timeoutMs` or by a signal reports code 1 and carries
    * `interrupted`, so a caller can tell it from an exit 1 the script chose.
    *
+   * A script whose filename ends in `.mjs` runs under Node; every other script
+   * runs under `bash`.
+   *
    * @param script - the script's filename.
    * @param args - its arguments.
    * @param options - how to run it.

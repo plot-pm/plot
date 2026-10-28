@@ -3,7 +3,7 @@ import type { PlanStore, PortResult } from '@plot-pm/domain';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import { Refused } from '../../src/server/entry/ladder.js';
+import { Refused, type PushLock } from '../../src/server/entry/ladder.js';
 import { parseRecordPrArgs, recordPr, type RecordPrContext } from '../../src/server/entry/record-pr.js';
 
 const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
@@ -11,6 +11,12 @@ const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
 const TMPWT = '/repo/.worktrees/.plot-record-pr-foo.42';
 const PLAN = 'docs/plans/2099-01-01-a.md';
 const PLAN_TEXT = '# A\n\n## Slices\n\n### Fix\n\n- `bug/foo` — do the thing\n';
+
+/** A lock that is always free, for a test with one writer and no contention to model. */
+const freeLock: PushLock = {
+  take: async () => 'held',
+  release: async () => {},
+};
 
 /** An in-memory plan store over `files`, parsing a plan's slices from its bullets. */
 const storeOver = (files: Map<string, string>): PlanStore =>
@@ -38,6 +44,7 @@ const contextOver = (files: Map<string, string>, calls: string[]): RecordPrConte
   pid: 42,
   planStoreAt: () => storeOver(files),
   retryWait: async () => {},
+  lock: freeLock,
   scripts: {
     awaited: async (name: string, args: string[]) => {
       calls.push(`${name} ${args.join(' ')}`);

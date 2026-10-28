@@ -11,6 +11,26 @@ import path from 'node:path';
 
 import type { Scripts, Trees } from '@plot-pm/domain';
 
+/** Prints to stdout, matching the scripts' unprefixed `step:`/`summary:` lines. */
+export type Printer = (s: string) => void;
+
+/**
+ * Takes or releases the default-branch push lock for one holder.
+ *
+ * Swappable so the deterministic unit test can drive a FIFO fake lock with no
+ * real subprocess and no real timers; {@link realLockFor} is the default and
+ * is what every production caller and the real-repo test use.
+ */
+export interface PushLock {
+  /**
+   * @param write - how to print the one `step:` line naming the holder,
+   *   where this call must wait rather than acquiring at once.
+   * @returns `'held'` once acquired; `'locked'` on a no-progress timeout (exit 6).
+   */
+  take(holder: string, action: string, write: Printer): Promise<'held' | 'locked'>;
+  release(holder: string): Promise<void>;
+}
+
 /** The ports `commitAndPush` and the receipt writers need from a caller's `Context`. */
 export interface LadderContext {
   repoRoot: string;
@@ -18,10 +38,9 @@ export interface LadderContext {
   trees: Trees;
   /** Sleeps between push attempts; the jittered 2 to 10 s wait where absent. */
   retryWait?: () => Promise<void>;
+  /** The default-branch push lock; {@link realLockFor} where absent. */
+  lock?: PushLock;
 }
-
-/** Prints to stdout, matching the scripts' unprefixed `step:`/`summary:` lines. */
-export type Printer = (s: string) => void;
 
 /** The maintainer's number (issue #1737): five attempts in total before `commitAndPush` gives up. */
 const DEFAULT_ATTEMPTS = 5;
@@ -115,6 +134,74 @@ export const pushReportOf = (stdout: string): string => {
 export class Refused extends Error {}
 
 /**
+ * Counts this process's own lock holds, so concurrent `commitAndPush` calls in
+ * one board process never share a holder identity.
+ *
+ * The board runs as one Node process handling several `/api/*` requests at
+ * once — the measured incident (53 parallel `/api/release` calls) is exactly
+ * that. `process.pid` alone would make every in-process call look like the
+ * SAME holder to `plot-push-lock.mjs`'s `PLOT_PUSH_LOCK_HOLDER` check, so two
+ * unrelated pushes would each think the other had already taken the lock.
+ */
+let holderSeq = 0;
+
+/**
+ * A lock-holder id unique to one `commitAndPush` call, even across concurrent
+ * calls in this process: `<pid>.<seq>`. `plot-push-lock.mjs` reads the part
+ * before the dot as the OS pid that keeps the lock alive.
+ */
+const nextHolderId = (): string => `${process.pid}.${++holderSeq}`;
+
+/** The default-branch lock helper `plot-push-main.sh` also takes. */
+const LOCK = 'plot-push-lock.mjs';
+
+/**
+ * The outer bound on one `plot-push-lock.mjs take`: its no-progress bound
+ * (`PLOT_PUSH_LOCK_WAIT`, 120 s) plus its stale bound (`PLOT_PUSH_LOCK_STALE_S`,
+ * 600 s) plus 60 s, so the helper's own exit 6 or stale break always comes
+ * first. The `Scripts` port's 120 s default would end the take before either.
+ *
+ * @param env - the environment the helper inherits.
+ * @returns the timeout in milliseconds.
+ */
+export const lockTakeTimeoutMs = (env: NodeJS.ProcessEnv = process.env): number => {
+  const seconds = (name: string, fallback: number): number => {
+    const value = Number(env[name] ?? fallback);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  };
+  return (seconds('PLOT_PUSH_LOCK_WAIT', 120) + seconds('PLOT_PUSH_LOCK_STALE_S', 600) + 60) * 1000;
+};
+
+/**
+ * The real {@link PushLock}: `plot-push-lock.mjs`, run through the `Scripts`
+ * port's `awaited`, which runs a `.mjs` helper under Node in `repoRoot`.
+ *
+ * `take` makes one attempt per call; a 6 (`locked`, the wait outlived
+ * `PLOT_PUSH_LOCK_WAIT` with no progress) is the caller's to decide on, not
+ * retried in here — see `commitAndPush`'s own exit-6 branch, which loops back
+ * to retake without spending an attempt.
+ */
+export const realLockFor = (scripts: Scripts, env: NodeJS.ProcessEnv = process.env): PushLock => ({
+  take: async (holder, action, write) => {
+    const ran = await scripts.awaited(LOCK, ['take', holder, action], { timeoutMs: lockTakeTimeoutMs(env) });
+    if (ran.code === 0) return 'held';
+    if (ran.code !== 6) {
+      // A take cut short may have created the lock under `holder` before it
+      // died; release removes it only where the owner line names `holder`.
+      await scripts.awaited(LOCK, ['release', holder]);
+      const why = ran.interrupted === undefined ? '' : ` (the helper was cut short by ${ran.interrupted})`;
+      throw new Refused(`could not take the default-branch push lock${why}.\n${ran.stderr}`);
+    }
+    const held = ran.stderr.match(/held by pid (\S+) running (.+?);/);
+    write(`step: waiting for the default-branch lock held by pid ${held?.[1] ?? 'unknown'} (${held?.[2] ?? 'an unknown action'})\n`);
+    return 'locked';
+  },
+  release: async (holder) => {
+    await scripts.awaited(LOCK, ['release', holder]);
+  },
+});
+
+/**
  * Runs a booking commit+push: commit whatever the caller already staged
  * (attributed to `who`), push to the default branch, and retry on rejection
  * — the ladder every lifecycle write in `deliver.ts` and `approve.ts` climbs.
@@ -163,52 +250,87 @@ export const commitAndPush = async (
   attempts: number = DEFAULT_ATTEMPTS,
   wait: () => Promise<void> = ctx.retryWait ?? defaultWait,
 ): Promise<{ pushed: string } | { rejected: true }> => {
+  const holder = nextHolderId();
+  const action = `push ${bookbr}`;
+  const lock = ctx.lock ?? realLockFor(ctx.scripts);
+  // The lock spans the fetch/commit/push, not just the push line (the-push-
+  // lock-spans-the-booking): a queued writer must not read a base that goes
+  // stale the instant another writer's push lands. Taken before the
+  // staged-change check (attempt 1) or the fetch (a retry), released as soon
+  // as the push outcome for THIS attempt is known — never held across the
+  // inter-attempt `wait()`, which is where another writer's turn happens.
+  // Exit 6 (`locked`) loops back to retake without spending an attempt or
+  // touching fetch/reset — the base did not move, so there is nothing to re-cut.
+  const locked = async <T>(body: () => Promise<T>): Promise<T> => {
+    while ((await lock.take(holder, action, write)) === 'locked');
+    try {
+      return await body();
+    } finally {
+      await lock.release(holder);
+    }
+  };
+
+  // Attempt 1 has nothing to re-fetch or reset, so it only commits and pushes.
+  // Every later attempt holds the lock across fetch → reset → reapply →
+  // commit → push as ONE span (the-push-lock-spans-the-booking): splitting
+  // the fetch/reset from the commit/push into two separate `locked()` calls
+  // would release the lock across `reapply`, leaving a window where another
+  // writer's push lands and makes the just-reset base stale again before
+  // this attempt ever pushes.
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const diff = await ctx.trees.hasStagedChanges(tmpwt);
-    if (diff.ok && !diff.value) {
-      write(`step: ${nothingMessage}\n`);
-      return { pushed: 'nothing-to-commit' };
-    }
+    const outcome = await locked(async () => {
+      if (attempt > 1) {
+        const fetched = await ctx.trees.fetch(ctx.repoRoot, main);
+        if (!fetched.ok) {
+          write(`step: retry stopped — git fetch origin ${main} failed in ${ctx.repoRoot}\n`);
+          return { done: true as const, result: { rejected: true as const } };
+        }
+        const reset = await ctx.trees.resetBranch(tmpwt, bookbr, `origin/${main}`);
+        if (!reset.ok) {
+          write(`step: retry stopped — could not reset '${bookbr}' to origin/${main} in ${tmpwt}\n`);
+          return { done: true as const, result: { rejected: true as const } };
+        }
+        try {
+          await reapply(tmpwt);
+        } catch (err) {
+          write(`step: retry stopped — re-applying the ${noun} to origin/${main} failed\n`);
+          throw err;
+        }
+      }
 
-    const commit = await ctx.trees.commitAs(tmpwt, who, message);
-    if (!commit.ok) throw new Refused(`could not commit the ${noun}.\n  See what git refused: git -C ${tmpwt} status\n  Nothing was pushed; re-run this — it is idempotent.`);
+      const diff = await ctx.trees.hasStagedChanges(tmpwt);
+      if (diff.ok && !diff.value) {
+        write(`step: ${nothingMessage}\n`);
+        return { done: true as const, result: { pushed: 'nothing-to-commit' } };
+      }
 
-    const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, main]);
-    for (const line of `${pushOut.stdout}${pushOut.stderr}`.split('\n')) {
-      if (line.length > 0) write(`  ${line}\n`);
-    }
-    if (pushOut.code === 0) {
-      return { pushed: pushReportOf(pushOut.stdout) };
-    }
+      const commit = await ctx.trees.commitAs(tmpwt, who, message);
+      if (!commit.ok) throw new Refused(`could not commit the ${noun}.\n  See what git refused: git -C ${tmpwt} status\n  Nothing was pushed; re-run this — it is idempotent.`);
 
-    // Exit 3 or 4: the Writer App refused before it ever attempted a push
-    // (repo unresolvable, token exchange failed, or a malformed/unreadable
-    // key). Retrying the identical push cannot succeed, unlike a rejection —
-    // so this stops the ladder rather than spending the remaining attempts.
-    if (pushOut.code === 3 || pushOut.code === 4) {
-      write(`step: push refused (exit ${pushOut.code}) — not retrying\n`);
-      return { rejected: true };
-    }
+      const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, main], { env: { PLOT_PUSH_LOCK_HOLDER: holder } });
+      for (const line of `${pushOut.stdout}${pushOut.stderr}`.split('\n')) {
+        if (line.length > 0) write(`  ${line}\n`);
+      }
+      if (pushOut.code === 0) {
+        return { done: true as const, result: { pushed: pushReportOf(pushOut.stdout) } };
+      }
+
+      // Exit 3 or 4: the Writer App refused before it ever attempted a push
+      // (repo unresolvable, token exchange failed, or a malformed/unreadable
+      // key). Retrying the identical push cannot succeed, unlike a rejection —
+      // so this stops the ladder rather than spending the remaining attempts.
+      if (pushOut.code === 3 || pushOut.code === 4) {
+        write(`step: push refused (exit ${pushOut.code}) — not retrying\n`);
+        return { done: true as const, result: { rejected: true as const } };
+      }
+
+      return { done: false as const };
+    });
+    if (outcome.done) return outcome.result;
 
     if (attempt === attempts) break;
     write(`step: push rejected — retrying (attempt ${attempt} of ${attempts})\n`);
     await wait();
-    const fetched = await ctx.trees.fetch(ctx.repoRoot, main);
-    if (!fetched.ok) {
-      write(`step: retry stopped — git fetch origin ${main} failed in ${ctx.repoRoot}\n`);
-      return { rejected: true };
-    }
-    const reset = await ctx.trees.resetBranch(tmpwt, bookbr, `origin/${main}`);
-    if (!reset.ok) {
-      write(`step: retry stopped — could not reset '${bookbr}' to origin/${main} in ${tmpwt}\n`);
-      return { rejected: true };
-    }
-    try {
-      await reapply(tmpwt);
-    } catch (err) {
-      write(`step: retry stopped — re-applying the ${noun} to origin/${main} failed\n`);
-      throw err;
-    }
   }
 
   write(`step: push rejected after ${attempts} attempts\n`);
