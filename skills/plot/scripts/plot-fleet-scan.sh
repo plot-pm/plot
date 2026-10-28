@@ -601,6 +601,18 @@ if [ "$HOST_LOOKUP_OK" = 1 ]; then
   plot_tmpdir HOST_STATE_CACHE fleet-host-state 2>/dev/null || HOST_STATE_CACHE=""
 fi
 
+# ONE LINE PER REAL HOST CALL, APPENDED RATHER THAN HELD IN A VARIABLE.
+# `host_pr_state` is called from inside `$(...)` at two sites (`:1524`,
+# `:4469`), and a variable it incremented would die with that subshell —
+# exactly the trap `branch_state`'s own comment names above. The file
+# survives every subshell this scan makes, because it is the same
+# `HOST_STATE_CACHE` directory `host_pr_state`'s own per-branch cache
+# already lives in and is cleaned up by.
+spend_tick() {
+  [ -n "$HOST_STATE_CACHE" ] && printf '.' >> "$HOST_STATE_CACHE/.spend" 2>/dev/null
+  return 0
+}
+
 # The cache key. Shared by the join and by `host_pr_state`, because the two
 # must agree on it EXACTLY: a prefill written under one spelling and read under
 # another is a cache that silently never hits, which restores the per-branch
@@ -1047,6 +1059,7 @@ prefill_pr_states() {
   open_err=$("$script_dir/plot-host.sh" pr-list --state open --limit "$PR_LIST_LIMIT" --rich \
          ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$open_list_out"); rc_open=$?
+  spend_tick
   # THE VERDICT IS THE WORSE OF THE TWO, never the last one. A rich call
   # throttled while the plain one answers leaves `checks` absent for every open
   # PR, so `--loose` degrades to strict — and a footer reading `host=ok` would
@@ -1063,6 +1076,7 @@ prefill_pr_states() {
   host_err=$("$script_dir/plot-host.sh" pr-list --state settled --limit "$PR_LIST_LIMIT" \
          ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$host_list_out"); rc=$?
+  spend_tick
   pr_list_verdict "$rc" "$host_err"; _v_all=$_plv
   pr_list_verdict_rank "$_v_open"; _r_open=$_plr
   pr_list_verdict_rank "$_v_all"
@@ -1354,6 +1368,7 @@ host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
   if [ "$ask" = "--ask" ]; then
     # Exit code first: non-zero is a transport failure and its stdout is not an
     # answer. Only then is the payload read.
+    spend_tick
     if js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
       st=$(printf '%s' "$js" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
       [ -n "$st" ] || st='-'
@@ -5401,3 +5416,11 @@ echo "Pulse complete. This report is derived — nothing was changed."
 # only this one has an explanation an operator can act on, which is that a
 # later plan reused a merged branch name.
 echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed claimable=$n_eligible eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT subject_predates_plan=$SUBJECT_PREDATES_PLAN host=$HOST_VERDICT main=$MAIN"
+# WHAT THIS SCAN ITSELF SPENT ON THE HOST, ON STDERR AND TAGGED like
+# `listing:`/`terminal:` above — `fleet-scan.ts`'s `onErrorLine` parses all
+# three the same way. TypeScript sees only the in-process `askPrList` calls
+# `readGithubListing` makes; the two `pr-list` calls in `prefill_pr_states`
+# and every real `pr-state` call `host_pr_state --ask` makes are this
+# script's own, and this is the one line that hands that count back (#2815).
+[ -n "$HOST_STATE_CACHE" ] && [ -f "$HOST_STATE_CACHE/.spend" ] \
+  && printf 'spend: %s\n' "$(wc -c < "$HOST_STATE_CACHE/.spend" | tr -d ' ')" >&2

@@ -80,7 +80,7 @@ import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js'
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
-import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
+import { freshScanState, planDirectory, REFRESH_MS, PR_REFRESH_MS } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading } from '../../shared/worker-question.js';
@@ -129,7 +129,7 @@ import {
 import { gatherReadingsAndRelease } from '../../shared/release-claim-reader.js';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import type { PrOpenReading } from '@plot-pm/domain/rules/ending-action';
-import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
+import { loopSpendPerHour, ISSUE_REFRESH_MS, type LoopSpend } from '@plot-pm/domain/rules/cadence';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import {
@@ -445,20 +445,19 @@ export const accountRate = async (scripts: Pick<Scripts, 'hostSaid'>): Promise<n
 };
 
 /**
- * What the account spends beside what this tick spent, for the tick line.
+ * What the account spends beside what each fleetd loop spent, for the tick line.
  *
  * @param scripts - the adapter that runs `plot-host.sh`.
- * @param calls - the host calls this tick made.
- * @param intervalMs - the wait between ticks.
- * @returns the account's rate and this supervisor's rate at this tick's calls.
+ * @param loops - each loop's own call count and interval — the tick, the
+ *   scan, the PR reader, and the issue reader, each on its own cadence.
+ * @returns the account's rate and each loop's own rate at its own calls.
  */
 export const spendForTick = async (
   scripts: Pick<Scripts, 'hostSaid'>,
-  calls: number,
-  intervalMs: number,
+  loops: readonly LoopSpend[],
 ): Promise<TickSpend> => ({
   accountPerHour: await accountRate(scripts),
-  minePerHour: boardSharePerHour(intervalMs, calls),
+  perLoop: loopSpendPerHour(loops),
 });
 
 /**
@@ -2443,6 +2442,11 @@ export const run = async (
   // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and
   // must neither delay a supervision tick nor start a second scan. `--once`
   // runs one tick and no scan.
+  //
+  // HELD IN ITS OWN VARIABLE, like `prState`/`issueState` below, so the tick
+  // can read `scanState.calls` for the tick line — not constructed inline as
+  // `fleetScan`'s argument, which would leave no reference to read back.
+  const scanState = freshScanState();
   const prState = freshPrState();
   // THE ISSUE GATE RUNS ON ITS OWN BEAT, every `ISSUE_REFRESH_MS`
   // (`fleet-clock.ts`). It reads the PR state's backoff and never writes it;
@@ -2579,7 +2583,7 @@ export const run = async (
             },
           },
           fleetStateFile({ repoRoot }),
-          freshScanState(),
+          scanState,
           () => Date.now(),
           warn,
           // THE PR READER'S LAST FAILURE still rides the bridge beside the
@@ -2708,7 +2712,9 @@ export const run = async (
       await relayBeat(slot, warn);
       // RESET HERE, NOT ONLY AFTER THE SPEND READING BELOW: this `continue`
       // skips that reading entirely, and the NEXT tick's own spend reading
-      // must not inherit whatever calls this tick made before it threw.
+      // must not inherit whatever calls this tick made before it threw. The
+      // other three loops run on their own clocks and are read (and reset)
+      // only at the completion path below, so a throw here leaves them alone.
       tally.calls = 0;
       await pause();
       continue;
@@ -2723,7 +2729,15 @@ export const run = async (
     // on a complete one: neither reading can change which kind of tick it was.
     // Reported, never acted on — `args.intervalMs` below does not read it.
     if (report.incomplete === '') {
-      report = { ...report, spend: await spendForTick(scripts, tally.calls, args.intervalMs) };
+      report = {
+        ...report,
+        spend: await spendForTick(scripts, [
+          { name: 'tick', calls: tally.calls, intervalMs: args.intervalMs },
+          { name: 'scan', calls: scanState.calls, intervalMs: REFRESH_MS },
+          { name: 'pr-reader', calls: prState.calls, intervalMs: PR_REFRESH_MS },
+          { name: 'issue-reader', calls: issueState.calls, intervalMs: ISSUE_REFRESH_MS },
+        ]),
+      };
     }
     // RESET HERE, NOT AT THE TOP OF THE TICK: the fresh-agent and nothing-done
     // steps below run AFTER this reading and add to `tally.calls` themselves
@@ -2731,8 +2745,14 @@ export const run = async (
     // read them, so a tick's own host spend from those two steps was never
     // reported. A tick that throws (the `continue` above) or is incomplete
     // takes no spend reading, so it carries no calls forward either way; the
-    // next tick's own reset still runs here, once that tick completes.
+    // next tick's own reset still runs here, once that tick completes. The
+    // scan, PR reader and issue reader tallies are reset the same way and for
+    // the same reason — each runs on its own clock and keeps accruing calls
+    // between ticks, so only the reading that just printed them may zero them.
     tally.calls = 0;
+    scanState.calls = 0;
+    prState.calls = 0;
+    issueState.calls = 0;
     queueHolds.held = report.incomplete === '' && report.handOver !== null ? report.handOver.detail.held : null;
     const code = reportTick(report, write, warn, !args.once);
     // THE ONE CHANNEL TO THE BOARD, written beside the log and for the same

@@ -112,6 +112,27 @@ export const CADENCE_DAMPING = 0.25;
 export const boardSharePerHour = (intervalMs: number, costPerRefresh: number): number =>
   (HOUR_MS / intervalMs) * costPerRefresh;
 
+/** One loop's own request count, taken over its own cadence. */
+export interface LoopSpend {
+  readonly name: string;
+  readonly calls: number;
+  readonly intervalMs: number;
+}
+
+/**
+ * What each named loop is spending, in requests an hour — one figure per loop.
+ *
+ * EACH LOOP SCALES BY ITS OWN INTERVAL, NEVER A SHARED ONE. The tick, the
+ * scan, the PR reader and the issue reader run on independent cadences, so a
+ * single `boardSharePerHour` call over one combined count would understate or
+ * overstate every loop but one. This calls it once per loop instead.
+ *
+ * @param loops - one entry per loop, carrying its own call count and interval.
+ * @returns the requests-an-hour figure for each loop, keyed by its name.
+ */
+export const loopSpendPerHour = (loops: readonly LoopSpend[]): Record<string, number> =>
+  Object.fromEntries(loops.map((loop) => [loop.name, boardSharePerHour(loop.intervalMs, loop.calls)]));
+
 /**
  * What everything OTHER than this board is spending, in requests an hour.
  *

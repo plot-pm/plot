@@ -163,10 +163,14 @@ export interface TickSpend {
    */
   accountPerHour: number | null;
   /**
-   * This supervisor's rate at this tick's host calls: the calls the tick made,
-   * repeated once per interval for an hour.
+   * This supervisor's rate at each loop's own host calls, keyed by loop name
+   * (`tick`, `scan`, `pr-reader`, `issue-reader`) — the calls that loop made,
+   * repeated once per its own interval for an hour. One figure per loop,
+   * never summed into a single number: the loops run on independent
+   * cadences, and a fleetd whose scan alone burns hundreds of requests an
+   * hour must not be able to hide behind a calm tick-only figure (#2815).
    */
-  minePerHour: number;
+  perLoop: Record<string, number>;
 }
 
 /**
@@ -585,11 +589,9 @@ export const tickLine = (report: TickReport): string => {
   // `account=` is a different fact from `merge-unknown=`. The hold says the host
   // did not answer this tick; the rate says how much the account is spending.
   if (report.spend) {
-    const { accountPerHour, minePerHour } = report.spend;
-    fields.push(
-      accountPerHour === null ? 'account=unread' : `account=${Math.round(accountPerHour)}/hr`,
-      `mine=${Math.round(minePerHour)}/hr`,
-    );
+    const { accountPerHour, perLoop } = report.spend;
+    fields.push(accountPerHour === null ? 'account=unread' : `account=${Math.round(accountPerHour)}/hr`);
+    for (const [loop, perHour] of Object.entries(perLoop)) fields.push(`${loop}=${Math.round(perHour)}/hr`);
   }
   return fields.join(' ');
 };

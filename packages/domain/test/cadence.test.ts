@@ -10,6 +10,7 @@ import {
   issueIntervalMs,
   issueSpendPerHour,
   limitWaitMs,
+  loopSpendPerHour,
   MAX_CADENCE_STRETCH,
   MAX_LIMIT_WAIT_MS,
   othersPerHour,
@@ -265,6 +266,28 @@ describe('the board subtracts itself from what it reads', () => {
   it('refuses to divide by a share that is not a number to divide by', () => {
     expect(targetStretch(600, 0, INTERVAL, GITHUB)).toBe(1);
     expect(targetStretch(600, INTERVAL, INTERVAL, 0)).toBe(1);
+  });
+});
+
+describe('each loop prices its own share at its own interval', () => {
+  it('names one figure per loop, never a sum across loops', () => {
+    // #2815: a fleetd whose scan alone burns hundreds of requests an hour must
+    // not be able to hide behind a calm tick-only figure. Each loop here runs
+    // on its own cadence, so a shared interval would misprice every loop but
+    // the one that interval happens to belong to.
+    expect(
+      loopSpendPerHour([
+        { name: 'tick', calls: 2, intervalMs: 60_000 },
+        { name: 'scan', calls: 1, intervalMs: 5_000 },
+        { name: 'pr-reader', calls: 1, intervalMs: 60_000 },
+        { name: 'issue-reader', calls: 1, intervalMs: 120_000 },
+      ]),
+    ).toEqual({ tick: 120, scan: 720, 'pr-reader': 60, 'issue-reader': 30 });
+  });
+
+  it('reports zero for a loop that made no calls, and nothing for no loops at all', () => {
+    expect(loopSpendPerHour([{ name: 'scan', calls: 0, intervalMs: 5_000 }])).toEqual({ scan: 0 });
+    expect(loopSpendPerHour([])).toEqual({});
   });
 });
 

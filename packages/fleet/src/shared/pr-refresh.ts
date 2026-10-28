@@ -76,6 +76,11 @@ export interface PrState {
   prIntervalMs: number;
   /** The resolved git host backend, or null before the first ask. */
   backend: string | null;
+  /**
+   * Host requests this PR pass has spent since the tick last read and zeroed
+   * it. Never reset at the top of a pass; only the reader zeroes it.
+   */
+  calls: number;
 }
 
 /**
@@ -103,6 +108,7 @@ export const freshPrState = (): PrState => ({
   prNextIsBackoff: false,
   prIntervalMs: PR_REFRESH_MS,
   backend: null,
+  calls: 0,
 });
 
 /**
@@ -877,7 +883,13 @@ export const withHostSlot = async <T>(entry: PrState, call: () => Promise<T>): P
   const account = entry.prAccount;
   // NOTHING LICENSES A BOUND, so nothing is claimed. A board that has read no
   // limit runs as it did before this slice, and the first reading changes that.
-  if (bound === null || account === null) return call();
+  if (bound === null || account === null) {
+    try {
+      return await call();
+    } finally {
+      entry.calls += 1;
+    }
+  }
   const slots = slotsFile();
   const startedAt = Date.now();
   let index: number | null = null;
@@ -904,6 +916,7 @@ export const withHostSlot = async <T>(entry: PrState, call: () => Promise<T>): P
     // ten minutes, which is the staleness bound rather than a fault anybody
     // would notice.
     if (index !== null) await slots.release(account, index);
+    entry.calls += 1;
   }
 };
 

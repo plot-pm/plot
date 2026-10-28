@@ -242,7 +242,7 @@ describe('one issue pass (Acceptance 2)', () => {
       'issue-list --paged --limit 1000',
       `issue-list --state closed --since ${SINCE} --limit 1000`,
     ]);
-    expect(state).toEqual({ issueNextAt: NOW + 240_000, issueNextIsBackoff: false, issueError: null });
+    expect(state).toEqual({ issueNextAt: NOW + 240_000, issueNextIsBackoff: false, issueError: null, calls: 2 });
   });
 
   it('asks for 1000 open rows and writes complete true where fewer came back', async () => {
@@ -816,7 +816,7 @@ describe('a refused issue read (Acceptance 6)', () => {
     expect(index?.reason).toBe(RATE_LIMIT);
     expect(index?.requests).toBe(1);
     expect(index?.nextAt).toBe(NOW + 120_000);
-    expect(state).toEqual({ issueNextAt: NOW + 300_000, issueNextIsBackoff: true, issueError: RATE_LIMIT });
+    expect(state).toEqual({ issueNextAt: NOW + 300_000, issueNextIsBackoff: true, issueError: RATE_LIMIT, calls: 1 });
   });
 
   it('asks nothing on the next pass while its own recorded backoff is live', async () => {
