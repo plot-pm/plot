@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ticketsForReader, ownedFromTicket } from '../../src/app/lib/agent-rows/mine-filter.js';
+import { ticketsForReader, ownedFromTicket, readMineStrict, writeMineStrict } from '../../src/app/lib/agent-rows/mine-filter.js';
 import type { IssueRow, TicketLaneRow, TicketSourceShape } from '../../src/contract/schema.js';
 import { isMine, lanesForReader, type Reader } from '@plot-pm/domain';
 
@@ -118,5 +118,30 @@ describe('Discovery and Delivery answer alike for one ticket', () => {
     expect(isMine(ownedFromTicket(ticket({ assignees }), source), reader)).toBe(expected);
     expect(deliveryKeeps(assignees, source, reader)).toBe(expected);
     expect(discoveryKeeps(laneRow(assignees, source), reader)).toBe(expected);
+  });
+});
+
+describe('readMineStrict / writeMineStrict', () => {
+  const store = () => {
+    const data = new Map<string, string>();
+    return { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) };
+  };
+
+  it('reads off where the key is absent', () => {
+    expect(readMineStrict(store())).toBe(false);
+  });
+
+  it('reads back what it wrote', () => {
+    const s = store();
+    writeMineStrict(true, s);
+    expect(readMineStrict(s)).toBe(true);
+    writeMineStrict(false, s);
+    expect(readMineStrict(s)).toBe(false);
+  });
+
+  it('reads off and writes silently where storage throws', () => {
+    const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    expect(readMineStrict(broken)).toBe(false);
+    expect(() => writeMineStrict(true, broken)).not.toThrow();
   });
 });

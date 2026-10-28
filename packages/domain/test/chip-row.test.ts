@@ -209,6 +209,52 @@ describe('chipRow — Mine', () => {
   });
 });
 
+describe('chipRow — the hide/show-unknown control', () => {
+  const reader = { hostUser: 'jwloka', directory };
+  const mine = (mode: 'all' | 'mine-and-unknown' | 'mine', visibleRows: ChipRowReadings['mine']['visibleRows'], visibleAgents: ChipRowReadings['mine']['visibleAgents'] = []) =>
+    chipRow(base({ mine: { reader, mode, visibleRows, visibleAgents } }));
+
+  // ISSUE #2853's HIGH: the control was gated on the `theirs` count. It reads
+  // the unknown count instead.
+  it('shows with unknown rows and no row somebody else owns', () => {
+    const actual = mine('mine-and-unknown', [{ kind: 'pr', author: 'jwloka' }, { kind: 'other' }, { kind: 'pr' }]);
+    expect(actual.mine.hiddenCount).toBe(0);
+    expect(actual.mineStrict).toEqual({ label: 'hide 2 unknown', pressed: false, unknownCount: 2 });
+  });
+
+  it('does not show with rows somebody else owns and no unknown row', () => {
+    const actual = mine('mine-and-unknown', [{ kind: 'pr', author: 'jwloka' }, { kind: 'pr', author: 'eins78' }]);
+    expect(actual.mine.hiddenCount).toBe(1);
+    expect(actual.mineStrict).toBeNull();
+  });
+
+  it('names the unknown count in mine mode, beside a hidden count of theirs plus unknown', () => {
+    const actual = mine('mine', [{ kind: 'pr', author: 'eins78' }, { kind: 'other' }, { kind: 'pr' }]);
+    expect(actual.mine.hiddenCount).toBe(3);
+    expect(actual.mineStrict).toEqual({ label: 'show 2 unknown', pressed: true, unknownCount: 2 });
+  });
+
+  it('does not show in all mode', () => {
+    expect(mine('all', [{ kind: 'other' }]).mineStrict).toBeNull();
+  });
+
+  it('does not show while the chip is disabled', () => {
+    const actual = chipRow(base({ mine: { reader: {}, mode: 'all', visibleRows: [{ kind: 'other' }], visibleAgents: [] } }));
+    expect(actual.mineStrict).toBeNull();
+  });
+
+  // ISSUE #2853's MEDIUM: a branch whose row and agent both hide counted twice.
+  it('counts a branch once where its row and its agent both hide', () => {
+    const actual = mine(
+      'mine',
+      [{ kind: 'other', branch: 'feature/x' }],
+      [{ kind: 'agent', state: 'elsewhere', branch: 'feature/x' }, { kind: 'agent', state: 'elsewhere', branch: 'feature/y' }],
+    );
+    expect(actual.mine.hiddenCount).toBe(2);
+    expect(actual.mineStrict?.unknownCount).toBe(2);
+  });
+});
+
 describe('chipRow — per-sprint chips', () => {
   it('returns one chip per Active sprint; with no selection each counts what its click would hide', () => {
     const actual = chipRow(base());

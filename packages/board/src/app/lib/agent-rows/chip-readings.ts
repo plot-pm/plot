@@ -4,7 +4,7 @@ import type { AgentEntry, AgentRow, FleetSprint } from '../../../contract/schema
 import { ownedFromAgent, ownedFromRow } from './mine-filter.js';
 
 /** The row fields the chip row reads: sprint membership and ownership. */
-type ChipRowSource = Pick<AgentRow, 'kind' | 'plan' | 'pr' | 'assignee' | 'author' | 'approver'>;
+type ChipRowSource = Pick<AgentRow, 'kind' | 'plan' | 'pr' | 'assignee' | 'author' | 'approver'> & { readonly branch?: string };
 
 /** What the Delivery tab holds when it builds the chip row's readings. */
 export interface ChipReadingsInput {
@@ -12,8 +12,8 @@ export interface ChipReadingsInput {
   readonly rows: readonly ChipRowSource[];
   /** `rows` after the sprint filter, before the `Mine` filter. */
   readonly sprintFilteredRows: readonly ChipRowSource[];
-  /** The registry agents, before the `Mine` filter. */
-  readonly agents: readonly Pick<AgentEntry, 'identity' | 'state'>[];
+  /** The registry agents, before the `Mine` filter. The sprint filter does not apply: the agent sections show every agent. */
+  readonly agents: readonly (Pick<AgentEntry, 'identity' | 'state'> & { readonly branch?: string })[];
   /** The Active sprints, in the order the chip row shows them. */
   readonly activeSprints: readonly Pick<FleetSprint, 'slug' | 'title'>[];
   /** The reader's sprint selection, sanitized against `activeSprints`. */
@@ -46,8 +46,8 @@ export const chipReadings = (input: ChipReadingsInput): ChipRowReadings => ({
   mine: {
     reader: input.reader,
     mode: input.mode,
-    visibleRows: input.sprintFilteredRows.map((row) => ownedFromRow(row)),
-    visibleAgents: input.agents.map((agent) => ownedFromAgent(agent)),
+    visibleRows: input.sprintFilteredRows.map((row) => ({ ...ownedFromRow(row), branch: row.branch ?? null })),
+    visibleAgents: input.agents.map((agent) => ({ ...ownedFromAgent(agent), branch: agent.branch ?? null })),
   },
   waitingOnMe: { on: false },
 });

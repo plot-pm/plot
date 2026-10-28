@@ -9,7 +9,8 @@ import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
 import { planLinkClick } from '@plot-pm/domain/rules/plan-link-click';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import type { DiscoveryShow, MineMode } from '@plot-pm/domain';
-import { mineDisabledReason, mineMode, comparableLogin } from '@plot-pm/domain';
+import { mineDisabledReason, mineMode, mineStrictControl, comparableLogin } from '@plot-pm/domain';
+import { MineStrictToggle } from './components/MineStrictToggle.js';
 import { sanitizeSelection } from '@plot-pm/domain/rules/sprint-selection';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
@@ -299,13 +300,13 @@ export function App() {
     writeMineStrict(next);
   };
   const mode: MineMode = mineMode(reader, { mineOnly: mineOnly ? '1' : '0', strict: mineStrict ? '1' : '0' });
-  // Discovery's own hidden count, reported up by `StoriesTab` — Planning reads
-  // its own from `boardForReader`'s return instead, so only Discovery needs this.
-  const [discoveryHiddenCount, setDiscoveryHiddenCount] = useState(0);
-  // Planning's filtered board and hidden count, computed once here rather than
+  // Discovery's own counts, reported up by `StoriesTab` — Planning reads its
+  // own from `boardForReader`'s return instead, so only Discovery needs this.
+  const [discoveryCounts, setDiscoveryCounts] = useState({ hiddenCount: 0, unknownCount: 0 });
+  // Planning's filtered board and counts, computed once here rather than
   // inline per layout (Swimlanes vs. BoardView both need the same answer).
-  const { board: planningBoard, hiddenCount: planningHiddenCount } = useMemo(
-    () => (board ? boardForReader(board, reader, mode) : { board, hiddenCount: 0 }),
+  const { board: planningBoard, unknownCount: planningUnknownCount } = useMemo(
+    () => (board ? boardForReader(board, reader, mode) : { board, hiddenCount: 0, unknownCount: 0 }),
     [board, reader, mode],
   );
   const [error, setError] = useState<string | null>(null);
@@ -1329,7 +1330,7 @@ export function App() {
             person. A row naming nobody, or an undeclared spelling, stays. */}
         {(tab === 'planning' || tab === 'discovery') && board && (() => {
           const disabledReason = comparableLogin(reader) === '' ? mineDisabledReason(reader) : null;
-          const hiddenCount = tab === 'planning' ? planningHiddenCount : discoveryHiddenCount;
+          const strictControl = mineStrictControl(mode, tab === 'planning' ? planningUnknownCount : discoveryCounts.unknownCount);
           return (
             <>
               <label
@@ -1347,23 +1348,7 @@ export function App() {
                 />
                 Only my work
               </label>
-              {mode !== 'all' && hiddenCount > 0 && (
-                <label
-                  data-mine-strict-filter
-                  title={disabledReason ?? undefined}
-                  className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"
-                >
-                  <input
-                    type="checkbox"
-                    data-mine-strict-toggle
-                    checked={mineStrict}
-                    disabled={disabledReason != null}
-                    onChange={(e) => onMineStrict(e.target.checked)}
-                    className="h-3.5 w-3.5 accent-green-600"
-                  />
-                  Hide unknown too ({hiddenCount} hidden)
-                </label>
-              )}
+              <MineStrictToggle control={strictControl} onToggle={() => onMineStrict(!mineStrict)} />
             </>
           );
         })()}
@@ -1391,7 +1376,7 @@ export function App() {
               issueAnswer={fleet?.issueAnswer ?? 'unsupported'}
               reader={reader}
               mode={mode}
-              onHiddenCount={setDiscoveryHiddenCount}
+              onCounts={setDiscoveryCounts}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

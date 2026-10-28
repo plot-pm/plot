@@ -101,7 +101,7 @@ describe('lanesForReader', () => {
   it('reports a non-empty lane the filter emptied entirely', () => {
     const tickets: TicketLaneGroups = { open: [ticket('5', ['eins78'])], 'in-progress': [], done: [], moreCount: 0 };
     const actual = lanesForReader(STORIES, tickets, reader, 'mine-and-unknown');
-    expect(actual.tickets?.open).toEqual({ rows: [], hiddenByOwner: true, hiddenCount: 1 });
+    expect(actual.tickets?.open).toEqual({ rows: [], hiddenByOwner: true, hiddenCount: 1, unknownCount: 0 });
   });
 
   it('carries moreCount through and a missing ticket reading through', () => {
@@ -147,6 +147,30 @@ describe('lanesForReader', () => {
       const actual = lanesForReader(STORIES, TICKETS, reader, 'mine');
       expect(actual.storyLanes.map((l) => l.rows.map((s) => s.slug))).toEqual([['a'], [], []]);
       expect(actual.tickets?.open.rows.map((r) => r.id)).toEqual(['1']);
+    });
+  });
+
+  describe('unknown and hidden counts', () => {
+    const stories = [{ lane: 'Draft', stories: [story('a', 'jwloka'), story('b', 'eins78'), story('z')] }];
+
+    it('counts rows with no known owner per lane and over every lane', () => {
+      const actual = lanesForReader(stories, TICKETS, reader, 'mine-and-unknown');
+      expect(actual.storyLanes[0].unknownCount).toBe(1);
+      expect(actual.tickets?.['in-progress'].unknownCount).toBe(1);
+      expect(actual.unknownCount).toBe(2);
+      // `mine-and-unknown` hides the two rows somebody else owns: story b and ticket 2.
+      expect(actual.hiddenCount).toBe(2);
+    });
+
+    it('keeps the unknown count in mine mode and adds it to the hidden count', () => {
+      const actual = lanesForReader(stories, TICKETS, reader, 'mine');
+      expect(actual.unknownCount).toBe(2);
+      expect(actual.hiddenCount).toBe(4);
+    });
+
+    it('counts nothing in all mode', () => {
+      const actual = lanesForReader(stories, TICKETS, reader, 'all');
+      expect(actual).toMatchObject({ hiddenCount: 0, unknownCount: 0 });
     });
   });
 

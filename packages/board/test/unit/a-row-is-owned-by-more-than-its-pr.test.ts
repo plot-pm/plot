@@ -143,6 +143,26 @@ describe('plan cards reach the rule by their assignee', () => {
   it('hides no card when the board names no reader', () => {
     expect(slugs(boardForReader(kanban, readerFrom({ people }), 'mine-and-unknown').board)).toEqual(slugs(kanban));
   });
+
+  // ISSUE #2853's HIGH: the Planning control gates on this count, not on hiddenCount.
+  it('counts the cards with no known owner, the same in both «Mine» modes', () => {
+    const lenient = boardForReader(kanban, reader, 'mine-and-unknown');
+    const strict = boardForReader(kanban, reader, 'mine');
+    // `by-nobody` and `by-stranger` have no known owner; `by-max` is somebody else's.
+    expect(lenient).toMatchObject({ hiddenCount: 1, unknownCount: 2 });
+    expect(strict).toMatchObject({ hiddenCount: 3, unknownCount: 2 });
+    expect(slugs(strict.board)).toEqual(['by-login', 'by-name']);
+  });
+
+  it('counts unknown cards where no card is somebody else\'s', () => {
+    const bare = readerFrom({ hostUser: 'jwloka' });
+    expect(boardForReader(kanban, bare, 'mine-and-unknown')).toMatchObject({ hiddenCount: 0 });
+    expect(boardForReader(kanban, bare, 'mine-and-unknown').unknownCount).toBeGreaterThan(0);
+  });
+
+  it('counts nothing in all mode', () => {
+    expect(boardForReader(kanban, reader, 'all')).toMatchObject({ hiddenCount: 0, unknownCount: 0 });
+  });
 });
 
 describe('each population the rule cannot place answers unknown and stays', () => {

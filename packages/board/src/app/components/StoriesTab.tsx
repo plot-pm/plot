@@ -66,8 +66,8 @@ export interface StoriesTabProps {
   reader: Reader;
   /** The effective «Mine» mode. */
   mode: MineMode;
-  /** Reports how many lane rows the ownership filter hides, whenever that total changes. */
-  onHiddenCount?: (count: number) => void;
+  /** Reports how many lane rows the ownership filter hides and how many have no known owner, whenever either changes; both `0` on unmount. */
+  onCounts?: (counts: { hiddenCount: number; unknownCount: number }) => void;
 }
 
 /**
@@ -147,7 +147,7 @@ export function StoriesTab({
   issueAnswer,
   reader,
   mode,
-  onHiddenCount,
+  onCounts,
 }: StoriesTabProps) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   // Per-view only — not kept in the URL. `?archived=1` is the one URL
@@ -165,15 +165,14 @@ export function StoriesTab({
   );
 
   // Reported upward so the shared «Only my work» header (App.tsx) can show
-  // the hide/show-unknown control's count while Discovery is the active tab —
-  // the same role `boardForReader`'s own `hiddenCount` plays for Planning.
+  // the hide/show-unknown control while Discovery is the active tab — the
+  // same role `boardForReader`'s counts play for Planning. Zeroed on unmount,
+  // so a return to Discovery never shows the last visit's count.
+  const { hiddenCount, unknownCount } = owned;
   useEffect(() => {
-    const ticketHidden = owned.tickets
-      ? owned.tickets.open.hiddenCount + owned.tickets['in-progress'].hiddenCount + owned.tickets.done.hiddenCount
-      : 0;
-    const storyHidden = owned.storyLanes.reduce((sum, lane) => sum + lane.hiddenCount, 0);
-    onHiddenCount?.(ticketHidden + storyHidden);
-  }, [owned, onHiddenCount]);
+    onCounts?.({ hiddenCount, unknownCount });
+  }, [hiddenCount, unknownCount, onCounts]);
+  useEffect(() => () => onCounts?.({ hiddenCount: 0, unknownCount: 0 }), [onCounts]);
 
   // The domain decides which rows survive the selected topic, and which
   // lanes the topic emptied. `lanesForTopic` wants the same `{ lane, stories }`

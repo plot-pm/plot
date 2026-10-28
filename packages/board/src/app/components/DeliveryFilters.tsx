@@ -1,5 +1,6 @@
 import { chipRow, type Chip, type ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
 import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
+import { MineStrictToggle } from './MineStrictToggle.js';
 
 /**
  * The Delivery tab's filter row: one chip row (`This sprint`, `Mine`,
@@ -19,10 +20,8 @@ interface DeliveryFiltersProps {
   onToggleSprint: () => void;
   /** Toggle the `Mine` chip. */
   onToggleMine: () => void;
-  /** Toggle the stricter "hide unknown too" preference — control shown beside `Mine` only while it would change anything. */
+  /** Toggle the hide/show-unknown control beside `Mine`; `chipRow()` decides whether it shows. */
   onToggleStrict: () => void;
-  /** Whether the stricter preference is currently on. */
-  strict: boolean;
   /** The active sprints, for the sprint line beneath the chip row. Empty renders no line. */
   sprints: FleetSprint[];
   /**
@@ -102,7 +101,6 @@ export function DeliveryFilters({
   onToggleSprint,
   onToggleMine,
   onToggleStrict,
-  strict,
   sprints,
   selectedSprints,
   onToggleSprintSlug,
@@ -150,18 +148,7 @@ export function DeliveryFilters({
           );
         })}
         <ChipView chip={chips.mine} onToggle={onToggleMine} showDisabledReason={mineBoardAnswered} />
-        {chips.mine.on && chips.mine.hiddenCount > 0 && (
-          <label data-mine-strict-filter className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <input
-              type="checkbox"
-              data-mine-strict-toggle
-              checked={strict}
-              onChange={onToggleStrict}
-              className="h-3.5 w-3.5 accent-green-600"
-            />
-            Hide unknown too
-          </label>
-        )}
+        <MineStrictToggle control={chips.mineStrict} onToggle={onToggleStrict} />
         <ChipView chip={chips.waitingOnMe} onToggle={() => {}} />
         {estateTotals && (
           <span data-estate-totals className="ml-auto min-w-0 text-xs text-slate-500 dark:text-slate-400">

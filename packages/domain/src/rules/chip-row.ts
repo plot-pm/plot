@@ -1,5 +1,5 @@
-import { comparableLogin, isMine, isMineStrict, type OwnedRow, type Reader } from './ownership.js';
-import type { MineMode } from './mine-mode.js';
+import { comparableLogin, type Reader } from './ownership.js';
+import { mineCounts, mineHiddenCount, mineStrictControl, type BranchOwnedRow, type MineMode, type MineStrictControl } from './mine-mode.js';
 import { rowInSprintSelection } from './sprint-selection.js';
 
 /**
@@ -26,6 +26,8 @@ export interface Chip {
 export interface ChipRow {
   readonly thisSprint: Chip;
   readonly mine: Chip;
+  /** The hide/show-unknown control beside `Mine`, or `null` where it does not show. */
+  readonly mineStrict: MineStrictControl | null;
   readonly waitingOnMe: Chip;
   /** One chip per Active sprint, in `readings.sprint.sprints`' order. */
   readonly perSprint: readonly Chip[];
@@ -65,10 +67,14 @@ export interface MineChipReadings {
   readonly reader: Reader;
   /** The effective «Mine» mode. */
   readonly mode: MineMode;
-  /** Rows not already hidden by another filter, before this chip's own effect. */
-  readonly visibleRows: readonly OwnedRow[];
-  /** Registry agents not already hidden by another filter, before this chip's own effect. */
-  readonly visibleAgents: readonly OwnedRow[];
+  /** Rows not already hidden by another filter, before this chip's own effect, each with its branch. */
+  readonly visibleRows: readonly BranchOwnedRow[];
+  /**
+   * Registry agents before this chip's own effect, each with its branch. The
+   * sprint filter does not apply: the agent sections show every agent. An
+   * agent on the branch of a row in `visibleRows` counts with that row, once.
+   */
+  readonly visibleAgents: readonly BranchOwnedRow[];
 }
 
 /** What `chipRow` reads for the `Waiting on me` chip. */
@@ -159,25 +165,32 @@ export const mineDisabledReason = (reader: Reader): string => {
  * `gitEmail`-only reader all disable the chip: neither rule can match them to
  * a row's owner. Each reason names `hostUser` as the fix.
  *
- * In `mine-and-unknown` mode, `hiddenCount` counts only the rows and agents
- * `isMine` answers false for — somebody else's. In `mine` mode it additionally
- * counts the `unknown` ones, so the number always names everything the filter
- * currently hides.
+ * In `mine-and-unknown` mode, `hiddenCount` counts the branches somebody else
+ * owns. In `mine` mode it also counts the branches with no known owner, so the
+ * number names everything the filter hides. A branch counts once, whether its
+ * row, its agent or both answer (`mineCounts`).
  *
  * @param readings - who is reading, the effective mode, and the rows/agents it would act on.
  * @returns the chip.
  */
 const mineChip = (readings: MineChipReadings): Chip => {
   const identity = comparableLogin(readings.reader);
-  if (identity === '') {
+  if (!identity) {
     return { label: 'Mine', on: false, hiddenCount: 0, disabledReason: mineDisabledReason(readings.reader) };
   }
   const label = `Mine (${identity})`;
-  const owns = readings.mode === 'mine' ? isMineStrict : isMine;
-  const hiddenCount = [...readings.visibleRows, ...readings.visibleAgents]
-    .filter((row) => !owns(row, readings.reader)).length;
-  return { label, on: readings.mode !== 'all', hiddenCount, disabledReason: null };
+  const counts = mineCounts([...readings.visibleRows, ...readings.visibleAgents], readings.reader);
+  return { label, on: readings.mode !== 'all', hiddenCount: mineHiddenCount(counts, readings.mode), disabledReason: null };
 };
+
+/**
+ * The hide/show-unknown control beside `Mine`.
+ *
+ * @param readings - who is reading, the effective mode, and the rows/agents.
+ * @returns the control, or `null` in `all` mode or with no unknown branch.
+ */
+const mineStrictChip = (readings: MineChipReadings): MineStrictControl | null =>
+  mineStrictControl(readings.mode, mineCounts([...readings.visibleRows, ...readings.visibleAgents], readings.reader).unknown);
 
 /**
  * The `Waiting on me` chip.
@@ -211,6 +224,7 @@ const waitingOnMeChip = (_readings: WaitingOnMeChipReadings): Chip => ({
 export const chipRow = (readings: ChipRowReadings): ChipRow => ({
   thisSprint: sprintChip(readings.sprint),
   mine: mineChip(readings.mine),
+  mineStrict: mineStrictChip(readings.mine),
   waitingOnMe: waitingOnMeChip(readings.waitingOnMe),
   perSprint: readings.sprint.sprints.map((sprint) => perSprintChip(readings.sprint, sprint)),
 });

@@ -1,4 +1,4 @@
-import { isMine, isMineStrict, ownedTicket, type OwnedRow, type Reader } from './ownership.js';
+import { isMine, isMineStrict, ownership, ownedTicket, type OwnedRow, type Reader } from './ownership.js';
 import type { MineMode } from './mine-mode.js';
 import type { TicketLaneGroups, TicketLaneRow } from './ticket-lanes.js';
 
@@ -24,6 +24,8 @@ export interface OwnerFilteredLane<T> {
   readonly hiddenByOwner: boolean;
   /** How many of the lane's rows the ownership filter hid. */
   readonly hiddenCount: number;
+  /** How many of the lane's rows have no known owner, counted before the filter; `0` in `all` mode. */
+  readonly unknownCount: number;
 }
 
 /** One story lane after the ownership filter. */
@@ -43,6 +45,10 @@ export interface OwnerFilteredTicketLanes {
 export interface LanesForReader<S, L extends string = string> {
   readonly storyLanes: OwnerFilteredStoryLane<S, L>[];
   readonly tickets: OwnerFilteredTicketLanes | null;
+  /** How many rows the filter hides, over every story and ticket lane. */
+  readonly hiddenCount: number;
+  /** How many rows have no known owner, over every story and ticket lane; `0` in `all` mode. */
+  readonly unknownCount: number;
 }
 
 /**
@@ -60,7 +66,7 @@ export interface LanesForReader<S, L extends string = string> {
  * @param ownedOf - reads what a row carries that names an owner.
  * @param reader - who is reading.
  * @param mode - the effective «Mine» mode; `all` keeps every row untouched.
- * @returns the kept rows in their original order, whether the filter emptied a non-empty lane, and how many rows it hid.
+ * @returns the kept rows in their original order, whether the filter emptied a non-empty lane, how many rows it hid, and how many have no known owner.
  */
 const filterByReader = <T>(
   rows: readonly T[],
@@ -68,10 +74,11 @@ const filterByReader = <T>(
   reader: Reader,
   mode: MineMode,
 ): OwnerFilteredLane<T> => {
-  if (mode === 'all') return { rows: [...rows], hiddenByOwner: false, hiddenCount: 0 };
+  if (mode === 'all') return { rows: [...rows], hiddenByOwner: false, hiddenCount: 0, unknownCount: 0 };
   const owns = mode === 'mine' ? isMineStrict : isMine;
   const kept = rows.filter((row) => owns(ownedOf(row), reader));
-  return { rows: kept, hiddenByOwner: rows.length > 0 && kept.length === 0, hiddenCount: rows.length - kept.length };
+  const unknownCount = rows.filter((row) => ownership(ownedOf(row), reader) === 'unknown').length;
+  return { rows: kept, hiddenByOwner: rows.length > 0 && kept.length === 0, hiddenCount: rows.length - kept.length, unknownCount };
 };
 
 /**
@@ -106,7 +113,7 @@ const ownedFromStory = (story: Pick<ReaderStory, 'author'>): OwnedRow => ({ kind
  * @param tickets - the ticket lane groups, or `null` where none were read.
  * @param reader - who is reading.
  * @param mode - the effective «Mine» mode; `all` keeps every row untouched.
- * @returns both lane kinds, each lane carrying its kept rows, `hiddenByOwner` and `hiddenCount`.
+ * @returns both lane kinds, each lane carrying its kept rows, `hiddenByOwner`, `hiddenCount` and `unknownCount`, and the two counts summed over every lane.
  */
 export const lanesForReader = <S extends ReaderStory, L extends string>(
   storyLaneGroups: readonly { readonly lane: L; readonly stories: readonly S[] }[],
@@ -115,18 +122,23 @@ export const lanesForReader = <S extends ReaderStory, L extends string>(
   mode: MineMode,
 ): LanesForReader<S, L> => {
   const ticketLane = (rows: readonly TicketLaneRow[]) => filterByReader(rows, ownedFromTicketLaneRow, reader, mode);
+  const storyLanes = storyLaneGroups.map((group) => ({
+    lane: group.lane,
+    ...filterByReader(group.stories, ownedFromStory, reader, mode),
+  }));
+  const ticketLanes = tickets
+    ? {
+        open: ticketLane(tickets.open),
+        'in-progress': ticketLane(tickets['in-progress']),
+        done: ticketLane(tickets.done),
+        moreCount: tickets.moreCount,
+      }
+    : null;
+  const lanes = [...storyLanes, ...(ticketLanes ? [ticketLanes.open, ticketLanes['in-progress'], ticketLanes.done] : [])];
   return {
-    storyLanes: storyLaneGroups.map((group) => ({
-      lane: group.lane,
-      ...filterByReader(group.stories, ownedFromStory, reader, mode),
-    })),
-    tickets: tickets
-      ? {
-          open: ticketLane(tickets.open),
-          'in-progress': ticketLane(tickets['in-progress']),
-          done: ticketLane(tickets.done),
-          moreCount: tickets.moreCount,
-        }
-      : null,
+    storyLanes,
+    tickets: ticketLanes,
+    hiddenCount: lanes.reduce((sum, lane) => sum + lane.hiddenCount, 0),
+    unknownCount: lanes.reduce((sum, lane) => sum + lane.unknownCount, 0),
   };
 };

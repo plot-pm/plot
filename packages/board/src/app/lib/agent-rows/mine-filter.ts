@@ -1,4 +1,4 @@
-import { isMine, isMineStrict, ownedTicket, readerIsKnown, type MineMode, type OwnedRow, type Reader } from '@plot-pm/domain';
+import { isMine, isMineStrict, ownedTicket, ownership, readerIsKnown, type MineMode, type OwnedRow, type Reader } from '@plot-pm/domain';
 import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
@@ -255,23 +255,31 @@ export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'>>(
 ): T[] => (mode === 'all' ? tickets : tickets.filter((t) => isMine(ownedFromTicket(t, source), reader)));
 
 /**
- * The board with only the plan cards that stay in view, and how many cards
- * the effective mode hides.
+ * The board with only the plan cards that stay in view, how many cards the
+ * effective mode hides, and how many cards have no known owner.
  *
- * `all` returns the board untouched and a count of `0`. Otherwise each column
+ * `all` returns the board untouched and both counts `0`. `unknownCount`
+ * counts every card answering `unknown`, before the filter, so it is the
+ * same in `mine-and-unknown` and `mine`. Otherwise each column
  * keeps the cards {@link isMine} (`mine-and-unknown`) or {@link isMineStrict}
  * (`mine`) keeps for {@link ownedFromCard}; a card whose assignee is empty or
  * undeclared stays only under the lenient rule. Nothing but the columns'
  * cards changes.
  */
-export const boardForReader = (board: Board, reader: Reader, mode: MineMode): { board: Board; hiddenCount: number } => {
-  if (mode === 'all') return { board, hiddenCount: 0 };
+export const boardForReader = (
+  board: Board,
+  reader: Reader,
+  mode: MineMode,
+): { board: Board; hiddenCount: number; unknownCount: number } => {
+  if (mode === 'all') return { board, hiddenCount: 0, unknownCount: 0 };
   const owns = mode === 'mine' ? isMineStrict : isMine;
   let hiddenCount = 0;
+  let unknownCount = 0;
   const columns = board.columns.map((column) => {
     const cards = column.cards.filter((card) => owns(ownedFromCard(card), reader));
     hiddenCount += column.cards.length - cards.length;
+    unknownCount += column.cards.filter((card) => ownership(ownedFromCard(card), reader) === 'unknown').length;
     return { ...column, cards };
   });
-  return { board: { ...board, columns }, hiddenCount };
+  return { board: { ...board, columns }, hiddenCount, unknownCount };
 };

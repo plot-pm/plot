@@ -95,3 +95,17 @@ describe('chipReadings — the Mine chip reads the rows after the sprint filter'
     expect(chips.mine).toEqual({ label: 'Mine (jwloka)', on: true, hiddenCount: 1, disabledReason: null });
   });
 });
+
+describe('chipReadings — a branch counts once for the Mine chip', () => {
+  // ISSUE #2853's MEDIUM: a branch whose row and agent both hid added 2.
+  it('joins an agent to the row on its branch', () => {
+    const branchRows = [row('plan-z', { branch: 'feature/x' } as Partial<Row>)];
+    const agents = [
+      { branch: 'feature/x', identity: 'manifest', state: 'elsewhere' },
+      { branch: 'feature/y', identity: 'manifest', state: 'elsewhere' },
+    ] as ChipReadingsInput['agents'];
+    const chips = chipRow(chipReadings(input([], { rows: branchRows, sprintFilteredRows: branchRows, agents, mode: 'mine' })));
+    expect(chips.mine.hiddenCount).toBe(2);
+    expect(chips.mineStrict).toEqual({ label: 'show 2 unknown', pressed: true, unknownCount: 2 });
+  });
+});

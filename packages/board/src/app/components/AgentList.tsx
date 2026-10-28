@@ -1028,7 +1028,6 @@ export function AgentList({
         onToggleSprint={toggleThisSprintChip}
         onToggleMine={toggleMineOnly}
         onToggleStrict={toggleMineStrict}
-        strict={mineStrict}
         sprints={activeSprints}
         selectedSprints={selectedSprints}
         onToggleSprintSlug={toggleSprintSlug}
