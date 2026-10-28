@@ -117,7 +117,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-de
 
 ### Foreign slice form
 
-- `docs/a-foreign-slice-has-one-written-form` — the template, `/plot-idea` and the plot skill document `` - `<branch>` — <repo>: … → owner/repo#N `` with a Bitbucket example; `@` stays the commit form
+- `docs/a-foreign-slice-has-one-written-form` — the template, `/plot-idea` and the plot skill document `` - `<branch>` — <repo>: … → owner/repo#N `` with a Bitbucket example; `@` stays the commit form → #2887
 
 ## Tests
 
