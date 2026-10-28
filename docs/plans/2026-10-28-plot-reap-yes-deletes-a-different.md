@@ -159,7 +159,7 @@ Decided 2026-10-28 by Jan Wloka after plot-review #2837 on plan PR #2828:
 
 ### Commits after merge
 
-- `bug/plot-reap-keeps-commits-after-the-merge` — the branch kind refuses a tip past every merged PR head (`prMergedHeads`, `unpushedPatches`); containment deletes only a branch with commits of its own; split `hasMergedPr`; amend *One Answer To "Did This Land"* and the `refs-git.ts:763` marker
+- `bug/plot-reap-keeps-commits-after-the-merge` — the branch kind refuses a tip past every merged PR head (`prMergedHeads`, `unpushedPatches`); containment deletes only a branch with commits of its own; split `hasMergedPr`; amend *One Answer To "Did This Land"* and the `refs-git.ts:763` marker → #2868
 
 ### Recorded dry run
 
