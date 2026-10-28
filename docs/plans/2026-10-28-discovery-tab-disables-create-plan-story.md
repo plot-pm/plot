@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2834 merged
+- **Started:** 2026-10-28, Jan Wloka, `bug/discovery-tab-disables-create-plan-story`
 
 ## Changelog
 
