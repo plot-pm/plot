@@ -578,6 +578,7 @@ export type * from './ports/fresh-agent-record.js';
 export type * from './ports/ending-ask-record.js';
 export type * from './ports/refused-slices.js';
 export type * from './ports/pinned-tips.js';
+export type * from './ports/reap-record.js';
 export type * from './ports/supervision-report.js';
 export type * from './ports/slots.js';
 export type * from './ports/processes.js';
