@@ -128,12 +128,19 @@ function brokenGh(tmp) {
   return bin;
 }
 
+/**
+ * `--yes` now acts only on what a `--dry-run` recorded (#2825), so a call that
+ * passes `--yes` runs a `--dry-run` pass first, with the same `bin` on PATH, to
+ * produce that record — a bare `--yes` with no record acts on nothing.
+ */
 function run(repo, bin, ...args) {
-  return execFileSync('bash', [reap, ...args], {
+  const opts = {
     encoding: 'utf8',
     cwd: repo,
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-  });
+  };
+  if (args.includes('--yes')) execFileSync('bash', [reap, '--dry-run'], opts);
+  return execFileSync('bash', [reap, ...args], opts);
 }
 
 /** The line of the report naming a branch, or ''. */

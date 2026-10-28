@@ -102,12 +102,19 @@ process.stdout.write(JSON.stringify(all.slice(0, limit)));
   return bin;
 }
 
+/**
+ * `--yes` now acts only on what a `--dry-run` recorded (#2825), so a call that
+ * passes `--yes` runs a `--dry-run` pass first to produce that record — a bare
+ * `--yes` with no record acts on nothing.
+ */
 function run(repo, bin, ...args) {
-  return execFileSync('bash', [reap, ...args], {
+  const opts = {
     encoding: 'utf8',
     cwd: repo,
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-  });
+  };
+  if (args.includes('--yes')) execFileSync('bash', [reap, '--dry-run'], opts);
+  return execFileSync('bash', [reap, ...args], opts);
 }
 
 test('item 1: a branch whose merged PR is not its newest is reaped', () => {

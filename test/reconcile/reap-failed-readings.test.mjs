@@ -94,8 +94,13 @@ const scriptsWith = (tmp, script, override) => {
   return dir;
 };
 
-const runReap = (cwd, bin, scripts, ...args) =>
-  execFileSync('bash', [path.join(scripts, 'plot-reap.sh'), ...args], {
+/**
+ * `--yes` now acts only on what a `--dry-run` recorded (#2825), so a call that
+ * passes `--yes` runs a `--dry-run` pass first to produce that record — a bare
+ * `--yes` with no record acts on nothing.
+ */
+const runReap = (cwd, bin, scripts, ...args) => {
+  const opts = {
     encoding: 'utf8',
     cwd,
     env: {
@@ -104,7 +109,11 @@ const runReap = (cwd, bin, scripts, ...args) =>
       PLOT_AGENT_PROCESS: 'sleep',
       PLOT_AGENT_GRACE_SECONDS: '0',
     },
-  });
+  };
+  const script = path.join(scripts, 'plot-reap.sh');
+  if (args.includes('--yes')) execFileSync('bash', [script, '--dry-run'], opts);
+  return execFileSync('bash', [script, ...args], opts);
+};
 
 const lineFor = (out, branch) => out.split('\n').find((l) => l.includes(` ${branch} `)) ?? '';
 

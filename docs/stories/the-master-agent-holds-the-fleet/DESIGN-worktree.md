@@ -252,7 +252,7 @@ the checkout converts a finished agent"* into an unknown row — the estate's ow
 | **Adopt** | the same, re-run | **idempotent** — adopts rather than duplicates |
 | **Restart** | `--restart <branch>` | a new worker in **the same tree**, untouched |
 | **Migrate** | `--migrate` | move trees to a new root |
-| **Reap** | `plot-reap.sh --yes` | remove a landed checkout |
+| **Reap** | `plot-reap.sh --dry-run`, then `--yes` (or `--yes --plan-slug <slug>`) | remove a landed checkout |
 
 **`--restart` inherits the tree deliberately:** *"a stall IS uncommitted work,
 and one measured here left 324 finished lines on the floor."*
@@ -384,6 +384,15 @@ other 28."*
 
 **Removal happens only under `--yes`**, and `--max N` bounds it. A script that
 deletes directories defaults to reporting.
+
+**And since #2825, `--yes` acts on what `--dry-run` recorded, not a fresh
+decision.** `--dry-run` writes one row per worktree/branch/claim it would act
+on; `--yes` re-checks each row narrowly and acts only on the intersection — a
+host answer, a given-up cascade, or `origin/<default>` moving between the two
+runs can no longer make `--yes` delete a different set than the one an
+operator approved. `--yes --plan-slug <slug>` is the one exception, for the
+unattended callers that have no dry run to read: it acts on the named plan's
+branches alone, with no record.
 
 ---
 
