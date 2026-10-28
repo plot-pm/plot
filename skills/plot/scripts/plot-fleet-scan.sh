@@ -610,7 +610,6 @@ fi
 # already lives in and is cleaned up by.
 spend_tick() {
   [ -n "$HOST_STATE_CACHE" ] && printf '.' >> "$HOST_STATE_CACHE/.spend" 2>/dev/null
-  return 0
 }
 
 # The cache key. Shared by the join and by `host_pr_state`, because the two
