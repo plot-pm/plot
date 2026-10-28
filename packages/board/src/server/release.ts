@@ -157,6 +157,21 @@ export async function handleRelease(
     return;
   }
 
+  // ABOVE THE TRUNCATION, the same ordering `interrogate.ts` uses for its
+  // `already-running` guard: a second POST for a slug already running must
+  // never reach `fs.rmSync`/`fs.openSync`, because those truncate the FIRST
+  // job's still-open log and state. Checked per slug, not globally — a second
+  // slug's release proceeds while this one is refused.
+  if (releaseStatus(opts, slug).state === 'running') {
+    json(409, {
+      ok: false,
+      slug,
+      reason: 'already-running',
+      detail: `a release for \`${slug}\` is already running — wait for it to finish; see ${releaseLogPath(opts.repoRoot, slug)}`,
+    });
+    return;
+  }
+
   const log = releaseLogPath(opts.repoRoot, slug);
   const statePath = releaseStatePath(opts.repoRoot, slug);
   let out: number;
