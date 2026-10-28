@@ -70,7 +70,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-em
 
 ### Inbox
 
-- `bug/an-absent-inbox-guesses-no-spelling` — the no-fleet board reads the inbox; an absent inbox gives no tickets and no notice; the notice never names another person's spelling <!-- builds: an inbox read in the board's refreshIssues, an absent-inbox arm in waitingTickets -->
+- `bug/an-absent-inbox-guesses-no-spelling` — the no-fleet board reads the inbox; an absent inbox gives no tickets and no notice; the notice never names another person's spelling <!-- builds: an inbox read in the board's refreshIssues, an absent-inbox arm in waitingTickets --> → #2814
 
 ### Duplicates
 
