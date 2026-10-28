@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2368
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2403 merged
 - **Started:** 2026-10-23, Jan Wloka, `bug/plot-plan-meta-a-branch-heading`
 - **Delivered:** 2026-10-24
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
