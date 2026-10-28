@@ -83,7 +83,7 @@ Decided 2026-10-27 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-27-no
 
 ### A fleet start restarts what its stop stopped
 
-- `bug/a-fleet-start-restarts-what-its-stop-stopped` — `plot-fleetctl.sh --stop` records the branches it stopped, the domain decides which of them to restart, and `--start` restarts them through the slice-1 controller <!-- builds: the fleet stop list and its restart -->
+- `bug/a-fleet-start-restarts-what-its-stop-stopped` — `plot-fleetctl.sh --stop` records the branches it stopped, the domain decides which of them to restart, and `--start` restarts them through the slice-1 controller <!-- builds: the fleet stop list and its restart --> → #2805
 
 ## Done when
 
