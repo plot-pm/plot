@@ -46,6 +46,7 @@ export * from './entities/fleet-stopped.js';
 export * from './rules/deliverable.js';
 export * from './rules/story-date.js';
 export * from './rules/reapable.js';
+export * from './rules/recorded-reap.js';
 export * from './rules/channel.js';
 export * from './rules/event-window.js';
 export * from './rules/index-findings.js';
