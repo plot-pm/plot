@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2728
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-27, Jan Wloka, `bug/a-spawn-carries-its-gate-contract`
 - **Started:** 2026-10-27, Jan Wloka, `bug/the-board-and-fleetd-report-their-contract`
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
