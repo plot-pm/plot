@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2439
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2492 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/deliver-flips-the-status-block-but`
 - **Delivered:** 2026-10-24
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
