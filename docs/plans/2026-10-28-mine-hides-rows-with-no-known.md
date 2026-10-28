@@ -100,7 +100,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-mi
 
 ### Mine mode control
 
-- `feature/mine-mode-control` — Board: all six `isMine` call sites and every raw-flag reader move to the effective mode; the hide/show unknown control on the Delivery chip row and the Planning and Discovery header; counts from `chipRow` and `lanesForReader`; the new storage key. <!-- builds: hide/show unknown control, disabled Only my work checkbox -->
+- `feature/mine-mode-control` — Board: all six `isMine` call sites and every raw-flag reader move to the effective mode; the hide/show unknown control on the Delivery chip row and the Planning and Discovery header; counts from `chipRow` and `lanesForReader`; the new storage key. <!-- builds: hide/show unknown control, disabled Only my work checkbox --> → #2849
 
 ### isMine removal
 
