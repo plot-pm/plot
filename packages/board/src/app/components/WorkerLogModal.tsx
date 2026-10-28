@@ -3,6 +3,8 @@ import type { AgentPanel } from '../../server/agent-panel.js';
 import type { LogMissReason, WorkerLog } from '../../server/worker-log.js';
 import { AgentPanelFacts } from './AgentPanelFacts.js';
 import { ContinueWithAnAnswer } from './ContinueWithAnAnswer.js';
+import { RestartTheWorker } from './RestartTheWorker.js';
+import { restartOffered } from '@plot-pm/domain';
 
 /**
  * How often an open panel re-fetches, in ms.
@@ -94,6 +96,8 @@ export interface WorkerLogModalProps {
    * offered and 403s.
    */
   canContinue?: { available: boolean; reason: string };
+  /** Whether the server will act on Restart; unavailable where absent. */
+  canRestart?: { available: boolean; reason: string };
   /**
    * Open the plan governing this branch — the panel's PLAN fact becomes a
    * destination. Given the plan's FILE, which is how the board opens one.
@@ -133,6 +137,7 @@ export function WorkerLogModal({
   fetcher = fetch,
   now,
   canContinue,
+  canRestart,
   onOpenPlan,
   onRevealBranch,
 }: WorkerLogModalProps) {
@@ -380,6 +385,17 @@ export function WorkerLogModal({
             branch={branch}
             available={canContinue?.available ?? false}
             unavailableReason={canContinue?.reason}
+            fetcher={fetcher}
+          />
+        )}
+
+        {/* THE SECOND ACTING CONTROL, offered for a worker the scan reports dead.
+            `restartOffered` is the domain's answer, so no state word is read here. */}
+        {panel?.ok && restartOffered(panel.worker) && (
+          <RestartTheWorker
+            branch={branch}
+            available={canRestart?.available ?? false}
+            unavailableReason={canRestart?.reason}
             fetcher={fetcher}
           />
         )}

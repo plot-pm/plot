@@ -9,7 +9,7 @@ import { isReadSegment, programWords, withoutComments, withoutQuotes, wordBasena
 import { blankSpans, readShell, type ShellCommand, type ShellWord } from './shell-reading.js';
 
 /** The actions a controller owns. */
-export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release';
+export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'restart';
 
 /**
  * Blanks the body of every single-quoted heredoc (`<<'EOF'` or `<<-'EOF'`),
@@ -292,6 +292,7 @@ const ENDPOINT: Record<ControllerAction, string> = {
   approve: 'POST /api/approve {"slug":"<slug>"}',
   deliver: 'POST /api/deliver {"slug":"<slug>"}',
   release: 'POST /api/release {"slug":"<slug>","version":"<version>"}',
+  restart: 'POST /api/restart {"branch":"<branch>"}',
 };
 
 /** The request body of the spike mode of `approve`. */
@@ -309,7 +310,7 @@ export const carriesSpikeFlag = (command: string): boolean =>
 /**
  * The refusal for a controller-owned action called with no controller receipt.
  * It names the HTTP endpoint first and the receipt escape second. Only
- * dispatch has a board-free bundle to name; `approve` and `deliver` take
+ * dispatch and restart have a board-free bundle to name; `approve` and `deliver` take
  * `--who`/`--release` modes the gate itself reads as a run, so the text does
  * not send the reader to them.
  *
@@ -320,12 +321,15 @@ export const carriesSpikeFlag = (command: string): boolean =>
  * @returns the text for stderr.
  */
 export const controllerRefusal = (action: ControllerAction, scriptDir: string, spike = false): string => {
-  const owner = action === 'release' ? 'deliver' : action;
+  const owner = action === 'release' ? 'deliver' : action === 'restart' ? 'dispatch' : action;
   const named = `plot-${owner}.sh`;
   const lines = [`plot-controller-gate: ${named} is a controller-owned action.`, '', '  Call the controller instead:'];
   if (action === 'dispatch') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-dispatch-command.mjs`)} <slug>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button, and /plot-dispatch asks it.`);
+  } else if (action === 'restart') {
+    lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`);
+    lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button.`);
   } else {
     lines.push(`      ${spike && action === 'approve' ? SPIKE_ENDPOINT : ENDPOINT[action]}`);
     lines.push(`    which is the board's button, and /plot-${owner} asks it.`);
@@ -333,7 +337,7 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
   lines.push(
     '',
     '  Or, where the board is not running and you accept the bypass, run these as TWO calls, in this order:',
-    `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} <slug> "<reason>"`,
+    `      1. bash ${shellQuote(`${scriptDir}/plot-state-receipt.sh`)} --unowned-action ${action} ${action === 'restart' ? '<branch>' : '<slug>'} "<reason>"`,
     `      2. the ${action} command you meant`,
     '    A chained `receipt && command` is checked before either runs, and is refused. The receipt stays until the',
     '    action exits 0.',

@@ -151,6 +151,13 @@ test('a sandboxed dispatch writes no manifest into the root PLOT_REPO_ROOT names
     // handed `PLOT_REPO_ROOT` writes where its own `## Plot Config` says.
     const env = { ...process.env, PLOT_REPO_ROOT: decoy };
     delete env.PLOT_REPO_ROOT;
+    // The restart controller refuses an unanswered PR question, so the
+    // sandbox's host answers "no PR".
+    fs.mkdirSync(path.join(t, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(t, 'bin', 'gh'),
+      '#!/usr/bin/env bash\ncase "$1 $2" in\n  "pr view") echo "no pull requests found" >&2; exit 1 ;;\n  *) echo "{}" ;;\nesac\n', { mode: 0o755 });
+    env.PATH = `${path.join(t, 'bin')}${path.delimiter}${env.PATH}`;
+    delete env.PLOT_UNATTENDED;
     execFileSync('bash', [dispatch, '--offline', '--restart', 'feature/scrub'],
       { encoding: 'utf8', cwd: r, timeout: 30_000, env });
 

@@ -429,6 +429,7 @@ export function BranchMenu({
   onStarting,
   onTaken,
   continueWith,
+  restartWith,
   onOpenPlan,
   onRevealBranch,
 }: {
@@ -446,6 +447,7 @@ export function BranchMenu({
       one cell away from this menu — so it is passed in rather than held here. */
   onTaken?: () => void;
   continueWith?: DispatchInfo;
+  restartWith?: DispatchInfo;
   onOpenPlan?: (planFile: string) => boolean | void;
   onRevealBranch?: (branch: string) => void;
 }) {
@@ -471,6 +473,7 @@ export function BranchMenu({
           branch={row.branch}
           onClose={() => setLogOpen(false)}
           canContinue={continueWith}
+          canRestart={restartWith}
           onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
           onRevealBranch={onRevealBranch}
         />

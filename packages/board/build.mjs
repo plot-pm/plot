@@ -19,6 +19,7 @@ import {
   promptArtifact,
   dispatchCommandArtifact,
   continueCommandArtifact,
+  restartCommandArtifact,
   deskLoopArtifact,
   prReaderArtifact,
 } from '../fleet/build.mjs';
@@ -30,10 +31,10 @@ if (!fs.existsSync(clientHtml)) {
   process.exit(1);
 }
 
-// `@plot-pm/fleet` builds eight bundles: `plot-fleetd.mjs`,
+// `@plot-pm/fleet` builds nine bundles: `plot-fleetd.mjs`,
 // `plot-worker-loop.mjs`, `plot-fleet-size.mjs`, `plot-prompt.mjs`,
 // `plot-dispatch-command.mjs`, `plot-continue-command.mjs`,
-// `plot-desk-loop.mjs` and `plot-pr-reader.mjs`. This
+// `plot-restart-command.mjs`, `plot-desk-loop.mjs` and `plot-pr-reader.mjs`. This
 // file keeps their `shipped*` declarations, because the gates and
 // `bundles.generated.ts` derive the generated set from this file alone, and
 // copies each bundle from `packages/fleet/dist/` to its shipped path.
@@ -339,11 +340,14 @@ fs.chmodSync(shippedPrompt, 0o755);
 // gate's GATED set: these are the callers that gate admits.
 const shippedDispatchCommand = path.join(here, '../../skills/plot/scripts/board/plot-dispatch-command.mjs');
 const shippedContinueCommand = path.join(here, '../../skills/plot/scripts/board/plot-continue-command.mjs');
+const shippedRestartCommand = path.join(here, '../../skills/plot/scripts/board/plot-restart-command.mjs');
 
 fs.copyFileSync(dispatchCommandArtifact, shippedDispatchCommand);
 fs.chmodSync(shippedDispatchCommand, 0o755);
 fs.copyFileSync(continueCommandArtifact, shippedContinueCommand);
 fs.chmodSync(shippedContinueCommand, 0o755);
+fs.copyFileSync(restartCommandArtifact, shippedRestartCommand);
+fs.chmodSync(shippedRestartCommand, 0o755);
 
 // Whether a desk holds a live loop: `deskLoopAlive` over the desk's three
 // recorded pids, and `deskWaitsFree`. `plot-dispatch.sh` asks it once per

@@ -2682,6 +2682,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // the same hand overwriting it. Unavailable here means *this walker cannot
     // say*, never *the answer is no*.
     continue: { available: false, reason: '' },
+    restart: { available: false, reason: '' },
     // And once more for turning an issue into a plan. Same socket question,
     // same hand overwriting it in index.ts. Unavailable here means *this walker
     // cannot say*, never *the answer is no* — the distinction the other three

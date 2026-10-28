@@ -13,8 +13,8 @@
 // watch and is out of this branch's scope), and the SAME findings file still
 // receives `gone`/`clear` — from the wrapper, not from a monitor.
 //
-// This is not one a review can check. A reviewer reading `start_worker` sees a
-// line that starts the AgentMonitor and concludes it runs; what a reviewer
+// This is not one a review can check. A reviewer reading the launch code sees
+// a line that starts the AgentMonitor and concludes it runs; what a reviewer
 // cannot see is whether it SURVIVES the quoting levels between here and a
 // detached `sh -c`, or whether some other path creates a worker without it —
 // or whether the wrapper's new `gone`/`clear` line actually reaches the file
@@ -25,17 +25,21 @@
 // THE MUTATION TEST IS THE POINT. `there is no code path that creates a worker
 // without the AgentMonitor` is a claim about ABSENCE, and no positive
 // assertion can establish it — a green test proves the monitor ran on the path
-// the test took. What proves the gate is removing the monitor start from a
-// COPY of plot-dispatch.sh and showing the same assertion goes red. That is
-// CLAUDE.md's own test for a gate: can you answer "did I attach it?" without
-// doing the work? Here you cannot.
+// the test took. What proves the gate is making the AgentMonitor script itself
+// unrunnable in a COPY of the script directory and showing the same assertion
+// goes red. That is CLAUDE.md's own test for a gate: can you answer "did I
+// attach it?" without doing the work? Here you cannot.
 //
-// WHY THE MONITOR IS THE WRAPPER'S CHILD, asserted rather than trusted:
-// `--stop` kills the AGENT and the wrapper must survive to record the exit
-// code. A monitor started as a SIBLING of the wrapper would be independently
-// mortal — killable with nothing noticing, which is the failure being fixed one
-// level up. The `--stop` test below is that property checked against the one
-// operation that would break it.
+// THE MONITOR IS NOT THE WRAPPER'S CHILD HERE. `staffDesk` lays every desk
+// this suite exercises through `--restart`, which
+// `bug/a-stopped-slice-has-a-restart-controller` moved onto `continueOnDesk` —
+// the AgentMonitor now starts as `deskMonitorsShell`'s independent SIBLING of
+// the worker, not inside `start_worker`'s wrapper. What still makes `--stop`
+// safe is that the worker's own subshell traps `TERM` around its `wait`, so a
+// group-kill that reaches the agent leaves that subshell alive to record the
+// exit — the monitor's parentage is no longer the mechanism the `--stop` test
+// below depends on; what it checks is the EXIT RECORD surviving, which it
+// does for a different reason now.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -254,30 +258,36 @@ test('the AgentMonitor does not announce its own emptiness', () => {
   }
 });
 
-test('MUTATION: removing the AgentMonitor start from start_worker turns this red', () => {
+test('MUTATION: an AgentMonitor script that cannot run turns this red', () => {
   // The "no other code path" claim, checked the only way a claim about absence
-  // can be. A copy of the whole script directory is made, the monitor start is
-  // cut out of plot-dispatch.sh, and the identical dispatch is run against it.
+  // can be. A copy of the whole script directory is made, and the ONE thing
+  // every starter of the AgentMonitor depends on — the script being there and
+  // executable — is cut out, then the identical dispatch is run against it.
+  //
+  // THE TARGET MOVED off `start_worker`'s wrapper line. `staffDesk` (this
+  // file's own fixture, unchanged by this branch) already names `--restart` —
+  // not the fan-out — as what lays every desk these tests exercise, and
+  // `bug/a-stopped-slice-has-a-restart-controller` rewired `--restart` off
+  // `start_worker` onto `continueOnDesk`, which starts the AgentMonitor through
+  // `deskMonitorsShell` instead. Sabotaging the wrapper's line no longer
+  // reaches the path this suite runs; a mutation that still proves the
+  // absence claim has to sit where both starters agree — `isExecutable(file)`
+  // in `deskMonitorsShell`, and the wrapper's own `[ -n "$PLOT_AGENT_MONITOR" ]`
+  // resolution, both read the SAME script file on disk.
   //
   // If the honest run above passes and this one ALSO produces a finding, the
-  // monitor was coming from somewhere other than the line under test — and the
-  // gate would be an illusion.
+  // monitor was coming from somewhere other than this script — and the gate
+  // would be an illusion.
   const mutantDir = fs.mkdtempSync(path.join(REPO_ROOT, '.plot-mutant-'));
   const run = { sb: null };
   try {
     // Copy the real scripts, then sabotage exactly one thing.
     execFileSync('cp', ['-R', `${SCRIPTS}/.`, mutantDir]);
-    const dispatchFile = path.join(mutantDir, 'plot-dispatch.sh');
-    const original = fs.readFileSync(dispatchFile, 'utf8');
-    const mutated = original.replace(
-      // THE REGEX TRACKS THE LINE. `bug/the-loop-reports-idle` left exactly one
-      // monitor start in the wrapper body now — the AgentMonitor's.
-      /if \[ -n "\$PLOT_AGENT_MONITOR" \]; then "\$PLOT_AGENT_MONITOR" &[^;]*; fi; /,
-      '',
-    );
-    assert.notEqual(mutated, original,
-      'the mutation matched nothing — this test no longer sabotages the line it claims to, so its green means nothing');
-    fs.writeFileSync(dispatchFile, mutated);
+    const monitorFile = path.join(mutantDir, 'plot-agent-monitor.sh');
+    assert.ok(fs.existsSync(monitorFile), 'the script this mutation targets no longer exists at this path');
+    fs.chmodSync(monitorFile, 0o644);
+    assert.notEqual(fs.statSync(monitorFile).mode & 0o111, 0o111,
+      'the mutation left the script executable — its green would mean nothing');
 
     const mutantRun = dispatchOne('monitors-mutant', {
       scripts: mutantDir,
@@ -289,7 +299,7 @@ test('MUTATION: removing the AgentMonitor start from start_worker turns this red
     // wait here would pass for the wrong reason — "not yet" rather than "never".
     const appeared = waitForFile(mutantRun.agentFindings, 6000);
     assert.equal(appeared, false,
-      'a worker was still monitored after the AgentMonitor start was removed from start_worker — the monitor comes from somewhere else, so start_worker is not the gate this slice claims');
+      'a worker was still monitored after the AgentMonitor script was made unrunnable — the monitor comes from somewhere else, so this script is not the gate this slice claims');
   } finally {
     if (run.sb) run.sb.cleanup();
     fs.rmSync(mutantDir, { recursive: true, force: true });

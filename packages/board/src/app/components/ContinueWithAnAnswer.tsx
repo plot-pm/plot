@@ -57,6 +57,18 @@ export function refusalWord(reason: ContinueRefusal): string {
       return 'This slice has reached its `Slice max runs` limit — raise the limit to continue it.';
     case 'spend-limit':
       return 'This slice has reached its `Slice max spend` limit — raise the limit to continue it.';
+    case 'reached-review':
+      return 'This branch has a pull request, so its work is in review — review it or reap the worktree once it merges.';
+    case 'pr-unanswerable':
+      return 'The host could not say whether this branch has a pull request — check the host, then restart again.';
+    case 'worker-alive':
+      return 'A worker is alive on this branch, or the process table could not be read — stop it first if you mean to replace it.';
+    case 'worker-finished':
+      return 'The worker finished with its work unlanded — the reaper and continue handle that desk, not a restart.';
+    case 'blocked-marker':
+      return 'The worker left a question in its tree — answer it with Continue with an answer.';
+    case 'unattended':
+      return 'An unattended caller restarts nothing — ask a person to restart this branch.';
   }
 }
 

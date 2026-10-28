@@ -42,6 +42,14 @@ const dispatch = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-
 // Nothing in this file may point a Plot script at another checkout, so there
 // is no case this removes.
 delete process.env.PLOT_REPO_ROOT;
+// The restart controller refuses an unattended caller and an unanswered PR
+// question. A worker running this suite carries PLOT_UNATTENDED, and `--offline`
+// reaches no host, so the suite clears the first and gives `gh` an answer.
+delete process.env.PLOT_UNATTENDED;
+const noPrHost = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-dispatch-gh-'));
+fs.writeFileSync(path.join(noPrHost, 'gh'),
+  '#!/usr/bin/env bash\ncase "$1 $2" in\n  "pr view") echo "no pull requests found" >&2; exit 1 ;;\n  *) echo "{}" ;;\nesac\n', { mode: 0o755 });
+process.env.PATH = `${noPrHost}${path.delimiter}${process.env.PATH}`;
 
 let tmp, repo;
 
@@ -100,8 +108,25 @@ function staff(repoRoot, branch, wt) {
   git(repoRoot, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
   git(wt, 'commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`);
   git(wt, 'push', '-qu', 'origin', branch);
-  return execFileSync('bash', [dispatch, '--offline', '--restart', branch],
-    { encoding: 'utf8', cwd: repoRoot, timeout: 30_000 });
+  // The controller's start path has no shell wrapper, so a test of the wrapper's
+  // contract takes `start_worker` directly. Output goes to files: the detached
+  // wrapper inherits stdout and would hold a pipe open until the agent exits.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-staff-out-'));
+  const outFd = fs.openSync(path.join(dir, 'out'), 'w');
+  try {
+    execFileSync('bash', ['-c', `
+      cd ${JSON.stringify(repoRoot)}
+      PLOT_DISPATCH_SOURCED=1
+      . "${dispatch}"
+      repo_root=$(git rev-parse --show-toplevel)
+      start_worker ${JSON.stringify(branch)} ${JSON.stringify(fs.realpathSync(wt))}
+    `], { cwd: repoRoot, timeout: 30_000, stdio: ['ignore', outFd, outFd] });
+  } finally {
+    fs.closeSync(outFd);
+  }
+  const out = fs.readFileSync(path.join(dir, 'out'), 'utf8');
+  fs.rmSync(dir, { recursive: true, force: true });
+  return out;
 }
 
 before(() => {
@@ -147,7 +172,10 @@ before(() => {
   git(repo, 'push', '-q', 'origin', 'main');
 });
 
-after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+after(() => {
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(noPrHost, { recursive: true, force: true });
+});
 
 test('dispatch: --dry-run lists eligible branches and creates nothing', () => {
   const out = run(['--dry-run', '--offline', 'fan']);
@@ -1155,12 +1183,16 @@ const loopDesk = (label, { manifest = false } = {}) => {
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(wt, { recursive: true, force: true });
   };
-  return { wt, loop, ask, done };
+  // A Worker command, so the restart controller reaches the refusal under test
+  // instead of stopping at the missing command.
+  const configureWorker = () => fs.appendFileSync(path.join(r, 'CLAUDE.md'), '- **Worker command:** sleep 30\n');
+  return { wt, loop, ask, done, configureWorker };
 };
 
 test('dispatch: a desk whose loop waits free reads running to --status, --start and --restart', () => {
-  const { wt, loop, ask, done } = loopDesk('freewait', { manifest: true });
+  const { wt, loop, ask, done, configureWorker } = loopDesk('freewait', { manifest: true });
   try {
+    configureWorker();
     assert.match(ask('--status', 'g').stdout, /finished \d/, 'with no free-wait record the loop-without-agent desk is finished');
 
     fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${loop.pid}\n`);
@@ -1172,7 +1204,7 @@ test('dispatch: a desk whose loop waits free reads running to --status, --start 
 
     const restart = ask('--offline', '--restart', 'feature/g');
     assert.notEqual(restart.status, 0, '--restart must still refuse an occupied desk');
-    assert.match(restart.stderr, new RegExp(`free agent is waiting on feature/g \\(pid ${loop.pid}\\)`));
+    assert.match(restart.stderr, new RegExp(`worker-alive: .*feature/g \\(pid ${loop.pid}\\)`));
   } finally {
     done();
   }
@@ -1181,8 +1213,9 @@ test('dispatch: a desk whose loop waits free reads running to --status, --start 
 test('dispatch: a live loop with no free wait is counted by --start and refused by --restart', () => {
   // The loop sleeps on checks, on a usage limit or between passes: no agent,
   // no free-wait record, a dirty tree. It reads `stalled`, and it is alive.
-  const { wt, loop, ask, done } = loopDesk('liveloop');
+  const { wt, loop, ask, done, configureWorker } = loopDesk('liveloop');
   try {
+    configureWorker();
     fs.writeFileSync(path.join(wt, 'half-done.txt'), 'unfinished work\n');
     assert.doesNotMatch(ask('--status', 'g').stdout, /running \d/, 'the desk does not read running');
 
@@ -4280,25 +4313,72 @@ test('dispatch: --restart returns through a pipe while its agent runs', () => {
     // IT REALLY LAUNCHED, which is what makes the reading meaningful — a verb
     // that refused before `start_worker` would return promptly and prove
     // nothing about the launch.
-    assert.match(out, /restarting feature\/restarted/, `the verb must reach its launch:\n${out}`);
-    assert.match(out, /started worker/, `a worker must actually start:\n${out}`);
+    assert.match(out, /restarted feature\/restarted: pid \d+/, `the verb must reach its launch:\n${out}`);
 
     // And the agent it started is alive, with no dispatcher between it and init.
     const deadline = Date.now() + 5_000;
-    let wrapper;
-    while (Date.now() < deadline && wrapper === undefined) {
-      const rec = readPid(path.join(desk, '.plot-worker.wrapper.pid'));
-      if (rec !== undefined) wrapper = record(rec.pid, rec.recordedAt);
-      if (wrapper === undefined) execFileSync('sleep', ['0.05']);
+    let agent;
+    while (Date.now() < deadline && agent === undefined) {
+      const rec = readPid(path.join(desk, '.plot-worker.pid'));
+      if (rec !== undefined) agent = record(rec.pid, rec.recordedAt);
+      if (agent === undefined) execFileSync('sleep', ['0.05']);
     }
-    assert.ok(wrapper !== undefined, 'the restarted wrapper must record its pid');
-    const ppid = parentOf(wrapper);
+    assert.ok(agent !== undefined, 'the restarted worker must record its pid');
+    const ppid = parentOf(agent);
     const parent = ppid === undefined ? '' : commandOf(ppid);
-    assert.doesNotMatch(parent, /plot-dispatch\.sh/,
-      `the wrapper's parent must not be a dispatcher, found: ${parent}`);
-    pids.wrapper = wrapper;
-    const agentRec = readPid(path.join(desk, '.plot-worker.pid'));
-    if (agentRec !== undefined) pids.agent = record(agentRec.pid, agentRec.recordedAt);
+    assert.doesNotMatch(parent, /plot-dispatch\.sh|plot-restart-command/,
+      `the worker's parent must not be the launcher, found: ${parent}`);
+    pids.agent = agent;
+  } finally {
+    killPids(pids.agent, pids.wrapper, ...Object.values(deskPids(checkout)));
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --restart returns through a pipe while its agent runs', () => {
+  // THE SAME READING FOR THE OTHER VERB THAT LAUNCHES, AND IT MUST REACH THE
+  // LAUNCH. `--restart` hands an already-claimed branch to a new worker through
+  // the same `start_worker`, so it shares the property — but only if the
+  // fixture gets past the verb's own guards. Measured 2026-10-01 while writing
+  // this: `--restart free` refused at the argument (`:299` takes a branch only
+  // when it contains `/`) and the test passed on `origin/main`, where the hold
+  // was still in place. A test that cannot fail proves nothing, so this one
+  // builds the worktree the verb requires.
+  const { root, checkout } = repoForLiveStart('restartpipe');
+  const branch = 'feature/restarted';
+  const desk = path.join(root, 'desk');
+  let pids = {};
+  try {
+    // A worktree holding a prefix/name branch, which is what `--restart`
+    // resolves through `git worktree list`. No PR exists (`--offline` asks no
+    // host), no worker has run, and the tree is clean — so `handover_refusal`
+    // passes and the run reaches `start_worker`.
+    git(checkout, 'branch', branch, 'main');
+    git(checkout, 'worktree', 'add', '-q', desk, branch);
+
+    const { out, killed } = runDetachedFully(['--offline', '--restart', branch], checkout);
+
+    assert.equal(killed, false,
+      `--restart must return while the agent lives, not be killed at ${DETACHED_TIMEOUT_MS} ms:\n${out}`);
+    // IT REALLY LAUNCHED, which is what makes the reading meaningful — a verb
+    // that refused before `start_worker` would return promptly and prove
+    // nothing about the launch.
+    assert.match(out, /restarted feature\/restarted: pid \d+/, `the verb must reach its launch:\n${out}`);
+
+    // And the agent it started is alive, with no dispatcher between it and init.
+    const deadline = Date.now() + 5_000;
+    let agent;
+    while (Date.now() < deadline && agent === undefined) {
+      const rec = readPid(path.join(desk, '.plot-worker.pid'));
+      if (rec !== undefined) agent = record(rec.pid, rec.recordedAt);
+      if (agent === undefined) execFileSync('sleep', ['0.05']);
+    }
+    assert.ok(agent !== undefined, 'the restarted worker must record its pid');
+    const ppid = parentOf(agent);
+    const parent = ppid === undefined ? '' : commandOf(ppid);
+    assert.doesNotMatch(parent, /plot-dispatch\.sh|plot-restart-command/,
+      `the worker's parent must not be the launcher, found: ${parent}`);
+    pids.agent = agent;
   } finally {
     killPids(pids.agent, pids.wrapper, ...Object.values(deskPids(checkout)));
     removeSandbox(root);

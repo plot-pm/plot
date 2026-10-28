@@ -79,61 +79,83 @@ describe('--stop: the branch is explicit, and stopping is signalling', () => {
   });
 });
 
-describe('--restart: the PR is asked FIRST, before the state word', () => {
+describe('--restart: the PR is asked FIRST, then the loop, then the marker', () => {
+  const none = { kind: 'none' } as const;
+  const alive = { kind: 'alive', pid: '4242', source: '.plot-worker.pid' } as const;
+  const restart = (over: Partial<Parameters<typeof restartWorker>[0]> = {}) =>
+    restartWorker({
+      branch: 'feature/x',
+      tree: tree({ state: 'failed' }),
+      pr: pr(),
+      loop: none,
+      unattended: false,
+      ...over,
+    });
+  const reason = (out: ReturnType<typeof restartWorker>) => (refused(out) ? out.reason : 'decided');
+
   it('refuses an empty branch — a restart is never auto-selected', () => {
-    const out = restartWorker({ branch: '', tree: null, pr: pr() });
-    expect(refused(out)).toBe(true);
-    if (refused(out)) expect(out.reason).toBe('branch-missing');
+    expect(reason(restart({ branch: '', tree: null }))).toBe('branch-missing');
   });
 
   it('refuses a branch no worktree holds', () => {
-    const out = restartWorker({ branch: 'feature/x', tree: null, pr: pr() });
-    expect(refused(out)).toBe(true);
-    if (refused(out)) expect(out.reason).toBe('no-worktree');
+    expect(reason(restart({ tree: null }))).toBe('no-worktree');
+  });
+
+  it('refuses an unattended caller', () => {
+    expect(reason(restart({ unattended: true }))).toBe('unattended');
   });
 
   it('refuses a branch that reached review, EVEN when its worker state invites a restart', () => {
-    // The load-bearing ordering. Five of five `failed` worktrees measured on
-    // this estate held a PR, so a gate on the state word alone would restart
-    // all five and destroy what the `finished` refusal protects.
-    const out = restartWorker({
-      branch: 'feature/x',
-      tree: tree({ state: 'failed' }),
+    // Five of five `failed` worktrees measured on this estate held a PR.
+    const out = restart({ pr: pr({ reachedReview: true, number: 7, state: 'OPEN' }) });
+    expect(reason(out)).toBe('reached-review');
+  });
+
+  it('refuses when the host could not say — absent is not "no PR"', () => {
+    expect(reason(restart({ pr: pr({ reachedReview: 'unanswerable' }) }))).toBe('pr-unanswerable');
+  });
+
+  it('refuses reached-review before loop-alive and blocked-marker', () => {
+    const out = restart({
+      tree: tree({ state: 'waiting', blockedMarker: 'PLOT-BLOCKED.md' }),
       pr: pr({ reachedReview: true, number: 7, state: 'OPEN' }),
+      loop: alive,
     });
-    expect(refused(out)).toBe(true);
-    if (refused(out)) expect(out.reason).toBe('reached-review');
+    expect(reason(out)).toBe('reached-review');
+  });
+
+  it('refuses loop-alive before blocked-marker', () => {
+    const out = restart({
+      tree: tree({ state: 'waiting', blockedMarker: 'PLOT-BLOCKED.md' }),
+      loop: alive,
+    });
+    expect(reason(out)).toBe('loop-alive');
+  });
+
+  it('refuses loop-alive on a failed state with a live loop reading', () => {
+    expect(reason(restart({ tree: tree({ state: 'failed' }), loop: alive }))).toBe('loop-alive');
   });
 
   it('refuses a live worker — a restart would discard work in progress', () => {
-    const out = restartWorker({
-      branch: 'feature/x',
-      tree: tree({ state: 'running', pid: '1234' }),
-      pr: pr(),
-    });
-    expect(refused(out)).toBe(true);
-    if (refused(out)) expect(out.reason).toBe('worker-alive');
+    const out = restart({ tree: tree({ state: 'running', pid: '1234' }) });
+    expect(reason(out)).toBe('worker-alive');
+  });
+
+  it('refuses a finished worker — the reaper and continue own that desk', () => {
+    expect(reason(restart({ tree: tree({ state: 'finished' }) }))).toBe('worker-finished');
   });
 
   it('refuses a worker waiting on a person, naming the marker', () => {
-    const out = restartWorker({
-      branch: 'feature/x',
-      tree: tree({ state: 'waiting', blockedMarker: 'PLOT-BLOCKED.md' }),
-      pr: pr(),
-    });
-    expect(refused(out)).toBe(true);
-    if (refused(out)) expect(out.reason).toBe('blocked-marker');
+    const out = restart({ tree: tree({ state: 'waiting', blockedMarker: 'PLOT-BLOCKED.md' }) });
+    expect(reason(out)).toBe('blocked-marker');
+  });
+
+  it.each(['stalled', 'failed', 'ended', 'none'] as const)('restarts a %s worker with no PR', (state) => {
+    expect(reason(restart({ tree: tree({ state }) }))).toBe('decided');
   });
 
   it('restarts a failed worker with no PR, inheriting the tree untouched', () => {
-    // A `failed` worker with no PR MUST restart, or the verb cannot do its job.
-    // The worktree is inherited rather than recreated: a stall IS uncommitted
-    // work, and one measured here left 324 finished lines on the floor.
-    const out = restartWorker({
-      branch: 'feature/x',
-      tree: tree({ state: 'failed', path: '/wt/feature-x', dirty: true }),
-      pr: pr(),
-    });
+    const out = restart({ tree: tree({ state: 'failed', path: '/wt/feature-x', dirty: true }) });
     expect(decided(out)).toBe(true);
     if (decided(out)) {
       expect(out.writes).toEqual([

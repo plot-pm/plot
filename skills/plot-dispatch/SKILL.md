@@ -588,10 +588,19 @@ refusal protects.
 There is no `--force`. A flag overriding a liveness refusal is the flag typed
 reflexively, and what it would override is another agent's work.
 
+`--restart` is a launcher for the `restart` controller: it runs
+`board/plot-restart-command.mjs`, which asks the domain's `restartWorker` and
+refuses an unanswered pull-request question (`pr-unanswerable`), a live loop
+(`loop-alive`) and an unattended caller (`unattended`). A master agent restarts
+a slice through `POST /api/restart {"branch"}` or `plot-restart-command.mjs
+<branch>`, never through the script. A `stopped` ending does not block it: the
+restart removes the ending, so a restarted worker that dies without writing one
+reads as killed.
+
 The worktree is inherited **exactly as it stands**. A `stalled` tree holds
 uncommitted work — that is what `stalled` means, and a measured stall here left
 324 finished lines on the floor — so nothing is cleaned, reset or stashed. The
-new worker starts through the ordinary dispatch path, so it gets a manifest and
+new worker starts through the continuation engine, so it gets a manifest and
 the fleet can see it: a restart the fleet cannot see has not succeeded.
 
 ## Migrating existing worktrees into the configured root

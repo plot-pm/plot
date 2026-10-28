@@ -211,9 +211,9 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  *
  * @param command - the command line an agent is about to run, with any
  *   single-quoted heredoc body already stripped.
- * @returns the action, or `null` when the command runs none of the three.
+ * @returns the action, or `null` when the command runs none of the gated actions.
  */
-export const controllerInvocation = (command: string): 'dispatch' | 'approve' | 'deliver' | 'release' | null => {
+export const controllerInvocation = (command: string): GatedAction | null => {
   for (const segment of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;|\n]/)) {
     const words = segment.trim().split(/\s+/).filter((word) => word !== '');
     if (words.length === 0) continue;
@@ -242,6 +242,9 @@ const DELIVER_SH = 'plot-deliver.sh';
 const DELIVER_MJS = 'plot-deliver.mjs';
 // `approval-becomes-a-command` did the same to `plot-approve.sh`.
 const APPROVE_MJS = 'plot-approve.mjs';
+
+/** The lifecycle actions a gated script call can be. */
+export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'restart';
 
 /** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
@@ -330,18 +333,19 @@ const NO_ENDPOINT: Record<string, readonly string[]> = {
   [DELIVER_SH]: ['--status', '--dry-run', '--help', '-h'],
   [DELIVER_MJS]: ['--status', '--dry-run', '--help', '-h'],
   [DISPATCH_SH]: [
-    '--status', '--dry-run', '--stop', '--restart', '--start', '--migrate', '--release', '--help', '-h',
+    '--status', '--dry-run', '--stop', '--start', '--migrate', '--release', '--help', '-h',
   ],
 };
 
 /** The flags whose next word is their value. */
 const VALUE_FLAGS: ReadonlySet<string> = new Set(['--who', '--release']);
 
-/** The action a call on `script` runs, reading `--release` as a fourth action on `plot-deliver.sh`/`plot-deliver.mjs` alone. */
-const actionFor = (script: string, words: readonly string[]): 'dispatch' | 'approve' | 'deliver' | 'release' | null => {
+/** The action a call on `script` runs, reading `--release` as a fourth action on `plot-deliver.sh`/`plot-deliver.mjs` alone and `--restart` as a fifth on `plot-dispatch.sh`. */
+const actionFor = (script: string, words: readonly string[]): GatedAction | null => {
   // The word after `--who` or `--release` is that flag's value, whatever it looks like.
   const flags = words.filter((_, i) => !VALUE_FLAGS.has(words[i - 1]));
   if (flags.some((word) => NO_ENDPOINT[script]?.includes(word))) return null;
   if ((script === DELIVER_SH || script === DELIVER_MJS) && words.includes('--release')) return 'release';
+  if (script === DISPATCH_SH && words.includes('--restart')) return 'restart';
   return GATED[script];
 };

@@ -33,6 +33,14 @@ export type DispatchRefusal =
   | 'reached-review'
   | 'worker-alive'
   | 'blocked-marker'
+  /** `--restart`: the host could not say whether the branch has a PR. */
+  | 'pr-unanswerable'
+  /** `--restart`: a recorded pid on the desk is alive, whatever the state word says. */
+  | 'loop-alive'
+  /** `--restart`: the worker finished, and a finished desk belongs to the reaper and `continue`. */
+  | 'worker-finished'
+  /** `--restart`: an unattended caller does not restart a worker. */
+  | 'unattended'
   | 'root-unconfigured'
   | 'root-is-legacy'
   /** `--release`: a live agent's own manifest names the branch. */

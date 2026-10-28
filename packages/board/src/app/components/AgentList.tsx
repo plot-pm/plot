@@ -339,6 +339,7 @@ export function AgentList({
   implement,
   drop,
   continueWith,
+  restartWith,
   idea,
   story,
   pulse = 0,
@@ -1564,6 +1565,7 @@ export function AgentList({
                         dispatch={dispatch}
                         implement={implement}
                         continueWith={continueWith}
+                        restartWith={restartWith}
                         pulse={pulse}
                         onStarting={onStarting}
                         marked={row ? marked.has(rowKey(row)) : false}
@@ -1910,6 +1912,7 @@ export function AgentList({
                                           dispatch={dispatch}
                                           implement={implement}
                                           continueWith={continueWith}
+                                          restartWith={restartWith}
                                           pulse={pulse}
                                           onStarting={onStarting}
                                           marked={marked.has(rowKey(r))}
@@ -1946,6 +1949,7 @@ export function AgentList({
                                 dispatch={dispatch}
                                 implement={implement}
                                 continueWith={continueWith}
+                                restartWith={restartWith}
                                 pulse={pulse}
                                 onStarting={onStarting}
                                 marked={marked.has(rowKey(r))}
@@ -2274,6 +2278,7 @@ export function AgentList({
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
                               implement={implement}
                               continueWith={continueWith}
+                              restartWith={restartWith}
                               onOpenPlan={onOpenPlan}
                               onRevealBranch={onRevealBranch}
                               planHeaded={planHeads}
@@ -2297,6 +2302,7 @@ export function AgentList({
                                     dispatch={dispatch}
                                     implement={implement}
                                     continueWith={continueWith}
+                                    restartWith={restartWith}
                                     pulse={pulse}
                                     onStarting={onStarting}
                                     marked={marked.has(rowKey(r))}
@@ -2353,6 +2359,7 @@ export function AgentList({
                             // row, exactly as a NOT STARTED slice of one does.
                             soleRow={r}
                             continueWith={continueWith}
+                            restartWith={restartWith}
                             onOpenPlan={onOpenPlan}
                             onRevealBranch={onRevealBranch}
                             // WORKING draws no plan head, so the plan link belongs
@@ -2381,6 +2388,7 @@ export function AgentList({
                           dispatch={dispatch}
                           implement={implement}
                           continueWith={continueWith}
+                          restartWith={restartWith}
                           pulse={pulse}
                           onStarting={onStarting}
                           // By the row's own identity, so a row that changed
@@ -2561,6 +2569,7 @@ export function AgentList({
                   dispatch={dispatch}
                   implement={implement}
                   continueWith={continueWith}
+                  restartWith={restartWith}
                   drop={drop}
                   pulse={pulse}
                   onStarting={onStarting}
@@ -2585,6 +2594,7 @@ export function AgentList({
                   dispatch={dispatch}
                   implement={implement}
                   continueWith={continueWith}
+                  restartWith={restartWith}
                   drop={drop}
                   pulse={pulse}
                   onStarting={onStarting}

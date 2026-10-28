@@ -194,6 +194,13 @@ const launched = (agent, charterBody) => {
   delete env.PLOT_REPO_ROOT;
   delete env.PLOT_AGENT;
   if (agent !== null) env.PLOT_AGENT = agent;
+  // The restart controller asks the host for the branch's PR and refuses an
+  // unanswered question, so the sandbox's host answers "no PR".
+  fs.mkdirSync(path.join(t, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(t, 'bin', 'gh'),
+    '#!/usr/bin/env bash\ncase "$1 $2" in\n  "pr view") echo "no pull requests found" >&2; exit 1 ;;\n  *) echo "{}" ;;\nesac\n', { mode: 0o755 });
+  env.PATH = `${path.join(t, 'bin')}${path.delimiter}${env.PATH}`;
+  delete env.PLOT_UNATTENDED;
   let out = '';
   try {
     out = execFileSync('bash', [dispatch, '--offline', '--restart', 'feature/caps'],

@@ -614,6 +614,11 @@ export function App() {
     ? { available: false, reason: BLOCKED_REASON }
     : board?.continue;
 
+  /** Dimmed by the same rule: Restart spawns a process in a worktree, and a frozen page cannot vouch for the worker's state. */
+  const restartInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.restart;
+
   /**
    * The SAME treatment for turning an issue into a plan.
    *
@@ -1366,6 +1371,7 @@ export function App() {
               // control needs a text box for the answer, which a menu item has
               // nowhere to put.
               continueWith={continueInfo}
+              restartWith={restartInfo}
               // The fourth act, and the only one belonging to a row that is not
               // a branch. It reaches the ISSUE rows in WAITING ON YOU, which
               // read it together with `fleet.issueAnswer` — this flag says the
