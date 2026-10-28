@@ -1306,7 +1306,7 @@ if [ "$mode" = "stop" ]; then
     if [ "$exited" = 0 ]; then
       # ONLY A CONFIRMED EXIT GOES ON THE RESTART LIST. A branch still running
       # at the bound is not known stopped, so `--start` must not be told it was.
-      stopped_ok="$stopped_ok$br"$'\n'
+      stopped_ok="$stopped_ok$br"$'\t'"$wt"$'\n'
       # A REBUILT BUNDLE ALONE IS NOT "UNCOMMITTED WORK" — `main` rebuilds and
       # pushes every generated board bundle (`bug/main-builds-its-bundles`,
       # #1249), so a desk that locally rebuilt one to test holds nothing an

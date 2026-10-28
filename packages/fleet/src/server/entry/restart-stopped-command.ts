@@ -18,17 +18,18 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * node plot-restart-stopped-command.mjs
  * ```
  *
- * `--record` reads branch names on stdin, one per line, and replaces
- * `.plot/state/fleet-stopped.json` with exactly that list — the branches
- * `plot-fleetctl.sh --stop` itself stopped this run, never a branch stopped
- * by any other means.
+ * `--record` reads one branch per line on stdin, optionally followed by a tab
+ * and the branch's desk path, and replaces `.plot/state/fleet-stopped.json`
+ * with exactly that list — the branches `plot-fleetctl.sh --stop` itself
+ * stopped this run, never a branch stopped by any other means.
  *
  * With no arguments, restarts every branch that file lists, each through the
  * restart controller {@link restartBranch} wraps, reports each branch's
- * outcome by name, and clears the file once the pass is done. A branch's
- * refusal is reported and does not stop the rest of the list. An absent or
- * unparseable file restarts nothing and exits 0 — there is nothing to
- * restart.
+ * outcome by name, and clears the file once the pass is done. A recorded desk
+ * path reaches the controller as `worktree`, so a branch restarts without a
+ * fresh pulse. A branch's refusal is reported and does not stop the rest of
+ * the list. An absent or unparseable file restarts nothing and exits 0 —
+ * there is nothing to restart.
  */
 
 type Printer = (s: string) => void;
@@ -48,14 +49,17 @@ const bridgedPulse = (repoRoot: string): FleetReading | null => {
  * Records the branches named on stdin as this run's stopped list.
  *
  * @param repoRoot - the repository root.
- * @param stdin - branch names, one per line; blank lines are skipped.
+ * @param stdin - one `branch` or `branch<TAB>desk path` per line; blank lines are skipped.
  * @returns the process exit code — 0 once written, 1 on a write failure.
  */
 const record = async (repoRoot: string, stdin: string, warn: Printer): Promise<number> => {
-  const branches = stdin.split('\n').filter((line) => line !== '');
+  const rows = stdin.split('\n').filter((line) => line !== '').map((line) => line.split('\t'));
+  const branches = rows.map(([branch]) => branch ?? '');
+  const worktrees = Object.fromEntries(rows.filter(([, wt]) => wt).map(([branch, wt]) => [branch, wt]));
   const written = await fleetStoppedFile(repoRoot).write({
     v: FLEET_STOPPED_VERSION,
     branches,
+    worktrees,
     at: new Date().toISOString(),
   });
   if (!written.ok) {
@@ -99,10 +103,12 @@ const restartRecorded = async (
   const unattended = deps ? deps.unattended : process.env.PLOT_UNATTENDED === '1';
   const restart = deps ? deps.restartBranch : realRestartBranch;
   for (const branch of found.branches) {
+    const worktree = found.worktrees?.[branch];
     const started = await restart({
       opts: { repoRoot, scriptsDir: scriptDir },
       pulse,
       branch,
+      ...(worktree ? { worktree } : {}),
       unattended,
     });
     if (started.kind === 'refused') {

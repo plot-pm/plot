@@ -70,6 +70,17 @@ describe('the restart-stopped entry — on a repository', () => {
     expect(read).toMatchObject({ ok: true, value: { v: FLEET_STOPPED_VERSION, branches: ['feature/a', 'feature/b'] } });
   });
 
+  it('--record keeps the desk path given after a tab, keyed by branch', async () => {
+    const repo = repoFixture();
+    const code = await run(['--record'], repo, '/nonexistent', 'feature/a\t/desks/feature-a\nfeature/b\n', () => {}, () => {});
+    expect(code).toBe(0);
+    const read = await fleetStoppedFile(repo).read();
+    expect(read).toMatchObject({
+      ok: true,
+      value: { branches: ['feature/a', 'feature/b'], worktrees: { 'feature/a': '/desks/feature-a' } },
+    });
+  });
+
   it('--record with no branches on stdin writes an empty list, not no file', async () => {
     const repo = repoFixture();
     const code = await run(['--record'], repo, '/nonexistent', '', () => {}, () => {});
@@ -120,6 +131,30 @@ describe('the restart-stopped entry — on a repository', () => {
     expect(written.join('')).toContain('feature/a: restarted pid 4242');
     const read = await fleetStoppedFile(repo).read();
     expect(read).toMatchObject({ ok: true, value: null });
+  });
+
+  it('passes a recorded desk path to the controller, so a branch restarts with no fresh pulse', async () => {
+    // --stop unloads the supervisor, so the bridged pulse goes stale and reads
+    // null. The recorded desk path is then the only way to the worktree.
+    const repo = repoFixture();
+    await fleetStoppedFile(repo).write({
+      v: FLEET_STOPPED_VERSION,
+      branches: ['feature/a', 'feature/old'],
+      worktrees: { 'feature/a': '/desks/feature-a' },
+      at: '2026-10-27T00:00:00.000Z',
+    });
+    const started: DeskContinuation = { kind: 'started', pid: '4242', previousPid: '', prompt: '', log: '' };
+    const calls: RestartBranchInput[] = [];
+    const code = await run([], repo, '/nonexistent', '', () => {}, () => {}, {
+      pulse: null,
+      unattended: false,
+      restartBranch: async (input) => { calls.push(input); return started; },
+    });
+    expect(code).toBe(0);
+    expect(calls.map((c) => [c.branch, c.pulse, c.worktree])).toEqual([
+      ['feature/a', null, '/desks/feature-a'],
+      ['feature/old', null, undefined],
+    ]);
   });
 
   it('surfaces a refusal by name per branch, rather than skipping or silently succeeding, and still clears the record', async () => {

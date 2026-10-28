@@ -467,6 +467,9 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
 
 test('--stop records a confirmed-stopped branch, and --start restarts it through the restart controller', () => {
   const { root, box, ctl, guardBin } = sandbox('record-restart');
+  // A Worker command, so the controller's refusal comes from the restart rule
+  // and not from a missing config key. `unattended` refuses before it runs.
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Worker command:** false\n');
   const desk = path.join(root, '.worktrees', 'feature-a');
   git(root, 'worktree', 'add', '-q', '-b', 'feature/a', desk);
 
@@ -482,7 +485,9 @@ test('--stop records a confirmed-stopped branch, and --start restarts it through
 
     const recordPath = path.join(root, '.plot', 'state', 'fleet-stopped.json');
     assert.ok(fs.existsSync(recordPath), 'no stopped-branches record was written');
-    assert.deepEqual(JSON.parse(fs.readFileSync(recordPath, 'utf8')).branches, ['feature/a']);
+    const stoppedRecord = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+    assert.deepEqual(stoppedRecord.branches, ['feature/a']);
+    assert.deepEqual(stoppedRecord.worktrees, { 'feature/a': desk }, 'the desk path was not recorded beside its branch');
 
     // --start's restart call, in isolation from the launchd/unit machinery this
     // file's header says the suite cannot reach — the bundle `--start` calls is
@@ -494,8 +499,12 @@ test('--stop records a confirmed-stopped branch, and --start restarts it through
       env: { ...process.env, PLOT_UNATTENDED: '1' },
     });
     const out = (restarted.stdout ?? '') + (restarted.stderr ?? '');
-    assert.match(out, /feature\/a: refused|feature\/a: restarted/,
-      'the recorded branch was not carried to the restart controller');
+    // THIS SANDBOX HAS NO BRIDGED PULSE, as after a --stop older than the
+    // bridge's age bound. Only the recorded desk path reaches the worktree, and
+    // `unattended` is the first refusal past the worktree lookup; without the
+    // path the controller refuses `unknown-branch` instead.
+    assert.match(out, /feature\/a: refused unattended/,
+      `the recorded desk path did not carry the branch past the worktree lookup:\n${out}`);
     assert.equal(fs.existsSync(recordPath), false, 'the record survived a restart pass');
   } finally {
     signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });

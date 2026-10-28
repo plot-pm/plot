@@ -19,6 +19,11 @@ export const FleetStoppedSchema = z
     v: z.literal(FLEET_STOPPED_VERSION),
     /** The branches this `--stop` run stopped. */
     branches: z.array(z.string()),
+    /**
+     * The desk path `--stop` computed for each branch, keyed by branch. A
+     * branch with no entry is looked up in the bridged pulse instead.
+     */
+    worktrees: z.record(z.string(), z.string()).optional(),
     /** When `--stop` wrote the file, ISO-8601, this machine's clock. */
     at: z.string(),
   })
