@@ -3111,13 +3111,17 @@ for line in sys.stdin:
     # follow: `Tracer: yes` (1/0), a `Spike approved:` record (1/0), the wave
     # index of each annotated branch (one entry per branch), and their count.
     # Facts only: which slice holds the plan spike is the domain answer, spikeSliceOf.
-    spikes = [str(i) for i, w in enumerate(d.get("waves", []) or [])
-              for b in w.get("branches", []) or [] if b.get("spike")]
+    spikes = [str(i) for i, w in enumerate(d.get("waves", []) or []) for b in w.get("branches", []) or [] if b.get("spike")]
+    # unread_branch_items: a non-claim list item naming a branch, plan-level —
+    # `landed()` (packages/domain/src/rules/deliverable.ts) refuses delivery on
+    # one. Rendered here as its own JSON array (json.dumps escapes everything
+    # the bash side would otherwise need json_str for), so the consumer below
+    # has only to store the row — never to parse or re-escape one.
+    unread_json = json.dumps([{k: u.get(k) or "" for k in ("wave", "branch", "line")} for u in d.get("unread_branch_items", []) or []])
     print("\t".join(["P", clean(f), clean(d.get("phase", "")) or "-", clean(d.get("type", "")) or "-",
-                     "1" if d.get("tracer") else "0",
-                     "1" if d.get("spike_approved_raw") else "0", ",".join(spikes) or "-", str(len(spikes))]))
+                     "1" if d.get("tracer") else "0", "1" if d.get("spike_approved_raw") else "0",
+                     ",".join(spikes) or "-", str(len(spikes)), clean(unread_json)]))
     for i, w in enumerate(d.get("waves", []) or []):
-        name = w.get("name")
         for b in w.get("branches", []) or []:
             ref = b.get("branch") or ""
             # Not every prefixed token in a ## Branches section is
@@ -3149,7 +3153,7 @@ for line in sys.stdin:
                 "W", f, str(i), ref, str(b.get("deferred")).lower(),
                 (b.get("deferred_reason") or "-"),
                 (",".join(waits_on) if isinstance(waits_on, list) else waits_on) or "-",
-                name or "-", b.get("claimed") or "-", ",".join(b.get("commits") or []) or "-"]))
+                w.get("name") or "-", b.get("claimed") or "-", ",".join(b.get("commits") or []) or "-"]))
 ' 2>/dev/null) || records=""
 
   local kind file rest
@@ -3158,8 +3162,10 @@ for line in sys.stdin:
     case "$kind" in
       P)
         plan_meta_files+=("$file")
-        # `rest` is "<phase>\t<type>\t<tracer>\t<spike approved>\t<spike waves>\t<spikes>",
-        # no token holding a tab. The last four travel together.
+        # `rest` is "<phase>\t<type>\t<tracer>\t<spike approved>\t<spike waves>\t<spikes>\t<unread JSON>".
+        # The last five travel together; `unread_branch_items` is JSON text
+        # with no raw tab or newline byte, so it cannot be mistaken for a
+        # field boundary.
         IFS=$'\t' read -r _ph _ty _sp <<< "$rest"
         plan_meta_phases+=("${_ph#-}")
         plan_meta_types+=("${_ty#-}")
@@ -5012,6 +5018,11 @@ for plan in "${plans[@]}"; do
     # anything reads.
     json_plan+=",\"phase\":\"$(json_str "$plan_phase")\""
     [ "${_plan_spike[0]}" = 1 ] && json_plan+=",\"tracer\":true"
+    # A non-claim list item naming a branch, plan-level — `landed()`
+    # (packages/domain/src/rules/deliverable.ts) refuses delivery on one.
+    # The filter already rendered this as JSON (json.dumps), so there is
+    # nothing left to escape here.
+    json_plan+=",\"unreadBranchItems\":${_plan_spike[4]:-[]}"
     json_plan+=",\"waves\":[$json_waves]}"
     json_plans+="${json_plans:+,}$json_plan"
     # THE STREAM'S POINT: this plan is fully derived, so a consumer can render

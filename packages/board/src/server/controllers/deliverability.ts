@@ -326,6 +326,7 @@ export const deliverabilityOf = async (
       deliveredLink: '',
       sprint: '',
       sprintFile: '',
+      unreadBranchItems: plan.unreadBranchItems,
     },
     { on: '' },
   );

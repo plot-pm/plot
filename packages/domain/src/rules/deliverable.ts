@@ -132,6 +132,10 @@ const landed = (
   if (!pulse || !complete) return 'unknown';
   const plan = pulse.plans.find((p) => p.file === basename(meta.file));
   if (!plan) return 'not-merged';
+  // A non-claim list item naming a branch no claim reads — already excludes
+  // deferred items, which the parser never reports here. Read defensively:
+  // an older pulse absent the field is no items, never a refusal.
+  if ((plan.unreadBranchItems ?? []).length > 0) return 'not-merged';
   let merged = 0;
   // WORK GIVEN UP, counted apart from work that landed.
   //
