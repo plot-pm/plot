@@ -3638,6 +3638,8 @@ export const FleetWaitingSchema = z.object({
   tickets: z.array(IssueRowSchema).default([]),
   shown: z.number().default(0),
   hidden: z.number().default(0),
+  unassigned: z.number().default(0),
+  assignedToOthers: z.number().default(0),
   complete: z.boolean().default(true),
   notice: z.string().nullable().default(null),
   source: TicketSourceSchema.nullable().default(null),
