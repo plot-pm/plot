@@ -107,7 +107,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git rep
 # lock lives here; `plot-push-lock.mjs` holds the rule and its measurement. A waiter
 # past the no-progress bound exits 6 having pushed nothing.
 #
-# PLOT_PUSH_LOCK_HOLDER names a pid that already holds the lock (the-push-
+# PLOT_PUSH_LOCK_HOLDER names a holder that already has the lock (the-push-
 # lock-spans-the-booking): `commitAndPush` now takes the lock before the
 # fetch and commit, then calls this script while still holding it. Without
 # this, the nested `take` would wait on its own caller's lock and deadlock.

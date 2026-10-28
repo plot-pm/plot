@@ -145,11 +145,32 @@ export class Refused extends Error {}
  */
 let holderSeq = 0;
 
-/** A lock-holder id unique to one `commitAndPush` call, even across concurrent calls in this process. */
-const nextHolderId = (): string => `${process.pid}${String(++holderSeq).padStart(6, '0')}`;
+/**
+ * A lock-holder id unique to one `commitAndPush` call, even across concurrent
+ * calls in this process: `<pid>.<seq>`. `plot-push-lock.mjs` reads the part
+ * before the dot as the OS pid that keeps the lock alive.
+ */
+const nextHolderId = (): string => `${process.pid}.${++holderSeq}`;
 
 /** The default-branch lock helper `plot-push-main.sh` also takes. */
 const LOCK = 'plot-push-lock.mjs';
+
+/**
+ * The outer bound on one `plot-push-lock.mjs take`: its no-progress bound
+ * (`PLOT_PUSH_LOCK_WAIT`, 120 s) plus its stale bound (`PLOT_PUSH_LOCK_STALE_S`,
+ * 600 s) plus 60 s, so the helper's own exit 6 or stale break always comes
+ * first. The `Scripts` port's 120 s default would end the take before either.
+ *
+ * @param env - the environment the helper inherits.
+ * @returns the timeout in milliseconds.
+ */
+export const lockTakeTimeoutMs = (env: NodeJS.ProcessEnv = process.env): number => {
+  const seconds = (name: string, fallback: number): number => {
+    const value = Number(env[name] ?? fallback);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  };
+  return (seconds('PLOT_PUSH_LOCK_WAIT', 120) + seconds('PLOT_PUSH_LOCK_STALE_S', 600) + 60) * 1000;
+};
 
 /**
  * The real {@link PushLock}: `plot-push-lock.mjs`, run through the `Scripts`
@@ -160,11 +181,17 @@ const LOCK = 'plot-push-lock.mjs';
  * retried in here — see `commitAndPush`'s own exit-6 branch, which loops back
  * to retake without spending an attempt.
  */
-const realLockFor = (scripts: Scripts): PushLock => ({
+export const realLockFor = (scripts: Scripts, env: NodeJS.ProcessEnv = process.env): PushLock => ({
   take: async (holder, action, write) => {
-    const ran = await scripts.awaited(LOCK, ['take', holder, action]);
+    const ran = await scripts.awaited(LOCK, ['take', holder, action], { timeoutMs: lockTakeTimeoutMs(env) });
     if (ran.code === 0) return 'held';
-    if (ran.code !== 6) throw new Refused(`could not take the default-branch push lock.\n${ran.stderr}`);
+    if (ran.code !== 6) {
+      // A take cut short may have created the lock under `holder` before it
+      // died; release removes it only where the owner line names `holder`.
+      await scripts.awaited(LOCK, ['release', holder]);
+      const why = ran.interrupted === undefined ? '' : ` (the helper was cut short by ${ran.interrupted})`;
+      throw new Refused(`could not take the default-branch push lock${why}.\n${ran.stderr}`);
+    }
     const held = ran.stderr.match(/held by pid (\S+) running (.+?);/);
     write(`step: waiting for the default-branch lock held by pid ${held?.[1] ?? 'unknown'} (${held?.[2] ?? 'an unknown action'})\n`);
     return 'locked';

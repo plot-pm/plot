@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { existsSync as fsExistsSync, mkdirSync, mkdtempSync, readdirSync as fsReaddirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync as fsExistsSync, mkdirSync, mkdtempSync, readdirSync as fsReaddirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -451,51 +451,93 @@ const lockTake = (work, holderId, action, env = {}) =>
 const lockRelease = (work, holderId) =>
   spawnSync('node', [lockHelper, 'release', holderId], { cwd: work, encoding: 'utf8' });
 
-// A long-lived child process, so its pid reads as a genuinely live holder —
-// `alive()` checks `kill(pid, 0)`, which a made-up number would fail (and,
-// past 999999, would even be misread through the synthetic-holder fallback).
-const sleeperPid = () => {
-  const child = spawn('sleep', ['30']);
-  return child;
+// Rewrites the owner line in place through a rename, never removing the lock
+// directory, so a waiter can never take the lock between a remove and a
+// re-create.
+const relabel = (work, holderId, action) => {
+  const tmp = path.join(lockDir(work), 'owner.tmp');
+  writeFileSync(tmp, `${holderId}\t${Date.now()}\t${action}\n`);
+  renameSync(tmp, path.join(lockDir(work), 'owner'));
 };
 
 test('plot-push-lock.mjs take: a wait outlives PLOT_PUSH_LOCK_WAIT while the holder keeps changing', async () => {
   const { work } = makeRepo();
-  const holderA = sleeperPid();
-  const holderB = sleeperPid();
   mkdirSync(lockDir(work));
-  writeFileSync(path.join(lockDir(work), 'owner'), `${holderA.pid}\t${Date.now()}\tpush plot/a\n`);
-  const started = Date.now();
+  relabel(work, `${process.pid}.1`, 'push plot/a');
   // Hands the lock to a new live holder every 400ms — well inside the 1s
-  // bound — so `take`'s no-progress clock keeps resetting and must never
-  // time out, however long the queue takes in total to drain.
-  const relabel = setInterval(() => {
-    rmSync(lockDir(work), { recursive: true, force: true });
-    mkdirSync(lockDir(work));
-    writeFileSync(path.join(lockDir(work), 'owner'), `${holderB.pid}\t${Date.now()}\tpush plot/b\n`);
+  // bound — so `take`'s no-progress clock keeps resetting.
+  let turn = 1;
+  const handOver = setInterval(() => {
+    turn += 1;
+    relabel(work, `${process.pid}.${turn}`, `push plot/${turn}`);
   }, 400);
   const waiter = spawn('node', [lockHelper, 'take', String(process.pid), 'push plot/c'], {
     cwd: work,
     env: { ...process.env, PLOT_PUSH_LOCK_WAIT: '1' },
   });
-  await new Promise((resolve) => setTimeout(resolve, 1800));
-  clearInterval(relabel);
-  rmSync(lockDir(work), { recursive: true, force: true });
-  const code = await new Promise((resolve) => waiter.on('close', resolve));
-  holderA.kill();
-  holderB.kill();
-  assert.equal(code, 0, 'a moving holder never times out the wait');
-  assert.ok(Date.now() - started >= 1800, 'the wait outlived the 1s bound');
-  lockRelease(work, String(process.pid));
+  const closed = new Promise((resolve) => waiter.on('close', resolve));
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    assert.equal(waiter.exitCode, null, 'the waiter is still waiting 2.5s into a 1s no-progress bound');
+    clearInterval(handOver);
+    rmSync(lockDir(work), { recursive: true, force: true });
+    assert.equal(await closed, 0, 'the waiter takes the lock once it is free');
+  } finally {
+    clearInterval(handOver);
+    if (waiter.exitCode === null) waiter.kill();
+    lockRelease(work, String(process.pid));
+  }
 });
 
 test('plot-push-lock.mjs take: exits 6 when one holder stays past the bound unchanged', () => {
   const { work } = makeRepo();
-  const holder = sleeperPid();
   mkdirSync(lockDir(work));
-  writeFileSync(path.join(lockDir(work), 'owner'), `${holder.pid}\t${Date.now()}\tpush plot/a\n`);
-  const r = lockTake(work, String(process.pid), 'push plot/b', { PLOT_PUSH_LOCK_WAIT: '1' });
-  holder.kill();
+  writeFileSync(path.join(lockDir(work), 'owner'), `${process.pid}\t${Date.now()}\tpush plot/a\n`);
+  const r = lockTake(work, String(process.pid + 1), 'push plot/b', { PLOT_PUSH_LOCK_WAIT: '1' });
   assert.equal(r.status, 6);
-  assert.match(r.stderr, new RegExp(`held by pid ${holder.pid} running push plot/a`));
+  assert.match(r.stderr, new RegExp(`held by pid ${process.pid} running push plot/a`));
+});
+
+// A pid no process holds, past 999999: a real Linux pid can be 7 digits
+// (`kernel.pid_max` 4194304), and a dead one must read dead.
+const dead7DigitPid = () => {
+  for (let pid = 1234567; ; pid += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if (err.code === 'ESRCH') return pid;
+    }
+  }
+};
+
+test('plot-push-lock.mjs take: a dead 7-digit holder pid is broken at once, not read through pid 1', () => {
+  const { work } = makeRepo();
+  const dead = dead7DigitPid();
+  mkdirSync(lockDir(work));
+  writeFileSync(path.join(lockDir(work), 'owner'), `${dead}\t${Date.now()}\tpush plot/gone\n`);
+  const r = lockTake(work, '42', 'push plot/b', { PLOT_PUSH_LOCK_WAIT: '2' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, new RegExp(`broke a stale lock held by pid ${dead}`));
+  lockRelease(work, '42');
+});
+
+test('plot-push-lock.mjs take: a board holder <pid>.<seq> lives as long as its pid', () => {
+  const { work } = makeRepo();
+  mkdirSync(lockDir(work));
+  writeFileSync(path.join(lockDir(work), 'owner'), `${process.pid}.3\t${Date.now()}\tpush plot/board\n`);
+  const live = lockTake(work, '42', 'push plot/b', { PLOT_PUSH_LOCK_WAIT: '1' });
+  assert.equal(live.status, 6, 'a live board process keeps its lock');
+  writeFileSync(path.join(lockDir(work), 'owner'), `${dead7DigitPid()}.3\t${Date.now()}\tpush plot/board\n`);
+  const gone = lockTake(work, '42', 'push plot/b', { PLOT_PUSH_LOCK_WAIT: '2' });
+  assert.equal(gone.status, 0, gone.stderr);
+  lockRelease(work, '42');
+});
+
+test('plot-push-lock.mjs release: removes the lock only for the holder that named it', () => {
+  const { work } = makeRepo();
+  assert.equal(lockTake(work, `${process.pid}.7`, 'push plot/a').status, 0);
+  lockRelease(work, `${process.pid}.70`);
+  assert.equal(fsExistsSync(lockDir(work)), true, 'another holder releases nothing');
+  lockRelease(work, `${process.pid}.7`);
+  assert.equal(fsExistsSync(lockDir(work)), false);
 });

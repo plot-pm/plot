@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // The default-branch write lock behind `plot-push-main.sh` (#1349).
 //
-// Usage: plot-push-lock.mjs take <holder-pid> <action>
-//        plot-push-lock.mjs release <holder-pid>
+// Usage: plot-push-lock.mjs take <holder> <action>
+//        plot-push-lock.mjs release <holder>
+//        <holder> is a pid, or a board holder `<pid>.<seq>`.
 // Exit:  take — 0 once the lock is held; 6 where one holder stays past
 //        PLOT_PUSH_LOCK_WAIT seconds (default 120) without the lock changing
 //        hands, naming the holder's pid and action on stderr.
 //        release — 0 always; removes the lock only where its owner line names
-//        <holder-pid>.
+//        <holder>.
 //
 // Measured 2026-10-07: a 4-plan /api/release batch ended 4 of 4 `push=rejected`
 // and a 6-plan /api/approve batch ended 3 rejected, 1 bypassed, 1 micro-pr and
@@ -17,7 +18,7 @@
 // The lock is a directory under the COMMON git dir, so every worktree of one
 // repository contends for it. `mkdir` is atomic and fails where the name is
 // taken; `flock` is not shipped on macOS. Its `owner` file holds
-// `pid<TAB>taken-at-ms<TAB>action`.
+// `holder<TAB>taken-at-ms<TAB>action`.
 //
 // PLOT_PUSH_LOCK_WAIT IS A NO-PROGRESS BOUND, NOT A TOTAL WAIT (the-push-
 // lock-spans-the-booking). Spanning the lock across the fetch, the commit and
@@ -37,8 +38,8 @@
 // copy is the only thing removed.
 //
 // A CALLER THAT ALREADY HOLDS THE LOCK NAMES ITSELF via PLOT_PUSH_LOCK_HOLDER
-// (the pid that took it). `take()` reads the owner file first and returns 0 at
-// once where its pid matches — the nested case `commitAndPush` → `plot-push-
+// (the holder that took it). `take()` reads the owner file first and returns 0
+// at once where its holder matches — the nested case `commitAndPush` → `plot-push-
 // main.sh` needs, so the script does not deadlock waiting on its own caller's
 // lock.
 import { execFileSync } from 'node:child_process';
@@ -53,7 +54,7 @@ const ownerFile = path.join(lock, 'owner');
 const readOwner = () => {
   try {
     const [pid, at, ...rest] = fs.readFileSync(ownerFile, 'utf8').replace(/\n$/, '').split('\t');
-    return { pid: Number(pid), at: Number(at), action: rest.join('\t') };
+    return { pid, at: Number(at), action: rest.join('\t') };
   } catch {
     return null;
   }
@@ -68,16 +69,22 @@ const isAlive = (pid) => {
   }
 };
 
-// A holder from `ladder.ts`'s `nextHolderId()` is not a real OS pid: it is the
-// owning process's real pid with a 6-digit call sequence appended, so two
-// `commitAndPush` calls racing inside one board process never look like the
-// same holder to the `PLOT_PUSH_LOCK_HOLDER` fast path above. `kill(pid, 0)`
-// on that composite throws ESRCH (no such pid exists), which used to read as
-// "dead" and break a lock the instant a second in-process call checked it.
-// `realpid * 1_000_000 + seq` is losslessly invertible — `nextHolderId` always
-// pads `seq` to exactly 6 digits — so a failed direct check retries once
-// against the embedded real pid before concluding the holder is actually gone.
-const alive = (pid) => isAlive(pid) || (pid > 999999 && isAlive(Math.floor(pid / 1e6)));
+// A HOLDER IS A PID OR A BOARD HOLDER `<pid>.<seq>`. `ladder.ts`'s
+// `nextHolderId()` appends a call sequence after a dot, so two `commitAndPush`
+// calls inside one board process never match each other on the
+// `PLOT_PUSH_LOCK_HOLDER` fast path. Only the part before the dot is an OS pid,
+// and only a dotted id is read that way: a bare number is the pid itself,
+// including a 7-digit Linux pid (`kernel.pid_max` 4194304). Anything else is
+// no pid at all, and its lock breaks only by age.
+const osPid = (holder) => {
+  const match = /^([1-9][0-9]*)(?:\.[0-9]+)?$/.exec(holder ?? '');
+  return match ? Number(match[1]) : null;
+};
+
+const alive = (holder) => {
+  const pid = osPid(holder);
+  return pid === null || isAlive(pid);
+};
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
@@ -93,16 +100,24 @@ const take = () => {
   let since = Date.now();
   for (;;) {
     const already = readOwner();
-    if (holder !== undefined && already?.pid === Number(holder)) return 0;
+    if (holder !== undefined && already?.pid === holder) return 0;
+    // THE LOCK APPEARS WITH ITS OWNER, never empty: a staging directory gets
+    // the owner file first and is renamed onto the lock name. A process killed
+    // between a bare `mkdir` and the owner write left a lock no reader could
+    // attribute, break or release.
+    const staging = `${lock}.taking.${process.pid}`;
+    fs.rmSync(staging, { recursive: true, force: true });
+    fs.mkdirSync(staging);
+    fs.writeFileSync(path.join(staging, 'owner'), mine);
     try {
-      fs.mkdirSync(lock);
-      fs.writeFileSync(ownerFile, mine);
+      fs.renameSync(staging, lock);
       return 0;
     } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
+      fs.rmSync(staging, { recursive: true, force: true });
+      if (err.code !== 'EEXIST' && err.code !== 'ENOTEMPTY') throw err;
     }
     const held = readOwner();
-    if (held && Number.isInteger(held.pid) && (!alive(held.pid) || Date.now() - held.at > staleMs)) {
+    if (held && (!alive(held.pid) || Date.now() - held.at > staleMs)) {
       const moved = `${lock}.broken.${process.pid}`;
       try {
         fs.renameSync(lock, moved);
@@ -131,7 +146,7 @@ const take = () => {
 };
 
 const release = () => {
-  if (readOwner()?.pid === Number(pidArg)) fs.rmSync(lock, { recursive: true, force: true });
+  if (readOwner()?.pid === pidArg) fs.rmSync(lock, { recursive: true, force: true });
   return 0;
 };
 
