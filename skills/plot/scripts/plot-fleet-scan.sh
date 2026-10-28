@@ -3173,22 +3173,18 @@ for line in sys.stdin:
         plan_meta_waves+=("")
         plan_meta_unread+=("")
         ;;
-      W)
-        # Wave rows follow their plan's P row, so the last-appended entry is
-        # the one this row belongs to — the helper emits one object per file
-        # and this pass prints them in that order.
+      W|U)
+        # Wave and unread-item rows both follow their plan's P row, so the
+        # last-appended entry is the one a row belongs to — the helper emits
+        # one object per file and this pass prints them in that order.
         local last=$((${#plan_meta_files[@]} - 1))
         [ "$last" -ge 0 ] || continue
         [ "${plan_meta_files[$last]}" = "$file" ] || continue
-        plan_meta_waves[$last]="${plan_meta_waves[$last]}$rest"$'\n'
-        ;;
-      U)
-        # Unread-item rows follow their plan's P row, by the same ordering W
-        # rows rely on.
-        local last=$((${#plan_meta_files[@]} - 1))
-        [ "$last" -ge 0 ] || continue
-        [ "${plan_meta_files[$last]}" = "$file" ] || continue
-        plan_meta_unread[$last]="${plan_meta_unread[$last]}$rest"$'\n'
+        if [ "$kind" = "W" ]; then
+          plan_meta_waves[$last]="${plan_meta_waves[$last]}$rest"$'\n'
+        else
+          plan_meta_unread[$last]="${plan_meta_unread[$last]}$rest"$'\n'
+        fi
         ;;
     esac
   done <<< "$records"
