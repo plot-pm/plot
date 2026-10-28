@@ -599,12 +599,13 @@ HOST_STATE_CACHE=""
 # `terminal:` — `fleet-scan.ts`'s `onErrorLine` parses all three the same way.
 # TypeScript sees only the in-process `askPrList` calls; the two `pr-list`
 # calls in `prefill_pr_states` and every real `pr-state` call `host_pr_state
-# --ask` makes are this script's own (#2815). It runs at exit, so every exit
-# path prints it — `--stream`, which fleetd starts, leaves through its own
-# `exit 0`. Registered BEFORE the cache, because the exit handler runs in
-# registration order and removes the cache that holds the count. A scan that
-# spent nothing prints no line.
-plot_on_exit '[ -s "$HOST_STATE_CACHE/.spend" ] && printf "spend: %s\n" "$(wc -c < "$HOST_STATE_CACHE/.spend" | tr -d " ")" >&2'
+# --ask` makes are this script's own (#2815). It runs at exit, because
+# `--stream`, which fleetd starts, leaves through its own `exit 0`, and it
+# prints only under `--stream`: `--next` and the other modes promise silence on
+# both streams, and no `--json` caller reads stderr. Registered BEFORE the
+# cache, because the exit handler runs in registration order and removes the
+# cache that holds the count. A scan that spent nothing prints no line.
+plot_on_exit '[ "$stream" = 1 ] && [ -s "$HOST_STATE_CACHE/.spend" ] && printf "spend: %s\n" "$(wc -c < "$HOST_STATE_CACHE/.spend" | tr -d " ")" >&2'
 if [ "$HOST_LOOKUP_OK" = 1 ]; then
   plot_tmpdir HOST_STATE_CACHE fleet-host-state 2>/dev/null || HOST_STATE_CACHE=""
 fi
