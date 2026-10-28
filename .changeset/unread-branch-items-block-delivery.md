@@ -9,5 +9,4 @@ plan: docs/plans/2026-10-28-deliver-passes-a-plan-whose-slices.md
 bumps:
   skills:
     plot-reconcile: minor
-    plot-plan-meta: minor
 -->
