@@ -151,7 +151,7 @@ function sandbox(label, { nvmrc = '24', registryd = true, writeProbe = 'proceed'
 
   const dst = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -455,6 +455,80 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
     signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
     fs.rmSync(desk, { recursive: true, force: true });
   }
+});
+
+// ── --stop records exactly the branches it confirmed stopped, and --start ────
+// ── restarts exactly that list, through the restart controller ───────────────
+//
+// THE BUG: a branch stopped directly through `plot-dispatch.sh --stop`, never
+// through `plot-fleetctl.sh --stop`, must never appear on the record a later
+// `--start` reads — that record is this file's loop alone, and a direct
+// dispatch stop never runs through it.
+
+test('--stop records a confirmed-stopped branch, and --start restarts it through the restart controller', () => {
+  const { root, box, ctl, guardBin } = sandbox('record-restart');
+  const desk = path.join(root, '.worktrees', 'feature-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'feature/a', desk);
+
+  const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+
+  fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'),
+    `#!/usr/bin/env bash\nps -o command= -p ${sleeper} | grep -qx 'sleep 30' && kill ${sleeper} 2>/dev/null\nexit 0\n`);
+  fs.chmodSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), 0o755);
+
+  try {
+    run(ctl, ['--stop', '--wait', '10'], root, guardBin);
+
+    const recordPath = path.join(root, '.plot', 'state', 'fleet-stopped.json');
+    assert.ok(fs.existsSync(recordPath), 'no stopped-branches record was written');
+    assert.deepEqual(JSON.parse(fs.readFileSync(recordPath, 'utf8')).branches, ['feature/a']);
+
+    // --start's restart call, in isolation from the launchd/unit machinery this
+    // file's header says the suite cannot reach — the bundle `--start` calls is
+    // the subject here, not the unit load ahead of it.
+    const bundle = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-restart-stopped-command.mjs');
+    const restarted = spawnSync('node', [bundle], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PLOT_UNATTENDED: '1' },
+    });
+    const out = (restarted.stdout ?? '') + (restarted.stderr ?? '');
+    assert.match(out, /feature\/a: refused|feature\/a: restarted/,
+      'the recorded branch was not carried to the restart controller');
+    assert.equal(fs.existsSync(recordPath), false, 'the record survived a restart pass');
+  } finally {
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('a branch stopped directly via plot-dispatch.sh --stop, bypassing plot-fleetctl.sh --stop, never reaches the record', () => {
+  const { root, ctl, guardBin } = sandbox('bypass-stop');
+  const desk = path.join(root, '.worktrees', 'feature-b');
+  git(root, 'worktree', 'add', '-q', '-b', 'feature/b', desk);
+
+  try {
+    // A direct call, exactly as the bug report names it — never through
+    // plot-fleetctl.sh, so plot-fleetctl's --stop loop never ran at all.
+    execFileSync('bash', [path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), '--stop', 'feature/b'], {
+      cwd: root,
+      stdio: 'ignore',
+    }).toString?.();
+  } catch {
+    // plot-dispatch.sh may refuse with no real desk state behind it; what
+    // matters is that plot-fleetctl.sh --stop's loop never ran.
+  }
+
+  const recordPath = path.join(root, '.plot', 'state', 'fleet-stopped.json');
+  assert.equal(fs.existsSync(recordPath), false,
+    'a directly-dispatch-stopped branch produced a fleet-level stopped record');
+
+  // With no record at all, --start's restart pass restarts nothing.
+  const bundle = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-restart-stopped-command.mjs');
+  const out = execFileSync('node', [bundle], { cwd: root, encoding: 'utf8' });
+  assert.match(out, /no stopped branches recorded/);
+  fs.rmSync(desk, { recursive: true, force: true });
 });
 
 // ── The unload is VERIFIED to a bound, and a reported failure exits non-zero ──
@@ -2022,7 +2096,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   const plugin = path.join(box, 'plugin-cache', 'plot', '9.9.9');
   const dst = path.join(plugin, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-old-label.mjs', 'board/plot-restart-stopped-command.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
