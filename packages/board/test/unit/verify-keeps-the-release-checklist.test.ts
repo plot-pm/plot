@@ -12,11 +12,18 @@ import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { jurorPath } from '@plot-pm/domain/rules/panel';
 import type { PlanStore, Scripts } from '@plot-pm/domain';
 import { record, type Context } from '../../src/server/entry/verify.js';
+import type { PushLock } from '../../src/server/entry/ladder.js';
 
 const PLAN = 'docs/plans/p.md';
 const JUDGED = 'b'.repeat(40);
 const ON_MAIN = '# P\n\n## Status\n\n- **Delivered:** 2026-10-01\n\n## Changelog\n\n- one\n';
 const CHECKLIST = 'docs/releases/vnext-checklist.md';
+
+/** A lock that is always free, for a test with one writer and no contention to model. */
+const freeLock: PushLock = {
+  take: async () => 'held',
+  release: async () => {},
+};
 
 describe('record keeps the release checklist', () => {
   const roots: string[] = [];
@@ -89,6 +96,7 @@ describe('record keeps the release checklist', () => {
     } as unknown as Scripts,
     trees: treesFixture({}),
     issueTracker: () => trackerFixture({ scheme: 'jira' }),
+    lock: freeLock,
   });
 
   it('writes one checklist item for the verified plan, carrying no RC: line', async () => {

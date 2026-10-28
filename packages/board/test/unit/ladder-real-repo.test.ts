@@ -242,4 +242,55 @@ describe('commitAndPush against a real remote that moves during the first push',
     ).rejects.toThrow(/already released/);
     expect(lines.join('')).toContain('step: retry stopped — re-applying the delivery to origin/main failed\n');
   });
+
+  it('takes the real lock before the fetch: 3 concurrent writers against one origin all land', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-ladder-real-concurrent-')));
+    roots.push(root);
+    const origin = path.join(root, 'origin.git');
+    const repo = path.join(root, 'repo');
+    const hooks = path.join(root, 'hooks');
+    mkdirSync(hooks);
+    git(root, 'init', '-q', '--bare', '-b', 'main', origin);
+    git(root, 'init', '-q', '-b', 'main', repo);
+    git(repo, 'config', 'core.hooksPath', hooks);
+    git(repo, 'config', 'user.email', 't@t');
+    writeFileSync(path.join(repo, 'README.md'), 'init\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'init');
+    git(repo, 'remote', 'add', 'origin', origin);
+    git(repo, 'push', '-q', 'origin', 'main');
+    git(repo, 'remote', 'set-head', 'origin', 'main');
+
+    const context = { repoRoot: repo, scriptDir: SCRIPT_DIR };
+    const trees = treesGit(context);
+    const scripts = scriptsShell(context);
+
+    // Each writer cuts its branch from `origin/main` the moment IT starts,
+    // not all three from one frozen snapshot — the shape `/api/release`
+    // callers actually arrive in, and the reason 2 attempts cover N=3: a
+    // writer only needs to retry past pushes that landed since ITS OWN cut,
+    // not since the test began.
+    const writer = async (id: number) => {
+      const wt = path.join(root, `wt-${id}`);
+      const branch = `plot/concurrent-${id}`;
+      expect((await trees.addBranch(wt, branch, 'origin/main')).ok).toBe(true);
+      const file = path.join(wt, `writer-${id}.md`);
+      const reapply = async (at: string): Promise<void> => {
+        writeFileSync(path.join(at, `writer-${id}.md`), `${id}\n`);
+        await trees.stage(at, [`writer-${id}.md`]);
+      };
+      writeFileSync(file, `${id}\n`);
+      await trees.stage(wt, [`writer-${id}.md`]);
+      const ctx: LadderContext = { repoRoot: repo, scripts, trees, retryWait: noWait };
+      return commitAndPush(ctx, wt, branch, 'main', 'jw', `plot: writer ${id}`, 'delivery', 'nothing', reapply, () => {}, 2, noWait);
+    };
+
+    const results = await Promise.all([1, 2, 3].map((id) => writer(id)));
+
+    expect(results).toEqual([{ pushed: 'clean' }, { pushed: 'clean' }, { pushed: 'clean' }]);
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    for (const id of [1, 2, 3]) {
+      expect(git(repo, 'show', `origin/main:writer-${id}.md`).trim()).toBe(String(id));
+    }
+  });
 });

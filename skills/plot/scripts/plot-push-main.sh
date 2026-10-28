@@ -105,8 +105,22 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git rep
 
 # ONE DEFAULT-BRANCH WRITER AT A TIME (#1349). Every caller runs this script, so the
 # lock lives here; `plot-push-lock.mjs` holds the rule and its measurement. A waiter
-# past the bound exits 6 having pushed nothing.
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?; . "$here/plot-tmp.sh"; plot_on_exit node "$here/plot-push-lock.mjs" release "$$"
+# past the no-progress bound exits 6 having pushed nothing.
+#
+# PLOT_PUSH_LOCK_HOLDER names a pid that already holds the lock (the-push-
+# lock-spans-the-booking): `commitAndPush` now takes the lock before the
+# fetch and commit, then calls this script while still holding it. Without
+# this, the nested `take` would wait on its own caller's lock and deadlock.
+# Declared, `take` returns at once and this script releases nothing on exit —
+# the holder named by the env var is the one that released it, same as any
+# other caller whose pid does not match the owner file.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "${PLOT_PUSH_LOCK_HOLDER:-}" ]; then
+  node "$here/plot-push-lock.mjs" take "$PLOT_PUSH_LOCK_HOLDER" "push $branch" || exit $?
+else
+  node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?
+  . "$here/plot-tmp.sh"; plot_on_exit node "$here/plot-push-lock.mjs" release "$$"
+fi
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in

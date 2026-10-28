@@ -45,7 +45,7 @@ import {
 } from '@plot-pm/domain/rules/verification';
 import { withRecord, withSection } from '@plot-pm/domain/workflows/rendering';
 import { readVerifyStatus, verifyStatusLines } from '@plot-pm/fleet/shared/auto-verify';
-import { commitAndPush, localDate, realPlanPath, Refused, type Printer } from './ladder.js';
+import { commitAndPush, localDate, realPlanPath, Refused, type Printer, type PushLock } from './ladder.js';
 import {
   existsSync,
   mkdirSync,
@@ -145,6 +145,8 @@ export interface Context {
   issueWrites?: IssueWriteSpool;
   /** Sleeps between push attempts; the ladder's jittered 2 to 10 s wait where absent. */
   retryWait?: () => Promise<void>;
+  /** The default-branch push lock `commitAndPush` takes; its own default where absent. */
+  lock?: PushLock;
 }
 
 /** What the command line asked for. */
