@@ -90,7 +90,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-mi
 
 ### Strict ownership rule
 
-- `feature/mine-strict-ownership-rule` — Domain only: a strict ownership answer beside `isMine`, the effective «Mine» mode with its stored-key reader, and a synthesized desk on this machine answering `mine`. `isMine` and its tests stay unchanged; `ownership.test.ts:107` changes deliberately. <!-- builds: strict ownership answer, effective Mine mode, local desk answers mine -->
+- `feature/mine-strict-ownership-rule` — Domain only: a strict ownership answer beside `isMine`, the effective «Mine» mode with its stored-key reader, and a synthesized desk on this machine answering `mine`. `isMine` and its tests stay unchanged; `ownership.test.ts:107` changes deliberately. <!-- builds: strict ownership answer, effective Mine mode, local desk answers mine --> → #2823
 
 ### Waiting hidden split
 
