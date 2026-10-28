@@ -16,6 +16,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-pins-every-tip-it-deletes`
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-names-an-unknown-host-answer`
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-keeps-commits-after-the-merge`
+- **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-yes-acts-on-the-recorded-run`
 
 ## Changelog
 
