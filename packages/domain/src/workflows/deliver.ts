@@ -13,6 +13,7 @@ export type DeliverRefusal =
   | 'state-too-early'
   | 'state-unreadable'
   | 'state-wrong'
+  | 'slices-unread'
   | 'branches-unmerged';
 
 /** One branch of the plan being delivered, with what the host said about it. */
@@ -63,6 +64,25 @@ export interface DeliverReadings {
   sprint: string;
   /** The sprint file naming this plan, or `''` when none does. */
   sprintFile: string;
+  /**
+   * A non-claim list item in a slice section that names a branch no claim
+   * reads.
+   *
+   * Already excludes deferred items — the parser never reports one (wave 1).
+   * An empty list is not proof that none exist; an older reading absent the
+   * field reads the same way, so this never refuses on its own absence.
+   */
+  unreadBranchItems: readonly DeliverUnreadBranchItem[];
+}
+
+/** One item {@link DeliverReadings.unreadBranchItems} reports. */
+export interface DeliverUnreadBranchItem {
+  /** The slice name the item falls under, or `''` when it precedes any heading. */
+  wave: string;
+  /** The branch token the item names. */
+  branch: string;
+  /** The item's line, verbatim. */
+  line: string;
 }
 
 /** What `deliver` records beyond the plan. */
@@ -133,7 +153,7 @@ const emptySlices = (branches: readonly DeliverBranchReading[]): string[] =>
  * @param input - the date to record.
  * @returns a decision naming every write, or a refusal naming the rule that
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
- *   `state-too-early`, `state-unreadable`, `state-wrong` or
+ *   `state-too-early`, `state-unreadable`, `state-wrong`, `slices-unread` or
  *   `branches-unmerged`.
  */
 export const deliver = (
@@ -176,6 +196,20 @@ export const deliver = (
         'state-wrong',
         `plan '${slug}' is in state '${readings.phase}' — only an Approved plan can be delivered. Correct the 'State:' line in ${readings.file} and push it.`,
       );
+  }
+
+  if (readings.unreadBranchItems.length > 0) {
+    const items = readings.unreadBranchItems
+      .map(
+        (i) =>
+          `${i.wave === '' ? '(no slice)' : i.wave} — \`${i.branch}\`: ${i.line}\n` +
+          `    rewrite as a claim (\` - \`${i.branch}\` — owner/repo: ... → owner/repo#N\`\`) or defer it (\`<!-- deferred: <reason> -->\`)`,
+      )
+      .join('\n');
+    return no(
+      'slices-unread',
+      `cannot deliver: ${readings.unreadBranchItems.length} branch item(s) no claim reads:\n${items}`,
+    );
   }
 
   const outstanding = readings.branches.filter((b) => !b.deferred && !b.merged);

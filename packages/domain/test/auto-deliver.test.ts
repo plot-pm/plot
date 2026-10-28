@@ -25,7 +25,12 @@ import { planRecord } from '../src/adapters/index.js';
 
 type St = 'open' | 'merged' | 'deferred';
 
-const pulse = (phase: string, slices: St[][], file = '2026-10-01-ship-it.md'): FleetReading =>
+const pulse = (
+  phase: string,
+  slices: St[][],
+  file = '2026-10-01-ship-it.md',
+  unreadBranchItems: Array<{ wave: string; branch: string; line: string }> = [],
+): FleetReading =>
   FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
@@ -44,6 +49,7 @@ const pulse = (phase: string, slices: St[][], file = '2026-10-01-ship-it.md'): F
             ref_held: false,
           })),
         })),
+        unreadBranchItems,
       },
     ],
     summary: { plans: 1, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
@@ -85,6 +91,12 @@ describe('rules/auto-deliver', () => {
     });
     it('reads an incomplete scan as unknown, not merged', () => {
       expect(planAutoDeliver({ pulse: pulse('approved', [['merged']]), inFlight: none, complete: false })).toEqual([]);
+    });
+    it('skips a plan carrying an unread branch item, even with every slice merged', () => {
+      const withUnread = pulse('approved', [['merged']], '2026-10-01-ship-it.md', [
+        { wave: 'W0', branch: 'feature/other-repo', line: '- feature/other-repo: pending' },
+      ]);
+      expect(planAutoDeliver({ pulse: withUnread, inFlight: none })).toEqual([]);
     });
   });
 

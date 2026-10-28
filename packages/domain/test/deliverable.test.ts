@@ -44,10 +44,14 @@ const slice = (
   })),
 });
 
-const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetReading => ({
+const pulse = (
+  file: string,
+  slices: ReturnType<typeof slice>[],
+  unreadBranchItems: Array<{ wave: string; branch: string; line: string }> = [],
+): FleetReading => ({
   main: 'main',
   head: 'abc1234',
-  plans: [{ file, slices }],
+  plans: [{ file, slices, unreadBranchItems }],
   // `summary.waves` keeps its wire name: the board both parses and BUILDS this
   // tally, so its counter moves with those producers rather than ahead of them.
   summary: {
@@ -180,6 +184,38 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       const p = pulse(BASE, [slice('Reached', 'complete', [['feature/a', 'merged']])]);
       expect(allSlicesMerged({ file: '///' }, p, true)).toBe('not-merged');
     });
+  });
+});
+
+describe('allSlicesMerged — a plan with unread branch items is not merged', () => {
+  // Wave 1 reports a non-claim list item naming a branch no claim reads as
+  // `unreadBranchItems` on the pulse's plan. `landed()` must read it so
+  // `allSlicesConfirmed`, the board's Testing column and auto-delivery agree
+  // with `deliver()`'s own refusal.
+  it('answers not-merged for a pulse plan carrying an unread item, even with every slice merged', () => {
+    const p = pulse(
+      BASE,
+      [slice('Reached', 'complete', [['feature/a', 'merged']])],
+      [{ wave: 'Reached', branch: 'feature/other-repo', line: '- feature/other-repo: pending' }],
+    );
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
+  it('does not refuse on an empty unread-items list', () => {
+    const p = pulse(BASE, [slice('Reached', 'complete', [['feature/a', 'merged']])], []);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  it('reads an absent field (an older pulse) as no items, never as a refusal', () => {
+    // `pulse()`'s third argument defaults to `[]`, so this builds the plan
+    // object by hand to prove `landed()` does not require the key at all.
+    const p = {
+      main: 'main',
+      head: 'abc1234',
+      plans: [{ file: BASE, slices: [slice('Reached', 'complete', [['feature/a', 'merged']])] }],
+      summary: { plans: 1, waves: 1, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    } as FleetReading;
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
   });
 });
 

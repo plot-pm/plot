@@ -128,6 +128,44 @@ const ports = (plans: ReturnType<typeof plan>[], host: Host, prIndex: PrIndexSto
   prIndex,
 });
 
+describe('deliverabilityOf refuses a plan with an unread branch item', () => {
+  // Models ewz-kus-portal plan 3853: one branch the claim grammar reads
+  // (merged), and one foreign-repository branch named only in a non-claim
+  // list item. Before this wave, `deliverabilityOf` never read
+  // `unreadBranchItems` and answered `deliverable: true`.
+  it('refuses as slices-unread even though the one claimed branch merged', async () => {
+    const p: DeliverabilityPorts = {
+      planStore: planStoreFixture({
+        plans: [
+          planRecord({
+            file: FILE,
+            slices: [
+              {
+                name: 'one',
+                branches: [
+                  { branch: 'feature/a', deferred: false, deferredReason: '', claimed: '', waitsOn: [] },
+                ],
+              },
+            ],
+            unreadBranchItems: [
+              { wave: 'one', branch: 'feature/other-repo', line: '- feature/other-repo: pending' },
+            ],
+          }),
+        ],
+      }),
+      host: throwingHostExceptMergeCommit(),
+      refs: { commitFiles: async () => ({ ok: true, value: [] }) } as never,
+      prIndex: prIndexFixture(store([mergedRow(1, 'feature/a')])),
+    };
+
+    const answer = await deliverabilityOf(p, SLUG, FILE);
+
+    expect(answer.deliverable).toBe(false);
+    expect(answer.reason).toBe('slices-unread');
+    expect(answer.refusal).toContain('feature/other-repo');
+  });
+});
+
 describe('deliverabilityOf reads the PR store before the host', () => {
   it('is deliverable with zero host calls when the store holds every branch MERGED', async () => {
     const branches = Array.from({ length: 12 }, (_, i) => `feature/slice-${i}`);
