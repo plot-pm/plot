@@ -114,7 +114,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-pa
 
 ### Default-branch lock
 
-- `bug/the-push-lock-spans-the-booking` — `commitAndPush` holds the default-branch lock from fetch through push; `plot-push-main.sh` accepts a held lock; exit 6 spends no attempt; the wait bound measures progress <!-- builds: lock span in ladder.ts, held-lock pass-through in plot-push-main.sh and plot-push-lock.mjs, no-progress bound -->
+- `bug/the-push-lock-spans-the-booking` — `commitAndPush` holds the default-branch lock from fetch through push; `plot-push-main.sh` accepts a held lock; exit 6 spends no attempt; the wait bound measures progress <!-- builds: lock span in ladder.ts, held-lock pass-through in plot-push-main.sh and plot-push-lock.mjs, no-progress bound --> → #2860
 
 ### Release jobs
 
