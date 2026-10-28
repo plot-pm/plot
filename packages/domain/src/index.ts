@@ -163,6 +163,7 @@ export * from './rules/fold-issue-rows.js';
 export * from './rules/issue-write-through.js';
 export * from './rules/listing-page.js';
 export * from './rules/listing-spend.js';
+export * from './rules/listing-backoff.js';
 export * from './rules/timebox.js';
 /**
  * The per-agent half of the tick, disambiguated for the same reason the phase
