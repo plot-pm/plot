@@ -29,6 +29,32 @@ const CORRECTION_FILE_NAME = 'PLOT-CORRECTION.md';
 /** Runs one git command in a checkout. */
 type GitIn = (args: readonly string[]) => Promise<ScriptRun>;
 
+/** How many times `addBranch` runs `git worktree add` before it answers `failed`. */
+const ADD_BRANCH_ATTEMPTS = 5;
+
+/** The wait before each repeat of `git worktree add`, multiplied by the attempt number. */
+const ADD_BRANCH_BACKOFF_MS = 50;
+
+/**
+ * Whether a failed `git worktree add` lost a race with a sibling `worktree add` in the same
+ * repository, and a repeat can succeed.
+ *
+ * Git 2.55 reads every `.git/worktrees/<name>/commondir` while it adds a worktree, and a sibling
+ * that has created that file but not yet written it makes the read fail with
+ * `fatal: failed to read .git/worktrees/<name>/commondir: Result too large`. A held lock file
+ * (`<file>.lock': File exists`, `could not lock config file`) is the same kind of collision.
+ *
+ * @param stderr - what the failed `git worktree add` wrote to stderr.
+ * @returns true where the failure is a collision with a concurrent writer.
+ */
+const isWorktreeRace = (stderr: string): boolean =>
+  /failed to read .*\/worktrees\/[^/\s]+\/commondir/.test(stderr) ||
+  /\.lock'?: File exists/.test(stderr) ||
+  /could not lock config file/.test(stderr);
+
+/** Resolves after `ms` milliseconds. */
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * The local `origin/<default>` ref a checkout counts its own commits from:
  * `origin/HEAD` where the clone names one, else `origin/main`.
@@ -451,13 +477,20 @@ export const treesGit = (context: ShellContext): Trees => {
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 
+    // REPEATS ON A RACE WITH A SIBLING `worktree add`. A failed attempt leaves the branch and at
+    // most an empty directory, and `-B` with an empty target directory accepts both, so the
+    // repeat starts from the same place. Any other failure answers `failed` at once.
     addBranch: async (path, branch, start) => {
-      const run = await runProcess(
-        'git',
-        ['worktree', 'add', '-q', '--no-track', '-B', branch, path, start],
-        inRepo,
-      );
-      return run.code === 0 ? answered(undefined) : failed<void>();
+      for (let attempt = 1; ; attempt += 1) {
+        const run = await runProcess(
+          'git',
+          ['worktree', 'add', '-q', '--no-track', '-B', branch, path, start],
+          inRepo,
+        );
+        if (run.code === 0) return answered(undefined);
+        if (attempt >= ADD_BRANCH_ATTEMPTS || !isWorktreeRace(run.stderr)) return failed<void>();
+        await pause(ADD_BRANCH_BACKOFF_MS * attempt);
+      }
     },
 
     resetBranch: async (path, branch, start) => {

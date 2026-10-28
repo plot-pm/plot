@@ -1363,7 +1363,7 @@ export function App() {
               tickets={board.tickets ?? null}
               plansUnreadable={board.plansUnreadable ?? false}
               closedAbsence={showArchived ? closedAbsence : null}
-              issueAbsence={fleet?.issueAbsence ?? null}
+              issueAbsence={board.issueAbsence ?? null}
               topics={board.topics ?? []}
               showArchived={showArchived}
               onShowArchived={onShowArchived}
@@ -1373,7 +1373,7 @@ export function App() {
               onOpenSprint={onOpenSprint}
               idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
               story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
-              issueAnswer={fleet?.issueAnswer ?? 'unsupported'}
+              issueAnswer={board.issueAnswer ?? null}
               reader={reader}
               mode={mode}
               onCounts={setDiscoveryCounts}

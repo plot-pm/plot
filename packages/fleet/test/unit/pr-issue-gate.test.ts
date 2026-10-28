@@ -144,3 +144,14 @@ describe('the PR pass holds on the issue gate\'s backoff (Acceptance 4)', () => 
     expect(asked.filter((call) => call.startsWith('pr-list'))).toHaveLength(1);
   });
 });
+
+describe('the PR pass never gates on the account limit', () => {
+  it('stays within the damped ceiling for a full record at its limit with an epoch reset', () => {
+    // `spendRateFor` hands the PR pass a record carrying `limit`, `basis` and
+    // `resetAt`. Read against no clock, that reset is a wait of about 57 years.
+    const record = { perHour: 5_000, limit: 5_000, basis: 'actual' as const, resetAt: 1_790_000_000_000, account: ACCOUNT };
+    const ms = prRefreshMsFor('github', record, PR_REFRESH_MS);
+    expect(ms).toBeLessThanOrEqual(8 * PR_REFRESH_MS);
+    expect(ms).toBe(prRefreshMsFor('github', { perHour: 5_000 }, PR_REFRESH_MS));
+  });
+});

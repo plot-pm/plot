@@ -1,7 +1,47 @@
+import type { LimitBasis } from '../entities/limit.js';
+import { FALLBACK_WINDOW_MS } from './budget-record.js';
 import type { SpendRate } from './budget-record.js';
+import { msUntilReset } from './reaction.js';
 
 /** Milliseconds in the hour every rate here is stated over. */
 const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The account's own ceiling, as a caller's local `SpendRate` (such as
+ * `fleet-scan.ts`'s) carries it alongside `perHour`.
+ *
+ * ITS OWN SHAPE, NOT A SLICE OF THE DOMAIN'S {@link SpendRate}. That type
+ * (`budget-record.ts`) describes a window read from the budget record —
+ * `spent`, `spanMs`, `perHour` — and carries no limit fields at all; widening
+ * it to add them would be a different, wider change this slice does not make.
+ * A caller turns these fields into a {@link LimitGate} with its own `now`;
+ * {@link refreshIntervalMs} never reads them off a rate.
+ */
+export interface RateLimitFields {
+  /** The account's own ceiling, or null where unread. */
+  readonly limit?: number | null;
+  /** How the limit was come by; `unknown` where omitted, which never gates. */
+  readonly basis?: LimitBasis;
+  /** When the connector says the window resets, epoch milliseconds, or null. */
+  readonly resetAt?: number | null;
+}
+
+/**
+ * The account's stated ceiling and the clock to measure its reset against.
+ *
+ * `now` is required: a reset is an absolute epoch moment, and a wait measured
+ * against any other clock is the reset's own epoch value.
+ */
+export interface LimitGate {
+  /** The account's own ceiling, or null where unread. */
+  readonly limit: number | null;
+  /** How the limit was come by; only `actual`/`predicted` gate. */
+  readonly basis: LimitBasis;
+  /** When the connector says the window resets, epoch milliseconds, or null. */
+  readonly resetAt: number | null;
+  /** Epoch milliseconds. */
+  readonly now: number;
+}
 
 /**
  * The most a shared account may stretch one spender's interval.
@@ -148,6 +188,60 @@ export const targetStretch = (
 };
 
 /**
+ * The most a board waits past a limit with no reset to wait for, or an
+ * implausible one, in milliseconds.
+ *
+ * A BOUND ON THE WAIT, NOT ON THE RATE. {@link MAX_CADENCE_STRETCH} bounds how
+ * far the damped path stretches a board sharing one account's headroom with
+ * its peers; this bounds how long a board waits once the account has actually
+ * reached a stated ceiling and there is no reset to read. The two numbers
+ * answer different questions and neither should retune the other, so this one
+ * is its own constant rather than `MAX_CADENCE_STRETCH * base`. One hour
+ * matches {@link FALLBACK_WINDOW_MS} — the same fallback the budget record
+ * already takes for a window no connector has stated.
+ */
+export const MAX_LIMIT_WAIT_MS = FALLBACK_WINDOW_MS;
+
+/**
+ * How long a board waits once the account has reached a stated limit, or null
+ * where the limit does not gate — a `basis` other than `actual`/`predicted`,
+ * or a `perHour` still below the limit.
+ *
+ * ENGAGES ONLY AT OR ABOVE THE LIMIT. A `perHour` under the limit still has
+ * headroom to divide among boards, which is what the damped path is for; this
+ * path only starts once that headroom is gone.
+ *
+ * `unknown` NEVER GATES. Its `limit` is always null (`unknownLimit`'s own
+ * contract), and a null limit is "nothing to divide by," not "no ceiling" —
+ * the same reading {@link cadenceStretch} already gives a null `perHour`.
+ *
+ * WAITS UNTIL THE RESET WHERE ONE IS STATED, {@link MAX_LIMIT_WAIT_MS} where
+ * none is. A stated reset in the past is a bucket that already refilled, so it
+ * reads as 0, no wait owed, as {@link msUntilReset} and `hostReaction` read it.
+ *
+ * @param perHour - the account's observed requests an hour, or null.
+ * @param limit - the account's own ceiling, or null where unread.
+ * @param basis - how the limit was come by.
+ * @param resetAt - when the connector says the window resets, epoch
+ *   milliseconds; null where it did not say.
+ * @param now - epoch milliseconds.
+ * @returns the wait in milliseconds, or null where the limit does not gate.
+ */
+export const limitWaitMs = (
+  perHour: number | null,
+  limit: number | null,
+  basis: LimitBasis,
+  resetAt: number | null,
+  now: number,
+): number | null => {
+  if (basis !== 'actual' && basis !== 'predicted') return null;
+  if (limit === null || !Number.isFinite(limit) || limit <= 0) return null;
+  if (perHour === null || !Number.isFinite(perHour) || perHour < limit) return null;
+  if (resetAt === null || !Number.isFinite(resetAt)) return MAX_LIMIT_WAIT_MS;
+  return msUntilReset(resetAt, now) ?? 0;
+};
+
+/**
  * How far to stretch one board's refresh interval, one adjustment at a time.
  *
  * THE CADENCE DIVIDES, IT DOES NOT DOUBLE. Two boards on one account converge on
@@ -164,20 +258,38 @@ export const targetStretch = (
  * `throttled` response updates the connector's prediction, and the reaction to
  * it belongs to the slice that owns refusals.
  *
+ * A LIMIT AT OR ABOVE THE ACCOUNT'S OWN CEILING SKIPS THE DAMPING. The damped
+ * path divides headroom among boards sharing an account that still has some;
+ * once `perHour` has reached a stated (`actual`/`predicted`) `limit`, there is
+ * no headroom left to divide and nothing to damp toward — the board jumps
+ * straight to waiting past {@link limitWaitMs}, in one step rather than a
+ * quarter of one.
+ *
  * @param perHour - the account's observed requests an hour, or null.
  * @param intervalMs - the unstretched interval, which sets this board's share.
  * @param currentIntervalMs - the interval this board is refreshing at right now.
  * @param costPerRefresh - what one refresh costs in host requests.
- * @returns a multiplier at least 1 and at most {@link MAX_CADENCE_STRETCH}.
+ * @param gate - the account's stated ceiling and the clock to read its reset
+ *   against, or null where the caller does not gate on a limit.
+ * @returns a multiplier at least 1, unbounded above where the limit gates
+ *   (the wait until the reset may exceed {@link MAX_CADENCE_STRETCH}), and at
+ *   most {@link MAX_CADENCE_STRETCH} otherwise.
  */
 export const cadenceStretch = (
   perHour: number | null,
   intervalMs: number,
   currentIntervalMs: number,
   costPerRefresh: number,
+  gate: LimitGate | null = null,
 ): number => {
   const base = intervalMs * costPerRefresh;
-  const current = Math.max(base, currentIntervalMs) / base;
+  // Clamped to the ceiling: a gated wait may have left `current` far above it,
+  // and the paths below hold or step from `current`.
+  const current = Math.min(MAX_CADENCE_STRETCH, Math.max(base, currentIntervalMs) / base);
+  const waitMs = gate === null
+    ? null
+    : limitWaitMs(perHour, gate.limit, gate.basis, gate.resetAt, gate.now);
+  if (waitMs !== null) return Math.max(1, waitMs / base);
   // AN ABSENT RATE HOLDS THE CADENCE WHERE IT IS, AND A ZERO RATE WALKS IT
   // BACK. `perHour` is null where the window holds no span to divide by — one
   // line, or several inside one millisecond — and that is an absent rate rather
@@ -236,9 +348,13 @@ export const cadenceStretch = (
  * @param rate - what the record says about this account, or null where the
  *   record could not be read at all. An unreadable record leaves the cadence
  *   where it is: silence is not evidence of a busy account, and slowing down
- *   because a file is missing would make the board depend on it.
+ *   because a file is missing would make the board depend on it. Only
+ *   `perHour` is read; limit fields on the same object are ignored.
  * @param currentIntervalMs - the interval this board is refreshing at right now;
  *   defaults to the unstretched one, which is where a board starts.
+ * @param gate - the account's stated ceiling and the clock to read its reset
+ *   against, or null. The listing passes one; the PR pass passes none and
+ *   never gates on a limit.
  * @returns the interval in whole milliseconds, never below the unstretched one.
  */
 export const refreshIntervalMs = (
@@ -246,6 +362,7 @@ export const refreshIntervalMs = (
   costPerRefresh: number,
   rate: Pick<SpendRate, 'perHour'> | null,
   currentIntervalMs: number = intervalMs * costPerRefresh,
+  gate: LimitGate | null = null,
 ): number => {
   const base = intervalMs * costPerRefresh;
   const stretch = cadenceStretch(
@@ -253,6 +370,7 @@ export const refreshIntervalMs = (
     intervalMs,
     currentIntervalMs,
     costPerRefresh,
+    gate,
   );
   return Math.round(base * stretch);
 };

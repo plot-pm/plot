@@ -2803,7 +2803,7 @@ export function inferredPlanName(title: string): string {
  */
 export function IssueRowView(
   { issue, idea, story, issueAnswer, showKindLabel = true }:
-  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer; showKindLabel?: boolean },
+  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer | null; showKindLabel?: boolean },
 ) {
   return (
     <TupleRowView

@@ -9,7 +9,9 @@ import {
   ISSUE_REFRESH_MS,
   issueIntervalMs,
   issueSpendPerHour,
+  limitWaitMs,
   MAX_CADENCE_STRETCH,
+  MAX_LIMIT_WAIT_MS,
   othersPerHour,
   refreshIntervalMs,
   targetStretch,
@@ -292,6 +294,129 @@ describe('the step is damped, and that is what makes it settle', () => {
     // A current interval below the base would report a share above the board's
     // own, which is a state no caller can be in and must not compute one.
     expect(cadenceStretch(0, INTERVAL, 1_000, GITHUB)).toBe(1);
+  });
+});
+
+describe('a limit the account has actually reached', () => {
+  const LIMIT = 1_000;
+
+  it('does not gate below the limit', () => {
+    expect(limitWaitMs(LIMIT - 1, LIMIT, 'actual', null, 0)).toBeNull();
+  });
+
+  it('gates at the limit, not only above it', () => {
+    expect(limitWaitMs(LIMIT, LIMIT, 'actual', null, 0)).not.toBeNull();
+  });
+
+  it('gates above the limit for either basis that reports one', () => {
+    expect(limitWaitMs(LIMIT + 1, LIMIT, 'actual', null, 0)).not.toBeNull();
+    expect(limitWaitMs(LIMIT + 1, LIMIT, 'predicted', null, 0)).not.toBeNull();
+  });
+
+  it('never gates on an unknown basis, whatever perHour reads', () => {
+    // `unknown` carries no number to divide by, never a ceiling of zero.
+    for (const perHour of [0, LIMIT - 1, LIMIT, LIMIT * 10]) {
+      expect(limitWaitMs(perHour, LIMIT, 'unknown', null, 0)).toBeNull();
+      // unknownLimit's own contract: limit is always null under 'unknown'.
+      expect(limitWaitMs(perHour, null, 'unknown', null, 0)).toBeNull();
+    }
+  });
+
+  it('never gates on a null or non-positive limit, whatever the basis', () => {
+    expect(limitWaitMs(LIMIT, null, 'actual', null, 0)).toBeNull();
+    expect(limitWaitMs(LIMIT, 0, 'actual', null, 0)).toBeNull();
+    expect(limitWaitMs(LIMIT, -1, 'actual', null, 0)).toBeNull();
+  });
+
+  it('never gates on a null or non-finite perHour', () => {
+    expect(limitWaitMs(null, LIMIT, 'actual', null, 0)).toBeNull();
+    expect(limitWaitMs(Number.NaN, LIMIT, 'actual', null, 0)).toBeNull();
+    expect(limitWaitMs(Number.POSITIVE_INFINITY, LIMIT, 'actual', null, 0)).toBeNull();
+  });
+
+  it('waits exactly what is left of a stated reset', () => {
+    const now = 1_000;
+    const resetAt = now + 45_000;
+    expect(limitWaitMs(LIMIT, LIMIT, 'actual', resetAt, now)).toBe(45_000);
+  });
+
+  it('falls back to the bounded maximum where no reset is stated', () => {
+    expect(limitWaitMs(LIMIT, LIMIT, 'actual', null, 0)).toBe(MAX_LIMIT_WAIT_MS);
+  });
+
+  it('owes no wait where the stated reset has already passed', () => {
+    const now = 100_000;
+    expect(limitWaitMs(LIMIT, LIMIT, 'actual', now - 1, now)).toBe(0);
+    expect(limitWaitMs(LIMIT, LIMIT, 'actual', now, now)).toBe(0);
+  });
+
+  it('holds the unstretched interval where the stated reset has already passed', () => {
+    const now = 100_000;
+    const gate = { limit: LIMIT, basis: 'actual' as const, resetAt: now - 1, now };
+    expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: LIMIT }, INTERVAL, gate)).toBe(INTERVAL);
+  });
+
+  it('skips the damped path entirely at the limit, in cadenceStretch', () => {
+    // At or above the limit, the stretch jumps straight to the wait in one
+    // step rather than a quarter-step toward a damped target — asserted here
+    // by a wait whose ratio (20x) sits past MAX_CADENCE_STRETCH (8x), which
+    // the damped path could never reach in a single adjustment.
+    const now = 1_000;
+    const resetAt = now + 20 * INTERVAL;
+    const stretch = cadenceStretch(LIMIT, INTERVAL, INTERVAL, GITHUB, {
+      limit: LIMIT, basis: 'actual', resetAt, now,
+    });
+    expect(stretch).toBeGreaterThan(MAX_CADENCE_STRETCH);
+    expect(stretch).toBeCloseTo((resetAt - now) / INTERVAL, 5);
+  });
+
+  it('stretches exactly as the limit-free path does, below the limit', () => {
+    for (const perHour of [60, 120, 600, LIMIT - 1]) {
+      const withLimit = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB, {
+        limit: LIMIT, basis: 'actual', resetAt: null, now: 0,
+      });
+      const withoutLimit = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB);
+      expect(withLimit).toBe(withoutLimit);
+    }
+  });
+
+  it('stretches exactly as the limit-free path does, on an unknown basis at any perHour', () => {
+    for (const perHour of [0, 60, LIMIT, LIMIT * 10]) {
+      const withUnknown = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB, {
+        limit: null, basis: 'unknown', resetAt: null, now: 0,
+      });
+      const withoutLimit = cadenceStretch(perHour, INTERVAL, INTERVAL, GITHUB);
+      expect(withUnknown).toBe(withoutLimit);
+    }
+  });
+
+  it('refreshIntervalMs spends nothing sooner than the reset at a reached limit', () => {
+    const now = 0;
+    const resetAt = now + 30 * 60_000;
+    const ms = refreshIntervalMs(
+      INTERVAL,
+      GITHUB,
+      { perHour: LIMIT },
+      INTERVAL,
+      { limit: LIMIT, basis: 'actual', resetAt, now },
+    );
+    expect(ms).toBeGreaterThanOrEqual(resetAt - now);
+  });
+
+  it('refreshIntervalMs reads no limit fields off the rate itself', () => {
+    // The PR pass hands its whole spend record through. A limit on that record
+    // must not gate: with no `now` its reset would read as an epoch-long wait.
+    const record = { perHour: LIMIT, limit: LIMIT, basis: 'actual' as const, resetAt: 1_790_000_000_000 };
+    expect(refreshIntervalMs(INTERVAL, GITHUB, record, INTERVAL))
+      .toBe(refreshIntervalMs(INTERVAL, GITHUB, { perHour: LIMIT }, INTERVAL));
+    expect(refreshIntervalMs(INTERVAL, GITHUB, record, INTERVAL))
+      .toBeLessThanOrEqual(MAX_CADENCE_STRETCH * INTERVAL);
+  });
+
+  it('returns to the ceiling, not above it, where the rate goes absent after a gated wait', () => {
+    const waited = 60 * INTERVAL;
+    expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: null }, waited)).toBe(MAX_CADENCE_STRETCH * INTERVAL);
+    expect(refreshIntervalMs(INTERVAL, GITHUB, null, waited)).toBe(MAX_CADENCE_STRETCH * INTERVAL);
   });
 });
 

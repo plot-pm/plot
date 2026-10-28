@@ -513,7 +513,8 @@ export interface CacheEntry {
    * across a failure like `prs`, so a fetch error does not retract rows.
    */
   issues: IssueRow[];
-  issueAnswer: IssueAnswer;
+  /** `null` before the first read — not a fourth `IssueAnswer` member, see `createFromIssueVerdict`. */
+  issueAnswer: IssueAnswer | null;
   issueError: string | null;
   /** Why the issue list cannot be asked, as the board shows it; null where unknown. */
   issueAbsence: string | null;
@@ -2935,9 +2936,11 @@ export function freshCacheEntry(): CacheEntry {
     // before this field existed.
     unmerged: new Set(),
     questions: new Map(),
-    // `unsupported` before the first lookup, never `answered`: a board that
-    // has not asked must not render an empty inbox as a clear one.
-    issues: [], issueAnswer: 'unsupported', issueError: null, issueAbsence: null, waiting: null, agents: [], registry: undefined,
+    // `null` before the first lookup — not `unsupported` and not `answered`:
+    // a board that has not asked must not render an empty inbox as a clear
+    // one, and must not stand in for a host it has not yet learned has no
+    // issue read either. `createFromIssueVerdict` reads `null` as "pending".
+    issues: [], issueAnswer: null, issueError: null, issueAbsence: null, waiting: null, agents: [], registry: undefined,
     // Undefined until the first refresh asks, which is NOT `unknown`: nothing
     // has been asked yet, so the header renders nothing rather than reporting a
     // reading that was never attempted.
