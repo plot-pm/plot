@@ -5201,7 +5201,6 @@ read_previous_pulse() {
   # here leaves PREVIOUS_PULSE empty, which reads as a first run — the same
   # answer the scan gave before this existed.
   PREVIOUS_PULSE=$(cat "$file" 2>/dev/null | tr -d '\n') || PREVIOUS_PULSE=""
-  return 0
 }
 
 write_bridge() {
@@ -5228,7 +5227,6 @@ write_bridge() {
       return 0
     }
   mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null
-  return 0
 }
 
 # THE READING, COMPOSED ONCE. Two consumers read it — `--json`/`--stream` print
