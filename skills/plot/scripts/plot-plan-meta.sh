@@ -399,18 +399,14 @@ function sorted_insert(arr, n, v,   j) {
   arr[j+1] = v
   return n + 1
 }
-# Renders `n` `{"k1":"...","k2":"..."}` objects, reading arr1[i]/arr2[i] for
-# i=1..n — the shape unread_waits and unread_heading_items both emit.
-function emit_pairs(n, k1, arr1, k2, arr2,   i, out) {
+# Renders `n` `{"k1":"...","k2":"...",["k3":"..."]}` objects, reading
+# arr1[i]/arr2[i][/arr3[i]] for i=1..n. k3 "" omits the third field — the two-key
+# shape unread_waits and unread_heading_items emit; unread_branch_items passes
+# k3 for its third, "line".
+function emit_pairs(n, k1, arr1, k2, arr2, k3, arr3,   i, out) {
   for (i = 1; i <= n; i++)
-    out = out (i > 1 ? "," : "") "{\"" k1 "\":\"" jesc(arr1[i]) "\",\"" k2 "\":\"" jesc(arr2[i]) "\"}"
-  return out
-}
-# Renders `n` `{"k1":"...","k2":"...","k3":"..."}` objects, reading
-# arr1[i]/arr2[i]/arr3[i] for i=1..n — the shape unread_branch_items emits.
-function emit_triples(n, k1, arr1, k2, arr2, k3, arr3,   i, out) {
-  for (i = 1; i <= n; i++)
-    out = out (i > 1 ? "," : "") "{\"" k1 "\":\"" jesc(arr1[i]) "\",\"" k2 "\":\"" jesc(arr2[i]) "\",\"" k3 "\":\"" jesc(arr3[i]) "\"}"
+    out = out (i > 1 ? "," : "") "{\"" k1 "\":\"" jesc(arr1[i]) "\",\"" k2 "\":\"" jesc(arr2[i]) "\"" \
+      (k3 != "" ? ",\"" k3 "\":\"" jesc(arr3[i]) "\"" : "") "}"
   return out
 }
 # Every `<!-- waits: … -->` marker on a line, each value split on commas, in
@@ -801,7 +797,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   # store_waits(), so it stays silent, as today.
   out = out ",\"unread_waits\":[" emit_pairs(n_unread_waits, "branch", unread_waits_branch, "value", unread_waits_value) "]"
   out = out ",\"unread_heading_items\":[" emit_pairs(n_unread_heading_items, "wave", unread_heading_item_wave, "branch", unread_heading_item_branch) "]"
-  out = out ",\"unread_branch_items\":[" emit_triples(n_unread_branch_items, "wave", unread_branch_item_wave, "branch", unread_branch_item_branch, "line", unread_branch_item_line) "]"
+  out = out ",\"unread_branch_items\":[" emit_pairs(n_unread_branch_items, "wave", unread_branch_item_wave, "branch", unread_branch_item_branch, "line", unread_branch_item_line) "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
@@ -1086,6 +1082,17 @@ function unread_branch_token(s,   re, tok, pfx, rest) {
     if (pfx != "idea" && index(tok, "*") == 0 && index(rest, ".") == 0) return tok
   }
   return ""
+}
+# Records $0 into unread_branch_items when it is a non-claim list item naming
+# a branch token — the one guard and the one recording shape both slice
+# dialects share in their non-claim arm.
+function record_unread_branch_item(   utok) {
+  if ($0 !~ /^[ \t]*-[ \t]+/ || $0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) return
+  utok = unread_branch_token($0)
+  if (utok == "") return
+  unread_branch_item_wave[++n_unread_branch_items] = (n_waves > 0 ? wave_names[n_waves] : "")
+  unread_branch_item_branch[n_unread_branch_items] = utok
+  unread_branch_item_line[n_unread_branch_items] = trim($0)
 }
 # The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
 # a measurement: the longest legitimate name in the estate is `Offered first`
@@ -1380,13 +1387,8 @@ section == "slices" && slice_shape != "heading" {
     if (n_waves == 0) { wave_names[++n_waves] = "" }
     wave_of[n_branches] = n_waves; ++wave_count[n_waves]
     keep_branch(n_branches, b, 0)
-  } else if ($0 ~ /^[ \t]*-[ \t]+/ && $0 !~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
-    utok = unread_branch_token($0)
-    if (utok != "") {
-      unread_branch_item_wave[++n_unread_branch_items] = (n_waves > 0 ? wave_names[n_waves] : "")
-      unread_branch_item_branch[n_unread_branch_items] = utok
-      unread_branch_item_line[n_unread_branch_items] = trim($0)
-    }
+  } else {
+    record_unread_branch_item()
   }
   extract_prs($0)
   next
@@ -1491,15 +1493,10 @@ section == "slices" && slice_shape == "heading" {
       # reported rather than silently dropped and never read as a second claim.
       unread_heading_item_wave[++n_unread_heading_items] = wave_names[n_waves]; unread_heading_item_branch[n_unread_heading_items] = item_branch
     }
-  } else if ($0 ~ /^[ \t]*-[ \t]+/ && $0 !~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
+  } else {
     # Not a claim at all — a non-claim item in a `## Waves` section can still
     # name a branch in prose, exactly as a list item in the old shape can.
-    utok = unread_branch_token($0)
-    if (utok != "") {
-      unread_branch_item_wave[++n_unread_branch_items] = (n_waves > 0 ? wave_names[n_waves] : "")
-      unread_branch_item_branch[n_unread_branch_items] = utok
-      unread_branch_item_line[n_unread_branch_items] = trim($0)
-    }
+    record_unread_branch_item()
   }
   next
 }
