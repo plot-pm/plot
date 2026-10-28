@@ -155,7 +155,7 @@ export const branchSweepProblems = (readings: LocalBranchReadings): BranchSweepR
     if (!readings.hasOwnCommits) {
       problems.push('no-commits-of-its-own');
     }
-  } else if (readings.mergedAnswer === 'not-merged') {
+  } else {
     problems.push('no-merged-pr');
   }
   if (readings.checkedOut) {
