@@ -485,9 +485,17 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
       '#!/usr/bin/env bash',
       'case "$1" in',
       "  account) echo 'jwloka' ;;",
+      // `trackerJira`'s `issueListInbox` gates on `ticket-projects` before it
+      // ever reaches `issue-list --state inbox` — with no case for it here, the
+      // real connector read `[]` projects and answered `unaskable`.
+      "  ticket-projects) bash " + JSON.stringify(path.join(dir, 'plot-config.sh')) + " get 'Ticket prefixes' '' | tr ',' '\\n' ;;",
       '  issue-list)',
       '    case " $* " in',
       '      *" --state closed "*) : ;;',
+      // The reader's inbox mirrors the open list in this fixture — there is
+      // only ever one assignee-less row set, so a declared spelling that
+      // matched would see exactly the rows a project-wide read also holds.
+      `      *" --state inbox "*) ${list || ':'} ;;`,
       `      *) ${list || ':'} ;;`,
       '    esac ;;',
       'esac',
@@ -622,6 +630,75 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
 
     expect(numbers(entry.issues)).toEqual(['EWZKUS-5']);
     expect(entry.waiting?.tickets.find((t) => t.number === 'EWZKUS-5')?.status).toBe('');
+  });
+
+  it('the inbox read reaches entry.issueSets and entry.waiting, distinct from the open rows', async () => {
+    // `openKeys` and the inbox answer different rows here on purpose — if
+    // `refreshIssues` fell back to the open read instead of calling
+    // `issueListInbox`, this ticket would be absent from both places.
+    const dir = jiraFixture({
+      claudeMd: JIRA_CLAUDE_MD,
+      openKeys: ['EWZKUS-1', 'EWZKUS-2'],
+      plans: {},
+    });
+    fs.writeFileSync(path.join(dir, 'plot-host.sh'), [
+      '#!/usr/bin/env bash',
+      'case "$1" in',
+      "  account) echo 'jwloka' ;;",
+      "  ticket-projects) echo EWZKUS ;;",
+      '  issue-list)',
+      '    case " $* " in',
+      '      *" --state closed "*) : ;;',
+      '      *" --state inbox "*) printf \'{"number":"EWZKUS-9","title":"mine","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":["jan.wloka@quatico.com"]}\\n\' ;;',
+      '      *) printf \'{"number":"EWZKUS-1","title":"t1","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":[]}\\n\'; printf \'{"number":"EWZKUS-2","title":"t2","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":[]}\\n\' ;;',
+      '    esac ;;',
+      'esac',
+      'exit 0',
+      '',
+    ].join('\n'));
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    const entry = entryFor([]);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['EWZKUS-1', 'EWZKUS-2']);
+    expect(numbers(entry.issueSets?.inbox ?? [])).toEqual(['EWZKUS-9']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['EWZKUS-9']);
+  });
+
+  it('a refused inbox read leaves the open read answered, with entry.waiting falling back to no notice-worthy spelling', async () => {
+    const dir = jiraFixture({
+      claudeMd: JIRA_CLAUDE_MD,
+      openKeys: ['EWZKUS-1', 'EWZKUS-2'],
+      plans: {},
+    });
+    fs.writeFileSync(path.join(dir, 'plot-host.sh'), [
+      '#!/usr/bin/env bash',
+      'case "$1" in',
+      "  account) echo 'jwloka' ;;",
+      "  ticket-projects) echo EWZKUS ;;",
+      '  issue-list)',
+      '    case " $* " in',
+      '      *" --state closed "*) : ;;',
+      '      *" --state inbox "*) echo rate-limited >&2; exit 1 ;;',
+      '      *) printf \'{"number":"EWZKUS-1","title":"t1","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":[]}\\n\'; printf \'{"number":"EWZKUS-2","title":"t2","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":[]}\\n\' ;;',
+      '    esac ;;',
+      'esac',
+      'exit 0',
+      '',
+    ].join('\n'));
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    const entry = entryFor([]);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('answered');
+    expect(numbers(entry.issues)).toEqual(['EWZKUS-1', 'EWZKUS-2']);
+    expect(entry.issueSets?.inbox).toBeUndefined();
+    expect(entry.waiting?.tickets).toHaveLength(0);
+    expect(entry.waiting?.notice).toBe('The inbox was not read — showing none of your tickets rather than the project\'s.');
   });
 
   it('no idea branches changes nothing from the directory read', async () => {
