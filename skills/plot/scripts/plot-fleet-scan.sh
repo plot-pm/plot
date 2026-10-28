@@ -944,6 +944,7 @@ EOF
   # one licenses. The AGE is the board's to report, because the board is what
   # knows when it listed — this scan is spawned fresh and cannot know.
   HOST_VERDICT=ok
+  return 0
 }
 
 # Report the listing this run fetched, for the next pulse to carry.
@@ -5418,3 +5419,4 @@ echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_cla
 # script's own, and this is the one line that hands that count back (#2815).
 [ -n "$HOST_STATE_CACHE" ] && [ -f "$HOST_STATE_CACHE/.spend" ] \
   && printf 'spend: %s\n' "$(wc -c < "$HOST_STATE_CACHE/.spend" | tr -d ' ')" >&2
+true
