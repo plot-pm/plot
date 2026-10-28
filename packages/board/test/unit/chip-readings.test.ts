@@ -34,11 +34,12 @@ const input = (selectedSprints: string[], overrides: Partial<ChipReadingsInput> 
   sprintFilteredRows: selectedSprints.length === 0
     ? rows
     : rows.filter((r) => rowInSprintSelection(r, selectedSprints, membership)),
+  agents: [],
   activeSprints,
   selectedSprints,
   membership,
   reader: { hostUser: 'jwloka' },
-  mineOnly: false,
+  mode: 'all',
   ...overrides,
 });
 
@@ -88,7 +89,7 @@ describe('chipReadings — the Mine chip reads the rows after the sprint filter'
     const chips = chipRow(chipReadings(input(selected, {
       rows: owned,
       sprintFilteredRows: owned.filter((r) => rowInSprintSelection(r, selected, membership)),
-      mineOnly: true,
+      mode: 'mine-and-unknown',
     })));
     // plan-z is hidden by the sprint filter, so only plan-a1 counts.
     expect(chips.mine).toEqual({ label: 'Mine (jwloka)', on: true, hiddenCount: 1, disabledReason: null });
