@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2833
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2834 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/discovery-tab-disables-create-plan-story`
+- **Delivered:** 2026-10-28
 
 ## Changelog
 
