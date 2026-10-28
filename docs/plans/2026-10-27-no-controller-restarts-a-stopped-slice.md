@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2784
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2788 merged
 - **Started:** 2026-10-27, Jan Wloka, `bug/a-stopped-slice-has-a-restart-controller`
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-fleet-start-restarts-what-its-stop-stopped`
+- **Delivered:** 2026-10-28
 
 ## Changelog
 
