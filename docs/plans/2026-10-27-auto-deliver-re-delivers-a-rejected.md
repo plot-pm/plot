@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #2713
 - **Rounds:** 1
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-27, Jan Wloka, plan-PR #2760 merged
 - **Started:** 2026-10-27, Jan Wloka, `bug/auto-deliver-holds-a-rejected-plan`
 - **Delivered:** 2026-10-27
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
