@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { answered, failed } from '@plot-pm/domain';
 import type { Processes, Trees, Worktree } from '@plot-pm/domain';
 import { runWorktreeKind, type Context } from '../../src/server/entry/reap.js';
+import type { ReapRecordRow } from '@plot-pm/domain';
 
 /**
  * A desk on a branch a plan gave up. The reaper removes the checkout once the
@@ -172,6 +173,27 @@ const run = async (o: Opts, yes: boolean): Promise<string> => {
   return lines.join('');
 };
 
+/** Runs `runWorktreeKind` under an arbitrary mode and returns both its rows and its printed lines. */
+const runRows = async (
+  o: Opts,
+  mode: { kind: 'dry-run' } | { kind: 'act-recorded'; index: ReadonlyMap<string, ReapRecordRow> },
+): Promise<{ rows: readonly ReapRecordRow[]; out: string }> => {
+  const lines: string[] = [];
+  const args = { dryRun: mode.kind === 'dry-run', yes: mode.kind === 'act-recorded', max: 0, sweepTemp: false };
+  const counters = await runWorktreeKind(
+    ctxFor(o),
+    args,
+    mode,
+    'main',
+    path.join(root, 'agents'),
+    '',
+    (s) => lines.push(s),
+    planDir,
+    activeDir,
+  );
+  return { rows: counters.rows, out: lines.join('') };
+};
+
 describe('a desk on a given-up branch with its head on the remote', () => {
   it('is removed on --yes with the marker saved and the local branch deleted after a fetch', async () => {
     const out = await run({}, true);
@@ -239,5 +261,43 @@ describe('the given-up branch is pinned before its local ref is deleted', () => 
 
     expect(out).toContain('could not pin the tip');
     expect(calls.some((c) => c.startsWith('deleteBranch'))).toBe(false);
+  });
+});
+
+describe('a landed, clean desk on a given-up branch: the dry run names the cascade, and --yes acts on exactly that record', () => {
+  it('deletes the recorded worktree row and nothing more', async () => {
+    const dry = await runRows({}, { kind: 'dry-run' });
+
+    expect(dry.rows).toHaveLength(1);
+    expect(dry.rows[0]).toMatchObject({ kind: 'worktree', identity: desk, reason: `given up, head on origin/${BRANCH}` });
+
+    const index = new Map(dry.rows.map((r) => [`${r.kind}:${r.identity}`, r]));
+    const acted = await runRows({}, { kind: 'act-recorded', index });
+
+    expect(acted.out).toContain('reaped');
+    expect(acted.out).toContain('local branch deleted');
+    expect(calls).toEqual(expect.arrayContaining(['fetch', 'removeOnly', `deleteBranch ${BRANCH}`]));
+  });
+
+  it('keeps the desk when the record holds no row for it (never acted on a fresh re-decision)', async () => {
+    const acted = await runRows({}, { kind: 'act-recorded', index: new Map() });
+
+    expect(acted.out).toContain('keep');
+    expect(acted.out).toContain('not in the recorded dry run');
+    expect(calls).not.toContain('removeOnly');
+    expect(existsSync(desk)).toBe(true);
+  });
+
+  it('keeps the desk when the recorded tip no longer matches the desk\'s current tip', async () => {
+    const dry = await runRows({}, { kind: 'dry-run' });
+    const stale: ReapRecordRow = { ...dry.rows[0], tipSha: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' };
+    const index = new Map([[`${stale.kind}:${stale.identity}`, stale]]);
+
+    const acted = await runRows({}, { kind: 'act-recorded', index });
+
+    expect(acted.out).toContain('keep');
+    expect(acted.out).toContain('tip-changed');
+    expect(calls).not.toContain('removeOnly');
+    expect(existsSync(desk)).toBe(true);
   });
 });
