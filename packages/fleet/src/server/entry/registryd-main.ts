@@ -80,7 +80,7 @@ import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js'
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
-import { freshScanState, planDirectory, REFRESH_MS, PR_REFRESH_MS } from '../../shared/fleet-scan.js';
+import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading } from '../../shared/worker-question.js';
@@ -129,7 +129,7 @@ import {
 import { gatherReadingsAndRelease } from '../../shared/release-claim-reader.js';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import type { PrOpenReading } from '@plot-pm/domain/rules/ending-action';
-import { loopSpendPerHour, ISSUE_REFRESH_MS, type LoopSpend } from '@plot-pm/domain/rules/cadence';
+import { loopSpendPerHour, type LoopSpend } from '@plot-pm/domain/rules/cadence';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import {
@@ -2629,6 +2629,7 @@ export const run = async (
 
   write(`plot-fleetd: supervising ${registryDir}\n`);
 
+  let lastReadAt = Date.now();
   for (;;) {
     if (stop()) {
       // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
@@ -2728,16 +2729,22 @@ export const run = async (
     // keeps its own line, and a spend reading that fails leaves `account=unread`
     // on a complete one: neither reading can change which kind of tick it was.
     // Reported, never acted on — `args.intervalMs` below does not read it.
+    // THE BACKGROUND LOOPS ACCRUE BETWEEN READINGS, so each one's count is
+    // priced over the time since the last reading, not over its own cadence:
+    // the scan makes about twelve calls in one 60 s tick, and twelve calls
+    // over a 5 s cadence would print 8,640/hr for a loop spending 720.
+    const backgroundWindowMs = Math.max(1, Date.now() - lastReadAt);
     if (report.incomplete === '') {
       report = {
         ...report,
         spend: await spendForTick(scripts, [
           { name: 'tick', calls: tally.calls, intervalMs: args.intervalMs },
-          { name: 'scan', calls: scanState.calls, intervalMs: REFRESH_MS },
-          { name: 'pr-reader', calls: prState.calls, intervalMs: PR_REFRESH_MS },
-          { name: 'issue-reader', calls: issueState.calls, intervalMs: ISSUE_REFRESH_MS },
+          { name: 'scan', calls: scanState.calls, intervalMs: backgroundWindowMs },
+          { name: 'pr-reader', calls: prState.calls, intervalMs: backgroundWindowMs },
+          { name: 'issue-reader', calls: issueState.calls, intervalMs: backgroundWindowMs },
         ]),
       };
+      lastReadAt = Date.now();
     }
     // RESET HERE, NOT AT THE TOP OF THE TICK: the fresh-agent and nothing-done
     // steps below run AFTER this reading and add to `tally.calls` themselves
