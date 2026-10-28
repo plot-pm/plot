@@ -643,19 +643,6 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_ERR=""
 plot_tmpfile HOST_ERR host-err || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
 
-# `pr-merged`'s OWN miss phrasing — genuine PR-absence wording only.
-#
-# `is_lookup_miss`'s bare `not found` alternative also matches a failure that
-# has nothing to do with a missing PR: "repository not found", "404 Not
-# Found". Those are the host unreachable or misconfigured, not "no PR exists
-# for this branch" — and `pr-merged` must not read either as `not-merged`,
-# since that answer tells a caller it is safe to delete the branch. So this
-# recognises only the two phrases that name a PR lookup miss, and leaves
-# `is_lookup_miss` itself untouched for the callers that still want the bare
-# alternative.
-pr_merged_lookup_miss() {
-  LC_ALL=C grep -qiE 'no (pull request|pullrequest)s? (found|match)|could not find.*pull request' <<<"$1"
-}
 die() { echo "plot-host: $*" >&2; exit 1; }
 
 # Rows in one page of a Jira issue read: its `maxResults` bound.
@@ -666,20 +653,14 @@ ISSUE_PAGE_ROWS=100
 # An empty message or a recognised lookup miss is an answer; anything else exits 3.
 miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || die3 "$1"; }
 # `pr-merged`'s own third value for a failed call: a genuine PR-lookup miss
-# still means not-merged; everything else — including empty stderr, and
-# including a bare "not found" that names no PR — prints the host's words
-# (where there are any) and answers `unknown` rather than exiting. Empty
-# stderr is not a miss: it is the host failing to say anything at all, and
-# `unknown` is the one answer that keeps silence from reading as permission to
-# delete. The caller already branches on this word, not a code.
-miss_or_unknown() {
-  if [ -n "$1" ] && pr_merged_lookup_miss "$1"; then
-    echo "not-merged"
-  else
-    [ -n "$1" ] && echo "plot-host: $1" >&2
-    echo "unknown"
-  fi
-}
+# still means not-merged — matched here on the same two phrases
+# `is_lookup_miss` uses, minus its bare "not found" alternative, which also
+# matches a failure naming no PR ("repository not found", 404) and would read
+# as permission to delete the branch. Empty stderr is not a miss either: it
+# is the host failing to say anything at all. Anything else answers `unknown`
+# and prints the host's words when there are any, rather than exiting — the
+# caller already branches on this word, not a code.
+miss_or_unknown() { if [ -n "$1" ] && LC_ALL=C grep -qiE 'no (pull request|pullrequest)s? (found|match)|could not find.*pull request' <<<"$1"; then echo "not-merged"; else echo "${1:+plot-host: $1}" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
 # Reads the last host call's stderr into `err` and removes the file, so the
 # next call starts empty. Every failed-call branch below starts with it.
