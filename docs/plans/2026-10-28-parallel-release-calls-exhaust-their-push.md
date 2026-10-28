@@ -119,7 +119,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-pa
 
 ### Release jobs
 
-- `bug/one-release-job-per-plan` — `POST /api/release` refuses a slug already running or queued; status is kept per job, so a log is never truncated by a second call
+- `bug/one-release-job-per-plan` — `POST /api/release` refuses a slug already running or queued; status is kept per job, so a log is never truncated by a second call → #2872
 
 ### Shared issues
 
