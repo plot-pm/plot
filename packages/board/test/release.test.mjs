@@ -10,8 +10,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { startServer, makeRepo, request, rmTree } from './helpers.mjs';
+import { startServer, makeRepo, request, rmTree, SCRIPTS_DIR } from './helpers.mjs';
 
 const DELIVERED_NO_PR = `# Ship the widget
 ## Status
@@ -46,6 +47,36 @@ function release(port, body) {
     headers: { 'sec-fetch-site': 'same-origin' },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * A scripts dir whose `plot-deliver.sh` blocks until a gate file appears,
+ * every other helper symlinked from the real {@link SCRIPTS_DIR}.
+ *
+ * `plot-deliver.sh` runs for seconds even when it refuses fast (real git
+ * checks, real host calls on a shaped plan) — too slow and too flaky a window
+ * to hold a second POST against. A stub that blocks on a file gate gives the
+ * test a deterministic overlap instead: the first call's job stays `running`
+ * for exactly as long as the test needs it to.
+ */
+function makeBlockingDeliverStub() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-release-stub-'));
+  for (const name of fs.readdirSync(SCRIPTS_DIR)) {
+    if (name === 'plot-deliver.sh') continue;
+    fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
+  }
+  const gate = path.join(dir, 'deliver-gate.txt');
+  fs.writeFileSync(
+    path.join(dir, 'plot-deliver.sh'),
+    `#!/usr/bin/env bash\necho "plot-deliver: $*"\nwhile [ ! -f ${JSON.stringify(gate)} ]; do sleep 0.05; done\n`,
+    { mode: 0o755 },
+  );
+  return {
+    dir,
+    /** Let every blocked plot-deliver.sh run exit 0. */
+    release: () => fs.writeFileSync(gate, 'go\n'),
+    cleanup: () => rmTree(dir),
+  };
 }
 
 describe('POST /api/release: answers 202 and starts plot-deliver.sh --release', () => {
@@ -151,6 +182,14 @@ describe('POST /api/release: validates its body before starting anything', () =>
     for (const version of ['1.2.3', 'v1.2.3']) {
       const res = await release(server.port, { slug: 'ship-the-widget', version });
       assert.equal(res.status, 202, `version ${version}: ${res.body}`);
+      // Wait for THIS call's job to finish before the next iteration reuses
+      // the same slug — otherwise the loop races its own still-running job
+      // and the second POST is correctly refused as already-running.
+      await until(async () => {
+        const r = await request(server.port, { path: '/api/release/ship-the-widget' });
+        const body = JSON.parse(r.body);
+        return body.state !== 'unknown' && body.state !== 'running' ? body : null;
+      });
     }
   });
 });
@@ -198,5 +237,74 @@ describe('POST /api/release: the binding is the authorisation', () => {
     const res = await release(server.port, { slug: 'ship-the-widget', version: '1.2.3' });
     assert.equal(res.status, 403);
     assert.match(JSON.parse(res.body).error, /0\.0\.0\.0/);
+  });
+});
+
+describe('POST /api/release: a second call for a running slug is refused, per slug', () => {
+  let tmp, server, stub;
+
+  before(async () => {
+    tmp = makeRepo({
+      plans: [
+        { name: '2026-08-16-ship-the-widget.md', content: DELIVERED_NO_PR },
+        { name: '2026-08-16-ship-the-gadget.md', content: DELIVERED_NO_PR.replace(/widget/g, 'gadget') },
+      ],
+    });
+    stub = makeBlockingDeliverStub();
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(() => {
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('refuses a second POST for the same slug while the first is still running, leaves its log untouched, and reports the first job\'s outcome', async () => {
+    const log = path.join(tmp, '.worktrees', 'plot-release-ship-the-widget.log');
+
+    const first = await release(server.port, { slug: 'ship-the-widget', version: '1.2.3' });
+    assert.equal(first.status, 202, first.body);
+
+    // Wait for the first job's own log line, so the overlap is against a job
+    // actually running — not a race against the spawn.
+    await until(() =>
+      fs.existsSync(log) && /^plot-deliver:/.test(fs.readFileSync(log, 'utf8')) ? true : null,
+    );
+    const beforeSecond = fs.readFileSync(log, 'utf8');
+
+    const second = await release(server.port, { slug: 'ship-the-widget', version: '1.2.3' });
+    assert.equal(second.status, 409, second.body);
+    const secondBody = JSON.parse(second.body);
+    assert.equal(secondBody.ok, false);
+    assert.equal(secondBody.slug, 'ship-the-widget');
+    assert.equal(secondBody.reason, 'already-running');
+
+    // The refusal must not have truncated or reopened the first job's log.
+    assert.equal(fs.readFileSync(log, 'utf8'), beforeSecond);
+
+    // Let the first job finish, then read its outcome back.
+    stub.release();
+    const status = await until(async () => {
+      const r = await request(server.port, { path: '/api/release/ship-the-widget' });
+      const body = JSON.parse(r.body);
+      return body.state !== 'unknown' && body.state !== 'running' ? body : null;
+    });
+    assert.equal(status.state, 'done', JSON.stringify(status));
+  });
+
+  it('a second POST for a DIFFERENT slug still succeeds with 202 while the first is running', async () => {
+    const first = await release(server.port, { slug: 'ship-the-gadget', version: '1.2.3' });
+    assert.equal(first.status, 202, first.body);
+
+    const log = path.join(tmp, '.worktrees', 'plot-release-ship-the-gadget.log');
+    await until(() =>
+      fs.existsSync(log) && /^plot-deliver:/.test(fs.readFileSync(log, 'utf8')) ? true : null,
+    );
+
+    const second = await release(server.port, { slug: 'ship-the-gadget', version: '1.2.3' });
+    assert.equal(second.status, 202, second.body);
+
+    stub.release();
   });
 });
