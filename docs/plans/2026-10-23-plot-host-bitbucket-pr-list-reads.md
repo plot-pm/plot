@@ -61,7 +61,7 @@ The layering rule holds: the change stays in `plot-host.sh` and the host adapter
 
 ### Listing
 
-- `bug/plot-host-bitbucket-pr-list-reads` — switch `bb_state_listing` and the `--updated-since` window to `bb pr list --all`, gated on the `bb` version; drop the stale comment and notice; keep the single-page path for an older `bb`. <!-- builds: bb_state_listing paging gate -->
+- `bug/plot-host-bitbucket-pr-list-reads` — switch `bb_state_listing` and the `--updated-since` window to `bb pr list --all`, gated on the `bb` version; drop the stale comment and notice; keep the single-page path for an older `bb`. → #2730 <!-- builds: bb_state_listing paging gate -->
 
 ## Notes
 
