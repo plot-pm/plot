@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2424
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-24, Claude, `bug/interrogate-reads-the-plan-pr`
 - **Started:** 2026-10-25, Jan Wloka, `bug/interrogate-pushes-to-the-plan-pr`
 - **Delivered:** 2026-10-25
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
