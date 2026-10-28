@@ -1,5 +1,5 @@
-import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
-import type { TicketSource } from './ownership.js';
+import { declaresSpelling, resolvePerson, samePerson, type PersonDirectory } from '../entities/person.js';
+import { accountNamesReader, comparableLogin, type Reader, type TicketSource } from './ownership.js';
 import { doneTickets, ticketLane, type TicketLane } from './ticket-lane.js';
 
 /** One ticket as the Discovery tab's lane groups carry it. */
@@ -81,8 +81,24 @@ export const typeOf = (type: string | null | undefined): string | null =>
   type === undefined || type === null || type.trim() === '' ? null : type.trim().toLowerCase();
 
 /**
- * The owner a ticket card names: the assignee the directory resolves, where
- * one does, otherwise the first assignee as written. A Jira account resolves
+ * Whether any of `named`'s assignees names `reader`, as {@link ownerOf}'s
+ * source resolves an assignee: a `host-login` assignee against the reader's
+ * host login, a `tracker-account` assignee through {@link accountNamesReader}.
+ */
+const anyAssigneeIsReader = (
+  named: readonly string[], source: TicketSource | null | undefined, directory: PersonDirectory, reader: Reader,
+): boolean => {
+  if (source?.match === 'tracker-account') return accountNamesReader(named, source.prefix, reader);
+  const login = comparableLogin(reader);
+  if (login === '') return false;
+  const self = resolvePerson(login, directory);
+  return named.some((assignee) => samePerson(resolvePerson(assignee, directory), self));
+};
+
+/**
+ * The owner a ticket card names: the reader's own handle where any assignee
+ * names the reader, otherwise the assignee the directory resolves where one
+ * does, otherwise the first assignee as written. A Jira account resolves
  * through its `jira:<account>` spelling.
  *
  * Several assignees can be unequally known: one a raw tracker login the
@@ -93,15 +109,22 @@ export const typeOf = (type: string | null | undefined): string | null =>
  *
  * @param assignees - the row's assignees, as the tracker spells them.
  * @param reading - the source and directory the lanes were read with.
- * @returns the resolved handle, the first assignee as written where none resolves, or `null` where nobody is assigned.
+ * @param reader - who is reading; absent where the caller labels with no reader.
+ * @returns the reader's handle where any assignee names the reader, the
+ *   resolved handle otherwise, the first assignee as written where none
+ *   resolves, or `null` where nobody is assigned.
  */
 export const ownerOf = (
   assignees: readonly string[] | null | undefined,
   reading: Pick<TicketLanesReading, 'source' | 'directory'>,
+  reader?: Reader,
 ): string | null => {
   const named = (assignees ?? []).map((a) => a.trim()).filter((a) => a !== '');
   if (named.length === 0) return null;
   const directory = reading.directory ?? {};
+  if (reader !== undefined && anyAssigneeIsReader(named, reading.source, directory, reader)) {
+    return resolvePerson(comparableLogin(reader), directory).handle;
+  }
   const spellingOf = (assignee: string): string =>
     reading.source?.match === 'tracker-account' ? `${reading.source.prefix}${assignee}` : assignee;
   const resolved = named.find((assignee) => declaresSpelling(spellingOf(assignee), directory));

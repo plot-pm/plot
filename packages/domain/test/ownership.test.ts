@@ -317,6 +317,20 @@ describe('a ticket is owned by its assignees, resolved by source', () => {
     expect(ownership(ticket(['5b10ac8d82e05b22cc7d4ef5'], jira), jiraReader)).toBe('unknown');
     expect(ownership(ticket(['jan.wloka@quatico.com'], jira), { hostUser: 'jwloka' })).toBe('unknown');
   });
+
+  it('reads a Jira ticket as mine where a declared other person is listed ahead of the reader', () => {
+    const jiraDirectory = parsePersonDirectory(
+      'mruepp = jira:margit.ruepp@quatico.com; jwloka = jira:jan.wloka@quatico.com',
+    );
+    const jiraReader: Reader = { hostUser: 'jwloka', directory: jiraDirectory };
+    expect(ownership(ticket(['margit.ruepp@quatico.com', 'jan.wloka@quatico.com'], jira), jiraReader)).toBe('mine');
+  });
+
+  it('reads a Jira ticket as theirs where a declared other person is followed by an undeclared assignee', () => {
+    const jiraDirectory = parsePersonDirectory('mruepp = jira:margit.ruepp@quatico.com; jwloka = jira:jan.wloka@quatico.com');
+    const jiraReader: Reader = { hostUser: 'jwloka', directory: jiraDirectory };
+    expect(ownership(ticket(['margit.ruepp@quatico.com', 'somebody-undeclared'], jira), jiraReader)).toBe('theirs');
+  });
 });
 
 const story = (author?: string): OwnedRow => ({ kind: 'story', author });

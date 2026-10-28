@@ -141,27 +141,42 @@ const planOwnership = (
 };
 
 /**
+ * Whether a `tracker-account` assignee list names the reader, through a
+ * declared `<prefix><account>` spelling.
+ *
+ * @param assignees - the ticket's assignees, as the tracker spells them.
+ * @param prefix - the source's spelling prefix, for example `jira:`.
+ * @param reader - who is reading.
+ * @returns true where a prefixed spelling of any assignee resolves to the reader.
+ */
+export const accountNamesReader = (assignees: readonly string[], prefix: string, reader: Reader): boolean => {
+  const login = comparableLogin(reader);
+  if (login === '') return false;
+  const directory = reader.directory ?? {};
+  const self = resolvePerson(login, directory);
+  return assignees.some((assignee) => {
+    const spelling = `${prefix}${assignee.trim()}`;
+    return declaresSpelling(spelling, directory) && samePerson(resolvePerson(spelling, directory), self);
+  });
+};
+
+/**
  * Whose a ticket's assignee is, where the source writes tracker accounts:
  * never compared to the reader's host login directly, only through a declared
  * `<prefix><account>` spelling.
  *
- * `mine` where a prefixed spelling of the reader's handle names any assignee.
- * `theirs` where a prefixed spelling of another handle names one. `unknown`
- * where no handle's prefixed spelling names any assignee — including where the
- * directory declares none at all.
+ * Every assignee is checked: `mine` where a prefixed spelling of the reader's
+ * handle names any one of them, else `theirs` where a prefixed spelling of
+ * another handle names one, else `unknown` — including where the directory
+ * declares none at all.
  */
 const accountTicketOwnership = (assignees: string[], prefix: string, reader: Reader): Ownership => {
+  if (accountNamesReader(assignees, prefix, reader)) return 'mine';
   const login = comparableLogin(reader);
   if (login === '') return 'unknown';
   const directory = reader.directory ?? {};
-  const self = resolvePerson(login, directory);
-  for (const assignee of assignees) {
-    const spelling = `${prefix}${assignee.trim()}`;
-    if (!declaresSpelling(spelling, directory)) continue;
-    if (samePerson(resolvePerson(spelling, directory), self)) return 'mine';
-    return 'theirs';
-  }
-  return 'unknown';
+  const sawTheirs = assignees.some((assignee) => declaresSpelling(`${prefix}${assignee.trim()}`, directory));
+  return sawTheirs ? 'theirs' : 'unknown';
 };
 
 /**
