@@ -454,14 +454,18 @@ export const treesGit = (context: ShellContext): Trees => {
     addBranch: async (path, branch, start) => {
       const run = await runProcess(
         'git',
-        ['worktree', 'add', '-q', '-B', branch, path, start],
+        ['worktree', 'add', '-q', '--no-track', '-B', branch, path, start],
         inRepo,
       );
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 
     resetBranch: async (path, branch, start) => {
-      const run = await runProcess('git', ['-C', path, 'checkout', '-q', '-f', '-B', branch, start], inRepo);
+      const run = await runProcess(
+        'git',
+        ['-C', path, 'checkout', '-q', '-f', '--no-track', '-B', branch, start],
+        inRepo,
+      );
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 
