@@ -2985,8 +2985,8 @@ describe('rowsFromPulse', () => {
 
     it('hides the planned row from the reader the assignee does not resolve to, and shows it to the one it does', () => {
       const planned = scan(null).filter((r) => r.branch === 'feature/b');
-      expect(rowsForReader(planned, jwloka, true)).toHaveLength(0);
-      expect(rowsForReader(planned, ckehl, true)).toHaveLength(1);
+      expect(rowsForReader(planned, jwloka, 'mine-and-unknown')).toHaveLength(0);
+      expect(rowsForReader(planned, ckehl, 'mine-and-unknown')).toHaveLength(1);
     });
 
     it('leaves every existing caller unchanged — no map means empty owner fields', () => {

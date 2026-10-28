@@ -76,13 +76,16 @@ export { splitBranch };
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import {
   readMineOnly,
+  readMineStrict,
   agentsForReader,
   draftsForReader,
   readerFrom,
   rowsForReader,
   ticketsForReader,
   writeMineOnly,
+  writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
+import { mineMode } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, planGroupShape, sliceGroupsFor, slicesElsewhere, sliceKeyOf, headSliceNames } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
@@ -421,12 +424,22 @@ export function AgentList({
   // identity it filters against is the BOARD's, which arrives on a separate
   // fetch, so an unknown reader hides nothing rather than emptying the view.
   const [mineOnly, setMineOnly] = useState<boolean>(() => readMineOnly());
+  // THE STRICTER "HIDE UNKNOWN TOO" CONTROL, parallel to `mineOnly` above and
+  // read/written the same way.
+  const [mineStrict, setMineStrict] = useState<boolean>(() => readMineStrict());
   // THE *SHOW EVERY TICKET* CONTROL — client state only, off on every load.
   const [showEveryTicket, setShowEveryTicket] = useState<boolean>(false);
   const toggleMineOnly = () => {
     setMineOnly((prev) => {
       const next = !prev;
       writeMineOnly(next);
+      return next;
+    });
+  };
+  const toggleMineStrict = () => {
+    setMineStrict((prev) => {
+      const next = !prev;
+      writeMineStrict(next);
       return next;
     });
   };
@@ -493,11 +506,16 @@ export function AgentList({
   // identity fields and its `People` directory, and nothing else — the row's
   // branch name is never consulted.
   const reader = useMemo(() => readerFrom(server), [server]);
+  // THE EFFECTIVE «MINE» MODE — the single value every filter below reads,
+  // never the raw `mineOnly`/`mineStrict` flags. Gated on `comparableLogin`
+  // inside `mineMode` itself, so a disabled chip and an emptied board can never
+  // disagree.
+  const mode = mineMode(reader, { mineOnly: mineOnly ? '1' : '0', strict: mineStrict ? '1' : '0' });
   // THE AGENTS THIS READER ASKED FOR, through the agent arm of the ownership
-  // rule. That arm answers `mine` or `unknown` and never `theirs`, so no worker
-  // is hidden today: a worker stays a fact about the fleet. The call is what
-  // lets the rule, rather than this component, decide that.
-  const ownAgents = agentsForReader(fleet?.agents ?? [], reader, mineOnly);
+  // rule. That arm answers `mine` or `unknown` (or, under the strict mode,
+  // keeps only `mine`) — a worker stays a fact about the fleet otherwise. The
+  // call is what lets the rule, rather than this component, decide that.
+  const ownAgents = agentsForReader(fleet?.agents ?? [], reader, mode);
   const workingRows = workingAgentRows(ownAgents, rowByBranch);
   // THE BROKEN AGENTS — `stalled` and `unknown` — for WAITING ON YOU.
   // A problem report: the worker stopped and needs a person to look. Joined to
@@ -515,10 +533,10 @@ export function AgentList({
   //
   // FILTERED BY OWNERSHIP THE SAME PLACE `visibleRows` IS — a Draft plan row
   // now carries `assignee`/`author`/`approver` like every other owned row, so
-  // «Mine» applies to it too. A plan naming nobody, or naming only someone
-  // `isMine` cannot resolve, stays visible; only a row somebody ELSE owns
-  // hides.
-  const draftRows = draftsForReader(draftPlanRows(fleet?.draftPlans ?? [], fleet?.rows ?? []), reader, mineOnly);
+  // «Mine» applies to it too. Under `mine-and-unknown` a plan naming nobody,
+  // or naming only someone `isMine` cannot resolve, stays visible and only a
+  // row somebody ELSE owns hides; under `mine` only the reader's own stays.
+  const draftRows = draftsForReader(draftPlanRows(fleet?.draftPlans ?? [], fleet?.rows ?? []), reader, mode);
   // THE FLEET'S OWN VERIFY RUNS — a run ON A PLAN, not on a branch. `halted`,
   // `running` and `rows` come from `.plot/state/auto-verify-in-flight.json` as
   // the daemon last wrote it; `null` (the file unreadable) answers no rows and
@@ -730,7 +748,7 @@ export function AgentList({
   // A row somebody else owns is the only row hidden — an unowned row, and a row
   // whose owner cannot be determined, both stay. Off, the array is returned
   // untouched.
-  const visibleRows = rowsForReader(filteredRows, reader, mineOnly);
+  const visibleRows = rowsForReader(filteredRows, reader, mode);
 
   // THE CHIP ROW'S READINGS — `chipRow()` (`@plot-pm/domain`) decides every
   // chip's label, on/off, hidden count and disabled reason from these;
@@ -742,11 +760,12 @@ export function AgentList({
   const chipRowReadings = chipReadings({
     rows: fleet.rows,
     sprintFilteredRows: filteredRows,
+    agents: fleet?.agents ?? [],
     activeSprints,
     selectedSprints,
     membership,
     reader,
-    mineOnly,
+    mode,
   });
 
   // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
@@ -762,7 +781,7 @@ export function AgentList({
   // so this call needs no second host read. `fleet.issues` stays the fallback
   // for an older server with no `waiting` field.
   const waitingBlock = waitingView(fleet.waiting, fleet.issues, showEveryTicket, (tickets) =>
-    ticketsForReader(tickets, reader, fleet.waiting?.source ?? null, mineOnly),
+    ticketsForReader(tickets, reader, fleet.waiting?.source ?? null, mode),
   );
   const filteredIssues = waitingBlock.tickets;
 
@@ -1015,6 +1034,7 @@ export function AgentList({
         readings={chipRowReadings}
         onToggleSprint={toggleThisSprintChip}
         onToggleMine={toggleMineOnly}
+        onToggleStrict={toggleMineStrict}
         sprints={activeSprints}
         selectedSprints={selectedSprints}
         onToggleSprintSlug={toggleSprintSlug}
@@ -1089,7 +1109,7 @@ export function AgentList({
         // hidden by «Only my work» was counted a second time under the label
         // `hidden by Sprint only`.
         const unfilteredSectionedRows = sprintFilterOn
-          ? rowsBySection(rowsForReader(fleet.rows, reader, mineOnly))
+          ? rowsBySection(rowsForReader(fleet.rows, reader, mode))
           : sectionedRows;
         // THE SERVER-DERIVED SLICES, bound once beside the rows so every
         // `sliceGroupsFor`/`ungroupedRows` call below asks the same list rather

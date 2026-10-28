@@ -1,4 +1,5 @@
-import { comparableLogin, isMine, type OwnedRow, type Reader } from './ownership.js';
+import { comparableLogin, type Reader } from './ownership.js';
+import { mineCounts, mineHiddenCount, mineStrictControl, type BranchOwnedRow, type MineMode, type MineStrictControl } from './mine-mode.js';
 import { rowInSprintSelection } from './sprint-selection.js';
 
 /**
@@ -25,6 +26,8 @@ export interface Chip {
 export interface ChipRow {
   readonly thisSprint: Chip;
   readonly mine: Chip;
+  /** The hide/show-unknown control beside `Mine`, or `null` where it does not show. */
+  readonly mineStrict: MineStrictControl | null;
   readonly waitingOnMe: Chip;
   /** One chip per Active sprint, in `readings.sprint.sprints`' order. */
   readonly perSprint: readonly Chip[];
@@ -62,10 +65,16 @@ export interface SprintChipReadings {
 export interface MineChipReadings {
   /** Who is reading, as the ownership rule takes it. */
   readonly reader: Reader;
-  /** Whether the ownership filter is currently on. */
-  readonly on: boolean;
-  /** Rows not already hidden by another filter, before this chip's own effect. */
-  readonly visibleRows: readonly OwnedRow[];
+  /** The effective «Mine» mode. */
+  readonly mode: MineMode;
+  /** Rows not already hidden by another filter, before this chip's own effect, each with its branch. */
+  readonly visibleRows: readonly BranchOwnedRow[];
+  /**
+   * Registry agents before this chip's own effect, each with its branch. The
+   * sprint filter does not apply: the agent sections show every agent. An
+   * agent on the branch of a row in `visibleRows` counts with that row, once.
+   */
+  readonly visibleAgents: readonly BranchOwnedRow[];
 }
 
 /** What `chipRow` reads for the `Waiting on me` chip. */
@@ -137,7 +146,7 @@ const perSprintChip = (readings: SprintChipReadings, sprint: ActiveSprintReading
  * @returns the reason for an email-shaped `hostUser`, for a `gitEmail`-only
  *   reader, or for a reader with neither.
  */
-const mineDisabledReason = (reader: Reader): string => {
+export const mineDisabledReason = (reader: Reader): string => {
   if (reader.hostUser?.trim()) {
     return 'hostUser is an email, not a host login — set hostUser to the host login.';
   }
@@ -151,23 +160,37 @@ const mineDisabledReason = (reader: Reader): string => {
  * The `Mine` chip: carries the reader's host login in its label, disabled
  * where no comparable host login exists.
  *
- * The label reads `comparableLogin`, the login `isMine` matches against, so a
- * blank `hostUser`, an email-shaped `hostUser` and a `gitEmail`-only reader all
- * disable the chip: `isMine` can match none of them to a row's owner. Each
- * reason names `hostUser` as the fix.
+ * The label reads `comparableLogin`, the login `isMine`/`isMineStrict` match
+ * against, so a blank `hostUser`, an email-shaped `hostUser` and a
+ * `gitEmail`-only reader all disable the chip: neither rule can match them to
+ * a row's owner. Each reason names `hostUser` as the fix.
  *
- * @param readings - who is reading, the chip's state, and the rows it would act on.
+ * In `mine-and-unknown` mode, `hiddenCount` counts the branches somebody else
+ * owns. In `mine` mode it also counts the branches with no known owner, so the
+ * number names everything the filter hides. A branch counts once, whether its
+ * row, its agent or both answer (`mineCounts`).
+ *
+ * @param readings - who is reading, the effective mode, and the rows/agents it would act on.
  * @returns the chip.
  */
 const mineChip = (readings: MineChipReadings): Chip => {
   const identity = comparableLogin(readings.reader);
-  if (identity === '') {
+  if (!identity) {
     return { label: 'Mine', on: false, hiddenCount: 0, disabledReason: mineDisabledReason(readings.reader) };
   }
   const label = `Mine (${identity})`;
-  const hiddenCount = readings.visibleRows.filter((row) => !isMine(row, readings.reader)).length;
-  return { label, on: readings.on, hiddenCount, disabledReason: null };
+  const counts = mineCounts([...readings.visibleRows, ...readings.visibleAgents], readings.reader);
+  return { label, on: readings.mode !== 'all', hiddenCount: mineHiddenCount(counts, readings.mode), disabledReason: null };
 };
+
+/**
+ * The hide/show-unknown control beside `Mine`.
+ *
+ * @param readings - who is reading, the effective mode, and the rows/agents.
+ * @returns the control, or `null` in `all` mode or with no unknown branch.
+ */
+const mineStrictChip = (readings: MineChipReadings): MineStrictControl | null =>
+  mineStrictControl(readings.mode, mineCounts([...readings.visibleRows, ...readings.visibleAgents], readings.reader).unknown);
 
 /**
  * The `Waiting on me` chip.
@@ -201,6 +224,7 @@ const waitingOnMeChip = (_readings: WaitingOnMeChipReadings): Chip => ({
 export const chipRow = (readings: ChipRowReadings): ChipRow => ({
   thisSprint: sprintChip(readings.sprint),
   mine: mineChip(readings.mine),
+  mineStrict: mineStrictChip(readings.mine),
   waitingOnMe: waitingOnMeChip(readings.waitingOnMe),
   perSprint: readings.sprint.sprints.map((sprint) => perSprintChip(readings.sprint, sprint)),
 });

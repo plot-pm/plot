@@ -8,7 +8,9 @@ import { SprintModal } from './components/SprintModal.js';
 import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
 import { planLinkClick } from '@plot-pm/domain/rules/plan-link-click';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
-import type { DiscoveryShow } from '@plot-pm/domain';
+import type { DiscoveryShow, MineMode } from '@plot-pm/domain';
+import { mineDisabledReason, mineMode, mineStrictControl, comparableLogin } from '@plot-pm/domain';
+import { MineStrictToggle } from './components/MineStrictToggle.js';
 import { sanitizeSelection } from '@plot-pm/domain/rules/sprint-selection';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
@@ -16,7 +18,14 @@ import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOver
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import { listenForEvents } from './lib/event-listener.js';
 import { synthesizedSprintMembers } from './lib/sprint.js';
-import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
+import {
+  boardForReader,
+  readMineOnly,
+  readMineStrict,
+  readerFrom,
+  writeMineOnly,
+  writeMineStrict,
+} from './lib/agent-rows/mine-filter.js';
 import { planFileForSlug, planFileFromFleet } from './lib/agent-rows/plan-level-row.js';
 import { archivedOn, boardPath, withArchived } from './lib/archived-toggle.js';
 import { showOf, withShow } from './lib/show-toggle.js';
@@ -283,6 +292,23 @@ export function App() {
     setMineOnly(next);
     writeMineOnly(next);
   };
+  // The stricter "hide unknown too" preference, same cross-tab re-read discipline as `mineOnly` above.
+  const [mineStrict, setMineStrict] = useState<boolean>(() => readMineStrict());
+  useEffect(() => setMineStrict(readMineStrict()), [tab]);
+  const onMineStrict = (next: boolean) => {
+    setMineStrict(next);
+    writeMineStrict(next);
+  };
+  const mode: MineMode = mineMode(reader, { mineOnly: mineOnly ? '1' : '0', strict: mineStrict ? '1' : '0' });
+  // Discovery's own counts, reported up by `StoriesTab` — Planning reads its
+  // own from `boardForReader`'s return instead, so only Discovery needs this.
+  const [discoveryCounts, setDiscoveryCounts] = useState({ hiddenCount: 0, unknownCount: 0 });
+  // Planning's filtered board and counts, computed once here rather than
+  // inline per layout (Swimlanes vs. BoardView both need the same answer).
+  const { board: planningBoard, unknownCount: planningUnknownCount } = useMemo(
+    () => (board ? boardForReader(board, reader, mode) : { board, hiddenCount: 0, unknownCount: 0 }),
+    [board, reader, mode],
+  );
   const [error, setError] = useState<string | null>(null);
   const [sprintSel, setSprintSel] = useState<string[]>(() => readList('sprint'));
   const [storySel, setStorySel] = useState<string[]>(() => readList('story'));
@@ -1302,18 +1328,30 @@ export function App() {
             to the reader through the `People` directory, and somebody else's
             only where the directory declares its spelling for another
             person. A row naming nobody, or an undeclared spelling, stays. */}
-        {(tab === 'planning' || tab === 'discovery') && board && (
-          <label data-mine-filter className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <input
-              type="checkbox"
-              data-mine-toggle
-              checked={mineOnly}
-              onChange={(e) => onMineOnly(e.target.checked)}
-              className="h-3.5 w-3.5 accent-green-600"
-            />
-            Only my work
-          </label>
-        )}
+        {(tab === 'planning' || tab === 'discovery') && board && (() => {
+          const disabledReason = comparableLogin(reader) === '' ? mineDisabledReason(reader) : null;
+          const strictControl = mineStrictControl(mode, tab === 'planning' ? planningUnknownCount : discoveryCounts.unknownCount);
+          return (
+            <>
+              <label
+                data-mine-filter
+                title={disabledReason ?? undefined}
+                className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"
+              >
+                <input
+                  type="checkbox"
+                  data-mine-toggle
+                  checked={mineOnly}
+                  disabled={disabledReason != null}
+                  onChange={(e) => onMineOnly(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-green-600"
+                />
+                Only my work
+              </label>
+              <MineStrictToggle control={strictControl} onToggle={() => onMineStrict(!mineStrict)} />
+            </>
+          );
+        })()}
       </header>
       <main>
         {tab === 'discovery' ? (
@@ -1337,7 +1375,8 @@ export function App() {
               story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
               issueAnswer={board.issueAnswer ?? null}
               reader={reader}
-              mineOnly={mineOnly}
+              mode={mode}
+              onCounts={setDiscoveryCounts}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
@@ -1478,7 +1517,7 @@ export function App() {
             )}
           {lanes ? (
             <Swimlanes
-              board={withEffectiveDispatch(boardForReader(board, reader, mineOnly))}
+              board={withEffectiveDispatch(planningBoard ?? board)}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
@@ -1491,7 +1530,7 @@ export function App() {
             />
           ) : (
             <BoardView
-              board={withEffectiveDispatch(boardForReader(board, reader, mineOnly))}
+              board={withEffectiveDispatch(planningBoard ?? board)}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}

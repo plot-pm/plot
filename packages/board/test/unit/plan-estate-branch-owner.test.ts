@@ -114,7 +114,7 @@ describe('planEstate reads owner fields from a plan that exists only on a branch
     expect(rows).toHaveLength(1);
     expect(rows[0].assignee).toBe('Christian Kehl');
     const directory = parsePersonDirectory('jwloka = Jan Wloka; ckehl = Christian Kehl');
-    expect(rowsForReader(rows, readerFrom({ hostUser: 'jwloka', people: directory }), true)).toHaveLength(0);
-    expect(rowsForReader(rows, readerFrom({ hostUser: 'ckehl', people: directory }), true)).toHaveLength(1);
+    expect(rowsForReader(rows, readerFrom({ hostUser: 'jwloka', people: directory }), 'mine-and-unknown')).toHaveLength(0);
+    expect(rowsForReader(rows, readerFrom({ hostUser: 'ckehl', people: directory }), 'mine-and-unknown')).toHaveLength(1);
   });
 });

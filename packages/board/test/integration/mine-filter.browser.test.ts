@@ -166,6 +166,44 @@ describe('the board filters to my work', () => {
     }
   });
 
+  // THE HIDE/SHOW-UNKNOWN CONTROL — `mine-hides-rows-with-no-known`, the plan's
+  // "one browser test proves the chip row renders them". The fixture holds one
+  // row somebody else owns and two with no known owner (NOBODYS, UNSIGNED), so
+  // a control gated or labelled on the `theirs` count (#2853) reads 1, not 2.
+  const strictToggle = (page: Page) => page.locator('[data-mine-strict-toggle]');
+  const text = async (page: Page): Promise<string> => ((await strictToggle(page).textContent()) ?? '').trim();
+
+  it('renders the hide/show-unknown control from the unknown count, and it hides and restores those rows', async () => {
+    const page = await open();
+    try {
+      // OFF, NO CONTROL: the mode is `all`.
+      await expect.poll(() => chipOn(page)).toBe(false);
+      expect(await strictToggle(page).count()).toBe(0);
+
+      await chip(page).click();
+      await expect.poll(() => text(page)).toBe('hide 2 unknown');
+      await expect.poll(async () => ((await chip(page).textContent()) ?? '').includes('1 hidden')).toBe(true);
+
+      await strictToggle(page).click();
+      await expect.poll(async () => (await branches(page)).includes(NOBODYS)).toBe(false);
+      const strict = await branches(page);
+      expect(strict).toContain(MINE);
+      expect(strict).not.toContain(THEIRS);
+      expect(strict).not.toContain(UNSIGNED);
+      await expect.poll(() => text(page)).toBe('show 2 unknown');
+      // `N hidden` names every row the filter hides: one theirs plus two unknown.
+      await expect.poll(async () => ((await chip(page).textContent()) ?? '').includes('3 hidden')).toBe(true);
+
+      await strictToggle(page).click();
+      await expect.poll(() => text(page)).toBe('hide 2 unknown');
+      const lenient = await branches(page);
+      expect(lenient).toContain(NOBODYS);
+      expect(lenient).toContain(UNSIGNED);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('restores EVERY row when unticked — including the rows that were nobody\'s', async () => {
     const page = await open();
     try {
@@ -427,6 +465,56 @@ describe('the plans tab filters to my work', () => {
 
       await toggle.uncheck();
       await expect.poll(async () => (await shownCards(page)).sort()).toEqual([...SLUGS].sort());
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders the hide/show-unknown control beside Only my work, named by the unknown count', async () => {
+    const page = await cat.open('an-empty-estate', { tab: 'board', over: { fleet: fleet(), board: kanban() } });
+    try {
+      await expect.poll(async () => (await shownCards(page)).length).toBe(SLUGS.length);
+      const strictToggle = page.locator('[data-mine-strict-toggle]');
+      expect(await strictToggle.count()).toBe(0);
+
+      await page.locator('[data-mine-toggle]').check();
+      // `by-nobody` and `by-stranger` have no known owner; `by-colleague` is somebody else's.
+      await expect.poll(async () => ((await strictToggle.textContent()) ?? '').trim()).toBe('hide 2 unknown');
+
+      await strictToggle.click();
+      await expect.poll(async () => (await shownCards(page)).sort()).toEqual(['by-login', 'by-name']);
+      await expect.poll(async () => ((await strictToggle.textContent()) ?? '').trim()).toBe('show 2 unknown');
+
+      await strictToggle.click();
+      await expect.poll(async () => (await shownCards(page)).length).toBe(SLUGS.length - 1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // #2853's HIGH: with no card somebody else's, a control gated on the `theirs`
+  // count never appeared, however many cards had no known owner.
+  it('renders the control where no card is somebody else\'s', async () => {
+    const unknownOnly = buildBoard({
+      server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
+      columns: [
+        column({
+          phase: 'Development',
+          cards: [
+            card({ slug: 'by-login', title: 'By login', assignee: ME }),
+            card({ slug: 'by-nobody', title: 'By nobody', assignee: '' }),
+          ],
+        }),
+      ],
+    });
+    const page = await cat.open('an-empty-estate', { tab: 'board', over: { fleet: fleet(), board: unknownOnly } });
+    try {
+      await expect.poll(async () => (await shownCards(page)).length).toBe(2);
+      await page.locator('[data-mine-toggle]').check();
+      const strictToggle = page.locator('[data-mine-strict-toggle]');
+      await expect.poll(async () => ((await strictToggle.textContent()) ?? '').trim()).toBe('hide 1 unknown');
+      await strictToggle.click();
+      await expect.poll(async () => shownCards(page)).toEqual(['by-login']);
     } finally {
       await page.close();
     }

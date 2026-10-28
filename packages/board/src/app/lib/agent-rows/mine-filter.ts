@@ -1,4 +1,4 @@
-import { isMine, ownedTicket, readerIsKnown, type OwnedRow, type Reader } from '@plot-pm/domain';
+import { isMine, isMineStrict, ownedTicket, ownership, readerIsKnown, type MineMode, type OwnedRow, type Reader } from '@plot-pm/domain';
 import { type AgentEntry, type AgentRow, type Board, type Card, type DraftPlan, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
@@ -15,6 +15,16 @@ import { type AgentEntry, type AgentRow, type Board, type Card, type DraftPlan, 
  * use it.
  */
 const MINE_KEY = 'plot-board:agents:mine-only';
+
+/**
+ * Where the stricter "hide unknown too" preference lives.
+ *
+ * The sibling of {@link MINE_KEY}: same `localStorage` namespace, same
+ * silent-failure discipline, same `'1'`-is-on convention. Absent reads as off,
+ * so a reader who never touches the stricter control sees exactly the view
+ * {@link MINE_KEY} alone has always produced.
+ */
+const MINE_STRICT_KEY = 'plot-board:agents:mine-strict';
 
 /**
  * Whether the filter starts on.
@@ -65,6 +75,31 @@ export const readMineOnly = (storage?: Pick<Storage, 'getItem'>): boolean => {
 export const writeMineOnly = (on: boolean, storage?: Pick<Storage, 'setItem'>): void => {
   try {
     (storage ?? globalThis.localStorage)?.setItem(MINE_KEY, on ? '1' : '0');
+  } catch {
+    // A reader who cannot persist still gets a working checkbox this session.
+  }
+};
+
+/**
+ * Read the stored strict-mode preference, defaulting to off.
+ *
+ * Same discipline as {@link readMineOnly}: any failure, or any stored value
+ * other than `'1'`, reads as off.
+ *
+ * Exported for test.
+ */
+export const readMineStrict = (storage?: Pick<Storage, 'getItem'>): boolean => {
+  try {
+    return ((storage ?? globalThis.localStorage)?.getItem(MINE_STRICT_KEY) ?? null) === '1';
+  } catch {
+    return false;
+  }
+};
+
+/** Persist the strict-mode preference. Silent on failure — see {@link readMineStrict}. */
+export const writeMineStrict = (on: boolean, storage?: Pick<Storage, 'setItem'>): void => {
+  try {
+    (storage ?? globalThis.localStorage)?.setItem(MINE_STRICT_KEY, on ? '1' : '0');
   } catch {
     // A reader who cannot persist still gets a working checkbox this session.
   }
@@ -141,50 +176,62 @@ export const readerFrom = (
 export { readerIsKnown };
 
 /**
- * The rows that stay in view, given the reader and whether the filter is on.
+ * The rows that stay in view, given the reader and the effective «Mine» mode.
  *
- * **OFF RETURNS THE ARRAY UNTOUCHED**, not a copy filtered by a predicate that
- * happens to admit everything: the identity of the array is what lets the
+ * **`all` RETURNS THE ARRAY UNTOUCHED**, not a copy filtered by a predicate
+ * that happens to admit everything: the identity of the array is what lets the
  * caller's `rowsBySection` memoise, and an unfiltered view must cost nothing.
  *
- * On, a row is hidden only where {@link isMine} answered false — which it does
- * only for a row somebody ELSE owns. A row whose owner cannot be determined
- * stays, so an unconfigured identity (`hostUser: ''`) hides nothing rather than
- * emptying the board.
+ * `mine-and-unknown` hides a row only where {@link isMine} answers false —
+ * which it does only for a row somebody ELSE owns; a row whose owner cannot be
+ * determined stays. `mine` keeps only a row {@link isMineStrict} answers true
+ * for.
  */
 export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'author' | 'approver'>>(
   rows: T[],
   reader: Reader,
-  on: boolean,
-): T[] => (on ? rows.filter((r) => isMine(ownedFromRow(r), reader)) : rows);
+  mode: MineMode,
+): T[] => {
+  if (mode === 'all') return rows;
+  const owns = mode === 'mine' ? isMineStrict : isMine;
+  return rows.filter((r) => owns(ownedFromRow(r), reader));
+};
 
 /**
- * The Draft plan rows that stay in view, given the reader and whether the
- * filter is on.
+ * The Draft plan rows that stay in view, given the reader and the effective
+ * «Mine» mode.
  *
- * Off returns the array untouched, for the reason {@link rowsForReader}
- * gives. On, a row is hidden only where {@link isMine} answers false for
- * {@link ownedFromCard} — a Draft plan carries the same `assignee`/`author`/
- * `approver` shape a Discovery card does, so it goes through the identical
- * mapping rather than a fourth variant of it. A plan naming nobody stays
- * visible, same as every other row shape.
+ * `all` returns the array untouched, for the reason {@link rowsForReader}
+ * gives. A Draft plan carries the same `assignee`/`author`/`approver` shape a
+ * Discovery card does, so it goes through {@link ownedFromCard} rather than a
+ * fourth variant of the mapping. `mine-and-unknown` hides a plan only where
+ * {@link isMine} answers false, so a plan naming nobody stays visible; `mine`
+ * keeps only a plan {@link isMineStrict} answers true for.
  */
-export const draftsForReader = (drafts: DraftPlan[], reader: Reader, on: boolean): DraftPlan[] =>
-  (on ? drafts.filter((d) => isMine(ownedFromCard(d), reader)) : drafts);
+export const draftsForReader = (drafts: DraftPlan[], reader: Reader, mode: MineMode): DraftPlan[] => {
+  if (mode === 'all') return drafts;
+  const owns = mode === 'mine' ? isMineStrict : isMine;
+  return drafts.filter((d) => owns(ownedFromCard(d), reader));
+};
 
 /**
- * The registry agents that stay in view, given the reader and whether the
- * filter is on.
+ * The registry agents that stay in view, given the reader and the effective
+ * «Mine» mode.
  *
- * Off returns the array untouched, for the reason {@link rowsForReader} gives.
- * On, an agent is hidden only where {@link isMine} answers false for
- * {@link ownedFromAgent}.
+ * `all` returns the array untouched, for the reason {@link rowsForReader}
+ * gives. `mine-and-unknown` hides an agent only where {@link isMine} answers
+ * false for {@link ownedFromAgent}; `mine` keeps only an agent
+ * {@link isMineStrict} answers true for.
  */
 export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>>(
   agents: T[],
   reader: Reader,
-  on: boolean,
-): T[] => (on ? agents.filter((a) => isMine(ownedFromAgent(a), reader)) : agents);
+  mode: MineMode,
+): T[] => {
+  if (mode === 'all') return agents;
+  const owns = mode === 'mine' ? isMineStrict : isMine;
+  return agents.filter((a) => owns(ownedFromAgent(a), reader));
+};
 
 /**
  * A ticket row as the ownership rule reads it, through the domain's
@@ -200,40 +247,56 @@ export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: Ticket
 
 /**
  * The tickets that stay in view, given the reader, how this read's tickets
- * name their assignees, and whether the filter is on.
+ * name their assignees, and the effective «Mine» mode.
  *
- * Off returns the array untouched, for the reason {@link rowsForReader}
- * gives. On, a ticket is hidden only where {@link isMine} answers false for
- * {@link ownedFromTicket} — an unassigned ticket, or one whose owner cannot be
- * determined because `source` is `null`, stays visible.
+ * `all` returns the array untouched, for the reason {@link rowsForReader}
+ * gives. Otherwise a ticket is hidden only where {@link isMine} answers false
+ * for {@link ownedFromTicket} — an unassigned ticket, or one whose owner
+ * cannot be determined because `source` is `null`, stays visible.
  *
- * This is the looser *Only my work* toggle, and it is not *Waiting on you*'s
- * own default: that section's stricter inbox logic (hide and count an
- * unassigned ticket) lives in the domain's `waitingTickets`, applied upstream
- * by the server. This filter narrows what `waitingTickets` already chose to
- * show, the same way `rowsForReader` narrows the sprint-filtered rows.
+ * **This filter always uses the lenient `isMine` rule, never the strict one —
+ * `mine` mode does not sharpen it.** The panel decided *the box wins*: this
+ * view shows every open ticket, narrowed only by the `mine-and-unknown`
+ * answer, so an unassigned ticket comes back here even while the stricter
+ * mode hides unknown rows everywhere else. *Waiting on you*'s own inbox logic
+ * (hide and count an unassigned ticket) lives separately in the domain's
+ * `waitingTickets`, applied upstream by the server; this filter narrows what
+ * `waitingTickets` already chose to show, the same way `rowsForReader`
+ * narrows the sprint-filtered rows.
  */
 export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'>>(
   tickets: T[],
   reader: Reader,
   source: TicketSourceShape | null,
-  on: boolean,
-): T[] => (on ? tickets.filter((t) => isMine(ownedFromTicket(t, source), reader)) : tickets);
+  mode: MineMode,
+): T[] => (mode === 'all' ? tickets : tickets.filter((t) => isMine(ownedFromTicket(t, source), reader)));
 
 /**
- * The board with only the plan cards that stay in view.
+ * The board with only the plan cards that stay in view, how many cards the
+ * effective mode hides, and how many cards have no known owner.
  *
- * Off returns the board untouched. On, each column keeps the cards
- * {@link isMine} keeps for {@link ownedFromCard}; a card whose assignee is
- * empty or undeclared stays. Nothing but the columns' cards changes.
+ * `all` returns the board untouched and both counts `0`. `unknownCount`
+ * counts every card answering `unknown`, before the filter, so it is the
+ * same in `mine-and-unknown` and `mine`. Otherwise each column
+ * keeps the cards {@link isMine} (`mine-and-unknown`) or {@link isMineStrict}
+ * (`mine`) keeps for {@link ownedFromCard}; a card whose assignee is empty or
+ * undeclared stays only under the lenient rule. Nothing but the columns'
+ * cards changes.
  */
-export const boardForReader = (board: Board, reader: Reader, on: boolean): Board =>
-  on
-    ? {
-      ...board,
-      columns: board.columns.map((column) => ({
-        ...column,
-        cards: column.cards.filter((card) => isMine(ownedFromCard(card), reader)),
-      })),
-    }
-    : board;
+export const boardForReader = (
+  board: Board,
+  reader: Reader,
+  mode: MineMode,
+): { board: Board; hiddenCount: number; unknownCount: number } => {
+  if (mode === 'all') return { board, hiddenCount: 0, unknownCount: 0 };
+  const owns = mode === 'mine' ? isMineStrict : isMine;
+  let hiddenCount = 0;
+  let unknownCount = 0;
+  const columns = board.columns.map((column) => {
+    const cards = column.cards.filter((card) => owns(ownedFromCard(card), reader));
+    hiddenCount += column.cards.length - cards.length;
+    unknownCount += column.cards.filter((card) => ownership(ownedFromCard(card), reader) === 'unknown').length;
+    return { ...column, cards };
+  });
+  return { board: { ...board, columns }, hiddenCount, unknownCount };
+};

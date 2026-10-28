@@ -1,5 +1,6 @@
 import { chipRow, type Chip, type ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
 import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
+import { MineStrictToggle } from './MineStrictToggle.js';
 
 /**
  * The Delivery tab's filter row: one chip row (`This sprint`, `Mine`,
@@ -19,6 +20,8 @@ interface DeliveryFiltersProps {
   onToggleSprint: () => void;
   /** Toggle the `Mine` chip. */
   onToggleMine: () => void;
+  /** Toggle the hide/show-unknown control beside `Mine`; `chipRow()` decides whether it shows. */
+  onToggleStrict: () => void;
   /** The active sprints, for the sprint line beneath the chip row. Empty renders no line. */
   sprints: FleetSprint[];
   /**
@@ -97,6 +100,7 @@ export function DeliveryFilters({
   readings,
   onToggleSprint,
   onToggleMine,
+  onToggleStrict,
   sprints,
   selectedSprints,
   onToggleSprintSlug,
@@ -144,6 +148,7 @@ export function DeliveryFilters({
           );
         })}
         <ChipView chip={chips.mine} onToggle={onToggleMine} showDisabledReason={mineBoardAnswered} />
+        <MineStrictToggle control={chips.mineStrict} onToggle={onToggleStrict} />
         <ChipView chip={chips.waitingOnMe} onToggle={() => {}} />
         {estateTotals && (
           <span data-estate-totals className="ml-auto min-w-0 text-xs text-slate-500 dark:text-slate-400">

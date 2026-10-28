@@ -1,10 +1,10 @@
-import type { Reader } from '@plot-pm/domain';
+import type { MineMode, Reader } from '@plot-pm/domain';
 import type { ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
-import type { AgentRow, FleetSprint } from '../../../contract/schema.js';
-import { ownedFromRow } from './mine-filter.js';
+import type { AgentEntry, AgentRow, FleetSprint } from '../../../contract/schema.js';
+import { ownedFromAgent, ownedFromRow } from './mine-filter.js';
 
 /** The row fields the chip row reads: sprint membership and ownership. */
-type ChipRowSource = Pick<AgentRow, 'kind' | 'plan' | 'pr' | 'assignee' | 'author' | 'approver'>;
+type ChipRowSource = Pick<AgentRow, 'kind' | 'plan' | 'pr' | 'assignee' | 'author' | 'approver'> & { readonly branch?: string };
 
 /** What the Delivery tab holds when it builds the chip row's readings. */
 export interface ChipReadingsInput {
@@ -12,6 +12,8 @@ export interface ChipReadingsInput {
   readonly rows: readonly ChipRowSource[];
   /** `rows` after the sprint filter, before the `Mine` filter. */
   readonly sprintFilteredRows: readonly ChipRowSource[];
+  /** The registry agents, before the `Mine` filter. The sprint filter does not apply: the agent sections show every agent. */
+  readonly agents: readonly (Pick<AgentEntry, 'identity' | 'state'> & { readonly branch?: string })[];
   /** The Active sprints, in the order the chip row shows them. */
   readonly activeSprints: readonly Pick<FleetSprint, 'slug' | 'title'>[];
   /** The reader's sprint selection, sanitized against `activeSprints`. */
@@ -20,8 +22,8 @@ export interface ChipReadingsInput {
   readonly membership: Map<string, Set<string>>;
   /** Who is reading. */
   readonly reader: Reader;
-  /** Whether the `Mine` filter is on. */
-  readonly mineOnly: boolean;
+  /** The effective «Mine» mode. */
+  readonly mode: MineMode;
 }
 
 /**
@@ -43,8 +45,9 @@ export const chipReadings = (input: ChipReadingsInput): ChipRowReadings => ({
   },
   mine: {
     reader: input.reader,
-    on: input.mineOnly,
-    visibleRows: input.sprintFilteredRows.map((row) => ownedFromRow(row)),
+    mode: input.mode,
+    visibleRows: input.sprintFilteredRows.map((row) => ({ ...ownedFromRow(row), branch: row.branch ?? null })),
+    visibleAgents: input.agents.map((agent) => ({ ...ownedFromAgent(agent), branch: agent.branch ?? null })),
   },
   waitingOnMe: { on: false },
 });

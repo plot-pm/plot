@@ -34,11 +34,12 @@ const input = (selectedSprints: string[], overrides: Partial<ChipReadingsInput> 
   sprintFilteredRows: selectedSprints.length === 0
     ? rows
     : rows.filter((r) => rowInSprintSelection(r, selectedSprints, membership)),
+  agents: [],
   activeSprints,
   selectedSprints,
   membership,
   reader: { hostUser: 'jwloka' },
-  mineOnly: false,
+  mode: 'all',
   ...overrides,
 });
 
@@ -88,9 +89,23 @@ describe('chipReadings — the Mine chip reads the rows after the sprint filter'
     const chips = chipRow(chipReadings(input(selected, {
       rows: owned,
       sprintFilteredRows: owned.filter((r) => rowInSprintSelection(r, selected, membership)),
-      mineOnly: true,
+      mode: 'mine-and-unknown',
     })));
     // plan-z is hidden by the sprint filter, so only plan-a1 counts.
     expect(chips.mine).toEqual({ label: 'Mine (jwloka)', on: true, hiddenCount: 1, disabledReason: null });
+  });
+});
+
+describe('chipReadings — a branch counts once for the Mine chip', () => {
+  // ISSUE #2853's MEDIUM: a branch whose row and agent both hid added 2.
+  it('joins an agent to the row on its branch', () => {
+    const branchRows = [row('plan-z', { branch: 'feature/x' } as Partial<Row>)];
+    const agents = [
+      { branch: 'feature/x', identity: 'manifest', state: 'elsewhere' },
+      { branch: 'feature/y', identity: 'manifest', state: 'elsewhere' },
+    ] as ChipReadingsInput['agents'];
+    const chips = chipRow(chipReadings(input([], { rows: branchRows, sprintFilteredRows: branchRows, agents, mode: 'mine' })));
+    expect(chips.mine.hiddenCount).toBe(2);
+    expect(chips.mineStrict).toEqual({ label: 'show 2 unknown', pressed: true, unknownCount: 2 });
   });
 });

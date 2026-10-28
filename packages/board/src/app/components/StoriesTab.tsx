@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { discoveryGroups, lanesForReader, lanesForTopic, storyDateText, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
-import type { DiscoveryShow, Reader } from '@plot-pm/domain';
+import type { DiscoveryShow, MineMode, Reader } from '@plot-pm/domain';
 import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { CreateStoryButton } from './CreateStoryButton.js';
@@ -66,10 +66,12 @@ export interface StoriesTabProps {
    * before the first read.
    */
   issueAnswer: IssueAnswer | null;
-  /** Who is reading — read together with `mineOnly` to narrow lanes to the reader's own work. */
+  /** Who is reading — read together with `mode` to narrow lanes to the reader's own work. */
   reader: Reader;
-  /** Whether the "Only my work" filter is on. */
-  mineOnly: boolean;
+  /** The effective «Mine» mode. */
+  mode: MineMode;
+  /** Reports how many lane rows the ownership filter hides and how many have no known owner, whenever either changes; both `0` on unmount. */
+  onCounts?: (counts: { hiddenCount: number; unknownCount: number }) => void;
 }
 
 /**
@@ -148,7 +150,8 @@ export function StoriesTab({
   story,
   issueAnswer,
   reader,
-  mineOnly,
+  mode,
+  onCounts,
 }: StoriesTabProps) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   // Per-view only — not kept in the URL. `?archived=1` is the one URL
@@ -161,9 +164,19 @@ export function StoriesTab({
   // reflect only post-ownership-filter rows — same reason `lanesForTopic` runs
   // on the already-narrowed result rather than the other way round.
   const owned = useMemo(
-    () => lanesForReader(storyLaneGroups, tickets, reader, mineOnly),
-    [storyLaneGroups, tickets, reader, mineOnly],
+    () => lanesForReader(storyLaneGroups, tickets, reader, mode),
+    [storyLaneGroups, tickets, reader, mode],
   );
+
+  // Reported upward so the shared «Only my work» header (App.tsx) can show
+  // the hide/show-unknown control while Discovery is the active tab — the
+  // same role `boardForReader`'s counts play for Planning. Zeroed on unmount,
+  // so a return to Discovery never shows the last visit's count.
+  const { hiddenCount, unknownCount } = owned;
+  useEffect(() => {
+    onCounts?.({ hiddenCount, unknownCount });
+  }, [hiddenCount, unknownCount, onCounts]);
+  useEffect(() => () => onCounts?.({ hiddenCount: 0, unknownCount: 0 }), [onCounts]);
 
   // The domain decides which rows survive the selected topic, and which
   // lanes the topic emptied. `lanesForTopic` wants the same `{ lane, stories }`
