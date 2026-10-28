@@ -14,6 +14,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import {
   freshScanState,
+  LISTING_REFRESH_MS,
   listedRowCount,
   scanListingCost,
   scanOnce,
@@ -316,6 +317,23 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
     const seen: Array<Record<string, string> | undefined> = [];
     await scanOnce(worldWith(recording(seen)), state, OPTIONS);
     expect(seen[0]?.PLOT_PR_LISTING).toBe('');
+  });
+});
+
+describe('the listing base is LISTING_REFRESH_MS', () => {
+  it('starts a fresh scan state at the 60 s listing base', () => {
+    expect(LISTING_REFRESH_MS).toBe(60_000);
+    expect(freshScanState().listingIntervalMs).toBe(LISTING_REFRESH_MS);
+  });
+
+  it('decides a due listing against the 60 s base, not the 5 s beat', async () => {
+    const state = freshScanState();
+    const clean: Scripts['stream'] = async (_s, _a, onLine) => {
+      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
+    };
+    await scanOnce(worldWith(clean), state, OPTIONS);
+    // The stub's spend-rate is unaskable, so the interval is the unstretched base.
+    expect(state.listingIntervalMs).toBe(LISTING_REFRESH_MS * scanListingCost('github', 0, null));
   });
 });
 
