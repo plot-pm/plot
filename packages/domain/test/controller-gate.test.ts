@@ -265,8 +265,9 @@ describe('the refusal texts', () => {
     }
   });
 
-  it('names the bundle for dispatch only', () => {
+  it('names the bundle for dispatch and restart, and the branch for restart', () => {
     expect(controllerRefusal('dispatch', dir)).toContain(`node ${dir}/board/plot-dispatch-command.mjs <slug>`);
+    expect(controllerRefusal('restart', dir)).toContain(`node ${dir}/board/plot-restart-command.mjs <branch>`);
   });
 
   it('names the two-call order and the receipt command', () => {
