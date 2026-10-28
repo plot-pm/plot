@@ -101,12 +101,28 @@ describe('waitingTickets, type and owner', () => {
 });
 
 describe('hiddenSentence and shownSentence', () => {
-  it('127 open tickets are not assigned to you, for complete true', () => {
-    expect(hiddenSentence(127, true)).toBe('127 open tickets are not assigned to you');
+  it('127 open tickets are not assigned to you, for complete true and no split', () => {
+    expect(hiddenSentence(127, true, 0, 0)).toBe('127 open tickets are not assigned to you');
   });
 
-  it('at least 997 ..., for hidden 997 and complete false', () => {
-    expect(hiddenSentence(997, false)).toBe('at least 997 open tickets are not assigned to you');
+  it('at least 997 ..., for hidden 997, complete false and no split', () => {
+    expect(hiddenSentence(997, false, 0, 0)).toBe('at least 997 open tickets are not assigned to you');
+  });
+
+  it('names both counts when both are nonzero', () => {
+    expect(hiddenSentence(4, true, 1, 3)).toBe('4 open tickets are not assigned to you — 1 unassigned, 3 assigned to someone else');
+  });
+
+  it('names only unassigned when assignedToOthers is zero', () => {
+    expect(hiddenSentence(1, true, 1, 0)).toBe('1 open tickets are not assigned to you — 1 unassigned');
+  });
+
+  it('names only assignedToOthers when unassigned is zero', () => {
+    expect(hiddenSentence(3, true, 0, 3)).toBe('3 open tickets are not assigned to you — 3 assigned to someone else');
+  });
+
+  it('keeps the at-least prefix alongside the split', () => {
+    expect(hiddenSentence(4, false, 1, 3)).toBe('at least 4 open tickets are not assigned to you — 1 unassigned, 3 assigned to someone else');
   });
 
   it('Showing 50 of 127 open tickets., for complete true', () => {
@@ -460,6 +476,64 @@ describe('waitingTickets, planned tickets', () => {
     expect(result.tickets.map((t) => t.number)).toEqual(['mine']);
     expect(result.shown).toBe(1);
     expect(result.hidden).toBe(1);
+  });
+
+  it('splits hidden into unassigned and assignedToOthers, summing back to hidden', () => {
+    const rows = [
+      row('mine', { assignees: ['jwloka'] }),
+      row('no-owner-1', { assignees: [] }),
+      row('no-owner-2', { assignees: undefined }),
+      row('theirs-1', { assignees: ['someone-else'] }),
+      row('theirs-2', { assignees: ['another-one'] }),
+    ];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.hidden).toBe(4);
+    expect(result.unassigned).toBe(2);
+    expect(result.assignedToOthers).toBe(2);
+    expect(result.unassigned + result.assignedToOthers).toBe(result.hidden);
+  });
+
+  it('counts a hidden row with assignees: [] toward unassigned', () => {
+    const rows = [row('mine', { assignees: ['jwloka'] }), row('empty-assignees', { assignees: [] })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.unassigned).toBe(1);
+    expect(result.assignedToOthers).toBe(0);
+  });
+
+  it('counts a hidden row with assignees: undefined toward unassigned', () => {
+    const rows = [row('mine', { assignees: ['jwloka'] }), row('no-assignees-field', { assignees: undefined })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.unassigned).toBe(1);
+    expect(result.assignedToOthers).toBe(0);
+  });
+
+  it('counts a hidden row with a non-empty assignees toward assignedToOthers', () => {
+    const rows = [row('mine', { assignees: ['jwloka'] }), row('someone-elses', { assignees: ['someone-else'] })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.assignedToOthers).toBe(1);
+    expect(result.unassigned).toBe(0);
+  });
+
+  it('leaves a finished hidden row out of unassigned and assignedToOthers, same as hidden', () => {
+    const rows = [
+      row('mine', { assignees: ['jwloka'] }),
+      row('theirs-released', { assignees: ['someone-else'] }),
+      row('unowned-released', { assignees: [] }),
+    ];
+    const result = waitingTickets(
+      rows,
+      undefined,
+      reader,
+      GITHUB,
+      true,
+      plans({
+        'theirs-released': [{ state: 'released', total: 1, merged: 1 }],
+        'unowned-released': [{ state: 'released', total: 1, merged: 1 }],
+      }),
+    );
+    expect(result.hidden).toBe(0);
+    expect(result.unassigned).toBe(0);
+    expect(result.assignedToOthers).toBe(0);
   });
 
   it('does not sort a row named only by a superseded plan into the unplanned bucket ahead of a genuinely unplanned row', () => {

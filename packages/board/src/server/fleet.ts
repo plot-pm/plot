@@ -1942,6 +1942,8 @@ const waitingOf = async (
     })),
     shown: result.shown,
     hidden: result.hidden,
+    unassigned: result.unassigned,
+    assignedToOthers: result.assignedToOthers,
     complete: result.complete,
     notice: result.notice,
     source,

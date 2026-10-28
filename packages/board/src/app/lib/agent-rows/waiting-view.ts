@@ -88,7 +88,7 @@ export const waitingView = (
     return {
       tickets,
       heading: headingOf(tickets.length, waiting.notice === null),
-      hidden: waiting.hidden > 0 ? hiddenSentence(waiting.hidden, waiting.complete) : null,
+      hidden: waiting.hidden > 0 ? hiddenSentence(waiting.hidden, waiting.complete, waiting.unassigned, waiting.assignedToOthers) : null,
       notice: waiting.notice,
       control,
       showing: null,

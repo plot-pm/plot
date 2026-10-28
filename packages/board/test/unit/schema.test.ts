@@ -2,12 +2,26 @@ import { describe, it, expect } from 'vitest';
 import {
   FLEET_CONTROLS_DEFAULT,
   PlanMetaSchema, CardSchema, BranchSchema, AgentRowSchema, AgentEntrySchema,
-  FleetSchema, ServerInfoSchema, ColumnSchema,
+  FleetSchema, ServerInfoSchema, ColumnSchema, FleetWaitingSchema,
   AgentStateSchema, WorkerActivitySchema, isLiveState, isBrokenState,
 } from '../../src/contract/schema';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
 import { rowsFromPulse } from '../../src/server/fleet.js';
 import type { FleetReading } from '../../src/contract/schema';
+
+describe('FleetWaitingSchema — unassigned and assignedToOthers default for an older server', () => {
+  it('defaults both counts to 0 when the payload carries neither field', () => {
+    const parsed = FleetWaitingSchema.parse({});
+    expect(parsed.unassigned).toBe(0);
+    expect(parsed.assignedToOthers).toBe(0);
+  });
+
+  it('keeps explicit counts the payload sends', () => {
+    const parsed = FleetWaitingSchema.parse({ hidden: 4, unassigned: 1, assignedToOthers: 3 });
+    expect(parsed.unassigned).toBe(1);
+    expect(parsed.assignedToOthers).toBe(3);
+  });
+});
 
 describe('ServerInfoSchema — the branch the server serves', () => {
   it('carries the branch the server reported', () => {

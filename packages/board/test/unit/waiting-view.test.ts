@@ -98,6 +98,11 @@ describe('waitingView', () => {
     expect(view.hidden).toBe('at least 997 open tickets are not assigned to you');
   });
 
+  it('names the unassigned and assignedToOthers split in the hidden-count sentence', () => {
+    const view = waitingView(waitingOf({ hidden: 4, unassigned: 1, assignedToOthers: 3 }), [], false, keep);
+    expect(view.hidden).toBe('4 open tickets are not assigned to you — 1 unassigned, 3 assigned to someone else');
+  });
+
   it('shows no sentence and no control where nothing is hidden', () => {
     const view = waitingView(waitingOf({ tickets: [ticket('1')], shown: 1 }), [ticket('1')], false, keep);
     expect(view.hidden).toBeNull();

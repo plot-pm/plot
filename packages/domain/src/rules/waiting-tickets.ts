@@ -29,6 +29,10 @@ export interface WaitingTickets {
   readonly shown: number;
   /** How many open rows this answers does not include. */
   readonly hidden: number;
+  /** Of `hidden`, how many carry no assignee at all. */
+  readonly unassigned: number;
+  /** Of `hidden`, how many carry an assignee — just not one this answers selected. */
+  readonly assignedToOthers: number;
   /** Whether the rows given were every open row, or the read's own cap stopped first. */
   readonly complete: boolean;
   /** The sentence naming why the reader is unmatched, or why none is assigned; `null` for a matched reader. */
@@ -171,6 +175,7 @@ export const waitingTickets = (
       .filter(({ rowPlans }) => !allFinished(rowPlans))
       .map(({ row, rowPlans }) => ({ row, unplanned: rowPlans.length === 0, phase: ticketPhase(rowPlans) }));
     const picked = new Set(selected.map((row) => row.number));
+    const hiddenRows = rows.filter((row) => !picked.has(row.number) && !finished(row));
     return {
       tickets: [
         ...phased.filter(({ unplanned }) => unplanned),
@@ -179,7 +184,9 @@ export const waitingTickets = (
         .slice(0, ISSUE_LIMIT)
         .map(({ row, phase }) => toWaitingTicket(row, now, { source, directory: reader.directory }, keepsTrackerState ? null : phase?.label ?? null)),
       shown: phased.length,
-      hidden: rows.filter((row) => !picked.has(row.number) && !finished(row)).length,
+      hidden: hiddenRows.length,
+      unassigned: hiddenRows.filter((row) => (row.assignees ?? []).length === 0).length,
+      assignedToOthers: hiddenRows.filter((row) => (row.assignees ?? []).length > 0).length,
       complete,
       notice,
     };
@@ -247,16 +254,24 @@ export const waitingTickets = (
 };
 
 /**
- * The sentence naming how many open tickets are not assigned to the reader.
+ * The sentence naming how many open tickets are not assigned to the reader,
+ * and how many of those carry no assignee at all.
  *
  * @param hidden - how many open rows are not shown.
  * @param complete - whether `hidden` counts every open row, or the read's cap stopped first.
- * @returns the sentence, with *at least* where `complete` is false.
+ * @param unassigned - of `hidden`, how many carry no assignee at all.
+ * @param assignedToOthers - of `hidden`, how many carry an assignee that is not the reader.
+ * @returns the sentence, with *at least* where `complete` is false, naming both counts.
  */
-export const hiddenSentence = (hidden: number, complete: boolean): string =>
-  complete
-    ? `${hidden} open tickets are not assigned to you`
-    : `at least ${hidden} open tickets are not assigned to you`;
+export const hiddenSentence = (hidden: number, complete: boolean, unassigned: number, assignedToOthers: number): string => {
+  const lead = complete ? `${hidden} open tickets are not assigned to you` : `at least ${hidden} open tickets are not assigned to you`;
+  const unassignedPart = `${unassigned} unassigned`;
+  const assignedPart = `${assignedToOthers} assigned to someone else`;
+  if (unassigned > 0 && assignedToOthers > 0) return `${lead} — ${unassignedPart}, ${assignedPart}`;
+  if (unassigned > 0) return `${lead} — ${unassignedPart}`;
+  if (assignedToOthers > 0) return `${lead} — ${assignedPart}`;
+  return lead;
+};
 
 /**
  * The sentence naming how many of the open tickets are rendered.
