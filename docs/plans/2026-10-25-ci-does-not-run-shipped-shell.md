@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2669
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-25, Jan Wloka, `bug/ci-does-not-run-shipped-shell-scan`
 - **Started:** 2026-10-25, Jan Wloka, `bug/ci-does-not-run-shipped-shell-macos`
 - **Delivered:** 2026-10-25
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
