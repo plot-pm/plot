@@ -63,6 +63,7 @@ import {
   offlineIssueRows,
   type OfflineIssueRows,
   ISSUE_INDEX_OPEN_LIMIT,
+  type InboxAnswer,
   type IssueIndex,
   type IssueIndexRow,
   draftPlacement,
@@ -840,7 +841,7 @@ export interface CacheEntry {
 }
 
 /** The sets one read leaves, in the issue index's own shape. */
-export type IssueSets = Pick<IssueIndex, 'answer' | 'at' | 'failedAt' | 'reason' | 'rows' | 'complete' | 'closed' | 'inbox' | 'inboxAt'>;
+export type IssueSets = Pick<IssueIndex, 'answer' | 'at' | 'failedAt' | 'reason' | 'rows' | 'complete' | 'closed' | 'inbox' | 'inboxAt' | 'inboxAnswer'>;
 
 const caches = new Map<string, CacheEntry>();
 
@@ -1911,6 +1912,7 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
  * @param complete - whether `rows` is every open row, or the read's own cap stopped first.
  * @param inbox - the reader's own open tickets from a separate D23 inbox read,
  *   or `undefined` where no inbox read happened.
+ * @param inboxAnswer - how that inbox read ended; `undefined` where unknown.
  * @returns the wire shape for `FleetShape.waiting`.
  */
 const waitingOf = async (
@@ -1920,10 +1922,11 @@ const waitingOf = async (
   source: import('@plot-pm/domain').TicketSource | null,
   complete: boolean,
   inbox: readonly IssueIndexRow[] | undefined = undefined,
+  inboxAnswer: InboxAnswer | undefined = undefined,
 ): Promise<FleetWaiting> => {
   const [who, directory] = await Promise.all([identity(opts), people(opts)]);
   const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
-  const result = waitingTickets(rows, inbox, reader, source, complete, plans);
+  const result = waitingTickets(rows, inbox, reader, source, complete, plans, inboxAnswer);
   return {
     tickets: result.tickets.map((t) => ({
       kind: 'ticket' as const,
@@ -2079,7 +2082,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   // A closed read that failed outright (not merely unaskable) skips the inbox
   // read too, as fleetd's own pass does — its previous inbox rows and age stay.
   const closedRefused = !closedRead.ok && closedRead.why !== 'unaskable';
-  let inboxOutcome = inboxSkipped(kept?.inbox, kept?.inboxAt);
+  let inboxOutcome = inboxSkipped(kept?.inbox, kept?.inboxAt, kept === null ? 'not-read' : kept.inboxAnswer);
   let finishedAt = closedFinishedAt;
   if (!closedRefused) {
     const inboxRead = await tracker.issueListInbox(ISSUE_INDEX_OPEN_LIMIT);
@@ -2106,6 +2109,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     closed: outcome.closed,
     ...(inboxOutcome.inbox === undefined ? {} : { inbox: inboxOutcome.inbox }),
     ...(inboxOutcome.inboxAt === undefined ? {} : { inboxAt: inboxOutcome.inboxAt }),
+    ...(inboxOutcome.answer === undefined ? {} : { inboxAnswer: inboxOutcome.answer }),
   };
   const plans = await ticketPlansOf(opts, entry);
   if (plans === null) {
@@ -2122,7 +2126,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, said.value.complete, inboxOutcome.inbox);
+  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, said.value.complete, inboxOutcome.inbox, inboxOutcome.answer);
 }
 
 const overlays = new WeakMap<CacheEntry, PrIndexStore>();
@@ -2149,6 +2153,7 @@ const setsOf = (index: IssueIndex): IssueSets => ({
   ...(index.closed === undefined ? {} : { closed: index.closed }),
   ...(index.inbox === undefined ? {} : { inbox: index.inbox }),
   ...(index.inboxAt === undefined ? {} : { inboxAt: index.inboxAt }),
+  ...(index.inboxAnswer === undefined ? {} : { inboxAnswer: index.inboxAnswer }),
 });
 
 /** The issue index store for a repo root, cached so its `git rev-parse` runs once. */
@@ -2288,7 +2293,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, index.complete ?? true, index.inbox);
+  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, index.complete ?? true, index.inbox, index.inboxAnswer);
 };
 
 /**

@@ -1,4 +1,4 @@
-import type { IssueIndexRow } from '../entities/issue-index.js';
+import type { InboxAnswer, IssueIndexRow } from '../entities/issue-index.js';
 import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
 import { ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
 import { ownerOf, typeOf } from './ticket-lanes.js';
@@ -121,13 +121,16 @@ const ISSUE_LIMIT = 50;
  * and the default view hides it rather than showing it as if it matched. An
  * unmatched reader — no host login, a `null` source, or a declared
  * `tracker-account` reader whose spellings name no candidate's assignee —
- * sees `inbox`, with a notice naming why. A `tracker-account` source never
- * falls back to `rows` where `inbox` is absent: `rows` says whose tickets
- * exist project-wide, not whose inbox is the reader's, so an absent inbox on
- * that source answers 0 tickets and a notice saying the inbox was not read,
- * rather than guessing the reader's spelling from the first assignee it
- * finds. A `host-login` source is unaffected — its matched reader is found
- * through `ownership`, never through `inbox` as a stand-in for `rows`.
+ * sees `inbox`, with a notice naming why. Where `inbox` is absent on a
+ * `tracker-account` source, `inboxAnswer` decides what stands in for it. An
+ * `unaskable` read means the open read is already person-scoped, so `rows`
+ * are the reader's own tickets and serve as the candidates; an absent
+ * `inboxAnswer` (unknown) does the same. A `failed` or `not-read` inbox
+ * answers 0 tickets and a notice saying the inbox could not be read or was
+ * not read: there `rows` say whose tickets exist project-wide, and the rule
+ * never guesses the reader's spelling from them. A `host-login` source is
+ * unaffected — its matched reader is found through `ownership`, never through
+ * `inbox` as a stand-in for `rows`.
  *
  * `rows` and `inbox` are read exactly as given, planned rows included; the
  * caller holds the `ISSUE_LIMIT` cap. A row that a plan in `plans` names shows
@@ -144,6 +147,7 @@ const ISSUE_LIMIT = 50;
  * @param source - how this read's tickets name their assignees, or `null`.
  * @param complete - whether `rows` is every open row, or the read's cap stopped first.
  * @param plans - the plans naming each ticket, keyed by the row's `number`; absent for an unplanned ticket.
+ * @param inboxAnswer - how the inbox read ended; absent where the caller does not know.
  * @returns the rows to show, the shown/hidden counts, and the notice.
  */
 export const waitingTickets = (
@@ -153,6 +157,7 @@ export const waitingTickets = (
   source: TicketSource | null,
   complete: boolean,
   plans: ReadonlyMap<string, readonly TicketPlan[]> = new Map(),
+  inboxAnswer?: InboxAnswer,
 ): WaitingTickets => {
   const now = Date.now();
   const total = rows.length;
@@ -197,14 +202,20 @@ export const waitingTickets = (
   }
 
   // tracker-account: matched only through a declared `prefix`-spelling.
-  if (inbox === undefined) return render([], 'The inbox was not read — showing none of your tickets rather than the project\'s.');
+  if (inbox === undefined && inboxAnswer === 'failed') {
+    return render([], 'The inbox could not be read — showing none of your tickets rather than the project\'s.');
+  }
+  if (inbox === undefined && (inboxAnswer === 'not-read' || inboxAnswer === 'answered')) {
+    return render([], 'The inbox was not read — showing none of your tickets rather than the project\'s.');
+  }
+  // An unaskable inbox read leaves the person-scoped open rows as the reader's own.
+  const candidates = inbox ?? rows;
   const directory = reader.directory ?? {};
   const prefix = source.prefix;
   if (!declaresAnyAccountSpelling(directory, prefix)) {
-    return render([...inbox].sort(byNewestFirst), null);
+    return render([...candidates].sort(byNewestFirst), null);
   }
 
-  const candidates = inbox;
   const matched = candidates.some((row) => accountMatches(row, prefix, directory, reader));
   if (!matched && candidates.length > 0) {
     const raw = candidates
@@ -231,7 +242,7 @@ export const waitingTickets = (
   }
 
   const mine = rows.filter((row) => ownership(ownedTicket(row, source), reader) === 'mine');
-  const union = unionDedup(inbox, mine);
+  const union = unionDedup(inbox ?? [], mine);
   return render(union, null);
 };
 

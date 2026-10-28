@@ -235,6 +235,7 @@ describe('one issue pass (Acceptance 2)', () => {
         }],
         complete: true,
       },
+      inboxAnswer: 'unaskable',
     });
     expect(argv()).toEqual([
       'spend-rate --connector github',
@@ -612,6 +613,7 @@ describe('the inbox set of the index (D23)', () => {
     await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
     const index = await onDisk(store);
     expect(index).not.toHaveProperty('inbox');
+    expect(index?.inboxAnswer).toBe('unaskable');
     expect(index?.requests).toBe(2);
     expect(argv().some((call) => call.includes('--state inbox'))).toBe(false);
   });
@@ -622,6 +624,7 @@ describe('the inbox set of the index (D23)', () => {
     await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
     const index = await onDisk(store);
     expect(index?.inbox).toEqual([{ number: '1', title: 'issue 1', url: 'https://example.invalid/1', createdAt: '2026-10-01T00:00:00Z' }]);
+    expect(index?.inboxAnswer).toBe('answered');
     expect(index?.requests).toBe(3);
     expect(argv().some((call) => call.includes('--state inbox'))).toBe(true);
   });
@@ -680,6 +683,7 @@ describe('the inbox set of the index (D23)', () => {
     const index = await onDisk(storeFail);
     expect(index?.inbox).toEqual(kept);
     expect(index?.inboxAt).toBe('2026-10-10T00:00:00.000Z');
+    expect(index?.inboxAnswer).toBe('failed');
   });
 });
 
@@ -696,6 +700,15 @@ describe('the inbox read and the closed read refusal', () => {
     expect(state.issueNextAt).toBe(NOW + 300_000);
     expect(state.issueNextIsBackoff).toBe(true);
     expect(argv().some((call) => call.includes('--state inbox'))).toBe(false);
+    expect(index?.inboxAnswer).toBe('not-read');
+  });
+
+  it('carries the previous inbox answer where a closed refusal skips the inbox read', async () => {
+    const { dir } = fakeHost({ rows: 1 }, { stderr: RATE_LIMIT, code: 1 }, { rows: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIndex({ source: 'tracker', connector: 'jira', inboxAnswer: 'unaskable' }));
+    await refreshIssueIndex(worldOf(dir, store, jira), freshIssueState());
+    expect((await onDisk(store))?.inboxAnswer).toBe('unaskable');
   });
 
   it('sets the backoff from an inbox 429 after an answered closed read and counts the request', async () => {

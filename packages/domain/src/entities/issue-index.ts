@@ -59,6 +59,17 @@ export const IssueIndexRowSchema = z
 
 export type IssueIndexRow = z.infer<typeof IssueIndexRowSchema>;
 
+/**
+ * How the reader's inbox read ended: `answered` with rows (possibly none),
+ * `unaskable` where the tracker has no person-scoped read apart from the open
+ * one, `failed` where it was asked and refused, and `not-read` where the pass
+ * did not ask it and holds no earlier answer.
+ */
+// plot-state: reading — how one pass's inbox read ended; the next pass that asks it re-reads it.
+export const InboxAnswerSchema = z.enum(['answered', 'unaskable', 'failed', 'not-read']);
+
+export type InboxAnswer = z.infer<typeof InboxAnswerSchema>;
+
 /** Who answered the pass that wrote this file — `issueSource`'s own word. */
 export const IssueIndexSourceSchema = z.union([z.literal('tracker'), z.literal('git-host')]);
 
@@ -176,6 +187,11 @@ export const IssueIndexSchema = z
      * this against now rather than a stored verdict.
      */
     inboxAt: z.string().optional(),
+    /**
+     * How the inbox read that left `inbox` ended; absent in a file written
+     * before this field existed, which a reader takes as unknown.
+     */
+    inboxAnswer: InboxAnswerSchema.optional(),
   })
   .strict();
 

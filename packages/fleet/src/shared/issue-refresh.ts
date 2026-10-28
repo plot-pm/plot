@@ -10,6 +10,7 @@ import {
   issueIntervalMs,
   issueSource,
   issueWriteThrough,
+  type InboxAnswer,
   type Issue,
   type IssueIndex,
   type IssueIndexClosed,
@@ -183,6 +184,8 @@ export interface InboxOutcome {
   inbox: IssueIndexRow[] | undefined;
   /** When `inbox` was last answered, ISO-8601; absent where it never has been. */
   inboxAt: string | undefined;
+  /** How the read that left `inbox` ended; absent where an earlier file did not record it. */
+  answer: InboxAnswer | undefined;
   /** The read's failure sentence, or null where it answered, was unsupported or did not happen. */
   error: string | null;
   /** Milliseconds a rate limit in the refusal asks to wait, or null where there is none. */
@@ -192,8 +195,8 @@ export interface InboxOutcome {
 }
 
 /**
- * The outcome of an inbox read that did not happen this pass: the kept rows
- * and their age, no error, no wait, no spend.
+ * The outcome of an inbox read that did not happen this pass: the kept rows,
+ * their age and their answer, no error, no wait, no spend.
  *
  * Used both where the pass skips the inbox read because the closed read
  * failed — `kept` and `keptAt` carry over untouched, the same as any other
@@ -205,13 +208,18 @@ export interface InboxOutcome {
  *
  * @param kept - the inbox rows to carry over; undefined to drop them.
  * @param keptAt - their age to carry over; undefined to drop it.
+ * @param keptAnswer - how the read that left `kept` ended: `not-read` where no
+ *   earlier pass of the same source and connector exists, undefined where an
+ *   earlier file did not record it.
  */
 export const inboxSkipped = (
   kept?: IssueIndexRow[] | undefined,
   keptAt?: string | undefined,
+  keptAnswer?: InboxAnswer | undefined,
 ): InboxOutcome => ({
   inbox: kept,
   inboxAt: keptAt,
+  answer: keptAnswer,
   error: null,
   wait: null,
   spent: 0,
@@ -250,16 +258,18 @@ export const inboxOutcomeOf = (
     return {
       inbox: read.value.issues.map(issueIndexRowOf),
       inboxAt: at,
+      answer: 'answered',
       error: null,
       wait: null,
       spent: read.value.pages,
     };
   }
-  if (read.why === 'unaskable') return inboxSkipped();
+  if (read.why === 'unaskable') return { ...inboxSkipped(), answer: 'unaskable' };
   const error = refusal ?? 'the inbox read failed and said nothing';
   return {
     inbox: kept,
     inboxAt: keptAt,
+    answer: 'failed',
     error,
     wait: waitOf(hostReaction(error, null, finishedAt)),
     spent: 1,
@@ -367,7 +377,10 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  *   closed read that failed (not unsupported) skips the inbox read, keeping
  *   its previous `inbox` and `inboxAt` as D23 did before this field existed.
  *   A refused inbox read feeds the same backoff; where both refuse,
- *   `backoffUntil` is the later wait.
+ *   `backoffUntil` is the later wait. `inboxAnswer` records how the read that
+ *   left `inbox` ended — `answered`, `unaskable` or `failed` — and a skipped
+ *   read carries the previous one, or `not-read` where no earlier pass of the
+ *   same source and connector exists.
  * - A refused read writes `requests`, `nextAt`, `failedAt` and `reason`, keeps
  *   the previous `rows`, `complete` and `at` of the same source and connector,
  *   and writes `backoffUntil` where {@link hostReaction} reads a rate limit in
@@ -411,6 +424,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   const keptClosed: Pick<IssueIndex, 'closed'> = sameHeld && held.closed !== undefined ? { closed: held.closed } : {};
   const keptInbox = sameHeld ? held.inbox : undefined;
   const keptInboxAt = sameHeld ? held.inboxAt : undefined;
+  const keptInboxAnswer: InboxAnswer | undefined = sameHeld ? held.inboxAnswer : 'not-read';
 
   let changedSpent = 0;
   if (!dueForFullRead(held, sameHeld, startedAt) && held !== null && held.at !== undefined) {
@@ -445,6 +459,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
         ...(held.closed === undefined ? {} : { closed: { ...held.closed, rows: fold.closedRows } }),
         ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
         ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
+        ...(keptInboxAnswer === undefined ? {} : { inboxAnswer: keptInboxAnswer }),
       });
       return;
     }
@@ -480,6 +495,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
         ...keptClosed,
         ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
         ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
+        ...(keptInboxAnswer === undefined ? {} : { inboxAnswer: keptInboxAnswer }),
       });
       return;
     }
@@ -495,7 +511,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     const at = new Date(startedAt).toISOString();
     const outcome = closedOutcomeOf(closedRead, keptClosed.closed, since, at, closedRefusal, closedFinishedAt);
     const closedRefused = !closedRead.ok && closedRead.why !== 'unaskable';
-    let inboxOutcome = inboxSkipped(keptInbox, keptInboxAt);
+    let inboxOutcome = inboxSkipped(keptInbox, keptInboxAt, keptInboxAnswer);
     let finishedAt = closedFinishedAt;
     if (!closedRefused) {
       const inboxRead = await tracker.issueListInbox(ISSUE_INDEX_OPEN_LIMIT);
@@ -529,6 +545,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       closed: outcome.closed,
       ...(inboxOutcome.inbox === undefined ? {} : { inbox: inboxOutcome.inbox }),
       ...(inboxOutcome.inboxAt === undefined ? {} : { inboxAt: inboxOutcome.inboxAt }),
+      ...(inboxOutcome.answer === undefined ? {} : { inboxAnswer: inboxOutcome.answer }),
     });
     return;
   }
@@ -571,6 +588,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     ...keptClosed,
     ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
     ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
+    ...(keptInboxAnswer === undefined ? {} : { inboxAnswer: keptInboxAnswer }),
   });
 };
 

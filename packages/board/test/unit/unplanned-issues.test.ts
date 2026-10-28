@@ -667,7 +667,7 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
     expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['EWZKUS-9']);
   });
 
-  it('a refused inbox read leaves the open read answered, with entry.waiting falling back to no notice-worthy spelling', async () => {
+  it('a refused inbox read leaves the open read answered, and entry.waiting shows 0 tickets and says the inbox could not be read', async () => {
     const dir = jiraFixture({
       claudeMd: JIRA_CLAUDE_MD,
       openKeys: ['EWZKUS-1', 'EWZKUS-2'],
@@ -697,8 +697,45 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
     expect(entry.issueAnswer).toBe('answered');
     expect(numbers(entry.issues)).toEqual(['EWZKUS-1', 'EWZKUS-2']);
     expect(entry.issueSets?.inbox).toBeUndefined();
+    expect(entry.issueSets?.inboxAnswer).toBe('failed');
     expect(entry.waiting?.tickets).toHaveLength(0);
-    expect(entry.waiting?.notice).toBe('The inbox was not read — showing none of your tickets rather than the project\'s.');
+    expect(entry.waiting?.notice).toBe('The inbox could not be read — showing none of your tickets rather than the project\'s.');
+  });
+
+  it('a Jira repo with no Ticket prefixes shows its person-scoped open rows in entry.waiting, with no notice', async () => {
+    // With no `Ticket prefixes` the open read carries `assignee = currentUser()`,
+    // and `trackerJira` answers the inbox read `unaskable` without asking it.
+    const dir = jiraFixture({
+      claudeMd: ['## Plot Config', '', '- **Tracker:** jira', ''].join('\n'),
+      openKeys: [],
+      plans: {},
+    });
+    fs.writeFileSync(path.join(dir, 'plot-host.sh'), [
+      '#!/usr/bin/env bash',
+      'case "$1" in',
+      "  account) echo 'jwloka' ;;",
+      '  ticket-projects) : ;;',
+      '  issue-list)',
+      '    case " $* " in',
+      '      *" --state closed "*) : ;;',
+      '      *" --state inbox "*) echo "the inbox read must not be asked" >&2; exit 1 ;;',
+      '      *) printf \'{"number":"EWZKUS-1","title":"t1","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":["jan.wloka@quatico.com"]}\\n\'; printf \'{"number":"EWZKUS-2","title":"t2","url":"u","createdAt":"2026-10-02T00:00:00Z","assignees":["jan.wloka@quatico.com"]}\\n\' ;;',
+      '    esac ;;',
+      'esac',
+      'exit 0',
+      '',
+    ].join('\n'));
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    const entry = entryFor([]);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('answered');
+    expect(entry.issueSets?.inbox).toBeUndefined();
+    expect(entry.issueSets?.inboxAnswer).toBe('unaskable');
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['EWZKUS-2', 'EWZKUS-1']);
+    expect(entry.waiting?.notice).toBeNull();
   });
 
   it('no idea branches changes nothing from the directory read', async () => {

@@ -154,13 +154,47 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toBeNull();
   });
 
-  it('a Jira reader with no declared spelling and an absent inbox answers 0 tickets and no spelling notice', () => {
+  it('a Jira source with no ticket projects, whose inbox read is unaskable, answers the open rows as the reader\'s own and no notice', () => {
+    // With no `Ticket prefixes` the Jira open read is person-scoped
+    // (`assignee = currentUser()`), so `rows` holds exactly the reader's tickets.
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('J-1', { assignees: ['jan.wloka@quatico.com'] }), row('J-2', { assignees: ['jan.wloka@quatico.com'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.shown).toBe(2);
+    expect(result.tickets.map((t) => t.number).sort()).toEqual(['J-1', 'J-2']);
+    expect(result.notice).toBeNull();
+  });
+
+  it('a Jira source with no ticket projects and no People spelling answers the open rows when the inbox read is unaskable', () => {
+    const reader: Reader = { hostUser: 'jwloka' };
+    const rows = [row('J-1', { assignees: ['5b10ac8d82e05b22cc7d4ef5'] }), row('J-2', { assignees: ['5b10ac8d82e05b22cc7d4ef5'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'unaskable');
+    expect(result.shown).toBe(2);
+    expect(result.notice).toBeNull();
+  });
+
+  it('an inbox read that failed with no kept rows answers 0 tickets and says the inbox could not be read', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('o1', { assignees: ['a-colleague@quatico.com'] }), ...unassigned(4)];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'failed');
+    expect(result.shown).toBe(0);
+    expect(result.notice).toBe('The inbox could not be read — showing none of your tickets rather than the project\'s.');
+  });
+
+  it('an index written before the inbox answer was stored answers the open rows, as an unaskable read does', () => {
+    const reader: Reader = { hostUser: 'jwloka' };
+    const rows = [row('J-1', { assignees: ['jan.wloka@quatico.com'] })];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), undefined);
+    expect(result.shown).toBe(1);
+  });
+
+  it('a Jira reader with no declared spelling and an inbox that was not read answers 0 tickets and no spelling notice', () => {
     // Catches fixing only the matched/unmatched arm: `declaresAnyAccountSpelling`
     // is false here, and `rows`' first assignee is a colleague — the project
     // rows must never stand in for an inbox that was never read.
     const reader: Reader = { hostUser: 'jwloka' };
     const rows = unassigned(5).map((r, i) => ({ ...r, assignees: [i === 0 ? 'a-colleague' : ''] }));
-    const result = waitingTickets(rows, undefined, reader, JIRA, true);
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'not-read');
     expect(result.shown).toBe(0);
     expect(result.notice).not.toBeNull();
     expect(result.notice).not.toContain('add `');
@@ -176,12 +210,12 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toContain('jira:jan.wloka@quatico.com');
   });
 
-  it('the same Jira reader with no inbox answers 0 tickets and no spelling notice, never the project rows', () => {
+  it('the same Jira reader with an inbox that was not read answers 0 tickets and no spelling notice, never the project rows', () => {
     // The `markus.ruepp` banner, reproduced: an absent inbox must never let a
     // project-wide row's first assignee stand in for the reader's own ticket.
     const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
     const rows = [row('o1', { assignees: ['5b10ac8d82e05b22cc7d4ef5'] }), ...unassigned(4)];
-    const result = waitingTickets(rows, undefined, reader, JIRA, true);
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'not-read');
     expect(result.shown).toBe(0);
     expect(result.notice).not.toContain('5b10ac8d82e05b22cc7d4ef5');
     expect(result.notice).not.toBeNull();
@@ -247,12 +281,12 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.notice).toBeNull();
   });
 
-  it('a matched Jira reader with an absent inbox answers 0 tickets rather than the open rows', () => {
+  it('a matched Jira reader whose inbox was not read answers 0 tickets rather than the open rows', () => {
     // Even a reader who WOULD match if the inbox had been read gets nothing
     // from `rows` while the inbox is absent — `rows` never stands in for it.
     const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
     const rows = [row('mine', { assignees: ['jan.wloka@quatico.com'] }), ...unassigned(4)];
-    const result = waitingTickets(rows, undefined, reader, JIRA, true);
+    const result = waitingTickets(rows, undefined, reader, JIRA, true, new Map(), 'not-read');
     expect(result.shown).toBe(0);
     expect(result.tickets.some((t) => t.number === 'mine')).toBe(false);
     expect(result.notice).not.toBeNull();
