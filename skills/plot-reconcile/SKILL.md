@@ -181,7 +181,7 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
 ```
-summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 unread_headings=0 unread_waits=0 unread_heading_items=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=gh main=main
+summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 open_issues=1 unread_headings=0 unread_waits=0 unread_heading_items=0 unread_branch_items=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=gh main=main
 ```
 
 `uncut_slices` is the count from section 7 — slices carrying more than one
@@ -196,6 +196,8 @@ the plan, and a cosmetic name must not gate a delivery.
 `unread_headings` is the count from section 24 — a slice heading that carries `Branch:` and whose wave holds no branch, so no consumer ever sees that slice. Each finding names its repair: `#1042` where the value is a readable branch, and a rewrite to `Branch: <prefix>/<name>` otherwise. **The first arm reports nothing on this estate since 2026-09-28**: it named the 5 slices the first-heading latch lost, and #1042 removed the latch, so a readable value now reads. It stays because the shape can recur — a heading whose branch is readable and unread is still the finding, and the arm names the fix rather than asserting a count. An empty wave whose heading carries no `Branch:` is narrative and is not counted. Non-blocking: the plan is not broken, its slice is invisible, and the repair is one edit.
 
 Section 24b reports the opposite direction: a heading-shape list item naming a branch no heading in its wave claims, read from `unread_heading_items`. Each finding names which of two repairs applies, by checking whether the wave's own heading read a `Branch:` at all — a wave with none gets "give this wave a `(Branch: <name>)` heading", and a wave whose heading already claims a different branch gets "this wave's heading already claims a different branch" instead. Non-blocking: the item is simply invisible to anything that reads the heading's claim, and the repair is one edit.
+
+**Section 24c is the one exception in this group, and it BLOCKS delivery.** `unread_branch_items` is a list item in a `## Slices`/`## Waves` section that is not a branch claim at all (`branch_claim_re` does not match it) and yet names a token matching a configured branch prefix — a foreign-repository branch cited in prose, or a backticked branch with no claim and no PR yet. Unlike 24/24a/24b, which annotate a claim that still reads (so the slice is accounted for even while a detail is lost), here there is **no claim to fall back on**: the branch exists only as this item, so a plan could report every other branch verified while this one was never read at all. That is exactly the shape measured on `ewz-kus-portal` plan 3853 (six of seven branches named only this way) and plan 3819 (`` - Umsetzung: `bug/…` `` parsing to zero branches) — both read as deliverable by `/plot-deliver --dry-run` before this section existed. Each finding names the plan, the branch, and the line, and prints a rewrite: either a claim line (`` - `<branch>` — <repo>: … → owner/repo#N ``) or a `<!-- deferred: <reason> -->` marker, which excludes the item from this section entirely. The rule reads the raw list-item text — inside and outside backtick code spans — and uses no keyword, so a German, French, or English line is read identically. **It carries its own counter, `unread_branch_items=`, and is printed ABOVE `== blocking sections end ==`** — `/plot-deliver`'s gate greps everything above that marker for the plan's filename, so a nonzero count here refuses the delivery until the line changes. This section decides nothing about whether a *claimed-but-unmerged* branch should also block — that is a later wave's question.
 
 `unread_waits` is the count from section 24a — a `<!-- waits: … -->` marker on a branch line whose value the parser could not read as a branch, read from the parser field `unread_waits`. A typo or a syntax example written on the branch's own line reaches here; the same marker written as prose on a line with no branch claim stays silent, since reporting that would fire on every plan that documents the annotation. Non-blocking: the slice carries one fewer prerequisite than intended, not a broken plan, and the repair is to fix the value.
 
@@ -271,7 +273,8 @@ When the conversation context indicates automation (see `/plot` for detection ru
     "drift": 0,
     "merged_not_delivered": 0,
     "stale_branches": 0,
-    "needs_attention": 0
+    "needs_attention": 0,
+    "unread_branch_items": 0
   },
   "info": {
     "concurrent_delivery": 0,
@@ -290,4 +293,4 @@ When the conversation context indicates automation (see `/plot` for detection ru
 }
 ```
 
-`pr_source` is `gh`, `bb`, `degraded` (no git-host CLI), or `off` (PR enumeration deliberately skipped via `--no-pr`/`--offline`). Sections 4, 7, 8 and 9 are informational — divergence counts, unsliced-wave shapes, prose slice names, and browsing gaps, not defects — so they report under `info`, not `findings`. `uncut_slices`, `prose_slice_names` and `index_drift` belong there for the same reason they are kept out of `attention=`: an uncut slice is a shape `/plot-reslice` can repair, a prose slice name is a plan rename, and nothing depends on a symlink since the phase grouping became derived. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.
+`pr_source` is `gh`, `bb`, `degraded` (no git-host CLI), or `off` (PR enumeration deliberately skipped via `--no-pr`/`--offline`). Sections 4, 7, 8 and 9 are informational — divergence counts, unsliced-wave shapes, prose slice names, and browsing gaps, not defects — so they report under `info`, not `findings`. `uncut_slices`, `prose_slice_names` and `index_drift` belong there for the same reason they are kept out of `attention=`: an uncut slice is a shape `/plot-reslice` can repair, a prose slice name is a plan rename, and nothing depends on a symlink since the phase grouping became derived. `unread_branch_items` (section 24c) belongs under `findings`, not `info`, for the opposite reason — unlike every other `unread_*` count, it gates `/plot-deliver` and must never be presented as informational. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.

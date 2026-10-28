@@ -59,6 +59,18 @@ export interface PlanRecord {
   startedRaw: readonly string[];
   /** The `Rejected:` record verbatim, or `''`. Any position in the file; a plan may carry one while also carrying a later `Delivered:` or `Started:` record. */
   rejectedRaw: string;
+  /** A non-claim list item in a slice section that names a branch no claim reads, in document order. */
+  unreadBranchItems: readonly PlanRecordUnreadBranchItem[];
+}
+
+/** One list item `unreadBranchItems` reports, naming a branch outside claim grammar. */
+export interface PlanRecordUnreadBranchItem {
+  /** The slice name the item falls under, or `''` when it precedes any heading. */
+  wave: string;
+  /** The branch token the item names. */
+  branch: string;
+  /** The item's line, verbatim. */
+  line: string;
 }
 
 /** One slice of a plan, holding the branches it wants landed together. */

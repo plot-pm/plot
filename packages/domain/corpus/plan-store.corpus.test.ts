@@ -52,6 +52,7 @@ const FIELDS: ReadonlyArray<readonly [keyof PlanRecord, string]> = [
   ['deliveredRaw', 'delivered_raw'],
   ['releasedRaw', 'released_raw'],
   ['startedRaw', 'started_raw'],
+  ['unreadBranchItems', 'unread_branch_items'],
 ];
 
 /**
@@ -245,6 +246,7 @@ describe('the PlanStore adapter agrees with plot-plan-meta.sh', () => {
     expect(adapted.some((plan) => plan.startedRaw.length > 0)).toBe(true);
     expect(adapted.some((plan) => plan.sprint !== '')).toBe(true);
     expect(adapted.some((plan) => plan.story !== '')).toBe(true);
+    expect(adapted.some((plan) => plan.unreadBranchItems.length > 0)).toBe(true);
     // And the legacy spelling really is what the parser emits, which is why the
     // adapter's tolerance for it is load-bearing rather than defensive.
     expect(production.some((raw) => Array.isArray(raw.waves))).toBe(true);

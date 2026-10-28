@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { branchOf, planStoreShell } from '../src/adapters/plan-store/plan-store-shell.js';
+import { branchOf, planOf, planStoreShell } from '../src/adapters/plan-store/plan-store-shell.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import { isAnswered } from '../src/port-result.js';
 
@@ -67,5 +67,30 @@ describe('branchOf — waits_on maps to waitsOn', () => {
 
   it('defaults to the empty list for a branch line that declares none', () => {
     expect(branchOf({ branch: 'feature/two' }).waitsOn).toEqual([]);
+  });
+});
+
+/**
+ * `planOf` renames `unread_branch_items` — a non-claim list item naming a
+ * branch no claim reads — into `unreadBranchItems`, the same way it renames
+ * every other wire field.
+ */
+describe('planOf — unread_branch_items maps to unreadBranchItems', () => {
+  it('carries each item, defaulting an absent wave to the empty string', () => {
+    expect(
+      planOf({
+        unread_branch_items: [
+          { wave: 'Slice A', branch: 'bug/foo', line: '- bug/foo' },
+          { branch: 'feature/bar', line: '- feature/bar' },
+        ],
+      }).unreadBranchItems,
+    ).toEqual([
+      { wave: 'Slice A', branch: 'bug/foo', line: '- bug/foo' },
+      { wave: '', branch: 'feature/bar', line: '- feature/bar' },
+    ]);
+  });
+
+  it('defaults to the empty list when the parser line carries no key', () => {
+    expect(planOf({}).unreadBranchItems).toEqual([]);
   });
 });

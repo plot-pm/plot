@@ -7,15 +7,24 @@
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
-#         it. THE BLOCKING SET IS FIVE SECTIONS, 1-5. It was six until
-#         2026-09-18, when `6. Delivered but already released` moved below the
-#         marker: it asks which release contains a plan, not whether the plan's
-#         delivery landed, and on a host that answers no merge commit it reported
-#         every delivered plan, so no delivery could clear the gate. Sections
-#         below the marker are NOT in printed order — the number is a label and
-#         the marker is the boundary.
+#         it. THE BLOCKING SET IS SIX SECTIONS: 1-5, PLUS 24c. It was five
+#         until 2026-10-28, when `24c. Unread branch items` joined above the
+#         marker — a list item in a slices/branches/waves section naming a
+#         branch no claim reads, which a plan can carry while still reporting
+#         every OTHER branch verified (#3853, #3819 on ewz-kus-portal: a plan
+#         whose branches were mostly cited in prose, never claimed, read as
+#         deliverable). It keeps the "24c" label for continuity with its
+#         siblings 24/24a/24b, documented together below the marker — the
+#         label is documentation, not position; the marker decides blocking.
+#         It was six until 2026-09-18, when `6. Delivered but already
+#         released` moved below the marker: it asks which release contains a
+#         plan, not whether the plan's delivery landed, and on a host that
+#         answers no merge commit it reported every delivered plan, so no
+#         delivery could clear the gate. Sections below the marker are NOT in
+#         printed order — the number is a label and the marker is the
+#         boundary.
 #         The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 unread_heading_items=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 unread_heading_items=0 unread_branch_items=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -246,6 +255,22 @@
 #                                 unattributable, not the slice broken — so it
 #                                 carries `unread_heading_items=` and stays out
 #                                 of `attention`.
+#  24c. Unread branch items     — a list item in a slices/branches/waves
+#                                 section that is not a branch claim and yet
+#                                 names a branch-prefixed token, read from the
+#                                 parser field `unread_branch_items`. Printed
+#                                 here with its siblings for documentation
+#                                 continuity, but PRINTED ABOVE THE MARKER AND
+#                                 BLOCKS DELIVERY, unlike 24/24a/24b: those
+#                                 annotate a claim that still reads, so the
+#                                 slice is accounted for; this item names a
+#                                 branch no claim reads at all, so a plan
+#                                 could report every OTHER branch verified
+#                                 while this one was never read
+#                                 (ewz-kus-portal #3853, #3819). It carries
+#                                 its own counter, `unread_branch_items=`, and
+#                                 /plot-deliver's gate reads it from ABOVE the
+#                                 marker rather than through `attention=`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -530,7 +555,6 @@ load_open_pr_branches() {
     [ -n "$slug" ] && repo_args="--repo $slug"
   fi
 
-  tmpstderr=""
   plot_tmpfile tmpstderr reconcile-pr-err \
     || { PR_SOURCE="failed"; PR_ERROR="could not create a temp file"; return 0; }
 
@@ -1122,7 +1146,7 @@ for _d in ${IDX_DANGLING+"${IDX_DANGLING[@]}"}; do
 done
 
 echo "== 1. Phase<->symlink drift =="
-if [ -n "$drift_out" ]; then printf '%b' "$drift_out"; else echo "  (none — all plot-managed plans consistent)"; fi
+[ -n "$drift_out" ] && printf '%b' "$drift_out" || echo "  (none — all plot-managed plans consistent)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -1226,7 +1250,7 @@ while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype _psprint; do
     n_mnd=$((n_mnd + 1))
   fi
 done <<< "$plan_rows"
-if [ -n "$mnd_out" ]; then printf '%b' "$mnd_out"; else echo "  (none)"; fi
+[ -n "$mnd_out" ] && printf '%b' "$mnd_out" || echo "  (none)"
 # Degradation and truncation are STATED, never silent — a check that quietly
 # skipped is indistinguishable from a check that found nothing, and "silence
 # reads as health" is the exact defect this section was fixed for.
@@ -1377,16 +1401,12 @@ done <<< "$all_branches"
 # Output depends on whether the section was suppressed.
 if [ "$section3_suppressed" = 1 ]; then
   # Section not evaluated — no rows, but say why and report the count.
-  if [ "$PR_SOURCE" = absent ]; then
-    echo "  (not evaluated — PR state unknown: $PR_ERROR)"
-  else
-    echo "  (not evaluated — PR state unknown: $PR_ERROR)"
-  fi
+  echo "  (not evaluated — PR state unknown: $PR_ERROR)"
   echo "  $n_ahead_of_main branches are ahead of $MAIN; whether any is stale cannot be decided"
   echo "  without the open-PR list. Re-run once the git host answers."
   # stale= stays 0 — nobody measured it.
 else
-  if [ -n "$stale_out" ]; then printf '%b' "$stale_out"; else echo "  (none)"; fi
+  [ -n "$stale_out" ] && printf '%b' "$stale_out" || echo "  (none)"
   if [ -n "$claims_out" ]; then
     echo
     echo "  -- claims (empty branches taken by a worker) --"
@@ -1427,7 +1447,7 @@ for _i in ${IDX_ACTIVE_TARGETS+"${!IDX_ACTIVE_TARGETS[@]}"}; do
     n_conc=$((n_conc + 1))
   done
 done
-if [ -n "$cd_out" ]; then printf '%b' "$cd_out"; else echo "  (no active plans with resolvable impl branches)"; fi
+[ -n "$cd_out" ] && printf '%b' "$cd_out" || echo "  (no active plans with resolvable impl branches)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -1435,7 +1455,32 @@ echo
 # ---------------------------------------------------------------------------
 
 echo "== 5. Needs attention (malformed / non-conforming / broken pointers) =="
-if [ -n "$attention_out" ]; then printf '%b' "$attention_out"; else echo "  (none)"; fi
+[ -n "$attention_out" ] && printf '%b' "$attention_out" || echo "  (none)"
+echo
+
+# ---------------------------------------------------------------------------
+# 24c. Unread branch items — BLOCKING, unlike 24/24a/24b below the marker.
+#
+# A list item in a `## Slices`/`## Branches`/`## Waves` section that is not a
+# branch claim (`branch_claim_re`) and yet names a branch-prefixed token, read
+# from the parser field `unread_branch_items` out of the one parse the sweep
+# already makes. A foreign-repository branch cited in prose instead of
+# claimed — ewz-kus-portal plan 3853 names one branch across six such items —
+# makes `plot-deliver.sh --dry-run` report a plan verified when six of its
+# seven branches were never read at all.
+#
+# ABOVE THE MARKER AND NOT BELOW IT, unlike every other `unread_*` sibling:
+# those report an annotation the parser could not place while the branch
+# claim itself still reads, so the slice is accounted for even while the
+# detail is lost. Here there IS no claim — the branch exists only as this
+# item — so a plan with no OTHER way to read the branch would silently pass
+# delivery with that branch unverified. Reporting it below the marker would
+# be the shape #3853 and #3819 both measured.
+echo "== 24c. Unread branch items (a list item names a branch no claim reads — BLOCKS delivery) =="
+report_unread_pairs unread_branch_items '.branch, .line, .branch' \
+  "  %s — branch '%s' is named by a list item no claim reads: %s\n    rewrite: either a claim line (- \`%s\` — <repo>: ... -> owner/repo#N) or <!-- deferred: <reason> -->\n    delivery refuses until this line changes\n" \
+  "(none — every list item naming a branch is a claim or a deferral)"
+n_unread_branch_items=$REPORT_UNREAD_PAIRS_N
 echo
 
 # ---------------------------------------------------------------------------
@@ -1542,7 +1587,7 @@ if [ -n "$plan_json" ] && [ -f "$script_dir/board/plot-slice-chain.mjs" ] && com
           | node "$script_dir/board/plot-slice-chain.mjs"))
 elif [ -n "$plan_json" ]; then echo "  (not evaluated — board/plot-slice-chain.mjs or node is missing)"
 fi
-if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every slice holds a single branch)"; fi
+[ -n "$unsliced_out" ] && printf '%b' "$unsliced_out" || echo "  (none — every slice holds a single branch)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -1598,7 +1643,7 @@ if [ -n "$plan_json" ]; then
     | jq -r 'select(.phase != "NONE") | .file as $f
              | .long_wave_names[]? | [$f, .] | join("")')
 fi
-if [ -n "$prose_out" ]; then printf '%b' "$prose_out"; else echo "  (none — every slice name is a label)"; fi
+[ -n "$prose_out" ] && printf '%b' "$prose_out" || echo "  (none — every slice name is a label)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -1737,15 +1782,15 @@ fi
 # The three headings. Section 9 is deliberately NOT worded as drift: it reports
 # a shape that a healthy estate produces, and a reader acts on the wording.
 echo "== 9. Unplanned sprint members (reported, not drift — a slice may ship as a PR with no plan) =="
-if [ -n "$unplanned_members_out" ]; then printf '%b' "$unplanned_members_out"; else echo "  (none — every sprint member names a plan)"; fi
+[ -n "$unplanned_members_out" ] && printf '%b' "$unplanned_members_out" || echo "  (none — every sprint member names a plan)"
 echo
 
 echo "== 10. Sprint field unset (plan listed by a sprint carries no Sprint: field) =="
-if [ -n "$sprint_unset_out" ]; then printf '%b' "$sprint_unset_out"; else echo "  (none — every listed plan names its sprint)"; fi
+[ -n "$sprint_unset_out" ] && printf '%b' "$sprint_unset_out" || echo "  (none — every listed plan names its sprint)"
 echo
 
 echo "== 11. Sprint mismatch (plan's Sprint: names a different sprint) =="
-if [ -n "$sprint_mismatch_out" ]; then printf '%b' "$sprint_mismatch_out"; else echo "  (none — every listed plan agrees with its sprint)"; fi
+[ -n "$sprint_mismatch_out" ] && printf '%b' "$sprint_mismatch_out" || echo "  (none — every listed plan agrees with its sprint)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -1763,7 +1808,7 @@ echo
 # missing is the browsing convenience, and the printed command is `optional:`
 # for that reason — section 1's are `fix:`.
 echo "== 12. Index drift (convenience — nothing depends on these) =="
-if [ -n "$index_out" ]; then printf '%b' "$index_out"; else echo "  (none — the convenience indexes match the plans)"; fi
+[ -n "$index_out" ] && printf '%b' "$index_out" || echo "  (none — the convenience indexes match the plans)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -1832,7 +1877,7 @@ if [ -d "$SPRINT_DIR" ]; then
   done
 fi
 
-if [ -n "$stale_tally_out" ]; then printf '%b' "$stale_tally_out"; else echo "  (none — every unchecked item's plan is still open)"; fi
+[ -n "$stale_tally_out" ] && printf '%b' "$stale_tally_out" || echo "  (none — every unchecked item's plan is still open)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -1940,7 +1985,7 @@ if [ -n "$plan_json" ]; then
         | [ ($per_plan[0].branch), ($per_plan | map(.slug + " (" + .wave + ")") | join(", ")), ($per_plan | length | tostring) ]
         | join($US)')
 fi
-if [ -n "$double_out" ]; then printf '%b' "$double_out"; else echo "  (none — every branch is claimed by exactly one plan)"; fi
+[ -n "$double_out" ] && printf '%b' "$double_out" || echo "  (none — every branch is claimed by exactly one plan)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -2031,7 +2076,7 @@ if [ -n "$plan_json" ]; then
         select(.phase == "draft") | select(has("rounds"))
         | [.file, (.rounds | tostring)] | join($US)')
 fi
-if [ -n "$rounds_out" ]; then printf '%b' "$rounds_out"; else echo "  (none — no Draft plan has been amended since the round it records)"; fi
+[ -n "$rounds_out" ] && printf '%b' "$rounds_out" || echo "  (none — no Draft plan has been amended since the round it records)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -2113,7 +2158,7 @@ if [ -d "$SPRINT_DIR" ]; then
     esac
   done
 fi
-if [ -n "$sprint_idx_out" ]; then printf '%b' "$sprint_idx_out"; else echo "  (none — every sprint's phase matches the index)"; fi
+[ -n "$sprint_idx_out" ] && printf '%b' "$sprint_idx_out" || echo "  (none — every sprint's phase matches the index)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -2207,7 +2252,7 @@ if [ -d "$SPRINT_DIR" ]; then
     n_sprint_ship=$((n_sprint_ship + 1))
   done
 fi
-if [ -n "$sprint_ship_out" ]; then printf '%b' "$sprint_ship_out"; else echo "  (none — no open sprint's release has shipped)"; fi
+[ -n "$sprint_ship_out" ] && printf '%b' "$sprint_ship_out" || echo "  (none — no open sprint's release has shipped)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -2342,7 +2387,7 @@ if [ -n "$plan_json" ]; then
   done < <(printf '%s\n' "$plan_json" \
     | jq -r 'select(.phase == "draft" or .phase == "approved") | .file')
 fi
-if [ -n "$stated_out" ]; then printf '%b' "$stated_out"; else echo "  (none — every live slice claiming a wait carries the annotation)"; fi
+[ -n "$stated_out" ] && printf '%b' "$stated_out" || echo "  (none — every live slice claiming a wait carries the annotation)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -2462,7 +2507,7 @@ else
     n_unclaimed=$((n_unclaimed + 1))
   done <<< "$all_branches"
 
-  if [ -n "$unclaimed_out" ]; then printf '%b' "$unclaimed_out"; else echo "  (none — every branch with changes is named by a plan or carried by a PR)"; fi
+  [ -n "$unclaimed_out" ] && printf '%b' "$unclaimed_out" || echo "  (none — every branch with changes is named by a plan or carried by a PR)"
 fi
 echo
 
@@ -2591,7 +2636,7 @@ else
     n_merged_refs=$((n_merged_refs + 1))
   done <<< "$all_branches"
 
-  if [ -n "$merged_ref_out" ]; then printf '%b' "$merged_ref_out"; else echo "  (none — no remote ref outlives its merged PR)"; fi
+  [ -n "$merged_ref_out" ] && printf '%b' "$merged_ref_out" || echo "  (none — no remote ref outlives its merged PR)"
   if [ "$MERGED_PR_TRUNCATED" = 1 ]; then
     echo "  note: merged-PR list hit its limit of ${MERGED_PR_TRUNCATED_COUNT:-$MERGED_PR_LIMIT} — older merged PRs were"
     echo "        not examined; a ref whose PR merged long ago may still be missed here."
@@ -2774,7 +2819,7 @@ else
       [(.detail.findings // [])[] | select(.kind == "worktree" or .kind == "unclassified-tree")]
       | length' 2>/dev/null) || n_desks=0
     [ -n "$n_desks" ] || n_desks=0
-    if [ -n "$desk_out" ]; then printf '%s\n' "$desk_out"; else echo "  (none — every desk is accounted for)"; fi
+    [ -n "$desk_out" ] && printf '%s\n' "$desk_out" || echo "  (none — every desk is accounted for)"
   fi
 fi
 echo
@@ -2971,7 +3016,7 @@ else
     n_no_changeset=$((n_no_changeset + 1))
   done < <(git log --merges -n "$CHANGESET_MERGE_WINDOW" --format='%H' "$nc_ref" 2>/dev/null)
 
-  if [ -n "$nc_out" ]; then printf '%b' "$nc_out"; else echo "  (none — every merge that shipped code in this window carried a changeset)"; fi
+  [ -n "$nc_out" ] && printf '%b' "$nc_out" || echo "  (none — every merge that shipped code in this window carried a changeset)"
   echo "  window: the last $nc_seen merge commit(s) on $nc_ref (raise with PLOT_CHANGESET_MERGE_WINDOW)."
   if [ "$nc_squashed" -gt 0 ]; then
     echo "  note: $nc_squashed of them are single-parent (squash) merges — a squash has no merged"
@@ -3217,7 +3262,7 @@ else
   done 3<<< "$oi_claims"
 
   if [ "$oi_host_failed" -eq 0 ]; then
-    if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
+    [ -n "$oi_out" ] && printf '%b' "$oi_out" || echo "  (none — every issue a finished plan names is closed)"
     [ "$oi_scheme" != jira ] || [ -z "$oi_keyless" ] || echo "  not checked: $(printf '%s' "$oi_keyless" | awk -F', ' '{print NF}') finished plan(s) name no Jira key — $oi_keyless"
   fi
 fi
@@ -3258,7 +3303,7 @@ if [ -n "$plan_json" ]; then
     | jq -r 'select(.phase != "NONE") | .file as $f
              | .unread_branch_headings[]? | [$f, .] | join("\u001f")')
 fi
-if [ -n "$unread_out" ]; then printf '%b' "$unread_out"; else echo "  (none — every heading that names a branch was read)"; fi
+[ -n "$unread_out" ] && printf '%b' "$unread_out" || echo "  (none — every heading that names a branch was read)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -3484,7 +3529,7 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
   n_unrel=$((n_unrel + 1))
 done <<< "$plan_rows"
-if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
+[ -n "$unrel_out" ] && printf '%b' "$unrel_out" || echo "  (none)"
 # SILENCE WOULD BE THE WORSE BUG. An empty section reads as "nothing to report",
 # and this section exists precisely because "cannot tell" and "nothing wrong"
 # must not look the same — its own `no PR annotation` arm above says so. The
@@ -3498,5 +3543,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits unread_heading_items=$n_unread_heading_items temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits unread_heading_items=$n_unread_heading_items unread_branch_items=$n_unread_branch_items temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0
