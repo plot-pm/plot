@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2387
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-23, Jan Wloka, `bug/the-pr-status-has-a-level-and-a-cause`
 - **Started:** 2026-10-23, Jan Wloka, `bug/the-board-shows-the-pr-level-and-diagnostics`
 - **Delivered:** 2026-10-24
+- **Released:** 2026-10-28, v2.29.0
 
 ## Changelog
 
