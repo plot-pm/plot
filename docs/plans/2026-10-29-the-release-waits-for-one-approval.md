@@ -15,7 +15,7 @@
 
 ## Changelog
 
-- When every unstruck plan of the active sprint is Delivered, fleetd runs the reviewer on the release PR's head and sends one notification per head: the version, the PR, its check and review state, and the changesets the head carries, with every changeset from a plan outside the sprint or not Delivered named.
+- When every unstruck plan of the active sprint is Delivered, fleetd starts the review of the release PR's head and notifies the person: the version, the PR, its check and review state, and the changesets the head carries in two groups, the sprint's plans and outside work. Changesets from outside the sprint never hold the release; the person decides. fleetd notifies once when the release first becomes ready, and afterwards once per new head only when the head's changeset list differs from the list last sent.
 - `plot-ask.mjs release-approve <pr> <sha>` and a board button approve the release. The approval refuses by name when the head moved (`head-moved`), when `plot/review` is not `success` on that head (`review-missing`), when the PR is not the changesets release PR (`not-release-pr`), and when the caller is unattended (`unattended`).
 - After the merge, the approval waits for the version tag, then records every scope plan as Released (docs and infra plans included) and closes the sprint in one commit and one push. Running the approval again resumes an interrupted finish.
 - `plot-ask.mjs merge` refuses the release PR and names `release-approve` instead.
@@ -63,9 +63,10 @@ fleetd never runs the finish. The board button starts the finish detached, as `P
 **Prepare (slice 2).** A domain rule over readings selects one next step: wait for the scope, start the reviewer, notify, or nothing. Its readings are the scope from #2900's `feature/the-scope-is-read-from-git` (D3) with each plan's phase, the release PR's index row, the required checks read by name, `plot/review` on the head, and the run-log lines for this release. Every failed reading answers `unaskable` and holds; the index never says "no release PR".
 
 - The rule reads the ruleset's required checks by name, not the folded rollup. The slice first measures whether a green dispatched `validate` alone lets the release PR merge. If it does, the `action_required` approval write is not built. If it is needed, it is a Build-port write in a TypeScript connector, pinned to workflow `CI`, event `pull_request`, branch `changeset-release/main`, the base repository and the head SHA, with `unaskable` on Bitbucket and Jenkins.
-- fleetd starts the reviewer role on the release PR's head through #2898's detached start and #2900's start guard, so one head never gets two `plot/review` writers.
-- The notification goes through `ports/notifier.ts:41`, once per head. It lists the head's changesets and names each changeset from a plan outside the scope or not Delivered.
-- The record of what fleetd did (reviewer started at head X, notified at head X) is a run-log line from #2899. It never holds "ready"; the approval re-derives readiness from the host.
+- fleetd starts the review of the release PR's head through #2900's detached `plot-review.mjs` start from `feature/fleetd-reviews-slice-prs`, with that start's guard, so one head never gets two `plot/review` writers. Only `reviewPr` writes the `plot/review` status (`packages/board/src/server/entry/review.ts:395`, the write at `:512-515`). A bare role start through #2898's runner runs the reviewer and writes no status, so the approval would refuse `review-missing` on every head.
+- The notification goes through `ports/notifier.ts:41`. It lists the head's changesets in two groups: the sprint's plans, and outside work (a changeset from a plan outside the scope, or from no plan). The approval pins to that head. Outside work never holds the release: when every scope plan is Delivered, the release is ready and the person decides.
+- fleetd sends one notification when the release first becomes ready. Afterwards it sends one per new head only when the head's changeset list differs from the list last sent. A head that only the changesets bot's version bump moved, with an unchanged list, sends nothing.
+- The record of what fleetd did (review started at head X, notified at head X with changeset list L) is a run-log line from #2899. The rule compares a head's changeset list with the list on the last notification line. The record never holds "ready"; the approval re-derives readiness from the host.
 - A domain `releaseStage` value (`waiting-scope`, `preparing`, `ready`, `merged`, `publishing`, `released`, `failed`) drives the release row and the button's disabled state.
 
 **The release PR stays outside the slice-loop arms.** #2900's review arm, #2902's merge arm, #2903's fixer and #2906's dead-desk fixer act only on slice PRs. A HIGH on the release PR notifies the person, and the approval refuses `review-missing` until `plot/review` reads `success` on the head.
@@ -91,10 +92,15 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 - [x] The board shows a domain `releaseStage` on the existing `release` row. (Open question 4.)
 - [x] The finish's push goes to `main` as the person's identity, as the 2.29.1 release did (D7).
 
+Decided 2026-10-29 by Jan Wloka in a challenge:
+
+- [x] Outside work: when every scope plan is Delivered and the release PR's head carries changesets from outside the scope, the fleet notifies and the person decides. The notification lists the head's changesets in two groups, the sprint's plans and outside work, and the approval pins to that head. The fleet never holds the release for outside work. (Open question 1 of the amended plan.)
+- [x] Notification bound: one notification when the release first becomes ready; afterwards one per new head only when the head's changeset list differs from the list last sent. A head moved only by the changesets bot's version bump with an unchanged list sends nothing. The record of actions holds the last list sent. (Open question 2 of the amended plan.)
+
 ### Open Questions
 
-- [ ] What does Prepare do when a head's changesets include a plan outside the scope: notify and let the person decide, or hold the release as not ready?
-- [ ] Is there a bound on how many notifications one release sends while its head keeps moving?
+- [x] What does Prepare do when a head's changesets include a plan outside the scope: notify and let the person decide, or hold the release as not ready? Answered: notify; the person decides (2026-10-29, outside work).
+- [x] Is there a bound on how many notifications one release sends while its head keeps moving? Answered: one when ready, then one per changed changeset list (2026-10-29, notification bound).
 
 ## Slices
 
@@ -104,12 +110,13 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 ### Release preparation
 
-- `feature/fleetd-prepares-the-release` — when every scope plan is Delivered: read the required checks by name (measure whether the `action_required` approval is needed first), start the reviewer, notify with the head's changesets, record the actions taken; a domain `releaseStage` for the board button <!-- builds: releasePrepareNext, releaseStage, the release row's stage and button --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- waits: feature/the-loop-keeps-a-run-log -->
+- `feature/fleetd-prepares-the-release` — when every scope plan is Delivered: read the required checks by name (measure whether the `action_required` approval is needed first), start the review through #2900's detached `plot-review.mjs` start (never a bare #2898 role start, which writes no `plot/review` status), notify with the head's changesets grouped as the sprint's plans and outside work, once when ready and then only when the list changes, record the actions taken with the last list sent; a domain `releaseStage` for the board button <!-- builds: releasePrepareNext, releaseStage, the release row's stage and button --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- waits: feature/the-loop-keeps-a-run-log -->
 
 ## Notes
 
 - Created from tracker issue #2907. The plan's `Issue:` field is the only link; nothing was written to the tracker.
-- Owned elsewhere, not built here: the `release`, `merge` and `continue` unattended refusals — #2898 `feature/unattended-callers-are-refused`; the reviewer role definition — #2898 `feature/role-agent-definitions`; the detached role start — #2898 `feature/role-agents-start-detached`; the run log — #2899 `feature/the-loop-keeps-a-run-log`; the scope reader — #2900 `feature/the-scope-is-read-from-git`; the review record in the PR index — #2900 `feature/the-index-records-the-review`; the reviewer start guard — #2900 `feature/fleetd-reviews-slice-prs`; the settled-main hold in `merge()` — #2902 `feature/merge-waits-for-a-settled-main`.
+- Owned elsewhere, not built here: the `release`, `merge` and `continue` unattended refusals — #2898 `feature/unattended-callers-are-refused`; the reviewer role definition — #2898 `feature/role-agent-definitions`; the detached role start — #2898 `feature/role-agents-start-detached`; the run log — #2899 `feature/the-loop-keeps-a-run-log`; the scope reader — #2900 `feature/the-scope-is-read-from-git`; the review record in the PR index — #2900 `feature/the-index-records-the-review`; the detached `plot-review.mjs` start and its guard — #2900 `feature/fleetd-reviews-slice-prs`; the settled-main hold in `merge()` — #2902 `feature/merge-waits-for-a-settled-main`.
 - Overlap check: `done-holds-the-release-scope` is Released and answers another question. `the-release-pr-is-checked-before-it-merges` (Released) added `dispatch-ci`, which Prepare measures before it builds a run approval.
 - Deliverable search for `release-approve` found no existing artifact.
 - Amended 2026-10-29 after panel round 1.
+- Amended 2026-10-29 after a challenge by Jan Wloka (outside work, notification bound) and the round-2 seams juror on #2900 (the release review starts through `plot-review.mjs`).
