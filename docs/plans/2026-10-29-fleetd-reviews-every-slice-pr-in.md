@@ -176,7 +176,7 @@ A second panel round ran on 2026-10-29 (`r2-safety.md`, `r2-seams.md`, both `ame
 
 ### Findings comment
 
-- `feature/a-review-opens-no-issue` — `review.ts` opens no follow-up issue for any severity; every finding goes to the one marked PR comment; `reviewIssue` in `rules/review-issue.ts` answers none for every count; Bitbucket keeps the findings in the verdict file and says so; tests: board unit `review.test.ts` with `host-fixture` (HIGH 1 and MEDIUM 2 open no issue, post one marked comment, write `failure`; a second head edits the same comment; Bitbucket `unaskable` names the verdict file, the exit code and the status description), domain unit `reviewIssue` answers none for every count <!-- builds: reviewIssue answering none for every count, the all-severity findings comment -->
+- `feature/a-review-opens-no-issue` — `review.ts` opens no follow-up issue for any severity; every finding goes to the one marked PR comment; `reviewIssue` in `rules/review-issue.ts` answers none for every count; Bitbucket keeps the findings in the verdict file and says so; tests: board unit `review.test.ts` with `host-fixture` (HIGH 1 and MEDIUM 2 open no issue, post one marked comment, write `failure`; a second head edits the same comment; Bitbucket `unaskable` names the verdict file, the exit code and the status description), domain unit `reviewIssue` answers none for every count <!-- builds: reviewIssue answering none for every count, the all-severity findings comment --> → #2928
 
 ### Indexed review state
 
