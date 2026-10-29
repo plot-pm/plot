@@ -77,13 +77,14 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 - [x] The tick returns an `unblock` write; the applier starts the role detached.
 - [x] Only an agent's own question is answered, never a loop- or fleetd-written terminal marker.
 - [x] The loop bound is `Slice max runs` and `Slice max spend`, with the refusal recorded; `Correction budget` is not reused.
-- [x] No `Issue:`, or a Jira tracker that answers `no-target`: the record under `.plot/state/` is the durable home in every case. "Say so in the PR body" is dropped.
+- [x] No `Issue:`, or a Jira tracker that answers `no-target`: the record under `.plot/state/` is the durable home in every case.
+- [x] Every agent question gets an answer (jwloka, challenge 2026-10-29). An answer that rests on no estate evidence carries a `guessed` mark in the record and in the notification the person receives; the mark is a pointer, never a stop.
+- [x] The answer travels with its change (jwloka, challenge 2026-10-29): each answer the desk acted on is written into its slice PR's body, beside the change it caused, so the reviewer reads it with the diff and a wrong answer surfaces as a review finding on that head. The answer record stays the durable home; the PR body is where a person checks it.
 - [x] The comment size bound belongs to #2905, which renders the record.
 
 ### Open Questions
 
 - [ ] The board's "answer in flight" state. The design names it, `waiting` is decided in shell today (`plot-worker-state.sh:46`), and growing that script breaks the shell line ratchet. It must be a domain property that reads the answer record. The slice map gives it to no plan. Who builds it?
-- [ ] Answer quality. Nothing compares an unblocker's answer with what a person later says, so a run of wrong but reversible answers stays invisible until review findings pile up. The record makes the comparison possible; no slice builds it.
 
 ## Slices
 
@@ -93,7 +94,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 ### Question answering
 
-- `feature/fleetd-answers-a-question` — an `unblock` write the applier starts detached; only an agent's own question (never a fleet- or loop-written terminal marker); a refused `continue` is recorded <!-- builds: unblockerDue, the unblock write, the marker author, the escalation ladder's in-flight silence --> <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/unattended-callers-are-refused -->
+- `feature/fleetd-answers-a-question` — an `unblock` write; a `guessed` mark on an answer with no estate evidence, carried into the notification; each acted-on answer written into the slice PR body; the applier starts detached; only an agent's own question (never a fleet- or loop-written terminal marker); a refused `continue` is recorded <!-- builds: unblockerDue, the unblock write, the marker author, the escalation ladder's in-flight silence --> <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/unattended-callers-are-refused -->
 
 `unblocker.md` belongs to #2898 (`feature/role-agent-definitions`); this plan supplies its charter text. Rendering the answers in the plan issue's Plot comment, size-bounded, belongs to #2905 (`feature/the-plan-comment-renders-records`).
 
