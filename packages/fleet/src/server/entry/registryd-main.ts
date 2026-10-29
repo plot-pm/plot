@@ -10,6 +10,7 @@ import {
   refsRemoteGit,
   buildShell,
   defaultBranchFile,
+  repairRecordFile,
   scriptsShell,
   treesGit,
   machineSystem,
@@ -2515,6 +2516,7 @@ export const run = async (
         },
         build: ci,
         store: defaultBranchFile(repoRoot),
+        repair: repairRecordFile(repoRoot),
         // The host-slot bound is GitHub's account budget; other systems call direct.
         slot: <T,>(call: () => Promise<T>): Promise<T> =>
           ci.system() === 'github-actions'

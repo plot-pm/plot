@@ -4,6 +4,7 @@ import {
   type FailingRun,
   type SettledReading,
 } from '@plot-pm/domain/entities/default-branch';
+import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 import {
   ANCESTOR_ASKS_MAX,
   ANCESTOR_WALK_DEPTH,
@@ -18,6 +19,7 @@ import {
 } from '@plot-pm/domain/rules/default-branch';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
+import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
 /** How long a pending, red or unknown head waits before its runs are asked again, inside `Checks wait`. */
@@ -50,6 +52,8 @@ export interface DefaultBranchWorld {
   build: Pick<BuildPort, 'runsForSha'>;
   /** The reading's file. Fleetd is its only writer. */
   store: DefaultBranchStore;
+  /** The repair record's file, written at the change from green to red. Fleetd is its only writer. */
+  repair: RepairRecordStore;
   /** Runs one host call, inside a host slot where the CI system is GitHub Actions. */
   slot<T>(call: () => Promise<T>): Promise<T>;
   /** Epoch ms. */
@@ -128,6 +132,56 @@ const settleBehindHead = async (
   }
   const last = asking[asking.length - 1];
   return last === undefined ? { settled: kept.settled, failingRuns: kept.failingRuns } : { ...kept, walked: last };
+};
+
+/**
+ * Writes the repair record for a change from a green settled reading (or
+ * none) to a red one.
+ *
+ * `candidates` is written empty here. Populating it needs each candidate's
+ * subject line over the range between `carried` and `settled`, including
+ * merge commits — no port operation `DefaultBranchWorld` already holds
+ * answers that for an arbitrary range (`Refs.commitSubjects` carries no sha;
+ * `Refs.commitsSync` needs a local checkout directory this world does not
+ * have and excludes merges; `Refs.mergeSubjects` takes no range). Adding one
+ * is out of this slice's scope. With no previous reading the record also has
+ * no `lastGreenSha`, and `warn` is told so.
+ *
+ * @param world - the reads and the repair record's file.
+ * @param branch - the default branch's name.
+ * @param settled - the new, red settled reading.
+ * @param carried - the settled reading held before this refresh, if any.
+ * @param stamp - this refresh's timestamp, ISO-8601.
+ * @param warn - receives a one-line reason where the episode opens with no
+ *   last green SHA, or where its candidates are not yet collected.
+ */
+const writeRepairRecord = async (
+  world: DefaultBranchWorld,
+  branch: string,
+  settled: SettledReading,
+  carried: SettledReading | undefined,
+  stamp: string,
+  warn: (line: string) => void,
+): Promise<void> => {
+  if (carried === undefined) {
+    warn(`plot-fleetd: repair record opened for ${settled.sha} with no last green SHA to pick candidates from`);
+  } else {
+    warn(`plot-fleetd: repair record opened for ${settled.sha} with no candidates collected yet`);
+  }
+  const candidates: readonly { sha: string; subject: string }[] = [];
+  const record: RepairRecord = {
+    v: REPAIR_RECORD_VERSION,
+    branch,
+    state: 'idle',
+    ...(carried ? { lastGreenSha: carried.sha } : {}),
+    firstRedSha: settled.sha,
+    redSince: stamp,
+    candidates: [...candidates],
+    rerun: 'none',
+    preRevertRerun: 'none',
+    at: stamp,
+  };
+  await world.repair.write(record);
 };
 
 /** What one refresh did, for the log and the tests. */
@@ -240,6 +294,14 @@ export const refreshDefaultBranch = async (
             failingRuns: previous?.failingRuns ?? [],
             ...(unchanged && previous.walked ? { walked: previous.walked } : {}),
           });
+
+    // The change from a green settled reading (or none) to a red one: write
+    // the repair record before this reading, so a crash or a second tick on
+    // one machine starts no second repair.
+    if (settled?.state === 'red' && settled.sha !== carried?.sha && carried?.state !== 'red') {
+      await writeRepairRecord(world, branch, settled, carried, stamp, warn);
+    }
+
     reading = {
       v: DEFAULT_BRANCH_VERSION,
       branch,
