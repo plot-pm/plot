@@ -1,6 +1,6 @@
-# A dead desk gets a fixer or a restart
+# A dead desk reads unreadable, and a merged PR asks no one
 
-> `endingAction` gains two answers: `restart` for a dead desk that wrote no ending, and `start-fixer` for a desk with no pull request whose fresh session also ended. fleetd applies both in its tick, so neither desk waits for a person.
+> Two fixes to the ending table. A dead plan-named desk with work beyond its claim, no pull request and no ending gets the `unreadable` ending, so the existing bound arm starts one fresh session and then asks a person. The `holding-work` arm reads `prMerged` and asks no person after the pull request merged.
 
 ## Status
 
@@ -11,87 +11,88 @@
 - **Story:** the-fleet-delivers-a-scope-alone
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
-- fleetd restarts a desk whose worker exited without an ending, whose branch holds a commit beyond its claim and has no pull request. It restarts one slice once; a second death asks a person. A desk that a person stopped stays stopped.
-- When a desk with no pull request ends a second time after its fresh session, fleetd starts the fixer role on its branch, up to two attempts, instead of asking a person.
-- When a desk with a pull request ends a second time after its fresh session, fleetd writes no `PLOT-BLOCKED` marker. The pull request's own loop starts the fixer.
+- fleetd writes an `unreadable` ending for a dead desk whose worker exited 0 or left no exit record, whose branch holds a commit beyond its claim, and for which the host answers that no pull request exists. The desk then gets one fresh session, and a second ending asks a person.
+- A desk that ended `holding-work` asks no person when its pull request has merged.
 
-<!-- Board impact: none. The plan format, template and docs/plans layout do not change. A restarted desk shows its worker as `running` and a fixer run shows through the role-run liveness reading that #2898 builds; this plan adds no row state. -->
+<!-- Board impact: none. The plan format, template and docs/plans layout do not change. A desk that gets the composed ending shows the `unreadable` reason the board already renders for an exit-non-zero desk; a merged `holding-work` desk shows no new state. -->
 
 ## Motivation
 
-The spec's section *A dead or stuck desk* ([DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), approved by jwloka on 2026-10-29) names two stops that still wait for a person. The story's goal 1 is that only the release waits for a person.
+The spec's section *A dead or stuck desk* ([DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), approved by jwloka on 2026-10-29) names two stops that wait for a person. The story's goal 1 is that only the release waits for a person.
 
-**The second failure.** `rules/fresh-agent.ts` decides nothing: `freshAgentAnswer` (`fresh-agent.ts:52`) only composes the fresh session's prompt, and `ports/fresh-agent-record.ts:4-18` records a start, never an outcome. The decision is `endingTableAnswer` in `packages/domain/src/rules/ending-action.ts:347-370`. It answers `priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh'` at `:351`, `:354` and `:361`. "The fresh session failed" is therefore derived: a new ending on a slice with `priorFreshSessions > 0`. Six endings reach that arm: `corrections-spent` and `turn-limit` (`FRESH_SESSION_ENDINGS`, `:162`), an after-prompt `holding-work`, and `bound`, `unreadable` and `quiet` with work on the branch. fleetd applies the verdict in `freshAgentDecisions` (`packages/fleet/src/server/entry/registryd.ts:1011`) and `applyFreshAgentDecisions` (`registryd.ts:1139`). The `needs-a-person` arm (`registryd.ts:1177-1178`) calls `askAPerson` (`registryd.ts:1208`), which writes a `PLOT-BLOCKED.md` marker (`registryd.ts:1216`).
+**The measurement.** Round 2's measure juror (`.plot/panels/2026-10-29-a-dead-desk-gets-a-fixer/r2-measure.md`) joined `fresh-agents.tsv` (33 rows) with `ending-asks.tsv` (109 rows, one per `needs-a-person` ask with its `endingAt`) under the common git dir, over 2026-10-09 to 2026-10-28. 33 fresh sessions started, and the branch of every one of them had a pull request before the session started. 10 branches reached a second ending after their fresh session and asked a person: `blocked` 7, `checks-unanswered` 1, `unreadable` 1, `holding-work` 1. All 10 pull requests (#1959, #2356, #2358, #2367, #2464, #2468, #2591, #2711, #2737, #2752) merged later, each merged by jwloka. 0 of the 33 sessions and 0 of the 10 second endings were on a desk with no pull request.
 
-**The dead desk.** `endingAction` already answers every manifest-less, plan-named desk on this machine (`freshAgentCandidateTrees`, `registryd.ts:660-663`): `release-claim`, `start-fresh`, `needs-a-person` or `leave`. A worker that exits non-zero without an ending gets `unreadable` from `killedWorkerEnding` (`ending-action.ts:632`), so that desk is already in the table. What falls through is a desk with no ending at all: a worker that exited 0 without one, or never left an exit record. The table answers `leave` for it (`ending-action.ts:366`), and that desk waits for a person. `restartWorker` refuses every unattended caller (`packages/domain/src/workflows/dispatch-verbs.ts:194`). `workflows/dispatch.ts:42` is only the comment on the `'unattended'` refusal member. Three entries read `PLOT_UNATTENDED` into that reading: `packages/board/src/server/restart.ts:68`, `packages/fleet/src/server/entry/restart-command.ts:89` and `restart-stopped-command.ts:103`.
+**What the measurement removes.** Round 1 proposed two new `endingAction` verdicts: `restart` for a dead desk with no ending, and `start-fixer` for a desk with no pull request whose fresh session also ended. Both leave this plan. The fixer arm serves a desk with no pull request, and that population measured 0 of 33 and 0 of 10. The restart verdict needs a restart record, a refusal record, fleetd's typed caller from #2898 and a second route into `restartBranch`, for a population that also measured 0 on this machine. Round 2's seams juror found that neither verdict could fire as planned, because the tick does not deliver the readings they read (below). A desk with a pull request belongs to #2903's `feature/fleetd-starts-the-fixer`. The 7 `blocked` second endings are the fresh session asking a question, and that population is #2901's.
 
-**Why two parallel rules fail.** The panel ran the real `endingAction`, `restartWorker` and `restartOffered` on dead-desk readings. A separate restart rule beside `endingAction` answers `restart` for desks the table answers `release-claim` or `start-fresh` for, so one tick can release a claim and restart the branch, or start two writers on one branch. It also restarts a desk that a person stopped: a worker stopped with exit 143 and no PR reads `failed`, the `stopped` ending answers `leave`, and `restartWorker` with the refusal lifted answers `worker-start`. And it restarts the six `NEEDS_PERSON_ENDINGS` (`ending-action.ts:217-224`) every tick, bounded only by `Slice max runs` (12, `packages/domain/src/rules/run-limit.ts:13`). Both answers therefore become rows of `endingAction`.
+**The dead desk with no ending.** `endingAction` answers every manifest-less, plan-named desk on this machine (`freshAgentCandidateTrees`, `packages/fleet/src/server/entry/registryd.ts:660-663`). A worker that exits non-zero without an ending gets `unreadable` from `killedWorkerEnding` (`packages/domain/src/rules/ending-action.ts:632-635`), and the bound arm (`ending-action.ts:356-362`) gives it one fresh session. `killedWorkerEnding` answers `null` for an exit of 0 and for a missing exit record (`ending-action.ts:635`), so that desk keeps no ending, the table answers `leave` (`ending-action.ts:366`), and the desk waits for a person. The measure juror found 0 such desks among this machine's 30 worktrees and 178 branch-named endings, and names why the count is a floor: the desk writes no ending, so `endings.jsonl` cannot hold it, and a deleted branch with no reap pin leaves no trace.
 
-**What the endings on this machine show.** `.plot/state/endings.jsonl` in this repository holds 209 endings, measured 2026-10-29: `checks-unanswered` 70, `blocked` 36, `unstarted` 6 (112 that ask a person outright); `unreadable` 31, `corrections-spent` 15, `holding-work` 12, `quiet` 8 (66 that earn a fresh session first); `unregistered` 31. The file records no date and no prior-session count, so the number that reached a second fresh session is not measured. The fixer arm reaches only part of the 66; the 112 outright endings stay with a person.
+**The tick reads `prOpen` and `commitBeyondClaim` only for a bound ending.** The reader asks the host and git for these two values only where `isBoundEnding(ending)` holds (`registryd.ts:912-913`), and `freshAgentDecisions` passes `commitBeyondClaim: 'no'` and `prOpen: false` for every other ending (`registryd.ts:1023-1024`). A desk with `ending: null` therefore reaches `endingAction` with `commitBeyondClaim: 'no'`, so a rule that reads "a commit beyond its claim" from the table never holds for it. This plan adds no table row for that desk. It composes the `unreadable` ending before the reader runs, so the reader then reads the desk as a bound ending and asks the real values.
 
-**Siblings.** This plan reads #2898 (the `caller` reading that `restart` accepts from fleetd, the `fixer` role and its detached start) and #2903 (the fixer attempts record, the fixer start on a desk with a pull request, and the continue lock that start takes). #2901 answers `PLOT-BLOCKED` questions and skips fleet-written markers, so the markers this plan still writes are not answered by the unblocker. #2899 builds the run log and the idle-slice notification.
+**The merged pull request.** The `holding-work` arm (`ending-action.ts:349-352`) reads no `prMerged`. #2591 merged at 18:35:00Z, and its `holding-work` ask followed at 18:35:46Z, 46 s later. #2367 merged at 07:25Z; its `unreadable` ending is from 15:12Z and its ask from 18:29Z, about 11 h after the merge. Both asks were noise for a person.
+
+**Siblings.** #2900 builds `deskDead` (`rules/desk-dead.ts`), the one reading for a dead desk; a desk with a `PLOT-BLOCKED` marker reads `waiting`, not dead. #2903 owns every fixer start on a desk with a pull request. #2901 answers an agent's own `PLOT-BLOCKED` question. #2899 owns the run log; this plan adds no step, because the fresh session it reaches already writes its own record.
 
 ## Design
 
 ### Approach
 
-**One table.** Both answers are new verdicts of `endingAction` (`ending-action.ts:154`, `EndingActionVerdict`), so one rule answers each dead desk once. A `rules-ending-action.test.ts` property test over ending × `priorFreshSessions` × fixer attempts × restarts × PR × marker × worker state asserts exactly one verdict per reading, and asserts that no `NEEDS_PERSON_ENDINGS` row and no `stopped`, `spent` or `limited` row answers `restart` or `start-fixer`. The tick in `packages/fleet` reads the records and calls the controllers. The rules stay pure and read values; no new shell, so the line ratchet in `scripts/check-shell-lines.sh` holds.
+**Slice 1: the dead desk reads `unreadable`.** `killedWorkerEnding` gains a second arm. Today it composes `unreadable` for a desk with no ending file, a non-zero exit record and no live loop. The new arm composes the same `unreadable` ending, actor `supervisor`, for a desk where every reading holds:
 
-**The `restart` arm.** It replaces the `leave` answer for a desk with no ending (`ending-action.ts:366`). It answers `restart` only where every reading holds:
+- the ending file is absent (`read: 'absent'`); an unparseable ending, a person's `stopped` ending and every other written ending stay as they are;
+- the exit record holds `0`, or there is no exit record;
+- the desk is dead: `deskDead` answers `{ dead: true }`, so a live loop, a `PLOT-BLOCKED` marker (`waiting`), a desk on another machine (`elsewhere`) and a failed read (`unread`) compose nothing;
+- the desk names a branch, and the desk is plan-named (`freshAgentCandidateTrees` already filters for this);
+- `commitBeyondClaim` answers `yes` from `Trees.commitBeyondClaim`, the git read `registryd-main.ts:1800-1803` already makes; `no` and `unanswerable` compose nothing;
+- the host's `prState` for the branch answers `null`, which means no pull request in any state; the same `hostShell(context).prState` read `registryd-main.ts:1804-1807` makes. An open, merged or closed pull request composes nothing, and a failed host call composes nothing.
 
-- no ending is recorded, and `killedWorkerEnding` wrote none;
-- no manifest names the desk (`hasManifest` false) and no loop is alive;
-- the worker reads `failed`, `ended` or `none`; `stalled` stays with a person, because its tree holds uncommitted or unpushed work;
-- the newest claim commit is older than `ORPHANED_CLAIM_AGE_MS` (60 s, `packages/domain/src/rules/claim.ts:77`), the launch-window bound `deadClaim` already uses;
-- the branch holds a commit beyond its claim; a branch with only claim commits is a dead claim (`rules/dead-claim.ts:31`), and the release wins;
-- the PR index holds no OPEN or MERGED row for the branch, and no `PLOT-BLOCKED` marker is on the desk;
-- fewer restarts than the bound (one per slice) are recorded, and no earlier restart of this slice was refused.
+**What this slice reads instead of the index.** The "no pull request" condition is the host's `prState` answer at the tick, never the PR index. The index can say a pull request merged, but it can never say that no pull request exists (*A Decision Reads The Index*). An absent row, an old index, a failed decode or a failed host call all compose no ending, and the desk keeps today's `leave`.
 
-A desk past the restart bound answers `needs-a-person`, and the marker names the restart that also died. fleetd calls `restartBranch` in process (`packages/fleet/src/shared/restart-command.ts:114`) with its typed caller from #2898, not the board's HTTP route. `restartBranch` re-asks the host for the PR state (`restart-command.ts:67`) and starts through `continueOnDesk`, which takes the desk's continue lock (`packages/fleet/src/shared/continuation.ts:857`). A refused restart (`reached-review`, `pr-unanswerable`, `loop-alive`) is recorded, so the next tick asks the host nothing for that slice until a person or a new ending clears it. The restart record is appended before the start, and a failed append starts nothing. fleetd's restart passes its own prompt; `RESTART_ANSWER` (`restart-command.ts:19-20`) says "A person restarted this worker" and stays the text for a person's restart.
+**The host is asked only where its answer can change the verdict.** `killedWorkerEndings` (`registryd.ts:794-809`) reads the ending file and the exit record first. It asks `deskDead`, then git, then the host, only for a desk with no ending file and an exit of 0 or no exit record, in that order, and stops at the first reading that composes nothing. `killedWorkerEndings` becomes async and takes these reads as ports. The non-zero arm reads exactly what it reads today.
 
-**The `start-fixer` arm.** It replaces the `needs-a-person` answer at `:351`, `:354` and `:361` for a desk with no pull request. For a desk with an open pull request, the same arms answer `leave` and write no marker; #2903's PR loop starts that fixer. The arm answers `start-fixer` where the desk has no OPEN or MERGED row, `priorFreshSessions > 0`, and fewer than two fixer attempts are recorded for the plan and branch. At two attempts it answers `needs-a-person`, and the marker names both attempts. fleetd starts the fixer through the role start that #2903's `feature/fleetd-starts-the-fixer` uses, under the same per-desk continue lock, so a person's `restart`, this plan's restart, or #2901's unblocker cannot start a second writer. The attempt is appended before the start to the record #2903's `feature/the-fixer-attempts-record` creates, keyed by plan and branch for a desk with no pull request; a failed append starts nothing, as `beforeStart` does for the fresh session (`registryd.ts:1151`).
+**What the bound arm does next.** The tick writes the ending to the desk (`registryd-main.ts:1856-1863`) before `readFreshAgentCandidates` runs. The reader then sees a bound ending and asks `prMerged`, `commitBeyondClaim` and `prOpen` from the host and git (`registryd.ts:903-913`). The bound arm answers `start-fresh` for a slice with no fresh session yet, and `needs-a-person` after one (`ending-action.ts:361`). The fresh session's record in `fresh-agents.tsv` is the bound of one. No new verdict, record or route is built, and fleetd calls no `restart`, so this slice needs nothing from #2898.
 
-**A red build after the attempts.** A failed fresh session is a red build, not a HIGH finding. After both fixer attempts, a red build holds and notifies; it never takes the merge arm. For a desk with a pull request that rule is #2903's and #2902's; for a desk with no pull request there is nothing to merge.
+**Slice 2: `holding-work` reads the merge.** The `holding-work` arm (`ending-action.ts:349-352`) answers `leave` where `prMerged` reads `merged`, after the take-up refusal check and before the `priorFreshSessions` answer. The reader asks `prMerged` for a `holding-work` ending too: the condition at `registryd.ts:903-906` adds `ending === 'holding-work'`. `prMerged: 'unanswerable'` takes the `not-merged` arm, as every other row does, so a failed host call still reaches a person.
 
-**Vocabulary.** The code says Agent for the actor and Slice for a branch. It adds nothing to the `Wave` defect. The verdicts are agent facts read from the desk; the worker states stay process facts.
+**Vocabulary.** The code says Agent for the actor and Slice for a branch, and it adds nothing to the `Wave` defect. The ending is an agent fact read from the desk; the worker's exit stays a process fact.
 
 ### Decisions
 
 Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-a-dead-desk-gets-a-fixer/panel.md`):
 
-- [x] D1: `restart` keeps refusing every unattended caller (`dispatch-verbs.ts:194`). The caller is a typed domain reading built by #2898's `feature/unattended-callers-are-refused`, and fleetd's in-process caller is accepted by `restart`. This plan builds no lift; it calls `restartBranch` with fleetd's caller.
-- [x] D2: every HIGH goes to a fixer, two attempts per PR, then the ticket. A desk with a pull request belongs to #2903's PR loop; this plan's fixer covers only a desk with no pull request, keyed by plan and branch, with the same two attempts. The desk loop is unchanged.
-- [x] D5: the `fixer` role is `.claude/agents/fixer.md` loaded from the default branch's copy through `--agents <file>`, with its per-role settings file, both built by #2898. fleetd creates any worktree itself and does not rely on `isolation` in frontmatter.
-- [x] Both answers are verdicts of `endingAction`, not rules beside it, with one exhaustive table and one property test.
-- [x] A restart is not a fixer attempt. Restarts carry their own record and a bound of one per slice.
-- [x] The restart's launch-window bound is `ORPHANED_CLAIM_AGE_MS` with the `hasManifest` reading. `Claim stale after` (24 h) is read only by `skills/plot/scripts/plot-reconcile-scan.sh:374` and is not used.
-- [x] An `elsewhere` desk cannot reach either arm: the tick reads only this machine's worktrees (`registryd.ts:660-663`).
-- [x] `restart` never follows a person's stop: a `stopped`, `spent` or `limited` ending answers `leave` as today.
+- [x] D2: every HIGH goes to a fixer, two attempts per pull request, then the ticket. A desk with a pull request belongs to #2903's PR loop. The desk loop is unchanged.
+- [x] A person's stop stays a stop: a `stopped`, `spent` or `limited` ending is never overwritten and answers `leave` as today.
+- [x] An `elsewhere` desk cannot reach either fix: the tick reads only this machine's worktrees (`registryd.ts:660-663`), and `deskDead` answers `elsewhere`.
+
+Decided 2026-10-29 by Jan Wloka after panel round 2 (`r2-measure.md`, `r2-seams.md`), decision C4:
+
+- [x] The plan shrinks to two fixes. The `restart` verdict and the no-PR `start-fixer` verdict leave the plan, because 0 of 33 fresh sessions and 0 of 10 second endings were on a desk with no pull request (2026-10-09 to 2026-10-28).
+- [x] The dead desk reuses the existing bound arm through `killedWorkerEnding`. No new verdict, no restart record, and no wait on #2898.
+- [x] "No pull request" is the host's `prState` answer, never the PR index.
+- [x] The `holding-work` arm reads `prMerged`.
+- [x] Round 1's open questions on the no-PR fixer (where it runs, whether `holding-work` gets it) and on the run log leave with the fixer. The second-ending count is measured above.
 
 ### Open Questions
 
-- [ ] Does an after-prompt `holding-work` desk with no pull request get the fixer? Its work is uncommitted in the desk's tree, which a fixer in another worktree cannot read. Recommendation: no; it keeps `needs-a-person`.
-- [ ] Where does the fixer run on a desk with no pull request? The desk's worktree has the branch checked out, so `git worktree add` refuses a second checkout. Recommendation: the fixer runs in the desk's worktree under the continue lock, so `restartWorker` and `plot-reap.sh` read the desk as held.
-- [ ] Do the restart and the fixer start write a line to #2899's run log (`feature/the-loop-keeps-a-run-log`), and does slice 2 wait for it? #2899's idle-slice rule reads only open slice PRs, so a no-PR desk is invisible to it either way.
-- [ ] How many desks reach a second fresh-session ending? `endings.jsonl` carries no date and no prior-session count. Count them from `fresh-agents.tsv` joined with the endings before slice 2 starts.
+- [ ] #2367's ask came from the bound arm, which already reads `prMerged` (`ending-action.ts:358`), 11 h after the merge. The records do not say what the host answered at that tick. Recommendation: slice 2's fleet test feeds the bound arm `prMerged: 'unanswerable'` and asserts the ask stands, because a failed read never points toward `leave`; a host that answered `not-merged` for a merged pull request is a host-adapter defect for its own issue.
+- [ ] Slice 1 reads `deskDead`, which #2900's `feature/fleetd-reviews-slice-prs` builds, so slice 1 carries a `waits:` annotation the slice map does not list. Recommendation: keep the wait and record it in the slice map; the alternative is to read `loopAlive` and the marker directly, which defines a second copy of the dead-desk reading.
 
 ## Slices
 
-### Dead-desk restart
+### The dead desk reads unreadable
 
-- `feature/ending-action-restarts-a-desk` — `restart` as an `endingAction` answer for a desk with no ending, no manifest, a commit beyond its claim and no pull request; never after a person's stop or a `NEEDS_PERSON_ENDINGS` ending; a restart record with a bound of one, appended before the start; recorded refusals; fleetd calls `restartBranch` in process with its own prompt <!-- builds: a restart verdict in endingAction, a per-slice restart record --> <!-- waits: feature/unattended-callers-are-refused -->
+- `feature/a-dead-desk-reads-unreadable` — `killedWorkerEnding` composes `unreadable` for a desk with no ending file, an exit of 0 or no exit record, `deskDead` dead, `commitBeyondClaim` `yes` and the host's `prState` answering `null`; `killedWorkerEndings` asks `deskDead`, git and the host only for that desk and stops at the first reading that composes nothing; tests: domain unit rows in `rules-ending-action.test.ts` for exit 0 and an absent exit with each reading flipped, the existing rows that a `stopped` ending and an unparseable ending are never overwritten; fleet unit in `fresh-agent-tick.test.ts`: a dead desk with work and no PR gets the ending and `start-fresh` in one tick, a second ending after the fresh session asks a person, and a host answer of OPEN, MERGED or a failed call writes no ending <!-- builds: a second arm of killedWorkerEnding --> <!-- waits: feature/fleetd-reviews-slice-prs -->
 
-### No-PR desk fixer
+### Holding-work reads the merge
 
-- `feature/ending-action-starts-a-fixer` — `start-fixer` as an `endingAction` answer for a dead desk with no pull request whose fresh session also ended, keyed by plan and branch, two attempts, appended before the start, under the continue lock; a desk with a pull request answers `leave` with no marker and goes to #2903 <!-- builds: a start-fixer verdict in endingAction --> <!-- waits: feature/fleetd-starts-the-fixer -->
+- `feature/holding-work-reads-the-merge` — the `holding-work` arm answers `leave` where `prMerged` reads `merged`; the reader asks `prMerged` for `holding-work`; tests: domain unit rows for `holding-work` with `merged`, `not-merged` and `unanswerable` at `priorFreshSessions` 0 and 1, a fixture of the 10 measured second-ending readings asserting which answers change (#2591's only); fleet unit: a `holding-work` desk whose host answers merged writes no marker <!-- builds: a prMerged read on the holding-work arm -->
 
 ## Notes
 
 - Raised from issue #2906. The issue is the problem statement; the spec binds the design, and the decisions above correct it where they differ.
-- The two slices change `ending-action.ts`, `rules-ending-action.test.ts`, `registryd.ts` and `fresh-agent-tick.test.ts`, so they run in sequence. Slice 2 changes the contract `fresh-agent-tick.test.ts:410` pins: the second reach of the six endings no longer answers `needs-a-person` with a marker where the desk has no pull request or has one.
-- Slice 1 calls `restartBranch` with fleetd's typed caller, which #2898's `feature/unattended-callers-are-refused` builds. The slice map gives slice 1 no `waits:` annotation; until that branch merges, fleetd's restart is refused `unattended`.
-- Owned elsewhere and not built here: the `caller` reading and the refusals (#2898, `feature/unattended-callers-are-refused`); `fixer.md` and its settings (#2898, `feature/role-agent-definitions`); the detached role start (#2898, `feature/role-agents-start-detached`); the fixer attempts record (#2903, `feature/the-fixer-attempts-record`); the fixer start on a desk with a pull request (#2903, `feature/fleetd-starts-the-fixer`); the run log (#2899, `feature/the-loop-keeps-a-run-log`); answering an agent's own question (#2901, `feature/fleetd-answers-a-question`).
+- The two slices change `ending-action.ts`, `rules-ending-action.test.ts`, `registryd.ts` and `fresh-agent-tick.test.ts`, so they run in sequence.
+- Neither slice changes the contract `fresh-agent-tick.test.ts:410` pins: a second fresh-session ending on a desk whose pull request has not merged still answers `needs-a-person` with a marker.
+- Owned elsewhere and not built here: `deskDead` (#2900, `feature/fleetd-reviews-slice-prs`); every fixer start on a desk with a pull request (#2903, `feature/fleetd-starts-the-fixer`); answering an agent's own question (#2901, `feature/fleetd-answers-a-question`); the run log (#2899, `feature/the-loop-keeps-a-run-log`).
