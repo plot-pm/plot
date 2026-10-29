@@ -96,7 +96,7 @@ Decided 2026-10-29 by Jan Wloka in a challenge:
 
 ### Comment renderer
 
-- `feature/the-plan-comment-renders-records` — one domain renderer in `rules/plan-issue-comment.ts` (the progress line and the HIGH ticket links, nothing else) that every phase write uses through `plot-plan-state.mjs`; D6 keeps the existing ticket lines on a machine without the record; a level-triggered write with a body hash and a per-issue lock <!-- builds: rules/plan-issue-comment.ts, the widened PlanStateWrite, the record reads in plan-state.ts -->
+- `feature/the-plan-comment-renders-records` — one domain renderer in `rules/plan-issue-comment.ts` (the progress line and the HIGH ticket links, nothing else) that every phase write uses through `plot-plan-state.mjs`; D6 keeps the existing ticket lines on a machine without the record; a level-triggered write with a body hash and a per-issue lock <!-- builds: rules/plan-issue-comment.ts, the widened PlanStateWrite, the record reads in plan-state.ts --> → #2932
 
 ### Merged slice count
 
