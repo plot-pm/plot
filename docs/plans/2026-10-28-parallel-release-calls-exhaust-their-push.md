@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Story:**
 - **Sprint:** follow-ups-2-29-1
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/one-release-job-per-plan`
 - **Started:** 2026-10-28, Jan Wloka, `bug/shared-issue-reads-the-post-push-tree`
 - **Started:** 2026-10-29, Jan Wloka, `docs/release-step-5b-reads-each-outcome`
+- **Delivered:** 2026-10-29
 
 ## Changelog
 
