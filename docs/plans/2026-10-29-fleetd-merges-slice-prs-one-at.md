@@ -53,25 +53,25 @@ The design's sections *The loop*, *One merge in flight* and *Stalls* bind this p
 
 **Slice 2 — fleetd merges one PR per pass.**
 
-- The merge arm of `slicePrNext` (`rules/slice-pr-next.ts`, created by #2900) answers `merge`, pinned to the head, when the PR index row records `plot/review` as `success` on the row's `headSha`. A clean review and a ticketed HIGH (#2903) both write `success`, so both merge through this one row.
-- The hold rows gate only the merge step, so reviews and fixes continue while main is red:
+- The merge arm of `slicePrNext` (`rules/slice-pr-next.ts`, created by #2900) is step 8 of #2900's composition order, so it answers only when no earlier arm answered. It reads three fields of #2900's input record: `row`, `defaultBranch` and `newestMerged`. It answers `{ step: 'merge', head }`, pinned to the head, when `row.plotReview` is `success` and `row.plotReviewSha` equals `row.headSha`. A clean review and a ticketed HIGH (#2903's `write-status` step with `ticket-accepted`) both write `success`, so both merge through this one row. A row with no `plotReview` field (not asked) answers `none`, because the index never says no.
+- Each hold is #2900's `{ step: 'hold', reason }` with a reason from #2900's set. The holds gate only the merge step, so reviews and fixes continue while main is red:
 
 | Reading | Next step |
 |---|---|
-| `plot/review` is `success` on this head | merge, pinned to the head |
-| Default branch reading settled red within `Checks wait` | hold `default-branch-red` |
-| Default branch reading older than `Checks wait`, red or green | hold `default-branch-stale` |
-| No default branch reading | hold `default-branch-unread` |
-| `settled.sha` differs from `headSha`, or the newest MERGED row's `mergedAt` is later than the reading's `askedAt` | hold `merge-in-flight` |
-| Index row reads `mergeable: CONFLICTING` | hold `conflicting` |
+| `row.plotReview` is `success` and `row.plotReviewSha` equals `row.headSha` | `merge`, pinned to the head |
+| `defaultBranch` settled red within `Checks wait` | hold `default-branch-red` |
+| `defaultBranch` older than `Checks wait`, red or green | hold `default-branch-stale` |
+| `defaultBranch` is `null` | hold `default-branch-unread` |
+| `defaultBranch.settled.sha` differs from its `headSha`, or `newestMerged.mergedAt` is later than `defaultBranch.askedAt` | hold `merge-in-flight` |
+| `row.mergeable` is `CONFLICTING` | hold `conflicting` |
 
 - The stale row reads the reading's age as `merge()` does. It never calls `defaultBranchRed`, which lifts on a stale reading. A test asserts both answers on one fixture.
-- The in-flight row reads the reading and the newest MERGED row of the PR index. A MERGED row is terminal, so the rule reads it within *A Decision Reads The Index*. The controller's fresh tip read confirms the mark at the destructive step.
+- The in-flight row reads `defaultBranch` and `newestMerged`, the newest MERGED row of the PR index that the tick passes in #2900's input record. A MERGED row is terminal, so the rule reads it within *A Decision Reads The Index*. The controller's fresh tip read confirms the mark at the destructive step.
 - **At most one merge per pass.** A scope-level rule (`nextMerge`) picks one candidate from the rows that answer `merge`: the lowest PR number. The tick calls `mergeAt` for that PR only, and the next pass sees the new tip.
 - **The index selects, the controller re-asks.** The tick calls the domain `mergeAt` in process. A refusal ends that action. A `head-moved` refusal waits for the new head's review.
 - **No retry at the same head.** fleetd keeps, in memory, the PR and head of each `host-refused` merge and does not ask again until the head moves. A fleetd restart asks once more.
 - **The looping daemon only.** The merge runs in the automatic writes of the scan clock (`registryd-main.ts:2598`). `--once` merges nothing, as `skills/plot-fleet/SKILL.md:285` promises.
-- **D4.** On GitHub, fleetd answers `merger-app-missing` and merges nothing while `Merger app` is not declared. On Bitbucket the key does not apply.
+- **D4.** On GitHub, the merge arm answers hold `merger-app-missing`, a reason this plan adds to #2900's open reason set, and fleetd merges nothing while `Merger app` is not declared. On Bitbucket the key does not apply.
 
 ### Decisions
 
@@ -87,6 +87,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 - [x] A missing default-branch reading holds an unattended merge.
 - [x] `mergeAt` moves into the domain in slice 1.
 - [x] The merge arm extends #2900's `slicePrNext` and reads #2900's review record from the PR index; it waits on `feature/fleetd-reviews-slice-prs`.
+- [x] The merge arm uses #2900's names (decisions map, #2900's interface names): it reads `plotReview` and `plotReviewSha` from `row` and `newestMerged` and `defaultBranch` from `slicePrNext`'s input record, and answers #2900's `merge` and `hold` steps with #2900's hold reasons, plus `merger-app-missing`.
 - [x] "Settled" uses the `Default branch checks` list: the reading folds only declared runs (`declaredRuns` at `packages/fleet/src/shared/default-branch-refresh.ts:114`), and no second list exists.
 - [x] A person's merge reaches the mark through the default branch's tip, read fresh at the controller; the MERGED row closes the window between fleetd's own merge and the next refresh.
 
@@ -98,9 +99,9 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 ### Owned elsewhere
 
 - The unattended refusal on `plot-ask.mjs merge` and the `caller` reading: #2898, `feature/unattended-callers-are-refused`.
-- The `plot/review` state and its SHA in the PR index: #2900, `feature/the-index-records-the-review`.
+- The `plot/review` state and its SHA in the PR index (`plotReview`, `plotReviewSha`): #2900, `feature/the-index-records-the-review`.
 - The scope reader: #2900, `feature/the-scope-is-read-from-git`.
-- `rules/slice-pr-next.ts`, its answer type and the tick wiring: #2900, `feature/fleetd-reviews-slice-prs`.
+- `rules/slice-pr-next.ts`, its input record (`newestMerged` included), its step union, its hold reasons, its composition order and the tick wiring: #2900, `feature/fleetd-reviews-slice-prs`.
 - The repair and revert PR exception to the red hold, in `merge()` and `slicePrNext`: #2904, `feature/merge-admits-the-repair-pr`.
 - The run-log lines for a merge and a hold, and an idle-slice rule that does not read a PR waiting its turn as idle: #2899, `feature/the-loop-keeps-a-run-log` and `feature/an-idle-slice-notifies`.
 - The slice-progress line after a merge: #2905, `feature/merged-slices-update-the-comment`, which reads MERGED rows from the index rather than this plan's call.
