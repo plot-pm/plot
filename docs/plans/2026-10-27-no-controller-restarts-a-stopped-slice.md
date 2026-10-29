@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2784
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-27, Jan Wloka, `bug/a-stopped-slice-has-a-restart-controller`
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-fleet-start-restarts-what-its-stop-stopped`
 - **Delivered:** 2026-10-28
+- **Released:** 2026-10-29, v2.29.1
 
 ## Changelog
 
