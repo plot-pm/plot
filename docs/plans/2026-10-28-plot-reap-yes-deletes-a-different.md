@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2825
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-keeps-commits-after-the-merge`
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-yes-acts-on-the-recorded-run`
 - **Delivered:** 2026-10-29
+- **Released:** 2026-10-29, v2.29.1
 
 ## Changelog
 
