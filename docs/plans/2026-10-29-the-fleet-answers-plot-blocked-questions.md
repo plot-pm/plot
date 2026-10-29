@@ -46,7 +46,7 @@ The design's *Decided* and *Calls made* lists bind this plan where the decisions
 
 **The answer record.** One record per question, keyed `(worktree, askedAt)`, where `askedAt` is the marker's modification time, the key `escalations.tsv` already uses. Each row carries the question's first line, the answer, the author (the accepted caller: `unblocker` or a person's handle) and an outcome: `started`, `answered`, `refused <reason>` or `failed`. The file lives in `.plot/state/` under the common git dir on the fleet's machine (D6), behind a domain port with a file adapter, as `fresh-agents.tsv` is (`packages/domain/src/adapters/fresh-agent-record/fresh-agent-record-file.ts:17`). `continueOnDesk` (`continuation.ts:815`) writes the `answered` row, so a person's answer through `/api/continue` or `plot-continue-command.mjs` and fleetd's answer share one source. `continue` takes the question key it answers and refuses `question-moved` on a mismatch, as `merge` pins to a head. A refused call writes nothing on the desk, the same no-trace contract the other refusals keep.
 
-**The start.** A domain rule, `unblockerDue`, takes readings as values: the marker and its author, the recorded outcome for `(worktree, askedAt)`, the loop state and its free wait, the merge answer from the tick's memo, and a live fixer run on the slice. It answers `start` only for an agent's own question on a desk of this machine with no live loop, no live fixer, and no record for that key. The tick returns an `unblock` write beside `notify` and spawns nothing. The applier writes the `started` row before the start, as the fresh-agent step writes in `beforeStart` (`registryd.ts:1146-1160`), then starts the unblocker detached through #2898's role start. The unblocker hands back one answer. fleetd applies it through `continueOnDesk` in process with its typed caller (D1), pinned to the question key. A refused `continue` is recorded as `refused <reason>` and the rule starts nothing more for that key.
+**The start.** A domain rule, `unblockerDue`, takes readings as values: the marker and its author, the recorded outcome for `(worktree, askedAt)`, #2900's `deskDead` answer for the desk (`rules/desk-dead.ts`), the merge answer from the tick's memo, and a live fixer run on the slice. It defines no desk reading of its own. It answers `start` only for an agent's own question when `deskDead` answers `{ dead: false, why: 'waiting' }`, no fixer is live, and no record exists for that key. A `deskDead` answer of `live`, `elsewhere` or `unread` starts nothing, and `unread` holds until the next tick. Whether a live loop in a free wait may take the answer stays the `continue` engine's own question (`packages/domain/src/rules/continue-target.ts:111`), which refuses `loop-alive` for every other live loop. The tick returns an `unblock` write beside `notify` and spawns nothing. The applier writes the `started` row before the start, as the fresh-agent step writes in `beforeStart` (`registryd.ts:1146-1160`), then starts the unblocker detached through #2898's role start. The unblocker hands back one answer. fleetd applies it through `continueOnDesk` in process with its typed caller (D1), pinned to the question key. A refused `continue` is recorded as `refused <reason>` and the rule starts nothing more for that key.
 
 **Which markers.** The loop and fleetd mark the markers they write with a recognisable author. `unblockerDue` answers only a marker without that author. A marker the loop or fleetd wrote stays with a person, #2903's fixer and #2906's restart.
 
@@ -60,7 +60,7 @@ The design's *Decided* and *Calls made* lists bind this plan where the decisions
 
 ### Acceptance
 
-- `packages/domain` unit tests for `unblockerDue`: no marker, a merged desk, a live non-free loop, a live fixer run and a loop- or fleetd-written marker each start nothing; a `started` or `refused` record for the key starts nothing; a new `askedAt` starts one run.
+- `packages/domain` unit tests for `unblockerDue` with `deskDead` answers as values: no marker, a merged desk, a `deskDead` answer of `live`, `elsewhere` or `unread`, a live fixer run and a loop- or fleetd-written marker each start nothing; `waiting` with no record starts one run; a `started` or `refused` record for the key starts nothing; a new `askedAt` starts one run.
 - `packages/fleet` unit tests for `continueOnDesk`: a mismatched question key refuses `question-moved` and writes nothing on the desk; a person and fleetd at once start one run, and the record names the winner.
 - `registryd-tick.test.ts`: a marker yields one `unblock` write and the tick spawns nothing; a second tick with the `started` row yields none.
 - `question-escalation.test.ts`: a `started` record yields no new rung.
@@ -76,6 +76,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 - [x] `continue` takes the question key and refuses `question-moved`.
 - [x] The tick returns an `unblock` write; the applier starts the role detached.
 - [x] Only an agent's own question is answered, never a loop- or fleetd-written terminal marker.
+- [x] The desk reading is #2900's `deskDead` (`rules/desk-dead.ts`), never a copy: the unblocker starts on `waiting` only (decisions map, #2900's interface names).
 - [x] The loop bound is `Slice max runs` and `Slice max spend`, with the refusal recorded; `Correction budget` is not reused.
 - [x] No `Issue:`, or a Jira tracker that answers `no-target`: the record under `.plot/state/` is the durable home in every case.
 - [x] Every agent question gets an answer (jwloka, challenge 2026-10-29). An answer that rests on no estate evidence carries a `guessed` mark in the record and in the notification the person receives; the mark is a pointer, never a stop.
@@ -84,6 +85,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 ### Open Questions
 
 - [ ] The board's "answer in flight" state. The design names it, `waiting` is decided in shell today (`plot-worker-state.sh:46`), and growing that script breaks the shell line ratchet. It must be a domain property that reads the answer record. The slice map gives it to no plan. Who builds it?
+- [ ] `feature/fleetd-answers-a-question` reads `deskDead`, which #2900's `feature/fleetd-reviews-slice-prs` builds, but the slice map gives it no `<!-- waits: feature/fleetd-reviews-slice-prs -->`. Does the map add that wait, or does `deskDead` move to an earlier #2900 slice?
 
 ## Slices
 
@@ -93,15 +95,15 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 ### Question answering
 
-- `feature/fleetd-answers-a-question` — an `unblock` write; a `guessed` mark on an answer with no estate evidence, carried into the notification; each acted-on answer written into the slice PR body; the applier starts detached; only an agent's own question (never a fleet- or loop-written terminal marker); a refused `continue` is recorded <!-- builds: unblockerDue, the unblock write, the marker author, the escalation ladder's in-flight silence --> <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/unattended-callers-are-refused -->
+- `feature/fleetd-answers-a-question` — an `unblock` write; a `guessed` mark on an answer with no estate evidence, carried into the notification; each acted-on answer written into the slice PR body; the applier starts detached; only an agent's own question (never a fleet- or loop-written terminal marker); a refused `continue` is recorded <!-- builds: unblockerDue, the unblock write, the marker author, the escalation ladder's in-flight silence --> <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/unattended-callers-are-refused --> <!-- waits: feature/fleetd-reviews-slice-prs -->
 
 `unblocker.md` belongs to #2898 (`feature/role-agent-definitions`); this plan supplies its charter text.
 
 ## Notes
 
 - Depends on #2898 (`feature/unattended-callers-are-refused`, `feature/role-agents-start-detached`, and `feature/role-agent-definitions` for `unblocker.md`).
-- #2900's `feature/fleetd-reviews-slice-prs` treats a desk that holds a `PLOT-BLOCKED` marker as not dead, so #2903's fixer arms never fire on a desk this plan answers.
-#2906's restart refuses a desk with a marker (`blocked-marker`, `continuation.ts:160-161`).
+- #2900's `feature/fleetd-reviews-slice-prs` builds `deskDead`, which reads a desk that holds a `PLOT-BLOCKED` marker as `waiting`, not dead. This plan's `unblockerDue` reads that answer, and #2903's fixer arms read the same answer and never fire on a desk this plan answers.
+- #2906's restart refuses a desk with a marker (`blocked-marker`, `continuation.ts:160-161`).
 - This plan writes no #2899 run-log line, so #2899 is not a prerequisite.
 - Created from issue #2901 by `/plot-idea`, unattended. Review and Impl answers follow the repo's `Plan PRs: required` and the multi-slice shape.
 - Deliverable search for `unblocker` found nothing in the estate.
