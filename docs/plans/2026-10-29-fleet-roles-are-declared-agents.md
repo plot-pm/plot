@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2908 merged
+- **Started:** 2026-10-29, Jan Wloka, `feature/role-agents-are-probed`
 
 ## Changelog
 
