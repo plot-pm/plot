@@ -1,5 +1,12 @@
 # @plot-pm/fleet
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [[`565896e`](https://github.com/plot-pm/plot/commit/565896e1b358b714b653eb0f23ca511ac2b4fe0c)]:
+  - @plot-pm/domain@0.3.5
+
 ## 0.1.3
 
 ### Patch Changes
