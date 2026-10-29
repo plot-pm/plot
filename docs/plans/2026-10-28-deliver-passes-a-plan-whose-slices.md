@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2826
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-cross-repo-reference-is-read-per-line`
 - **Started:** 2026-10-29, Jan Wloka, `docs/a-foreign-slice-has-one-written-form`
 - **Delivered:** 2026-10-29
+- **Released:** 2026-10-29, v2.29.1
 
 ## Changelog
 
