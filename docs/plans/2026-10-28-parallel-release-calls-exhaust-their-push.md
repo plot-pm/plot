@@ -129,7 +129,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-pa
 
 ### Release outcomes
 
-- `docs/release-step-5b-reads-each-outcome` — step 5b reads `GET /api/release/<slug>` per plan and prints one line per failed plan; the false board-button claim goes
+- `docs/release-step-5b-reads-each-outcome` — step 5b reads `GET /api/release/<slug>` per plan and prints one line per failed plan; the false board-button claim goes → #2889
 
 ## Notes
 
