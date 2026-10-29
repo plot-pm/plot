@@ -17,7 +17,7 @@
 
 - fleetd answers a `PLOT-BLOCKED` question that an agent wrote. It starts the unblocker role detached, the unblocker hands back one answer, and fleetd continues the desk with it. Where the estate gives no answer, the unblocker gives the most reversible answer it can name.
 - fleetd never answers a marker that the worker loop or fleetd wrote itself (checks failed after the correction budget, conflicts, a usage limit, refused writes, dropped work, `needs-a-person`). Those stay with a person, the fixer and the restart rules.
-- Every answer to a desk, from the unblocker or from a person, goes into one per-question record under `.plot/state/` with its question, answer, author and outcome. The plan issue's Plot comment renders that record once #2905 ships.
+- Every answer to a desk, from the unblocker or from a person, goes into one per-question record under `.plot/state/` with its question, answer, author and outcome. Each answer the desk acted on also appears in its slice PR's body.
 - `continue` takes the question it answers and refuses `question-moved` when the desk now holds a different question, so an answer never lands on a later question.
 - A question that `continue` refuses (`run-limit`, `spend-limit`, `loop-alive`, `question-moved`) is recorded once. fleetd starts no second unblocker for it, and the question-escalation ladder notifies a person as it does today.
 - While an unblocker answer is in flight, the question-escalation ladder sends no notification for that question.
@@ -71,7 +71,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 - [x] D1: `continue` refuses every unattended caller; #2898 builds that refusal and the typed `caller` reading. fleetd applies the unblocker's answer through `continueOnDesk` in process with its typed caller, which `continue` accepts. The unblocker never calls `continue` itself.
 - [x] D5: the unblocker role is `.claude/agents/unblocker.md` plus a per-role settings file, built by #2898 and loaded from the default branch. fleetd creates any worktree itself. This plan supplies the charter text only.
-- [x] D6: the answer record lives in `.plot/state/` under the common git dir on the fleet's machine. A plan-state write from a machine without the record keeps the comment's record lines (#2905).
+- [x] D6: the answer record lives in `.plot/state/` under the common git dir on the fleet's machine. Its one consumer is this plan's PR-body write; the plan issue's comment does not render answers (#2905, challenge 2026-10-29).
 - [x] "Once per question": a durable record keyed `(worktree, askedAt)` with an outcome, written before the start; the controller records the author.
 - [x] `continue` takes the question key and refuses `question-moved`.
 - [x] The tick returns an `unblock` write; the applier starts the role detached.
@@ -80,7 +80,6 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 - [x] No `Issue:`, or a Jira tracker that answers `no-target`: the record under `.plot/state/` is the durable home in every case.
 - [x] Every agent question gets an answer (jwloka, challenge 2026-10-29). An answer that rests on no estate evidence carries a `guessed` mark in the record and in the notification the person receives; the mark is a pointer, never a stop.
 - [x] The answer travels with its change (jwloka, challenge 2026-10-29): each answer the desk acted on is written into its slice PR's body, beside the change it caused, so the reviewer reads it with the diff and a wrong answer surfaces as a review finding on that head. The answer record stays the durable home; the PR body is where a person checks it.
-- [x] The comment size bound belongs to #2905, which renders the record.
 
 ### Open Questions
 
@@ -96,13 +95,13 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 - `feature/fleetd-answers-a-question` — an `unblock` write; a `guessed` mark on an answer with no estate evidence, carried into the notification; each acted-on answer written into the slice PR body; the applier starts detached; only an agent's own question (never a fleet- or loop-written terminal marker); a refused `continue` is recorded <!-- builds: unblockerDue, the unblock write, the marker author, the escalation ladder's in-flight silence --> <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/unattended-callers-are-refused -->
 
-`unblocker.md` belongs to #2898 (`feature/role-agent-definitions`); this plan supplies its charter text. Rendering the answers in the plan issue's Plot comment, size-bounded, belongs to #2905 (`feature/the-plan-comment-renders-records`).
+`unblocker.md` belongs to #2898 (`feature/role-agent-definitions`); this plan supplies its charter text.
 
 ## Notes
 
 - Depends on #2898 (`feature/unattended-callers-are-refused`, `feature/role-agents-start-detached`, and `feature/role-agent-definitions` for `unblocker.md`).
 - #2900's `feature/fleetd-reviews-slice-prs` treats a desk that holds a `PLOT-BLOCKED` marker as not dead, so #2903's fixer arms never fire on a desk this plan answers.
-- #2905 renders this plan's record in the plan issue's Plot comment. #2906's restart refuses a desk with a marker (`blocked-marker`, `continuation.ts:160-161`).
+#2906's restart refuses a desk with a marker (`blocked-marker`, `continuation.ts:160-161`).
 - This plan writes no #2899 run-log line, so #2899 is not a prerequisite.
 - Created from issue #2901 by `/plot-idea`, unattended. Review and Impl answers follow the repo's `Plan PRs: required` and the multi-slice shape.
 - Deliverable search for `unblocker` found nothing in the estate.
