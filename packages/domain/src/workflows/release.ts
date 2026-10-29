@@ -2,6 +2,7 @@ import type { ItemStatus, MoscowTier } from '../entities/sprint.js';
 import { normalizeVersion } from '../entities/release.js';
 import { keyFromText } from '../rules/sprint-release.js';
 import {
+  type Caller,
   type Outcome,
   type PlanPhaseWrite,
   type PlanRecordWrite,
@@ -17,10 +18,12 @@ import {
  * FIXTURE-VERIFIED ONLY — transcribed from `skills/plot-release/SKILL.md`,
  * which has no exit code. See `EVIDENCE` in `./decision.js`.
  *
- * `must-haves-open` is the sprint gate, and it refuses in BOTH modes:
- * `PLOT_UNATTENDED` answers *may I ask?* and never *may I proceed?*.
+ * `unattended` is the caller gate, and it is the one place `fleetd` gets no
+ * exception: the person's approval finishes the release as that person, and
+ * neither an unattended process nor fleetd itself ever runs it.
  */
 export type ReleaseRefusal =
+  | 'unattended'
   | 'must-haves-open'
   | 'should-haves-declined'
   | 'version-underivable'
@@ -119,8 +122,8 @@ export interface ReleaseInput {
   candidate?: boolean;
   /** The named escape past the Must-Have gate, and past nothing else. */
   ignoreSprint?: boolean;
-  /** Whether a person is there to answer the Should-Have prompt. */
-  unattended?: boolean;
+  /** Who is asking; neither an unattended caller nor fleetd itself finishes a release. */
+  caller?: Caller;
   /** The answer to the Should-Have prompt, where one was given. */
   proceedOverShoulds?: boolean;
   /** The date to record, ISO-8601. */
@@ -220,6 +223,16 @@ export const release = (
     .filter((i) => i.status === 'withdrawn')
     .map((i) => `${label(i)} — withdrawn (sprint ${i.sprint})`);
 
+  // The caller gate. Checked before anything else, including the sprint gate:
+  // neither an unattended process nor fleetd itself finishes a release, no
+  // matter what the sprint or version state would otherwise allow.
+  if (input.caller === 'unattended' || input.caller === 'fleetd') {
+    return no(
+      'unattended',
+      'a release needs a person. An unattended caller does not finish one, and fleetd gets no exception here.',
+    );
+  }
+
   // Step 0 — the sprint gate. Run before anything else, because a release that
   // has been tagged cannot be un-cut and refusing is only cheap while it is
   // still ahead.
@@ -235,20 +248,12 @@ export const release = (
   }
 
   const openShoulds = unfinished('should');
-  if (!candidate && openShoulds.length > 0) {
-    if (input.unattended) {
-      // The prompt becomes a warning, never a refusal: nobody was asked, and
-      // that is stated rather than hidden.
-      unasked.push(
-        `PLOT-UNASKED: Cut over ${openShoulds.length} open Should Have(s)? — default — proceeded; the items are listed`,
-      );
-    } else if (input.proceedOverShoulds === false) {
-      // Answering no cuts nothing, changing no files.
-      return no(
-        'should-haves-declined',
-        `${openShoulds.length} Should Have(s) are open and the cut was declined — nothing was changed.`,
-      );
-    }
+  if (!candidate && openShoulds.length > 0 && input.proceedOverShoulds === false) {
+    // Answering no cuts nothing, changing no files.
+    return no(
+      'should-haves-declined',
+      `${openShoulds.length} Should Have(s) are open and the cut was declined — nothing was changed.`,
+    );
   }
 
   // Step 1 — the version. There is no safe default for a version number:

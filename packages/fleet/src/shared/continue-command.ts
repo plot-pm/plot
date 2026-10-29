@@ -1,4 +1,4 @@
-import type { FleetReading } from '@plot-pm/domain';
+import type { Caller, FleetReading } from '@plot-pm/domain';
 import {
   continueOnDesk,
   type ContinuationOptions,
@@ -52,6 +52,8 @@ export interface ContinueBranchInput {
   /** The fleet reading the branch is looked up in; `null` where there is none. */
   pulse: FleetReading | null;
   branch: string;
+  /** Who is asking; an unattended caller is refused before any read. */
+  caller: Caller;
   /** The answer the new run reads; the caller has bounded it. */
   answer: string;
   /** Starts the desk's monitor; the shell script where absent. */
@@ -90,6 +92,7 @@ export const continueBranch = async (input: ContinueBranchInput): Promise<DeskCo
   return continueOnDesk({
     opts: input.opts,
     readCfg: input.readCfg,
+    caller: input.caller,
     branch: input.branch,
     worktree: found.worktree,
     main: input.pulse?.main ?? '',

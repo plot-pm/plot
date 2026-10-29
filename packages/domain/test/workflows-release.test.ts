@@ -198,9 +198,9 @@ describe('release — the sprint gate', () => {
     expect(refused(out) && out.detail).toContain('sprint team-b');
   });
 
-  it('refuses a Must Have even unattended — that variable never converts a refusal', () => {
-    const out = release(ready({ sprintItems: [item()] }), { ...on, unattended: true });
-    expect(refused(out) && out.reason).toBe('must-haves-open');
+  it('refuses an unattended caller outright, even over an open Must Have', () => {
+    const out = release(ready({ sprintItems: [item()] }), { ...on, caller: 'unattended' });
+    expect(refused(out) && out.reason).toBe('unattended');
   });
 
   it('passes an RC over an open Must Have — an RC is how the item gets finished', () => {
@@ -233,13 +233,29 @@ describe('release — the sprint gate', () => {
     expect(decided(out) && out.detail.openShoulds).toEqual(['[unfinished-plan]']);
   });
 
-  it('turns the Should-Have prompt into a warning when nobody is there', () => {
+  it('refuses an unattended caller outright rather than warning over the Should-Have prompt', () => {
     const out = release(ready({ sprintItems: [item({ tier: 'should' })] }), {
       ...on,
-      unattended: true,
+      caller: 'unattended',
     });
-    expect(decided(out) && out.detail.unasked[0]).toContain('PLOT-UNASKED');
-    expect(decided(out) && out.detail.unasked[0]).toContain('proceeded');
+    expect(refused(out) && out.reason).toBe('unattended');
+  });
+
+  it('refuses a fleetd caller the same way it refuses unattended — the one asymmetry with merge/continue/restart', () => {
+    const out = release(ready({ sprintItems: [item({ tier: 'should' })] }), {
+      ...on,
+      caller: 'fleetd',
+    });
+    expect(refused(out) && out.reason).toBe('unattended');
+  });
+
+  it('proceeds for a person past every other gate, unaffected by the caller reading', () => {
+    const out = release(ready({ sprintItems: [item({ tier: 'should' })] }), {
+      ...on,
+      caller: 'person',
+      proceedOverShoulds: true,
+    });
+    expect(decided(out) && out.detail.openShoulds).toEqual(['[unfinished-plan]']);
   });
 
   it('lets a Could Have neither block nor prompt', () => {

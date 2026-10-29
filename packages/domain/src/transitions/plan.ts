@@ -11,6 +11,7 @@ import {
   unnamedBranches,
   type NamedSlice,
 } from '../rules/slice-name.js';
+import type { Caller } from '../workflows/decision.js';
 
 /**
  * A plan's state as the parser normalizes it.
@@ -112,7 +113,8 @@ export type RefusalReason =
   | 'spike-approved'
   | 'spike-unmerged'
   | 'slices-unpushed'
-  | 'precondition-unmet';
+  | 'precondition-unmet'
+  | 'unattended';
 
 /**
  * A refused transition, naming which gate fired.
@@ -872,6 +874,8 @@ export interface ReleaseInput {
   version: string;
   /** Readings an adapter measured, such as the sprint's Must items. */
   preconditions?: readonly Precondition[];
+  /** Who is asking; neither an unattended caller nor fleetd itself finishes a release. */
+  caller?: Caller;
 }
 
 /**
@@ -897,10 +901,21 @@ export const releasable = (plan: TransitionPlan): boolean =>
  * @param plan - the plan to release.
  * @param input - the date and version to record, plus any readings.
  * @returns a decision carrying `released` and its record, or a refusal naming
- *   the gate that fired: `state-too-early`, `state-unreadable`, `state-wrong`,
- *   `version-missing` or `precondition-unmet`.
+ *   the gate that fired: `unattended`, `state-too-early`, `state-unreadable`,
+ *   `state-wrong`, `version-missing` or `precondition-unmet`.
  */
 export const release = (plan: TransitionPlan, input: ReleaseInput): TransitionResult => {
+  // The caller gate. Checked before anything else, including the state switch:
+  // neither an unattended process nor fleetd itself finishes a release, no
+  // matter what the plan's own state would otherwise allow.
+  if (input.caller === 'unattended' || input.caller === 'fleetd') {
+    return refuse(
+      plan.slug,
+      'unattended',
+      `plan '${plan.slug}' cannot be released by an unattended caller — a release needs a person, and fleetd gets no exception here.`,
+    );
+  }
+
   switch (plan.phase) {
     case 'delivered':
     case 'released':

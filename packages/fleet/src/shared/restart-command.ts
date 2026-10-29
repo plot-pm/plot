@@ -143,6 +143,7 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
   return continueOnDesk({
     opts,
     readCfg: input.readCfg,
+    caller: input.caller,
     branch,
     worktree,
     main: input.pulse?.main ?? '',
