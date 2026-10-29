@@ -2725,13 +2725,21 @@ export function AgentList({
             from its plan and its refs, and is exactly as true now as it will be
             when the scan ends. Only the TOTAL is provisional, so only the total
             says so. */}
-        {!fleet.complete && ' so far'} · scanned{' '}
-        {/* `tick` stops while stale, so this age freezes rather than ageing
+        {!fleet.complete && ' so far'}
+        {/* `fleet.readRefAge`, not `fleet.ageSeconds`: this dates the last
+            SUCCESSFUL fetch of the ref, so it keeps counting up while fetches
+            fail rather than resetting on every finished scan. Null — no fetch
+            has ever succeeded — omits the age entirely rather than printing
+            `0s ago` for a scan that never refreshed the ref.
+
+            `tick` stops while stale, so this age freezes rather than ageing
             against a scan that is not happening — the defect itself, since an
             age that keeps climbing is the most confident-looking part of a dead
             page. The word says so too: a number that has stopped moving is
             indistinguishable from a slow one until it is labelled. */}
-        {fleet.ageSeconds + tick}s ago{stale && ' (frozen)'}
+        {fleet.readRefAge !== null && (
+          <> · scanned {fleet.readRefAge + tick}s ago{stale && ' (frozen)'}</>
+        )}
         {gitNext !== null && ` · next in ${gitNext}s`}
         {fleet.prAgeSeconds !== null && ` · PR data ${fleet.prAgeSeconds + tick}s ago`}
         {fleet.prAgeSeconds !== null && prNext !== null && ` · next in ${prNext}s`}

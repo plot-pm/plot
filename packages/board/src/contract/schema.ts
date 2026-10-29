@@ -4306,13 +4306,14 @@ export const FleetShape = z.object({
    */
   readRef: z.string().nullable().default(null),
   /**
-   * How old that read is, in seconds — the age OF THE REF, stated beside it.
+   * How old that read is, in seconds — the age of the last SUCCESSFUL fetch of
+   * the ref, not of the last finished scan.
    *
-   * The same number as `ageSeconds` by construction, because the board caches
-   * one scan and both facts come off it. It is named separately rather than
-   * left implicit: a consumer reading `readRef` must not have to know that a
-   * field named for the tab happens to date it. Null exactly when there is no
-   * scan to date — never 0, which would claim a read that just happened.
+   * A scan keeps running after a failed `git fetch`, so this can differ from
+   * `ageSeconds` the moment a fetch fails: `ageSeconds` keeps counting from the
+   * scan, this keeps counting from the last fetch that actually refreshed the
+   * ref. Null exactly when no fetch has ever succeeded — never 0, which would
+   * claim a read that just happened.
    */
   readRefAge: z.number().nullable().default(null),
   /**
