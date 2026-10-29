@@ -24,6 +24,8 @@ const carried = (over: Partial<CarriedListing> = {}): CarriedListing => ({
 const whole = (text: string): string => `plot-host: ${text}`;
 const OPEN_WHOLE = whole('github pr-list state=open page complete (1 rows below requested limit 500) — this page holds every pull request the host has in this state');
 const ALL_WHOLE = whole('github pr-list state=all page complete (1 rows below requested limit 500) — this page holds every pull request the host has in this state');
+const WINDOW_WHOLE = (state: string, matches: number) =>
+  whole(`bitbucket pr-list state=${state} window complete (${matches} matches, every page read) — this window holds every pull request the host has in this state since the stamp`);
 
 const answer = (over: Partial<ScanListingAnswer> = {}): ScanListingAnswer => ({
   verdict: 'ok',
@@ -175,6 +177,23 @@ describe('foldScanListing', () => {
     const rest = answer({ rows: [row({ state: 'CLOSED' })] });
     const folded = foldScanListing(held, open, rest);
     expect(folded).toEqual({ ok: true, rows: [row({ state: 'OPEN' })], complete: true });
+  });
+
+  it('refuses a Bitbucket window answer with real rows and no whole-page notice', () => {
+    // THE GAP THIS SLICE CLOSES. `bb_window_listing` already refuses a short
+    // page on the shell side, but prints no success notice on its happy path —
+    // so a delta with real rows and ordinary stderr reads as an unproven page,
+    // exactly like a GitHub answer with no "page complete" line would.
+    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: null });
+    const rest = answer({ rows: [row({ state: 'MERGED' })], stderr: null });
+    expect(foldScanListing(null, open, rest)).toEqual({ ok: false, refusal: 'no-whole-page-claim' });
+  });
+
+  it('accepts a Bitbucket window answer once it carries the window-complete notice', () => {
+    const open = answer({ rows: [row({ state: 'OPEN' })], stderr: WINDOW_WHOLE('open', 1) });
+    const rest = answer({ rows: [row({ state: 'MERGED' })], stderr: WINDOW_WHOLE('all', 1) });
+    const folded = foldScanListing(null, open, rest);
+    expect(folded.ok).toBe(true);
   });
 });
 

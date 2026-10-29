@@ -1393,6 +1393,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
     echo "bitbucket window state=$_st is short ($_got of $_size matches after $_pages pages); refusing it rather than printing it as whole" >&2
     return 3
   fi
+  echo "plot-host: bitbucket pr-list state=$_st window complete ($_got matches, every page read) — this window holds every pull request the host has in this state since the stamp" >&2
   printf '%s' "$_rows"
 }
 
@@ -1958,7 +1959,7 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # names no parenthesized host. The caller decides what an unresolved host
 # means, same contract as every other helper here.
 jenkins_resolve_host() {
-  local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
+  local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1)
   [ -n "$line" ] || return 1
   sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" | grep . || return 2
 }

@@ -69,6 +69,17 @@ describe('extractHostNotices — plot-host notices split from the real failure t
     expect(remainder).toBe('bb: HTTP 429');
   });
 
+  it('reads a Bitbucket window-complete notice, the sibling of page complete and sweep complete', () => {
+    const windowNotice = 'plot-host: bitbucket pr-list state=merged window complete '
+      + '(3 matches, every page read) — this window holds every pull request the host has in this state since the stamp';
+    const { notices, remainder } = extractHostNotices(windowNotice);
+    expect(notices).toEqual([{
+      text: 'bitbucket pr-list state=merged window complete (3 matches, every page read) '
+        + '— this window holds every pull request the host has in this state since the stamp',
+    }]);
+    expect(remainder).toBeNull();
+  });
+
   it('keeps every plot-host failure shape out of the notices', () => {
     for (const failure of [
       'plot-host: pr-list: host refused a burst — HTTP 429',

@@ -183,7 +183,7 @@ export type ScanListingFold =
 const wholePage = (answer: ScanListingAnswer): boolean =>
   answer.verdict === 'ok' && (answer.rows.length === 0
     || extractHostNotices(answer.stderr).notices.some((notice) =>
-      /sweep complete|page complete/.test(notice.text)));
+      /sweep complete|page complete|window complete/.test(notice.text)));
 
 /**
  * Folds a full-read-or-delta-read pair of host responses over a carried
