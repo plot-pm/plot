@@ -110,7 +110,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-pl
 
 ### Board-carried plan age
 
-- `bug/planning-tab-reads-a-fleet-payload` — `FleetReadingSchema` keeps `fetch_failed`; the cache records the last successful fetch; `/api/board` carries `planRefAgeSeconds`; `PlanSourceLine` ticks it from a domain rule and freezes it while the server is unreachable; `/api/fleet`'s `readRefAge` and `ageSeconds`, `/api/attention` and the Delivery footer date the same fetch; the sprint modal drops `planFileFromFleet` for a domain destination rule; three doc comments state the board source; domain, board unit and browser tests <!-- builds: fetch_failed on FleetReadingSchema, fetchedAt on CacheEntry, planRefAgeSeconds on BoardSchema, a plan-ref-age domain rule, a sprint-item-destination domain rule -->
+- `bug/planning-tab-reads-a-fleet-payload` — `FleetReadingSchema` keeps `fetch_failed`; the cache records the last successful fetch; `/api/board` carries `planRefAgeSeconds`; `PlanSourceLine` ticks it from a domain rule and freezes it while the server is unreachable; `/api/fleet`'s `readRefAge` and `ageSeconds`, `/api/attention` and the Delivery footer date the same fetch; the sprint modal drops `planFileFromFleet` for a domain destination rule; three doc comments state the board source; domain, board unit and browser tests <!-- builds: fetch_failed on FleetReadingSchema, fetchedAt on CacheEntry, planRefAgeSeconds on BoardSchema, a plan-ref-age domain rule, a sprint-item-destination domain rule --> → #2895
 
 ## Notes
 
