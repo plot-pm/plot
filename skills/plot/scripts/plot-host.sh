@@ -693,6 +693,11 @@ host_err() { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; }
 # that cannot be read never falls through to "no marker found, post new".
 gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'; }
 
+# EDITS THE COMMENT `$1` HOLDS, OR POSTS `$4` TO `$3` ON `$2` (`issue` or
+# `pr`) — shared by `issue-comment` and `pr-comment`, whose tails differed
+# only in that one word.
+gh_edit_or_post_comment() { if [ -n "$1" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$1" -f body="$4" >/dev/null 2>"$HOST_ERR"; else gh "$2" comment "$3" --body "$4" >/dev/null 2>"$HOST_ERR"; fi; }
+
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
@@ -5759,8 +5764,7 @@ case "$op" in
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
         cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
-        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR"
-        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail ;;
+        gh_edit_or_post_comment "$cid" issue "$num" "${3-}" || gh_fail ;;
       issue-comment-read)
         cid="$(gh_marker_comment_id "$num" "${2:?issue-comment-read needs a marker}")" || gh_fail
         [ -z "$cid" ] || gh api "repos/{owner}/{repo}/issues/comments/$cid" -q .body 2>"$HOST_ERR" || gh_fail ;;
@@ -6069,7 +6073,7 @@ case "$op" in
     # helper.
     [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
     [ -z "${3-}" ] || cid="$(gh_marker_comment_id "$num" "$3")" || gh_fail
-    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail; rm -f "$HOST_ERR" ;;
+    gh_edit_or_post_comment "$cid" pr "$num" "${2:?pr-comment needs a body}" || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
     die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
