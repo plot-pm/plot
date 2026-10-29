@@ -110,7 +110,7 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-su
 
 ### Bitbucket delta
 
-- `bug/a-bitbucket-scan-reads-a-delta` — fold the carried Bitbucket sweep with a `bb_window_listing` delta that claims its window whole, priced in `scanListingCost`, and amend the CLAUDE.md GitHub-only paragraph <!-- builds: a Bitbucket arm of the carried-listing fold, a whole-window notice -->
+- `bug/a-bitbucket-scan-reads-a-delta` — fold the carried Bitbucket sweep with a `bb_window_listing` delta that claims its window whole, priced in `scanListingCost`, and amend the CLAUDE.md GitHub-only paragraph <!-- builds: a Bitbucket arm of the carried-listing fold, a whole-window notice --> → #2892
 
 ## Notes
 
