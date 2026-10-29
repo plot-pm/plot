@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2808
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/ticket-rows-appear-once`
 - **Started:** 2026-10-28, Jan Wloka, `bug/draft-rows-obey-mine`
 - **Delivered:** 2026-10-28
+- **Released:** 2026-10-29, v2.29.1
 
 ## Changelog
 
