@@ -120,7 +120,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 2 and the challenges (`.plot/p
 
 ### Repair record
 
-- `feature/the-repair-record` — written at the green→red change: last green SHA, first-red time, the candidate merge; a `transitions/` rule <!-- builds: the repair record in both refresh arms, its lifecycle and transitions rule, redMainStep with the episode pin, the breaking-commit picker, and the Main repair bound parser -->
+- `feature/the-repair-record` — written at the green→red change: last green SHA, first-red time, the candidate merge; a `transitions/` rule <!-- builds: the repair record in both refresh arms, its lifecycle and transitions rule, redMainStep with the episode pin, the breaking-commit picker, and the Main repair bound parser --> → #2936
 
 ### Merge exception
 
