@@ -1097,15 +1097,15 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
   const quiet = async () => tick({ registry: async () => [], world: world(), now: () => 0 });
   const BASE = 'plot-fleetd tick agents=0 left=0 reap=0 correct=0 person=0 defer=0 cost=0ms';
 
-  it('appends the account rate and its own rate after every earlier field', async () => {
-    const report = { ...(await quiet()), spend: { accountPerHour: 2825.4, minePerHour: 120 } };
+  it('appends the account rate and each loop\'s own rate after every earlier field', async () => {
+    const report = { ...(await quiet()), spend: { accountPerHour: 2825.4, perLoop: { tick: 120 } } };
     // THE EARLIER FIELDS KEEP THEIR NAMES AND ORDER, so a tick after this change
     // stays comparable with one before it in `.plot/logs/registryd.log`.
-    expect(tickLine(report)).toBe(`${BASE} account=2825/hr mine=120/hr`);
+    expect(tickLine(report)).toBe(`${BASE} account=2825/hr tick=120/hr`);
   });
 
   it('prints an unread record as unread, never as zero', async () => {
-    const report = { ...(await quiet()), spend: { accountPerHour: null, minePerHour: 0 } };
+    const report = { ...(await quiet()), spend: { accountPerHour: null, perLoop: { tick: 0 } } };
     const line = tickLine(report);
     expect(line).toContain('account=unread');
     expect(line).not.toContain('account=0');
@@ -1144,10 +1144,10 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
     };
     const report = await tick({ registry: async () => [], world: world(), queue, now: () => 0 });
     // AND THE ACCOUNT IS SPENDING HARD — the rate `account=` names.
-    const line = tickLine({ ...report, spend: { accountPerHour: 2825, minePerHour: 120 } });
+    const line = tickLine({ ...report, spend: { accountPerHour: 2825, perLoop: { tick: 120 } } });
     expect(line).toContain('merge-unknown=1');
     expect(line).toContain('account=2825/hr');
-    expect(line).toContain('mine=120/hr');
+    expect(line).toContain('tick=120/hr');
   });
 
   it('keeps an incomplete tick on its own line whatever the spend says', async () => {
@@ -1156,7 +1156,7 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
       world: world(),
       now: () => 0,
     });
-    expect(tickLine({ ...report, spend: { accountPerHour: 2825, minePerHour: 120 } })).toBe(
+    expect(tickLine({ ...report, spend: { accountPerHour: 2825, perLoop: { tick: 120 } } })).toBe(
       'plot-fleetd tick incomplete reason="spawn git ENOMEM" cost=0ms next=re-reads',
     );
   });

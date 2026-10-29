@@ -33,6 +33,11 @@ export interface IssueState {
   issueNextIsBackoff: boolean;
   /** The last pass's failure sentence, the source's absence reason, or null — never a read's `unsupported` answer, which is a standing fact rather than a failure. */
   issueError: string | null;
+  /**
+   * Host requests this issue pass has spent since the tick last read and
+   * zeroed it. Never reset at the top of a pass; only the reader zeroes it.
+   */
+  calls: number;
 }
 
 /** An issue state as a fresh process holds it. */
@@ -40,6 +45,7 @@ export const freshIssueState = (): IssueState => ({
   issueNextAt: 0,
   issueNextIsBackoff: false,
   issueError: null,
+  calls: 0,
 });
 
 /** The states whose pass or drain is writing the index now; the other waits for the next beat. */
@@ -438,6 +444,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
         changedRead.value.issues.map(issueIndexRowOf),
       );
       const requests = changedRead.value.pages;
+      state.calls += requests;
       const nextAt = startedAt + issueIntervalMs(requests);
       state.issueError = null;
       state.issueNextAt = nextAt;
@@ -472,6 +479,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       const wait = waitOf(hostReaction(reason, null, finishedAt));
       const backoffUntil = wait === null ? null : finishedAt + wait;
       const requests = 1;
+      state.calls += requests;
       const nextAt = startedAt + issueIntervalMs(requests);
       state.issueError = reason;
       state.issueNextAt = backoffUntil ?? nextAt;
@@ -519,6 +527,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       inboxOutcome = inboxOutcomeOf(inboxRead, keptInbox, keptInboxAt, at, tracker.lastRefusal(), finishedAt);
     }
     const requests = changedSpent + result.value.pages + outcome.spent + inboxOutcome.spent;
+    state.calls += requests;
     const nextAt = startedAt + issueIntervalMs(requests);
     const ends = [
       outcome.wait === null ? null : closedFinishedAt + outcome.wait,
@@ -551,6 +560,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   }
 
   const requests = changedSpent + 1;
+  state.calls += requests;
   const nextAt = startedAt + issueIntervalMs(requests);
   const base: Pick<IssueIndex, 'v' | 'source' | 'connector' | 'account' | 'requests' | 'nextAt'> = {
     v: ISSUE_INDEX_VERSION,

@@ -1498,7 +1498,7 @@ describe('run — a failed tick must not end the daemon', () => {
 
   // THE RESET PLACEMENT (#2716): `tally.calls` is zeroed after the spend
   // reading, not at the top of the tick. The fresh-agent/nothing-done steps
-  // run AFTER that reading, so a COMPLETED tick's `mine=` line reports what
+  // run AFTER that reading, so a COMPLETED tick's `tick=` line reports what
   // the PRIOR tick's steps added to the tally, not its own — the reset at the
   // bottom is what hands that number to the next tick's reading rather than
   // wiping it first.
@@ -1508,13 +1508,13 @@ describe('run — a failed tick must not end the daemon', () => {
   // `startNothingDoneReleases` asks the stubbed host's `pr-state` exactly
   // once per completed tick — one host call, 60/hr at the default interval
   // (`boardSharePerHour`, confirmed above: "two host calls a tick ... is the
-  // 120/hr ceiling"). Tick 1 reports `mine=0/hr` (nothing ran before it) and
+  // 120/hr ceiling"). Tick 1 reports `tick=0/hr` (nothing ran before it) and
   // then adds its own one call to the tally; tick 2 THROWS before reaching
   // the bottom-of-loop reset, so without the catch block's OWN reset tick 1's
   // call would still be sitting in `tally.calls` when tick 3 reads it —
-  // reporting `mine=60/hr` for a call that happened two ticks ago. The catch
+  // reporting `tick=60/hr` for a call that happened two ticks ago. The catch
   // block resets the tally itself, so tick 3 reads a clean `0` and reports
-  // `mine=0/hr`, exactly as tick 1 did.
+  // `tick=0/hr`, exactly as tick 1 did.
   it('counts only the completing tick\'s own calls, even after a tick in between threw', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'plot-registryd-reset-'));
     try {
@@ -1582,8 +1582,8 @@ describe('run — a failed tick must not end the daemon', () => {
       expect(code).toBe(0);
       expect(ticks).toBe(3);
       // Tick 2 threw before ever reaching `reportTick`, so only ticks 1 and 3
-      // print a `mine=` line.
-      const mineLines = lines.filter((l) => l.includes('mine=')).map((l) => /mine=(\d+)\/hr/.exec(l)?.[1]);
+      // print a `tick=` line.
+      const mineLines = lines.filter((l) => l.includes('tick=')).map((l) => /tick=(\d+)\/hr/.exec(l)?.[1]);
       // Both read `0`: tick 1 because nothing ran before it, tick 3 because
       // the catch block cleared tick 1's one call rather than letting it
       // leak past the throwing tick 2. A reset left only at the top of the
@@ -1599,7 +1599,7 @@ describe('run — a failed tick must not end the daemon', () => {
 /**
  * ACCEPTANCE, PER TICK (#2716): with N leftover worktrees and no manifest, of
  * which M hold `nothing-done` with no commit beyond the claim, the step makes
- * M `pr-state` calls that tick against N before — and `mine=` for the NEXT
+ * M `pr-state` calls that tick against N before — and `tick=` for the NEXT
  * tick's reading (which is where a completed tick's own calls surface, see
  * above) equals 60 times the calls counted since the previous reading.
  */
@@ -1701,7 +1701,7 @@ describe('acceptance — the step asks the host once per nothing-done desk with 
       );
       expect(code).toBe(0);
       expect(ticks).toBe(2);
-      const mineLines = lines.filter((l) => l.includes('mine=')).map((l) => /mine=(\d+)\/hr/.exec(l)?.[1]);
+      const mineLines = lines.filter((l) => l.includes('tick=')).map((l) => /tick=(\d+)\/hr/.exec(l)?.[1]);
       // Tick 1 reports `0` (nothing ran before it); tick 2 reports what tick
       // 1's own nothing-done step added. The stub's `pr-state` does not
       // answer, so each of the M = 2 desks costs its `prOpen` call plus the
@@ -1873,13 +1873,27 @@ describe('the tick reads the account rate from the spend record', () => {
     expect(await accountRate(saying({ answer: 'answered', stdout: '{"perHour":' }))).toBeNull();
   });
 
-  it('prices its own share at this tick\'s calls over the interval', async () => {
+  it('prices each loop\'s own share at its own calls over its own interval', async () => {
     // Two host calls a tick at 60 s is the 120/hr ceiling the plan measured.
-    expect(await spendForTick(record(2825), 2, TICK_INTERVAL_MS)).toEqual({
+    expect(
+      await spendForTick(record(2825), [{ name: 'tick', calls: 2, intervalMs: TICK_INTERVAL_MS }]),
+    ).toEqual({
       accountPerHour: 2825,
-      minePerHour: 120,
+      perLoop: { tick: 120 },
     });
-    expect((await spendForTick(record(null), 0, TICK_INTERVAL_MS)).minePerHour).toBe(0);
+    expect(
+      (await spendForTick(record(null), [{ name: 'tick', calls: 0, intervalMs: TICK_INTERVAL_MS }])).perLoop.tick,
+    ).toBe(0);
+  });
+
+  it('prices every loop named, each at its own interval', async () => {
+    const spend = await spendForTick(record(2825), [
+      { name: 'tick', calls: 2, intervalMs: TICK_INTERVAL_MS },
+      { name: 'scan', calls: 1, intervalMs: 5_000 },
+      { name: 'pr-reader', calls: 1, intervalMs: 60_000 },
+      { name: 'issue-reader', calls: 1, intervalMs: 120_000 },
+    ]);
+    expect(spend.perLoop).toEqual({ tick: 120, scan: 720, 'pr-reader': 60, 'issue-reader': 30 });
   });
 });
 

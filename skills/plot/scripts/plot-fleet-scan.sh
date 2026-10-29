@@ -403,11 +403,9 @@ fi
 # degrades to strict and says so: an unverifiable claim of readiness is not
 # readiness.
 loose_verifiable=0
-if [ "$loose" = 1 ]; then
-  if [ "$do_fetch" = 1 ] && "$script_dir/plot-host.sh" backend >/dev/null 2>&1 \
-     && [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ]; then
-    loose_verifiable=1
-  fi
+if [ "$loose" = 1 ] && [ "$do_fetch" = 1 ]; then
+  loose_backend=$("$script_dir/plot-host.sh" backend 2>/dev/null)
+  [ -n "$loose_backend" ] && [ "$loose_backend" != "none" ] && loose_verifiable=1
 fi
 
 # ---------------------------------------------------------------------------
@@ -597,9 +595,31 @@ fi
 # `REF_TMP` trap below replaced it, so every scan left one `tmp.*` directory of
 # ~955 files behind (measured 2026-09-30).
 HOST_STATE_CACHE=""
+# WHAT THIS SCAN SPENT ON THE HOST, ON STDERR AND TAGGED like `listing:` and
+# `terminal:` — `fleet-scan.ts`'s `onErrorLine` parses all three the same way.
+# TypeScript sees only the in-process `askPrList` calls; the two `pr-list`
+# calls in `prefill_pr_states` and every real `pr-state` call `host_pr_state
+# --ask` makes are this script's own (#2815). It runs at exit, because
+# `--stream`, which fleetd starts, leaves through its own `exit 0`, and it
+# prints only under `--stream`: `--next` and the other modes promise silence on
+# both streams, and no `--json` caller reads stderr. Registered BEFORE the
+# cache, because the exit handler runs in registration order and removes the
+# cache that holds the count. A scan that spent nothing prints no line.
+plot_on_exit '[ "$stream" = 1 ] && [ -s "$HOST_STATE_CACHE/.spend" ] && printf "spend: %s\n" "$(wc -c < "$HOST_STATE_CACHE/.spend" | tr -d " ")" >&2'
 if [ "$HOST_LOOKUP_OK" = 1 ]; then
   plot_tmpdir HOST_STATE_CACHE fleet-host-state 2>/dev/null || HOST_STATE_CACHE=""
 fi
+
+# ONE LINE PER REAL HOST CALL, APPENDED RATHER THAN HELD IN A VARIABLE.
+# `host_pr_state` is called from inside `$(...)` at two sites (`:1524`,
+# `:4469`), and a variable it incremented would die with that subshell —
+# exactly the trap `branch_state`'s own comment names above. The file
+# survives every subshell this scan makes, because it is the same
+# `HOST_STATE_CACHE` directory `host_pr_state`'s own per-branch cache
+# already lives in and is cleaned up by.
+spend_tick() {
+  [ -n "$HOST_STATE_CACHE" ] && printf '.' >> "$HOST_STATE_CACHE/.spend" 2>/dev/null
+}
 
 # The cache key. Shared by the join and by `host_pr_state`, because the two
 # must agree on it EXACTLY: a prefill written under one spelling and read under
@@ -921,7 +941,7 @@ EOF
   # the direction that errs costs a fabricated `NONE`. The MARKER carries the
   # claim, so arrival decides and the row count does not.
   [ "$arrived" = 1 ] || return 1
-  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null
   [ "$complete" = 1 ] && { printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true; }
   # `ok`, AND A NEW WORD HERE WOULD STOP THE FLEET. `reachFrom`
   # (`entry/branch-state.ts:113`) maps any word it does not know to `failed`, so
@@ -1047,6 +1067,7 @@ prefill_pr_states() {
   open_err=$("$script_dir/plot-host.sh" pr-list --state open --limit "$PR_LIST_LIMIT" --rich \
          ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$open_list_out"); rc_open=$?
+  spend_tick
   # THE VERDICT IS THE WORSE OF THE TWO, never the last one. A rich call
   # throttled while the plain one answers leaves `checks` absent for every open
   # PR, so `--loose` degrades to strict — and a footer reading `host=ok` would
@@ -1063,6 +1084,7 @@ prefill_pr_states() {
   host_err=$("$script_dir/plot-host.sh" pr-list --state settled --limit "$PR_LIST_LIMIT" \
          ${_branch_args[@]+"${_branch_args[@]}"} \
          </dev/null 2>&1 >"$host_list_out"); rc=$?
+  spend_tick
   pr_list_verdict "$rc" "$host_err"; _v_all=$_plv
   pr_list_verdict_rank "$_v_open"; _r_open=$_plr
   pr_list_verdict_rank "$_v_all"
@@ -1136,7 +1158,7 @@ prefill_pr_states() {
     # Cache format: STATE<TAB>checks<TAB>draft — one line per branch.
     # `checks` is one of: green, failing, pending, none, unknown (or empty when
     # the response was not `--rich`); `draft` is true or false (or empty).
-    printf '%s\t%s\t%s' "$st" "$chk" "$dft" > "$HOST_STATE_CACHE/$br" 2>/dev/null || true
+    printf '%s\t%s\t%s' "$st" "$chk" "$dft" > "$HOST_STATE_CACHE/$br" 2>/dev/null
   done <<EOF
 $(printf '%s\n' "$js" \
   | sed -n -e 's/.*"state":"\([A-Z]*\)","head":"\([^"]*\)","draft":\([a-z]*\),"checks":"\([a-z]*\)".*/\1	\4	\3	\2/p' \
@@ -1175,7 +1197,7 @@ EOF
   # collide with one: `git check-ref-format` rejects a branch whose name starts
   # with a dot, and the key encoding maps only `_` and `/`, so no branch key can
   # begin with one either. The separation is git's rule, not a lucky prefix.
-  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null || true
+  printf '1' > "$HOST_STATE_CACHE/.list-arrived" 2>/dev/null
   # THE LIST WAS WHOLE — a stronger claim than `.list-arrived`, and the only one
   # that licenses deriving `NONE` from a cache miss.
   #
@@ -1267,10 +1289,10 @@ EOF
     return 1
   }
   if _list_whole "$host_err" && _list_whole "$open_err"; then
-    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null
   elif [ "$_pr_rows" -gt 0 ] && [ "$_pr_rows" -lt "$PR_LIST_LIMIT" ] \
        && [ "$_pr_open_rows" -lt "$PR_LIST_LIMIT" ] 2>/dev/null; then
-    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null || true
+    printf '1' > "$HOST_STATE_CACHE/.list-complete" 2>/dev/null
   fi
   report_listing
 }
@@ -1354,6 +1376,7 @@ host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
   if [ "$ask" = "--ask" ]; then
     # Exit code first: non-zero is a transport failure and its stdout is not an
     # answer. Only then is the payload read.
+    spend_tick
     if js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null); then
       st=$(printf '%s' "$js" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
       [ -n "$st" ] || st='-'
@@ -5198,7 +5221,6 @@ read_previous_pulse() {
   # here leaves PREVIOUS_PULSE empty, which reads as a first run — the same
   # answer the scan gave before this existed.
   PREVIOUS_PULSE=$(cat "$file" 2>/dev/null | tr -d '\n') || PREVIOUS_PULSE=""
-  return 0
 }
 
 write_bridge() {
@@ -5225,7 +5247,6 @@ write_bridge() {
       return 0
     }
   mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null
-  return 0
 }
 
 # THE READING, COMPOSED ONCE. Two consumers read it — `--json`/`--stream` print

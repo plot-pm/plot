@@ -89,6 +89,12 @@ export interface ScanState {
   backoffUntil: number | null;
   /** The back-off interval that produced `backoffUntil`, or null where none is held. */
   backoffMs: number | null;
+  /**
+   * Host requests this scan has spent since the tick last read and zeroed it —
+   * the in-process `askPrList` calls plus the shell's own reported `spend:`
+   * count. Never reset at the top of a pass; only the reader zeroes it.
+   */
+  calls: number;
 }
 
 /**
@@ -106,6 +112,7 @@ export const freshScanState = (): ScanState => ({
   listingHeld: null,
   backoffUntil: null,
   backoffMs: null,
+  calls: 0,
 });
 
 /** What a scan reads through; every spawn goes through `scripts` or `refs`. */
@@ -428,12 +435,19 @@ export const scanPrListLimit = (env: NodeJS.ProcessEnv = process.env): number =>
  *
  * @param scripts - the one place `plot-*.sh` is invoked.
  * @param args - the `pr-list` arguments.
+ * @param onCall - called once the host has answered, win or lose — the
+ *   scan's own tally of real requests spent.
  * @returns the rows and the raw stderr `foldScanListing`'s whole-page check
  *   reads, or `verdict: 'failed'` with no rows where the call failed, could
  *   not be asked, or printed a line that is not a PR row.
  */
-const askPrList = async (scripts: Scripts, args: readonly string[]): Promise<ScanListingAnswer> => {
+const askPrList = async (
+  scripts: Scripts,
+  args: readonly string[],
+  onCall: () => void,
+): Promise<ScanListingAnswer> => {
   const said = await scripts.hostSaid(['pr-list', ...args]);
+  onCall();
   if (said.answer === 'failed' || said.answer === 'unaskable') {
     return { verdict: 'failed', rows: [], stderr: said.said };
   }
@@ -457,6 +471,8 @@ const askPrList = async (scripts: Scripts, args: readonly string[]): Promise<Sca
  * @param scripts - the one place `plot-*.sh` is invoked.
  * @param held - the listing the last host read held, or null.
  * @param now - this machine's clock, in epoch milliseconds.
+ * @param onCall - called once per real `pr-list` call made — the scan's own
+ *   tally of requests spent, since a refused delta retries as a full read.
  * @returns the rendered listing and the listing to hold for the next read,
  *   or null where the full read was refused too or a row has no branch name.
  */
@@ -464,12 +480,13 @@ const readGithubListing = async (
   scripts: Scripts,
   held: CarriedListing | null,
   now: number,
+  onCall: () => void,
 ): Promise<{ rendered: string; next: CarriedListing } | null> => {
   const limit = ['--limit', String(scanPrListLimit())];
   const attempt = async (window: ScanListingWindow, base: CarriedListing | null) => {
-    const open = await askPrList(scripts, ['--state', 'open', ...limit, '--rich']);
+    const open = await askPrList(scripts, ['--state', 'open', ...limit, '--rich'], onCall);
     const since = window.kind === 'delta' ? ['--since', window.since] : [];
-    const rest = await askPrList(scripts, ['--state', 'all', ...limit, ...since]);
+    const rest = await askPrList(scripts, ['--state', 'all', ...limit, ...since], onCall);
     return foldScanListing(base, open, rest);
   };
 
@@ -578,7 +595,9 @@ export const scanOnce = async (
   let hostRead: { rendered: string; next: CarriedListing } | null = null;
   let githubRefused = false;
   if (spend && backend === 'github') {
-    hostRead = await readGithubListing(world.scripts, state.listingHeld, now);
+    hostRead = await readGithubListing(world.scripts, state.listingHeld, now, () => {
+      state.calls += 1;
+    });
     state.listingHeld = hostRead?.next ?? null;
     if (hostRead !== null) {
       state.listing = hostRead.rendered;
@@ -614,6 +633,10 @@ export const scanOnce = async (
         onErrorLine: (line) => {
           if (line.startsWith('terminal:')) learned += `${line.slice('terminal:'.length).trim()}\n`;
           if (line.startsWith('listing:')) listed += `${line.slice('listing:'.length).trim()}\n`;
+          if (line.startsWith('spend:')) {
+            const spent = Number.parseInt(line.slice('spend:'.length).trim(), 10);
+            if (Number.isInteger(spent) && spent >= 0) state.calls += spent;
+          }
         },
       });
     ended = true;

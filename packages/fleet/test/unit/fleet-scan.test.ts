@@ -172,6 +172,38 @@ describe('scanOnce carries streamed terminal:/listing: lines forward on a kill',
   });
 });
 
+describe('scanOnce counts the shell\'s own host calls from its spend: line', () => {
+  // #2815: the shell's `pr-list` and `pr-state` calls reach the scan's tally
+  // only through this line; `fleetlisting.test.mjs` proves the shell prints it
+  // under `--stream`. A Bitbucket world, so the scan makes no in-process
+  // `pr-list` call of its own.
+  const shellOnly = (stream: Scripts['stream']): ScanWorld => ({ ...worldWith(stream), backend: async () => 'bitbucket' });
+  const streaming = (errorLines: string[]): Scripts['stream'] => async (_s, args, onLine, options) => {
+    expect(args).toEqual(['--stream']);
+    for (const line of errorLines) options?.onErrorLine?.(line);
+    onLine(JSON.stringify({ kind: 'reading', reading: READING }));
+  };
+
+  it('adds the reported spend to the calls the scan already counted', async () => {
+    const state = freshScanState();
+    state.calls = 2;
+    await scanOnce(shellOnly(streaming(['spend: 3'])), state, OPTIONS);
+    expect(state.calls).toBe(5);
+  });
+
+  it('counts nothing for the shell when no spend line arrives', async () => {
+    const state = freshScanState();
+    await scanOnce(shellOnly(streaming([])), state, OPTIONS);
+    expect(state.calls).toBe(0);
+  });
+
+  it('ignores a spend line that is not a whole count', async () => {
+    const state = freshScanState();
+    await scanOnce(shellOnly(streaming(['spend: -1', 'spend: many'])), state, OPTIONS);
+    expect(state.calls).toBe(0);
+  });
+});
+
 describe('scanOnce reads the GitHub listing through plot-host.sh and records it', () => {
   // THE REAL `plot-host.sh` ANSWERS, over a stub `gh` on PATH, so the rows carry
   // `head` and the completeness claim arrives on stderr exactly as in production.

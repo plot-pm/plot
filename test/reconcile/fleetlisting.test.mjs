@@ -38,7 +38,7 @@
 //                         and was whole, so `ok` is the true answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -271,4 +271,23 @@ exit 7
   const { listing } = runScan(fx);
 
   assert.equal(listing, '', 'a refused listing reports no listing at all');
+});
+
+// #2815: fleetd starts the scan with `--stream` and reads its host spend from
+// one `spend:` line on stderr. That mode leaves through its own `exit 0`, so a
+// line printed only at the end of the prose path never reaches fleetd.
+test('a streamed scan reports on stderr the host calls it made', () => {
+  const fx = makeRepo();
+  fs.rmSync(fx.log, { force: true });
+  const run = spawnSync('bash', [path.join(fx.scripts, 'plot-fleet-scan.sh'), '--stream'], {
+    encoding: 'utf8',
+    cwd: fx.repo,
+    env: { ...process.env, PLOT_HOST: 'github', PLOT_PR_LISTING: '', PLOT_SCAN_RECORD: '0' },
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /"kind":"reading"/, 'the streamed scan completed');
+  const asked = fs.readFileSync(fx.log, 'utf8').split('\n').filter((l) => /^pr-(list|state) /.test(l)).length;
+  assert.ok(asked >= 2, 'the stub host answered the listing');
+  const spend = run.stderr.split('\n').filter((l) => l.startsWith('spend:'));
+  assert.deepEqual(spend, [`spend: ${asked}`], 'one spend line counts every listing and state call');
 });
