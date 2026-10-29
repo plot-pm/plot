@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2891 merged
+- **Started:** 2026-10-29, Jan Wloka, `bug/planning-tab-reads-a-fleet-payload`
 
 ## Changelog
 
