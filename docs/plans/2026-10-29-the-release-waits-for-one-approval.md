@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2911 merged
+- **Started:** 2026-10-29, Jan Wloka, `feature/the-release-is-approved-once`
 
 ## Changelog
 
