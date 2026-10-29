@@ -18,7 +18,7 @@ The reason is cost. On this estate the master agent is the mechanism today, not 
 
 ## The scope
 
-**The scope is the active sprint's plans, frozen when the sprint starts** (jwloka, 2026-10-29). A plan approved during the run is dispatched as today, but it does not join the scope: it waits for the next sprint's release. The release step fires when every plan in the sprint is Delivered. The sprint names the plans; nothing else defines the boundary.
+**The scope is the active sprint file, read from git at its latest commit** (jwloka, 2026-10-29). A person's `sprint: scope change` commit moves the scope; nothing else does, and a struck (`~~`) item drops out. A plan approved during the run but not added to the sprint is dispatched as today and waits for the next sprint's release. Sprint `follow-ups-2-29-1` held 2 plans at its start commit and 11 at close, so a freeze at the start would have left 9 delivered plans unreviewed. The release step fires when every plan in the sprint is Delivered. The sprint names the plans; nothing else defines the boundary.
 
 ## Non-goals
 
@@ -34,9 +34,9 @@ The reason is cost. On this estate the master agent is the mechanism today, not 
 
 - The layering rule in `CLAUDE.md`: controller → domain → port ← adapter. A loop step is a domain workflow; an agent start is an adapter call.
 - *A Decision Reads The Index*: the loop rule selects its next step from the PR index and the default-branch reading. The merge itself still goes through `workflows/merge.ts`, which re-asks the host fresh and merges pinned to the head or refuses (`merge.ts:22`). The index chooses the candidate; the controller confirms it.
-- The `plot/review` status is a required check on main (ruleset since 2026-10-15). No fleet merge bypasses the ruleset.
+- The `plot/review` status is a required check on main (ruleset 24412719, since 2026-10-15). No fleet merge bypasses the ruleset: the ruleset lets the Admin role bypass `always`, so fleetd merges on GitHub only when the `Merger app` key is declared, and the merge then runs as the App bot (`docs/review-status-rollout.md`).
 - The shell line ratchet (`scripts/check-shell-lines.sh`): new behaviour goes into TypeScript, not into `plot-*.sh`.
-- The controllers stay the only way to act: merge through `workflows/merge.ts` pinned to a head, continue through the `continue` controller, restart through the `restart` controller. The unattended refusals on those controllers change only where this design says so.
+- The controllers stay the only way to act: merge through `workflows/merge.ts` pinned to a head, continue through the `continue` controller, restart through the `restart` controller. Today only `restart` refuses an unattended caller (`dispatch-verbs.ts:194`); `merge`, `continue` and `release` refuse none. This design adds those refusals; see *Unattended callers*.
 - Shipped shell runs under bash 3.2. Agents never join lines to pass a gate and never edit a gate or the CI ratchet.
 
 ## What exists today
@@ -75,16 +75,17 @@ fleetd evaluates each open slice PR of the scope on every pulse. One rule (`rule
 | CI red, desk alive with corrections left | none; the desk fixes it (today's behaviour) |
 | CI red, desk dead or corrections spent | start **fixer** on the PR (attempt n of 2) |
 | CI green, no review on this head | start **reviewer** on this head |
-| Review on this head has a HIGH, desk alive | write the findings to the desk as a correction; no fixer starts |
-| Review on this head has a HIGH, desk dead, fixer attempts left | start **fixer** with the findings |
-| Review on this head has a HIGH, attempts spent | open the HIGH ticket; the reviewer then writes `plot/review=success` on this head naming the ticket; merge |
-| Review on this head has no HIGH | merge, pinned to the head |
+| Review on this head has a HIGH, fixer attempts left | start **fixer** with the findings |
+| Review on this head has a HIGH, attempts spent | open the HIGH ticket; write `plot/review=success` on this head naming the ticket |
+| `plot/review` is `success` on this head | merge, pinned to the head |
 | Default branch red or stale | hold; see *A red main* |
 | A merge is in flight and main has not settled since | hold |
 
 **A HIGH that stays turns the check green only through a ticket** (jwloka, 2026-10-29). The ruleset keeps requiring `plot/review` and the fleet gets no bypass rights. `plot/review=success` on a head whose review found a HIGH is written only when that HIGH's ticket exists, and the status description names the ticket, so `plot-reconcile-scan.sh` and a reader can tell an accepted HIGH from a clean review.
 
-**One writer per branch.** A fixer starts only on a PR whose desk has no live worker. While the desk lives, findings reach it as a correction through the existing correction mechanism, so two agents never push to one branch.
+**Every HIGH goes to a fixer** (jwloka, 2026-10-29). On green CI the desk loop seals the slice and releases the branch (`agent-loop.ts:455-478`), and the review starts only after green, so no desk holds the branch when a HIGH exists. The desk loop is unchanged.
+
+**One writer per branch.** A fixer starts only on a PR that no desk loop and no other fixer holds. The attempt and an in-flight mark are recorded before the start, so a crash spends an attempt and never adds a second writer.
 
 **One merge in flight.** After any merge into the default branch — the fleet's or a person's — the next fleet merge waits until the default branch's CI settles on the new head. The mark is derived from the default branch's head and its settled reading, not stored by fleetd. This is the main guard against the anti-goal: two PRs green on an old base can be red together. It costs throughput; a scope of ten slices with a 10-minute main CI adds at most about 100 minutes.
 
@@ -107,7 +108,7 @@ A question the unblocker cannot answer from the estate gets the most reversible 
 
 ### A dead or stuck desk
 
-When the fresh session from `rules/fresh-agent.ts` has also failed, fleetd starts a fixer on the slice instead of asking a person. A desk that is claimed but has no live worker and no PR is restarted through the `restart` controller; its unattended refusal is lifted for fleetd as the caller, and stays for every other unattended caller.
+When the fresh session from `rules/fresh-agent.ts` has also failed, fleetd starts a fixer on the slice instead of asking a person. A desk that is claimed but has no live worker and no PR is restarted through the `restart` controller; fleetd calls it in process with its typed caller, and the refusal stays for every other unattended caller. The restart is an answer of `endingAction`, so one table decides each dead desk.
 
 ### A red main
 
@@ -122,26 +123,26 @@ When the default-branch reading turns red after a merge:
 
 When every plan in the scope is Delivered, fleetd:
 
-1. finds the changesets release PR, approves its `action_required` CI run, and waits for green;
+1. finds the changesets release PR and reads its required checks by name (`release.yml` already dispatches a `validate` run on it; the `action_required` pull-request run is approved only if that reading proves it necessary);
 2. runs the reviewer on it so the `plot/review` status exists;
-3. notifies the person: *"Release X.Y.Z is ready: N plans, PR #n, green, reviewed."*
+3. notifies the person: *"Release X.Y.Z is ready: N plans, PR #n, green, reviewed."*, with the changesets on the head, because the release PR also carries work from outside the scope.
 
-**The person's approval is one action** — a board button or `plot-ask.mjs release-approve <pr>` (new). On that approval the fleet merges the release PR pinned to its head, waits for the publish workflow, records the release in every delivered plan of the scope (`/api/release` sweep), closes their issues (already done at `released` by `tracker-plan-state.ts`), and closes the sprint through `plot-sprint-state.sh`.
+**The person's approval is one action** — a board button or `plot-ask.mjs release-approve <pr> <sha>` (new). The approval command runs the finish as that person: it merges the release PR pinned to the approved head, waits for the tag, records the release in every delivered plan of the scope (docs and infra plans included) and closes the sprint in one commit and one push, and the issues close at `released` through `tracker-plan-state.ts`. fleetd never runs the finish. Re-running the approval resumes it, because `release()` answers `already-released` and `tag-absent`.
 
 ## Role agents
 
-Each role is a subagent definition under `.claude/agents/<role>.md`, started as `claude -p --agent <role>` through the **existing** `agent-run` port and `agentRunCommand`, which already start the reviewer. There is one runner; the role name is what changes. The reviewer keeps its charter `.plot/charters/reviewer.json`. A definition carries what is now repeated in every brief by hand:
+Each role is a subagent definition under `.claude/agents/<role>.md` (prompt, model, `maxTurns`), loaded from the **default branch's** copy through `--agents <file>` and never from the reviewed or fixed tree, plus a per-role settings file passed with `--settings` that holds the gates. A domain command builder beside `reviewerCommand` adds the role, and the start does not hold fleetd's tick. The reviewer keeps its charter `.plot/charters/reviewer.json`. A definition carries what is now repeated in every brief by hand:
 
-| Role | Model | Isolation | Writes | Hard rules carried in the definition |
+| Role | Model | Working tree | Writes | Hard rules carried in the definition |
 |---|---|---|---|---|
 | reviewer | opus | read-only | the review record | charter `.plot/charters/reviewer.json` as today |
-| fixer | opus | `worktree` | commits on the PR's branch | never edit gates or the CI ratchet; never join lines; bash 3.2; never commit built bundles; never write "Fixes #N" |
+| fixer | opus | a worktree fleetd creates | commits on the PR's branch | never edit gates or the CI ratchet; never join lines; bash 3.2; never commit built bundles; never write "Fixes #N" |
 | unblocker | sonnet | read-only | one answer through `continue` | answers from the estate; never answers "wait for a person" |
-| main-repair | opus | `worktree` | a fix PR, or nothing | same as fixer; never pushes to main directly |
+| main-repair | opus | a worktree fleetd creates | a fix PR, or nothing | same as fixer; never pushes to main directly |
 
-Hooks in each definition (`PreToolUse`, `Stop`) are the gates for these rules where a grep can tell; the rest stay instructions. `maxTurns` bounds each run. `memory: local` gives each role a memory of what worked under `.claude/agent-memory-local/`, which is git-ignored: no role commits anything that is not its slice's work.
+Hooks in each role's settings file (`PreToolUse`, `Stop`) are the gates for these rules where a grep can tell; the rest stay instructions. A probe under Claude Code 2.1.312 found that frontmatter `hooks` did not fire and `isolation: worktree` was ignored under `--agent`, so neither is relied on, and the first slice proves the settings-file route before anything depends on it. Every role but the reviewer is denied status writes, review runs, merges, pushes to main, and edits to `.claude/**` and the gates. `maxTurns` bounds each run. Role memory stays outside the PR tree and is never committed.
 
-**Unattended callers.** fleetd and the roles it starts call the `continue`, `restart` and `merge` controllers under `PLOT_UNATTENDED=1`. Each controller's unattended refusal is lifted only for a caller that declares itself as fleetd's (an explicit caller identity the controller reads, set by fleetd when it starts the role) and stays for every other unattended caller. `release` stays refused for every unattended caller: only the person's approval action reaches it.
+**Unattended callers** (jwloka, 2026-10-29). `merge`, `continue`, `restart` and `release` refuse every unattended caller. The caller is a typed domain reading, not an environment variable, so a child process cannot inherit it. fleetd calls `merge`, `continue` and `restart` in process with its own typed caller, which those three accept; no role it starts gets that caller. `release` accepts no unattended caller, fleetd included: only the person's approval action reaches it.
 
 **Plugin agents ignore `hooks` and `permissionMode`** (Claude Code docs), so the definitions live in the repo's `.claude/agents/`, not in the Plot plugin. An adopting project gets them through `/plot-init`.
 
@@ -166,28 +167,33 @@ Hooks in each definition (`PreToolUse`, `Stop`) are the gates for these rules wh
 - A HIGH is fixed first; a ticket only if the fix fails (jwloka).
 - Ticket statuses update automatically (jwloka).
 - The anti-goal is main going red (jwloka).
-- The scope is the active sprint, frozen at its start (jwloka).
+- The scope is the active sprint file at its latest commit; a person's scope change moves it (jwloka, after the panel round).
 - An unfixed HIGH passes `plot/review` only through its ticket; no bypass rights (jwloka).
 - The open findings issues stay open (jwloka).
+- `merge`, `continue` and `release` gain unattended refusals; fleetd passes a typed caller to `merge`, `continue` and `restart`; `release` admits no unattended caller (jwloka, after the panel round).
+- Every HIGH goes to a fixer; the desk loop is unchanged (jwloka, after the panel round).
+- fleetd merges on GitHub only with a declared `Merger app` (jwloka, after the panel round).
+- Role definitions load from the default branch, with gates in a per-role settings file (jwloka, after the panel round).
+- Ticket and answer records live on the fleet's machine; a phase write without them keeps their lines (jwloka, after the panel round).
+- The approval command runs the release finish as the person, in one commit and one push (jwloka, after the panel round).
 
 ## Calls made in this design (check these)
 
 - One merge in flight, counting every merge into main, waiting for main to settle.
 - The loop rule selects from the index; the merge controller re-asks the host before it merges.
-- A live desk gets HIGH findings as a correction; a fixer starts only on a dead desk.
 - A revert comes back as a new slice heading; a Delivered plan stays Delivered.
-- Role memory is local and never committed; roles run through the existing `agent-run` port.
-- Controllers lift their unattended refusal only for fleetd's declared caller identity; `release` never.
+- Role memory is local and never committed.
 - Two fixer attempts per PR, matching the correction budget.
 - After failed attempts the PR merges with the HIGH ticketed, because delivery must not stop.
 - MEDIUM and LOW findings get no ticket.
 - Red main: fix forward first, revert after 60 minutes.
 - The unblocker always answers; every answer is recorded on the plan issue.
-- fleetd may approve the release PR's `action_required` CI run and run the reviewer on it before asking the person.
+- fleetd runs the reviewer on the release PR before asking the person, and approves its `action_required` run only if the required checks need it.
 - Role agents live in the repo's `.claude/agents/`, not in the plugin.
 
 ## Left to the builder
 
 - The state file shapes for attempts, the merge-in-flight mark and the run log.
-- The exact split of the work into plans and slices.
 - How the board shows the loop's steps.
+
+The work is split into ten plans, #2898–#2907, after one panel round each on 2026-10-29.
