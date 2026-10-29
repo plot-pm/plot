@@ -97,7 +97,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 - `feature/fleetd-answers-a-question` — an `unblock` write; a `guessed` mark on an answer with no estate evidence, carried into the notification; each acted-on answer written into the slice PR body; the applier starts detached; only an agent's own question (never a fleet- or loop-written terminal marker); a refused `continue` is recorded <!-- builds: unblockerDue, the unblock write, the marker author, the escalation ladder's in-flight silence --> <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/unattended-callers-are-refused --> <!-- waits: feature/fleetd-reviews-slice-prs -->
 
-`unblocker.md` belongs to #2898 (`feature/role-agent-definitions`); this plan supplies its charter text.
+`unblocker.md` belongs to #2898, in its role-definitions slice; this plan supplies its charter text.
 
 ## Notes
 
