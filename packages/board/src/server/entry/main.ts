@@ -165,6 +165,7 @@ export const run = async (
         host: estate.host,
         scripts: scriptsFor(opts),
         defaultBranch: estate.defaultBranch,
+        refs: estate.refs,
         checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
         now: Date.now,
       },
