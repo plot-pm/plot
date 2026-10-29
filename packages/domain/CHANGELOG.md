@@ -1,5 +1,18 @@
 # @plot-pm/domain
 
+## 0.3.5
+
+### Patch Changes
+
+- [#2870](https://github.com/plot-pm/plot/pull/2870) [`565896e`](https://github.com/plot-pm/plot/commit/565896e1b358b714b653eb0f23ca511ac2b4fe0c) Thanks [@jwloka](https://github.com/jwloka)! - `@plot-pm/domain` no longer exports `isMine`. Its lenient `ownership(row, reader) !== 'theirs'` test is now inlined at each of its former call sites — `mine-filter.ts`'s five `mode === 'mine' ? isMineStrict : …` sites in `@plot-pm/board` and `lanes-for-reader.ts`'s own in `@plot-pm/domain` — rather than re-exported under a new name. `isMineStrict` is unchanged. No behaviour changes: every mode still keeps or hides the same rows it did before.
+
+  <!--
+  plan: docs/plans/2026-10-28-mine-hides-rows-with-no-known.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
 ## 0.3.4
 
 ### Patch Changes
