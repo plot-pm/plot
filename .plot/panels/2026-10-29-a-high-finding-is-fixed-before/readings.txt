@@ -1,0 +1,4 @@
+committed	layering	amend
+committed	safety	amend
+committed	testability	amend
+committed	seams	amend
