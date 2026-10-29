@@ -98,7 +98,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### Role-agent probe
 
-- `feature/role-agents-are-probed` — a probe under `claude -p` that proves `--agents <file from main>` plus `--settings <role settings>` gates a tool call and loads under `--setting-sources user`; records the result, `maxTurns` and the `memory: local` path in this plan <!-- builds: a recorded role-agent probe -->
+- `feature/role-agents-are-probed` — a probe under `claude -p` that proves `--agents <file from main>` plus `--settings <role settings>` gates a tool call and loads under `--setting-sources user`; records the result, `maxTurns` and the `memory: local` path in this plan <!-- builds: a recorded role-agent probe --> → #2919
 
 ### Unattended refusals
 
