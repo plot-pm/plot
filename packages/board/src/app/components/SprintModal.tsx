@@ -17,6 +17,14 @@ export interface SprintModalProps {
 const TIERS = ['Must', 'Should', 'Could', 'Wont'] as const;
 type Tier = (typeof TIERS)[number];
 
+/** `SprintMember.tier`'s own (lowercase) labels, to this component's display tier. */
+const TIER_LABELS: Record<SprintMember['tier'], Tier> = {
+  must: 'Must',
+  should: 'Should',
+  could: 'Could',
+  deferred: 'Wont',
+};
+
 function groupByTier(members: SprintMember[]): Record<Tier, SprintMember[]> {
   const groups: Record<Tier, SprintMember[]> = {
     Must: [],
@@ -25,8 +33,8 @@ function groupByTier(members: SprintMember[]): Record<Tier, SprintMember[]> {
     Wont: [],
   };
   for (const m of members) {
-    const tier = (m.tier as Tier) || 'Could';
-    if (groups[tier]) groups[tier].push(m);
+    const tier = TIER_LABELS[m.tier] ?? 'Could';
+    groups[tier].push(m);
   }
   return groups;
 }

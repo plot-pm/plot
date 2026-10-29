@@ -311,4 +311,60 @@ describe('the board names the source of its plans', () => {
       expect(await page.locator('[data-checkout-behind]').count()).toBe(0);
     } finally { await page.close(); }
   });
+
+  /**
+   * ITEM 5. The age in this line comes from `/api/board`'s own
+   * `planRefAgeSeconds` — a FROZEN read, not a live one, the moment the board
+   * endpoint itself stops answering. `AgentList.tsx`'s Delivery-tab footer
+   * froze for exactly this reason (`frozen`); this is the Planning-tab half.
+   *
+   * Driven by failing `/api/board` through interception, the same mechanism
+   * `unreachable-overlay.browser.test.ts` uses — `App.tsx` flips
+   * `boardUnreachable` on the FIRST missed poll (see `setBoardUnreachable`),
+   * well before the `DIM_AFTER_FAILURES` threshold that dims the rows, so one
+   * failed poll is enough to prove the age itself freezes.
+   */
+  it('stops the age and appends " (frozen)" once /api/board goes unreachable', async () => {
+    const payload = JSON.stringify(
+      board({
+        planSource: { ref: 'origin/main', resolved: true, localOnly: 0, behind: null },
+        planRefAgeSeconds: 5,
+        columns: [column({ phase: 'Development', cards: [planCard('a-plan')] })],
+      }),
+    );
+    let reachable = true;
+    const context = await cat.browser.newContext({ viewport: { width: 1400, height: 1200 } });
+    const page = await context.newPage();
+    await page.route('**/api/board', (route) => {
+      if (reachable) return route.fulfill({ contentType: 'application/json', body: payload });
+      return route.abort('connectionrefused');
+    });
+    try {
+      cat.mock.serve('an-empty-estate');
+      await page.goto(cat.mock.baseURL);
+      await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
+      await expect.poll(() => sourceLine(page).textContent(), { timeout: 10_000 })
+        .toEqual(expect.stringContaining('5s ago'));
+
+      reachable = false;
+      // A backgrounded-and-returned tab re-checks immediately, the same lever
+      // `unreachable-overlay.browser.test.ts` uses to drive a poll at speed
+      // rather than waiting out the real interval.
+      await page.evaluate(() => {
+        const set = (v: string) =>
+          Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+        set('hidden');
+        document.dispatchEvent(new Event('visibilitychange'));
+        set('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+
+      await expect.poll(() => sourceLine(page).textContent(), { timeout: 10_000 })
+        .toEqual(expect.stringContaining('(frozen)'));
+      const text = await sourceLine(page).textContent();
+      expect(text).toContain('5s ago');
+    } finally {
+      await page.close();
+    }
+  });
 });
