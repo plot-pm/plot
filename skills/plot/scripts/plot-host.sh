@@ -470,6 +470,9 @@
 #   issue-comment <number> <marker> <body>          (github)
 #                                 edits the comment holding <marker>, else posts
 #                                 one; an empty <marker> always posts, not idempotent.
+#   issue-comment-read <number> <marker>            (github) prints the body of
+#                                 the comment holding <marker>, or nothing where
+#                                 none does. The plan-state write's one read-back.
 #   issue-list --label <label>    keeps open issues carrying the label (github
 #                                 only; exit 4 on Bitbucket and on Jira).
 #   issue-list --title-has <text> keeps open issues whose title contains <text>,
@@ -5738,12 +5741,15 @@ case "$op" in
       *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
 
-  issue-label|issue-comment|issue-close)
+  issue-label|issue-comment|issue-comment-read|issue-close)
     # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
-    # comment per issue and closes the issue at release; nothing reads any back.
-    #   issue-label   <n> <add> [<remove,...>]  adds one label, creating it first where the repo lacks it, and removes only the listed ones the issue carries, in one `gh issue edit`
-    #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts; an empty <marker> always posts
-    #   issue-close   <n>
+    # comment per issue and closes the issue at release; nothing reads any back,
+    # except `issue-comment-read`, the plan-state comment's one sanctioned
+    # read-back (D6: recovering ticket lines a write has no record to redo).
+    #   issue-label      <n> <add> [<remove,...>]  adds one label, creating it first where the repo lacks it, and removes only the listed ones the issue carries, in one `gh issue edit`
+    #   issue-comment      <n> <marker> <body>     edits the comment holding <marker>, else posts; an empty <marker> always posts
+    #   issue-comment-read <n> <marker>            prints the marked comment's body, or nothing where none carries it
+    #   issue-close      <n>
     # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
     # with the reason, for a source that cannot be asked.
     num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
@@ -5755,6 +5761,9 @@ case "$op" in
         cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
         if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR"
         else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail ;;
+      issue-comment-read)
+        cid="$(gh_marker_comment_id "$num" "${2:?issue-comment-read needs a marker}")" || gh_fail
+        [ -z "$cid" ] || gh api "repos/{owner}/{repo}/issues/comments/$cid" -q .body 2>"$HOST_ERR" || gh_fail ;;
     esac
     rm -f "$HOST_ERR" ;;
 
@@ -6063,6 +6072,6 @@ case "$op" in
     if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
     ;;
 esac
