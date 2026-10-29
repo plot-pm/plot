@@ -34,6 +34,8 @@ export interface SwimlanesProps {
    * of the layout rather than of the plans.
    */
   planAgeSeconds?: number | null;
+  /** Whether `/api/board` is unreachable — see `PlanSourceLine`'s `frozen`. */
+  planSourceFrozen?: boolean;
   /** Whether the released-only columns are drawn; `?released=1`. Same switch as `BoardView`'s. */
   showReleased?: boolean;
 }
@@ -119,6 +121,7 @@ export function Swimlanes({
   onOpenStory,
   highlight = '',
   planAgeSeconds = null,
+  planSourceFrozen = false,
   showReleased = false,
 }: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
@@ -254,6 +257,7 @@ export function Swimlanes({
       <PlanSourceLine
         planSource={board.planSource}
         ageSeconds={planAgeSeconds}
+        frozen={planSourceFrozen}
         checksUnaskable={checksUnaskableOn(board)}
         ci={board.server?.ci ?? ''}
       />

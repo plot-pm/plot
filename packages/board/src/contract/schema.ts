@@ -1472,6 +1472,14 @@ export const BoardSchema = z.object({
    */
   planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0, behind: null }),
   /**
+   * Seconds since the plan ref named by {@link planSource} was last read
+   * successfully, or null while no read has ever succeeded. A client ticks
+   * this forward on its own clock between payloads rather than re-reading
+   * `Date.now()` against a server timestamp. Optional so an older server's
+   * payload still parses.
+   */
+  planRefAgeSeconds: z.number().nullable().optional(),
+  /**
    * Why the `Workflow phases` value was refused, or `null` when it parsed or was absent. A refused
    * value draws the default map, and the board shows this text above the columns.
    */

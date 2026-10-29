@@ -3068,6 +3068,16 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
 }
 
 /**
+ * Seconds since the cache's plan ref was last read successfully, for
+ * `/api/board` to report beside `planSource` — null while no read has ever
+ * succeeded.
+ */
+export function planRefAgeSeconds(opts: BuildBoardOptions): number | null {
+  const entry = ensureCache(opts);
+  return serverPlanRefAgeSeconds(entry.fetchedAt, Date.now());
+}
+
+/**
  * The board's two subscribers, and the divisor each one counts by.
  *
  * DERIVED FROM THE BASE, never written down. `12` is right only because the

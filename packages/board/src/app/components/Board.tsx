@@ -148,8 +148,8 @@ export interface BoardViewProps {
   /** Whether the released-only columns are drawn; `?released=1`. */
   showReleased?: boolean;
   /**
-   * How old the plan read is, in seconds, from the fleet pulse — or null before
-   * any scan has landed.
+   * How old the plan read is, in seconds, from `/api/board`'s own
+   * `planRefAgeSeconds` — or null before any fetch has succeeded.
    *
    * The NUMBER rather than the fleet, deliberately: this view needs one fact to
    * date its provenance line, and taking the whole `Fleet` to reach it would
@@ -158,6 +158,8 @@ export interface BoardViewProps {
    * freshness nothing measured.
    */
   planAgeSeconds?: number | null;
+  /** Whether `/api/board` is unreachable — see `PlanSourceLine`'s `frozen`. */
+  planSourceFrozen?: boolean;
 }
 
 export function BoardView({
@@ -170,6 +172,7 @@ export function BoardView({
   onOpenStory,
   highlight = '',
   planAgeSeconds = null,
+  planSourceFrozen = false,
   showReleased = false,
 }: BoardViewProps) {
   // The grid sizes by the SHOWN columns, not the payload's.
@@ -335,6 +338,7 @@ export function BoardView({
     <PlanSourceLine
         planSource={board.planSource}
         ageSeconds={planAgeSeconds}
+        frozen={planSourceFrozen}
         checksUnaskable={checksUnaskableOn(board)}
         ci={board.server?.ci ?? ''}
       />
