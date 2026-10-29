@@ -34,7 +34,7 @@ Panel round 1 measured the starting point:
 - `stalled` already names an Agent state: a desk whose work exists only on this machine (`packages/domain/src/rules/task.ts:13-14,90-91`). This plan calls its concept an **idle slice**.
 - The earlier draft's second stall kind, "both fixer attempts spent on one finding", reads the attempts record that #2903 owns. Reading the finding from the run log would make a second attempts store. That notification moves to #2903.
 
-This plan depends on no sibling. #2900 and #2901 name it as a need, and #2902, #2903, #2904, #2906 and #2907 are expected to write their steps to its log.
+This plan depends on no sibling, and no sibling waits on it for the review or the answer: #2900 and #2901 write no run-log line. #2900's review start budget names this plan's idle-slice rule as the only signal a person gets for a head past that budget (`budget-spent`). #2902, #2903, #2904 and #2907 are expected to write their steps to its log.
 
 ## Design
 
@@ -68,6 +68,8 @@ A slice's clock starts at the latest of its last line that moved it, its PR's `c
 
 **Layering.** The tick calls the domain rule; the domain owns the port; the adapter writes the file. The plan adds no `spawn` site and no `plot-*.sh` line, so `scripts/check-shell-lines.sh` and the spawn ratchet stay unchanged.
 
+**A head past #2900's review start budget.** #2900 starts at most three reviews per head and then answers `none` with the reason `budget-spent` (`feature/fleetd-reviews-slice-prs`). It writes no run-log line, so its review starts do not move the clock. The slice takes no further loop step, and this rule notifies once when the clock passes `Slice idle after`. This is the only signal a person gets for such a head; this plan adds no budget-specific message.
+
 **Out of this plan.** No board view of the run log. The "both fixer attempts spent on one finding" notification belongs to #2903 (`feature/an-unfixed-high-is-ticketed`), which reads its own attempts record.
 
 ### Decisions
@@ -86,10 +88,12 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 - [x] The clock counts from the last moving line, the PR's `createdAt` or fleetd's start, whichever is latest; a failed host answer does not reset it.
 - [x] An idle slice re-notifies once per episode.
 - [x] Only the looping daemon and the worker loop write; `--once` writes nothing.
+- [x] The idle-slice rule is the signal for a head past #2900's review start budget (`budget-spent`). #2900 and #2901 write no run-log line and do not wait on this plan.
 
 ### Open Questions
 
 - [ ] Is a `hold` (queued behind one merge in flight, or main red) a step? The moderator's call: it is not, and the `2h` default sits above the expected merge-queue wait. A red main that lasts past the bound then makes every held slice idle at once; #2904 may want one "main red" message to replace them.
+- [ ] #2900's review starts write no run-log line, so a slice whose reviews and re-reviews run past `Slice idle after` reads idle while the reviews still run. Is that the wanted signal, or does #2900's review start write a moving line?
 - [ ] Can a line name a subject that is not a slice, such as #2904's repair of the default branch or #2907's release PR, or do those plans log elsewhere?
 
 ### Tests
@@ -114,6 +118,6 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 - Created from tracker issue #2899 (plan PR #2909). Only the plan's `Issue:` field links to it; nothing was written to the tracker.
 - Section named by the issue: *Stalls*.
-- Siblings: #2900 and #2901 name this plan as a need. #2902, #2903, #2904, #2906 and #2907 are expected to write their steps to the run log and add their steps to its vocabulary.
+- Siblings: #2900 and #2901 write no run-log line and do not need this plan; #2900 names this plan's idle-slice rule as the signal for a head past its review start budget. #2902, #2903, #2904 and #2907 are expected to write their steps to the run log and add their steps to its vocabulary.
 - #2903 (`feature/an-unfixed-high-is-ticketed`) owns the "both fixer attempts spent on one finding" notification.
 - Amended 2026-10-29 after panel round 1.
