@@ -49,7 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel. A merged spike's changeset pairs with its Design plan |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `git mv` of any `vnext-checklist.md` |
-| 5b. Record the Release in the Plans | Small | One `plot-deliver.sh --release` call per plan (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call, reported and never gating. Gate on the sweep's real footer |
+| 5b. Record the Release in the Plans | Small | One `plot-deliver.sh --release` call per plan (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -449,7 +449,8 @@ For each plan currently at `State: Delivered`:
    ```
 
    Where a board is running, `POST /api/release {"slug":"<slug>","version":"<version>"}`
-   does the same thing and is the route the board's own button calls.
+   does the same thing — this is the route this step calls directly; there is
+   no board button wired to it.
 
    This performs steps 2-4 below as one write: it reads the plan's last `→ #N`
    annotation, asks `plot-host.sh pr-state <N>` for its merge commit, resolves
@@ -471,7 +472,44 @@ For each plan currently at `State: Delivered`:
    a second line, `summary: issues closed=<N> left-open=<M> (<reason>=<count> …)`,
    reports the per-issue outcome.
 
-3. **Four refusals, each on stderr, and each a repair rather than a guess:**
+3. **Read back what the call actually did — a call sent is not a plan
+   released.** A sweep over many plans issues one call per plan and moves on;
+   what tells the operator whether each one worked is the call's own outcome,
+   never the count of calls sent. The two call shapes report it differently:
+
+   - **No board:** `plot-deliver.sh --release` runs in the foreground and
+     returns when the plan is done. Read its exit code and its `summary:`
+     footer line directly — `summary: phase=... record=... push=<bool>
+     tracker=<outcome>` on exit 0, or a `Refused` message on stderr and a
+     non-zero exit when the plan was left alone.
+   - **A board is running:** `POST /api/release` answers `202` before the
+     script has finished — it only starts the job. Poll
+     `GET /api/release/<slug>` on an interval until it reports a terminal
+     state, the same idiom the board's own approve card already polls
+     against `GET /api/approve/<slug>`: `{"state":"running"}` means keep
+     waiting, `{"state":"done"}` means this plan released, and
+     `{"state":"failed","message":"..."}` means it did not — `message` is
+     already the job's own last lines, the same text a foreground run would
+     have printed to stderr.
+
+   **Print one line per plan that did NOT release, carrying that plan's own
+   message — never a bare count.** A sweep where 3 of 53 plans failed names
+   those 3 slugs and what each one said:
+
+   ```
+   Not released:
+     some-plan     plan 'some-plan' names no '→ #N' annotation on a slice that was not deferred
+     other-plan    a release for `other-plan` is already running — wait for it to finish
+   ```
+
+   **Back-to-back `POST /api/release` calls across a sweep are safe.** Each
+   plan's call is a separate job the route refuses to double-run
+   (`already-running`), and each writes to its own log and state file — so
+   sending the next plan's call before the previous one has answered no
+   longer risks the truncated logs and lost outcomes a 53-plan sweep hit on
+   2026-10-28.
+
+4. **Four refusals, each on stderr, and each a repair rather than a guess:**
    no `→ #N` annotation or no merge commit (the PR never merged, or the host
    gave no answer — nothing was written, annotate or verify and re-run); no tag
    at all contains the commit (cut the release that ships it first); a tag
@@ -480,7 +518,7 @@ For each plan currently at `State: Delivered`:
    shipped earlier than the version named — release it as THAT tag instead).
    **A refusal is reported and the plan is left alone** — report it as
    unresolvable rather than guessing a version nobody re-checks.
-4. **The symlink does not move.** `delivered/` means "no longer active", not
+5. **The symlink does not move.** `delivered/` means "no longer active", not
    "phase is exactly Delivered" — unlike `/plot-deliver`, this step moves
    nothing, and the script does not touch it either.
 
