@@ -9237,6 +9237,30 @@ test('host: a bitbucket LISTING narrows through q=, and says nothing about ignor
   assert.equal(res.stdout.trim().split('\n').length, 3, 'every row in the window is printed');
 });
 
+test('host: a whole window states its completeness, naming the state and the match count', () => {
+  // THE GAP THIS SLICE CLOSES. `bb_window_listing` already refuses a short
+  // page (see "a window that reads short of its size is refused" above), but
+  // said nothing on its happy path — so `foldScanListing`'s `wholePage` check
+  // read a real, complete window exactly like an unproven one. Compare
+  // `pr_sweep_report`/`pr_list_report_truncation`'s "sweep complete"/"page
+  // complete" notices, which this one joins.
+  const bb = makeWindowBbStub({ size: 3, pages: [mergedRows(900, 3)] });
+  const res = runWindow(bb, ['--rich', '--state', 'merged', '--since', '2026-09-20T18:42:10Z']);
+  assert.equal(res.status, 0, res.stderr);
+  const line = res.stderr.split('\n').find((l) => /window complete/.test(l));
+  assert.ok(line, `a whole window says so: ${res.stderr}`);
+  assert.match(line, /^plot-host: /, 'the same prefix every other notice carries');
+  assert.match(line, /state=merged/, 'it names the state');
+  assert.match(line, /3 matches/, 'and the match count it read whole');
+});
+
+test('host: a window that reads short of its size prints no completeness claim', () => {
+  const bb = makeWindowBbStub({ size: 51, pages: [mergedRows(1, 50)] });
+  const res = runWindow(bb, ['--rich', '--state', 'merged', '--since', '2026-09-20T18:42:10Z']);
+  assert.notEqual(res.status, 0);
+  assert.doesNotMatch(res.stderr, /window complete/, 'a refused window makes no completeness claim');
+});
+
 test('host: a window of more than 50 matches is read to its last page', () => {
   // THE TRAP. `bb api` returns ONE page, and a board that folds the first 50 of
   // 51 advances its watermark past the one it never saw. The answer's length is

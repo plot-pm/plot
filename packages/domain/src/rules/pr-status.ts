@@ -56,6 +56,7 @@ const NOTICE_PATTERNS = [
   /\S+ ignores --limit \d+; the listing returns one page of \d+ per state/,
   /\S+ pr-list state=\S+ page complete \([^)\n]*\) — this page holds every pull request the host has in this state/,
   /pr-list sweep complete \([^)\n]*\) — every tracked branch was asked and each answered/,
+  /\S+ pr-list state=\S+ window complete \([^)\n]*\) — this window holds every pull request the host has in this state since the stamp/,
   // `read from the environment`, `read from .env`, or `read from the main
   // checkout's .env` — the three source labels `plot-host.sh`'s
   // `plot_env_file` and `plot-bitbucket-commit-status.mjs`'s

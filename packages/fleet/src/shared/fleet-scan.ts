@@ -9,7 +9,7 @@ import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
 import {
   foldScanListing, parseScanListingRows, renderScanListing, scanListingWindowFor,
-  type CarriedListing, type ScanListingAnswer, type ScanListingWindow,
+  type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
 
@@ -76,10 +76,10 @@ export interface ScanState {
   /** Age in ms of a reused listing on the latest scan, or null where it fetched. */
   listingReusedAgeMs: number | null;
   /**
-   * The GitHub listing fleetd last read through the host, with its rows'
-   * `updatedAt` and when its full read ran, or null where `listing` did not
-   * come from such a read. Read by {@link scanListingWindowFor} alone; the
-   * Bitbucket arm never sets it, since the shell still sweeps for itself.
+   * The listing fleetd last read through the host, with its rows' `updatedAt`
+   * and when its full read ran, or null where `listing` did not come from
+   * such a read. Read by {@link scanListingWindowFor} alone, on both GitHub
+   * and Bitbucket.
    */
   listingHeld: CarriedListing | null;
   /**
@@ -152,21 +152,32 @@ export interface ScanOptions {
 /**
  * Requests one fleet-scan listing spends on `backend`.
  *
- * Bitbucket asks its REST endpoint about each tracked branch under three
- * states, so the cost is `branches x 3`. GitHub's `gh pr list` pages at 100
- * rows per request: one `--state open` call plus `ceil(rows / 100)` calls for
- * `--state all`, so the cost is `1 + max(1, ceil(rows / 100))`. `rows` absent
- * (no adopted listing yet) prices as 2 — the first listing is always
- * permitted, so this price decides nothing.
+ * Bitbucket's two modes have genuinely different request shapes rather than a
+ * smooth function of row count, so `window` names which one `scanOnce` is
+ * about to make before it makes it: a `full` read sweeps every tracked branch
+ * under three states (`branches x 3`), and a `delta` read asks one unbranched
+ * `--state open --rich` plus one windowed `--state all --since`, at most 4
+ * requests (1 open page, up to 3 windowed pages at `BB_LIST_PAGELEN`). GitHub's
+ * `gh pr list` pages at 100 rows per request: one `--state open` call plus
+ * `ceil(rows / 100)` calls for `--state all`, so the cost is
+ * `1 + max(1, ceil(rows / 100))`. `rows` absent (no adopted listing yet) prices
+ * as 2 — the first listing is always permitted, so this price decides nothing.
  *
  * @param backend - the configured host.
  * @param branches - how many branches the scan tracks (Bitbucket only).
  * @param rows - how many branch lines the last adopted GitHub listing held, or
  *   null where none has been adopted yet.
+ * @param window - which read Bitbucket is about to make; ignored on GitHub.
  * @returns the requests one listing spends; never 0.
  */
-export const scanListingCost = (backend: string, branches: number, rows: number | null): number => {
+export const scanListingCost = (
+  backend: string,
+  branches: number,
+  rows: number | null,
+  window: ScanListingWindow = { kind: 'full' },
+): number => {
   if (backend === 'bitbucket') {
+    if (window.kind === 'delta') return 4;
     const swept = Math.max(0, Math.trunc(branches)) * 3;
     return swept > 0 ? swept : 3;
   }
@@ -509,9 +520,79 @@ const readGithubListing = async (
   };
 };
 
-/** A parameter, not a closure read — narrowing a `let` mutated inside a nested callback inside the same `try` does not hold past the callback. */
-const hostVerdictOf = (reading: FleetReading | null): FleetReading['summary']['host'] | null =>
-  reading !== null ? reading.summary.host : null;
+/**
+ * `bb_state_listing`/`bb_window_listing` page at this length — the unbranched
+ * open call cannot claim a page whole at or above it, so {@link
+ * readBitbucketListing} never trusts one that large as a delta's open half.
+ */
+const BB_LIST_PAGELEN = 50;
+
+/**
+ * Reads the Bitbucket PR listing through the host, folded against the listing
+ * the last host read held — the sibling of {@link readGithubListing}.
+ *
+ * A full read sweeps every tracked branch (`pr-list --branch <name>...`,
+ * dispatching to `bb_branch_sweep`); a delta asks one unbranched
+ * `--state open --rich` plus one windowed `--state all --since`
+ * (`bb_window_listing`). The open call is capped at {@link BB_LIST_PAGELEN}
+ * minus one: a page that reads at the cap cannot prove itself whole (see
+ * `pr_list_report_complete`'s `count < limit` test), so it carries no
+ * whole-page notice and `foldScanListing` refuses it on its own — no count
+ * check is needed here beyond the `--limit` that produces that refusal. A
+ * refused delta is asked again as a full sweep, the same retry
+ * {@link readGithubListing} makes.
+ *
+ * @param scripts - the one place `plot-*.sh` is invoked.
+ * @param branches - the tracked branches a full read sweeps.
+ * @param held - the listing the last host read held, or null.
+ * @param now - this machine's clock, in epoch milliseconds — stamps the full
+ *   read that lands, never consulted to re-derive `window`.
+ * @param window - which read to attempt first, as `scanListingCost` was
+ *   already told before this call was made.
+ * @param onCall - called once per real `pr-list` call made — the scan's own
+ *   tally of requests spent, since a refused delta retries as a full read.
+ * @returns the rendered listing, the listing to hold for the next read, and
+ *   the window actually read; or null where the full read was refused too or
+ *   a row has no branch name.
+ */
+const readBitbucketListing = async (
+  scripts: Scripts,
+  branches: readonly string[],
+  held: CarriedListing | null,
+  now: number,
+  window: ScanListingWindow,
+  onCall: () => void,
+): Promise<{ rendered: string; next: CarriedListing; window: ScanListingWindow } | null> => {
+  const full = async (): Promise<ScanListingFold> => {
+    const args = branches.flatMap((branch) => ['--branch', branch]);
+    const open = await askPrList(scripts, ['--state', 'open', '--rich', ...args], onCall);
+    const rest = await askPrList(scripts, ['--state', 'all', ...args], onCall);
+    return foldScanListing(null, open, rest);
+  };
+  const delta = async (since: string): Promise<ScanListingFold> => {
+    const open = await askPrList(scripts, ['--state', 'open', '--rich', '--limit', String(BB_LIST_PAGELEN - 1)], onCall);
+    const rest = await askPrList(scripts, ['--state', 'all', '--since', since], onCall);
+    return foldScanListing(held, open, rest);
+  };
+
+  let folded = window.kind === 'delta' ? await delta(window.since) : await full();
+  if (!folded.ok && window.kind === 'delta') {
+    window = { kind: 'full' };
+    folded = await full();
+  }
+  if (!folded.ok) return null;
+  const rendered = renderScanListing(folded.rows, folded.complete);
+  if (rendered === null) return null;
+  return {
+    rendered,
+    window,
+    next: {
+      rows: folded.rows,
+      complete: folded.complete,
+      fullReadAt: window.kind === 'full' ? now : held?.fullReadAt ?? now,
+    },
+  };
+};
 
 /**
  * Runs the fleet scan once and reads the facts that travel with its pulse.
@@ -523,13 +604,13 @@ const hostVerdictOf = (reading: FleetReading | null): FleetReading['summary']['h
  * that throws (budget timeout or failure) or ends without its reading merges
  * its streamed terminal rows into `terminal` by branch name, and replaces
  * `listing` only where the streamed listing ends with `.list-arrived`. On
- * GitHub a due listing is read through the host before the scan starts; where
- * that read succeeds, it replaces `listing`, `listingAt`, `listingBranches`
- * and `listingHeld`, and the scan's own `listing:` lines are not adopted.
+ * both GitHub and Bitbucket a due listing is read through the host before the
+ * scan starts; where that read succeeds, it replaces `listing`, `listingAt`,
+ * `listingBranches` and `listingHeld`, and the scan's own `listing:` lines are
+ * not adopted.
  *
- * A refused listing attempt (a null GitHub host read, or a Bitbucket sweep the
- * reading's `summary.host` reports as `throttled`, `secondary` or `failed`)
- * opens or grows a back-off on `state.backoffUntil`/`backoffMs`, bounded and
+ * A refused listing attempt (a null host read on either backend) opens or
+ * grows a back-off on `state.backoffUntil`/`backoffMs`, bounded and
  * growing on repeat (`listingBackoff`). While it holds, the scan skips only
  * the host listing: it still runs every beat, hands the shell its carried
  * listing so the shell makes no per-branch `pr-state --ask` call, and still
@@ -560,14 +641,17 @@ export const scanOnce = async (
   let spend = true;
   let reusedAgeMs: number | null = null;
   let backend: string | null = null;
+  let bitbucketWindow: ScanListingWindow = { kind: 'full' };
   if (due && backoff.open) {
     backend = await world.backend();
+    if (backend === 'bitbucket') bitbucketWindow = scanListingWindowFor(state.listingHeld, now, PR_FULL_READ_MS);
     const verdict = listingSpend({
       intervalMs: LISTING_REFRESH_MS,
       costPerListing: scanListingCost(
         backend,
         state.listingBranches,
         state.listing === '' ? null : listedRowCount(state.listing),
+        bitbucketWindow,
       ),
       rate: await spendRateFor(world.scripts),
       lastListedAt: state.listingAt,
@@ -584,16 +668,18 @@ export const scanOnce = async (
   const reusing = !spend && state.listing !== '';
   state.listingReusedAgeMs = reusing ? reusedAgeMs : null;
 
-  // ON GITHUB, A DUE SPEND READS THE LISTING ITSELF rather than leaving
-  // `PLOT_PR_LISTING` empty for the shell to fetch — `PLOT_PR_LISTING` must
-  // never be handed to the shell empty here. Bitbucket is unchanged: it needs
-  // `TRACKED_BRANCHES`, which only the shell computes per pass, so the shell
-  // keeps making its own sweep.
+  // ON GITHUB AND BITBUCKET, A DUE SPEND READS THE LISTING ITSELF rather than
+  // leaving `PLOT_PR_LISTING` empty for the shell to fetch — `PLOT_PR_LISTING`
+  // must never be handed to the shell empty here. A Bitbucket FULL read still
+  // needs `TRACKED_BRANCHES`: `world.refs.listBranches(true)` is the domain
+  // port's declared duplicate of the shell's own computation
+  // (`corpus/tracked-branches.corpus.test.ts` holds the two to agreement), so
+  // a full read no longer needs the shell subprocess to name its working set.
   //
   // A SUCCESSFUL HOST READ IS ADOPTED HERE, not from the scan's `listing:`
   // lines: the shell carries a handed listing and reports none back.
   let hostRead: { rendered: string; next: CarriedListing } | null = null;
-  let githubRefused = false;
+  let listingRefused = false;
   if (spend && backend === 'github') {
     hostRead = await readGithubListing(world.scripts, state.listingHeld, now, () => {
       state.calls += 1;
@@ -604,7 +690,22 @@ export const scanOnce = async (
       state.listingAt = Date.now();
       state.listingBranches = listedBranchCount(hostRead.rendered) ?? state.listingBranches;
     } else {
-      githubRefused = true;
+      listingRefused = true;
+    }
+  } else if (spend && backend === 'bitbucket') {
+    const tracked = await world.refs.listBranches(true);
+    const branches = tracked.ok ? tracked.value : [];
+    const read = await readBitbucketListing(world.scripts, branches, state.listingHeld, now, bitbucketWindow, () => {
+      state.calls += 1;
+    });
+    state.listingHeld = read?.next ?? null;
+    if (read !== null) {
+      hostRead = read;
+      state.listing = read.rendered;
+      state.listingAt = Date.now();
+      state.listingBranches = branches.length;
+    } else {
+      listingRefused = true;
     }
   }
 
@@ -653,25 +754,13 @@ export const scanOnce = async (
       state.listingBranches = listedBranchCount(listed) ?? state.listingBranches;
     }
 
-    // A SPEND ATTEMPT THAT NEITHER ADOPTED THROUGH THE HOST NOR ADOPTED A
-    // STREAMED LISTING REFUSED. Bitbucket's shell sweep carries its own
-    // verdict in `summary.host` (`throttled`/`secondary`/`failed`), read only
-    // once `parsed` exists; a scan that threw or never reported is also a
-    // refusal, since nothing was adopted. The GitHub arm already knows its own
-    // verdict from `hostRead`. A reused or backed-off pass spent nothing and
-    // neither opens nor clears the back-off.
-    if (spend && backend === 'github') {
-      if (githubRefused) {
-        state.backoffUntil = now + backoff.onRefusalMs;
-        state.backoffMs = backoff.onRefusalMs;
-      } else {
-        state.backoffUntil = null;
-        state.backoffMs = null;
-      }
-    } else if (spend) {
-      const hostVerdict = whole ? hostVerdictOf(parsed) : null;
-      const refused = adopted ? false : (hostVerdict === null || hostVerdict !== 'ok');
-      if (refused) {
+    // A SPEND ATTEMPT THAT DID NOT ADOPT THROUGH THE HOST REFUSED. Both
+    // backends now read their listing host-side and know their own verdict
+    // from `hostRead`/`listingRefused` before the scan subprocess even
+    // starts. A reused or backed-off pass spent nothing and neither opens nor
+    // clears the back-off.
+    if (spend) {
+      if (listingRefused) {
         state.backoffUntil = now + backoff.onRefusalMs;
         state.backoffMs = backoff.onRefusalMs;
       } else {

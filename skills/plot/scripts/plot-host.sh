@@ -1393,6 +1393,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
     echo "bitbucket window state=$_st is short ($_got of $_size matches after $_pages pages); refusing it rather than printing it as whole" >&2
     return 3
   fi
+  echo "plot-host: bitbucket pr-list state=$_st window complete ($_got matches, every page read) — this window holds every pull request the host has in this state since the stamp" >&2
   printf '%s' "$_rows"
 }
 
