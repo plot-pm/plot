@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2819
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2820 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-jira-ticket-with-several-assignees`
 - **Delivered:** 2026-10-28
+- **Released:** 2026-10-29, v2.29.1
 
 ## Changelog
 
