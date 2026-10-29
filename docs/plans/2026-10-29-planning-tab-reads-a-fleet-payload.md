@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2836
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2891 merged
 - **Started:** 2026-10-29, Jan Wloka, `bug/planning-tab-reads-a-fleet-payload`
+- **Delivered:** 2026-10-29
 
 ## Changelog
 
