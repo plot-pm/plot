@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2811
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `feature/mine-mode-control`
 - **Started:** 2026-10-28, Jan Wloka, `feature/is-mine-removed`
 - **Delivered:** 2026-10-28
+- **Released:** 2026-10-29, v2.29.1
 
 ## Changelog
 
