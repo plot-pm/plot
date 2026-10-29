@@ -1,7 +1,8 @@
 ---
 title: The board sees one repository
 author: jwloka
-status: active
+status: done
+archived: 2026-10-29
 created: 2026-08-21
 updated: 2026-08-22
 ---
@@ -255,3 +256,7 @@ with: `requestedReviewers`, and the repo axis.
 **Corrected earlier in the session:** a first look reported "no stories and no
 story tooling in this repo". A persistent `cd` had left the shell in
 `packages/board/src`; three stories and the full skill were present.
+
+### 2026-10-29
+
+- jwloka archived the story as dropped: Phases 2 and 3 (the repo axis and requestedReviewers) were left with no plan. The domain has no dropped status, so the file records done.

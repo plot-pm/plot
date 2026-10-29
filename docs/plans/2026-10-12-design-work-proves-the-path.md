@@ -33,7 +33,7 @@
 
 ## Motivation
 
-D3, D4 and D5 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) make Design the phase where a plan proves its path before its slices are confirmed. Measured on this branch at `6954a7ed1`, 2026-10-12, and rechecked at `5b9e68ce9`:
+D3, D4 and D5 in [the story](../stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) make Design the phase where a plan proves its path before its slices are confirmed. Measured on this branch at `6954a7ed1`, 2026-10-12, and rechecked at `5b9e68ce9`:
 
 - Five places refuse a slice of a plan that is not `approved`. `sliceVerdict` answers `unapproved` (`packages/domain/src/rules/eligible.ts:43`, `:92-108`). The dispatch workflow's `plangate` refuses `design` with `state-wrong` (`workflows/dispatch.ts:527-546`). The shell copy in `plot-dispatch.sh:2957-2978` refuses it in its `*)` arm. The brief route refuses it with `state-too-early` (`workflows/implement.ts:131-138`), and dispatch refuses a branch with no brief (`dispatch.ts:470`). The commit-time `phaseGateRefusal` refuses an implementation commit while the plan is `design` (`rules/phase-gate.ts:185-192`), but only on a branch whose slug names the plan file (`packages/board/src/server/entry/gate.ts:336-345`), so a spike branch with another name passes it today.
 - The approval workflow takes its channel from the plan's `Review:` field (`workflows/approve.ts:227`). For a `Review: pr` plan whose plan PR has merged, it skips the merge (`:252`), names no reviewer and records `plan-PR #N merged` (`:270-274`). The unattended refusal in the bundle applies only to `Review: in-session` (`packages/board/src/server/entry/approve.ts:480`, `:527`), and so does the 409 of `POST /api/approve` (`packages/board/src/server/approve.ts:306`).
@@ -48,7 +48,7 @@ D3, D4 and D5 in [the story](../stories/plot-works-in-five-phases/STORY-plot-wor
 
 ### Approach
 
-The design spec is [DESIGN-phases.md](../stories/plot-works-in-five-phases/DESIGN-phases.md) §4.
+The design spec is [DESIGN-phases.md](../stories/archived/plot-works-in-five-phases/DESIGN-phases.md) §4.
 
 **This plan's own spike.** The riskiest mechanism here is the person arm: the claim that the approval of a Design plan needs a named person on every channel. Three panel rounds read it, and each found a channel the previous revision missed. So the first slice is a spike, `feature/the-design-approvals-are-gated`, alone under the first slice heading and annotated `<!-- spike -->` as *The marker* below defines it, and CI judges the claim. The spike builds `approvalArm`, the person reading in the bundle, the 409 of `POST /api/approve`, and the state gate fix of #1611, and a test proves each channel (*Acceptance*). It reads no annotation and no record: the arm keys on the `design` phase, which `plot-plan-meta.sh:443` and `workflows/approve.ts:161-164` read today, so a test fixture writes `State: Design` directly and the spike waits on no other branch. The spike adds no shell line. The remaining slices are confirmed after the spike merges (D4, *Notes*). The annotation gates nothing until `feature/a-slice-is-marked-spike` ships. Until then D29 decides the route: the plan is approved whole, and right after the approval its six other branches are held in `.plot/hold` until a person removes the holds (*Notes*).
 

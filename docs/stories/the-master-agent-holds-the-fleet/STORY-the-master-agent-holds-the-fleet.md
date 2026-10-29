@@ -1,7 +1,8 @@
 ---
 title: The master agent holds the fleet
 author: jwloka
-status: active
+status: done
+archived: 2026-10-29
 created: 2026-08-28
 updated: 2026-10-12
 ---
@@ -422,3 +423,7 @@ would make it a gate.
   disruption: *"lets design a strong but informative harness with powerful
   tooling for the tasks a master agent needs to do to keep the fleet under
   control and the board leverage when asking for status updates."*
+
+### 2026-10-29
+
+- jwloka archived the story as done: all 61 plans that name it are Released (60) or Rejected (1); none is open. The folder stays in place because its DESIGN specs are live references from CLAUDE.md, skills and code.

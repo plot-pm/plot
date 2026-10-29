@@ -368,7 +368,7 @@ dispatch*. Same blindness, two different consumers, and the measurement that
 unpushed commits are readable from the main repo is shared between them.
 
 Recorded as open points in
-[`plot-board`](../stories/plot-board/STORY-plot-board.md) on 2026-08-16.
+[`plot-board`](../stories/archived/plot-board/STORY-plot-board.md) on 2026-08-16.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {

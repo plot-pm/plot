@@ -1,7 +1,8 @@
 ---
 title: Rules that do not enforce themselves
 author: jwloka
-status: active
+status: done
+archived: 2026-10-29
 created: 2026-08-16
 updated: 2026-10-12
 ---
@@ -79,22 +80,22 @@ means *noticing* a bypass rather than legislating it away.
 
 | Plan | Status | What it closes |
 |------|--------|----------------|
-| [reconcile-drift-loop](../../plans/2026-07-07-reconcile-drift-loop.md) | Released 2026-07-07, v1.6.0 | Close the drift loop: /plot drift summary + /plot-deliver verification gate |
-| [opus5-longhorizon-hardening](../../plans/2026-07-25-opus5-longhorizon-hardening.md) | Released 2026-08-26, v2.9.0 | Harden Plot against documented Opus 5 long-horizon failure modes |
-| [fleet-sees-merged-branches](../../plans/2026-08-16-fleet-sees-merged-branches.md) | Released 2026-08-18, v2.5.0 | A deleted ref is not an unstarted branch |
-| [push-main-bypass](../../plans/2026-08-16-push-main-bypass.md) | Released | The fallback that waits for a rejection that never comes |
-| [a-question-nobody-can-answer-is-a-hang](../../plans/2026-08-18-a-question-nobody-can-answer-is-a-hang.md) | Released 2026-08-22, v2.7.0 | A question nobody can answer is a hang |
-| [the-gate-reads-what-was-shared](../../plans/2026-08-18-the-gate-reads-what-was-shared.md) | Released 2026-08-18, v2.5.1 | The gate reads what was shared |
-| [a-merged-pr-carried-work](../../plans/2026-09-08-a-merged-pr-carried-work.md) | Released 2026-09-11, v2.16.0 | A merged PR carried work |
-| [the-master-agent-uses-the-controllers](../../plans/2026-09-08-the-master-agent-uses-the-controllers.md) | Released 2026-09-11, v2.16.0 | The master agent uses the controllers |
-| [the-run-ops-ask-the-ci-backend](../../plans/2026-09-08-the-run-ops-ask-the-ci-backend.md) | Released 2026-09-11, v2.16.0 | The run ops ask the CI backend |
-| [a-merge-without-a-changeset-is-named](../../plans/2026-09-11-a-merge-without-a-changeset-is-named.md) | Released 2026-09-14, v2.17.0 | A merge without a changeset is named |
-| [the-scan-drift-counter-is-acted-on](../../plans/2026-09-11-the-scan-drift-counter-is-acted-on.md) | Released 2026-09-14, v2.17.0 | The scan drift counter is acted on |
-| [a-merge-commit-carried-work](../../plans/2026-09-14-a-merge-commit-carried-work.md) | Released 2026-09-14, v2.17.0 | A merge commit carried work |
-| [the-build-gate-sees-every-bundle](../../plans/2026-09-14-the-build-gate-sees-every-bundle.md) | Released 2026-09-14, v2.17.0 | The build gate sees every bundle |
-| [a-connector-declares-its-ceiling](../../plans/2026-09-15-a-connector-declares-its-ceiling.md) | Rejected 2026-09-15 | A connector declares its ceiling |
-| [a-gate-matches-an-invocation](../../plans/2026-09-17-a-gate-matches-an-invocation.md) | Released 2026-09-20, v2.19.0 | A gate matches an invocation |
-| [a-scan-section-honours-offline](../../plans/2026-09-17-a-scan-section-honours-offline.md) | Released 2026-09-20, v2.19.0 | A scan section honours offline |
+| [reconcile-drift-loop](../../../plans/2026-07-07-reconcile-drift-loop.md) | Released 2026-07-07, v1.6.0 | Close the drift loop: /plot drift summary + /plot-deliver verification gate |
+| [opus5-longhorizon-hardening](../../../plans/2026-07-25-opus5-longhorizon-hardening.md) | Released 2026-08-26, v2.9.0 | Harden Plot against documented Opus 5 long-horizon failure modes |
+| [fleet-sees-merged-branches](../../../plans/2026-08-16-fleet-sees-merged-branches.md) | Released 2026-08-18, v2.5.0 | A deleted ref is not an unstarted branch |
+| [push-main-bypass](../../../plans/2026-08-16-push-main-bypass.md) | Released | The fallback that waits for a rejection that never comes |
+| [a-question-nobody-can-answer-is-a-hang](../../../plans/2026-08-18-a-question-nobody-can-answer-is-a-hang.md) | Released 2026-08-22, v2.7.0 | A question nobody can answer is a hang |
+| [the-gate-reads-what-was-shared](../../../plans/2026-08-18-the-gate-reads-what-was-shared.md) | Released 2026-08-18, v2.5.1 | The gate reads what was shared |
+| [a-merged-pr-carried-work](../../../plans/2026-09-08-a-merged-pr-carried-work.md) | Released 2026-09-11, v2.16.0 | A merged PR carried work |
+| [the-master-agent-uses-the-controllers](../../../plans/2026-09-08-the-master-agent-uses-the-controllers.md) | Released 2026-09-11, v2.16.0 | The master agent uses the controllers |
+| [the-run-ops-ask-the-ci-backend](../../../plans/2026-09-08-the-run-ops-ask-the-ci-backend.md) | Released 2026-09-11, v2.16.0 | The run ops ask the CI backend |
+| [a-merge-without-a-changeset-is-named](../../../plans/2026-09-11-a-merge-without-a-changeset-is-named.md) | Released 2026-09-14, v2.17.0 | A merge without a changeset is named |
+| [the-scan-drift-counter-is-acted-on](../../../plans/2026-09-11-the-scan-drift-counter-is-acted-on.md) | Released 2026-09-14, v2.17.0 | The scan drift counter is acted on |
+| [a-merge-commit-carried-work](../../../plans/2026-09-14-a-merge-commit-carried-work.md) | Released 2026-09-14, v2.17.0 | A merge commit carried work |
+| [the-build-gate-sees-every-bundle](../../../plans/2026-09-14-the-build-gate-sees-every-bundle.md) | Released 2026-09-14, v2.17.0 | The build gate sees every bundle |
+| [a-connector-declares-its-ceiling](../../../plans/2026-09-15-a-connector-declares-its-ceiling.md) | Rejected 2026-09-15 | A connector declares its ceiling |
+| [a-gate-matches-an-invocation](../../../plans/2026-09-17-a-gate-matches-an-invocation.md) | Released 2026-09-20, v2.19.0 | A gate matches an invocation |
+| [a-scan-section-honours-offline](../../../plans/2026-09-17-a-scan-section-honours-offline.md) | Released 2026-09-20, v2.19.0 | A scan section honours offline |
 
 ## Session Narrative
 
@@ -133,3 +134,9 @@ lists all sixteen; it listed two, one of them through a link into
 This is the story's own test answered wrong: *can you answer "did I complete this?" without doing the work?* For a slice, today, yes.
 
 `a-merged-pr-carried-work` is the plan. It reports rather than refuses — a plan may legitimately deliver with a slice deferred, and the annotation for that already exists; what was missing is that nobody is told a decision is due.
+
+## Session Log
+
+### 2026-10-29
+
+- jwloka archived the story as done: all 16 plans that name it are Released (15) or Rejected (1); none is open.

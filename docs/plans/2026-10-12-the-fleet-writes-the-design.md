@@ -34,7 +34,7 @@
 
 ## Motivation
 
-D10 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) gives the fleet the mechanical part of design work. Measured on `main` at `c9dba748e`, 2026-10-13 (no code changed since `8b0180d52`):
+D10 in [the story](../stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) gives the fleet the mechanical part of design work. Measured on `main` at `c9dba748e`, 2026-10-13 (no code changed since `8b0180d52`):
 
 - *Commission design* is a board route (`packages/board/src/server/commission.ts`, 424 lines). A person clicks it on a Draft plan, and an agent started with the `Idea command` in the operator's checkout (`tree: opts.repoRoot`, `commission.ts:406`) is told to move the plan to Design and add an empty `## Spec` section, and not to write the spec (`commission.ts:135-205`). Its agent edits `State:` by hand, which the state gate refuses where the gate is installed, so the route does none of its job today.
 - `the-phases-are-declared` (Delivered) gives the move to Design to a person: `/plot-idea` writes `State: Design` on yes (#1628), and *Needs design* moves a Draft plan (#1633). Both write a `Design:` record and the `## Spec` placeholder `SPEC_PLACEHOLDER` (`packages/domain/src/workflows/needs-design.ts:5`).
@@ -45,7 +45,7 @@ D10 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five
 
 ### Approach
 
-The design spec is [DESIGN-phases.md](../stories/plot-works-in-five-phases/DESIGN-phases.md) §6, *In Design*.
+The design spec is [DESIGN-phases.md](../stories/archived/plot-works-in-five-phases/DESIGN-phases.md) §6, *In Design*.
 
 **The person's decision.** The fleet writes a spec only for a plan that a person already put in Design. `State: Design` comes from `/plot-idea` (#1628) or *Needs design* (#1633), each with a `Design:` record that names who decided, and the state gate refuses a `State:` change by any other writer. The fleet moves no plan into Design (D3). The spec it writes is a proposal on a draft PR: a person merges it or closes it, and a person later approves the plan through the person arm. An operator opts in with `Auto-design: true`; the default is off. `Auto-design` governs only the runs the fleet starts on its own: a person's `restart` starts one run whatever it says (D36), as `/plot-deliver --verify` does for verification.
 

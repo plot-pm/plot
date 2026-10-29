@@ -181,7 +181,7 @@ answered. Measured — `curl http://[::1]:7777/` returned 200 while
 No overlay helps there, because the document never loads; the reader gets
 Chrome's own error page. That is a real defect and a **separate one** — the
 server binds one address family and the client picks the other — recorded in
-[`plot-board`](../stories/plot-board/STORY-plot-board.md) rather than smuggled
+[`plot-board`](../stories/archived/plot-board/STORY-plot-board.md) rather than smuggled
 in here. This plan covers the server that *goes away*, not the one that was
 never reached.
 

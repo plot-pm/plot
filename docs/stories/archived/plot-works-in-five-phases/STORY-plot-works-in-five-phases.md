@@ -1,7 +1,8 @@
 ---
 title: Plot works in five phases
 author: jwloka
-status: active
+status: done
+archived: 2026-10-29
 created: 2026-10-12
 updated: 2026-10-12
 ---
@@ -26,27 +27,27 @@ Decisions D1 to D12 in the Decisions table were taken in one brainstorming sessi
 
 ### Phase 1: The phases are declared ⏸️
 
-- ⏸️ [`the-phases-are-declared`](../../plans/2026-10-12-the-phases-are-declared.md) — the `Workflow phases` key, the shipped default, a domain rule over the declared map in place of `toBoardPhase` and `storyPhase`, the board's columns and auto-bump against the map, `/plot-idea`'s design question, the *Needs design* action, and the phase prose. Slices of Phases 2, 3 and 6 wait on it, and Phase 4's lanes slice waits on it through Phase 3. Its *Needs design* slice waits on Phase 2's spike `feature/the-design-approvals-are-gated`, so no plan reaches `State: Design` through *Needs design* before the person arm exists.
+- ⏸️ [`the-phases-are-declared`](../../../plans/2026-10-12-the-phases-are-declared.md) — the `Workflow phases` key, the shipped default, a domain rule over the declared map in place of `toBoardPhase` and `storyPhase`, the board's columns and auto-bump against the map, `/plot-idea`'s design question, the *Needs design* action, and the phase prose. Slices of Phases 2, 3 and 6 wait on it, and Phase 4's lanes slice waits on it through Phase 3. Its *Needs design* slice waits on Phase 2's spike `feature/the-design-approvals-are-gated`, so no plan reaches `State: Design` through *Needs design* before the person arm exists.
 
 ### Phase 2: Design work proves the path ⏸️
 
-- ⏸️ [`design-work-proves-the-path`](../../plans/2026-10-12-design-work-proves-the-path.md) — the spike marker, approving the spike alone, confirming the slices after the spike, and tracer-bullet plans. Spike-first: its first slice, `feature/the-design-approvals-are-gated`, builds the person arm and the state gate fix of #1611 and waits on nothing. The plan is approved whole, and its six other branches are held in `.plot/hold` until the spike's Acceptance holds in CI (D29). Its tracer status slice waits on Phase 1.
+- ⏸️ [`design-work-proves-the-path`](../../../plans/2026-10-12-design-work-proves-the-path.md) — the spike marker, approving the spike alone, confirming the slices after the spike, and tracer-bullet plans. Spike-first: its first slice, `feature/the-design-approvals-are-gated`, builds the person arm and the state gate fix of #1611 and waits on nothing. The plan is approved whole, and its six other branches are held in `.plot/hold` until the spike's Acceptance holds in CI (D29). Its tracer status slice waits on Phase 1.
 
 ### Phase 3: The board has three tabs ⏸️
 
-- ⏸️ [`the-board-has-three-tabs`](../../plans/2026-10-12-the-board-has-three-tabs.md) — Discovery, Planning and Delivery, the redirects from the old tab names, the Planning tab's *Show released*, and the Delivery tab's ticket, sprint and owner filters. Waits on Phase 1. Runs in parallel with Phase 2. Its *Waiting on you* slice also waits on Phase 4's `feature/the-fleet-indexes-issues` and `feature/the-index-holds-closed-issues`, because both board issue reads hold up to 1000 open rows only after them.
+- ⏸️ [`the-board-has-three-tabs`](../../../plans/2026-10-12-the-board-has-three-tabs.md) — Discovery, Planning and Delivery, the redirects from the old tab names, the Planning tab's *Show released*, and the Delivery tab's ticket, sprint and owner filters. Waits on Phase 1. Runs in parallel with Phase 2. Its *Waiting on you* slice also waits on Phase 4's `feature/the-fleet-indexes-issues` and `feature/the-index-holds-closed-issues`, because both board issue reads hold up to 1000 open rows only after them.
 
 ### Phase 4: Tickets and stories have lanes ⏸️
 
-- ⏸️ [`tickets-and-stories-have-lanes`](../../plans/2026-10-12-tickets-and-stories-have-lanes.md) — a spike that builds the issue gate and its spend sharing with the PR pass (D28), closed issues through the index, the ticket and story lane rules, the Discovery tab with its tag cloud and archived toggle, and the project-wide Jira read (D20, D23, D30). Spike-first: the spike `feature/the-fleet-indexes-issues` waits on nothing. The plan is approved whole, and its five other branches are held in `.plot/hold` until the spike's Acceptance holds in CI (D29). The lanes slice waits on Phase 3's tab slice, and the Jira slice waits on Phase 3's assignee filter.
+- ⏸️ [`tickets-and-stories-have-lanes`](../../../plans/2026-10-12-tickets-and-stories-have-lanes.md) — a spike that builds the issue gate and its spend sharing with the PR pass (D28), closed issues through the index, the ticket and story lane rules, the Discovery tab with its tag cloud and archived toggle, and the project-wide Jira read (D20, D23, D30). Spike-first: the spike `feature/the-fleet-indexes-issues` waits on nothing. The plan is approved whole, and its five other branches are held in `.plot/hold` until the spike's Acceptance holds in CI (D29). The lanes slice waits on Phase 3's tab slice, and the Jira slice waits on Phase 3's assignee filter.
 
 ### Phase 5: The fleet writes the design ⏸️
 
-- ⏸️ [`the-fleet-writes-the-design`](../../plans/2026-10-12-the-fleet-writes-the-design.md) — the fleet commissions a spec for a Design plan with an empty spec, and dispatches an approved spike. Waits on Phases 1 and 2.
+- ⏸️ [`the-fleet-writes-the-design`](../../../plans/2026-10-12-the-fleet-writes-the-design.md) — the fleet commissions a spec for a Design plan with an empty spec, and dispatches an approved spike. Waits on Phases 1 and 2.
 
 ### Phase 6: The fleet verifies what it delivered ⏸️
 
-- ⏸️ [`the-fleet-verifies-what-it-delivered`](../../plans/2026-10-12-the-fleet-verifies-what-it-delivered.md) — a verification panel per Delivered plan, a verification record, an issue per refuted claim, and a manual release checklist. Spike-first: the spike `feature/a-pinned-run-verifies-one-plan` waits on nothing. The plan is approved whole, and its six other branches are held in `.plot/hold` until the spike's Acceptance holds in CI (D29). Its record slice waits on Phase 1's `feature/the-board-draws-the-declared-phases` and Phase 2's `feature/a-slice-is-marked-spike`, its run slice waits on Phase 2's `feature/a-slice-is-marked-spike`, and its issue-write slice waits on Phase 4's `feature/the-tracker-lists-closed-issues`.
+- ⏸️ [`the-fleet-verifies-what-it-delivered`](../../../plans/2026-10-12-the-fleet-verifies-what-it-delivered.md) — a verification panel per Delivered plan, a verification record, an issue per refuted claim, and a manual release checklist. Spike-first: the spike `feature/a-pinned-run-verifies-one-plan` waits on nothing. The plan is approved whole, and its six other branches are held in `.plot/hold` until the spike's Acceptance holds in CI (D29). Its record slice waits on Phase 1's `feature/the-board-draws-the-declared-phases` and Phase 2's `feature/a-slice-is-marked-spike`, its run slice waits on Phase 2's `feature/a-slice-is-marked-spike`, and its issue-write slice waits on Phase 4's `feature/the-tracker-lists-closed-issues`.
 
 ## Open Points
 
@@ -158,3 +159,7 @@ Panel round 3 questioned three plans. jwloka decided that each plan revises once
 D29 and D30; cross-plan alignment after the spike-first revisions.
 
 ---
+
+### 2026-10-29
+
+- jwloka archived the story as done: all 7 plans that name it are Released; none is open.

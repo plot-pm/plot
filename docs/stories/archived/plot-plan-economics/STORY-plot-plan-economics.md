@@ -1,7 +1,8 @@
 ---
 title: What a plan costs, and what the approval was worth
 author: jwloka
-status: active
+status: done
+archived: 2026-10-29
 created: 2026-08-27
 updated: 2026-10-12
 ---
@@ -163,9 +164,9 @@ no item below is blocked on it.
   when any slice is missing. **Not blocked on roles**: `registry.ts:236` already
   joins a transcript by exact session id, and session → branch → slice → plan is
   a chain Plot already has. Released 2026-09-16, v2.18.0, as
-  [a-slice-says-what-it-spent](../../plans/2026-09-15-a-slice-says-what-it-spent.md),
-  [a-plan-states-what-its-slices-cost](../../plans/2026-09-15-a-plan-states-what-its-slices-cost.md)
-  and [a-plan-shows-what-it-cost](../../plans/2026-09-15-a-plan-shows-what-it-cost.md).
+  [a-slice-says-what-it-spent](../../../plans/2026-09-15-a-slice-says-what-it-spent.md),
+  [a-plan-states-what-its-slices-cost](../../../plans/2026-09-15-a-plan-states-what-its-slices-cost.md)
+  and [a-plan-shows-what-it-cost](../../../plans/2026-09-15-a-plan-shows-what-it-cost.md).
 - ⏸️ **A branch says what it is for** — project the sprint goal and MoSCoW tier
   onto the plan and the board, **for the human**. Not into the worker prompt;
   see the settled point above.
@@ -182,14 +183,14 @@ pointless now.
 
 **Both halves of this story are derivations over entities that now have specs.**
 
-- **Cost** sums what agents did — [Agent](../the-master-agent-holds-the-fleet/DESIGN-agent.md) — over the work
-  they did it on: [Slice](../the-master-agent-holds-the-fleet/DESIGN-slice.md), one branch each by definition.
+- **Cost** sums what agents did — [Agent](../../the-master-agent-holds-the-fleet/DESIGN-agent.md) — over the work
+  they did it on: [Slice](../../the-master-agent-holds-the-fleet/DESIGN-slice.md), one branch each by definition.
 - **Value** is the sprint goal and priority a plan serves —
-  [Sprint](../the-master-agent-holds-the-fleet/DESIGN-sprint.md) and [Plan](../the-master-agent-holds-the-fleet/DESIGN-plan.md), whose double
+  [Sprint](../../the-master-agent-holds-the-fleet/DESIGN-sprint.md) and [Plan](../../the-master-agent-holds-the-fleet/DESIGN-plan.md), whose double
   link is what makes a `disputed` item expressible at all.
 
 **The trust-tier candidate in the session log was reached independently** by the
-fleet story's [job 6](../the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md#6-which-of-my-own-claims-have-i-actually-verified),
+fleet story's [job 6](../../the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md#6-which-of-my-own-claims-have-i-actually-verified),
 which carries the caution this story should inherit: **a tier only helps where
 something DERIVES it.** This repo already measures what happens otherwise — 84
 `Jan Wloka` against 43 `jwloka` in approval records, and sprint boxes checked
@@ -271,7 +272,7 @@ denominator.
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-08-27 | Cost is derived, never stored | Keeps manifesto Q1 (git is the database) and Q8 (no effort tracking). A stored cost is a record that can be wrong. |
-| 2026-09-15 | **Amended:** a token count is recorded, because it is not derivable off-machine | The 2026-08-27 entry assumed the source stays readable. It does not: `transcriptDir` resolves under `~/.claude/`, so a cost derived on demand is computable on the machine that ran the agent and nowhere else — and only until `plot-reap.sh` removes the desk. The decision stands for anything derivable from git; [`a-slice-says-what-it-spent`](../../plans/2026-09-15-a-slice-says-what-it-spent.md) records the one quantity that is not in git at all. Written once, never updated, machine-local and labelled as such. |
+| 2026-09-15 | **Amended:** a token count is recorded, because it is not derivable off-machine | The 2026-08-27 entry assumed the source stays readable. It does not: `transcriptDir` resolves under `~/.claude/`, so a cost derived on demand is computable on the machine that ran the agent and nowhere else — and only until `plot-reap.sh` removes the desk. The decision stands for anything derivable from git; [`a-slice-says-what-it-spent`](../../../plans/2026-09-15-a-slice-says-what-it-spent.md) records the one quantity that is not in git at all. Written once, never updated, machine-local and labelled as such. |
 | 2026-08-27 | Value is projection, not estimation | The sprint goal, MoSCoW tier and named approver already exist in git. Any plan that asks a human for a value number has misread this story. |
 | 2026-08-27 | The unit is cost per **approved** plan | Tokens per step are a commodity a step-cost runtime gives away; the denominator is what Plot uniquely has. Requested explicitly by Jan Wloka. |
 | 2026-08-27 | Separate story from [[plot-agent-identity]] | Different question, different failure mode; downstream, not inside. |
@@ -374,7 +375,7 @@ the story inside manifesto Q8.
   derived rather than asserted) are a candidate mechanism for making the human
   half legible — noted, not yet scoped. Independently reached from the fleet
   story's job 6; see
-  [the master agent holds the fleet](../the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md#6-which-of-my-own-claims-have-i-actually-verified).
+  [the master agent holds the fleet](../../the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md#6-which-of-my-own-claims-have-i-actually-verified).
 
 ---
 
@@ -385,3 +386,7 @@ Three plans name this story: `a-slice-says-what-it-spent`,
 are Released in v2.18.0 on 2026-09-16, through sprint
 `2026-W41-a-declared-agent-costs-what-it-costs`, which is Closed. They close the
 first item of the Current Plan. The second and third items have no plan.
+
+### 2026-10-29
+
+- jwloka archived the story as dropped: its first item has a Released plan; the items "A branch says what it is for" and "Cost per approved plan, stated as such" were left with no plan. The domain has no dropped status, so the file records done.

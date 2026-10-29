@@ -34,7 +34,7 @@
 
 ## Motivation
 
-D11 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) gives the fleet the mechanical part of Testing. Measured on `main` at `75f093cb9`, 2026-10-12:
+D11 in [the story](../stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) gives the fleet the mechanical part of Testing. Measured on `main` at `75f093cb9`, 2026-10-12:
 
 - `/plot-deliver` step 5 (`skills/plot-deliver/SKILL.md:188`) runs a lens panel through `/plot-panel` before delivery, with two gated commitment lines, `Position: supported | refuted` and `Evidence: executed | read` (`:266-269`, `:318-319`), and three lenses, Deliverable, Behaviour and Changelog (`:251-255`). It runs once, at delivery, inside a person's session, and gives one position per juror for the whole plan. Of 130 directories under `.plot/panels/`, 1 holds a committed delivery panel (`2026-09-30-a-slice-nobody-worked-on-reads-not-started/deliver-*.md`). Nothing questions a plan after it is Delivered.
 - Automatic delivery (`packages/domain/src/rules/auto-deliver.ts`) delivers a plan whose slices have merged, with no panel. Its comment at `:311-315` names the gap.
@@ -50,7 +50,7 @@ D11 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five
 
 ### Approach
 
-The design spec is [DESIGN-phases.md](../stories/plot-works-in-five-phases/DESIGN-phases.md) §6, *In Testing*.
+The design spec is [DESIGN-phases.md](../stories/archived/plot-works-in-five-phases/DESIGN-phases.md) §6, *In Testing*.
 
 **Spike first.** The riskiest mechanism is the pinned run: the default branch's tools run against the pinned delivery commit and produce a gated record per claim. The first slice, `feature/a-pinned-run-verifies-one-plan`, is the plan's spike (`design-work-proves-the-path`, *The marker*). It builds that run end to end on one Delivered fixture plan, with juror files written by the test and no model, so CI judges the mechanism. Its *Acceptance* items decide whether a person confirms the remaining slices or rewrites them. The annotation gates nothing until `design-work-proves-the-path` ships its spike machinery, so D29 decides the route: the plan is approved whole, and right after the approval its six other branches are held in `.plot/hold` until a person removes the holds (*Notes*).
 

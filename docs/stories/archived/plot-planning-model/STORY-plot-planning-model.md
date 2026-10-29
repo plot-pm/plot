@@ -1,7 +1,8 @@
 ---
 title: How Plot cuts work into pieces
 author: jwloka
-status: active
+status: done
+archived: 2026-10-29
 created: 2026-08-16
 updated: 2026-10-12
 ---
@@ -119,15 +120,15 @@ and unused, which is a different thing from wrong.
 
 | Plan | Status | What it covers |
 |------|--------|----------------|
-| [plot-sprint-support](../../plans/2026-02-11-plot-sprint-support.md) | Released 2026-04-05, v1.0.0-beta.3 | Time-boxed planning with MoSCoW priorities — the sprint half of the vocabulary |
-| [a-sprint-names-what-it-ships](../../plans/2026-08-18-a-sprint-names-what-it-ships.md) | Released 2026-08-22, v2.7.0 | A sprint declares the release it targets, so the gate has something to read |
-| [the-index-is-derived](../../plans/2026-08-18-the-index-is-derived.md) | Released 2026-08-22, v2.7.0 | The phase a plan declares decides where it appears; the symlink index stops being a second truth |
-| [a-plan-moves-through-the-sections](../../plans/2026-08-22-a-plan-moves-through-the-sections.md) | Released 2026-08-23, v2.8.0 | The lifecycle a board reader walks: approve a plan, see it where work is taken, start it |
-| [approval-hands-the-work-to-agents](../../plans/2026-08-22-approval-hands-the-work-to-agents.md) | Released 2026-08-26, v2.9.0 | Approval as the handover: eligible waves dispatch themselves, bounded by a cap the operator holds |
-| [an-approved-plan-offers-its-two-starts](../../plans/2026-08-22-an-approved-plan-offers-its-two-starts.md) | Released 2026-08-26, v2.9.0 | The two ways to begin an approved plan — a person implements it, or a fleet dispatches it |
-| [an-interrogation-leaves-a-record](../../plans/2026-08-22-an-interrogation-leaves-a-record.md) | Released 2026-08-23, v2.8.0 | A challenged plan says so: the round count reaches the file, so interrogated and unexamined stop looking alike |
-| [the-plan-is-the-wave](../../plans/2026-08-21-the-plan-is-the-wave.md) | Released 2026-08-26, v2.9.0 | A plan with one wave has no wave — it is the wave |
-| [waves-name-themselves](../../plans/2026-08-21-waves-name-themselves.md) | Released 2026-09-05, v2.13.0 | The section is called Waves, and a wave heading carries its own facts |
+| [plot-sprint-support](../../../plans/2026-02-11-plot-sprint-support.md) | Released 2026-04-05, v1.0.0-beta.3 | Time-boxed planning with MoSCoW priorities — the sprint half of the vocabulary |
+| [a-sprint-names-what-it-ships](../../../plans/2026-08-18-a-sprint-names-what-it-ships.md) | Released 2026-08-22, v2.7.0 | A sprint declares the release it targets, so the gate has something to read |
+| [the-index-is-derived](../../../plans/2026-08-18-the-index-is-derived.md) | Released 2026-08-22, v2.7.0 | The phase a plan declares decides where it appears; the symlink index stops being a second truth |
+| [a-plan-moves-through-the-sections](../../../plans/2026-08-22-a-plan-moves-through-the-sections.md) | Released 2026-08-23, v2.8.0 | The lifecycle a board reader walks: approve a plan, see it where work is taken, start it |
+| [approval-hands-the-work-to-agents](../../../plans/2026-08-22-approval-hands-the-work-to-agents.md) | Released 2026-08-26, v2.9.0 | Approval as the handover: eligible waves dispatch themselves, bounded by a cap the operator holds |
+| [an-approved-plan-offers-its-two-starts](../../../plans/2026-08-22-an-approved-plan-offers-its-two-starts.md) | Released 2026-08-26, v2.9.0 | The two ways to begin an approved plan — a person implements it, or a fleet dispatches it |
+| [an-interrogation-leaves-a-record](../../../plans/2026-08-22-an-interrogation-leaves-a-record.md) | Released 2026-08-23, v2.8.0 | A challenged plan says so: the round count reaches the file, so interrogated and unexamined stop looking alike |
+| [the-plan-is-the-wave](../../../plans/2026-08-21-the-plan-is-the-wave.md) | Released 2026-08-26, v2.9.0 | A plan with one wave has no wave — it is the wave |
+| [waves-name-themselves](../../../plans/2026-08-21-waves-name-themselves.md) | Released 2026-09-05, v2.13.0 | The section is called Waves, and a wave heading carries its own facts |
 
 > Three of these arrived on 2026-08-22 and they are one line of work: the
 > vocabulary this story keeps coherent is no longer only *what the words mean*
@@ -151,3 +152,9 @@ turns up next.
 Released, the last one (`waves-name-themselves`) in v2.13.0 on 2026-09-05. The
 Plans table now lists all nine. `docs/sprints/` holds 19 sprint files, all
 Closed. The Discovery question above stays open.
+
+## Session Log
+
+### 2026-10-29
+
+- jwloka archived the story as done: all 9 plans that name it are Released; none is open.

@@ -223,20 +223,20 @@ Long-running work spanning several plans. Stories carry the intent and the decis
 
 | Story | Status | About |
 |-------|--------|-------|
-| [plot-board](docs/stories/plot-board/STORY-plot-board.md) | active | Making parallel work visible — the board, the fleet, and the agent view |
-| [plot-gates](docs/stories/plot-gates/STORY-plot-gates.md) | active | Rules that do not enforce themselves — converting Plot's stated requirements into checkable ones |
-| [plot-planning-model](docs/stories/plot-planning-model/STORY-plot-planning-model.md) | active | How Plot cuts work into pieces — stories, plans, waves, sprints and what each one answers |
-| [plot-in-a-customer-team](docs/stories/plot-in-a-customer-team/STORY-plot-in-a-customer-team.md) | active | The board sees one repository — a four-repo customer estate, and what it could not show |
+| [plot-board](docs/stories/archived/plot-board/STORY-plot-board.md) | done, archived 2026-10-29 | Making parallel work visible — the board, the fleet, and the agent view |
+| [plot-gates](docs/stories/archived/plot-gates/STORY-plot-gates.md) | done, archived 2026-10-29 | Rules that do not enforce themselves — converting Plot's stated requirements into checkable ones |
+| [plot-planning-model](docs/stories/archived/plot-planning-model/STORY-plot-planning-model.md) | done, archived 2026-10-29 | How Plot cuts work into pieces — stories, plans, waves, sprints and what each one answers |
+| [plot-in-a-customer-team](docs/stories/archived/plot-in-a-customer-team/STORY-plot-in-a-customer-team.md) | done, archived 2026-10-29 | The board sees one repository — a four-repo customer estate, and what it could not show |
 | [plot-agent-identity](docs/stories/archived/plot-agent-identity/STORY-plot-agent-identity.md) | done, archived 2026-09-15 | An agent is someone, not something running — agent specs in git, and capacity that knows one kind of agent from another |
-| [the-master-agent-holds-the-fleet](docs/stories/the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md) | active | What a supervising agent has to know — headroom, worker liveness, what changed, and a board it does not compete with |
+| [the-master-agent-holds-the-fleet](docs/stories/the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md) | done, archived 2026-10-29 | What a supervising agent has to know — headroom, worker liveness, what changed, and a board it does not compete with |
 | [the-domain-knows-what-plot-knows](docs/stories/archived/the-domain-knows-what-plot-knows/STORY-the-domain-knows-what-plot-knows.md) | done, archived 2026-09-15 | Every element a domain concept with a lifecycle a test enforces — 21 state enums, one transitions rule |
-| [plot-plan-economics](docs/stories/plot-plan-economics/STORY-plot-plan-economics.md) | active | What a plan costs, and what the approval was worth — measured cost against the value a human's interrogation records |
+| [plot-plan-economics](docs/stories/archived/plot-plan-economics/STORY-plot-plan-economics.md) | done, archived 2026-10-29 | What a plan costs, and what the approval was worth — measured cost against the value a human's interrogation records |
 | [the-board-is-blank-where-it-matters](docs/stories/archived/the-board-is-blank-where-it-matters/STORY-the-board-is-blank-where-it-matters.md) | done, archived 2026-10-12 | An enterprise team's ticket inbox and build status are empty — and empty reads as a fact about their work |
 | [setup-asks-what-the-repo-already-knows](docs/stories/archived/setup-asks-what-the-repo-already-knows/STORY-setup-asks-what-the-repo-already-knows.md) | done, archived 2026-09-15 | Setup asks what the origin URL and the Jenkinsfile already answer — then records a key nothing reads |
 | [the-supervisor-delivers-the-approved-scope](docs/stories/archived/the-supervisor-delivers-the-approved-scope/STORY-the-supervisor-delivers-the-approved-scope.md) | done, archived 2026-10-12 | With auto-dispatch on, the fleet supervisor fixes or escalates every stop in an approved plan |
 | [the-shell-holds-no-behavior](docs/stories/the-shell-holds-no-behavior/STORY-the-shell-holds-no-behavior.md) | active | Every `.sh` under `skills/plot/scripts/` is a launcher, and the fleet runs apart from the board |
 | [an-agent-is-declared-and-corrected](docs/stories/archived/an-agent-is-declared-and-corrected/STORY-an-agent-is-declared-and-corrected.md) | done, archived 2026-09-14 | An agent is declared as a kind of worker, and a failed gate becomes a correction rather than a halt |
-| [plot-works-in-five-phases](docs/stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) | active | The board's phases are a declared workflow: Discovery holds stories and tickets, plans pass through Design, Development, Testing and Released, and the fleet writes specs and verifies deliveries |
+| [plot-works-in-five-phases](docs/stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) | done, archived 2026-10-29 | The board's phases are a declared workflow: Discovery holds stories and tickets, plans pass through Design, Development, Testing and Released, and the fleet writes specs and verifies deliveries |
 
 ---
 

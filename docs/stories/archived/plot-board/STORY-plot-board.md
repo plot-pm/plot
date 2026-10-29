@@ -1,7 +1,8 @@
 ---
 title: Making parallel work visible
 author: jwloka
-status: active
+status: done
+archived: 2026-10-29
 created: 2026-08-15
 updated: 2026-10-12
 ---
@@ -69,11 +70,11 @@ that closes the loop, and it has not been built yet.
 ### Phase 3: Parallel work becomes visible ✅
 
 - ✅ `fleet-agent-view` — the agent tab, in four steps; approved and started 2026-08-15
-  - ✅ Step 1 `feature/fleet-scan-json` → `feature/fleet-api` → `feature/fleet-tab` — git-only agent list, three waves (#102, #103, #104). [fleet-agent-view](../../plans/2026-08-15-fleet-agent-view.md), Released 2026-08-15, v2.2.0
+  - ✅ Step 1 `feature/fleet-scan-json` → `feature/fleet-api` → `feature/fleet-tab` — git-only agent list, three waves (#102, #103, #104). [fleet-agent-view](../../../plans/2026-08-15-fleet-agent-view.md), Released 2026-08-15, v2.2.0
   - ✅ Step 2 — PR/CI data, completing *waiting on a machine*
   - ✅ Step 3 — five board columns, leadership colour, Approved split
-  - ✅ Step 4 — story swimlanes. Steps 2 to 4: [agent-view-completion](../../plans/2026-08-15-agent-view-completion.md), Released 2026-08-16, v2.3.0
-- ✅ `bb-state-vocabulary` — the board's PR data reaches Bitbucket repos at all; drafted 2026-08-18. [bb-state-vocabulary](../../plans/2026-08-18-bb-state-vocabulary.md), Released 2026-08-18, v2.5.1
+  - ✅ Step 4 — story swimlanes. Steps 2 to 4: [agent-view-completion](../../../plans/2026-08-15-agent-view-completion.md), Released 2026-08-16, v2.3.0
+- ✅ `bb-state-vocabulary` — the board's PR data reaches Bitbucket repos at all; drafted 2026-08-18. [bb-state-vocabulary](../../../plans/2026-08-18-bb-state-vocabulary.md), Released 2026-08-18, v2.5.1
 
 ## Open Points
 
@@ -242,7 +243,7 @@ that closes the loop, and it has not been built yet.
   NOT STARTED is meant to mean *discovered, planned, ready for an agent* — the
   hand-off point. A Draft plan has not reached it.
 
-  Belongs with [`agent-view-phase`](../../plans/2026-08-16-agent-view-phase.md),
+  Belongs with [`agent-view-phase`](../../../plans/2026-08-16-agent-view-phase.md),
   which is teaching the scan exactly this plan-phase-to-row connection: there
   for the row's **label**, here for its **group**. Not folded in mid-flight —
   that plan's Data wave is in an agent's hands right now.
@@ -301,7 +302,7 @@ that closes the loop, and it has not been built yet.
   That makes it the same defect as `EADDRINUSE` on `pnpm board` and as a tab
   bookmarked on a dead port: **a port chosen at one moment and used at
   another**. Three symptoms, one root. Planned as
-  [`board-tells-the-truth`](../../plans/2026-08-16-board-tells-the-truth.md).
+  [`board-tells-the-truth`](../../../plans/2026-08-16-board-tells-the-truth.md).
 
   The lesson worth keeping: the plausible mechanism was accepted for hours
   because it *explained the symptom*. Only reading `helpers.mjs` disproved it.
@@ -675,7 +676,7 @@ that closes the loop, and it has not been built yet.
   branch `claimed`: the wrong answer manufactures the evidence that justifies
   it. It also explains the ref that had to be restored by hand earlier today
   to unblock a wave — symptom, not cause. Tracked with the evidence in
-  [`release-closes-the-loop`](../../plans/2026-08-16-release-closes-the-loop.md).
+  [`release-closes-the-loop`](../../../plans/2026-08-16-release-closes-the-loop.md).
 - ✅ **`packages/board/src/server/fleet.ts` held a literal NUL byte** — fixed: written as the `\0` escape, verified with `node` to produce the identical byte, and gated by a test that walks `src/` and `test/` for raw NULs. The gate was proven to fail by putting the byte back, because a test that has never been red proves nothing. Originally (offset
   5007, line 126) — `` `${opts.repoRoot}\x00${opts.scriptsDir}` ``, the cache-key
   separator. The *choice* is right: NUL cannot occur in a path, so it is the one
@@ -728,7 +729,7 @@ that closes the loop, and it has not been built yet.
   `docs/plans/active/` in the local working tree only. A Draft plan therefore
   shows in the Agents tab exactly when you happen to stand on its own idea
   branch. Same question one layer over, tracked in
-  [`agent-view-phase`](../../plans/2026-08-16-agent-view-phase.md) (#131) as its
+  [`agent-view-phase`](../../../plans/2026-08-16-agent-view-phase.md) (#131) as its
   first wave. Follow-up question, 2026-08-16: *isn't a draft
   plan exactly the discovery work we are doing, and is that why Discovery is
   always empty?* Checked against the running board rather than the code, and
@@ -815,7 +816,7 @@ that closes the loop, and it has not been built yet.
   database — the board reads one branch's working tree.
 - ✅ **The Agents tab knows *when* a branch moved, never *what phase* it is
   in.** Planned as
-  [`agent-view-phase`](../../plans/2026-08-16-agent-view-phase.md), approved
+  [`agent-view-phase`](../../../plans/2026-08-16-agent-view-phase.md), approved
   2026-08-16 via plan-PR #131 after three interrogation rounds. Not dispatched
   yet — `fleet-sees-local-work` holds four of its files uncommitted. Original
   finding kept. Raised 2026-08-16 as two requests that turn out to share one missing
@@ -899,7 +900,7 @@ that closes the loop, and it has not been built yet.
 ## Decisions
 
 The five `Q*` rows below come from
-[`kanban-board-v1-open-questions.md`](../../notes/kanban-board-v1-open-questions.md),
+[`kanban-board-v1-open-questions.md`](../../../notes/kanban-board-v1-open-questions.md),
 the `/challenge-the-plan` decision log — that file keeps the working:
 the bundle-size table, the install-path comparison, the version-scheme
 options. The decision belongs here where it outlives its plan; the
@@ -945,7 +946,7 @@ been since the Bitbucket backend was added. It survived because Plot develops on
 GitHub: its own backend is `github`, so that branch has no daily user and no CI
 coverage. The fix is small; the missing piece is a stub-`bb` test giving the
 Bitbucket path its first coverage. Planned in
-[`bb-state-vocabulary`](../../plans/2026-08-18-bb-state-vocabulary.md).
+[`bb-state-vocabulary`](../../../plans/2026-08-18-bb-state-vocabulary.md).
 
 **A `bb` defect found alongside, not fixed here:** repeated `--state` flags are
 accepted and silently keep only the last — `--state open --state merged`
@@ -1095,3 +1096,7 @@ built: the work had shipped and was in daily use.
 - This is the repo's first story — Plot has built story tooling (`Story:` field,
   board filter, `plot-story-lint.sh`, this template) and never used it, which is
   also why step 4 of the agent view had nothing to render
+
+### 2026-10-29
+
+- jwloka archived the story as done: all 103 plans that name it are Released (99), Superseded (3) or Rejected (1); none is open.

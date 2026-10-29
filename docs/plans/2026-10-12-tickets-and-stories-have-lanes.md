@@ -34,7 +34,7 @@
 
 ## Motivation
 
-D7 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) puts tickets and stories, the two subjects of Discovery, side by side. Measured on `main` at `75f093cb9`, 2026-10-12:
+D7 in [the story](../stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) puts tickets and stories, the two subjects of Discovery, side by side. Measured on `main` at `75f093cb9`, 2026-10-12:
 
 - `packages/board/src/app/components/StoriesTab.tsx` groups stories as Draft, Active, Done and Archived, with Archived behind a toggle and a TF-IDF tag cloud from `packages/board/src/server/topics.ts`. `COLUMN_OF` (`StoriesTab.tsx:30-38`) decides the grouping in the component.
 - The board reads open issues through `plot-host.sh issue-list` (`fleet.ts:1490` `hostSaid`), after `issueSource` (`rules/issue-source.ts:46-66`) decides between `tracker`, `git-host` and `nobody`. This repository declares no `Tracker` key, so its issues come from the git host. The `Tracker` port's `issueList` (`ports/tracker.ts:108`) has no production caller; the one production use of the port is `statusWrite` (`board/src/server/entry/issue-status.ts:133`). `trackerFor('')` resolves to `trackerNone` (`adapters/tracker/tracker-resolve.ts:35-44`).
@@ -49,7 +49,7 @@ D7 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five-
 
 ### Approach
 
-The design spec is [DESIGN-phases.md](../stories/plot-works-in-five-phases/DESIGN-phases.md) §5, *Discovery*. The lanes are a view: no decision reads the issue index, and the board renders its open and closed rows as it renders non-terminal PR rows from the PR store (`fleet.ts:1624-1647`).
+The design spec is [DESIGN-phases.md](../stories/archived/plot-works-in-five-phases/DESIGN-phases.md) §5, *Discovery*. The lanes are a view: no decision reads the issue index, and the board renders its open and closed rows as it renders non-terminal PR rows from the PR store (`fleet.ts:1624-1647`).
 
 **This plan's spike.** The riskiest mechanism is the issue gate and its spend sharing with the PR pass: three panel rounds read it, and each found a wire the previous revision missed. So the first slice is a spike, `feature/the-fleet-indexes-issues`, alone under the first slice heading and annotated `<!-- spike -->` as `design-work-proves-the-path` *The marker* defines it, and CI judges the mechanism. The spike builds the smallest fixture of the whole path: fleetd folds today's open read (`issue-list --limit 50`, one page, the call the board makes today at `fleet.ts:1490`) into `issues.json` on the issue gate, writes the gate's `nextAt`, `backoffUntil` and request count into the file (D28), the PR pass reads them, and the board under a fleet reads its inbox from the file and stops its own 60 s call. It adds no shell line and reads no closed issue. Its Acceptance (*Acceptance*, *The spike*) names what it must show before the remaining slices are confirmed. The annotation gates nothing until `feature/a-slice-is-marked-spike` ships. Until then D29 decides the route: the plan is approved whole, and right after the approval its five other branches are held in `.plot/hold` until a person removes the holds (*Notes*).
 

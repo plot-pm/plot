@@ -31,7 +31,7 @@
 
 ## Motivation
 
-The phases are the operator's workflow, not a fact Plot owns (D12 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md)). Measured on `main` at `75f093cb9` and re-read on this branch, 2026-10-12:
+The phases are the operator's workflow, not a fact Plot owns (D12 in [the story](../stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md)). Measured on `main` at `75f093cb9` and re-read on this branch, 2026-10-12:
 
 - `packages/domain/src/entities/workflow.ts:35` declares `BOARD_PHASES` as five constant names, and `PHASE_LEADERSHIP` (`:62`) and `PHASE_WORKFLOWS` (`:143`) are keyed by them.
 - `rules/phase.ts:41` `toBoardPhase` puts a `draft` plan in Discovery. `rules/phase.ts:72` `storyPhase` maps the six story statuses over all five phases, and no production code calls it: its callers are `packages/domain/test/phase.test.ts` and `test/workflow.test.ts`.
@@ -45,7 +45,7 @@ The phases are the operator's workflow, not a fact Plot owns (D12 in [the story]
 
 ### Approach
 
-The design spec is [DESIGN-phases.md](../stories/plot-works-in-five-phases/DESIGN-phases.md) §2, §3 and §8.
+The design spec is [DESIGN-phases.md](../stories/archived/plot-works-in-five-phases/DESIGN-phases.md) §2, §3 and §8.
 
 **Two words.** A *state* is the `State:` word in a plan file. A *phase* is a declared column. New code and changed prose name a plan's state `state`. `PlanReadings.phase` (`rules/phase.ts:115`), the script `plot-phase-gate.sh` and the wire key `phase` of the transition write (`transitions/plan.ts:133`) hold a state under the old name, and this plan does not rename them.
 

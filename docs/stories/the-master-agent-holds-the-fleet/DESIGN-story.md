@@ -196,7 +196,7 @@ what brainstorming does when nobody has told it where the story belongs.
 
 **Both remain live in this repo**, and that is now explicable rather than
 contradictory: `2026-08-18-plot-board-setup-design.md` is what a direct
-brainstorming run produced, and `docs/stories/plot-board/` is what the story
+brainstorming run produced, and `docs/stories/archived/plot-board/` is what the story
 flow produced for related work. Whether the standalone spec path should
 continue to exist in a Plot repo is a smaller question than it looked — a
 direct brainstorm is still legitimate; it simply has not been placed.

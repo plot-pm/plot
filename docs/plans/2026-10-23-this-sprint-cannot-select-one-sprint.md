@@ -62,7 +62,7 @@ This is a regression. `AgentList.tsx:566` still holds `sprintFilter: Set<string>
 
 Filed as plot-pm/plot#2399 from a Claude Code session. The plan's `Issue:` field is the only link to the issue; nothing was written to the tracker.
 
-The plan settles item 12 of `docs/stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md:64` (more than one Active sprint; the default is the union). On approval, the story's Decisions table records: the default stays the union, and the Delivery tab selects a subset.
+The plan settles item 12 of `docs/stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md:64` (more than one Active sprint; the default is the union). On approval, the story's Decisions table records: the default stays the union, and the Delivery tab selects a subset.
 
 ## Decisions
 

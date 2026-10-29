@@ -73,7 +73,7 @@ the plan should be, and most of it was thrown away. **That is a spike**, merely
 carried in a plan file.
 
 So no new vocabulary is required, which matters:
-[`plot-planning-model`](../stories/plot-planning-model/STORY-plot-planning-model.md)
+[`plot-planning-model`](../stories/archived/plot-planning-model/STORY-plot-planning-model.md)
 holds that every term must earn its place. A plan in Draft is not a commitment;
 it is the investigation deciding whether there is one, and approval is the
 moment discovery ends.
@@ -229,7 +229,7 @@ tree and treating absence there as absence of the thing.
 
 Scope: this plan owns the *rendering*. Whether Plot's vocabulary should gain a
 term for decision-producing work is
-[`plot-planning-model`](../stories/plot-planning-model/STORY-plot-planning-model.md)'s
+[`plot-planning-model`](../stories/archived/plot-planning-model/STORY-plot-planning-model.md)'s
 open question. The answer recorded there — that Draft already is that phase —
 is what makes this plan a bug fix rather than a feature, and if that answer
 changes, this plan changes with it.

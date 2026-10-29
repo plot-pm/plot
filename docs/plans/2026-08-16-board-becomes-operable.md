@@ -290,7 +290,7 @@ Open point, not addressed: **`Done` and `Released` both sound like the end**
 while meaning different things on different clocks. The distinction is correct;
 the names invite the question. Renaming a board column is a bigger change than
 this plan, and belongs to
-[`plot-board`](../stories/plot-board/STORY-plot-board.md).
+[`plot-board`](../stories/archived/plot-board/STORY-plot-board.md).
 
 Ordering: this plan touches `packages/board/**` only, and so does
 [`agent-view-phase`](2026-08-16-agent-view-phase.md) (#131). Both add to

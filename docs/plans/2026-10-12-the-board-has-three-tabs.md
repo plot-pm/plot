@@ -33,7 +33,7 @@
 
 ## Motivation
 
-D6, D8, D9, D31 to D33 and D35 in [the story](../stories/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) name the tabs after the work each one shows and settle the Delivery tab's filters. Measured on `main` at `c9dba748e`, 2026-10-13 (no code change since `8b0180d52`):
+D6, D8, D9, D31 to D33 and D35 in [the story](../stories/archived/plot-works-in-five-phases/STORY-plot-works-in-five-phases.md) name the tabs after the work each one shows and settle the Delivery tab's filters. Measured on `main` at `c9dba748e`, 2026-10-13 (no code change since `8b0180d52`):
 
 - `packages/board/src/app/App.tsx:118` declares `type Tab = 'stories' | 'plans' | 'agents'`, and `parseTab` (`:123`) redirects `?tab=board` to `plans`. The tab decision is made in the component and has no domain test. `grep -n "'agents'\|'plans'\|'stories'" App.tsx` names 31 lines, from `:118` to the render gates at `:1066`, `:1069`, `:1075`, `:1090`, `:1104` and `:1112`. `:985-996` sends an empty Stories tab to Plans.
 - The Plans tab draws one column per declared phase that holds a plan state, four with the default map (`phaseColumns`, `packages/domain/src/rules/workflow-phases.ts:228`, `PhaseColumn` `:208`, spread into the payload at `packages/board/src/server/board.ts:2336`). The payload's `ColumnSchema` (`packages/board/src/contract/schema.ts:772-783`) names the field `phase` where `PhaseColumn` names it `name`, and lists no field beyond `checklist`. `Board.tsx:212` sizes the grid by `boardGridColumns(board.columns.length)`. The tab has a sprint filter, a story filter, *Story lanes* and *Only my work* (`packages/board/src/app/lib/agent-rows/mine-filter.ts:162` `boardForReader`).
@@ -48,7 +48,7 @@ D6, D8, D9, D31 to D33 and D35 in [the story](../stories/plot-works-in-five-phas
 
 ### Approach
 
-The design spec is [DESIGN-phases.md](../stories/plot-works-in-five-phases/DESIGN-phases.md) §5.
+The design spec is [DESIGN-phases.md](../stories/archived/plot-works-in-five-phases/DESIGN-phases.md) §5.
 
 **The tab is a domain answer.** A new rule `boardTabOf(param)` in `packages/domain/src/rules/board-tab.ts` returns the tab and, for an old value, the new value to redirect to: `stories` to `discovery`, `plans` and `board` to `planning`, `agents` to `delivery`. An absent or unknown value answers `planning`, as `plans` is the default today. `App.tsx` calls it in place of `parseTab` and replaces the URL silently, as `parseTab` does today. Every `App.tsx` line the grep above names takes the new value, and `revealBranch` (`:683-685`) writes `?tab=delivery`. The tab names are fixed (D6). The Discovery tab renders today's `StoriesTab` until `tickets-and-stories-have-lanes` rebuilds it.
 

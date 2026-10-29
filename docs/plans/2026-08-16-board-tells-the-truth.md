@@ -246,7 +246,7 @@ overlap.** But both must run `pnpm build:board` and commit
 `skills/plot/scripts/board/board-server.mjs`, a minified bundle where any two
 concurrent rebuilds collide and the conflict cannot be meaningfully resolved.
 That is the open point already recorded in
-[`plot-board`](../stories/plot-board/STORY-plot-board.md) — *the checked-in
+[`plot-board`](../stories/archived/plot-board/STORY-plot-board.md) — *the checked-in
 artifact collides on every parallel branch* — and until it is fixed it bounds
 how parallel board work can actually be.
 

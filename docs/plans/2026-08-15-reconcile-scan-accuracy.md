@@ -225,7 +225,7 @@ forward if the scan fixes stall.
 
 All three gaps were found on 2026-08-15 while delivering `board-sync` and
 `kanban-board-v1`, both of which had shipped months earlier. Evidence for each
-is in the [`plot-board` story](../stories/plot-board/STORY-plot-board.md) under
+is in the [`plot-board` story](../stories/archived/plot-board/STORY-plot-board.md) under
 Key Findings.
 
 Tests extend `test/reconcile/scan.test.mjs`, which already exists. Assert per

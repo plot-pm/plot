@@ -250,7 +250,7 @@ age at 266) and it is the weaker instrument — never shown on touch, read
 inconsistently across screen readers — so it may accompany the label but not
 replace it. The deeper fix is to make the fake table a real one, which is
 larger than this plan and belongs to
-[`plot-board`](../stories/plot-board/STORY-plot-board.md).
+[`plot-board`](../stories/archived/plot-board/STORY-plot-board.md).
 
 The waiting-group headings are a different case and already right: ⚠️ 🤖 ⏳
 💤 📋 ✅ are one symbol per group, each unique, each already paired with its
@@ -494,7 +494,7 @@ The two plans are also complementary rather than overlapping:
 its *phase* legible.
 
 Recorded first as an open point in
-[`plot-board`](../stories/plot-board/STORY-plot-board.md) on 2026-08-16, from
+[`plot-board`](../stories/archived/plot-board/STORY-plot-board.md) on 2026-08-16, from
 two requests that looked separate and shared one missing field.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
