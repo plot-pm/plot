@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2826
@@ -15,6 +15,9 @@
 - **Approved:** 2026-10-28, Jan Wloka, plan-PR #2827 merged
 - **Started:** 2026-10-28, Jan Wloka, `bug/deliver-reads-unread-branch-items`
 - **Started:** 2026-10-28, Jan Wloka, `bug/deliver-refuses-unread-branch-items`
+- **Started:** 2026-10-28, Jan Wloka, `bug/a-cross-repo-reference-is-read-per-line`
+- **Started:** 2026-10-29, Jan Wloka, `docs/a-foreign-slice-has-one-written-form`
+- **Delivered:** 2026-10-29
 
 ## Changelog
 
@@ -107,15 +110,15 @@ Decided 2026-10-28 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-28-de
 
 ### Deliver refusal
 
-- `bug/deliver-refuses-unread-branch-items` — `deliver()` refuses `slices-unread` through `deliverabilityOf`, also with zero parsed branches; `landed()` answers `not-merged` so `allSlicesConfirmed` and auto-delivery agree; step 4b reports the refusal <!-- builds: slices-unread in deliver() -->
+- `bug/deliver-refuses-unread-branch-items` — `deliver()` refuses `slices-unread` through `deliverabilityOf`, also with zero parsed branches; `landed()` answers `not-merged` so `allSlicesConfirmed` and auto-delivery agree; step 4b reports the refusal <!-- builds: slices-unread in deliver() --> → #2877
 
 ### Per-line references
 
-- `bug/a-cross-repo-reference-is-read-per-line` — `crossRepoReferences`, `branchesOf` and `plot-impl-status.sh` key references by (repository, branch); `crossRepoReferences` reads `PR: owner/repo#N` on headings
+- `bug/a-cross-repo-reference-is-read-per-line` — `crossRepoReferences`, `branchesOf` and `plot-impl-status.sh` key references by (repository, branch); `crossRepoReferences` reads `PR: owner/repo#N` on headings → #2883
 
 ### Foreign slice form
 
-- `docs/a-foreign-slice-has-one-written-form` — the template, `/plot-idea` and the plot skill document `` - `<branch>` — <repo>: … → owner/repo#N `` with a Bitbucket example; `@` stays the commit form
+- `docs/a-foreign-slice-has-one-written-form` — the template, `/plot-idea` and the plot skill document `` - `<branch>` — <repo>: … → owner/repo#N `` with a Bitbucket example; `@` stays the commit form → #2887
 
 ## Tests
 

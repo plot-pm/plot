@@ -323,6 +323,24 @@ A commit is 7 or more lowercase hex digits. Both slice dialects read the arrow f
 - **A commit in another repository cannot be read.** Plot has no host operation that answers reachability in a foreign repository, so a slice that names only `owner/repo@abc1234` stays open and `/plot-deliver` says why. Mark it `<!-- deferred: <reason> -->`, or name a commit of this repository.
 - **A PR slice is unchanged.** `→ #N` and `→ owner/repo#N` work as before, and one plan may mix both kinds.
 
+## Slices in Another Repository
+
+A plan whose `Impl:` is `other repo` claims branches that live outside this one. The one written form is:
+
+```markdown
+- `<branch>` — <repo>: <description> → owner/repo#N
+```
+
+The backticked branch keeps the same claim-line shape every slice uses, read identically regardless of which repository it names. `<repo>` is free prose for a human reader — the parser does not read it — naming which repository the branch lives in. `→ owner/repo#N` is the reference that makes the slice checked against that repository's own PR rather than this one's. A Bitbucket repository has no literal "owner": use the workspace slug in its place —
+
+```markdown
+- `feature/x` — ewz-kus-portal (Bitbucket): the slice → ewz-kus-ws/ewz-kus-portal#42
+```
+
+**Before the foreign PR exists, name the branch with no arrow at all.** `deliverabilityOf` asks `prMerged(branch)` **in this repository** for any backticked branch carrying no `→ owner/repo#N` reference — right for a same-repo slice, wrong for a foreign one. So a foreign branch named with an arrow before its PR exists is checked against the wrong host. Write the bare branch first, then add `→ owner/repo#N` the moment the foreign PR opens — the same "push the first real commit, open the PR, append `→ #N`" discipline every same-repo slice already follows.
+
+**`owner/repo@branch` is not a form.** `@` already names a commit in another repository (above); a second meaning for `@` would make that line ambiguous. A foreign branch without a PR yet stays bare — no arrow, not `@branch`.
+
 ## Troubleshooting
 
 ### Plan PR has merge conflicts

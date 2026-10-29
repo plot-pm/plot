@@ -235,11 +235,19 @@ describe('reconcile — which desks are drift and which are noise', () => {
     expect(finding?.repair).toBe('');
   });
 
-  it('reports a blocked desk whose marker records no work, and names the reaper that copies it first', () => {
+  it('reports a blocked desk whose marker records no work, and names the one-shot reaper for its plan', () => {
     const evidence = { ...finishedDesk().evidence, blockedMarker: true, markerRecordsWork: false };
     const [finding] = deskFindings({ ...finishedDesk(), evidence });
     expect(finding?.evidence).toBe('refused-empty');
-    expect(finding?.repair).toBe('skills/plot/scripts/plot-reap.sh --yes');
+    expect(finding?.repair).toBe('skills/plot/scripts/plot-reap.sh --yes --plan-slug one');
+  });
+
+  it('names the dry-run-then-yes pair when the branch resolves to no plan slug', () => {
+    const evidence = { ...finishedDesk().evidence, blockedMarker: true, markerRecordsWork: false };
+    const [finding] = deskFindings({ ...finishedDesk({ branch: 'no-prefix' }), evidence });
+    expect(finding?.repair).toBe(
+      'skills/plot/scripts/plot-reap.sh --dry-run, then skills/plot/scripts/plot-reap.sh --yes',
+    );
   });
 
   it('names the desk path, because the repair is per-directory', () => {
@@ -342,7 +350,16 @@ describe('reconcile — the leftovers come from sweepable.ts', () => {
     const out = reconcile(
       estate({
         branches: [
-          { branch: 'feature/landed', defaultBranch: 'main', mergedAnswer: 'merged', refusalKind: null, checkedOut: false },
+          {
+            branch: 'feature/landed',
+            defaultBranch: 'main',
+            mergedAnswer: 'merged',
+            refusalKind: null,
+            containedInDefault: false,
+            hasOwnCommits: true,
+            tipPastMergedHead: false,
+            checkedOut: false,
+          },
         ],
       }),
       { kind: 'workspace' },
@@ -357,7 +374,16 @@ describe('reconcile — the leftovers come from sweepable.ts', () => {
     const out = reconcile(
       estate({
         branches: [
-          { branch: 'feature/live', defaultBranch: 'main', mergedAnswer: 'not-merged', refusalKind: null, checkedOut: false },
+          {
+            branch: 'feature/live',
+            defaultBranch: 'main',
+            mergedAnswer: 'not-merged',
+            refusalKind: null,
+            containedInDefault: false,
+            hasOwnCommits: true,
+            tipPastMergedHead: false,
+            checkedOut: false,
+          },
         ],
       }),
       { kind: 'workspace' },

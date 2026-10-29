@@ -312,12 +312,15 @@ export function runAutoDeliver(
  * Clear the desks of work that has landed — the second link, run only from the
  * delivery's success.
  *
- * Slug-blind on purpose: `plot-reap.sh` takes no plan argument and reaps every
- * worktree that passes its five measurements. That is not this module widening
- * its scope, it is the reaper's existing behaviour — a branch belonging to no
- * plan is reaped by an ordinary run too, and needs no plan-shaped trigger. The
- * slug travels so the log line says which delivery caused the sweep, AND
- * because the ref release chained to this exit is not slug-blind at all.
+ * SLUG-SCOPED via `--plan-slug`, and that is new since `--yes` started acting
+ * on a recorded dry run's intersection rather than a fresh re-decision
+ * (#2825): this caller has no preceding `--dry-run` to read — it runs right
+ * after the delivery it drove — so a bare `--yes` would find no record and
+ * act on nothing. `--plan-slug` is the one form that needs no record, and it
+ * is also narrower than the old slug-blind sweep: it reaps only the branches
+ * the delivered plan names, not every worktree the five measurements would
+ * otherwise clear. A branch belonging to no plan is left for the next
+ * `--dry-run`/`--yes` pair, not for this chain.
  */
 function reap(opts: ActOptions, slug: string): void {
   const log = deliverLogPath(opts.repoRoot, slug);
@@ -339,7 +342,7 @@ function reap(opts: ActOptions, slug: string): void {
   // host about each branch and checks the worktree list again. A reap that
   // failed halfway leaves a worktree in place, which the release then SEES and
   // refuses on. The guards are the gate here, not the exit code.
-  scriptsOf(opts).start(REAP_SCRIPT, ['--yes'], {
+  scriptsOf(opts).start(REAP_SCRIPT, ['--yes', '--plan-slug', slug], {
     log: out,
     onExit: () => releaseRefs(opts, slug),
     onError: (err) => console.error('auto-deliver reap failed to spawn:', err),

@@ -70,10 +70,11 @@ const ctxFor = (markers: readonly string[], dirty: readonly string[]): Context =
   }) as unknown as Context;
 
 const reapArgs = { dryRun: true, yes: false, max: 0, sweepTemp: false };
+const dryRunMode = { kind: 'dry-run' as const };
 
 const reapOutput = async (ctx: Context, manifestDir = path.join(root, 'agents')): Promise<string> => {
   const lines: string[] = [];
-  await runWorktreeKind(ctx, reapArgs, 'main', manifestDir, '', (s) => lines.push(s));
+  await runWorktreeKind(ctx, reapArgs, dryRunMode, 'main', manifestDir, '', (s) => lines.push(s));
   return lines.join('');
 };
 

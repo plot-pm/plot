@@ -760,9 +760,10 @@ export const refsGit = (context: ShellContext): Refs => {
     contains: async (ancestor, descendant): Promise<PortResult<Containment>> => {
       const run = await runProcess(
         'git',
-        // plot-ancestry: evidence — the caller's age rule decides; a wrong "yes"
-        // sends a branch to the host, a wrong "no" is the reused-name case the
-        // rule narrows, and `unknown` proves nothing.
+        // plot-ancestry: evidence — the reaper's branch kind (reap.ts) decides:
+        // a wrong "yes" on containment can delete a pinned local ref, the one
+        // case `CLAUDE.md`'s *One Answer To "Did This Land"* allows; `unknown`
+        // proves nothing and keeps the branch.
         ['merge-base', '--is-ancestor', ancestor, descendant],
         inRepo,
       );

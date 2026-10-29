@@ -137,7 +137,15 @@ const manifest = (registryDir, session, wt) => {
   return file;
 };
 
-const run = (repo, ...args) => execFileSync('bash', [reap, ...args], { encoding: 'utf8', cwd: repo });
+/**
+ * `--yes` now acts only on what a `--dry-run` recorded (#2825), so every call
+ * here that passes `--yes` runs a `--dry-run` pass first to produce that
+ * record — a bare `--yes` with no record acts on nothing.
+ */
+const run = (repo, ...args) => {
+  if (args.includes('--yes')) execFileSync('bash', [reap, '--dry-run'], { encoding: 'utf8', cwd: repo });
+  return execFileSync('bash', [reap, ...args], { encoding: 'utf8', cwd: repo });
+};
 
 /**
  * The WORKTREE half of the report — everything before the first `-- kind --`

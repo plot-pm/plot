@@ -158,8 +158,15 @@ const commitDated = (wt, file, { author, committer }) => {
 
 const merged = (branch, head) => ({ [branch]: [{ mergedAt: '2026-09-27T10:00:00Z', number: 900, headRefOid: head }] });
 
-const runReap = (repo, bin, ...args) =>
-  execFileSync('bash', [reap, ...args], { encoding: 'utf8', cwd: repo, env: agentEnv(bin) });
+/**
+ * `--yes` now acts only on what a `--dry-run` recorded (#2825), so a call that
+ * passes `--yes` runs a `--dry-run` pass first to produce that record — a bare
+ * `--yes` with no record acts on nothing.
+ */
+const runReap = (repo, bin, ...args) => {
+  if (args.includes('--yes')) execFileSync('bash', [reap, '--dry-run'], { encoding: 'utf8', cwd: repo, env: agentEnv(bin) });
+  return execFileSync('bash', [reap, ...args], { encoding: 'utf8', cwd: repo, env: agentEnv(bin) });
+};
 
 const lineFor = (out, branch) => out.split('\n').find((l) => l.includes(` ${branch} `)) ?? '';
 

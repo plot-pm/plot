@@ -522,9 +522,14 @@ test('the shipped bundle exists, and the helper works without it', () => {
   // needs, so it reproduces a broken machine rather than an unbuilt checkout —
   // measured here first, and it failed at line 24 on `dirname` having proved
   // nothing about the bundle. Shadowing `node` with a stub that exits non-zero
-  // is the narrow version of the same condition.
+  // is the narrow version of the same condition. The shim fails only for the
+  // index bundle: the helper reads its claim rows through the domain's
+  // `plot-slice-claims.mjs`, which still runs on the real `node`.
   const shim = tmp('badnode');
-  fs.writeFileSync(path.join(shim, 'node'), '#!/usr/bin/env bash\nexit 127\n');
+  fs.writeFileSync(
+    path.join(shim, 'node'),
+    `#!/usr/bin/env bash\ncase "$1" in *plot-pr-index-lookup.mjs) exit 127 ;; esac\nexec ${JSON.stringify(process.execPath)} "$@"\n`,
+  );
   fs.chmodSync(path.join(shim, 'node'), 0o755);
 
   const j = JSON.parse(execFileSync('bash', [implStatus, 'a-plan'], {

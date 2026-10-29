@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2825
@@ -16,6 +16,8 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-pins-every-tip-it-deletes`
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-names-an-unknown-host-answer`
 - **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-keeps-commits-after-the-merge`
+- **Started:** 2026-10-28, Jan Wloka, `bug/plot-reap-yes-acts-on-the-recorded-run`
+- **Delivered:** 2026-10-29
 
 ## Changelog
 
@@ -163,7 +165,7 @@ Decided 2026-10-28 by Jan Wloka after plot-review #2837 on plan PR #2828:
 
 ### Recorded dry run
 
-- `bug/plot-reap-yes-acts-on-the-recorded-run` — `--dry-run` writes a record of worktrees, branches and claims with repository identity, default-branch SHA and timestamp; `--yes` deletes the record intersected with a fresh local check; a recorded worktree row runs the worktree kind's full live gate; "PR merged" rows are asked again; the dry run shows the worktree-then-branch cascade; `--yes --plan-slug <slug>` acts in one run with no record, and `auto-deliver.ts:342` and `reconcile.ts:427` use it; `--sweep-temp --yes` needs no record <!-- builds: the reap record under the common git dir -->
+- `bug/plot-reap-yes-acts-on-the-recorded-run` — `--dry-run` writes a record of worktrees, branches and claims with repository identity, default-branch SHA and timestamp; `--yes` deletes the record intersected with a fresh local check; a recorded worktree row runs the worktree kind's full live gate; "PR merged" rows are asked again; the dry run shows the worktree-then-branch cascade; `--yes --plan-slug <slug>` acts in one run with no record, and `auto-deliver.ts:342` and `reconcile.ts:427` use it; `--sweep-temp --yes` needs no record <!-- builds: the reap record under the common git dir --> → #2885
 
 ## Notes
 

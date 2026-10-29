@@ -76,6 +76,18 @@
      commit of another repository cannot be read from here, so that slice stays
      open until it is marked deferred. -->
 
+<!-- A slice in another repository: ` - `<branch>` — <repo>: <description> →
+     owner/repo#N`. `<repo>` is free prose naming which repository the branch
+     lives in; the backticked branch keeps the claim line readable regardless
+     of repo, and `→ owner/repo#N` is what makes it checked against that
+     repo's own PR rather than this one's. For Bitbucket, `owner` is the
+     workspace: ` - `feature/x` — ewz-kus-portal (Bitbucket): the slice →
+     ewz-kus-ws/ewz-kus-portal#42`. Before that PR exists, name the branch
+     with no arrow at all — an arrow with no PR yet would be checked against
+     the wrong repository's host — and add `→ owner/repo#N` as soon as the
+     foreign PR opens. `owner/repo@branch` is not a form: `@` already means a
+     commit (above), so a foreign branch before its PR exists stays bare. -->
+
 <!-- Spike: mark the slice that proves the design by writing the word spike as an HTML comment on its branch line, beside deferred:/claimed:/waits:. Optional; a plan marking none has no spike. -->
 
 - `feature/<slug>` — <description>

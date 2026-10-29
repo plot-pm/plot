@@ -427,8 +427,12 @@ export function BlockedByMark({
     // that `App`'s effect-based `revealBranch` does, kept local here.
     let framesLeft = 10;
     const find = () => {
+      // Two shapes: a slice row under its plan's list, and a WORKING agent row,
+      // which names its plan on itself because its grid holds every plan.
+      const p = CSS.escape(plan);
+      const w = CSS.escape(wave);
       const target = document.querySelector<HTMLElement>(
-        `[data-slice-list="${CSS.escape(plan)}"] [data-slice-row="${CSS.escape(wave)}"]`,
+        `[data-slice-list="${p}"] [data-slice-row="${w}"], [data-slice-row="${w}"][data-slice-plan="${p}"]`,
       );
       if (target) {
         scrollToTarget(target);

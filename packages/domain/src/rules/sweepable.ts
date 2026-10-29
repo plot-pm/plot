@@ -50,6 +50,41 @@ export interface LocalBranchReadings {
    * rate-limiting) from `'failed'` (everything else that broke).
    */
   refusalKind: HostRefusal['kind'] | null;
+  /**
+   * Whether `origin/<defaultBranch>` contains the branch's tip by ancestry.
+   *
+   * A SEPARATE question from {@link mergedAnswer}: the host answers "did a PR
+   * for this branch merge", ancestry answers "is the tip reachable from
+   * main". A stale branch that never diverged answers `true` here with no PR
+   * at all — {@link hasOwnCommits} is what tells that case apart from a
+   * genuinely merged one.
+   */
+  containedInDefault: boolean;
+  /**
+   * Whether the branch carries a commit that is not also on
+   * `origin/<defaultBranch>`'s own history.
+   *
+   * Read over `origin/<defaultBranch>..<branch>`, not raw `merge-base`: a
+   * branch at an ancestor of the default branch (never diverged) has an empty
+   * range and so none, whether or not {@link containedInDefault} is `true`. A
+   * fast-forward merge keeps every contained branch under this reading, which
+   * is the safe direction. Containment may delete a local ref only when this
+   * is `true` — the one sanctioned exception in `CLAUDE.md`'s *One Answer To
+   * "Did This Land"*, licensed by the tip being pinned first.
+   */
+  hasOwnCommits: boolean;
+  /**
+   * Whether the branch's tip is NOT reachable from any of the host's merged
+   * PR heads for it.
+   *
+   * Only meaningful where {@link mergedAnswer} is `'merged'` via a host
+   * answer: a branch merged by containment alone has no PR head to be past.
+   * `false` here is not evidence the branch is fully landed — it means
+   * nothing proved it is PAST a merged head, mirroring the worktree kind's
+   * `unpushedCommits`/`unpushedPatches` guard (`reap.ts`) without needing a
+   * checked-out worktree.
+   */
+  tipPastMergedHead: boolean;
   /** Whether any worktree on this machine holds the branch. */
   checkedOut: boolean;
 }
@@ -70,12 +105,21 @@ export interface LocalBranchReadings {
  * not-merged" and neither is `no-merged-pr`: that reason is reserved for a
  * genuine `not-merged` answer, so an operator reading "unlanded work" can
  * trust it rather than wondering if the host just never answered.
+ *
+ * `unpushed-commits` and `no-commits-of-its-own` both keep a branch that
+ * `mergedAnswer`/`containedInDefault` alone would call sweepable, and for
+ * opposite reasons: the first is a branch that moved PAST what landed, the
+ * second is a branch that never moved AT ALL. Neither is `no-merged-pr` —
+ * the host or the ancestry check still says merged/contained, so the old
+ * "unlanded work" reading would be the wrong explanation.
  */
 export type BranchSweepRefusal =
   | 'default-branch'
   | 'no-merged-pr'
   | 'host-unknown'
   | 'host-throttled'
+  | 'unpushed-commits'
+  | 'no-commits-of-its-own'
   | 'checked-out';
 
 /**
@@ -83,8 +127,11 @@ export type BranchSweepRefusal =
  *
  * The default branch is first because acting on it is unrecoverable and no
  * other reading overturns it. The merge gate is second because it is the one
- * that says whether the work exists anywhere else. Being checked out is last
- * and refuses on its own.
+ * that says whether the work exists anywhere else, and it asks two separate
+ * questions in sequence: a host-merged answer checks the tip against the
+ * merged heads it carries, and a containment answer (asked only where the
+ * host did not say merged) checks for a commit of the branch's own. Being
+ * checked out is last and refuses on its own.
  *
  * @param readings - what was measured of the branch.
  * @returns the refusals that apply, most urgent first; empty means sweepable.
@@ -100,7 +147,15 @@ export const branchSweepProblems = (readings: LocalBranchReadings): BranchSweepR
     problems.push('host-unknown');
   } else if (readings.mergedAnswer === 'unknown') {
     problems.push('host-unknown');
-  } else if (readings.mergedAnswer === 'not-merged') {
+  } else if (readings.mergedAnswer === 'merged') {
+    if (readings.tipPastMergedHead) {
+      problems.push('unpushed-commits');
+    }
+  } else if (readings.containedInDefault) {
+    if (!readings.hasOwnCommits) {
+      problems.push('no-commits-of-its-own');
+    }
+  } else {
     problems.push('no-merged-pr');
   }
   if (readings.checkedOut) {

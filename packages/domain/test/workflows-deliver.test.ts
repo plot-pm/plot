@@ -15,6 +15,7 @@ const ready = (over: Partial<DeliverReadings> = {}): DeliverReadings => ({
   deliveredLink: 'docs/plans/delivered/a-plan.md',
   sprint: '',
   sprintFile: '',
+  unreadBranchItems: [],
   ...over,
 });
 
@@ -89,6 +90,49 @@ describe('deliver — the refusals, each without a repository', () => {
       on,
     );
     expect(decided(out) && out.detail.deferred).toBe(1);
+  });
+
+  it('refuses a plan with an unread branch item, naming the wave, branch and line', () => {
+    const out = deliver(
+      ready({
+        unreadBranchItems: [{ wave: 'Slice 1', branch: 'feature/other-repo', line: '- feature/other-repo: pending' }],
+      }),
+      on,
+    );
+    expect(refused(out) && out.reason).toBe('slices-unread');
+    expect(refused(out) && out.detail).toContain('Slice 1');
+    expect(refused(out) && out.detail).toContain('feature/other-repo');
+    expect(refused(out) && out.detail).toContain('- feature/other-repo: pending');
+  });
+
+  it('names every unread item, not just the first', () => {
+    const out = deliver(
+      ready({
+        unreadBranchItems: [
+          { wave: 'Slice 1', branch: 'feature/one-repo', line: '- feature/one-repo: pending' },
+          { wave: 'Slice 2', branch: 'feature/two-repo', line: '- feature/two-repo: pending' },
+        ],
+      }),
+      on,
+    );
+    expect(refused(out) && out.detail).toContain('feature/one-repo');
+    expect(refused(out) && out.detail).toContain('feature/two-repo');
+  });
+
+  it('refuses slices-unread even where branches is empty', () => {
+    const out = deliver(
+      ready({
+        branches: [],
+        unreadBranchItems: [{ wave: '', branch: 'feature/other-repo', line: '- feature/other-repo: pending' }],
+      }),
+      on,
+    );
+    expect(refused(out) && out.reason).toBe('slices-unread');
+  });
+
+  it('does not refuse on an empty unread-items list', () => {
+    const out = deliver(ready({ unreadBranchItems: [] }), on);
+    expect(decided(out)).toBe(true);
   });
 });
 

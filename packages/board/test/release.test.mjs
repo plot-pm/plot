@@ -75,6 +75,8 @@ function makeBlockingDeliverStub() {
     dir,
     /** Let every blocked plot-deliver.sh run exit 0. */
     release: () => fs.writeFileSync(gate, 'go\n'),
+    /** Close the gate again, so the next plot-deliver.sh run blocks. */
+    block: () => fs.rmSync(gate, { force: true }),
     cleanup: () => rmTree(dir),
   };
 }
@@ -134,6 +136,13 @@ describe('POST /api/release: answers 202 and starts plot-deliver.sh --release', 
   });
 
   it('GET /api/release/<slug> reads back the command\'s own words', async () => {
+    // The first test in this block started a release of the same slug, and one
+    // slug runs one job at a time. Wait for that job to end, or this POST is
+    // refused as already-running on a slow machine.
+    await until(async () => {
+      const r = await request(server.port, { path: '/api/release/ship-the-widget' });
+      return JSON.parse(r.body).state === 'running' ? null : true;
+    });
     const res = await release(server.port, { slug: 'ship-the-widget', version: '1.2.3' });
     assert.equal(res.status, 202, res.body);
     const status = await until(async () => {
@@ -294,6 +303,10 @@ describe('POST /api/release: a second call for a running slug is refused, per sl
   });
 
   it('a second POST for a DIFFERENT slug still succeeds with 202 while the first is running', async () => {
+    // The test above opened the gate, and an open gate lets every run exit at
+    // once. Close it, so the first job is still running when the second POST
+    // arrives.
+    stub.block();
     const first = await release(server.port, { slug: 'ship-the-gadget', version: '1.2.3' });
     assert.equal(first.status, 202, first.body);
 
@@ -302,7 +315,7 @@ describe('POST /api/release: a second call for a running slug is refused, per sl
       fs.existsSync(log) && /^plot-deliver:/.test(fs.readFileSync(log, 'utf8')) ? true : null,
     );
 
-    const second = await release(server.port, { slug: 'ship-the-gadget', version: '1.2.3' });
+    const second = await release(server.port, { slug: 'ship-the-widget', version: '1.2.3' });
     assert.equal(second.status, 202, second.body);
 
     stub.release();

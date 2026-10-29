@@ -1368,6 +1368,24 @@ test('fleet: --json carries the merged state and the detection source', () => {
   f.cleanup();
 });
 
+test('fleet: --json carries a plan\'s unread branch items', () => {
+  // `plot-plan-meta.sh` already reports a non-claim list item naming a branch
+  // as `unread_branch_items` (plan-level, `{wave, branch, line}`). This wave
+  // adds the passthrough into the pulse JSON `plot-deliver.ts`'s `landed()`
+  // reads — without it `deliver()` has nothing to refuse delivery on.
+  const f = makeRepo('plot-fleet-unread-', '# P\n\n## Status\n\n- **Phase:** Approved\n\n' +
+    '## Branches\n\n### One\n- `feature/claimed` — the work\n\n' +
+    '- Umsetzung: `feature/other-repo`\n');
+  f.work('feature/claimed', 'c.txt');
+  f.push('-u', 'origin', 'feature/claimed');
+
+  const doc = JSON.parse(f.run(['--json']));
+  assert.deepEqual(doc.plans[0].unreadBranchItems, [
+    { wave: 'One', branch: 'feature/other-repo', line: '- Umsetzung: `feature/other-repo`' },
+  ]);
+  f.cleanup();
+});
+
 // --- squash merges: the case with no local evidence at all -------------------
 //
 // The walk above finds a branch whose PR produced a MERGE COMMIT. A squash

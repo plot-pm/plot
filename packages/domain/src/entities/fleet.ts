@@ -719,6 +719,19 @@ export const PlanSchema = z.preprocess(readEitherSpelling, z.object({
    */
   tracer: z.boolean().default(false),
   slices: z.array(PlanSliceSchema),
+  /**
+   * A non-claim list item in a slice section that names a branch no claim
+   * reads, as `plot-plan-meta.sh` reports it on `PlanRecord.unreadBranchItems`.
+   *
+   * Defaults to `[]` so a pulse from an older scan still validates — absent is
+   * not empty, but it is read the same way: no items, never a refusal and
+   * never proof that none exist.
+   */
+  unreadBranchItems: z.array(z.object({
+    wave: z.string(),
+    branch: z.string(),
+    line: z.string(),
+  })).default([]),
 }));
 
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */
