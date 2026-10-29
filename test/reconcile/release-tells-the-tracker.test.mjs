@@ -280,26 +280,45 @@ test('release: the skip list reaches the plan-state write as --skip-issue, never
 
 // #2374 (3): a sibling read that fails outright (not "no sibling found") must
 // never behave like an empty read — every issue named by this release stays
-// open, and the release itself still succeeds. Only the SIBLING file is made
-// unreadable (not the plan directory itself, and not the released plan): the
-// directory listing that finds it still succeeds — `plot-plan-meta.sh` is
-// what fails, on that one file, mid-batch (exit 2) — so the primary plan
-// lookup, which never reads this file, is unaffected.
+// open, and the release itself still succeeds.
+//
+// The sibling read runs against the booking worktree `tmpwt`, cut fresh from
+// `origin/main` for this release (shared-issue-reads-the-post-push-tree) — a
+// chmod on a file inside the MAIN CHECKOUT's working tree has no effect on
+// that file's independently-checked-out copy in `tmpwt`, since `git worktree
+// add` writes its own files to disk with default permissions regardless of a
+// sibling worktree's bits on the same blob. So this points `Plan directory`
+// (read from the main checkout, by `ctx.scripts.config`, but used to resolve
+// an ABSOLUTE path that `listDir` passes through unchanged) at a directory
+// OUTSIDE the repository, stripped of all permissions — real `EACCES`,
+// unaffected by which tree reads it.
+//
+// `findPlanFile`'s own lookup of `release-me` reads the SAME `Plan directory`
+// first, before falling back to `activeDir`/`deliveredDir` via a plain file
+// read rather than a directory listing — so with `planDir` broken, the plan
+// being released must be reachable through `deliveredDir` (it is `Phase:
+// Delivered`) instead, or the whole command refuses before the sibling read
+// ever runs.
 test('release: a sibling read that fails outright leaves every issue open, and the release still succeeds', () => {
   const { shippedSha } = makeRepo(PLAN({ issue: '#7' }), { otherPlan: OTHER_PLAN('#7') });
   process.env.GH_STUB_SHA = shippedSha;
   execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'v1.0.0', shippedSha], { cwd: repo });
   git(repo, 'push', '-q', 'origin', 'v1.0.0');
 
-  const otherPlanFile = path.join(repo, 'docs', 'plans', '2026-09-01-other.md');
-  fs.chmodSync(otherPlanFile, 0o000);
+  const unreadableDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-release-tracker-unreadable-'));
+  fs.chmodSync(unreadableDir, 0o000);
+  fs.mkdirSync(path.join(repo, 'docs', 'plans', 'delivered'), { recursive: true });
+  fs.symlinkSync('../2026-09-01-release-me.md', path.join(repo, 'docs', 'plans', 'delivered', 'release-me.md'));
+  fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
+    `## Plot Config\n\n- **Plan directory:** ${unreadableDir}\n- **Active index:** docs/plans/active/\n- **Delivered index:** docs/plans/delivered/\n`);
   try {
     const r = run(['--release', '1.0.0', 'release-me']);
     assert.equal(r.code, 0, `an unreadable sibling read must not fail the release:\n${r.out}\n${r.err}`);
     assert.match(r.out, /summary: issues closed=0 left-open=1 \(unreadable=1\)\n/, r.out);
     assert.deepEqual(issueCallLines(), [], 'an unreadable sibling read must never let a write through');
   } finally {
-    fs.chmodSync(otherPlanFile, 0o644);
+    fs.chmodSync(unreadableDir, 0o700);
+    fs.rmSync(unreadableDir, { recursive: true, force: true });
   }
 });
 
