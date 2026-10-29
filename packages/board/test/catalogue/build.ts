@@ -170,6 +170,10 @@ export const agent = (over: Partial<AgentInput> = {}): AgentEntry =>
 const FLEET_DEFAULTS: FleetInput = {
   generatedAt,
   ageSeconds: 1,
+  // A healthy fleet has fetched its ref at least once — `null` is the
+  // never-fetched state, which hides the "scanned Ns ago" text entirely
+  // (see `AgentList.tsx`). A scenario ABOUT that state overrides this.
+  readRefAge: 1,
   ready: true,
   error: null,
   rows: [],

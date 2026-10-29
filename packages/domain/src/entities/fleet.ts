@@ -842,5 +842,14 @@ export const FleetReadingSchema = z.object({
     //                       throwing.
     host: z.enum(['ok', 'throttled', 'secondary', 'failed', 'unknown']).catch('unknown').default('unknown'),
   }),
+  /**
+   * Whether the scan's `git fetch` of the ref failed during this pass.
+   *
+   * The scan keeps running on a failed fetch, so `read_ref` and every plan in
+   * `plans` can still be as stale as the last SUCCESSFUL fetch. Absent means
+   * the fetch succeeded — an older scan predates this field and never failed
+   * silently, so "no answer" and "it worked" must read the same way.
+   */
+  fetch_failed: z.boolean().optional(),
 });
 export type FleetReading = z.infer<typeof FleetReadingSchema>;

@@ -124,6 +124,14 @@ describe('board: contract fields + frontmatter visibility', () => {
     );
   });
 
+  it('parses with no planRefAgeSeconds when there is no fleet to read one from', async () => {
+    const board = await fetchBoard(server.port);
+    assert.ok(
+      board.planRefAgeSeconds === null || board.planRefAgeSeconds === undefined,
+      'a board with no scripts dir configured must not fabricate an age',
+    );
+  });
+
   it('frontmatter-format plan appears in its phase column (headline fix)', async () => {
     const board = await fetchBoard(server.port);
     // An approved plan with no Started record is Development now, not Design —

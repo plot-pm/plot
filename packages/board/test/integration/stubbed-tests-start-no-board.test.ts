@@ -511,7 +511,13 @@ describe('a browser test that stubs its own state starts no board', () => {
 // domain's answer, and this file proves the button shows and posts the
 // branch to `/api/restart` (#2784). A plain addition; it serves its state
 // through the catalogue and starts no board.
-const EXPECTED_FILES = 76;
+// 76 → 78 on 2026-10-29: `fleet-read-ref-age.browser.test.ts` and
+// `sprint-item-destination.browser.test.ts`, for the Planning tab's plan-
+// source age reading from `/api/board` instead of a stale `/api/fleet`
+// payload, and the sprint modal's "open this plan" link checking the
+// board's own card set. Both are plain additions; they serve their state
+// through the catalogue and start no board.
+const EXPECTED_FILES = 78;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -822,7 +828,12 @@ const EXPECTED_FILES = 76;
 // blocked-by mark that reaches a WORKING blocker of the second plan
 // (bug/a-blocked-slice-links-to-its-blocker). The file already drove a page,
 // so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 631;
+// 631 → 638 on 2026-10-29: two `it(` in the new `fleet-read-ref-age.browser
+// .test.ts`, four in the new `sprint-item-destination.browser.test.ts`, and
+// one more in the already-counted `plan-source.browser.test.ts`, for the
+// frozen-age state once `/api/board` goes unreachable. `EXPECTED_FILES`
+// moves by 2, matching the two new files.
+const EXPECTED_TESTS = 638;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

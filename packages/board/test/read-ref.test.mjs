@@ -103,6 +103,57 @@ function makeBrokenScan() {
   return { dir, cleanup: () => rmTree(dir) };
 }
 
+/**
+ * A scripts dir whose `plot-fleet-scan.sh` SUCCEEDS but always reports
+ * `fetch_failed: true` — distinct from `makeBrokenScan`, whose scan dies
+ * outright. This one exercises the OTHER failure shape: the scan ran, parsed,
+ * and produced a pulse, but the `git fetch` of the ref inside it did not. Every
+ * other helper is the real one, symlinked, so the scan's shape is the only
+ * thing this directory changes.
+ *
+ * Emits the ONE line `scanOnce` (`packages/fleet/src/shared/fleet-scan.ts`)
+ * actually reads from `--stream`: `{"kind":"reading","reading":{...}}` on
+ * stdout, parsed through `FleetReadingSchema`. A bare pulse object (the
+ * `--json` shape `plantBridge` uses for the bridge FILE) is a different
+ * contract and would be silently dropped here, leaving `scanOnce` to throw
+ * "ended without a terminal pulse line" instead of exercising the field.
+ *
+ * `plot-fleetctl.sh` is ALSO overridden, to report the supervisor `down`.
+ * Without that, `fleetOwnsScan` (`scan-owner.ts`) reads a fresh planted bridge
+ * plus a real `plot-fleetctl.sh`'s `up`/`unknown` as the fleet owning the scan
+ * — the board then serves the bridge's own pulse and never invokes this
+ * directory's `plot-fleet-scan.sh` at all, leaving the whole `fetch_failed`
+ * path on `refresh`'s live-scan branch untested.
+ */
+function makeFetchFailedScan() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-readref-fetchfailed-'));
+  for (const name of fs.readdirSync(SCRIPTS_DIR)) {
+    if (name === 'plot-fleet-scan.sh' || name === 'plot-fleetctl.sh') continue;
+    fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
+  }
+  fs.writeFileSync(
+    path.join(dir, 'plot-fleetctl.sh'),
+    '#!/usr/bin/env bash\necho "summary: supervisor=down"\nexit 1\n',
+    { mode: 0o755 },
+  );
+  const reading = JSON.stringify({
+    main: 'main',
+    head: '91a9a60',
+    read_ref: 'ee199aa',
+    local_head: '91a9a60',
+    fetch_failed: true,
+    plans: [],
+    summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+  });
+  const line = JSON.stringify({ kind: 'reading', reading: JSON.parse(reading) });
+  fs.writeFileSync(
+    path.join(dir, 'plot-fleet-scan.sh'),
+    `#!/usr/bin/env bash\ncat <<'JSON'\n${line}\nJSON\n`,
+    { mode: 0o755 },
+  );
+  return { dir, cleanup: () => rmTree(dir) };
+}
+
 const fetchFleet = async (port) => JSON.parse((await fetchRaw(port, '/api/fleet')).body);
 
 /**
@@ -286,6 +337,98 @@ describe('/api/fleet names the ref it read', () => {
       // 0 would assert a read that just happened — the confident absent value
       // this file exists to refuse. Null says there is nothing to date.
       assert.equal(fleet.readRefAge, null);
+    });
+  });
+
+  describe('a bridge seeded from a scan whose fetch failed', () => {
+    // `ensureCache` seeds `entry.fetchedAt` from the bridge FILE on cold start
+    // (`fleet.ts:3026-3038`), before any live scan has run — the same
+    // `fetch_failed` rule as `refresh`'s, applied to the seed. A seed that
+    // skipped the check would date a fetch the bridged scan never made, which
+    // is the exact false claim `readRefAge` exists to refuse.
+    let fleet, seeded;
+
+    before(async () => {
+      seeded = makeRepo();
+      plantBridge(seeded.repo, {
+        head: '91a9a60',
+        read_ref: 'ee199aa',
+        local_head: '91a9a60',
+        fetch_failed: true,
+      });
+      // A scan that cannot succeed: whatever the endpoint answers came from the
+      // planted bridge alone, never from a live read landing in the meantime.
+      // `serve()` is not used here because it plants its OWN bridge, which
+      // would overwrite the `fetch_failed: true` pulse planted above.
+      const server = await startServer(seeded.repo, { PLOT_SCRIPTS_DIR: broken.dir });
+      try {
+        fleet = await fetchFleet(server.port);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    after(() => seeded?.cleanup());
+
+    it('gives readRefAge as null rather than dating a fetch that failed', () => {
+      assert.equal(fleet.readRefAge, null);
+      assert.equal(fleet.ageSeconds, 0);
+    });
+  });
+
+  describe('a scan whose reading reports fetch_failed leaves the age at the previous good fetch', () => {
+    // THE OTHER HALF of the rule above, on the LIVE path rather than the seed:
+    // `refresh` must not move `entry.fetchedAt` forward when the scan it just
+    // ran reports `fetch_failed: true`, even though the scan succeeded and
+    // produced a pulse. The board writes no bridge itself (`fleet.ts:2900`),
+    // so "a good fetch already happened" is seeded the same way
+    // `bridge.test.mjs` seeds it — a planted bridge with no `fetch_failed`,
+    // standing in for a real `plot-fleetd` pulse. The live scan this server
+    // then runs is the one pointed at `makeFetchFailedScan()`, and the
+    // assertion is that it must not move `fetchedAt` forward.
+    let restarted, seededAt, failing, fleet;
+
+    before(async () => {
+      restarted = makeRepo();
+      seededAt = Date.now() - 10_000;
+      plantBridge(restarted.repo, { head: '91a9a60', read_ref: 'ee199aa', local_head: '91a9a60' });
+      const bridgeFile = path.join(restarted.repo, BRIDGE);
+      const planted = JSON.parse(fs.readFileSync(bridgeFile, 'utf8'));
+      planted.at = seededAt;
+      fs.writeFileSync(bridgeFile, JSON.stringify(planted), 'utf8');
+
+      failing = makeFetchFailedScan();
+      const server = await startServer(restarted.repo, { PLOT_SCRIPTS_DIR: failing.dir });
+      try {
+        // The FIRST request is what triggers `ensureCache`, which seeds from
+        // the bridge synchronously and fires the live scan in the background
+        // (`void refresh(...)`, never awaited) — so this first response still
+        // reads the seed, before the live scan has had any chance to run.
+        await fetchFleet(server.port);
+        // Wait past one refresh tick so the live (failing) scan this server
+        // just started has had the chance to finish and — if the code were
+        // wrong — overwrite `fetchedAt`.
+        await new Promise((r) => setTimeout(r, 6_000));
+        fleet = await fetchFleet(server.port);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    after(() => {
+      failing?.cleanup();
+      restarted?.cleanup();
+    });
+
+    it('still dates the age from the seeded fetch, not from the one that just ran', () => {
+      // A wrong implementation resets `fetchedAt` to "now" on every scan
+      // regardless of `fetch_failed`, which would report an age near 0 here.
+      // The right one leaves it dating the seeded fetch from ~10 seconds ago.
+      assert.equal(typeof fleet.readRefAge, 'number');
+      assert.ok(
+        fleet.readRefAge >= 5,
+        `readRefAge (${fleet.readRefAge}s) should still date the seeded fetch, not the failing scan`,
+      );
     });
   });
 });

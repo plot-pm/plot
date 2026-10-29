@@ -360,6 +360,8 @@ export function mockFleet(): Fleet {
   const fleet = {
     generatedAt: new Date(now).toISOString(),
     ageSeconds: 0,
+    // A mock fetch always "succeeded" — there is no scan to fail.
+    readRefAge: 0,
     // `ready` is what tells the tab the first scan has landed. A mock is always
     // ready: there is no scan to wait for.
     ready: true,

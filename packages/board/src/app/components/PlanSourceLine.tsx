@@ -1,4 +1,5 @@
-import { checksUnaskableNote, ciDisplayName } from '@plot-pm/domain';
+import { checksUnaskableNote, ciDisplayName, pagePlanRefAgeSeconds } from '@plot-pm/domain';
+import { useEffect, useRef, useState } from 'react';
 import type { PlanSource } from '../../contract/schema.js';
 
 /**
@@ -35,6 +36,7 @@ import type { PlanSource } from '../../contract/schema.js';
 export function PlanSourceLine({
   planSource,
   ageSeconds,
+  frozen = false,
   checksUnaskable = false,
   ci = '',
 }: {
@@ -51,13 +53,21 @@ export function PlanSourceLine({
    */
   planSource: PlanSource | undefined;
   /**
-   * How old the read is, from the fleet pulse — the scan and this read see the
-   * same refs, and the scan is what fetches them, so its age dates this too.
+   * How old the read is, from `/api/board`'s own `planRefAgeSeconds` — the
+   * fleet scan is what fetches the ref, and the board reports the age of that
+   * fetch beside the cards it read from it.
    *
-   * Null where no scan has landed: the age is then OMITTED rather than printed
-   * as 0, which would claim a freshness nothing measured. `readRef`'s own rule.
+   * Null where no fetch has ever succeeded: the age is then OMITTED rather
+   * than printed as 0, which would claim a freshness nothing measured. This
+   * component owns the tick that advances it between payloads — see `frozen`.
    */
   ageSeconds: number | null;
+  /**
+   * True while `/api/board` is unreachable. The displayed age stops
+   * advancing and keeps the last value, with ` (frozen)` appended, so a dead
+   * server cannot be mistaken for a current reading that happens to be old.
+   */
+  frozen?: boolean;
   /**
    * Whether the host could not report checks for ANY pull request on this
    * board — `checksUnaskable` over every card's PRs, decided in the domain.
@@ -108,6 +118,31 @@ export function PlanSourceLine({
   // than a fault in this run, the same reason a repo with no remote is reported
   // and not scolded. The sentence is the domain's, so what this board claims
   // about its own reach is asserted in a unit test rather than written here.
+  // Own clock, same shape as the Delivery footer's (`AgentList.tsx:577-601`):
+  // the server's age is true at the moment it was read and stale a second
+  // later, so this ticks forward on the page's own clock rather than
+  // re-printing a server number that ages in place.
+  //
+  // `receivedAtMs` resets to now whenever a NEW `ageSeconds` value arrives —
+  // identity-compared, so a resting poll that keeps returning the same number
+  // (a scan that has not run again yet) does not restart the clock from a
+  // value it already ticked past. It does not advance while `frozen`: a dead
+  // server stops sending new values, so the ref simply stops being reset, and
+  // the displayed age holds at whatever it last reached.
+  const receivedAtRef = useRef(Date.now());
+  const lastAgeRef = useRef(ageSeconds);
+  if (ageSeconds !== lastAgeRef.current) {
+    lastAgeRef.current = ageSeconds;
+    receivedAtRef.current = Date.now();
+  }
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (frozen || ageSeconds === null) return;
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [frozen, ageSeconds]);
+  const displayAgeSeconds = pagePlanRefAgeSeconds(ageSeconds, receivedAtRef.current, frozen ? receivedAtRef.current : now);
+
   const ciName = ciDisplayName(ci);
   const checksLine = checksUnaskable ? (
     <p
@@ -142,7 +177,7 @@ export function PlanSourceLine({
     <>
     <p className="mt-3 px-1 text-xs text-slate-400 dark:text-slate-600" data-plan-source="ref">
       Plans read from <code className="font-mono">{planSource.ref}</code>
-      {ageSeconds !== null && ` · ${ageSeconds}s ago`}
+      {displayAgeSeconds !== null && ` · ${displayAgeSeconds}s ago${frozen ? ' (frozen)' : ''}`}
       {/* The count, not a flag: one unpushed plan and a checkout the ref knows
           nothing about are different situations, and the number is what tells
           them apart. Silent at zero — the dedicated deployment's normal state,

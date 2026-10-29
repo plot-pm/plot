@@ -608,3 +608,5 @@ export * from './rules/fleet-run.js';
 export * from './rules/auto-verify.js';
 export * from './rules/design-work.js';
 export * from './rules/sprint-selection.js';
+export * from './rules/plan-ref-age.js';
+export * from './rules/sprint-item-destination.js';

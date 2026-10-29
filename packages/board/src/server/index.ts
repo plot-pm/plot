@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, storyTopicInput, startBundleFor, type BuildBoardOptions } from './board.js';
-import { issuesClosedReading, ticketLaneData } from './fleet.js';
+import { issuesClosedReading, planRefAgeSeconds, ticketLaneData } from './fleet.js';
 import { discoveryLanes } from './discovery-lanes.js';
 import { extractTopics } from './topics.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
@@ -493,6 +493,10 @@ async function handleRequest(
       const ticketData = await ticketLaneData(opts);
       const board = {
         ...built,
+        // The fleet's own cache, not `built.planSource`: the ref and its age
+        // come from the same read, but `boardState` has no reason to depend on
+        // `fleet.ts`'s cache for a field it never otherwise needs.
+        planRefAgeSeconds: planRefAgeSeconds(opts),
         dispatch: dispatchAvailability(HOST),
         server: await serverInfo(opts, boundPort),
         approve: approveAvailability(HOST),

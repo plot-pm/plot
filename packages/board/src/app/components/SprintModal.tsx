@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { sprintItemDestination } from '@plot-pm/domain';
 import type { SprintCard, SprintMember } from '../../contract/schema.js';
 
 export interface SprintModalProps {
@@ -6,6 +7,8 @@ export interface SprintModalProps {
   onClose: () => void;
   /** Navigate to a plan in the Planning tab. */
   onOpenPlan?: (slug: string) => void;
+  /** Every card slug the board currently has — see `sprintItemDestination`. */
+  cardSlugs: ReadonlySet<string>;
 }
 
 /**
@@ -13,6 +16,14 @@ export interface SprintModalProps {
  */
 const TIERS = ['Must', 'Should', 'Could', 'Wont'] as const;
 type Tier = (typeof TIERS)[number];
+
+/** `SprintMember.tier`'s own (lowercase) labels, to this component's display tier. */
+const TIER_LABELS: Record<SprintMember['tier'], Tier> = {
+  must: 'Must',
+  should: 'Should',
+  could: 'Could',
+  deferred: 'Wont',
+};
 
 function groupByTier(members: SprintMember[]): Record<Tier, SprintMember[]> {
   const groups: Record<Tier, SprintMember[]> = {
@@ -22,8 +33,8 @@ function groupByTier(members: SprintMember[]): Record<Tier, SprintMember[]> {
     Wont: [],
   };
   for (const m of members) {
-    const tier = (m.tier as Tier) || 'Could';
-    if (groups[tier]) groups[tier].push(m);
+    const tier = TIER_LABELS[m.tier] ?? 'Could';
+    groups[tier].push(m);
   }
   return groups;
 }
@@ -31,7 +42,7 @@ function groupByTier(members: SprintMember[]): Record<Tier, SprintMember[]> {
 /**
  * Sprint overlay — shows sprint details with MoSCoW-grouped members.
  */
-export function SprintModal({ sprint, onClose, onOpenPlan }: SprintModalProps) {
+export function SprintModal({ sprint, onClose, onOpenPlan, cardSlugs }: SprintModalProps) {
   // Escape closes the modal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,7 +157,12 @@ export function SprintModal({ sprint, onClose, onOpenPlan }: SprintModalProps) {
                   {tier} ({members.length})
                 </h4>
                 <ul className="space-y-1">
-                  {members.map((m, i) => (
+                  {members.map((m, i) => {
+                    const destination = sprintItemDestination(
+                      { slug: m.slug, known: m.known },
+                      cardSlugs,
+                    );
+                    return (
                     <li
                       // A BARE MEMBER HAS NO SLUG, so every one of them would
                       // share the key `''`. The index is within one tier's
@@ -169,15 +185,15 @@ export function SprintModal({ sprint, onClose, onOpenPlan }: SprintModalProps) {
                         )}
                       </span>
                       {/*
-                        The label: the plan slug where the line names one, the
-                        line's own text where it does not. A bare item has no
-                        plan to open, so it renders as text rather than as a
-                        button that would call `onOpenPlan('')`.
+                        The label: the plan slug where `sprintItemDestination`
+                        found a card to open, the line's own text otherwise — a
+                        bare item, an unknown member, or a slug with no card all
+                        render as text rather than a button that leads nowhere.
                       */}
-                      {onOpenPlan && m.slug !== '' ? (
+                      {onOpenPlan && destination !== null ? (
                         <button
                           type="button"
-                          onClick={() => onOpenPlan(m.slug)}
+                          onClick={() => onOpenPlan(destination)}
                           className={`min-w-0 truncate text-left hover:underline ${
                             m.checked
                               ? 'text-slate-500 line-through dark:text-slate-400'
@@ -215,7 +231,8 @@ export function SprintModal({ sprint, onClose, onOpenPlan }: SprintModalProps) {
                         </span>
                       )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </div>
             );

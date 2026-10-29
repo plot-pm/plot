@@ -79,6 +79,7 @@ import {
   type PersonDirectory,
   freeWaitEnded,
   readEnding,
+  serverPlanRefAgeSeconds,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -450,6 +451,18 @@ export interface CacheEntry {
    */
   tipAt: Map<string, number | null>;
   at: number | null;
+  /**
+   * When the plan ref was last SUCCESSFULLY fetched, epoch milliseconds, or
+   * null before any fetch has succeeded.
+   *
+   * SEPARATE FROM {@link at}, which is the scan's own time and moves on every
+   * finished scan whether or not its `git fetch` succeeded. A scan that kept
+   * running after a failed fetch still reads the ref at its last good state,
+   * so an age built from `at` would report a fresh read of a ref that was not
+   * refreshed. This is what `/api/board`'s `planRefAgeSeconds` and
+   * `/api/fleet`'s `readRefAge`/`ageSeconds` date instead.
+   */
+  fetchedAt: number | null;
   error: string | null;
   /**
    * What the last successful scan lost relative to the one before it, or null.
@@ -2877,6 +2890,12 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     if (!skipDisplay) entry.questions = await workerQuestions(parsed);
     entry.appliedBridgeAt = owned && bridged !== null ? bridged.at : null;
     entry.at = owned && bridged !== null ? bridged.at : Date.now();
+    // THE FETCH, NOT THE SCAN. `complete.fetch_failed` is this pulse's own
+    // word on whether `git fetch` of the ref succeeded; a scan keeps running
+    // after a failed fetch, so `entry.at` above moves regardless. Left
+    // unchanged on a failed fetch — the only way an age can date the LAST
+    // SUCCESSFUL fetch rather than the last finished scan.
+    if (complete.fetch_failed !== true) entry.fetchedAt = entry.at;
     entry.error = null;
     // THE BOARD WRITES NO BRIDGE. The fleet is its only writer; the board reads
     // it through the `FleetState` port and a failed or absent bridge is a scan.
@@ -2918,7 +2937,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
 export function freshCacheEntry(): CacheEntry {
   return {
     calls: 0,
-    pulse: null, ages: new Map(), tipAt: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
+    pulse: null, ages: new Map(), tipAt: new Map(), at: null, fetchedAt: null, error: null, shrink: null, branchUrlBase: '',
     // Empty until the first SUCCESSFUL scan. A restart therefore remembers no
     // section, so every row is unplaced until one completes — which is the
     // honest answer rather than a section invented from a pulse this process
@@ -3013,6 +3032,10 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
     entry.approvedAt = warm.approvedAt;
     entry.ideaPlans = warm.ideaPlans;
     entry.at = warm.at;
+    // The bridged pulse carries its own `fetch_failed`, same rule as `refresh`:
+    // a seed from a scan whose fetch failed must not seed `fetchedAt` as if it
+    // had succeeded.
+    if (warm.pulse.fetch_failed !== true) entry.fetchedAt = warm.at;
     entry.lastComplete = warm.pulse;
   }
   void refresh(opts, entry);
@@ -3042,6 +3065,16 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
   }
   return entry;
+}
+
+/**
+ * Seconds since the cache's plan ref was last read successfully, for
+ * `/api/board` to report beside `planSource` — null while no read has ever
+ * succeeded.
+ */
+export function planRefAgeSeconds(opts: BuildBoardOptions): number | null {
+  const entry = ensureCache(opts);
+  return serverPlanRefAgeSeconds(entry.fetchedAt, Date.now());
 }
 
 /**
@@ -7503,7 +7536,11 @@ export async function buildFleet(
   const entry = ensureCache(opts);
   const repo = path.basename(opts.repoRoot);
   const now = Date.now();
-  const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
+  const readRefAge = serverPlanRefAgeSeconds(entry.fetchedAt, now);
+  // `ageSeconds` keeps its old 0-while-cold shape for pages that still read it
+  // (`shrinkNote`'s window); `readRefAge` carries the honest null instead —
+  // see its own field below.
+  const ageSeconds = readRefAge ?? 0;
   // THE FIVE READS, ASKED TOGETHER and hoisted above the literal. The two
   // plan-status reads go through `planStatusBySlug`, which reads the plan estate
   // from the ref — an await, where until 2026-08-31 it was a synchronous spawn.
@@ -7651,11 +7688,13 @@ export async function buildFleet(
     // says "the scan did not tell me"; that is the honest answer and a consumer
     // can act on it.
     readRef: entry.pulse?.read_ref ?? null,
-    // Dated by the scan that produced it, not by a clock of its own: the ref and
-    // its age come off one cached pulse, so they cannot disagree. Null rather
-    // than 0 when nothing has been read — 0 would assert a read that just
-    // happened, which is the confident-absent-value shape this file rejects.
-    readRefAge: entry.at === null ? null : ageSeconds,
+    // Dated by the last SUCCESSFUL fetch, not by the scan that produced this
+    // pulse: a scan keeps running after a failed `git fetch`, so this and
+    // `ageSeconds` above must read the ref's own age, not the scan's. Null
+    // rather than 0 when no fetch has ever succeeded — 0 would assert a read
+    // that just happened, which is the confident-absent-value shape this file
+    // rejects.
+    readRefAge,
     // `head` IS the local head — that is all it has ever carried, under a name
     // that implied more. So the fallback runs in this direction only: prefer the
     // scan's explicit `local_head`, else the legacy field that means the same

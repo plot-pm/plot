@@ -26,7 +26,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from './lib/agent-rows/mine-filter.js';
-import { planFileForSlug, planFileFromFleet } from './lib/agent-rows/plan-level-row.js';
+import { planFileForSlug } from './lib/agent-rows/plan-level-row.js';
 import { archivedOn, boardPath, withArchived } from './lib/archived-toggle.js';
 import { showOf, withShow } from './lib/show-toggle.js';
 import {
@@ -1521,7 +1521,8 @@ export function App() {
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
-              planAgeSeconds={fleet?.ageSeconds ?? null}
+              planAgeSeconds={(planningBoard ?? board).planRefAgeSeconds ?? null}
+              planSourceFrozen={boardUnreachable}
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
               onOpenStory={onOpenStory}
@@ -1534,7 +1535,8 @@ export function App() {
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
-              planAgeSeconds={fleet?.ageSeconds ?? null}
+              planAgeSeconds={(planningBoard ?? board).planRefAgeSeconds ?? null}
+              planSourceFrozen={boardUnreachable}
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
               onOpenStory={onOpenStory}
@@ -1582,25 +1584,19 @@ export function App() {
         <SprintModal
           sprint={openSprint}
           onClose={() => setOpenSprint(null)}
+          cardSlugs={new Set(allCards.map((c) => c.slug))}
           onOpenPlan={(slug) => {
+            // `sprintItemDestination` (inside `SprintModal`) only ever hands
+            // back a slug that is both known and has a card, so the lookup
+            // here cannot miss. `planFileFromFleet`'s board-less fallback
+            // does not apply: the board already carries every plan the fleet
+            // could name — ref, working tree and branches alike — and a
+            // slug it does not have gets no button to click in the first
+            // place.
             const card = allCards.find((c) => c.slug === slug) ?? null;
-            if (card) {
-              setOpenSprint(null);
-              setOpenPlan(card);
-              return;
-            }
-            // No card for this slug. The fleet's own payload may still name
-            // a plan file for it (a branch row or a draft plan) independent
-            // of whether the board has a card — the same lookup a plan-level
-            // row already uses. Falling back there is better than staying on
-            // a slug the modal cannot otherwise do anything with.
-            const file = fleet ? planFileFromFleet(slug, fleet.rows, fleet.draftPlans) : '';
-            if (file) {
-              setOpenSprint(null);
-              location.assign(`/plan/${encodeURIComponent(file)}`);
-            }
-            // Neither a card nor a fleet-named file exists for this slug —
-            // the modal stays open rather than navigating nowhere.
+            if (!card) return;
+            setOpenSprint(null);
+            setOpenPlan(card);
           }}
         />
       )}

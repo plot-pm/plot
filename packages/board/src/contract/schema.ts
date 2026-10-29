@@ -1472,6 +1472,14 @@ export const BoardSchema = z.object({
    */
   planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0, behind: null }),
   /**
+   * Seconds since the plan ref named by {@link planSource} was last read
+   * successfully, or null while no read has ever succeeded. A client ticks
+   * this forward on its own clock between payloads rather than re-reading
+   * `Date.now()` against a server timestamp. Optional so an older server's
+   * payload still parses.
+   */
+  planRefAgeSeconds: z.number().nullable().optional(),
+  /**
    * Why the `Workflow phases` value was refused, or `null` when it parsed or was absent. A refused
    * value draws the default map, and the board shows this text above the columns.
    */
@@ -4306,13 +4314,14 @@ export const FleetShape = z.object({
    */
   readRef: z.string().nullable().default(null),
   /**
-   * How old that read is, in seconds — the age OF THE REF, stated beside it.
+   * How old that read is, in seconds — the age of the last SUCCESSFUL fetch of
+   * the ref, not of the last finished scan.
    *
-   * The same number as `ageSeconds` by construction, because the board caches
-   * one scan and both facts come off it. It is named separately rather than
-   * left implicit: a consumer reading `readRef` must not have to know that a
-   * field named for the tab happens to date it. Null exactly when there is no
-   * scan to date — never 0, which would claim a read that just happened.
+   * A scan keeps running after a failed `git fetch`, so this can differ from
+   * `ageSeconds` the moment a fetch fails: `ageSeconds` keeps counting from the
+   * scan, this keeps counting from the last fetch that actually refreshed the
+   * ref. Null exactly when no fetch has ever succeeded — never 0, which would
+   * claim a read that just happened.
    */
   readRefAge: z.number().nullable().default(null),
   /**

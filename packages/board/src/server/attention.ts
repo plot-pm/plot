@@ -474,9 +474,10 @@ export async function buildAttention(opts: BuildBoardOptions): Promise<Attention
     //
     // `fleet.ready` verbatim — one scan, one answer about whether it landed.
     ready: fleet.ready,
-    // Null rather than 0 before the first scan, by the rule `readRefAge`
-    // already states: 0 would assert a read that just happened.
-    ageSeconds: fleet.ready ? fleet.ageSeconds : null,
+    // `fleet.readRefAge` rather than `fleet.ageSeconds`: this dates the last
+    // SUCCESSFUL fetch of the ref, not the last finished scan, and already
+    // reads null before any fetch has succeeded — no `fleet.ready` gate needed.
+    ageSeconds: fleet.readRefAge,
     // WHICH WORLD these verdicts are about. A verdict is a stronger claim than
     // a fact and needs the provenance at least as much — *restart this branch*
     // is advice, and advice about a world three pushes old is worse than none.
