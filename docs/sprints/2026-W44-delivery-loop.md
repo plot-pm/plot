@@ -16,7 +16,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 ### Must Have
 
 - [ ] [fleet-roles-are-declared-agents] Unattended refusals on merge, continue and release; role agents loaded from the default branch with per-role gates (#2898) <!-- pr: #2908, branch: feature/plot-init-provides-roles -->
-- [ ] [the-delivery-loop-keeps-a-run] The loop's run log and the idle-slice notification (#2899)
+- [ ] [the-delivery-loop-keeps-a-run] The loop's run log and the idle-slice notification (#2899) <!-- pr: #2909, branch: feature/an-idle-slice-notifies -->
 - [ ] [fleetd-reviews-every-slice-pr-in] fleetd reviews every slice PR in scope; the index records the review; `slicePrNext` (#2900) <!-- pr: #2917, branch: feature/a-review-opens-no-issue -->
 - [ ] [fleetd-merges-slice-prs-one-at] One merge in flight, only on `plot/review` success, only through a Merger app (#2902) <!-- pr: #2914, branch: feature/fleetd-merges-one-at-a-time -->
 - [ ] [a-high-finding-is-fixed-before] Every HIGH goes to a fixer, two attempts, then a ticket (#2903) <!-- pr: #2912, branch: feature/an-unfixed-high-is-ticketed -->
