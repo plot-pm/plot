@@ -23,7 +23,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [ ] [the-fleet-answers-plot-blocked-questions] The unblocker answers every agent question and writes each answer into the PR body (#2901)
 - [ ] [tickets-follow-the-delivery-loop] The plan issue shows slice progress and HIGH tickets (#2905) <!-- pr: #2916, branch: feature/jira-moves-at-approve -->
 - [ ] [a-dead-desk-gets-a-fixer] A dead desk reads unreadable; a merged PR asks no one (#2906)
-- [ ] [a-red-default-branch-is-repaired] A red main is re-run, repaired or reverted within 60 minutes (#2904)
+- [ ] [a-red-default-branch-is-repaired] A red main is re-run, repaired or reverted within 60 minutes (#2904) <!-- pr: #2910, branch: feature/a-red-main-is-reverted -->
 - [ ] [the-release-waits-for-one-approval] The release waits for one approval by a person (#2907)
 
 ### Should Have
