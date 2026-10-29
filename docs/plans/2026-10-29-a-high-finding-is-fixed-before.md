@@ -34,7 +34,7 @@ Today `packages/board/src/server/entry/review.ts:494` writes `failure` for any H
 
 **A desk whose corrections are spent is not alive.** ROW 15 (`agent-loop.ts:503-509`) ends the loop with a `PLOT-BLOCKED` marker. Today `ending-action.ts:162` grants such a desk one fresh session.
 
-**The fixer start has no owner today.** Nothing writes a fixer attempt or starts a fixer, and #2906 waits on this plan for that start. A fixer runs in its own worktree, so `deskLoopAlive` (`packages/domain/src/rules/desk-loop-alive.ts:77`) answers `none` for the desk while the fixer runs. Without a record written before the start, the next tick or a restarted fleetd starts a second fixer on the same PR.
+**The fixer start has no owner today.** Nothing writes a fixer attempt or starts a fixer. A fixer runs in its own worktree, so `deskLoopAlive` (`packages/domain/src/rules/desk-loop-alive.ts:77`) answers `none` for the desk while the fixer runs. Without a record written before the start, the next tick or a restarted fleetd starts a second fixer on the same PR.
 
 **The ticket write is not idempotent.** `Tracker.issueOpen` opens a second issue on a second call (`packages/domain/src/ports/tracker.ts:398-401`); the caller records what it opened. `openFollowUp` already holds the safe shape: a `pending` record before the ask, then the id (`review.ts:251-281`).
 
@@ -42,7 +42,7 @@ Today `packages/board/src/server/entry/review.ts:494` writes `failure` for any H
 
 **The ticket port takes no assignee.** `IssueOpen` carries `title`, `body` and `labels` only (`tracker.ts:123-130`), and the port refuses a widening to an assignee (`tracker.ts:52-54`). Plans record no author field. This plan opens the ticket unassigned.
 
-This plan depends on #2898 (the `fixer` role and its detached start), #2899 (the run log and its notifications), #2900 (the review arm of `rules/slice-pr-next.ts`, the `plot/review` reading in the PR index, and no review-time issue), #2902 (the merge arm), #2905 (renders the ticket record) and #2906 (sends a dead desk with no PR to this plan's fixer start). #2904 reuses the ticket record.
+This plan depends on #2898 (the `fixer` role and its detached start), #2899 (the run log and its notifications), #2900 (the review arm of `rules/slice-pr-next.ts`, the `plot/review` reading in the PR index, and no review-time issue), #2902 (the merge arm) and #2905 (renders the ticket record). #2904 reuses this plan's ticket writer for its revert tickets (C5).
 
 ## Design
 
@@ -50,29 +50,33 @@ This plan depends on #2898 (the `fixer` role and its detached start), #2899 (the
 
 The design's *The loop* table, *Tickets* table and *Decided* list bind this plan, as corrected by the decisions below. This plan adds the HIGH and CI-red arms to `rules/slice-pr-next.ts`, which #2900 creates. Each arm is an exported function with its own test file, so plans that add arms do not conflict in one `switch`.
 
-**The arms.** Each pass answers exactly one next step for a slice PR:
+**The arms.** Each pass answers exactly one next step for a slice PR, as a member of #2900's step union. #2900's composition order places arm 3 at step 4, arms 1, 4 and 5 at step 5, and arms 2 and 7 at step 6, all before the review and merge arms:
 
-1. **HIGH on this head, no fixer in flight, attempts left** → start the `fixer` role with the findings of this head.
-2. **CI red, desk dead or corrections spent, no fixer in flight, attempts left** → start the `fixer` role with the CI evidence.
-3. **Fixer in flight** → hold.
-4. **HIGH on this head, attempts spent, no ticket recorded** → open the ticket.
-5. **HIGH on this head, attempts spent, ticket recorded, no accepted `success` on this head** → write the accepted `success`.
-6. **Accepted `success` on this head** → no step here; #2902's merge arm takes the PR.
-7. **CI red, attempts spent** → hold; #2899's idle-slice rule notifies.
+1. **HIGH on this head, no fixer in flight, attempts left** → `{ step: 'fixer', head, evidence: 'high' }`: start the `fixer` role with the findings of this head.
+2. **CI red, desk dead or corrections spent, no fixer in flight, attempts left** → `{ step: 'fixer', head, evidence: 'ci-red' }`: start the `fixer` role with the CI evidence.
+3. **Fixer in flight** → `{ step: 'hold', reason: 'fixer-in-flight' }`.
+4. **HIGH on this head, attempts spent, no ticket recorded** → `{ step: 'ticket', head }`: open the ticket.
+5. **HIGH on this head, attempts spent, ticket recorded, no accepted `success` on this head** → `{ step: 'write-status', head, state: 'success', description, why: 'ticket-accepted' }`: write the accepted `success`.
+6. **Accepted `success` on this head** → `none` here; #2902's merge arm takes the PR.
+7. **CI red, attempts spent** → `{ step: 'hold', reason: 'ci-red-attempts-spent' }`; #2899's idle-slice rule notifies.
 
-**Readings.** "HIGH on this head" reads `plot/review=failure` on the PR's head SHA from the PR index (#2900, `feature/the-index-records-the-review`); `review.ts:494` writes `failure` only for a HIGH. The findings text comes from the verdict file `reviews/<pr>-<sha>.md` (`review.ts:413-415`). A failed or partial read is `unread` and holds; it never reads as "no review" or "no HIGH".
+A `fixer` or `ticket` field of the input record that reads `unread` answers `{ step: 'hold', reason: 'unread' }`.
+
+**Readings.** The arms read #2900's input record to `slicePrNext` and define no reading of their own. "HIGH on this head" reads `row.plotReview` as `failure` with `row.plotReviewSha` equal to `row.headSha` (#2900, `feature/the-index-records-the-review`); `review.ts:494` writes `failure` only for a HIGH. "CI red" reads `row.ciChecks` as `failing` with `row.checksSha` equal to `row.headSha`. It never reads `checks`, which folds `plot/review` in and reads a HIGH as `failing`. "Desk dead" reads the `desk` field, #2900's `deskDead` answer (`rules/desk-dead.ts`). A row with no `plotReview` or `ciChecks` field (not asked) answers `none`. The findings text comes from the verdict file `reviews/<pr>-<sha>.md` (`review.ts:413-415`). A failed or partial read is `unread` and holds; it never reads as "no review" or "no HIGH".
 
 **The attempts record** lives under `.plot/state/` in the common git dir, keyed per PR, written by one place. Each attempt records the head SHA it was started for, the finding it answered (the HIGH findings' hash, or `ci` with the run id), and an in-flight mark with pid and start time. The tick writes the attempt and its in-flight mark BEFORE it starts the fixer, and refuses the start when that write does not land. A crash between the write and the start spends an attempt and adds no writer. A fixer that ends without a push spends its attempt. A missing or unreadable record reads as zero attempts, and an unreadable in-flight mark holds.
 
 **The fixer start** takes the per-desk continue lock, so a person's `/plot-continue` or the unblocker (#2901) refuses while a fixer runs on the branch. The fixer gets the head SHA it was started for and pushes without force, so a concurrent push makes it fail rather than overwrite. Before the start the tick re-asks the host for the PR's state and head and refuses by name (`pr-not-open`, `head-moved`).
 
-**The CI-red condition** reads "desk dead" as no live worker on the branch. A desk ended with `corrections-spent` gets its fresh session from `ending-action.ts:162` first; the fixer starts when that session has also ended. This plan owns every fixer start on a desk that has a PR. #2906 owns the dead desk with no PR and sends it to this start.
+**The CI-red condition** reads "desk dead" as `deskDead` answering `{ dead: true }`; `live`, `elsewhere` and `waiting` are not dead, and `unread` holds. "Corrections spent" reads the desk's ending: a desk ended with `corrections-spent` gets its fresh session from `ending-action.ts:161` first, and the fixer starts when that session has also ended. That desk holds the loop's own `PLOT-BLOCKED` marker (ROW 15, `agent-loop.ts:503-509`), so `deskDead` reads it `waiting`; the arm takes the ending, not `deskDead`, for this case. This plan owns every fixer start on a desk that has a PR. A dead desk with no PR is not this plan's, and no plan sends it a fixer: #2906 gives it the `unreadable` ending, so the existing bound arm starts one fresh session and then asks a person (C4).
 
 **The ticket record** lives under `.plot/state/` in the common git dir, keyed per PR: `pending` before the tracker is asked, then the ticket id. A `pending` record holds and names the file to check, as `openFollowUp` does. Each later head whose review holds a HIGH comments its findings on the same ticket before its `success` is written. The ticket opens through the tracker resolution `reviewTracker` (`review.ts:576`) that `plot-review` uses today; this plan moves that resolution to an adapter export so fleetd reaches it. The ticket is labelled `ai-generated` and links the PR; the PR gets a comment that links the ticket.
 
-**The accepted `success`.** A domain rule `reviewStatus(counts, ticket)` answers the state and description, and `review.ts` uses it for every write. It answers `success` for a HIGH only with a confirmed ticket, and the write refuses unless this head's review has a HIGH, the attempts record holds two attempts for this PR, and the tracker confirms the ticket on a fresh read. The description names the ticket and the run marker within the host's 140-character cap (`packages/board/test/unit/review.test.ts:171-177`). The write uses `REVIEW_CONTEXT` through `host.commitStatus`; where that answers `unaskable` (`packages/domain/src/ports/host.ts:359-373`), the PR holds and fleetd notifies.
+**The accepted `success`.** It is #2900's `write-status` step with the reason `ticket-accepted`; the tick applies the step. A domain rule `reviewStatus(counts, ticket)` answers the state and description, and `review.ts` uses it for every write. It answers `success` for a HIGH only with a confirmed ticket, and the write refuses unless this head's review has a HIGH, the attempts record holds two attempts for this PR, and the tracker confirms the ticket on a fresh read. The description names the ticket and the run marker within the host's 140-character cap (`packages/board/test/unit/review.test.ts:171-177`). The write uses `REVIEW_CONTEXT` through `host.commitStatus`; where that answers `unaskable` (`packages/domain/src/ports/host.ts:359-373`), the PR holds and fleetd notifies.
 
 **Every step is logged** to #2899's run log: fixer start, attempt spent, ticket opened, accepted `success` written.
+
+**A HIGH on a repair PR is not this plan's.** #2904's main-repair PR skips the fixer and goes to the revert (C5, an exception to D2), so no arm here answers on the PR that #2904's repair record names. #2904 opens its revert ticket through this plan's ticket writer, for a Delivered and an Approved plan alike (C5).
 
 **What stays as it is:** the ruleset keeps requiring `plot/review`; the fleet gets no bypass rights; a clean review merges as before; the desk loop is unchanged.
 
@@ -90,7 +94,9 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-a-
 - [x] The attempt and its in-flight mark are written before the fixer starts, and the start refuses when the write does not land.
 - [x] With no tracker that opens issues, or no host that writes statuses, the PR holds and fleetd notifies. An unticketed HIGH never merges.
 - [x] The ticket opens unassigned. The tracker port refuses an assignee (`tracker.ts:52-54`) and plans record no author.
-- [x] The plan-issue comment line belongs to #2905, which renders this plan's ticket record; #2904 reuses the record.
+- [x] The plan-issue comment line belongs to #2905, which renders this plan's ticket record.
+- [x] C5: #2904 reuses this plan's ticket writer for the ticket that returns reverted work. A HIGH on #2904's repair PR goes to the revert, not to this plan's fixer.
+- [x] The arms use #2900's names (decisions map, #2900's interface names): they read `ciChecks`, `plotReview` and `plotReviewSha` from the index row and `deskDead` from the input record, and answer #2900's `fixer`, `ticket`, `write-status` and `hold` steps. The accepted `success` is a `write-status` step with the reason `ticket-accepted`.
 - [x] The review-time follow-up issue for every severity is removed by #2900 (`feature/a-review-opens-no-issue`), so one HIGH yields at most one ticket.
 
 ### Open Questions
@@ -115,5 +121,5 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-a-
 ## Notes
 
 - Source: issue #2903 on plot-pm/plot, plan PR #2912. Section of the design: *The loop*.
-- Owned elsewhere: the `fixer` role definition and its detached start (#2898, `feature/role-agent-definitions`, `feature/role-agents-start-detached`); the run log and the idle-slice notification (#2899, `feature/the-loop-keeps-a-run-log`, `feature/an-idle-slice-notifies`); the review arm, the `plot/review` index reading and the removal of the review-time issue (#2900, `feature/fleetd-reviews-slice-prs`, `feature/the-index-records-the-review`, `feature/a-review-opens-no-issue`); the merge arm that reads `plot/review=success` on this head (#2902, `feature/fleetd-merges-one-at-a-time`); the plan-comment rendering of tickets (#2905, `feature/the-plan-comment-renders-records`); the fixer start for a dead desk with no PR (#2906, `feature/ending-action-starts-a-fixer`).
-- Out of scope: MEDIUM and LOW findings (a PR comment, no ticket, per #2900), and the red-main path (#2904).
+- Owned elsewhere: the `fixer` role definition and its detached start (#2898, `feature/role-agent-definitions`, `feature/role-agents-start-detached`); the run log and the idle-slice notification (#2899, `feature/the-loop-keeps-a-run-log`, `feature/an-idle-slice-notifies`); the review arm, the `plot/review` index reading and the removal of the review-time issue (#2900, `feature/fleetd-reviews-slice-prs`, `feature/the-index-records-the-review`, `feature/a-review-opens-no-issue`); the merge arm that reads `plot/review=success` on this head (#2902, `feature/fleetd-merges-one-at-a-time`); the plan-comment rendering of tickets (#2905, `feature/the-plan-comment-renders-records`); the revert ticket that reuses this plan's ticket writer (#2904, `feature/a-red-main-is-reverted`). #2906 starts no fixer and no restart (C4).
+- Out of scope: MEDIUM and LOW findings (a PR comment, no ticket, per #2900), the red-main path (#2904), and a HIGH on #2904's repair PR (C5).
