@@ -1,3 +1,4 @@
+import { minHexLenFor } from '../adapters/host/min-hex-len.js';
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { Pr } from '../entities/pr.js';
 import type { DefaultBranchStore } from '../ports/default-branch.js';
@@ -194,15 +195,6 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
     defaultBranchRead: readings.defaultBranch !== null,
   });
 };
-
-/**
- * The hex-prefix floor {@link merge} enforces for a given host backend.
- * GitHub's `headRefOid` is always a full 40-character sha, so a shorter
- * caller sha is never legitimate there and the floor rises to close the
- * collision window; Bitbucket can legitimately report a shorter head, so it
- * keeps the 7+ default, and so does an unresolved backend.
- */
-const minHexLenFor = (backend: string): number => (backend === 'github' ? 40 : 7);
 
 /**
  * Whether a backend word names a host that can pin a merge to a commit.
