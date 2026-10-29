@@ -1,10 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import type { Issue } from '../src/entities/issue.js';
-import { findOpenReviewIssue, reviewIssueTitle } from '../src/rules/review-issue.js';
+import { findOpenReviewIssue, reviewIssue, reviewIssueTitle } from '../src/rules/review-issue.js';
 
 const issue = (id: string, title: string): Issue => ({
   id, title, url: '', createdAt: null, body: null, status: 'open', statusCategory: 'To Do', closedAt: null,
 } as Issue);
+
+describe('reviewIssue', () => {
+  it.each([
+    ['HIGH alone', { high: 1, medium: 0, low: 0 }],
+    ['MEDIUM alone', { high: 0, medium: 1, low: 0 }],
+    ['LOW alone', { high: 0, medium: 0, low: 1 }],
+    ['a mix of all three', { high: 2, medium: 1, low: 3 }],
+    ['all zero', { high: 0, medium: 0, low: 0 }],
+  ])('answers none for %s', (_name, counts) => {
+    expect(reviewIssue(counts)).toBe('none');
+  });
+});
 
 describe('reviewIssueTitle', () => {
   it('names the PR and no counts, so a later head cannot contradict it', () => {
