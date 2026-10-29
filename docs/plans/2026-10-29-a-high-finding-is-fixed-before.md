@@ -110,7 +110,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-a-
 
 ### Fixer attempts record
 
-- `feature/the-fixer-attempts-record` — the per-PR attempts record under `.plot/state/`: the head SHA and the finding each attempt answered, and an in-flight mark written before the start; a decode in the domain where a missing or unreadable record reads as zero attempts and an unreadable in-flight mark holds <!-- builds: a per-PR fixer attempts record with an in-flight mark -->
+- `feature/the-fixer-attempts-record` — the per-PR attempts record under `.plot/state/`: the head SHA and the finding each attempt answered, and an in-flight mark written before the start; a decode in the domain where a missing or unreadable record reads as zero attempts and an unreadable in-flight mark holds <!-- builds: a per-PR fixer attempts record with an in-flight mark --> → #2930
 
 ### Fixer start
 
