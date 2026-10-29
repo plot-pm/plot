@@ -1,0 +1,66 @@
+## Implementation brief — supervisor-tick-s-fleet-scan-reads (wave 4: Bitbucket delta)
+
+- **Plan (canonical):** docs/plans/2026-10-28-supervisor-tick-s-fleet-scan-reads.md on main
+- **Approved:** 2026-10-28, Jan Wloka, plan-PR #2817 merged
+- **Branch:** `bug/a-bitbucket-scan-reads-a-delta` (base: `main`)
+- **Ends as:** one PR to `main`
+- **Review of the code:** per repo convention (plan `Review: pr`)
+
+This branch has no wave dependency on the plan's other three slices (`a-refused-scan-listing-backs-off`, `the-scan-listing-honours-the-limit`, `the-tick-line-counts-each-loop`) — the `## Slices` section lists it under its own heading, not a numbered wave, and the Design's "merged in this order" note is about edit locality in `scanOnce`, not a hard dependency. All three are already Started. Expect `scanOnce` to carry their changes by the time this merges; rebase onto `main` before opening the PR.
+
+### What to build
+
+Today, a Bitbucket fleet scan sweeps every tracked branch on every due listing: `bb_branch_sweep` costs `branches × 3` requests (`scanListingCost`, `packages/fleet/src/shared/fleet-scan.ts:168-172`), with no cheaper path once the fleet has already swept once. GitHub already reads a delta after its first full sweep (`readGithubListing`, `fleet-scan.ts:479-507`, folded through `foldScanListing` in `packages/domain/src/rules/scan-listing.ts`). This slice gives Bitbucket the same shape: after one full branch sweep, ask one unbranched `pr-list --state open --rich` plus one `pr-list --state all --since <watermark − 60s>` through `bb_window_listing`, and fold the pair onto the carried listing — instead of re-sweeping every branch on every pass.
+
+The host-side piece (`bb_window_listing`, `skills/plot/scripts/plot-host.sh:1352-1398`) already exists and already takes `--since` via `PR_LIST_SINCE`, and it already refuses rather than claims a short page whole (`_got -lt _size` → exit 3, `:1395`). **What it does not do yet** is print a success notice on the happy path. Compare `bb_branch_sweep`/`bb_state_listing`'s neighbours — grep `NOTICE_PATTERNS` in `packages/domain/src/rules/pr-status.ts:55-66` for the two existing "page complete"/"sweep complete" notices GitHub's listing relies on. `foldScanListing`'s `wholePage()` (`scan-listing.ts:177-181`) accepts an answer as whole only when its stderr matches one of those patterns, or the answer has zero rows — so a `bb_window_listing` call that returns real rows today is read as a short/unclaimed page and the fold always refuses to anything but an empty delta. Add the window's whole-claim print to `bb_window_listing` on its success path, and add the matching pattern to `NOTICE_PATTERNS`.
+
+### The decisions the plan settles — do not re-derive them
+
+**Branch scope comes from `Refs.listBranches(true)`, declared as a duplicate of the shell's `TRACKED_BRANCHES`, not shared code.** The shell computes its tracked set at `skills/plot/scripts/plot-fleet-scan.sh:753-776`: every `refs/remotes/origin` ref except `HEAD`, space-joined. The domain port equivalent is `Refs.listBranches(true)` (`packages/domain/src/ports/refs.ts:183`, implemented in `refs-git.ts:371`), already called by `registryd-main.ts:813` and `release-claim-reader.ts:123`. Per `docs/shell-and-domain.md` (CLAUDE.md § "A Shell Script Asks The Domain"), this is a sanctioned duplicate, not a shared implementation — write a corpus test (`packages/domain/corpus/`) asserting the two sets agree, the same shape as `sprint-score.corpus.test.ts`. Do not refactor the shell to call the domain, and do not have the domain shell out to recompute `TRACKED_BRANCHES` — a disagreement should fail the corpus test loudly, not silently resolve.
+
+**The unbranched open listing only claims a whole page below 50 open PRs.** `bb_state_listing`/`bb_window_listing` page at `pagelen=50` (see the header comment above `bb_window_listing`, `:1319-1340`). Above 50 open PRs, a single-page open call cannot claim completeness honestly — in that case the fold must refuse and `scanOnce` falls back to a full branch sweep, the same way `readGithubListing` retries as `{ kind: 'full' }` when a delta attempt fails (`fleet-scan.ts:493-497`). Don't special-case this count check into `foldScanListing` itself (it's backend-agnostic and already takes `ScanListingAnswer`s with a `verdict`); gate it in the Bitbucket caller, by reading the open answer's declared `size` before trusting a single unpaged page as whole, or by making the open call paginate until `next` is exhausted the same way `bb_window_listing` already does for the windowed call.
+
+**A carried OPEN row absent from both new answers still refuses the fold**, exactly as `foldScanListing`'s existing `vanishedOpen` check does for GitHub (`scan-listing.ts:226-227`). This is already backend-agnostic in the domain function — nothing to add there, just don't bypass it with a Bitbucket-specific short-circuit.
+
+**`scanListingCost` prices the delta, not the sweep, once this slice lands.** Right now `scanListingCost(backend, branches, rows)` always returns `branches × 3` for Bitbucket (`fleet-scan.ts:168-172`) because Bitbucket has no delta mode yet. After this slice, the function needs a way to distinguish "about to sweep" from "about to read a delta" — follow the GitHub arm's existing shape: GitHub's cost already depends on `rows` (the last adopted listing's row count) rather than always paying the sweep price. Price the Bitbucket delta the same way the plan's Done Conditions require: "each delta costs at most 4 requests" (one `open --rich` request plus up to a few windowed pages, versus `branches × 3` — 45 requests for a 15-branch sweep, per the plan's Done Conditions for Slice 4).
+
+**The full read stays a branch sweep, bounded by `PR_FULL_READ_MS` (24h, `packages/fleet/src/shared/pr-refresh.ts:348`).** `scanListingWindowFor` (`scan-listing.ts:30-65`) already answers `full` when `held.fullReadAt` is null, the carried listing isn't `complete`, or the age since the last full read exceeds `fullReadMs` — this logic is already backend-agnostic (it takes `CarriedListing`, not a backend tag). Write the Bitbucket equivalent of `readGithubListing` (`fleet-scan.ts:479-507`) as a sibling function — call it `readBitbucketListing` or similar — that calls `scanListingWindowFor` the same way, dispatches to `bb_branch_sweep` (full) or the open+windowed pair (delta) through `plot-host.sh`, and folds through the same `foldScanListing`. Wire it into `scanOnce` beside the existing `if (spend && backend === 'github')` block (`fleet-scan.ts:597-610`) as a parallel `if (spend && backend === 'bitbucket')` arm — but see the next paragraph before assuming that's a clean swap.
+
+**Bitbucket's sweep still needs `TRACKED_BRANCHES`, which only the shell computes per pass — this is why Bitbucket historically stayed on the shell path while GitHub moved host-side (see CLAUDE.md § "A Decision Reads The Index", "the shell keeps making its own sweep" note).** This slice's own changeset line is expected to retire that exact sentence: "The CLAUDE.md paragraph 'A second consumer reads its own last whole answer plus a host delta, on GitHub only' changes in this slice to name Bitbucket." Update that paragraph in CLAUDE.md once the Bitbucket arm lands, and regenerate `AGENTS.md` via `./scripts/check-agents-md.sh --write` (CLAUDE.md § Contributing) — CI refuses a stale mirror.
+
+**An unbranched Bitbucket listing read moving host-side (rather than shell-side) is a meaningful shift**: it means `scanOnce` itself calls `plot-host.sh pr-list` for the open+windowed pair on Bitbucket, not the `plot-fleet-scan.sh --stream` subprocess. Follow `askPrList`'s existing shape (`fleet-scan.ts:156-178`) — it already calls through `scripts.hostSaid`, is backend-agnostic in its args, and already tallies `onCall()` once per real call. Reuse it rather than writing a second host-calling helper; only the backend-specific `pr-list` args (open+rich vs. windowed-all) and the fold differ.
+
+**`scanListingCost`'s signature may need a shape change to express "sweep vs. delta" explicitly for Bitbucket**, where today it infers GitHub's mode from `rows === null`. Consider whether `rows` (last adopted row count) is enough signal, or whether the caller needs to pass the chosen `ScanListingWindow` kind directly — the GitHub arm doesn't need this because its pricing already varies continuously with `rows`/pages, but Bitbucket's two modes (branch sweep vs. open+window) have genuinely different request shapes (`branches × 3` vs. a small constant), not a smooth function of row count. This is a real design call the plan leaves to the implementer — pick the simplest typed signal that lets `scanListingCost` return the right price before the call is made (`listingSpend` needs the price in its stretch calculation, `fleet-scan.ts:566-574`, before any request is sent).
+
+### Done when
+
+The plan's `## Done when` (Done Conditions, Slice 4) is the specification: "after one full sweep (45 requests for 15 tracked branches), no listing makes a per-branch request, and each delta costs at most 4 requests." Measure this the way the plan's Done Conditions section specifies for the whole plan: REST requests per simulated hour on a fake Bitbucket host, counted as `budget.tsv` lines in a private `PLOT_BUDGET_HOME`, at the fleet unit tier with a fake clock (15 tracked branches, 3 free agents, empty queue, 720 beats of 5s) — mirror the existing fake-Bitbucket-world test harness used for slices 1–3 rather than building a new one.
+
+Lift these assertions specifically — a naive implementation passes without them:
+- A `bb_window_listing` answer with real rows and no whole-page notice is read as `no-whole-page-claim` and refused (today's gap — write this test BEFORE adding the notice print, to see it fail for the right reason).
+- An open-PR count ≥ 50 forces a full sweep rather than trusting a single unpaged `--state open --rich` page as whole.
+- A carried OPEN row silently missing from both new answers refuses the fold (`open-row-vanished`), not just on GitHub.
+- The corpus test asserting `Refs.listBranches(true)` agrees with the shell's `TRACKED_BRANCHES` set.
+
+Plus: the repo's gates — a changeset (`.changeset/*.md`, package `plot`, description first then `bumps:` block, optionally a `plan:` line), and `node skills/plot/scripts/board/plot-local-checks.mjs` before each push — run what it prints: the tests naming a changed file, related tests and typecheck for `packages/domain` and `packages/fleet`, and the gate tests/`scripts/check-*.sh`. The suites in `CI suites` run in CI only; do not run them locally (CLAUDE.md § Testing — `test:e2e` especially).
+
+Name the shell gate explicitly: `scripts/check-shell-lines.sh` refuses a PR whose shell under `skills/` is longer than at its merge base. This slice adds a notice print inside `bb_window_listing` — pay for that growth in the same change by removing shell lines elsewhere, or by moving logic into the domain and reaching it through a bundle. The gate counts commands, not lines — joining with `;`/`&&` or folding `fi`/`done` onto the prior line isn't a payment.
+
+### Bookkeeping
+
+Push the first real commit as soon as it exists. Open the PR through the controller, never `gh pr create`:
+
+```bash
+../plot/scripts/plot-open-pr.sh          # current branch
+../plot/scripts/plot-open-pr.sh --draft  # while still moving
+```
+
+When the PR is created, append `→ #<number>` to this branch's line under `### Bitbucket delta` in the plan's `## Slices` section.
+
+### Scope guard
+
+This branch owns: `skills/plot/scripts/plot-host.sh` (the `bb_window_listing` notice print), `packages/domain/src/rules/pr-status.ts` (`NOTICE_PATTERNS`), `packages/domain/src/rules/scan-listing.ts` only if a Bitbucket-specific cost signal requires a new exported type (prefer extending, not forking, `foldScanListing`/`scanListingWindowFor` — they're already backend-agnostic), `packages/fleet/src/shared/fleet-scan.ts` (`scanListingCost`, a new `readBitbucketListing`, the `scanOnce` dispatch), CLAUDE.md's "A second consumer reads its own last whole answer plus a host delta, on GitHub only" paragraph, and `AGENTS.md` (regenerated, not hand-edited).
+
+The other three slices of this plan (already Started) touch: `a-refused-scan-listing-backs-off` — a `backoffUntil`/back-off rule beside `listingSpend` and `ScanState`, likely in `fleet-scan.ts` and a new domain rule file; `the-scan-listing-honours-the-limit` — `listingSpend`/`cadenceStretch` taking `SpendRate.limit`/`basis`, and the 60s listing base in `scanOnce`; `the-tick-line-counts-each-loop` — per-loop request counters in `registryd-main.ts` and a domain per-hour rule beside `boardSharePerHour`. Expect `fleet-scan.ts` and `scanOnce` to already carry their edits when you rebase — resolve by re-reading the current `scanOnce` body rather than assuming this brief's line numbers still hold after they merge.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope — in particular the three Open Questions the plan leaves unresolved (two-fleetd rate composition, the no-ref squash-merged `.list-complete` hazard, and the max carried-listing age that still licenses `NONE`) are explicitly out of scope for this slice.

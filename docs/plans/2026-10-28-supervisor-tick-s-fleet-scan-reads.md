@@ -16,6 +16,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/a-refused-scan-listing-backs-off`
 - **Started:** 2026-10-28, Jan Wloka, `bug/the-scan-listing-honours-the-limit`
 - **Started:** 2026-10-28, Jan Wloka, `bug/the-tick-line-counts-each-loop`
+- **Started:** 2026-10-29, Jan Wloka, `bug/a-bitbucket-scan-reads-a-delta`
 
 ## Changelog
 
