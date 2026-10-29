@@ -4,9 +4,10 @@
 
 ## Status
 
-- **State:** Planning
-- **Start:** YYYY-MM-DD
-- **End:** YYYY-MM-DD
+- **State:** Active
+- **Start:** 2026-10-29
+- **End:** 2026-11-12
+- **Release:** 2.30.0
 
 ## Sprint Goal
 
