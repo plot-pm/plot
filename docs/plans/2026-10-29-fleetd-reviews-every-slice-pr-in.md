@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2917 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/a-review-opens-no-issue`
+- **Started:** 2026-10-30, Jan Wloka, `feature/the-index-records-the-review`
 
 ## Changelog
 
