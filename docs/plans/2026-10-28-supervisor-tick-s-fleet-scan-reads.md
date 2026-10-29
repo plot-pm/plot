@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-29-1
 - **Issue:** #2815
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-28, Jan Wloka, `bug/the-scan-listing-honours-the-limit`
 - **Started:** 2026-10-28, Jan Wloka, `bug/the-tick-line-counts-each-loop`
 - **Started:** 2026-10-29, Jan Wloka, `bug/a-bitbucket-scan-reads-a-delta`
+- **Delivered:** 2026-10-29
 
 ## Changelog
 
