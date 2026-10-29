@@ -127,7 +127,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### Unattended refusals
 
-- `feature/unattended-callers-are-refused` — the typed `caller` reading; `merge`, `continue` and `release` refuse an unattended caller; fleetd's typed caller is accepted by `merge`, `continue` and `restart` only; every entrance maps `PLOT_UNATTENDED` to `unattended` and never to `fleetd` <!-- builds: a caller reading on merge, continue, restart and release -->
+- `feature/unattended-callers-are-refused` — the typed `caller` reading; `merge`, `continue` and `release` refuse an unattended caller; fleetd's typed caller is accepted by `merge`, `continue` and `restart` only; every entrance maps `PLOT_UNATTENDED` to `unattended` and never to `fleetd` <!-- builds: a caller reading on merge, continue, restart and release --> → #2937
 
 ### Role definitions
 
