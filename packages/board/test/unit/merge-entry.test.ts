@@ -41,6 +41,7 @@ const ports = (lookup: Pr | 'unaskable', answer: 'answered' | 'failed' = 'answer
     defaultBranch: { read: async () => read },
     checksWaitMs: WAIT_MS,
     now: () => NOW,
+    caller: 'person',
   } as unknown as MergePorts;
   return { p, calls };
 };
@@ -51,6 +52,19 @@ describe('mergeAt', () => {
     const out = await mergeAt(p, 7, HEAD);
     expect(out).toMatchObject({ merged: true, pr: 7, sha: HEAD, defaultBranchRead: false, unpinned: false });
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
+  });
+
+  it('refuses an unattended caller, asking the host nothing', async () => {
+    const { p, calls } = ports(pr());
+    p.caller = 'unattended';
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'unattended' });
+    expect(calls).toEqual([]);
+  });
+
+  it('accepts a fleetd caller and proceeds past the refusal unattended would hit', async () => {
+    const { p } = ports(pr());
+    p.caller = 'fleetd';
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD });
   });
 
   it('asks the host for checks, which Bitbucket reads only when asked', async () => {
