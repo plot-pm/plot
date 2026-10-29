@@ -5763,7 +5763,7 @@ case "$op" in
       issue-label) add="${2:?issue-label needs a label}"; carried="$(gh issue view "$num" --json labels -q '.labels[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort) | paste -sd, -)"; gh label create "$add" --color ededed --description "Plot plan phase: ${add#plan:}" >/dev/null 2>"$HOST_ERR" || grep -qi 'already exists' "$HOST_ERR" || gh_fail; gh issue edit "$num" --add-label "$add" ${keep:+--remove-label "$keep"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
-        cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
+        cid="${2:+$(gh_marker_comment_id "$num" "$2")}" || gh_fail
         gh_edit_or_post_comment "$cid" issue "$num" "${3-}" || gh_fail ;;
       issue-comment-read)
         cid="$(gh_marker_comment_id "$num" "${2:?issue-comment-read needs a marker}")" || gh_fail
@@ -6071,8 +6071,8 @@ case "$op" in
     # KEYED BY PR NUMBER, NOT A SHA — unlike commit-status, this writes through
     # the signed-in CLI identity, so it needs no App credentials and no Node
     # helper.
-    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
-    [ -z "${3-}" ] || cid="$(gh_marker_comment_id "$num" "$3")" || gh_fail
+    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"
+    cid="${3:+$(gh_marker_comment_id "$num" "$3")}" || gh_fail
     gh_edit_or_post_comment "$cid" pr "$num" "${2:?pr-comment needs a body}" || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
