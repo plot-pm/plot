@@ -1,0 +1,56 @@
+## Implementation brief — fleet-roles-are-declared-agents (wave 2: Unattended refusals)
+
+- **Plan (canonical):** docs/plans/2026-10-29-fleet-roles-are-declared-agents.md on main
+- **Approved:** 2026-10-29, Jan Wloka, plan-PR #2908 merged
+- **Branch:** `feature/unattended-callers-are-refused` (base: `main`)
+- **Ends as:** one PR to `main`
+- **Review of the code:** per repo convention (`Review: pr`; one full review per PR)
+
+This is the second wave. `feature/role-agents-are-probed` (wave 1) is a plan-only probe and shares no file with this slice — it is already in flight but touches nothing this slice touches. Four other plans wait on this branch: #2901 (`feature/fleetd-answers-a-question`) and #2907 (`feature/the-release-is-approved-once`) name it directly; #2903 and #2904 depend on it transitively through #2901. No other slice of this plan has started.
+
+### What to build
+
+A typed `caller` reading, replacing the ad-hoc `unattended: boolean` wherever `merge`, `continue` and `release` decide whether to proceed — and new refusals on `merge` and `continue`, which refuse NOTHING today.
+
+Measured against this branch's base (`origin/main`, commit `9c15a46e9`):
+
+- **`merge` (`packages/domain/src/workflows/merge.ts`) takes no caller reading at all.** `MergeReadings` has only `pr` and `defaultBranch`; `MergeRefusal` has no `unattended` member. `MergePorts`/`mergeAt` (`packages/board/src/server/entry/merge.ts`) pass nothing caller-shaped either. The only caller today is `plot-ask.mjs merge <pr> <sha>` via `packages/board/src/server/entry/main.ts:163` (`argv[0] === 'merge'`), reached from both the board HTTP route and the CLI entrances the plan's `## The Master Agent Uses The Controllers` section already documents as running under `PLOT_UNATTENDED=1`.
+- **`continue` has no `unattended` refusal.** `continueBranch` (`packages/fleet/src/shared/continue-command.ts`) only refuses `unknown-branch` and `no-worktree`. The `unattended` member in `ContinueRefusal`'s enum (`packages/fleet/src/shared/continuation.ts`, where `RestartDetail`'s doc comment sits) is restart's, not continue's — continue has no gate on it today.
+- **`restart` already refuses `unattended`, and is the shape to extend, not duplicate.** `restartWorker` (`packages/domain/src/workflows/dispatch-verbs.ts:194-198`) reads `readings.unattended: boolean` and refuses `'unattended'` as its second check, right after `branch-missing`. The boolean is filled independently at three entrances, each reading `process.env.PLOT_UNATTENDED === '1'` directly: `packages/board/src/server/restart.ts:68`, `packages/fleet/src/server/entry/restart-command.ts:89`, `packages/fleet/src/server/entry/restart-stopped-command.ts:103`. None of the three can produce anything but `true`/`false` — there is no in-process fleetd caller for restart today either.
+- **`release` is not a refusal to add — it is a refusal to invert.** `release.ts:21`'s own comment states the existing design: "`PLOT_UNATTENDED` answers *may I ask?* and never *may I proceed?*", and `:239`'s area turns an open Should-Have prompt into a `PLOT-UNASKED` warning rather than blocking. This slice makes `release` refuse an unattended caller outright — fleetd's caller included, per D7 — which is the one place this plan's refusal is NOT "extend what restart already does." Change the comment at `:21` and the unattended arm at `:239` together; do not leave the old comment next to new behavior it no longer describes.
+
+**There is no existing in-process fleetd caller for any of the three today.** Grepping `packages/fleet/src` and `packages/board/src` for `mergeAt(`, `continueOnDesk(`/`continueBranch(` and `restartBranch(` each turns up exactly the HTTP/CLI entrances named above and zero fleetd-internal calls. This slice's job is the typed `caller` reading and the refusals that read it — not wiring fleetd's own call sites, which belong to #2901 (continue) and later plans for merge/restart. Build the plumbing so those plans have something correct to call into.
+
+### Decisions the plan settles — do not re-derive them
+
+- **The caller is a typed domain reading (`caller`), never an environment variable or a second boolean.** (D1, panel round 1.) Model it as a union, e.g. `'person' | 'unattended' | 'fleetd'` (or equivalent discriminated shape) rather than reusing `unattended: boolean` — the whole point is that `restart`'s existing boolean cannot express "an unattended process that is fleetd itself," and bolting a second flag onto it reproduces the ambiguity this slice exists to remove. Pick one vocabulary and apply it to `merge`, `continue`, `restart` and `release` alike; a reading named differently per workflow defeats the "one typed reading" decision.
+- **`fleetd` is accepted by `merge`, `continue` and `restart` only — `release` accepts no unattended caller, fleetd included.** This is D7: the person's approval command runs the release finish as that person, and fleetd never runs it. Do not add a `caller === 'fleetd'` pass-through to `release`'s refusal — that is the one asymmetry the plan is explicit about.
+- **No environment variable or marker file may carry the `fleetd` identity.** fleetd's in-process calls (once wired, by later plans) pass `caller: 'fleetd'` as a typed argument on the call itself. `SPAWN_CONTRACT` does not change — no gate reads a new variable, because nothing is meant to let a spawned process claim `fleetd` by setting something in its environment. If your caller type is constructed from `process.env.PLOT_UNATTENDED` at the three existing entrances (board merge route, CLI/HTTP continue entrances, the three restart entrances, the release routes), it must map to `'unattended'` and NEVER to `'fleetd'` — there is no code path today that should produce `'fleetd'` outside an in-process call this slice does not add.
+- **This is additive to `restart`'s existing shape, not a rewrite of its refusal order.** `restartWorker`'s `unattended` check already sits second, right after `branch-missing`, before the worktree/PR/loop/state checks. Changing its reading's type from `boolean` to the new `caller` type should not reorder or duplicate that check — it should read `readings.caller === 'unattended'` (or equivalent) in the same place `readings.unattended` sits now.
+- **Four entrances need updating for `merge`/`continue`/`restart`'s refusal, and the release routes for `release`'s:** the board merge route (`packages/board/src/server/entry/main.ts:163`, via `mergeAt`/`MergePorts`), the continue entrances feeding `continueBranch`, the three restart entrances already reading `PLOT_UNATTENDED` directly, and the release entrances (`plot-deliver.mjs --release`, `POST /api/release`, per the plan's Motivation section). Each keeps reading `PLOT_UNATTENDED` but maps it to the new caller type's `'unattended'` member, never `'fleetd'`.
+
+### Done when
+
+The plan's slice line is the specification: "the typed `caller` reading; `merge`, `continue` and `release` refuse an unattended caller; fleetd's typed caller is accepted by `merge`, `continue` and `restart` only; every entrance maps `PLOT_UNATTENDED` to `unattended` and never to `fleetd`." Assertions a naive implementation would pass without:
+
+- A test that `merge` refuses when the caller reads `'unattended'`, at a DECISION LEVEL (`packages/domain/src/workflows/merge.ts`'s own unit tests) — not only at an entrance. This catches a fix that patches the HTTP route but leaves the domain function itself permissive to a caller who constructs `MergeReadings`/`MergeInput` directly.
+- A test that `merge`, `continue` and `restart` each ACCEPT `caller: 'fleetd'` and proceed past the refusal that `'unattended'` would hit — not merely that `'unattended'` is refused. A gate that only refuses and never has a passing `'fleetd'` case cannot prove the asymmetry this plan is built around.
+- A test that `release` refuses `caller: 'fleetd'` the same way it refuses `'unattended'` — this is the one place fleetd gets no exception, and it is the easiest one to miss by copying the other three workflows' pattern.
+- A test per entrance (or at minimum per workflow's full call chain from environment to refusal) proving `PLOT_UNATTENDED=1` with no further wiring produces `'unattended'`, never `'fleetd'` — since nothing else in this codebase can set `'fleetd'` yet, a regression here would be silent until a later plan's fleetd caller lands and finds itself already refused, or worse, finds every `PLOT_UNATTENDED=1` desk worker silently treated as fleetd.
+- Confirm `restart`'s existing passing tests (loop-alive, worker-alive, worker-finished, blocked-marker, the happy path) still pass unchanged after the type swap from `boolean` to the caller union — this catches an incidental behavior change smuggled in alongside the type change.
+
+Plus: the repo's gates — build artifacts, changeset, platform constraints. For tests, run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints; the suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. List no full suite.
+
+This slice edits only `packages/domain/src/**` and `packages/board/src/**`/`packages/fleet/src/**` entrances — no `.sh` file under `skills/`, so `scripts/check-shell-lines.sh` needs no payment. Add a changeset describing the behavior change (unattended callers can no longer merge, continue, or release); this is a product-visible refusal change, not a plan-only edit, so a changeset is expected here even though wave 1's was optional.
+
+### Bookkeeping
+
+Open the PR with `skills/plot/scripts/plot-open-pr.sh` (use `--draft` while the work moves), never `gh pr create`. When it exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Push the first real commit as soon as it exists.
+
+### Scope guard
+
+This branch owns: `packages/domain/src/workflows/merge.ts`, `packages/domain/src/workflows/dispatch-verbs.ts` (the `restart` caller-reading swap only — not the other verbs in that file), `packages/domain/src/workflows/release.ts`, and the entrances that feed them: `packages/board/src/server/entry/merge.ts`, `packages/board/src/server/entry/main.ts` (merge route only), `packages/board/src/server/restart.ts`, `packages/fleet/src/server/entry/restart-command.ts`, `packages/fleet/src/server/entry/restart-stopped-command.ts`, `packages/fleet/src/shared/continue-command.ts`, `packages/fleet/src/shared/continuation.ts`, and the release entrances named in the plan's Motivation section.
+
+Other branches in flight on this plan: `feature/role-agents-are-probed` (wave 1, plan-only, no code) is started; it touches no file this slice owns. No other wave has started. This slice does NOT wire fleetd's own in-process `merge`/`continue`/`restart` calls — that remains for #2901 (continue) and later plans; build the `caller` type and the refusals so those calls have a correct shape to use, but do not add a fleetd caller anywhere in this codebase yourself. Do not touch `.claude/agents/*.md` or any settings file — `feature/role-agent-definitions` (wave 3) owns those and waits on wave 1, not this slice.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope.
