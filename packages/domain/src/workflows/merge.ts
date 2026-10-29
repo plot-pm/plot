@@ -1,4 +1,3 @@
-import { minHexLenFor } from '../adapters/host/min-hex-len.js';
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { Pr } from '../entities/pr.js';
 import type { DefaultBranchStore } from '../ports/default-branch.js';
@@ -6,6 +5,7 @@ import type { Host, PrReviewReading } from '../ports/host.js';
 import type { Refs } from '../ports/refs.js';
 import type { Scripts } from '../ports/scripts.js';
 import { defaultBranchAgeMs } from '../rules/default-branch.js';
+import { minHexLenFor } from '../rules/min-hex-len.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { type Outcome, decide, refuse } from './decision.js';
 
@@ -67,7 +67,8 @@ export interface MergeInput {
    * check. The caller's to set: a host that always reports and expects a
    * full-length head can raise it to close the collision window a short
    * prefix leaves open, while a host that legitimately reports a shorter head
-   * needs a lower floor. The domain holds no host name to decide this from.
+   * needs a lower floor. {@link mergeAt} sets it from the host's backend word
+   * through {@link minHexLenFor}.
    */
   readonly minHexLen: number;
   /**

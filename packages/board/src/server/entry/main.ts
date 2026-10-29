@@ -9,6 +9,7 @@ import { gatherReadingsAndRelease } from '../release-claim.js';
 import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { fleetdStartFile } from '@plot-pm/domain/adapters';
+import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt } from './merge.js';
@@ -160,12 +161,16 @@ export const run = async (
     // reading. A mock estate's null fixture would lift the red-main refusal on
     // a merge that still lands.
     const estate = realEstate(opts);
+    // The estate's `refsGit` answers `remoteSha` as `unaskable`; `mergeAt`
+    // reads the default branch's tip through it on a settled reading, so the
+    // tip comes from `refsRemoteGit` over `git ls-remote`, as `design.ts` composes it.
+    const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
     const result = await mergeAt(
       {
         host: estate.host,
         scripts: scriptsFor(opts),
         defaultBranch: estate.defaultBranch,
-        refs: estate.refs,
+        refs: { ...estate.refs, remoteSha: remote.remoteSha },
         checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
         now: Date.now,
       },
