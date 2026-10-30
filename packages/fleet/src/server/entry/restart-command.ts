@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import type { DeskMonitors, FleetReading } from '@plot-pm/domain';
+import type { Caller, DeskMonitors, FleetReading } from '@plot-pm/domain';
 import { restartBranch, type RestartReaders } from '../../shared/restart-command.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
@@ -34,8 +34,8 @@ export interface RestartCommandDeps {
   readers?: RestartReaders;
   /** The worktree git reports for the branch; `PLOT_RESTART_WORKTREE` where absent. */
   worktree?: string;
-  /** Whether the caller runs unattended; `PLOT_UNATTENDED=1` where absent. */
-  unattended?: boolean;
+  /** Who is asking for the restart; `PLOT_UNATTENDED=1` maps to `'unattended'` where absent. */
+  caller?: Caller;
   /** Whether the caller promised no network; `PLOT_RESTART_OFFLINE=1` where absent. */
   offline?: boolean;
 }
@@ -86,7 +86,9 @@ export const run = async (
     pulse: (deps.pulse ?? bridgedPulse)(repoRoot),
     branch,
     worktree: deps.worktree ?? process.env.PLOT_RESTART_WORKTREE,
-    unattended: deps.unattended ?? process.env.PLOT_UNATTENDED === '1',
+    // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
+    // maps to 'unattended', never to 'fleetd'.
+    caller: deps.caller ?? (process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person'),
     offline: deps.offline ?? process.env.PLOT_RESTART_OFFLINE === '1',
     monitors: deps.monitors,
     readers: deps.readers,

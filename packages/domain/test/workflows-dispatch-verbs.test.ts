@@ -88,7 +88,7 @@ describe('--restart: the PR is asked FIRST, then the loop, then the marker', () 
       tree: tree({ state: 'failed' }),
       pr: pr(),
       loop: none,
-      unattended: false,
+      caller: 'person',
       ...over,
     });
   const reason = (out: ReturnType<typeof restartWorker>) => (refused(out) ? out.reason : 'decided');
@@ -102,7 +102,11 @@ describe('--restart: the PR is asked FIRST, then the loop, then the marker', () 
   });
 
   it('refuses an unattended caller', () => {
-    expect(reason(restart({ unattended: true }))).toBe('unattended');
+    expect(reason(restart({ caller: 'unattended' }))).toBe('unattended');
+  });
+
+  it('accepts a fleetd caller and proceeds past the refusal unattended would hit', () => {
+    expect(reason(restart({ caller: 'fleetd' }))).toBe('decided');
   });
 
   it('refuses a branch that reached review, EVEN when its worker state invites a restart', () => {

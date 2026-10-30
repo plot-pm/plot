@@ -2,13 +2,14 @@ import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { Pr } from '../entities/pr.js';
 import { defaultBranchAgeMs } from '../rules/default-branch.js';
 import { sameCommit } from '../rules/same-commit.js';
-import { type Outcome, decide, refuse } from './decision.js';
+import { type Caller, type Outcome, decide, refuse } from './decision.js';
 
 /**
  * Why `merge` refused. Each is the end of the action: nothing merges, and no
  * caller retries with the pin dropped.
  */
 export type MergeRefusal =
+  | 'unattended'
   | 'unaskable'
   | 'pr-not-open'
   | 'head-moved'
@@ -20,6 +21,8 @@ export type MergeRefusal =
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
 export interface MergeReadings {
+  /** Who is asking for the merge; an unattended caller is refused before anything else is read. */
+  readonly caller: Caller;
   /**
    * The PR as the host answers now; null where the host holds none, and
    * `'unaskable'` where the host did not answer.
@@ -94,6 +97,9 @@ const short = (sha: string | undefined): string =>
  */
 export const merge = (readings: MergeReadings, input: MergeInput): Outcome<MergeDetail, MergeRefusal> => {
   const no = (reason: MergeRefusal, detail: string) => refuse('merge', reason, detail);
+  if (readings.caller === 'unattended') {
+    return no('unattended', `an unattended caller does not merge PR #${input.pr}. Merging is reviewed as an action, and this one had no reviewer.`);
+  }
   const { pr } = readings;
   if (pr === 'unaskable') {
     return no('unaskable', `the host did not answer for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);

@@ -65,7 +65,9 @@ export const handleRestart = async (
     readCfg: deps.config ?? readConfig,
     pulse: (deps.pulse ?? pulseFor)(opts),
     branch,
-    unattended: process.env.PLOT_UNATTENDED === '1',
+    // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
+    // maps to 'unattended', never to 'fleetd'.
+    caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
     monitors: deps.monitors,
     readers: deps.readers,
   });

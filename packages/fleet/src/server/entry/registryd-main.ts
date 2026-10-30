@@ -1709,6 +1709,9 @@ export const startFreshSession = async (
   try {
     const result = await deps.continueDesk({
       opts: deps.opts,
+      // registryd is the master agent's own in-process recovery daemon — not a
+      // person, and not `PLOT_UNATTENDED` either, since nothing here reads it.
+      caller: 'fleetd',
       branch: input.branch,
       worktree: input.worktree,
       main: input.main,

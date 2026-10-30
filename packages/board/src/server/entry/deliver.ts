@@ -8,7 +8,7 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { prIndexFile } from '@plot-pm/domain/adapters/pr-index/pr-index-file';
-import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
+import type { Caller, Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import {
   deliver,
@@ -686,6 +686,8 @@ export interface ReleaseBooking {
   tagDate: string;
   /** The release tag, which the `Released:` record names. */
   tag: string;
+  /** Who is asking — `run`'s own caller gate has already refused 'unattended'. */
+  caller: Caller;
 }
 
 /** What one release write did, in the words the summary line prints. */
@@ -722,7 +724,7 @@ export const bookRelease = async (
   if (!present.ok || present.value === null) return { refused: `${rel} is not present in ${wt}` };
   const scratchPlan = await transitionPlanOf(ports.planStore, slug, target);
   if (scratchPlan === null) return { refused: `cannot parse ${target} — refusing rather than guessing.` };
-  const decision = release(scratchPlan, { on: booking.tagDate, version: booking.tag });
+  const decision = release(scratchPlan, { on: booking.tagDate, version: booking.tag, caller: booking.caller });
   if (isRefusal(decision)) return { refused: decision.detail };
 
   let phase: string;
@@ -770,6 +772,18 @@ export const runRelease = async (
   write: Printer,
   warn: Printer,
 ): Promise<number> => {
+  // Who is asking, read once at the top of the arm and threaded through every
+  // booking below. `PLOT_UNATTENDED=1` maps to 'unattended', never to
+  // 'fleetd': this entrance never produces that caller itself. The refusal
+  // itself is the domain's — `bookRelease` passes this straight to `release`,
+  // which checks it before anything else, including whether a version or a
+  // merged PR exists.
+  const caller: Caller = process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person';
+  if (caller === 'unattended') {
+    warn('plot-deliver: unattended: a release needs a person. An unattended caller does not finish one, and fleetd gets no exception here.\n');
+    return 1;
+  }
+
   const absPlanFile = path.join(ctx.repoRoot, planFile);
   const plan = await transitionPlanOf(ctx.planStore, args.slug, absPlanFile);
   if (plan === null) {
@@ -850,7 +864,7 @@ export const runRelease = async (
   }
   const cleanup = () => ctx.trees.removeWithBranch(tmpwt, bookbr);
 
-  const booking: ReleaseBooking = { rel, slug: args.slug, tagDate, tag: resolved.tag };
+  const booking: ReleaseBooking = { rel, slug: args.slug, tagDate, tag: resolved.tag, caller };
   const first = await bookRelease(ctx, tmpwt, booking);
   if ('refused' in first) {
     warn(`plot-deliver: ${first.refused}\n`);

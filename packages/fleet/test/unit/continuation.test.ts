@@ -44,6 +44,60 @@ describe('composeContinuation — a fresh start with no marker', () => {
   });
 });
 
+describe('continueOnDesk refuses an unattended caller before any read', () => {
+  it('refuses "unattended" against a worktree that would otherwise fail a later check', async () => {
+    const result = await continueOnDesk({
+      opts: { repoRoot: '/does/not/exist', scriptsDir: '/s' },
+      branch: 'feature/x',
+      worktree: '/does/not/exist/either',
+      main: '',
+      previousPid: '',
+      caller: 'unattended',
+      answer: 'the answer',
+    });
+
+    expect(result).toEqual({
+      kind: 'refused',
+      status: 409,
+      reason: 'unattended',
+      detail: 'an unattended caller does not continue feature/x. Continuing answers a question, and this one had no one to ask it.',
+    });
+  });
+});
+
+describe('continueOnDesk accepts a fleetd caller', () => {
+  const desks: string[] = [];
+  afterEach(() => {
+    for (const desk of desks.splice(0)) rmSync(desk, { recursive: true, force: true });
+  });
+
+  it('proceeds past the refusal "unattended" would hit', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'plot-continue-fleetd-'));
+    desks.push(worktree);
+    const repoRoot = mkdtempSync(join(tmpdir(), 'plot-continue-fleetd-repo-'));
+    desks.push(repoRoot);
+    writeFileSync(
+      join(worktree, ENDING_FILENAME),
+      JSON.stringify({ reason: 'holding-work', actor: 'agent', branch: 'feature/x', detail: '', refusedAssignment: '' }),
+      'utf8',
+    );
+
+    const result = await continueOnDesk({
+      opts: { repoRoot, scriptsDir: '/s' },
+      branch: 'feature/x',
+      worktree,
+      main: '',
+      previousPid: '',
+      caller: 'fleetd',
+      answer: 'the answer',
+      fresh: true,
+      readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+    });
+
+    expect(result.kind).toBe('started');
+  });
+});
+
 describe('continueOnDesk clears the main-checkout-writer marker for the spawn', () => {
   const desks: string[] = [];
   afterEach(() => {
@@ -79,6 +133,7 @@ describe('continueOnDesk clears the main-checkout-writer marker for the spawn', 
         worktree,
         main: '',
         previousPid: '',
+        caller: 'person',
         answer: 'the answer',
         fresh: true,
         readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
@@ -133,6 +188,7 @@ describe('continueOnDesk records the spawned pid\'s own start time', () => {
       worktree,
       main: '',
       previousPid: '',
+      caller: 'person',
       answer: 'the answer',
       fresh: true,
       readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'sleep 5' : fallback),

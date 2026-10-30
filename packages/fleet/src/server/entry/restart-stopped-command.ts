@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fleetStateFile, fleetStoppedFile } from '@plot-pm/domain/adapters';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import type { FleetReading } from '@plot-pm/domain';
+import type { Caller, FleetReading } from '@plot-pm/domain';
 import { FLEET_STOPPED_VERSION } from '@plot-pm/domain';
 import { restartBranch as realRestartBranch, type RestartBranchInput } from '../../shared/restart-command.js';
 import type { DeskContinuation } from '../../shared/continuation.js';
@@ -72,7 +72,7 @@ const record = async (repoRoot: string, stdin: string, warn: Printer): Promise<n
 /** What a restart pass reads instead of the real world; a test replaces each. */
 export interface RestartRecordedDeps {
   pulse: FleetReading | null;
-  unattended: boolean;
+  caller: Caller;
   restartBranch: (input: RestartBranchInput) => Promise<DeskContinuation>;
 }
 
@@ -100,7 +100,9 @@ const restartRecorded = async (
     return 0;
   }
   const pulse = deps ? deps.pulse : bridgedPulse(repoRoot);
-  const unattended = deps ? deps.unattended : process.env.PLOT_UNATTENDED === '1';
+  // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
+  // maps to 'unattended', never to 'fleetd'.
+  const caller = deps ? deps.caller : (process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person');
   const restart = deps ? deps.restartBranch : realRestartBranch;
   for (const branch of found.branches) {
     const worktree = found.worktrees?.[branch];
@@ -109,7 +111,7 @@ const restartRecorded = async (
       pulse,
       branch,
       ...(worktree ? { worktree } : {}),
-      unattended,
+      caller,
     });
     if (started.kind === 'refused') {
       warn(`${branch}: refused ${started.reason}: ${started.detail}\n`);
