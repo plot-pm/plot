@@ -109,6 +109,10 @@ const REVIEW_STATE: Readonly<Record<string, string>> = {
 /**
  * The `pr-review` reading of a Bitbucket pull request.
  *
+ * `description` and `time` answer `''` always — Bitbucket has no
+ * `commitStatus` writer this host can drive, so no run embeds a run id here
+ * for a newest-pending-wins rule to read back.
+ *
  * @param sha - the pull request's head commit.
  * @param statuses - the commit's build statuses, newest first.
  * @param comments - the pull request's comments.
@@ -120,8 +124,10 @@ export const bitbucketReview = (
   sha: string,
   statuses: ReadonlyArray<{ key?: string; state?: string }>,
   comments: ReadonlyArray<{ content?: { raw?: string } }>,
-): { sha: string; state: string; bypass: boolean } => ({
+): { sha: string; state: string; description: string; time: string; bypass: boolean } => ({
   sha,
   state: REVIEW_STATE[statuses.find((s) => s.key === 'plot/review')?.state ?? ''] ?? 'absent',
+  description: '',
+  time: '',
   bypass: comments.some((c) => (c.content?.raw ?? '').startsWith('review-bypass:')),
 });

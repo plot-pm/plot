@@ -25,7 +25,7 @@ describe('plot-review-bypass', () => {
   it('reports a green-CI merge with no plot/review and no comment (the #1687 shape)', async () => {
     const { lines } = await output({
       prs: [pr(1687, AFTER)],
-      reviews: { 1687: { sha: 'a', state: 'absent', bypass: false } },
+      reviews: { 1687: { sha: 'a', state: 'absent', description: '', time: '', bypass: false } },
     });
     expect(lines.filter((l) => l.startsWith('  PR #'))).toEqual([
       '  PR #1687 merged with no passing plot/review and no review-bypass: comment',
@@ -37,8 +37,8 @@ describe('plot-review-bypass', () => {
     const { lines } = await output({
       prs: [pr(1, AFTER), pr(2, AFTER)],
       reviews: {
-        1: { sha: 'a', state: 'failure', bypass: true },
-        2: { sha: 'b', state: 'success', bypass: false },
+        1: { sha: 'a', state: 'failure', description: '', time: '', bypass: true },
+        2: { sha: 'b', state: 'success', description: '', time: '', bypass: false },
       },
     });
     expect(lines).toEqual(['  (none — every examined merge carries a passing plot/review or a bypass note)']);
@@ -47,7 +47,7 @@ describe('plot-review-bypass', () => {
   it('names an unread PR and never prints none while a read failed', async () => {
     const { lines } = await output({
       prs: [pr(3, AFTER), pr(4, AFTER)],
-      reviews: { 4: { sha: 'a', state: 'success', bypass: false } },
+      reviews: { 4: { sha: 'a', state: 'success', description: '', time: '', bypass: false } },
     });
     expect(lines).toEqual(['  unread PR #3 — the host read failed; its review is unknown']);
   });
@@ -65,7 +65,7 @@ describe('plot-review-bypass', () => {
     await run(
       hostFixture({
         prs: [pr(6, AFTER)],
-        reviews: { 6: { sha: 'a', state: 'success', bypass: false } },
+        reviews: { 6: { sha: 'a', state: 'success', description: '', time: '', bypass: false } },
       }),
       SINCE, 1, (l) => lines.push(l),
     );
@@ -82,7 +82,7 @@ describe('plot-review-bypass', () => {
     // host would fail the read and #8 would print as `unread`. It must not.
     const { lines } = await output({
       prs: [pr(8, SINCE), pr(9, AFTER)],
-      reviews: { 9: { sha: 'a', state: 'success', bypass: false } },
+      reviews: { 9: { sha: 'a', state: 'success', description: '', time: '', bypass: false } },
     });
     expect(lines).toEqual(['  (none — every examined merge carries a passing plot/review or a bypass note)']);
   });

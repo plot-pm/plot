@@ -383,7 +383,7 @@ describe('commitStatus', () => {
 
 describe('prReview', () => {
   it('passes the PR number and reads one JSON line as the reading', async () => {
-    const reading = { sha: 'abc', state: 'absent', bypass: false };
+    const reading = { sha: 'abc', state: 'absent', description: '', time: '', bypass: false };
     const answer = await hostShell(
       hostThat(`[ "$1 $2" = "pr-review 7" ] || exit 1; echo '${JSON.stringify(reading)}'`),
     ).prReview(7);

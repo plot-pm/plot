@@ -139,12 +139,23 @@ export interface CommitStatusWrite {
  *
  * `state` is the host's own word for the status, or `absent` where the host
  * holds none in that context.
+ *
+ * `description` AND `time` NAME THE SAME STATUS `state` DOES, not a second
+ * one. They exist so a caller can tell one run's write from another's on the
+ * same sha: a review run embeds a run id in the description text (`run <run
+ * id>`), and a newest-pending-wins rule reads it back from here rather than
+ * from any state the run held itself. `''` where the host holds no status in
+ * this context, matching `state: 'absent'`.
  */
 export interface PrReviewReading {
   /** The PR's head commit. */
   sha: string;
   /** The newest `plot/review` state on `sha`, or `absent`. */
   state: string;
+  /** The newest `plot/review` status's description on `sha`, or `''` where `state` is `absent`. */
+  description: string;
+  /** When the newest `plot/review` status on `sha` was recorded, or `''` where `state` is `absent`. */
+  time: string;
   /** Whether any PR comment starts with `review-bypass:`. */
   bypass: boolean;
 }

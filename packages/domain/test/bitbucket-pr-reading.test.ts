@@ -114,7 +114,7 @@ describe('bitbucketReview', () => {
       { key: 'plot/review', state: 'FAILED' },
       { key: 'plot/review', state: 'SUCCESSFUL' },
     ];
-    expect(bitbucketReview('s', statuses, [])).toEqual({ sha: 's', state: 'failure', bypass: false });
+    expect(bitbucketReview('s', statuses, [])).toEqual({ sha: 's', state: 'failure', description: '', time: '', bypass: false });
   });
 
   it.each([
