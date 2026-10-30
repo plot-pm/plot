@@ -43,7 +43,7 @@ import path from 'node:path';
  * let `/api/deliver` authorise a release, or the reverse, which the identity
  * being the action rather than the script is exactly what prevents.
  */
-export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'restart';
+export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart';
 
 /**
  * Where one action's receipt lives.

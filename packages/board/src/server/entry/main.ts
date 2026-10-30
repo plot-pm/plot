@@ -12,7 +12,9 @@ import { fleetdStartFile } from '@plot-pm/domain/adapters';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
-import { mergeAt } from './merge.js';
+import { mergeAt, type MergePorts } from './merge.js';
+import { releaseApproveAt } from './release-approve.js';
+import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
 
 /**
@@ -109,6 +111,36 @@ export const questionFrom = (argv: string[]): Question | null => {
 };
 
 /**
+ * The ports `mergeAt` takes, for the two board-free arms that merge.
+ *
+ * The estate is the REAL one, whatever `PLOT_BOARD_MOCK` says: the merge reaches
+ * the real host through `plot-host.sh`, so it reads the real default-branch
+ * reading. A mock estate's null fixture would lift the red-main refusal on a
+ * merge that still lands. The estate's `refsGit` answers `remoteSha` as
+ * `unaskable`; `mergeAt` reads the default branch's tip through it on a settled
+ * reading, so the tip comes from `refsRemoteGit` over `git ls-remote`, as
+ * `design.ts` composes it.
+ *
+ * @param opts - the board options the entry resolved.
+ * @returns the ports, with the caller read from `PLOT_UNATTENDED`.
+ */
+const mergePortsFor = async (opts: BuildBoardOptions): Promise<MergePorts> => {
+  const estate = realEstate(opts);
+  const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  return {
+    host: estate.host,
+    scripts: scriptsFor(opts),
+    defaultBranch: estate.defaultBranch,
+    refs: { ...estate.refs, remoteSha: remote.remoteSha },
+    checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
+    now: Date.now,
+    // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
+    // maps to 'unattended', never to 'fleetd'.
+    caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
+  };
+};
+
+/**
  * Answer one question and print it.
  *
  * **`askOnce`, not `askOncePerEstate`, and the difference is the point.** One
@@ -156,32 +188,22 @@ export const run = async (
       return 2;
     }
     const { opts } = contextFrom(here);
-    // The REAL estate, whatever `PLOT_BOARD_MOCK` says: the merge reaches the
-    // real host through `plot-host.sh`, so it reads the real default-branch
-    // reading. A mock estate's null fixture would lift the red-main refusal on
-    // a merge that still lands.
-    const estate = realEstate(opts);
-    // The estate's `refsGit` answers `remoteSha` as `unaskable`; `mergeAt`
-    // reads the default branch's tip through it on a settled reading, so the
-    // tip comes from `refsRemoteGit` over `git ls-remote`, as `design.ts` composes it.
-    const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
-    const result = await mergeAt(
-      {
-        host: estate.host,
-        scripts: scriptsFor(opts),
-        defaultBranch: estate.defaultBranch,
-        refs: { ...estate.refs, remoteSha: remote.remoteSha },
-        checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
-        now: Date.now,
-        // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
-        // maps to 'unattended', never to 'fleetd'.
-        caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
-      },
-      Number(pr),
-      sha,
-    );
+    const result = await mergeAt(await mergePortsFor(opts), Number(pr), sha);
     write(`${JSON.stringify(result)}\n`);
     return result.merged ? 0 : 1;
+  }
+
+  if (argv[0] === 'release-approve') {
+    const [, pr, sha] = argv;
+    if (!pr || !sha || !/^[0-9]+$/.test(pr) || !/^[0-9a-f]{7,40}$/i.test(sha)) {
+      process.stderr.write('usage: plot-ask.mjs release-approve <pr> <sha>\n');
+      return 2;
+    }
+    const { opts } = contextFrom(here);
+    recordActionReceipt(opts.repoRoot, 'release-approve', pr);
+    const result = await releaseApproveAt(await mergePortsFor(opts), Number(pr), sha);
+    write(`${JSON.stringify(result)}\n`);
+    return result.approved ? 0 : 1;
   }
 
   if (argv[0] === 'spawner' && argv[1] === '--from-board') {
