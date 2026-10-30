@@ -113,7 +113,7 @@ Decided 2026-10-29 by Jan Wloka in a challenge:
 
 ### Release preparation
 
-- `feature/fleetd-prepares-the-release` — when every scope plan is Delivered: read the required checks by name (measure whether the `action_required` approval is needed first), start the review through #2900's `startReview` (never a bare role start, which writes no `plot/review` status), notify with the head's changesets grouped as the sprint's plans and outside work, once when ready and then only when the list changes, record the actions taken with the last list sent; a domain `releaseStage` for the board button <!-- builds: releasePrepareNext, releaseStage, the release row's stage and button --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- waits: feature/the-loop-keeps-a-run-log -->
+- `feature/fleetd-prepares-the-release` — when every scope plan is Delivered: read the required checks by name (measure whether the `action_required` approval is needed first), start the review through #2900's `startReview` (never a bare role start, which writes no `plot/review` status), notify with the head's changesets grouped as the sprint's plans and outside work, once when ready and then only when the list changes, record the actions taken with the last list sent; a domain `releaseStage` for the board button <!-- builds: releasePrepareNext, releaseStage, the release row's stage and button --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- waits: feature/the-loop-keeps-a-run-log --> → #2962
 
 ## Notes
 
