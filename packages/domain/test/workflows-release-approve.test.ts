@@ -168,4 +168,16 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
     expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'checks-not-green' });
     expect(calls).toEqual([]);
   });
+
+  it('refuses a PR the host did not answer as not-release-pr, and a PR or a head it lacks', () => {
+    expect(refusalOf(readings({ pr: 'unaskable' }))).toBe('not-release-pr');
+    expect(refusalOf(readings({ pr: null }))).toBe('not-release-pr');
+    expect(refusalOf(readings({ pr: pr({ headSha: undefined }) }))).toBe('head-moved');
+  });
+
+  it('names no head in the refusal where the host held none', () => {
+    const out = releaseApprove(readings({ pr: pr({ headSha: '' }) }), { pr: 42, sha: HEAD, minHexLen: 7 });
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'head-moved' });
+    expect((out as { detail: string }).detail).toContain('none');
+  });
 });

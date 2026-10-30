@@ -73,14 +73,13 @@ export const releaseApprove = (
     return no('unattended', `an unattended caller does not approve release PR #${input.pr}. Approval is reviewed as an action, and this one had no reviewer.`);
   }
   const { pr } = readings;
-  const branch = pr === 'unaskable' || pr === null ? '' : pr.head;
-  if (!RELEASE_BRANCH.test(branch)) {
+  if (pr === 'unaskable' || pr === null || !RELEASE_BRANCH.test(pr.head)) {
     return no('not-release-pr', `PR #${input.pr} is not on a release branch. Only ${RELEASE_BRANCH} merges through release-approve.`);
   }
-  if (pr !== 'unaskable' && pr !== null && pr.state === 'MERGED') {
+  if (pr.state === 'MERGED') {
     return decide('release-approve', [], { pr: input.pr, sha: input.sha, alreadyMerged: true });
   }
-  const head = pr === 'unaskable' || pr === null ? '' : (pr.headSha ?? '');
+  const head = pr.headSha ?? '';
   if (!sameCommit(head, input.sha, input.minHexLen)) {
     const seen = short(head);
     return no('head-moved', `the head of PR #${input.pr} is ${seen}; the caller approved ${short(input.sha)}. Re-review the new head.`);

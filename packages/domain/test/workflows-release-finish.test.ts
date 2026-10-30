@@ -95,4 +95,13 @@ describe('releaseFinish — books a release in one commit', () => {
     const out = releaseFinish(readings({ scope: [plan('e', { file: '' })] }), input);
     expect(out).toMatchObject({ outcome: 'refused', reason: 'plan-unbookable' });
   });
+
+  it('books with no sprint to close', () => {
+    const out = releaseFinish(readings({ sprint: null }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.closeSprint).toBeNull();
+    expect(out.writes.find((w) => w.kind === 'commit')).toMatchObject({
+      paths: ['docs/plans/2026-10-01-a.md', 'docs/plans/2026-10-01-b.md', 'docs/plans/2026-10-01-c.md'],
+    });
+  });
 });
