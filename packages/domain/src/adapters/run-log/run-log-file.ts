@@ -1,5 +1,5 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { RunLogStepSchema, type RunLog, type RunLogLine } from '../../ports/run-log.js';
@@ -29,6 +29,20 @@ export interface RunLogFileOptions {
 /** Whether a failure was the file simply not being there. */
 const isMissing = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
+
+/**
+ * Creates one directory whose parent must already exist.
+ *
+ * @param dir - the directory to create.
+ * @returns once the directory exists; rejects with `ENOENT` where its parent does not.
+ */
+const mkdirOne = async (dir: string): Promise<void> => {
+  try {
+    await mkdir(dir);
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'EEXIST') throw error;
+  }
+};
 
 /**
  * Escapes a tab or a newline out of a field, so a free-text `outcome` can
@@ -88,26 +102,55 @@ export const decodeRunLogLine = (rawLine: string): RunLogLine | null => {
 export const runLogFile = (options: RunLogFileOptions = {}): RunLog => {
   const env = options.env ?? process.env;
 
-  /** The log's directory, from the COMMON git dir — cached per instance. */
-  let cached: string | null | undefined;
-  const dirOf = async (): Promise<string | null> => {
-    if (options.home !== undefined && options.home !== '') return options.home;
-    const override = env[RUN_LOG_HOME_ENV];
-    if (override !== undefined && override !== '') return override;
-    if (cached !== undefined) return cached;
+  /** The common git dir, resolved once per instance; `null` outside a repository. */
+  let cachedCommon: string | null | undefined;
+  const commonDirOf = async (): Promise<string | null> => {
+    if (cachedCommon !== undefined) return cachedCommon;
     const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
     const out = run.stdout.trim();
-    if (run.code !== 0 || out === '') {
-      cached = null;
-      return cached;
-    }
-    cached = join(resolve(options.cwd ?? process.cwd(), out), '.plot', 'state');
-    return cached;
+    cachedCommon = run.code !== 0 || out === '' ? null : resolve(options.cwd ?? process.cwd(), out);
+    return cachedCommon;
+  };
+
+  /** An explicit directory from the options or the environment, or `null` to use the git lookup. */
+  const explicitDir = (): string | null => {
+    if (options.home !== undefined && options.home !== '') return options.home;
+    const override = env[RUN_LOG_HOME_ENV];
+    return override !== undefined && override !== '' ? override : null;
+  };
+
+  /** The log's directory: the explicit one, or `.plot/state` under the COMMON git dir. */
+  const dirOf = async (): Promise<string | null> => {
+    const explicit = explicitDir();
+    if (explicit !== null) return explicit;
+    const common = await commonDirOf();
+    return common === null ? null : join(common, '.plot', 'state');
   };
 
   const pathOf = async (): Promise<string | null> => {
     const dir = await dirOf();
     return dir === null ? null : join(dir, FILE);
+  };
+
+  /**
+   * Creates the log's directory.
+   *
+   * An explicit directory is created with every missing parent. Under the
+   * common git dir only `.plot` and `.plot/state` are created, one level at a
+   * time, so an append never recreates a git dir that no longer exists: the
+   * first `mkdir` fails with `ENOENT` instead.
+   */
+  const ensureDir = async (): Promise<boolean> => {
+    const explicit = explicitDir();
+    if (explicit !== null) {
+      await mkdir(explicit, { recursive: true });
+      return true;
+    }
+    const common = await commonDirOf();
+    if (common === null) return false;
+    await mkdirOne(join(common, '.plot'));
+    await mkdirOne(join(common, '.plot', 'state'));
+    return true;
   };
 
   return {
@@ -136,7 +179,7 @@ export const runLogFile = (options: RunLogFileOptions = {}): RunLog => {
       const path = await pathOf();
       if (path === null) return failed<void>();
       try {
-        await mkdir(dirname(path), { recursive: true });
+        if (!(await ensureDir())) return failed<void>();
         await appendFile(path, `${encodeLine(line)}\n`, { encoding: 'utf8' });
         return answered(undefined);
       } catch {

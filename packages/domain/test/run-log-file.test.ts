@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -149,6 +149,26 @@ describe('a worktree and the main checkout resolve to one file', () => {
       git('worktree', 'remove', '--force', worktreePath);
     } finally {
       rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a removed repository', () => {
+  it('answers failed and recreates nothing where the git dir was removed after it was resolved', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'plot-run-log-gone-'));
+    try {
+      const repo = join(parent, 'repo');
+      mkdirSync(repo);
+      execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'pipe' });
+      const log = runLogFile({ cwd: repo, env: {} });
+      answer(await log.append(line()));
+
+      rmSync(repo, { recursive: true, force: true });
+
+      expect((await log.append(line())).ok).toBe(false);
+      expect(existsSync(repo)).toBe(false);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 });
