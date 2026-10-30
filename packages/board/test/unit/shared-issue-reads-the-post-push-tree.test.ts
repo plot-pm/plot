@@ -6,7 +6,7 @@
 // from `origin/main` is the only tree that sees the prior push. A sibling
 // read rooted at the main checkout would read B's phase as of before A's
 // push ever landed and never close the issue; reading `tmpwt` sees it.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,7 +50,18 @@ const releaseArgs = (slug: string, version: string): Args => ({ dryRun: false, w
 
 describe('the release arm reads shared-issue siblings from the booking worktree, not the main checkout', () => {
   const roots: string[] = [];
+  // This suite asserts on the arm's tracker/sibling behaviour, not its caller
+  // gate — pinned so a `PLOT_UNATTENDED=1` process environment (e.g. an
+  // unattended worker running this very suite) cannot flip every case here to
+  // an unexpected refusal.
+  let previousUnattended: string | undefined;
+  beforeEach(() => {
+    previousUnattended = process.env.PLOT_UNATTENDED;
+    delete process.env.PLOT_UNATTENDED;
+  });
   afterEach(() => {
+    if (previousUnattended === undefined) delete process.env.PLOT_UNATTENDED;
+    else process.env.PLOT_UNATTENDED = previousUnattended;
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 

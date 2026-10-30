@@ -35,18 +35,23 @@ const opts = { repoRoot: '/nonexistent', scriptsDir: '/nonexistent' };
 
 describe('continueBranch', () => {
   it('refuses unknown-branch with 404 where the pulse does not list the branch', async () => {
-    const r = await continueBranch({ opts, pulse, branch: 'feature/nope', answer: 'yes' });
+    const r = await continueBranch({ opts, pulse, branch: 'feature/nope', caller: 'person', answer: 'yes' });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
   });
 
   it('refuses unknown-branch where there is no pulse at all', async () => {
-    const r = await continueBranch({ opts, pulse: null, branch: 'feature/has-desk', answer: 'yes' });
+    const r = await continueBranch({ opts, pulse: null, branch: 'feature/has-desk', caller: 'person', answer: 'yes' });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
   });
 
   it('refuses no-worktree with 404 where the branch holds no desk on this machine', async () => {
-    const r = await continueBranch({ opts, pulse, branch: 'feature/no-desk', answer: 'yes' });
+    const r = await continueBranch({ opts, pulse, branch: 'feature/no-desk', caller: 'person', answer: 'yes' });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-worktree' });
+  });
+
+  it('refuses unattended with 409 before any lookup detail matters', async () => {
+    const r = await continueBranch({ opts, pulse, branch: 'feature/has-desk', caller: 'unattended', answer: 'yes' });
+    expect(r).toMatchObject({ kind: 'refused', status: 409, reason: 'unattended' });
   });
 
   it('finds a branch by the pulse record and returns its desk', () => {
@@ -60,6 +65,40 @@ describe('the continue entry', () => {
     expect(await run([], '/nonexistent', '/nonexistent', {}, () => {}, (s) => warned.push(s))).toBe(2);
     expect(await run(['feature/x', ''], '/nonexistent', '/nonexistent', {}, () => {}, (s) => warned.push(s))).toBe(2);
     expect(warned.join('')).toContain('usage: plot-continue-command.mjs');
+  });
+});
+
+describe('the continue entry maps PLOT_UNATTENDED to the caller', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmTree(d);
+  });
+
+  it('PLOT_UNATTENDED=1 with no caller override refuses as unattended, never as fleetd', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-unattended-')));
+    dirs.push(root);
+    const repo = path.join(root, 'repo');
+    fs.mkdirSync(repo, { recursive: true });
+    execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'main'], { stdio: 'ignore' });
+    const warned: string[] = [];
+    const previous = process.env.PLOT_UNATTENDED;
+    process.env.PLOT_UNATTENDED = '1';
+    let code: number;
+    try {
+      code = await run(
+        ['feature/has-desk', 'yes'],
+        repo,
+        '/nonexistent',
+        { pulse: () => pulse },
+        () => {},
+        (s) => warned.push(s),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.PLOT_UNATTENDED;
+      else process.env.PLOT_UNATTENDED = previous;
+    }
+    expect(code).toBe(1);
+    expect(warned.join('')).toContain('unattended');
   });
 });
 
@@ -112,7 +151,10 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     const out: string[] = [];
     const warned: string[] = [];
     // No `pulse` dep: the default bridged-pulse reader is under test.
+    // `caller` is pinned to 'person' because the host running this test may itself
+    // carry PLOT_UNATTENDED=1 (an unattended worker's own environment).
     const code = await run([branch, 'use the shell adapter'], repo, path.resolve(__dirname, '../../../../skills/plot/scripts'), {
+      caller: 'person',
       monitors: { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never,
     }, (s) => out.push(s), (s) => warned.push(s));
     expect(warned.join('')).toBe('');

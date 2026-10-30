@@ -45,6 +45,7 @@ const reading = (state: 'red' | 'green' | 'pending'): DefaultBranchReading => ({
 const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
   pr: pr(),
   defaultBranch: reading('green'),
+  caller: 'person',
   ...over,
 });
 
@@ -185,5 +186,20 @@ describe('merge — the controller for a PR merge', () => {
   it('names the sha it saw in a refusal', () => {
     const out = merge(readings({ pr: pr({ headSha: OTHER }) }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome === 'refused' && out.detail).toContain(OTHER.slice(0, 12));
+  });
+
+  it('refuses an unattended caller before any other reading is asked', () => {
+    // 'unaskable' would otherwise win here — the refusal must come first.
+    expect(refusalOf(readings({ caller: 'unattended', pr: 'unaskable' }))).toBe('unattended');
+  });
+
+  it('accepts a fleetd caller and proceeds past the refusal unattended would hit', () => {
+    const out = merge(readings({ caller: 'fleetd' }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).not.toBe('refused');
+  });
+
+  it('decides for a person, same as an unset caller', () => {
+    const out = merge(readings({ caller: 'person' }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).not.toBe('refused');
   });
 });

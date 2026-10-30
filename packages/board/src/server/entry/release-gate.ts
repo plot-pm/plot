@@ -6,7 +6,7 @@ import {
   type ReleaseDetail,
   type ReleaseSprintItem,
 } from '@plot-pm/domain/workflows/release';
-import { refused, type Decision } from '@plot-pm/domain/workflows/decision';
+import { refused, type Caller, type Decision } from '@plot-pm/domain/workflows/decision';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -171,8 +171,12 @@ export interface GateInput {
   candidate: boolean;
   /** The named escape past the Must-Have gate, and past nothing else. */
   ignoreSprint: boolean;
-  /** Whether nobody is there to answer the Should-Have prompt. */
-  unattended: boolean;
+  /**
+   * Who is asking. `--unattended` maps to `'unattended'` here, never to
+   * `'fleetd'`: this bundle is a human-facing pre-flight CLI, not a fleet
+   * entrance, and produces no fleetd caller of its own.
+   */
+  caller: Caller;
 }
 
 /**
@@ -184,7 +188,7 @@ export interface GateInput {
 export const inputFrom = (argv: readonly string[]): GateInput => ({
   candidate: argv.includes('--candidate'),
   ignoreSprint: argv.includes('--ignore-sprint'),
-  unattended: argv.includes('--unattended'),
+  caller: argv.includes('--unattended') ? 'unattended' : 'person',
 });
 
 /** What the gate answered. */
@@ -235,7 +239,7 @@ export const verdict = (
   const outcome = release(readings, {
     candidate: input.candidate,
     ignoreSprint: input.ignoreSprint,
-    unattended: input.unattended,
+    caller: input.caller,
     // THE SHOULD-HAVE PROMPT IS THE OPERATOR'S, and the skill asks it: a bundle
     // answering it would be the tool deciding what it exists to put to a person.
     // `proceedOverShoulds` is therefore never given, so `should-haves-declined`
@@ -256,12 +260,14 @@ export const verdict = (
   ) as Decision<ReleaseDetail>;
   const { openShoulds, openCoulds, withdrawn } = reported.detail;
 
-  // `must-haves-open` IS THE ONLY REFUSAL THIS GATE OWNS. The three below it —
-  // `version-underivable`, `version-invalid`, `tag-absent` — belong to steps
-  // this was not asked about, and a gate reporting one would refuse a release
-  // the sprint permits. `should-haves-declined` cannot fire, for the reason
-  // above.
-  if (refused(outcome) && outcome.reason === 'must-haves-open') {
+  // `must-haves-open` AND THE CALLER GATE ARE THE REFUSALS THIS GATE OWNS. The
+  // caller check runs before the sprint gate in `release` itself, so it is the
+  // one other reason this pre-flight can legitimately report. The three below
+  // both — `version-underivable`, `version-invalid`, `tag-absent` — belong to
+  // steps this was not asked about, and a gate reporting one would refuse a
+  // release the sprint permits. `should-haves-declined` cannot fire, for the
+  // reason above.
+  if (refused(outcome) && (outcome.reason === 'must-haves-open' || outcome.reason === 'unattended')) {
     return {
       pass: false,
       reason: outcome.reason,
