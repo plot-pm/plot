@@ -186,7 +186,7 @@ A second panel round ran on 2026-10-29 (`r2-safety.md`, `r2-seams.md`, both `ame
 
 ### Sprint scope
 
-- `feature/the-scope-is-read-from-git` — `sprintScope` and its discriminated answer; the git adapter that reads the active sprint from `origin/<default>`; `sprintFrom` moved into the domain; the branch map through the pulse; tests: domain unit over sprint texts (struck item out; zero, one and two active sprints; no unstruck item → `none`; a branch no scope plan names is out), one adapter test on a temp git repo whose local checkout lags the named ref <!-- builds: sprintScope and the git adapter that reads the sprint text -->
+- `feature/the-scope-is-read-from-git` — `sprintScope` and its discriminated answer; the git adapter that reads the active sprint from `origin/<default>`; `sprintFrom` moved into the domain; the branch map through the pulse; tests: domain unit over sprint texts (struck item out; zero, one and two active sprints; no unstruck item → `none`; a branch no scope plan names is out), one adapter test on a temp git repo whose local checkout lags the named ref <!-- builds: sprintScope and the git adapter that reads the sprint text --> → #2948
 
 ### Review run lock
 
