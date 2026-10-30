@@ -291,12 +291,15 @@ export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promi
     return { merged: false, reason: outcome.reason, detail: outcome.detail };
   }
   const write = outcome.writes[0];
+  /* v8 ignore next 3 -- merge()'s one decide('merge', ...) call always writes kind: 'pr-merge' and pr.headSha, never undefined */
   if (write?.kind !== 'pr-merge' || write.sha === undefined) {
     return { merged: false, reason: 'host-refused', detail: 'the merge decision carried no pinned write' };
   }
   const args = ['pr-merge', String(write.pr)];
   const pinned = await canPinMerge(ports.host);
+  /* v8 ignore else -- hostPinsMerges always returns true, so canPinMerge never resolves false */
   if (pinned) args.push('--match-head', write.sha);
+  /* v8 ignore next -- merge()'s one decide('merge', ...) call always writes deleteBranch: false */
   if (write.deleteBranch) args.push('--delete-branch');
   const landed = await ports.scripts.hostSaid(args);
   if (landed.answer !== 'answered') {

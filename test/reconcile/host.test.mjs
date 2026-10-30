@@ -66,7 +66,7 @@ const offlineGit = (dir) => {
   chmodSync(path.join(dir, 'git'), 0o755);
 };
 
-function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null } = {}) {
+function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null, bbReviewSha = null } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-')));
   offlineGit(dir);
   const ghStub = (json, fail) => {
@@ -103,6 +103,19 @@ if [[ "\$*" == *"api "*"/pullrequests?state="* || "\$*" == *"api "*"/pullrequest
   printf '{"values":%s}' '${json.replace(/'/g, `'\\''`)}'
   exit 0
 fi
+${bbReviewSha == null ? '' : `# pr-review's two paged reads: a green plot/review status on the fixture's
+# head, and no comments — so a caller asking whether review passed gets a
+# real answer instead of the raw PR object this stub otherwise returns for
+# any unmatched call.
+if [[ "\$*" == *"/commit/${bbReviewSha}/statuses"* ]]; then
+  printf '{"values":[{"key":"plot/review","state":"SUCCESSFUL"}]}'
+  exit 0
+fi
+if [[ "\$*" == *"/comments"* ]]; then
+  printf '{"values":[]}'
+  exit 0
+fi
+`}
 printf '%s' '${json.replace(/'/g, `'\\''`)}'
 `;
     writeFileSync(path.join(dir, 'bb'), body);
@@ -3283,7 +3296,7 @@ test('host: plot-ask merge on bitbucket under jenkins reads the bound green chec
   const env = { ...process.env, PLOT_HOST: '', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   delete env.PLOT_SCRIPTS_DIR;
-  const hostStubs = makeStubs({ bbJson: JSON.stringify(BB_SHORT_PR) });
+  const hostStubs = makeStubs({ bbJson: JSON.stringify(BB_SHORT_PR), bbReviewSha: BB_SHORT });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const ask = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs');

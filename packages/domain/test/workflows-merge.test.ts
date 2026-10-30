@@ -415,4 +415,11 @@ describe('mergeAt — the workflow wired to its ports', () => {
     expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unread' });
     expect(calls).toEqual([]);
   });
+
+  it('refuses review-not-passed when the host cannot answer whether the review passed', async () => {
+    const { p, calls } = ports(prFixture());
+    (p.host as { prReview: unknown }).prReview = async () => ({ ok: false, why: 'failed' });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'review-not-passed' });
+    expect(calls).toEqual([]);
+  });
 });
