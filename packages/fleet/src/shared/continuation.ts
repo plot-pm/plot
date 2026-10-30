@@ -4,7 +4,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { readConfig } from './config-reader.js';
-import { markerIn } from './worker-question.js';
+import { markerReading } from './worker-question.js';
+import { answerRecordFile } from '@plot-pm/domain/adapters';
+import { isAnswered } from '@plot-pm/domain';
 import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
@@ -160,7 +162,24 @@ export type ContinueRefusal =
   /** `restart`: an unanswered `PLOT-BLOCKED` marker sits in the tree; `continue` answers it. */
   | 'blocked-marker'
   /** `restart`: the caller runs unattended. */
-  | 'unattended';
+  | 'unattended'
+  /**
+   * The caller named the question it means to answer, and the desk's current
+   * marker asks a different one.
+   *
+   * **PINNED THE WAY `merge` PINS TO A HEAD.** A caller that read the marker,
+   * composed an answer, and sent it some time later can race a NEW question
+   * replacing the one it read — the desk moved on while the answer was in
+   * flight. Answering the new question with an answer written for the old one
+   * is the failure this refusal exists to prevent, so the check compares the
+   * question the caller named against the question the desk holds NOW, not
+   * the one it held when the caller looked.
+   *
+   * **A caller that names no key is unaffected** — this refusal only fires
+   * where `expectedAskedAt` is given, so today's behaviour is unchanged for a
+   * caller that never pins.
+   */
+  | 'question-moved';
 /** How many commits the prompt names before it says there are more. */
 export const COMMIT_MAX = 40;
 
@@ -401,6 +420,18 @@ export interface DeskContinuationInput {
   previousPid: string;
   /** The answer the new run reads. */
   answer: string;
+  /**
+   * The `askedAt` of the question this answer targets, where the caller
+   * named one.
+   *
+   * Compared against the desk's CURRENT marker before anything else runs; a
+   * mismatch refuses `question-moved` and touches nothing. Absent, this
+   * desk's marker is read and used with no comparison — today's behaviour,
+   * for a caller that never pins.
+   */
+  expectedAskedAt?: string;
+  /** Who gave this answer: `unblocker`, or a person's handle. Recorded with the `answered` row. */
+  author?: string;
   /**
    * Starts a NEW conversation instead of continuing the manifest's own.
    *
@@ -826,7 +857,9 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   // A FRESH START TAKES ITS PRECONDITION FROM THE ENDING INSTEAD, because
   // `holding-work` and `turn-limit` write no marker. The non-fresh path still
   // requires the marker.
-  const question = await markerIn(worktree);
+  const reading = await markerReading(worktree);
+  const question = reading?.firstLine ?? '';
+  const askedAt = reading?.askedAt ?? '';
   const ending = deskEnding(worktree);
   const freshAsked = input.fresh === true && endingAsksFreshStart(ending, branch);
   if (!question && !freshAsked && input.restart === undefined) {
@@ -834,6 +867,19 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       409,
       'no-question',
       'no unanswered PLOT-BLOCKED marker in that worktree — nothing is waiting on an answer',
+    );
+  }
+
+  // PINNED THE WAY `merge` PINS TO A HEAD, AND CHECKED BEFORE ANYTHING ELSE
+  // TOUCHES THE DESK. A caller that named the question it means to answer is
+  // refused outright when the desk has moved on to a different one — no lock
+  // taken, no write made, the same no-trace contract every other refusal here
+  // keeps. A caller that names no key is unaffected.
+  if (input.expectedAskedAt !== undefined && input.expectedAskedAt !== askedAt) {
+    return refused(
+      409,
+      'question-moved',
+      `the desk now asks a different question (asked ${askedAt || 'never'}); the answer targeted ${input.expectedAskedAt}`,
     );
   }
 
@@ -1463,6 +1509,26 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         logLine(log, line);
         console.error(`continuation: ${line}`);
         warning = line;
+      }
+    }
+    // THE RECORD COUNTS ANSWERS, NOT ATTEMPTS — written only on this success
+    // path, never from a `refused(...)` return above, every one of which
+    // exits the function before reaching here. A fresh start with no marker
+    // (`freshAsked`) has no question to record against, so it writes nothing.
+    if (question && askedAt) {
+      const recorded = await answerRecordFile().append({
+        worktree,
+        askedAt,
+        question,
+        answer,
+        author: input.author ?? 'unblocker',
+        outcome: 'answered',
+      });
+      if (!isAnswered(recorded)) {
+        const line = `started pid ${pid}, but the answer record could not be written`;
+        logLine(log, line);
+        console.error(`continuation: ${line}`);
+        warning = warning ?? line;
       }
     }
     return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log, warning };

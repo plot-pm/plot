@@ -151,6 +151,11 @@ export async function handleContinue(
 
   const branch = (body as { branch?: unknown })?.branch;
   const answer = (body as { answer?: unknown })?.answer;
+  // Optional, and never validated to a failure: a caller that sends no key,
+  // or one of the wrong type, keeps today's behaviour — the desk's current
+  // marker is used with no comparison.
+  const questionKeyRaw = (body as { questionKey?: unknown })?.questionKey;
+  const questionKey = typeof questionKeyRaw === 'string' ? questionKeyRaw : undefined;
   if (typeof branch !== 'string' || branch === '') {
     json(400, { error: 'branch is required' });
     return;
@@ -176,6 +181,7 @@ export async function handleContinue(
     pulse: readPulse(opts),
     branch,
     answer,
+    questionKey,
     monitors: deps.monitors,
   });
   if (started.kind === 'refused') {

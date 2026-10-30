@@ -106,6 +106,13 @@ export {
   type EndingAskRecordFileOptions,
 } from './ending-ask-record/ending-ask-record-file.js';
 
+export {
+  answerRecordFile,
+  decodeAnswerRow,
+  ANSWER_RECORD_HOME_ENV,
+  type AnswerRecordFileOptions,
+} from './answer-record/answer-record-file.js';
+
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
 
 // THE PR STORE'S FILE ADAPTER. One file per connector under the COMMON git

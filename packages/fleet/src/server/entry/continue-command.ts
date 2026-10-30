@@ -14,15 +14,21 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * ```
  * node plot-continue-command.mjs <branch> <answer>
  * node plot-continue-command.mjs <branch> -        # the answer on stdin
+ * node plot-continue-command.mjs <branch> <answer> <question-key>
  * ```
  *
  * Looks the branch up in the pulse the fleet bridged to disk, refuses
  * `unknown-branch` and `no-worktree`, and otherwise starts a NEW agent on the
  * desk. The new agent has a new pid.
+ *
+ * The optional third argument is the `askedAt` of the question this answer
+ * targets. Given, a desk whose marker has moved on refuses `question-moved`
+ * rather than answering the wrong question. Omitted, today's behaviour is
+ * unchanged: the desk's current marker is used with no comparison.
  */
 
 /** The usage line. */
-const USAGE = 'usage: plot-continue-command.mjs <branch> <answer | ->';
+const USAGE = 'usage: plot-continue-command.mjs <branch> <answer | -> [question-key]';
 
 type Printer = (s: string) => void;
 
@@ -66,7 +72,7 @@ export const run = async (
   write: Printer = (s) => process.stdout.write(s),
   warn: Printer = (s) => process.stderr.write(s),
 ): Promise<number> => {
-  const [branch, given, ...extra] = argv;
+  const [branch, given, questionKey, ...extra] = argv;
   if (branch === undefined || branch === '' || given === undefined || extra.length > 0) {
     warn(`plot-continue-command: ${USAGE}\n`);
     return 2;
@@ -91,6 +97,7 @@ export const run = async (
     pulse: (deps.pulse ?? bridgedPulse)(repoRoot),
     branch,
     answer,
+    questionKey,
     monitors: deps.monitors,
   });
   if (started.kind === 'refused') {
