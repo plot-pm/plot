@@ -163,7 +163,7 @@ describe('plot-local-checks as a process', () => {
     });
     expect(result.status).toBe(2);
     expect(result.stderr.toString('utf8')).toBe(
-      'plot-local-checks: unknown argument --bogus\nusage: plot-local-checks.mjs [--ci] [--files <path>]\n',
+      'plot-local-checks: unknown argument --bogus\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>]\n',
     );
   });
 });
