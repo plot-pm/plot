@@ -97,7 +97,7 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => ({
     },
     removeOnly: async (dir) => {
       opts.removeCalls?.push(dir);
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
       return { ok: true, value: undefined };
     },
   }),
