@@ -18,6 +18,7 @@ import {
   type RepairRole,
 } from '../rules/repair-pr.js';
 import { sameCommit } from '../rules/same-commit.js';
+import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
 
 /**
@@ -37,6 +38,7 @@ export type MergeRefusal =
   | 'default-branch-unsettled'
   | 'default-branch-unread'
   | 'review-not-passed'
+  | 'release-pr'
   | Exclude<RepairMergeRefusal, 'unaskable'>;
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
@@ -92,6 +94,11 @@ export interface MergeInput {
    * through {@link minHexLenFor}.
    */
   readonly minHexLen: number;
+  /**
+   * Set only by the `release-approve` path, which has already read the PR's
+   * review on this head. A release PR otherwise refuses as `release-pr`.
+   */
+  readonly viaReleaseApprove?: boolean;
   /**
    * Requires a default-branch reading to proceed. Off by default because
    * `null` is overloaded — {@link DefaultBranchReading} also reads `null` for
@@ -179,6 +186,9 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   }
   if (pr === null || pr.state !== 'OPEN') {
     return no('pr-not-open', `PR #${input.pr} is ${pr === null ? 'unknown to the host' : pr.state}. Only an open PR merges.`);
+  }
+  if (RELEASE_BRANCH.test(pr.head) && input.viaReleaseApprove !== true) {
+    return no('release-pr', `PR #${input.pr} is a release PR and merges only through release-approve, which reads its review first. Run: plot-ask.mjs release-approve ${input.pr} ${short(input.sha)}`);
   }
   if (pr.headSha === undefined || pr.headSha === '') {
     return no('unaskable', `the host named no head commit for PR #${input.pr}, so the merge cannot be pinned to ${short(input.sha)}. Nothing was merged.`);
@@ -331,10 +341,16 @@ export type MergeResult =
  *   refs port, the `Checks wait` bound, the clock and whether a reading is required.
  * @param pr - the PR number.
  * @param sha - the head commit the caller read the checks for.
+ * @param viaReleaseApprove - true when `release-approve` hands a release PR over.
  * @returns the merge, or the refusal naming its reason; `host-refused` carries
  *   the host's own words.
  */
-export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promise<MergeResult> => {
+export const mergeAt = async (
+  ports: MergePorts,
+  pr: number,
+  sha: string,
+  viaReleaseApprove = false,
+): Promise<MergeResult> => {
   const lookup = await ports.host.prState(pr, { withChecks: true });
   const reading = await ports.defaultBranch.read();
   const backend = await ports.host.backend();
@@ -363,6 +379,7 @@ export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promi
       checksWaitMs: ports.checksWaitMs,
       minHexLen: minHexLenFor(backend.ok ? backend.value : ''),
       requireReading: ports.requireReading,
+      viaReleaseApprove,
     },
   );
   if (outcome.outcome === 'refused') {

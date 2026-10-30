@@ -110,6 +110,23 @@ describe('merge — the controller for a PR merge', () => {
     expect(out.outcome).not.toBe('refused');
   });
 
+  it('refuses a release PR and names release-approve', () => {
+    const r = readings({ pr: pr({ head: 'changeset-release/main' }) });
+    const out = merge(r, { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome === 'refused' ? out.reason : out.outcome).toBe('release-pr');
+    expect(out.outcome === 'refused' ? out.detail : '').toContain('release-approve');
+  });
+
+  it('does not treat a feature branch that merely contains the release segment as a release PR', () => {
+    expect(refusalOf(readings({ pr: pr({ head: 'feature/changeset-release-notes' }) }))).toBe('decided');
+  });
+
+  it('merges a release PR when release-approve hands it over', () => {
+    const r = readings({ pr: pr({ head: 'changeset-release/main' }) });
+    const out = merge(r, { pr: 42, sha: HEAD, ...CLOCK, viaReleaseApprove: true });
+    expect(out.outcome).toBe('decided');
+  });
+
   it('refuses unaskable when the host did not answer', () => {
     expect(refusalOf(readings({ pr: 'unaskable' }))).toBe('unaskable');
   });

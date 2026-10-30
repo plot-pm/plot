@@ -14,7 +14,11 @@ import { fleetdStartFile } from '@plot-pm/domain/adapters';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
-import { mergeAt, nameRepairPrAt } from './merge.js';
+import { mergeAt, nameRepairPrAt, type MergePorts } from './merge.js';
+import { releaseApproveAt } from './release-approve.js';
+import { finishRelease } from './release-finish.js';
+import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
+import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
 
 /**
@@ -26,6 +30,7 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
  * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
  * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
  * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
+ * node skills/plot/scripts/board/plot-ask.mjs release-approve <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs repair-pr <pr>
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
@@ -118,6 +123,41 @@ export const questionFrom = (argv: string[]): Question | null => {
 };
 
 /**
+ * The ports `mergeAt` takes, for the two board-free arms that merge.
+ *
+ * The estate is the REAL one, whatever `PLOT_BOARD_MOCK` says: the merge reaches
+ * the real host through `plot-host.sh`, so it reads the real default-branch
+ * reading. A mock estate's null fixture would lift the red-main refusal on a
+ * merge that still lands. The estate's `refsGit` answers `remoteSha` as
+ * `unaskable`; `mergeAt` reads the default branch's tip through it on a settled
+ * reading, so the tip comes from `refsRemoteGit` over `git ls-remote`, as
+ * `design.ts` composes it.
+ *
+ * @param opts - the board options the entry resolved.
+ * @returns the ports, with the caller read from `PLOT_UNATTENDED`.
+ */
+const mergePortsFor = async (opts: BuildBoardOptions): Promise<MergePorts> => {
+  const estate = realEstate(opts);
+  const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  return {
+    host: estate.host,
+    scripts: scriptsFor(opts),
+    defaultBranch: estate.defaultBranch,
+    refs: { ...estate.refs, remoteSha: remote.remoteSha },
+    checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
+    now: Date.now,
+    // The repair exception on a red default branch: the record, and the
+    // CI connector that asks the red commit's runs again.
+    repair: repairRecordFile(opts.repoRoot),
+    build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
+    // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
+    // maps to 'unattended', never to 'fleetd'.
+    caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
+  };
+};
+
+/**
  * Answer one question and print it.
  *
  * **`askOnce`, not `askOncePerEstate`, and the difference is the point.** One
@@ -165,37 +205,41 @@ export const run = async (
       return 2;
     }
     const { opts } = contextFrom(here);
-    // The REAL estate, whatever `PLOT_BOARD_MOCK` says: the merge reaches the
-    // real host through `plot-host.sh`, so it reads the real default-branch
-    // reading. A mock estate's null fixture would lift the red-main refusal on
-    // a merge that still lands.
-    const estate = realEstate(opts);
-    // The estate's `refsGit` answers `remoteSha` as `unaskable`; `mergeAt`
-    // reads the default branch's tip through it on a settled reading, so the
-    // tip comes from `refsRemoteGit` over `git ls-remote`, as `design.ts` composes it.
-    const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
-    const result = await mergeAt(
-      {
-        host: estate.host,
-        scripts: scriptsFor(opts),
-        defaultBranch: estate.defaultBranch,
-        refs: { ...estate.refs, remoteSha: remote.remoteSha },
-        checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
-        now: Date.now,
-        // The repair exception on a red default branch: the record, and the
-        // CI connector that asks the red commit's runs again.
-        repair: repairRecordFile(opts.repoRoot),
-        build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-        checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
-        // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
-        // maps to 'unattended', never to 'fleetd'.
-        caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
-      },
-      Number(pr),
-      sha,
-    );
+    const result = await mergeAt(await mergePortsFor(opts), Number(pr), sha);
     write(`${JSON.stringify(result)}\n`);
     return result.merged ? 0 : 1;
+  }
+
+  if (argv[0] === 'release-approve') {
+    const [, pr, sha] = argv;
+    if (!pr || !sha || !/^[0-9]+$/.test(pr) || !/^[0-9a-f]{7,40}$/i.test(sha)) {
+      process.stderr.write('usage: plot-ask.mjs release-approve <pr> <sha>\n');
+      return 2;
+    }
+    const { opts } = contextFrom(here);
+    recordActionReceipt(opts.repoRoot, 'release-approve', pr);
+    const ports = await mergePortsFor(opts);
+    const result = await releaseApproveAt(ports, Number(pr), sha);
+    write(`${JSON.stringify(result)}\n`);
+    if (!result.approved) return 1;
+    // The finish runs as the person: an unattended caller was refused above.
+    const estate = realEstate(opts);
+    return finishRelease(
+      {
+        repoRoot: opts.repoRoot,
+        refs: estate.refs,
+        host: estate.host,
+        planStore: estate.planStore,
+        scripts: ports.scripts,
+        trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+        caller: ports.caller,
+        tagWaitMs: ports.checksWaitMs,
+        pollMs: 15_000,
+      },
+      Number(pr),
+      (s) => write(s),
+      (s) => process.stderr.write(s),
+    );
   }
 
   if (argv[0] === 'repair-pr') {

@@ -285,6 +285,13 @@ describe('the refusal texts', () => {
     expect(controllerRefusal('restart', dir)).toContain(`node ${dir}/board/plot-restart-command.mjs <branch>`);
   });
 
+  it('names plot-ask.mjs for release-approve, which has no script and no route', () => {
+    const text = controllerRefusal('release-approve', dir);
+    expect(text).toContain(`node ${dir}/board/plot-ask.mjs release-approve <pr> <sha>`);
+    expect(text).toContain('plot-controller-gate: plot-ask.mjs release-approve is a controller-owned action.');
+    expect(text).not.toContain('plot-release-approve.sh');
+  });
+
   it('names the two-call order and the receipt command', () => {
     const text = controllerRefusal('approve', dir);
     expect(text).toContain(`1. bash ${dir}/plot-state-receipt.sh --unowned-action approve <slug> "<reason>"`);

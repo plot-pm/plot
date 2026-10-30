@@ -9,7 +9,7 @@ import { isReadSegment, programWords, withoutComments, withoutQuotes, wordBasena
 import { blankSpans, readShell, type ShellCommand, type ShellWord } from './shell-reading.js';
 
 /** The actions a controller owns. */
-export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'restart';
+export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart';
 
 /**
  * Blanks the body of every single-quoted heredoc (`<<'EOF'` or `<<-'EOF'`),
@@ -308,12 +308,13 @@ export const mergeCalls = (command: string): MergeProgram[] => mergesBy(command,
 /** Quotes a path for a shell, leaving a plain one bare. */
 const shellQuote = (value: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`);
 
-/** The HTTP request each action's button sends. */
+/** The request or command each action's button sends; `release-approve` has no route and names its bundle. */
 const ENDPOINT: Record<ControllerAction, string> = {
   dispatch: 'POST /api/dispatch {"slug":"<slug>"}',
   approve: 'POST /api/approve {"slug":"<slug>"}',
   deliver: 'POST /api/deliver {"slug":"<slug>"}',
   release: 'POST /api/release {"slug":"<slug>","version":"<version>"}',
+  'release-approve': 'plot-ask.mjs release-approve <pr> <sha>',
   restart: 'POST /api/restart {"branch":"<branch>"}',
 };
 
@@ -344,11 +345,14 @@ export const carriesSpikeFlag = (command: string): boolean =>
  */
 export const controllerRefusal = (action: ControllerAction, scriptDir: string, spike = false): string => {
   const owner = action === 'release' ? 'deliver' : action === 'restart' ? 'dispatch' : action;
-  const named = `plot-${owner}.sh`;
+  const named = action === 'release-approve' ? 'plot-ask.mjs release-approve' : `plot-${owner}.sh`;
   const lines = [`plot-controller-gate: ${named} is a controller-owned action.`, '', '  Call the controller instead:'];
   if (action === 'dispatch') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-dispatch-command.mjs`)} <slug>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button, and /plot-dispatch asks it.`);
+  } else if (action === 'release-approve') {
+    lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-ask.mjs`)} release-approve <pr> <sha>`);
+    lines.push('    which runs with no board and has no HTTP route.');
   } else if (action === 'restart') {
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button.`);

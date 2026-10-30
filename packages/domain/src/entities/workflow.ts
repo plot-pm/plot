@@ -75,6 +75,8 @@ export type WorkflowName =
   | 'implement'
   | 'release'
   | 'merge'
+  | 'release-approve'
+  | 'release-finish'
   | 'needs-design'
   | 'supervise'
   | 'agent-loop';
