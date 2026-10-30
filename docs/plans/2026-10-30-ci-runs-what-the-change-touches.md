@@ -82,7 +82,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Repair merge
 
-- `feature/ask-merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record -->
+- `feature/ask-merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record --> → #2952
 
 ## Notes
 
