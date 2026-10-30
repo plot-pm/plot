@@ -194,4 +194,23 @@ describe('itemsFrom keys a bare item by its line, not its text', () => {
     expect(items).toHaveLength(2);
     expect(items.every((item) => item.plan === '')).toBe(true);
   });
+
+  it('drops a second line naming the same slug already seen', () => {
+    const content = [
+      '### Must Have',
+      '',
+      '- [ ] [a-plan](../plans/2026-07-01-a-plan.md) — first mention',
+      '- [ ] [a-plan](../plans/2026-07-01-a-plan.md) — repeated by a second slice',
+    ].join('\n');
+    expect(itemsFrom(content)).toHaveLength(1);
+  });
+});
+
+describe('sprintFrom tolerates a file naming neither a title nor a Status section', () => {
+  it('falls back to the slug for title and reads no Status field', () => {
+    const result = sprintFrom('## Sprint Goal\n\n**ship it.**\n', 'headerless-sprint');
+    expect(result.title).toBe('headerless-sprint');
+    expect(result.start).toBe('');
+    expect(result.state).toBe('');
+  });
 });
