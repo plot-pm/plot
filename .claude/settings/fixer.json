@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLOT_REPO_ROOT:-$(pwd)}/skills/plot/scripts/board/plot-gate.mjs\" role-deny"
+            "command": "[ -f \"${PLOT_ROLE_GATE:-}\" ] || { echo \"plot-role-gate: PLOT_ROLE_GATE names no gate bundle; the role start sets it to the default branch copy outside this tree. Every call is refused.\" >&2; exit 2; }; node \"$PLOT_ROLE_GATE\" role-deny || exit 2"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLOT_REPO_ROOT:-$(pwd)}/skills/plot/scripts/board/plot-gate.mjs\" role-deny"
+            "command": "[ -f \"${PLOT_ROLE_GATE:-}\" ] || { echo \"plot-role-gate: PLOT_ROLE_GATE names no gate bundle; the role start sets it to the default branch copy outside this tree. Every call is refused.\" >&2; exit 2; }; node \"$PLOT_ROLE_GATE\" role-deny || exit 2"
           }
         ]
       }

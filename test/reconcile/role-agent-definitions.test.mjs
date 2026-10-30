@@ -17,7 +17,9 @@
 //     field itself rather than a second `--disallowedTools` layer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -91,5 +93,47 @@ for (const role of ROLES) {
     const frontmatter = frontmatterOf(markdown);
     const isolation = scalar(frontmatter, 'isolation');
     if (isolation !== undefined) assert.equal(isolation, 'worktree');
+  });
+}
+
+// The three non-reviewer settings files run the role-deny gate from
+// `$PLOT_ROLE_GATE`, a path the role start sets outside the role's tree.
+// A hook that exits 1 lets the call through, so every failure must exit 2.
+const GATED_ROLES = ['fixer', 'main-repair', 'unblocker'];
+
+const hookCommandsOf = (role) => {
+  const settings = JSON.parse(readFileSync(path.join(repoRoot, '.claude', 'settings', `${role}.json`), 'utf8'));
+  return settings.hooks.PreToolUse.flatMap((entry) => entry.hooks.map((hook) => hook.command));
+};
+
+const runHook = (command, env) =>
+  spawnSync('/bin/sh', ['-c', command], { input: '{"tool_input":{"command":"echo hi"}}', env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' });
+
+for (const role of GATED_ROLES) {
+  test(`${role}.json runs its gate from PLOT_ROLE_GATE and never from the cwd`, () => {
+    for (const command of hookCommandsOf(role)) {
+      assert.match(command, /\$PLOT_ROLE_GATE/);
+      assert.doesNotMatch(command, /\$\(pwd\)|PLOT_REPO_ROOT/);
+    }
+  });
+
+  test(`${role}.json denies every call when PLOT_ROLE_GATE names no file, or the gate exits other than 0`, () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'role-hook-'));
+    try {
+      const crashes = path.join(dir, 'crashes.mjs');
+      writeFileSync(crashes, 'process.exit(1);\n');
+      const allows = path.join(dir, 'allows.mjs');
+      writeFileSync(allows, 'process.exit(0);\n');
+      for (const command of hookCommandsOf(role)) {
+        const unset = runHook(command, {});
+        assert.equal(unset.status, 2);
+        assert.match(unset.stderr, /PLOT_ROLE_GATE names no gate bundle/);
+        assert.equal(runHook(command, { PLOT_ROLE_GATE: path.join(dir, 'absent.mjs') }).status, 2);
+        assert.equal(runHook(command, { PLOT_ROLE_GATE: crashes }).status, 2);
+        assert.equal(runHook(command, { PLOT_ROLE_GATE: allows }).status, 0);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 }

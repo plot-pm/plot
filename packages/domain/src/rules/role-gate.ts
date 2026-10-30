@@ -17,18 +17,29 @@
  * capability — see `ci-workflow-path.ts`.
  */
 import { CI_WORKFLOW_DIR } from '../adapters/ci-workflow-path.js';
-import { commandRunsScript, withoutComments, withoutQuotes, wordBasename } from './ci-suite.js';
+import { commandRunsScript, withoutComments, withoutQuotes } from './ci-suite.js';
+import { mergeCalls } from './controller-gate.js';
 import { gitPushCalls } from './main-checkout-write.js';
 
-/** A path a non-reviewer role may never create, edit or delete. */
-const PROTECTED_PATH_PREFIXES: readonly string[] = ['.claude/', CI_WORKFLOW_DIR];
+/**
+ * A path a non-reviewer role may never create, edit or delete: the role
+ * definitions and settings, CI, and the shipped bundles under
+ * `skills/plot/scripts/board/`, which hold `plot-gate.mjs`.
+ */
+const PROTECTED_PATH_PREFIXES: readonly string[] = ['.claude/', CI_WORKFLOW_DIR, 'skills/plot/scripts/board/'];
+
+/** A source file a non-reviewer role may never create, edit or delete: the role-deny rule and the gate entry that runs it. */
+const PROTECTED_FILES: readonly string[] = ['packages/domain/src/rules/role-gate.ts', 'packages/board/src/server/entry/gate.ts'];
 
 /** A path glob a non-reviewer role may never create, edit or delete, tested by basename. */
 const PROTECTED_BASENAME_GLOBS: readonly RegExp[] = [/^check-.*\.sh$/, /.*-gate\.sh$/];
 
 /**
- * Whether `path` is one this role may never write: under `.claude/` or
- * `.github/workflows/`, a `scripts/check-*.sh`, or a `skills/plot/scripts/*-gate.sh`.
+ * Whether `path` is one this role may never write: under `.claude/`,
+ * `.github/workflows/` or `skills/plot/scripts/board/`, the files
+ * `packages/domain/src/rules/role-gate.ts` and
+ * `packages/board/src/server/entry/gate.ts`, a `scripts/check-*.sh`, or a
+ * `skills/plot/scripts/*-gate.sh`.
  *
  * The prefix test reads the path as given — a relative path is judged
  * relative to the tree the hook's process already runs in, the same
@@ -43,6 +54,7 @@ export const isProtectedPath = (path: string): boolean => {
   if (PROTECTED_PATH_PREFIXES.some((prefix) => normalised.startsWith(prefix) || normalised.includes(`/${prefix}`))) {
     return true;
   }
+  if (PROTECTED_FILES.some((file) => normalised === file || normalised.endsWith(`/${file}`))) return true;
   const base = normalised.slice(normalised.lastIndexOf('/') + 1);
   const underScripts = /(^|\/)scripts\//.test(normalised);
   const underPlotScripts = /(^|\/)skills\/plot\/scripts\//.test(normalised);
@@ -73,21 +85,29 @@ export const callsCommitStatus = (command: string): boolean =>
 export const callsReviewRun = (command: string): boolean => runsNamed(command, 'plot-review.mjs');
 
 /**
- * Whether a command merges a pull request: `gh pr merge`, or `plot-ask.mjs merge`.
+ * A pull request's REST merge endpoint (GitHub `pulls/<n>/merge`, Bitbucket
+ * `pullrequests/<n>/merge`) or a GitHub GraphQL merge mutation.
+ */
+const API_MERGE = /\bpull(?:s|requests)\/[^/\s]+\/merge\b|\b(?:mergePullRequest|enablePullRequestAutoMerge)\b/;
+
+/**
+ * Whether a command merges a pull request: `gh pr merge` or `plot-host.sh
+ * pr-merge` as `controller-gate.ts`'s {@link mergeCalls} reads them,
+ * `plot-ask.mjs merge`, or any command that names a pull request's merge
+ * endpoint or a GraphQL merge mutation.
  *
  * Unlike `controller-gate.ts`'s `unpinnedMerges`, this refuses EVERY merge
  * call from this role, pinned or not — a fixer or main-repair agent has no
- * standing to merge at all, regardless of head pin.
+ * standing to merge at all, regardless of head pin. The endpoint test reads
+ * quoted text too and names no program, so `gh api`, `curl` and a script
+ * that reach the endpoint are all refused, and so is a read of it.
  *
  * @param command - the Bash command line.
  * @returns whether the command runs a merge call.
  */
 export const callsMerge = (command: string): boolean => {
-  const stripped = withoutComments(withoutQuotes(command));
-  const words = stripped.split(/\s+/).filter((word) => word !== '');
-  const ghMerge = words.some((word) => wordBasename(word) === 'gh') && /\bpr\b/.test(stripped) && /\bmerge\b/.test(stripped);
-  const askMerge = runsNamed(command, 'plot-ask.mjs') && /\bmerge\b/.test(stripped);
-  return ghMerge || askMerge;
+  const askMerge = runsNamed(command, 'plot-ask.mjs') && /\bmerge\b/.test(withoutComments(withoutQuotes(command)));
+  return mergeCalls(command).length > 0 || askMerge || API_MERGE.test(withoutComments(command));
 };
 
 /**
@@ -139,6 +159,27 @@ export const commitMessageClosesIssue = (command: string): boolean => {
   if (!/\bgit\s+(?:[^|&;]*\s+)?commit\b/.test(command)) return false;
   return FIXES_N.test(command);
 };
+
+/**
+ * Whether the gate bundle a role's hook runs lies inside the tree the role
+ * works in — the tree the role can write, so a gate there is one the role
+ * can rewrite.
+ *
+ * @param gatePath - the real path of the running gate bundle.
+ * @param treeRoot - the real path of the working tree the hook's cwd lies in, `''` where the cwd is in none.
+ * @returns whether `gatePath` is `treeRoot` or lies under it.
+ */
+export const gateInsideTree = (gatePath: string, treeRoot: string): boolean =>
+  treeRoot !== '' && (gatePath === treeRoot || gatePath.startsWith(`${treeRoot}/`));
+
+/**
+ * The refusal for every call while {@link gateInsideTree} holds.
+ *
+ * @param gatePath - the real path of the running gate bundle.
+ * @returns the refusal text.
+ */
+export const gateInsideTreeRefusal = (gatePath: string): string =>
+  roleDenyRefusal(`the gate runs from inside this role's own tree (${gatePath}); PLOT_ROLE_GATE must name the default branch's copy outside it`);
 
 /**
  * The refusal text for a call this role's hook denies.

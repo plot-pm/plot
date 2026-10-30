@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   controllerRefusal,
   mayRunController,
+  mergeCalls,
   unpinnedMerges,
   unpinnedMergeRefusal,
   withoutMessageSinks,
@@ -215,6 +216,20 @@ describe('mayRunController', () => {
   );
 
   it.each(['ls -la', 'git commit -m x', 'pnpm test'])('skips %s', (command) => expect(mayRunController(command)).toBe(false));
+});
+
+describe('mergeCalls', () => {
+  it.each([
+    ['gh pr merge 42', ['gh']],
+    ['gh pr merge 42 --match-head-commit deadbeef', ['gh']],
+    ['plot-host.sh pr-merge 42 --match-head deadbeef', ['plot-host']],
+    ['command gh pr merge 42 && skills/plot/scripts/plot-host.sh pr-merge 7', ['gh', 'plot-host']],
+    ['git commit -m "$(gh pr merge 12 --match-head-commit abc)"', ['gh']],
+  ])('reads %s, pinned or not', (command, programs) => expect(mergeCalls(command)).toEqual(programs));
+
+  it.each(['gh pr view 42 && git merge origin/main', 'echo "gh pr merge 42"', 'grep pr-merge plot-host.sh'])('reads no merge in %s', (command) =>
+    expect(mergeCalls(command)).toEqual([]),
+  );
 });
 
 describe('unpinnedMerges', () => {

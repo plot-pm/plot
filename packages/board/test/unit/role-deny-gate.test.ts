@@ -8,8 +8,13 @@ import { EXIT, roleDenyGateOf, runGates } from '../../src/server/entry/gate.js';
  * every forbidden call it tested.
  */
 
-const gateOf = (defaultBranch: string, currentBranch: string) =>
-  roleDenyGateOf({ defaultBranch: async () => defaultBranch, currentBranch: async () => currentBranch });
+const gateOf = (defaultBranch: string, currentBranch: string, gatePath = '/var/plot/role-gate/plot-gate.mjs', treeRoot = '/w/fix') =>
+  roleDenyGateOf({
+    defaultBranch: async () => defaultBranch,
+    currentBranch: async () => currentBranch,
+    gatePath: () => gatePath,
+    treeRoot: () => treeRoot,
+  });
 
 describe('the role-deny gate — command calls', () => {
   it.each([
@@ -17,6 +22,8 @@ describe('the role-deny gate — command calls', () => {
     ['plot-review.mjs 42', 'runs the reviewer'],
     ['gh pr merge 42 --match-head-commit deadbeef', 'merges a pull request'],
     ['plot-ask.mjs merge 42 deadbeef', 'merges a pull request'],
+    ['skills/plot/scripts/plot-host.sh pr-merge 42 --match-head deadbeef', 'merges a pull request'],
+    ['gh api -X PUT repos/o/r/pulls/42/merge', 'merges a pull request'],
     ['git push origin main', 'pushes the default branch'],
     ['git commit -m "Fixes #123"', 'closes an issue'],
   ])('refuses %s', async (command, fragment) => {
@@ -39,7 +46,14 @@ describe('the role-deny gate — command calls', () => {
 });
 
 describe('the role-deny gate — protected paths', () => {
-  it.each(['.claude/agents/fixer.md', 'scripts/check-shell-lines.sh', 'skills/plot/scripts/plot-controller-gate.sh', '.github/workflows/ci.yml'])(
+  it.each([
+    '.claude/agents/fixer.md',
+    'scripts/check-shell-lines.sh',
+    'skills/plot/scripts/plot-controller-gate.sh',
+    '.github/workflows/ci.yml',
+    'skills/plot/scripts/board/plot-gate.mjs',
+    'packages/domain/src/rules/role-gate.ts',
+  ])(
     'refuses a write to %s',
     async (path) => {
       const gate = gateOf('main', 'fix/the-slice');
@@ -59,5 +73,29 @@ describe('the role-deny gate — protected paths', () => {
     const refused = await runGates([gate], ['role-deny'], 'gh pr merge 42', (l) => warned.push(l), 'packages/domain/src/index.ts');
     expect(refused).toBe(EXIT.refuse);
     expect(warned).toEqual([expect.stringContaining('merges a pull request')]);
+  });
+});
+
+describe('the role-deny gate — a gate inside the role\'s own tree', () => {
+  const inside = () => gateOf('main', 'fix/the-slice', '/w/fix/skills/plot/scripts/board/plot-gate.mjs', '/w/fix');
+
+  it('refuses a permitted command', async () => {
+    const warned: string[] = [];
+    const code = await runGates([inside()], ['role-deny'], 'echo permitted-control-ran', (l) => warned.push(l));
+    expect(code).toBe(EXIT.refuse);
+    expect(warned[0]).toContain('PLOT_ROLE_GATE');
+  });
+
+  it('refuses a write to an ordinary path', async () => {
+    const warned: string[] = [];
+    const code = await runGates([inside()], ['role-deny'], '', (l) => warned.push(l), 'packages/domain/src/index.ts');
+    expect(code).toBe(EXIT.refuse);
+    expect(warned[0]).toContain('/w/fix/skills/plot/scripts/board/plot-gate.mjs');
+  });
+
+  it('allows the same calls from a gate outside the tree', async () => {
+    const outside = gateOf('main', 'fix/the-slice');
+    expect(await runGates([outside], ['role-deny'], 'echo permitted-control-ran', () => {})).toBe(EXIT.allow);
+    expect(await runGates([outside], ['role-deny'], '', () => {}, 'packages/domain/src/index.ts')).toBe(EXIT.allow);
   });
 });

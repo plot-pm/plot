@@ -4,6 +4,8 @@ import {
   callsMerge,
   callsReviewRun,
   commitMessageClosesIssue,
+  gateInsideTree,
+  gateInsideTreeRefusal,
   isProtectedPath,
   pushesDefaultBranch,
   roleDeniesCommand,
@@ -41,11 +43,30 @@ describe('callsMerge', () => {
     'gh pr merge 42',
     'plot-ask.mjs merge 42 deadbeef',
     'skills/plot/scripts/board/plot-ask.mjs merge 42 deadbeef',
+    'plot-host.sh pr-merge 42 --match-head deadbeef',
+    'skills/plot/scripts/plot-host.sh pr-merge 42',
+    'bash skills/plot/scripts/plot-host.sh pr-merge 42 --match-head deadbeef',
+    'gh api -X PUT repos/o/r/pulls/42/merge',
+    'gh api --method PUT "repos/o/r/pulls/42/merge" -f sha=deadbeef',
+    "curl -X PUT -H 'Authorization: token x' https://api.github.com/repos/o/r/pulls/42/merge",
+    'curl -X POST https://api.bitbucket.org/2.0/repositories/w/r/pullrequests/7/merge',
+    "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+    "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
   ])('refuses %s', (command) => {
     expect(callsMerge(command)).toBe(true);
   });
 
-  it.each(['gh pr view 42', 'gh pr list', 'plot-ask.mjs board', 'echo "gh pr merge 42"'])('allows %s', (command) => {
+  it.each([
+    'gh pr view 42',
+    'gh pr list',
+    'plot-ask.mjs board',
+    'echo "gh pr merge 42"',
+    'gh pr view 42 && git merge origin/main',
+    'plot-host.sh pr-view 42',
+    'gh api repos/o/r/pulls/42',
+    'gh api repos/o/r/pulls/42/files',
+    '# gh api repos/o/r/pulls/42/merge',
+  ])('allows %s', (command) => {
     expect(callsMerge(command)).toBe(false);
   });
 });
@@ -97,11 +118,27 @@ describe('isProtectedPath', () => {
     'skills/plot/scripts/plot-controller-gate.sh',
     '.github/workflows/ci.yml',
     'nested/.github/workflows/ci.yml',
+    'skills/plot/scripts/board/plot-gate.mjs',
+    './skills/plot/scripts/board/plot-gate.mjs',
+    '/abs/tree/skills/plot/scripts/board/plot-gate.mjs',
+    'skills/plot/scripts/board/board-server.mjs',
+    'packages/domain/src/rules/role-gate.ts',
+    '/abs/tree/packages/domain/src/rules/role-gate.ts',
+    'packages/board/src/server/entry/gate.ts',
+    '.claude/settings/fixer.json',
   ])('refuses %s', (path) => {
     expect(isProtectedPath(path)).toBe(true);
   });
 
-  it.each(['packages/domain/src/rules/role-gate.ts', 'scripts/other.sh', 'skills/plot/scripts/plot-host.sh', 'docs/plans/x.md'])(
+  it.each([
+    'scripts/other.sh',
+    'skills/plot/scripts/plot-host.sh',
+    'docs/plans/x.md',
+    'packages/domain/src/rules/controller-gate.ts',
+    'packages/domain/src/rules/role-gate.test.ts',
+    'packages/board/src/server/entry/gate.tsx',
+    'skills/plot/scripts/boardroom/x.mjs',
+  ])(
     'allows %s',
     (path) => {
       expect(isProtectedPath(path)).toBe(false);
@@ -149,5 +186,28 @@ describe('roleDeniesPath', () => {
 
   it('allows an ordinary path', () => {
     expect(roleDeniesPath('packages/domain/src/index.ts')).toBeNull();
+  });
+});
+
+describe('gateInsideTree', () => {
+  it.each([
+    ['/w/fix/skills/plot/scripts/board/plot-gate.mjs', '/w/fix'],
+    ['/w/fix', '/w/fix'],
+  ])('reads %s as inside %s', (gatePath, treeRoot) => {
+    expect(gateInsideTree(gatePath, treeRoot)).toBe(true);
+  });
+
+  it.each([
+    ['/var/plot/role-gate/plot-gate.mjs', '/w/fix'],
+    ['/w/fix-other/plot-gate.mjs', '/w/fix'],
+    ['/w/fix/plot-gate.mjs', ''],
+  ])('reads %s as outside %s', (gatePath, treeRoot) => {
+    expect(gateInsideTree(gatePath, treeRoot)).toBe(false);
+  });
+
+  it('names the gate path and the variable in its refusal', () => {
+    const refusal = gateInsideTreeRefusal('/w/fix/skills/plot/scripts/board/plot-gate.mjs');
+    expect(refusal).toContain('/w/fix/skills/plot/scripts/board/plot-gate.mjs');
+    expect(refusal).toContain('PLOT_ROLE_GATE');
   });
 });

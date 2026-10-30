@@ -24,7 +24,7 @@ import {
   treeStrandingResetDirs,
 } from '@plot-pm/domain/rules/main-checkout-write';
 import { SPAWN_CONTRACT, spawnContractReading } from '@plot-pm/domain/rules/spawn-contract';
-import { roleDeniesCommand, roleDeniesPath } from '@plot-pm/domain/rules/role-gate';
+import { gateInsideTree, gateInsideTreeRefusal, roleDeniesCommand, roleDeniesPath } from '@plot-pm/domain/rules/role-gate';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -710,7 +710,25 @@ const controllerGate = controllerGateOf({ desk: underDesk, where: gitWhere, back
 export interface RoleDenyReadings {
   readonly defaultBranch: (cwd: string) => Promise<string>;
   readonly currentBranch: (cwd: string, scriptDir: string) => Promise<string>;
+  /** The real path of the running gate bundle. */
+  readonly gatePath: () => string;
+  /** The real path of the working tree `cwd` lies in, `''` where it lies in none. */
+  readonly treeRoot: (cwd: string) => string;
 }
+
+/** The real path of this module's own file — the bundle a role's hook runs. */
+const ownGatePath = (): string => realpathSync(fileURLToPath(import.meta.url));
+
+/** The nearest directory at or above `cwd` that holds a `.git` entry (a checkout or a worktree), as a real path; `''` where none does. */
+const nearestTreeRoot = (cwd: string): string => {
+  let dir = realpathSync(cwd);
+  for (;;) {
+    if (existsSync(join(dir, '.git'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return '';
+    dir = parent;
+  }
+};
 
 /** The repository's default branch, `''` where git does not answer. */
 const gitDefaultBranch = async (cwd: string): Promise<string> => {
@@ -741,7 +759,14 @@ export const pathOf = (stdin: string): string => {
  * write, a review run, a merge, a push to the default branch, a commit
  * message closing an issue, or a write to a path `rules/role-gate.ts`
  * protects (`.claude/**`, `scripts/check-*.sh`, `skills/plot/scripts/*-gate.sh`,
- * `.github/workflows/**`).
+ * `skills/plot/scripts/board/**`, `.github/workflows/**`, and the role-deny
+ * rule and this entry).
+ *
+ * The settings files run this bundle from `$PLOT_ROLE_GATE`, a path the role
+ * start sets to the default branch's copy outside the role's tree, and deny
+ * every call when it names no file. When this bundle's own real path lies
+ * inside the working tree the hook's cwd is in, every call is refused: a gate
+ * the role can rewrite is no gate.
  *
  * Only a role whose settings file wires this gate's name ever runs it — it is
  * not in {@link GATES}, so an unqualified `--all` never applies it to the
@@ -755,6 +780,8 @@ export const roleDenyGateOf = (readings: RoleDenyReadings): Gate & { readonly as
   wants: (command) => command !== '',
   ask: async (command) => {
     const cwd = process.cwd();
+    const gatePath = readings.gatePath();
+    if (gateInsideTree(gatePath, readings.treeRoot(cwd))) return gateInsideTreeRefusal(gatePath);
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     const [defaultBranch, currentBranch] = await Promise.all([
       readings.defaultBranch(cwd),
@@ -762,11 +789,21 @@ export const roleDenyGateOf = (readings: RoleDenyReadings): Gate & { readonly as
     ]);
     return roleDeniesCommand(command, defaultBranch, currentBranch);
   },
-  askPath: async (path) => (path === '' ? null : roleDeniesPath(path)),
+  askPath: async (path) => {
+    if (path === '') return null;
+    const gatePath = readings.gatePath();
+    if (gateInsideTree(gatePath, readings.treeRoot(process.cwd()))) return gateInsideTreeRefusal(gatePath);
+    return roleDeniesPath(path);
+  },
   onError: 'refuse',
 });
 
-const roleDenyGate = roleDenyGateOf({ defaultBranch: gitDefaultBranch, currentBranch: gitCurrentBranch });
+const roleDenyGate = roleDenyGateOf({
+  defaultBranch: gitDefaultBranch,
+  currentBranch: gitCurrentBranch,
+  gatePath: ownGatePath,
+  treeRoot: nearestTreeRoot,
+});
 
 /** The gates `--list` and `--all` enumerate — every gate the master agent's or a desk worker's own project hooks may run. */
 export const GATES: readonly Gate[] = [
