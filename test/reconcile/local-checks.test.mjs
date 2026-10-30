@@ -325,7 +325,42 @@ test('--ci with an unknown argument exits 2', () => {
   try {
     const res = runCi(repo, '--nope');
     assert.equal(res.status, 2, res.stdout + res.stderr);
-    assert.match(res.stderr, /usage: plot-local-checks\.mjs \[--ci\] \[--files <path>\]/);
+    assert.match(res.stderr, /usage: plot-local-checks\.mjs \[--ci \[--corpus <glob>\]\] \[--files <path>\]/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--ci --corpus selects the corpus tests that name a changed script, and only those', () => {
+  const repo = sandbox();
+  const list = path.join(repo, '.git', 'changed.txt');
+  try {
+    fs.mkdirSync(path.join(repo, 'corpus'));
+    fs.writeFileSync(path.join(repo, 'corpus', 'tool.corpus.test.ts'), "// runs src/tool.sh\n");
+    fs.writeFileSync(path.join(repo, 'corpus', 'other.corpus.test.ts'), '// unrelated\n');
+    execFileSync('git', ['-C', repo, 'add', 'corpus'], { stdio: 'ignore' });
+    execFileSync('git', ['-C', repo, 'commit', '-q', '-m', 'corpus'], { stdio: 'ignore' });
+    fs.writeFileSync(list, 'src/tool.sh\n');
+    const named = JSON.parse(runCi(repo, '--corpus', 'corpus/**', '--files', list).stdout);
+    assert.equal(named.corpus, false);
+    assert.deepEqual(named.corpusTests, ['corpus/tool.corpus.test.ts']);
+    assert.ok(named.suites.includes('corpus'));
+    const without = JSON.parse(runCi(repo, '--files', list).stdout);
+    assert.deepEqual(without.corpusTests, []);
+    assert.ok(!without.suites.includes('corpus'));
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--corpus without --ci exits 2', () => {
+  const repo = sandbox();
+  try {
+    const env = { ...process.env };
+    delete env.PLOT_REPO_ROOT;
+    const res = spawnSync('node', [bundle, '--corpus', 'corpus/**'], { cwd: repo, encoding: 'utf8', timeout: 60_000, env });
+    assert.equal(res.status, 2, res.stdout + res.stderr);
+    assert.match(res.stderr, /unknown argument --corpus/);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }

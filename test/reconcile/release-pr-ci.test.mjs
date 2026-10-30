@@ -183,9 +183,12 @@ const jobSteps = (yaml, name) => {
 // (moved 2026-10-24 so a failing split job does not hide every other
 // `validate` gate), so every job starts with the guard alike.
 for (const [job, skip] of [
+  ['select', 0],
   ['corpus', 0],
+  ['macos-shell-contract', 0],
   ['helper-contracts', 0],
   ['board-integration', 0],
+  ['checks', 0],
   ['validate', 0],
 ]) {
   test(`ci.yml's ${job} job runs the dispatch guard before any checkout`, () => {
@@ -216,35 +219,30 @@ for (const [job, skip] of [
   });
 }
 
-// ── ci.yml: validate gates on the split jobs ─────────────────────────────────
+// ── ci.yml: validate gates on the selected jobs ──────────────────────────────
 
 // A FAILED `needs:` SKIPS THE DEPENDENT JOB, and the ruleset accepts a skipped
 // required check. So `validate` must run unless the run was cancelled, and its
-// last step must fail unless both split jobs ended `success`.
-test("ci.yml's validate needs both split jobs and runs unless cancelled", () => {
+// last step must fail unless each needed job ended `success`, or ended
+// `skipped` while the selection named it `false`.
+// `ci-selection-jobs.test.mjs` runs that step under each result.
+test("ci.yml's validate needs the selection, checks and both split jobs, and runs unless cancelled", () => {
   const head = jobBlock(CI, 'validate').split('\n    steps:')[0];
-  assert.match(head, /^ {4}needs: \[helper-contracts, board-integration\]$/m);
+  assert.match(head, /^ {4}needs: \[select, checks, helper-contracts, board-integration\]$/m);
   assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
 });
 
 // LAST, NOT FIRST (moved 2026-10-24): a step after a failed step is skipped
-// by default, so this step must carry its own `if: !cancelled()` or it would
-// silently stop requiring the split jobs after any earlier `validate` step
-// fails for an unrelated reason.
-test("ci.yml's validate ends with a step that fails unless both split jobs succeeded", () => {
+// by default, so this step must carry its own `if: !cancelled()`.
+test("ci.yml's validate ends with a step that reads every needed job's result", () => {
   const steps = jobSteps(CI, 'validate');
   const last = steps[steps.length - 1];
-  for (const job of ['helper-contracts', 'board-integration']) {
+  for (const job of ['checks', 'helper-contracts', 'board-integration']) {
     const key = job.replace('-', '_').toUpperCase();
     assert.match(
       last,
       new RegExp(`${key}: \\$\\{\\{ needs\\.${job}\\.result \\}\\}`),
       `the last step must read needs.${job}.result`,
-    );
-    assert.match(
-      last,
-      new RegExp(`if \\[ "\\$${key}" != "success" \\]`),
-      `the last step must compare ${job}'s result with success`,
     );
   }
   assert.match(last, /exit 1/, 'the last step must exit 1 on a result other than success');

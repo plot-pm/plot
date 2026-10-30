@@ -16,6 +16,7 @@
 - **Started:** 2026-10-29, Jan Wloka, `feature/a-review-opens-no-issue`
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-index-records-the-review`
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-scope-is-read-from-git`
+- **Started:** 2026-10-30, Jan Wloka, `feature/the-review-run-is-locked`
 
 ## Changelog
 

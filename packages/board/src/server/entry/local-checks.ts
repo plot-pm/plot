@@ -8,6 +8,7 @@ import {
   ciSelection,
   corpusGlobs,
   globRoot,
+  globToRegExp,
   localChecks,
   parseList,
   parseLocalChecks,
@@ -48,7 +49,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * job to write as its outputs: `suites`, `checks` (each `suite`, `command`,
  * `tests`, `always`), `tests`, `corpus` and `untested`. It reads the
  * `Plan directory` and `Sprint directory` keys for the corpus globs. It
- * combines with `--files`. Any other argument exits 2.
+ * combines with `--files`.
+ *
+ * `--corpus <glob>`, with `--ci`, names the corpus tier's files, such as
+ * `packages/domain/corpus/**`. A changed path one of them names selects the
+ * tier. Without it, only plan data selects the tier. Any other argument exits 2.
  */
 
 /** The exit codes the caller reads. */
@@ -120,6 +125,38 @@ const readTests = async (
 };
 
 /**
+ * Reads the text of the corpus tier's files: the tracked files at `HEAD` under
+ * the glob, plus the changed paths under it. A file that cannot be read is
+ * left out.
+ *
+ * @param refs - the git adapter.
+ * @param repoRoot - the repository root.
+ * @param glob - the corpus glob.
+ * @param changed - the changed paths.
+ * @returns the corpus files with their text.
+ */
+const readCorpus = async (
+  refs: ReturnType<typeof refsGit>,
+  repoRoot: string,
+  glob: string,
+  changed: readonly string[],
+): Promise<TestFile[]> => {
+  const pattern = globToRegExp(glob);
+  const blobs = await refs.listBlobs('HEAD', globRoot(glob));
+  const paths = [...(blobs.ok ? blobs.value.map((blob) => blob.path) : []), ...changed];
+  return [...new Set(paths)]
+    .filter((file) => pattern.test(file))
+    .sort()
+    .flatMap((file) => {
+      try {
+        return [{ path: file, text: readFileSync(path.join(repoRoot, file), 'utf8') }];
+      } catch {
+        return [];
+      }
+    });
+};
+
+/**
  * Reads the branch and the config, asks the rule, and prints the answer.
  *
  * @param cwd - a directory inside the repository.
@@ -129,6 +166,7 @@ const readTests = async (
  * @param filesFrom - a file listing the changed paths, one per line; when given,
  *   it replaces the branch and working-tree reading.
  * @param ci - true prints the CI selection as JSON instead of the commands.
+ * @param corpusGlob - with `ci`, the glob naming the corpus tier's files.
  * @returns the process exit code.
  */
 export const run = async (
@@ -138,6 +176,7 @@ export const run = async (
   warn: (s: string) => void = (s) => process.stderr.write(s),
   filesFrom: string | null = null,
   ci = false,
+  corpusGlob: string | null = null,
 ): Promise<number> => {
   let listed: string[] | null = null;
   if (filesFrom !== null) {
@@ -193,6 +232,7 @@ export const run = async (
       checks,
       tests,
       corpus: corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : ''),
+      corpusFiles: corpusGlob === null ? [] : await readCorpus(refs, repoRoot, corpusGlob, changed),
       root: repoRoot,
     });
     write(`${JSON.stringify(selection)}\n`);
@@ -256,6 +296,40 @@ export const refuse = async (
   return EXIT.refused;
 };
 
+/** The arguments {@link run} takes from the command line. */
+export interface Args {
+  readonly ci: boolean;
+  readonly files: string | null;
+  readonly corpus: string | null;
+}
+
+/**
+ * Reads the command line: `--ci`, `--files <path>` and, with `--ci`,
+ * `--corpus <glob>`, each at most once.
+ *
+ * @param argv - the arguments after the script.
+ * @returns the arguments, or the first one this command does not take.
+ */
+export const parseArgs = (argv: readonly string[]): Args | { readonly unknown: string } => {
+  let ci = false;
+  let files: string | null = null;
+  let corpus: string | null = null;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    const value = argv[i + 1];
+    if (arg === '--ci' && !ci) ci = true;
+    else if (arg === '--files' && files === null && value !== undefined) {
+      files = value;
+      i += 1;
+    } else if (arg === '--corpus' && corpus === null && value !== undefined) {
+      corpus = value;
+      i += 1;
+    } else return { unknown: arg };
+  }
+  if (corpus !== null && !ci) return { unknown: '--corpus' };
+  return { ci, files, corpus };
+};
+
 // Only when RUN as plot-local-checks.mjs, never when imported — the gate bundle
 // bundles this module and shares its `import.meta.url`. `pathToFileURL` on the realpath, because
 // `import.meta.url` is realpath-resolved and `process.argv[1]` is not. The
@@ -267,19 +341,19 @@ if (
   import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 ) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const all = process.argv.slice(2);
-  const ci = all.includes('--ci');
-  const args = all.filter((arg) => arg !== '--ci');
   if (process.argv[2] === '--ci-suite-refusal') {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
     void endEntry(await refuse(process.cwd(), scriptDir, Buffer.concat(chunks).toString('utf8')));
-  } else if (args.length === 0) {
-    void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, null, ci));
-  } else if (args.length === 2 && args[0] === '--files') {
-    void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, args[1], ci));
   } else {
-    process.stderr.write(`plot-local-checks: unknown argument ${args[0]}\nusage: plot-local-checks.mjs [--ci] [--files <path>]\n`);
-    void endEntry(EXIT.usage);
+    const parsed = parseArgs(process.argv.slice(2));
+    if ('unknown' in parsed) {
+      process.stderr.write(
+        `plot-local-checks: unknown argument ${parsed.unknown}\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>]\n`,
+      );
+      void endEntry(EXIT.usage);
+    } else {
+      void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, parsed.files, parsed.ci, parsed.corpus));
+    }
   }
 }

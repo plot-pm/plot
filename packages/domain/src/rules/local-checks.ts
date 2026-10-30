@@ -184,6 +184,11 @@ export interface SelectionReadings {
   readonly tests: readonly TestFile[];
   /** Path globs whose change runs the corpus tier (see {@link corpusGlobs}). */
   readonly corpus: readonly string[];
+  /**
+   * The corpus tier's files with their text: its test files and the modules
+   * they share. A changed path one of them names selects the tier.
+   */
+  readonly corpusFiles: readonly TestFile[];
   /** The repository root; when given, placeholders are filled with absolute paths. */
   readonly root?: string;
 }
@@ -196,8 +201,17 @@ export interface Selection {
   readonly checks: readonly SelectedCheck[];
   /** Every test file a selected check runs, sorted. */
   readonly tests: readonly string[];
-  /** True when a changed path is plan data: a plan, a sprint, or a file under `.plot/`. */
+  /**
+   * True when the whole corpus tier runs: a changed path is plan data (a plan,
+   * a sprint, or a file under `.plot/`), is a corpus file that is not a test,
+   * or is named by one.
+   */
   readonly corpus: boolean;
+  /**
+   * The corpus test files that changed or name a changed path, sorted. When
+   * `corpus` is false and this is not empty, these alone run.
+   */
+  readonly corpusTests: readonly string[];
   /** Changed paths that no path-selected check and no corpus glob reaches. */
   readonly untested: readonly string[];
 }
@@ -424,7 +438,11 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
  *   on every change and reaches no path.
  * - A changed path under a {@link corpusGlobs} glob sets `corpus` and adds
  *   {@link CORPUS_SUITE} to `suites`, because plan data alone can fail the
- *   corpus tier.
+ *   corpus tier. Plan data selects no other check: a test naming a plan
+ *   file's basename, such as `panel.md`, names its own fixture.
+ * - A changed corpus file, or a changed path a corpus file names by one of
+ *   its {@link searchTerms}, adds {@link CORPUS_SUITE}: a corpus test file
+ *   goes into `corpusTests`, and a shared corpus module sets `corpus`.
  *
  * The references are derived here from the test files' text by
  * {@link testsNaming}, so CI and the local run read one map.
@@ -435,25 +453,60 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
 export const ciSelection = (readings: SelectionReadings): Selection => {
   const generated = new Set(readings.generated);
   const changed = [...new Set(readings.changed)].filter((path) => !generated.has(path)).sort();
+  const patterns = readings.corpus.map(globToRegExp);
+  const data = new Set(changed.filter((path) => patterns.some((pattern) => pattern.test(path))));
+  const code = changed.filter((path) => !data.has(path));
   const decided = decide(
     {
-      changed,
+      changed: code,
       generated: [],
-      references: testsNaming(changed, readings.tests),
+      references: testsNaming(code, readings.tests),
       checks: readings.checks,
       limit: Number.POSITIVE_INFINITY,
       root: readings.root,
     },
     { limit: Number.POSITIVE_INFINITY, always: true },
   );
-  const patterns = readings.corpus.map(globToRegExp);
-  const data = new Set(changed.filter((path) => patterns.some((pattern) => pattern.test(path))));
-  const corpus = data.size > 0;
+  const tier = corpusReach(code, readings.corpusFiles);
+  const corpus = data.size > 0 || tier.whole;
+  const reached = new Set(tier.reached);
+  const runsCorpus = corpus || tier.tests.length > 0;
   return {
-    suites: [...new Set([...decided.selected.map((check) => check.suite), ...(corpus ? [CORPUS_SUITE] : [])])].sort(),
+    suites: [
+      ...new Set([...decided.selected.map((check) => check.suite), ...(runsCorpus ? [CORPUS_SUITE] : [])]),
+    ].sort(),
     checks: decided.selected,
     tests: decided.tests,
     corpus,
-    untested: decided.untested.filter((path) => !data.has(path)),
+    corpusTests: tier.tests,
+    untested: decided.untested.filter((path) => !reached.has(path)),
+  };
+};
+
+interface CorpusReach {
+  /** True when a corpus file that is not a test changed or names a changed path. */
+  readonly whole: boolean;
+  /** The corpus test files that changed or name a changed path, sorted. */
+  readonly tests: readonly string[];
+  /** The changed paths the corpus tier reaches. */
+  readonly reached: readonly string[];
+}
+
+const corpusReach = (changed: readonly string[], files: readonly TestFile[]): CorpusReach => {
+  const own = new Set(files.map((file) => file.path));
+  const naming = testsNaming(changed, files);
+  const hits = new Set<string>();
+  const reached: string[] = [];
+  for (const [path, named] of naming) {
+    const by = [...(own.has(path) ? [path] : []), ...named];
+    if (by.length === 0) continue;
+    reached.push(path);
+    by.forEach((file) => hits.add(file));
+  }
+  const all = [...hits];
+  return {
+    whole: all.some((file) => !isTestFile(file)),
+    tests: all.filter(isTestFile).sort(),
+    reached,
   };
 };
