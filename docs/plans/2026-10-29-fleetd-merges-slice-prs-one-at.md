@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2914 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/merge-waits-for-a-settled-main`
+- **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-merges-one-at-a-time`
 
 ## Changelog
 
