@@ -26,6 +26,7 @@ import {
   markerTextFor,
   prMergedReading,
   killedWorkerEndings,
+  type KilledWorkerReads,
   EXIT_FILENAME,
   type FreshAgentDecision,
   type FreshAgentPorts,
@@ -38,6 +39,7 @@ import {
   freshAgentDeskReads,
   startFreshAgents,
   startNothingDoneReleases,
+  killedWorkerReads,
 } from '../../src/server/entry/registryd-main.js';
 import { markerReading } from '../../src/shared/worker-question.js';
 import { agentsFixture } from '@plot-pm/domain/adapters/agents/agents-fixture';
@@ -541,9 +543,21 @@ describe('a quiet ending and a killed worker\'s supervisor ending', () => {
 
 describe('killedWorkerEndings', () => {
   const desk = (files: Record<string, string>) => (_w: string, name: string) => files[name] ?? null;
+  const PID = '.plot-worker.pid';
+  const found = (over: Partial<KilledWorkerReads> = {}) => {
+    const calls: string[] = [];
+    const reads: KilledWorkerReads = {
+      deskDead: async () => (calls.push('deskDead'), { dead: true }),
+      commitBeyondClaim: async () => (calls.push('commit'), 'yes' as const),
+      prState: async () => (calls.push('prState'), { ok: true as const, value: null }),
+      hasPr: new Set<string>(),
+      ...over,
+    };
+    return { calls, reads };
+  };
 
-  it('names the ending a candidate desk owes for a non-zero exit with no ending and no live loop', () => {
-    const owed = killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '143' }), () => false);
+  it('names the ending a candidate desk owes for a non-zero exit with no ending and no live loop', async () => {
+    const owed = await killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '143' }), () => false, found().reads);
     expect(owed).toEqual([
       {
         worktree: tree().path,
@@ -559,21 +573,83 @@ describe('killedWorkerEndings', () => {
     ]);
   });
 
-  it('owes nothing for a stopped desk, a desk cut by hand, a clean exit or a live loop', () => {
-    const stopped = JSON.stringify({ reason: 'stopped', actor: 'operator', branch: 'feature/x', detail: 'plot-dispatch --stop' });
-    expect(killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '143', [ENDING_FILENAME]: stopped }), () => false)).toEqual([]);
-    expect(killedWorkerEndings([tree()], desk({}), () => false)).toEqual([]);
-    expect(killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '0' }), () => false)).toEqual([]);
-    expect(killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '143' }), () => true)).toEqual([]);
+  it('makes no dead-desk, git or host ask for a non-zero exit', async () => {
+    const { calls, reads } = found();
+    await killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '143' }), () => false, reads);
+    expect(calls).toEqual([]);
   });
 
-  it('asks about the loop only for a desk whose ending file is absent', () => {
+  it('owes nothing for a stopped desk, a desk cut by hand, a clean exit with no launch record or a live loop', async () => {
+    const stopped = JSON.stringify({ reason: 'stopped', actor: 'operator', branch: 'feature/x', detail: 'plot-dispatch --stop' });
+    const { calls, reads } = found();
+    expect(await killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '143', [ENDING_FILENAME]: stopped }), () => false, reads)).toEqual([]);
+    expect(await killedWorkerEndings([tree()], desk({}), () => false, reads)).toEqual([]);
+    expect(await killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '0' }), () => false, reads)).toEqual([]);
+    expect(await killedWorkerEndings([tree()], desk({ [EXIT_FILENAME]: '143' }), () => true, reads)).toEqual([]);
+    expect(await killedWorkerEndings([tree()], desk({ [PID]: '4242' }), () => true, reads)).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('asks about the loop only for a desk whose ending file is absent', async () => {
     const asked: string[] = [];
-    killedWorkerEndings([tree()], desk({ [ENDING_FILENAME]: endingFile('bound') }), (w) => {
+    await killedWorkerEndings([tree()], desk({ [ENDING_FILENAME]: endingFile('bound') }), (w) => {
       asked.push(w);
       return false;
-    });
+    }, found().reads);
     expect(asked).toEqual([]);
+  });
+
+  it('owes an ending for a launched dead desk with work and no pull request, whether the exit is 0 or missing', async () => {
+    for (const files of [{ [PID]: '4242\n', [EXIT_FILENAME]: '0' }, { [PID]: '4242' }]) {
+      const { calls, reads } = found();
+      const owed = await killedWorkerEndings([tree()], desk(files), () => false, reads);
+      expect(owed.map((o) => o.ending.detail)).toEqual([
+        EXIT_FILENAME in files
+          ? 'the worker exited 0 and wrote no ending; its branch holds work and no pull request'
+          : 'the worker left no exit record and no ending; its branch holds work and no pull request',
+      ]);
+      expect(calls).toEqual(['deskDead', 'commit', 'prState']);
+    }
+  });
+
+  it('stops at the first reading that composes nothing', async () => {
+    const files = desk({ [PID]: '4242' });
+    const live = found({ deskDead: async () => ({ dead: false, why: 'live' }) });
+    expect(await killedWorkerEndings([tree()], files, () => false, live.reads)).toEqual([]);
+    expect(live.calls).toEqual([]);
+    for (const answer of ['no', 'unanswerable'] as const) {
+      const noWork = found({ commitBeyondClaim: async () => (noWork.calls.push('commit'), answer) });
+      expect(await killedWorkerEndings([tree()], files, () => false, noWork.reads)).toEqual([]);
+      expect(noWork.calls).toEqual(['deskDead', 'commit']);
+    }
+  });
+
+  it('owes nothing when the host answers a pull request in any state, or fails', async () => {
+    const files = desk({ [PID]: '4242' });
+    for (const state of ['OPEN', 'MERGED', 'CLOSED']) {
+      const { reads } = found({ prState: async () => ({ ok: true as const, value: { state } as never }) });
+      expect(await killedWorkerEndings([tree()], files, () => false, reads), state).toEqual([]);
+    }
+    const failed = found({ prState: async () => ({ ok: false as const, error: 'boom' } as never) });
+    expect(await killedWorkerEndings([tree()], files, () => false, failed.reads)).toEqual([]);
+  });
+
+  it('asks the host once for a launch that has a pull request, and again after a failed call', async () => {
+    const files = desk({ [PID]: '4242' });
+    let asked = 0;
+    const open = found({ prState: async () => (asked++, { ok: true as const, value: { state: 'OPEN' } as never }) });
+    await killedWorkerEndings([tree()], files, () => false, open.reads);
+    await killedWorkerEndings([tree()], files, () => false, open.reads);
+    expect(asked).toBe(1);
+    // A NEW LAUNCH WRITES A NEW PID, so it is a new key.
+    await killedWorkerEndings([tree()], desk({ [PID]: '4343' }), () => false, open.reads);
+    expect(asked).toBe(2);
+
+    let failedAsks = 0;
+    const failing = found({ prState: async () => (failedAsks++, { ok: false as const, error: 'boom' } as never) });
+    await killedWorkerEndings([tree()], files, () => false, failing.reads);
+    await killedWorkerEndings([tree()], files, () => false, failing.reads);
+    expect(failedAsks).toBe(2);
   });
 });
 
@@ -1473,8 +1549,17 @@ describe('a killed worker and a stopped worker through startFreshSession and con
         return { released: true, detail: `released ${branch}` };
       },
     };
+    const asked: string[] = [];
+    const killedReads: KilledWorkerReads = {
+      ...killedWorkerReads({ repoRoot: repo, scriptDir: '/nonexistent' }, new Set<string>()),
+      commitBeyondClaim: async () => (asked.push('commit'), 'yes' as const),
+      prState: async () => (asked.push('prState'), { ok: true as const, value: null }),
+    };
+    const realDeskDead = killedReads.deskDead;
+    killedReads.deskDead = async (worktree) => (asked.push('deskDead'), realDeskDead(worktree));
     const deps = {
       ...reads,
+      killedReads,
       writeEnding: deskFs({} as Trees).writeEnding,
       record,
       heldFiles: async () => ['a.ts'],
@@ -1516,7 +1601,7 @@ describe('a killed worker and a stopped worker through startFreshSession and con
       while (Date.now() < deadline && !existsSync(join(desk, EXIT_FILENAME))) await new Promise((r) => setTimeout(r, 20));
       expect(readFileSync(join(desk, EXIT_FILENAME), 'utf8')).toBe('0');
     };
-    return { desk, manifests, record, starts, releases, out, tickOnce, settled, runLog };
+    return { desk, manifests, record, starts, releases, out, tickOnce, settled, runLog, asked };
   };
 
   it('writes the supervisor ending, starts one fresh agent, records one row, and the next tick asks a person instead', async () => {
@@ -1575,10 +1660,40 @@ describe('a killed worker and a stopped worker through startFreshSession and con
   });
 
   it('leaves a desk cut by hand, which no worker ever ran: no ending written, no release', async () => {
-    const { desk, starts, releases, tickOnce } = estate();
+    const { desk, starts, releases, tickOnce, asked } = estate();
     expect(await tickOnce()).toEqual([]);
     expect(existsSync(join(desk, ENDING_FILENAME))).toBe(false);
     expect(starts).toEqual([]);
     expect(releases).toEqual([]);
+    expect(asked).toEqual([]);
+  });
+
+  it('leaves a desk cut by hand on a plan-named branch with work and no pull request: no ending, no session, zero asks', async () => {
+    const { desk, starts, asked, out, tickOnce } = estate();
+    writeFileSync(join(desk, 'work.txt'), 'commits beyond the claim');
+    expect(await tickOnce()).toEqual([]);
+    expect(existsSync(join(desk, ENDING_FILENAME))).toBe(false);
+    expect(starts).toEqual([]);
+    expect(asked).toEqual([]);
+    expect(out.join('')).not.toContain('recorded');
+  });
+
+  it('starts one fresh agent in the tick that finds a launched dead desk with work and no pull request, then asks a person', async () => {
+    const { desk, manifests, starts, asked, out, tickOnce, settled } = estate();
+    writeFileSync(join(desk, '.plot-worker.pid'), '2147483646');
+    const first = await tickOnce();
+    expect(first.map((a) => a.outcome), out.join('')).toEqual(['started']);
+    expect(asked.slice(0, 3)).toEqual(['deskDead', 'commit', 'prState']);
+    expect(JSON.parse(readFileSync(join(desk, ENDING_FILENAME), 'utf8'))).toMatchObject({
+      reason: 'unreadable',
+      actor: 'supervisor',
+      detail: 'the worker left no exit record and no ending; its branch holds work and no pull request',
+    });
+    await settled();
+    rmSync(join(manifests, 'fresh-1.json'));
+    const second = await tickOnce();
+    expect(second.map((a) => a.outcome), out.join('')).toEqual(['escalated']);
+    expect(starts).toHaveLength(1);
+    expect(readFileSync(join(desk, 'PLOT-BLOCKED.md'), 'utf8')).toContain('already had its one fresh session (unreadable)');
   });
 });

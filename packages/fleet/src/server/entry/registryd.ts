@@ -21,11 +21,13 @@ import {
   endingAsksPersonOutright,
   isBoundEnding,
   killedWorkerEnding,
+  type DeadDeskReadings,
   type EndingActionVerdict,
   type PrOpenReading,
   type PrMergedReading,
 } from '@plot-pm/domain/rules/ending-action';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
+import type { DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import type { PortResult, Pr } from '@plot-pm/domain';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
@@ -871,34 +873,98 @@ export interface KilledWorkerEnding {
   ending: Ending;
 }
 
+/** The reads {@link killedWorkerEndings} takes beyond a desk's files: the dead-desk, git and host asks of the exit-0 arm. */
+export interface KilledWorkerReads {
+  /** {@link deskDead}'s answer for a desk. */
+  deskDead: (worktree: string) => Promise<DeskDeadAnswer>;
+  /** Whether a desk's branch holds a commit beyond its claim; keyed by worktree. */
+  commitBeyondClaim: (worktree: string) => Promise<CommitReading>;
+  /** The host's pull request for a branch in any state: `null` for none, a failed result where the host gave no answer. */
+  prState: (branch: string) => Promise<PortResult<Pr | null>>;
+  /**
+   * Launches whose branch the host answered with a pull request, keyed by
+   * {@link launchKey}. The caller keeps it across ticks; the arm adds a key
+   * on an OPEN, MERGED or CLOSED answer and never on a failed one.
+   */
+  hasPr: Set<string>;
+}
+
+/** The key a launch is remembered by: the desk and the verbatim text of its `.plot-worker.pid`. */
+export const launchKey = (worktree: string, pidText: string): string => `${worktree}\t${pidText.trim()}`;
+
 /**
- * The endings this tick writes for candidate desks whose worker exited
- * non-zero and wrote none, from {@link killedWorkerEnding}.
+ * The endings this tick writes for candidate desks whose worker wrote none,
+ * from {@link killedWorkerEnding}.
  *
- * Reads each desk's ending file and exit record, and asks `loopAlive` only
- * for a desk whose ending file is absent.
+ * Reads each desk's ending file, exit record and launch record, and asks
+ * `loopAlive` only for a desk whose ending file is absent. For an exit of 0
+ * or no exit record, it asks `deskDead`, `commitBeyondClaim` and `prState`
+ * in that order, only for a desk that passed every earlier reading, and
+ * stops at the first reading that composes nothing. A desk without a launch
+ * record triggers none of the three asks, and neither does a launch the host
+ * already answered with a pull request.
  *
  * @param candidates - the desks {@link freshAgentCandidateTrees} named.
  * @param deskFile - reads one file from a desk, or null where it is not there.
  * @param loopAlive - whether a live loop holds the desk.
+ * @param reads - the dead-desk, git and host asks.
  * @returns one entry per desk that owes an ending, in the order given.
  */
-export const killedWorkerEndings = (
+export const killedWorkerEndings = async (
   candidates: readonly RegisteredTreeReadings[],
   deskFile: (worktree: string, name: string) => string | null,
   loopAlive: (worktree: string) => boolean,
-): readonly KilledWorkerEnding[] =>
-  candidates.flatMap((tree) => {
+  reads: KilledWorkerReads,
+): Promise<readonly KilledWorkerEnding[]> => {
+  const owed: KilledWorkerEnding[] = [];
+  for (const tree of candidates) {
     const reading = readEnding(deskFile(tree.path, ENDING_FILENAME));
-    if (reading.read !== 'absent') return [];
-    const ending = killedWorkerEnding({
-      ending: reading,
-      exit: deskFile(tree.path, EXIT_FILENAME),
-      loopAlive: loopAlive(tree.path),
-      branch: tree.branch,
-    });
-    return ending === null ? [] : [{ worktree: tree.path, ending }];
-  });
+    if (reading.read !== 'absent') continue;
+    const exit = deskFile(tree.path, EXIT_FILENAME);
+    const base = { ending: reading, exit, loopAlive: loopAlive(tree.path), branch: tree.branch };
+    const code = exit === null ? null : exit.trim();
+    const cleanArm = code === null || code === '0';
+    let deadDesk: DeadDeskReadings | undefined;
+    if (cleanArm && !base.loopAlive && base.branch !== '') {
+      deadDesk = await readDeadDesk(tree, deskFile(tree.path, PID_FILENAME), reads);
+      if (deadDesk === undefined) continue;
+    }
+    const ending = killedWorkerEnding({ ...base, deadDesk });
+    if (ending !== null) owed.push({ worktree: tree.path, ending });
+  }
+  return owed;
+};
+
+/** `.plot-worker.pid`'s filename — the launch record only a fleet launch writes. */
+const PID_FILENAME = '.plot-worker.pid';
+
+/**
+ * Takes the exit-0 arm's readings in order, or `undefined` once one composes nothing.
+ *
+ * @param tree - the candidate desk.
+ * @param pidText - the desk's `.plot-worker.pid`, or null where absent.
+ * @param reads - the dead-desk, git and host asks.
+ */
+const readDeadDesk = async (
+  tree: RegisteredTreeReadings,
+  pidText: string | null,
+  reads: KilledWorkerReads,
+): Promise<DeadDeskReadings | undefined> => {
+  if (pidText === null || !/^\s*[1-9][0-9]*\s*$/.test(pidText)) return undefined;
+  const key = launchKey(tree.path, pidText);
+  if (reads.hasPr.has(key)) return undefined;
+  const dead = await reads.deskDead(tree.path);
+  if (!dead.dead) return undefined;
+  const commitBeyondClaim = await reads.commitBeyondClaim(tree.path);
+  if (commitBeyondClaim !== 'yes') return undefined;
+  const state = await reads.prState(tree.branch);
+  if (!state.ok) return undefined;
+  if (state.value !== null) {
+    reads.hasPr.add(key);
+    return undefined;
+  }
+  return { launchPid: pidText, dead, commitBeyondClaim, pr: 'none' };
+};
 
 /**
  * Whether `Trees.dirtyPaths`' own reading shows a dirty tree.

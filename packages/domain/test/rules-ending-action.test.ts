@@ -12,6 +12,7 @@ import {
   BOUND_ENDINGS,
   isBoundEnding,
   killedWorkerEnding,
+  type DeadDeskReadings,
   type EndingActionReadings,
   type KilledWorkerReadings,
 } from '../src/rules/ending-action.js';
@@ -499,6 +500,68 @@ describe('killedWorkerEnding', () => {
 
   it('writes nothing for a detached desk, which names no branch to start', () => {
     expect(killedWorkerEnding(desk({ branch: '' }))).toBeNull();
+  });
+
+  describe('a dead desk the fleet launched — exit 0, or no exit record', () => {
+    const composing: DeadDeskReadings = {
+      launchPid: '4242\n',
+      dead: { dead: true },
+      commitBeyondClaim: 'yes',
+      pr: 'none',
+    };
+    const dead = (over: Partial<DeadDeskReadings> = {}, rest: Partial<KilledWorkerReadings> = {}) =>
+      desk({ exit: '0', deadDesk: { ...composing, ...over }, ...rest });
+
+    it('writes an unreadable supervisor ending naming what was read, for an exit of 0', () => {
+      expect(killedWorkerEnding(dead())).toEqual({
+        reason: 'unreadable',
+        actor: 'supervisor',
+        branch: 'infra/x',
+        detail: 'the worker exited 0 and wrote no ending; its branch holds work and no pull request',
+        refusedAssignment: '',
+        resumeId: '',
+      });
+    });
+
+    it('writes the no-record wording where there is no exit record, and prints no exit code', () => {
+      const ending = killedWorkerEnding(dead({}, { exit: null }));
+      expect(ending?.detail).toBe('the worker left no exit record and no ending; its branch holds work and no pull request');
+    });
+
+    it('writes nothing with every other reading set to compose and no launch record', () => {
+      expect(killedWorkerEnding(dead({ launchPid: null }))).toBeNull();
+      for (const launchPid of ['', 'abc', '0', '-3', '1.5']) expect(killedWorkerEnding(dead({ launchPid })), launchPid).toBeNull();
+    });
+
+    it('writes nothing when any one reading does not hold', () => {
+      const flips: Partial<DeadDeskReadings>[] = [
+        { dead: { dead: false, why: 'live' } },
+        { dead: { dead: false, why: 'waiting' } },
+        { dead: { dead: false, why: 'elsewhere' } },
+        { dead: { dead: false, why: 'unread' } },
+        { commitBeyondClaim: 'no' },
+        { commitBeyondClaim: 'unanswerable' },
+        { pr: 'some' },
+        { pr: 'unanswerable' },
+      ];
+      for (const flip of flips) expect(killedWorkerEnding(dead(flip)), JSON.stringify(flip)).toBeNull();
+      expect(killedWorkerEnding(dead({}, { loopAlive: true }))).toBeNull();
+      expect(killedWorkerEnding(dead({}, { branch: '' }))).toBeNull();
+    });
+
+    it('writes nothing without dead-desk readings, and for an exit record that holds no code', () => {
+      expect(killedWorkerEnding(desk({ exit: '0' }))).toBeNull();
+      for (const exit of ['', 'x']) expect(killedWorkerEnding(dead({}, { exit })), exit).toBeNull();
+    });
+
+    it("never overwrites a person's stopped ending or an unparseable one", () => {
+      const stopped: EndingReading = {
+        read: 'ended',
+        ending: { reason: 'stopped', actor: 'operator', branch: 'infra/x', detail: '', refusedAssignment: '', resumeId: '' },
+      };
+      expect(killedWorkerEnding(dead({}, { ending: stopped }))).toBeNull();
+      expect(killedWorkerEnding(dead({}, { ending: { read: 'unreadable', why: 'not JSON' } }))).toBeNull();
+    });
   });
 });
 
