@@ -234,6 +234,60 @@ describe('sliceProgress — the M of N slices merged line', () => {
     expect(sliceProgress({ file: PLAN }, p, true)).toBe('1 of 1 slices merged');
   });
 
+  it('counts every slice when the open slice comes first', () => {
+    const p = pulse(BASE, [
+      slice('First', 'eligible', [['feature/a', 'open']]),
+      slice('Second', 'complete', [['feature/b', 'merged']]),
+      slice('Third', 'complete', [['feature/c', 'merged']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('2 of 3 slices merged');
+  });
+
+  it('counts every slice when the open slice sits in the middle', () => {
+    const p = pulse(BASE, [
+      slice('First', 'complete', [['feature/a', 'merged']]),
+      slice('Second', 'blocked', [['feature/b', 'open']]),
+      slice('Third', 'complete', [['feature/c', 'merged']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('2 of 3 slices merged');
+  });
+
+  it('counts the slices after a slice that names no branch, which still refuses', () => {
+    const p = pulse(BASE, [
+      slice('Prose', 'empty', []),
+      slice('First', 'complete', [['feature/a', 'merged']]),
+      slice('Second', 'eligible', [['feature/b', 'open']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('1 of 2 slices merged');
+  });
+
+  it('counts every slice of a plan with unread branch items, which still refuses', () => {
+    const p = pulse(
+      BASE,
+      [
+        slice('First', 'complete', [['feature/a', 'merged']]),
+        slice('Second', 'complete', [['feature/b', 'merged']]),
+        slice('Third', 'eligible', [['feature/c', 'open']]),
+      ],
+      [{ wave: 'Second', branch: 'feature/d', line: '- feature/d' }],
+    );
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('not-merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('2 of 3 slices merged');
+  });
+
+  it('keeps not-merged over weak proof when an open slice follows a subject-proven one', () => {
+    const p = pulse(BASE, [
+      slice('First', 'complete', [['feature/a', 'merged']]),
+      slice('Second', 'eligible', [['feature/b', 'open']]),
+    ]);
+    (p.plans[0].slices[0].branches[0] as { evidence?: string }).evidence = 'subject';
+    expect(allSlicesConfirmed({ file: PLAN }, p, true)).toBe('not-merged');
+  });
+
   it('reads a complete scan that does not name the plan as zero of zero', () => {
     const p = pulse('some-other-plan.md', [slice('Reached', 'complete', [['feature/a', 'merged']])]);
     expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');

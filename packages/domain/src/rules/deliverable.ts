@@ -107,21 +107,6 @@ export const allSlicesConfirmed = (
 ): Landed => landed(meta, pulse, complete, true);
 
 /**
- * The arithmetic both exported rules share.
- *
- * ONE BODY RATHER THAN TWO, because the deferred-branch and empty-slice
- * arithmetic is subtle enough that two copies would drift: an all-deferred
- * plan is deliverable, a slice naming no branch is not, and a deferred branch
- * beside an unfinished one is refused by its slice. Eight tests pin those and
- * each would have to be written twice.
- *
- * @param meta The plan, by file path.
- * @param pulse The scan's report, or `null`.
- * @param complete Whether the scan finished.
- * @param confirmed Whether a merge subject alone is refused as proof.
- * @returns the landing answer.
- */
-/**
  * The plan's slices counted off the pulse: how many hold at least one
  * non-deferred branch (the denominator {@link sliceProgress} reports), and how
  * many of those read `complete` (its numerator) — plus the same-ordered
@@ -167,7 +152,10 @@ const slicesOf = (
   // A non-claim list item naming a branch no claim reads — already excludes
   // deferred items, which the parser never reports here. Read defensively:
   // an older pulse absent the field is no items, never a refusal.
-  if ((plan.unreadBranchItems ?? []).length > 0) return { verdict: 'not-merged', mergedSlices: 0, totalSlices: 0 };
+  // THE FIRST REFUSAL, recorded rather than returned: the verdict stays the
+  // one the first refusing check names, while the walk below still counts
+  // every non-deferred slice for the progress line.
+  let refused = (plan.unreadBranchItems ?? []).length > 0;
   let merged = 0;
   // WORK GIVEN UP, counted apart from work that landed.
   //
@@ -205,11 +193,17 @@ const slicesOf = (
     // Deferred branches are still exempt. A slice holding only deferred
     // branches names work somebody gave up, which is a decision; a slice
     // holding none names no work at all, which is a malformed plan.
-    if (slice.branches.length === 0) return { verdict: 'not-merged', mergedSlices, totalSlices };
+    if (slice.branches.length === 0) {
+      refused = true;
+      continue;
+    }
     deferred += slice.branches.length - branches.length;
     if (branches.length === 0) continue;
     totalSlices += 1;
-    if (slice.verdict !== 'complete') return { verdict: 'not-merged', mergedSlices, totalSlices };
+    if (slice.verdict !== 'complete') {
+      refused = true;
+      continue;
+    }
     merged += branches.length;
     mergedSlices += 1;
     // READ FROM THE BRANCH, which the arithmetic above deliberately does not
@@ -218,6 +212,8 @@ const slicesOf = (
     // filtered out — work given up is not work awaiting confirmation.
     if (confirmed) unconfirmed += branches.filter((b) => b.evidence === 'subject').length;
   }
+  // A REFUSAL OUTRANKS WEAK PROOF, as it did when it returned mid-walk.
+  if (refused) return { verdict: 'not-merged', mergedSlices, totalSlices };
   // ASKED AFTER THE LOOP, so every stronger refusal above has had its say.
   if (unconfirmed > 0) return { verdict: 'unknown', mergedSlices, totalSlices };
   // A PLAN THAT NAMES NO WORK IS NOT DELIVERABLE, which is the only case this
@@ -253,9 +249,11 @@ const landed = (
  * How many of a plan's slices have merged, as "M of N slices merged".
  *
  * Shares {@link landed}'s walk through {@link slicesOf} rather than a second
- * traversal: M and N are the same non-deferred-slice counts `allSlicesMerged`
- * reaches on its way to `'merged'`, so `merged === total` here exactly when
- * {@link allSlicesMerged} answers `'merged'` on the same pulse. A slice is one
+ * traversal: M and N count every non-deferred slice of the plan, whatever the
+ * verdict, so N is the plan's size even while a slice is open. `merged ===
+ * total` when {@link allSlicesMerged} answers `'merged'` on the same pulse; it
+ * can also hold beside `'not-merged'`, where the refusal is an unread branch
+ * item or a slice naming no branch rather than an open slice. A slice is one
  * unit of progress regardless of how many branches it holds — unlike
  * `allSlicesMerged`'s own `merged`/`deferred` counters, which count branches.
  *
