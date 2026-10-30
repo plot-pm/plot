@@ -4,6 +4,7 @@ import type { PrIndexRow } from '../src/entities/pr-index.js';
 import type { Sprint } from '../src/entities/sprint.js';
 import { defaultBranchRed } from '../src/rules/default-branch.js';
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
+import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 import { nextMerge, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
@@ -250,6 +251,64 @@ describe('the merge arm', () => {
     expect(merging({ row: { ...passed, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
     expect(merging({ mergerAppMissing: true })).toEqual({ step: 'hold', reason: 'merger-app-missing' });
     expect(merging({ mergerAppMissing: false })).toMatchObject({ step: 'merge' });
+  });
+
+  describe('the repair exception', () => {
+    const LAST_GREEN = 'e'.repeat(40);
+    const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+    const red = reading({ settled: { sha: TIP, state: 'red' }, head: 'red' });
+    const repairMerge = (over: Partial<RepairMergeReading> = {}): RepairMergeReading => ({
+      record: {
+        v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+        redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none',
+        repairPr: 7, at: '2026-10-10T00:00:00Z',
+      },
+      episode: 'open',
+      redRuns: 'red',
+      ...over,
+    });
+    const onRed = (over: Partial<SlicePrNextReadings> = {}, head = REPAIR_BRANCH) =>
+      merging({
+        defaultBranch: red,
+        row: { ...passed, head },
+        scope: { read: 'scope', sprint: {} as Sprint, slugs: ['x'], branches: [BRANCH, REPAIR_BRANCH] },
+        repairMerge: repairMerge(),
+        ...over,
+      });
+
+    it('merges the PR the record names on a settled red', () => {
+      expect(onRed()).toEqual({ step: 'merge', head: HEAD });
+    });
+
+    it('holds default-branch-red for a PR the record does not name', () => {
+      expect(onRed({ row: { ...passed, number: 8, head: REPAIR_BRANCH } })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+    });
+
+    it('holds default-branch-red with no repair reading, as before', () => {
+      expect(merging({ defaultBranch: red, repairMerge: undefined })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+    });
+
+    it('holds with the verdict’s reason for a named PR off the repair branch', () => {
+      expect(onRed({}, 'feature/x')).toEqual({ step: 'hold', reason: 'repair-branch-mismatch' });
+    });
+
+    it('holds repair-episode-closed where the episode is closed', () => {
+      expect(onRed({ repairMerge: repairMerge({ episode: 'closed' }) })).toEqual({ step: 'hold', reason: 'repair-episode-closed' });
+    });
+
+    it('holds repair-red-unconfirmed where the re-asked runs read green', () => {
+      expect(onRed({ repairMerge: repairMerge({ redRuns: 'green' }) })).toEqual({ step: 'hold', reason: 'repair-red-unconfirmed' });
+    });
+
+    it('keeps the remaining holds on the admitted PR', () => {
+      expect(onRed({ row: { ...passed, head: REPAIR_BRANCH, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+      expect(onRed({ defaultBranch: reading({ settled: { sha: TIP, state: 'red' }, headSha: 'd'.repeat(40) }) })).toEqual({ step: 'hold', reason: 'merge-in-flight' });
+      expect(onRed({ defaultBranch: reading({ settled: { sha: TIP, state: 'red' }, askedAt: '2026-10-30T09:00:00Z' }) })).toEqual({ step: 'hold', reason: 'default-branch-stale' });
+    });
+
+    it('does not lift a pending or unsettled reading', () => {
+      expect(onRed({ defaultBranch: reading({ settled: { sha: TIP, state: 'pending' } }) })).toEqual({ step: 'hold', reason: 'default-branch-unsettled' });
+    });
   });
 
   it('keeps the unread hold on an unread repair record', () => {

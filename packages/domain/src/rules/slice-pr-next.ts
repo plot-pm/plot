@@ -1,6 +1,7 @@
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { PrIndexRow } from '../entities/pr-index.js';
 import { defaultBranchAgeMs } from './default-branch.js';
+import { repairMergeVerdict, type RepairMergeReading } from './repair-pr.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { SprintScope } from './sprint-scope.js';
@@ -57,6 +58,11 @@ export interface SlicePrNextReadings {
   readonly fixer?: FixerReading;
   readonly ticket?: SiblingReading;
   readonly repair?: SiblingReading;
+  /**
+   * The repair record, its episode and the red commit's re-asked runs, read once
+   * per tick (#2904). Absent reads as no record: a settled red holds every PR.
+   */
+  readonly repairMerge?: RepairMergeReading;
   /**
    * True where the host is GitHub and `Merger app` is undeclared. Absent reads
    * as not applicable, which is every other host.
@@ -224,7 +230,10 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * or green; `default-branch-red`; `default-branch-unsettled` for a settled
  * state that is not green; `merge-in-flight` for a settled commit that is not
  * the head, or a merged row newer than the reading; `conflicting`;
- * `merger-app-missing`. The stale check is this arm's own and never
+ * `merger-app-missing`. On a settled red, `readings.repairMerge` lifts
+ * `default-branch-red` for the one PR {@link repairMergeVerdict} admits; the
+ * remaining holds then apply to it unchanged. A PR the record names and the
+ * verdict refuses holds with the verdict's reason. The stale check is this arm's own and never
  * `defaultBranchRed`: a merge cannot be undone, so an old reading holds here
  * where it lifts the queue's hold.
  *
@@ -240,8 +249,17 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   const age = defaultBranchAgeMs(defaultBranch, now);
   if (age === null || age > config.checksWaitMs) return hold('default-branch-stale');
   const { settled } = defaultBranch;
-  if (settled?.state === 'red') return hold('default-branch-red');
-  if (settled === undefined || settled.state !== 'green') return hold('default-branch-unsettled');
+  let repairAdmitted = false;
+  if (settled?.state === 'red') {
+    const verdict =
+      readings.repairMerge === undefined
+        ? null
+        : repairMergeVerdict(readings.repairMerge, { number: row.number, head: row.head });
+    if (verdict === null || verdict.verdict === 'not-named') return hold('default-branch-red');
+    if (verdict.verdict === 'refused') return hold(verdict.reason);
+    repairAdmitted = true;
+  }
+  if (settled === undefined || (!repairAdmitted && settled.state !== 'green')) return hold('default-branch-unsettled');
   const mergedAt = newestMerged === null ? Number.NaN : Date.parse(newestMerged.mergedAt);
   const askedAt = Date.parse(defaultBranch.askedAt);
   if (settled.sha !== defaultBranch.headSha || (newestMerged !== null && !(mergedAt <= askedAt))) {
