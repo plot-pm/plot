@@ -107,7 +107,7 @@ Decided after the plot-review of PR #2915, 2026-10-29 (#2925):
 
 ### Holding-work reads the merge
 
-- `feature/holding-work-reads-the-merge` — the `holding-work` arm answers `leave` where `prMerged` reads `merged` and `dirtyTree` reads `no`; the reader asks `prMerged` for `holding-work`, and `freshAgentDecisions` passes the held-files reading for `holding-work`; tests: domain unit rows for `holding-work` with `merged`, `not-merged` and `unanswerable` at `priorFreshSessions` 0 and 1, each with `dirtyTree` `no` and `yes`, a fixture of the 10 measured second-ending readings asserting which answers change (#2591's only, where its held files read empty); fleet unit: a `holding-work` desk whose host answers merged and whose tree is clean writes no marker, and the same desk with a held file or a failed held-files read keeps today's answer <!-- builds: a prMerged read on the holding-work arm -->
+- `feature/holding-work-reads-the-merge` — the `holding-work` arm answers `leave` where `prMerged` reads `merged` and `dirtyTree` reads `no`; the reader asks `prMerged` for `holding-work`, and `freshAgentDecisions` passes the held-files reading for `holding-work`; tests: domain unit rows for `holding-work` with `merged`, `not-merged` and `unanswerable` at `priorFreshSessions` 0 and 1, each with `dirtyTree` `no` and `yes`, a fixture of the 10 measured second-ending readings asserting which answers change (#2591's only, where its held files read empty); fleet unit: a `holding-work` desk whose host answers merged and whose tree is clean writes no marker, and the same desk with a held file or a failed held-files read keeps today's answer <!-- builds: a prMerged read on the holding-work arm --> → #2963
 
 ## Notes
 
