@@ -86,11 +86,20 @@ export type StatusOutcome = 'written' | 'already' | 'unreachable' | 'no-target';
 /** The plan phases whose state Plot reflects on an issue. */
 export type PlanStatePhase = 'draft' | 'approved' | 'delivered' | 'released';
 
+/** One HIGH-severity ticket the comment links, in the order it renders. */
+export interface PlanHighTicket {
+  /** The ticket's title, verbatim. */
+  title: string;
+  /** The ticket's URL. */
+  url: string;
+}
+
 /**
  * What a plan-state write is told: the third write Plot may make.
  *
  * The write is one-way. Plot sets a `plan:*` label and posts one comment, and
- * no Plot code reads either back; git stays the source of truth for the phase.
+ * no Plot code reads either back except the one read {@link Tracker.planStateWrite}
+ * documents — git stays the source of truth for the phase.
  */
 export interface PlanStateWrite {
   /** The issue's identifier, verbatim from the plan's `Issue:` line. */
@@ -105,6 +114,19 @@ export interface PlanStateWrite {
   planLink: string;
   /** The release version; read for `released` and ignored otherwise. */
   version?: string;
+  /**
+   * The plan's merged-slice progress, rendered verbatim; absent where no
+   * record of it could be read on this machine, which keeps the comment's
+   * existing progress line rather than rendering none.
+   */
+  sliceProgress?: string;
+  /**
+   * The plan's open HIGH-severity tickets; absent where no ticket record
+   * could be read on this machine (D6), which keeps the comment's existing
+   * ticket lines rather than rendering none. An empty array, by contrast, is
+   * a record that read and found no HIGH ticket open.
+   */
+  highTickets?: readonly PlanHighTicket[];
 }
 
 /**
@@ -218,13 +240,16 @@ export interface VersionRead {
  *
  * THE WRITES ARE FOUR FACTS. Plot writes a status to the tracker it was told
  * about, opens an issue for a claim it refuted, comments on an issue it opened
- * itself, and reflects a plan's phase on the issue the plan answers through
- * {@link Tracker.planStateWrite}: one `plan:*` label, one comment and, at
- * release, a close. It writes nothing else — no edit of an existing body, no
- * other label on an existing issue, no transition it was not asked for — and
- * NO RULE READS A `plan:*` LABEL OR THE PLAN COMMENT BACK. A plan referencing
- * an issue remains Plot's record; the status and the label are reflections a
- * person reads in the tracker rather than in Plot.
+ * itself, and reflects a plan's phase, its merged-slice progress and its open
+ * HIGH tickets on the issue the plan answers through
+ * {@link Tracker.planStateWrite}: one `plan:*` label, one comment rendering all
+ * three, and, at release, a close. It writes nothing else — no edit of an
+ * existing body beyond that one rendered comment, no other label on an
+ * existing issue, no transition it was not asked for — and NO RULE READS A
+ * `plan:*` LABEL OR THE PLAN COMMENT BACK, save the one read
+ * {@link Tracker.planStateWrite} documents. A plan referencing an issue remains
+ * Plot's record; the status and the label are reflections a person reads in
+ * the tracker rather than in Plot.
  */
 export interface Tracker {
   /**
@@ -438,19 +463,30 @@ export interface Tracker {
   issueComment(id: string, body: string): Promise<PortResult<IssueCommentOutcome>>;
 
   /**
-   * Reflects a plan's phase on an issue, and nothing else.
+   * Reflects a plan's phase, progress and open HIGH tickets on an issue, and
+   * nothing else.
    *
    * THE FOURTH WRITE ON THIS PORT, and ONE-WAY: it sets the issue's `plan:*`
    * label (replacing any previous `plan:*` label, so an issue carries one) and
-   * keeps one comment that links the plan, editing it on a re-run rather than
-   * posting a second. A `released` phase also names the version and closes the
-   * issue. No rule reads the label or the comment back.
+   * keeps one comment rendering the phase, the slice progress and the HIGH
+   * ticket links, editing it on a re-run rather than posting a second. A
+   * `released` phase also names the version and closes the issue. The write is
+   * level-triggered: it is skipped where the owed body matches the last body
+   * written for this issue. No rule reads the label back.
+   *
+   * THE ONE SANCTIONED READ-BACK (D6): where `write.sliceProgress` or
+   * `write.highTickets` is absent — no record of it could be read on this
+   * machine — this write reads the issue's currently-posted marked comment to
+   * recover its existing progress or ticket lines unchanged, rather than
+   * rendering the body as if neither existed. Absent is not false. This is the
+   * one place anything reads the plan comment back.
    *
    * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `written`, for the
    * reason `statusWrite` does. A Jira tracker takes a status and nothing else,
    * so it answers `no-target`.
    *
-   * @param write - the issue, the phase, the plan's link and the release version.
+   * @param write - the issue, the phase, the plan's link, the release version,
+   *   and, where known on this machine, the slice progress and HIGH tickets.
    * @returns `written`; `no-target` where the tracker takes no such write;
    *   `unaskable` where no tracker was declared; `failed` otherwise, with the
    *   reason in `lastRefusal`.

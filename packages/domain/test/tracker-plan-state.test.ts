@@ -8,7 +8,12 @@ import type { ShellContext } from '../src/adapters/scripts.js';
 import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
 import { trackerJira } from '../src/adapters/tracker/tracker-jira.js';
 import { trackerNone } from '../src/adapters/tracker/tracker-none.js';
-import { planStateComment, planStateLabelsToRemove } from '../src/adapters/tracker/tracker-plan-state.js';
+import {
+  githubPlanStateWrite,
+  planStateLabelsToRemove,
+  PLAN_STATE_WRITTEN_HOME_ENV,
+} from '../src/adapters/tracker/tracker-plan-state.js';
+import { planIssueComment } from '../src/rules/plan-issue-comment.js';
 import { trackerGithub } from '../src/adapters/tracker/tracker-github.js';
 import { isAnswered } from '../src/port-result.js';
 import type { PlanStateWrite } from '../src/ports/tracker.js';
@@ -45,6 +50,8 @@ case "$1" in
       grep -vF "$3" "$state/comments" >"$state/comments.new"; mv "$state/comments.new" "$state/comments"
     fi
     printf '%s\\n' "$4" | tr '\\n' '|' >>"$state/comments"; echo >>"$state/comments" ;;
+  issue-comment-read)
+    grep -F "$3" "$state/comments" | tr '|' '\\n' ;;
   issue-close) touch "$state/closed" ;;
   *) exit 4 ;;
 esac
@@ -150,6 +157,52 @@ describe('a plan-state write reflects the phase on a GitHub issue', () => {
   });
 });
 
+describe('D6: the ticket record is not this machine’s to hold', () => {
+  const stateHome = (): { env: Record<string, string>; refusals: (string | null)[]; refuse: (said: string | null) => void } => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-plan-state-written-'));
+    roots.push(dir);
+    const refusals: (string | null)[] = [];
+    return { env: { PLOT_TRACKER: 'github-issues', [PLAN_STATE_WRITTEN_HOME_ENV]: dir }, refusals, refuse: (said) => refusals.push(said) };
+  };
+
+  it('keeps the comment’s existing ticket lines on a write naming no record of its own', async () => {
+    const host = issueHost();
+    const state = stateHome();
+    const planStateWrite = githubPlanStateWrite(host.context, state.env, state.refuse);
+    await planStateWrite(
+      write('delivered', { sliceProgress: '1 of 2 slices merged', highTickets: [{ title: 'Fix it', url: 'https://x/9' }] }),
+    );
+    await planStateWrite(write('released', { version: 'v1' }));
+    expect(host.comments()).toHaveLength(1);
+    expect(host.comments()[0]).toContain('1 of 2 slices merged');
+    expect(host.comments()[0]).toContain('[Fix it](https://x/9)');
+  });
+
+  it('issues no host call for label or comment on a second identical write', async () => {
+    const host = issueHost();
+    const state = stateHome();
+    const first = await githubPlanStateWrite(host.context, state.env, state.refuse)(write('approved'));
+    expect(isAnswered(first) && first.value).toBe('written');
+
+    writeFileSync(
+      join(host.context.scriptDir, 'plot-host.sh'),
+      '#!/usr/bin/env bash\ncase "$1" in issue-comment-read) exit 0 ;; *) echo must-not-be-called >&2; exit 3 ;; esac\n',
+    );
+    const second = await githubPlanStateWrite(host.context, state.env, state.refuse)(write('approved'));
+    expect(isAnswered(second) && second.value).toBe('written');
+  });
+
+  it('leaves exactly one comment after two concurrent writers find no marked comment', async () => {
+    const host = issueHost();
+    const state = stateHome();
+    await Promise.all([
+      githubPlanStateWrite(host.context, state.env, state.refuse)(write('approved')),
+      githubPlanStateWrite(host.context, state.env, state.refuse)(write('approved')),
+    ]);
+    expect(host.comments()).toHaveLength(1);
+  });
+});
+
 describe('the other trackers', () => {
   it('trackerNone answers unaskable at every phase, released included', async () => {
     for (const phase of ['draft', 'approved', 'delivered', 'released'] as const) {
@@ -183,8 +236,8 @@ describe('the label and comment text', () => {
   });
 
   it('keys the comment on one marker, so the draft PR link and the later plan path share it', () => {
-    const draft = planStateComment(write('draft', { planLink: 'https://github.com/o/r/pull/123' }));
-    const approved = planStateComment(write('approved', { planLink: 'docs/plans/2026-10-17-p.md' }));
+    const draft = planIssueComment(write('draft', { planLink: 'https://github.com/o/r/pull/123' }));
+    const approved = planIssueComment(write('approved', { planLink: 'docs/plans/2026-10-17-p.md' }));
     expect(draft.split('\n')[0]).toBe('<!-- plot:plan-link -->');
     expect(approved.split('\n')[0]).toBe(draft.split('\n')[0]);
   });
