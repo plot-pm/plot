@@ -1,6 +1,6 @@
 # CI runs what the change touches, and a red main clears fast
 
-> CI selects its suites from the PR's changed paths through one change-to-checks rule that `plot-local-checks.mjs` shares, runs `corpus` against the merge with the current `main` before a merge, and lets a red `main` admit its repair PR through `plot-ask.mjs merge`.
+> CI selects its suites from the PR's changed paths through one change-to-checks rule that `plot-local-checks.mjs` shares, runs `corpus` with no host token locally and in CI, and lets a red `main` admit its repair PR through `plot-ask.mjs merge`.
 
 ## Status
 
@@ -21,7 +21,7 @@
 
 - CI selects the TypeScript tests and the shell-script tests a pull request touches, and runs the `scripts/check-*.sh` gates and the typechecks on every pull request.
 - A change to a plan, a sprint or `.plot/` always runs `corpus`.
-- `corpus` runs against the pull request merged onto the current `main` before a merge.
+- `corpus` runs with no host token, locally and in CI.
 - `validate`'s own suites start alongside `helper-contracts` and `board-integration`.
 - `plot-ask.mjs merge` admits the repair PR that the repair record names while `main` is red.
 
@@ -46,7 +46,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
    - Shell-script tests: a script-to-test map. A test that runs `plot-host.sh` is selected when `plot-host.sh` changes. The map is derived from the tests' own script references, and a corpus test holds the derivation.
    - Always run: the `scripts/check-*.sh` gates and the typechecks.
 3. **Plan data selects `corpus`.** A change to a plan, a sprint or `.plot/` always selects `corpus`, because plan data alone can turn `main` red through it.
-4. **Merge skew.** Before a merge, `corpus` (about 5 minutes) runs against the PR merged onto the current `main`.
+4. **Merge skew.** No check runs before a merge. The full CI run on every push to `main` is the safety net, and the repair merge (`feature/ask-merge-admits-the-repair-pr`) and the token-free corpus reading shorten a red `main`.
 5. **One corpus reading.** The corpus scan reads the same way locally and in CI: no host token in either. A failure that only appears without a token then shows before the push.
 6. **`validate` starts with the other jobs.** Its own suites (about 6 minutes) run beside `helper-contracts` and `board-integration`; its last step still exits 1 unless both split jobs ended `success`, as today.
 7. **`main` keeps the full run.** The push to `main` runs every job, and that run is the safety net for a selection miss.
@@ -61,7 +61,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 ### Open Questions
 
 - [ ] The branch ruleset requires `validate` and `plot/review`. Does a skipped suite still report through `validate`, as the split jobs do today (`if: !cancelled()`)?
-- [ ] Does the merge-skew `corpus` run on `pull_request` with a merge ref, or in a `merge_group` queue? The repository has no merge queue today.
+- [x] Does the merge-skew `corpus` run on `pull_request` with a merge ref, or in a `merge_group` queue? The repository has no merge queue today. — Neither: Jan Wloka decided on 2026-10-30 that no check runs before a merge, because a merge-ref `corpus` run reads `origin/main` and cannot see the state a merge creates (#2953).
 - [ ] How does the script-to-test map treat a test that runs a script through another script? The first slice measures it over the 75 contract files before the rule is fixed.
 - [ ] Does `vitest related` miss a test that reads a file by path instead of by import? The first slice names the files `vitest related` cannot see.
 - [ ] Does `corpus` need a fixture for the host's answer instead of removing the token, so local and CI readings match?
@@ -78,7 +78,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Corpus reading
 
-- `feature/corpus-reads-without-a-token` — the corpus scan reads the same with and without a host token, and `corpus` runs against the merge with the current `main` before a merge <!-- waits: feature/ci-reads-the-selection -->
+- `feature/corpus-reads-without-a-token` — the corpus scan reads the same with and without a host token; no check runs before a merge <!-- waits: feature/ci-reads-the-selection -->
 
 ### Repair merge
 
