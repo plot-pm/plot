@@ -136,7 +136,10 @@ const writeProcStubs = (bin) => {
  *   a stub that prints `refuse` and exits 1, matching an observed `no`;
  *   `'crash'` writes no file at all, reproducing a probe that could not run.
  */
-function sandbox(label, { nvmrc = '24', registryd = true, writeProbe = 'proceed' } = {}) {
+function sandbox(
+  label,
+  { nvmrc = process.versions.node.split('.')[0], registryd = true, writeProbe = 'proceed' } = {},
+) {
   // NESTED ONE LEVEL, and that is not tidiness. The default `Worktree root` is
   // `repo_root/..`, so a sandbox sitting directly in $TMPDIR enumerates every
   // OTHER sandbox as its own fleet — measured here on the first run, where an
@@ -372,8 +375,8 @@ test('refusal: the wrong node leaves no unit behind', () => {
 
 // ── The pin is read from .nvmrc, not from `engines` ───────────────────────────
 
-test('the pin is .nvmrc — engines says >=24, which is a floor', () => {
-  const { root, ctl, guardBin } = sandbox('pin');
+test('the pin is .nvmrc — engines says >=26, which is a floor', () => {
+  const { root, ctl, guardBin } = sandbox('pin', { nvmrc: '24' });
   const probe = `PLOT_FLEETCTL_SOURCED=1 . '${ctl}'; printf '%s' "$(pinned_major)"`;
   const out = execFileSync('bash', ['-c', probe], { encoding: 'utf8', cwd: root });
   assert.equal(out, '24');
