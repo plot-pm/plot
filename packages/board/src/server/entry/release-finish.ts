@@ -1,8 +1,8 @@
-import { realpathSync } from 'node:fs';
+import { realpathSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import type { Caller, PlanStore, Refs, Host, Scripts, Trees } from '@plot-pm/domain';
-import { releaseFinish, type ScopePlan } from '@plot-pm/domain/workflows/release-finish';
+import { releaseFinish, type FinishSprint, type ScopePlan } from '@plot-pm/domain/workflows/release-finish';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 
@@ -49,20 +49,34 @@ const scopeSlugs = (content: string): string[] => {
   return slugs;
 };
 
-/** The `State:` value of a sprint file's `## Status` section, lower-cased. */
-const sprintState = (content: string): string => {
+/**
+ * A field of a sprint file's `## Status` section, as the file spells it.
+ *
+ * @param content - the whole sprint file.
+ * @param names - the field's names; the first one the section holds answers.
+ * @returns the trimmed value, or `''` where the section holds none of them.
+ */
+const statusField = (content: string, names: readonly string[]): string => {
   const body = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
-  return (body.match(/^- \*\*(?:State|Phase):\*\*\s*(.*)$/m)?.[1] ?? '').trim().toLowerCase();
+  for (const name of names) {
+    const value = body.match(new RegExp(`^- \\*\\*${name}:\\*\\*\\s*(.*)$`, 'm'))?.[1];
+    if (value !== undefined) return value.trim();
+  }
+  return '';
 };
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** The sprint file's `State:` edit: `Closed`, with the date as `Actual End:`. */
+/**
+ * The sprint file's close: `State: Closed`, with the date as `Actual End:`.
+ *
+ * The legacy `Phase:` line is rewritten as `State:`, as `plot-sprint-state.sh` does.
+ */
 const closeSprintText = (content: string, on: string): string => {
   const status = content.match(/(## Status\s*\n)([\s\S]*?)(?=\n## |$)/);
   if (status === null) return content;
   let body = status[2] ?? '';
-  body = body.replace(/^(- \*\*State:\*\*).*$/m, '$1 Closed');
+  body = body.replace(/^- \*\*(?:State|Phase):\*\*.*$/m, '- **State:** Closed');
   body = /^- \*\*Actual End:\*\*/m.test(body)
     ? body.replace(/^(- \*\*Actual End:\*\*).*$/m, `$1 ${on}`)
     : body.replace(/^(- \*\*State:\*\*.*)$/m, `$1\n- **Actual End:** ${on}`);
@@ -72,11 +86,14 @@ const closeSprintText = (content: string, on: string): string => {
 /**
  * Finishes a merged release in the person's own call.
  *
- * Reads the version from the release branch's `package.json` (the default
- * branch's, once the branch is gone), waits up to `tagWaitMs` for its tag, then
- * books every scope plan as Released and closes the sprint in ONE commit and
- * ONE push onto the default branch. The scope is the active sprint file at the
- * default branch's latest commit, struck items excluded.
+ * Fetches the default branch on its own and refuses `default-branch-unfetched`
+ * when that fetch fails. Reads the version from the fetched default branch's
+ * `package.json` and never from the release branch, which the host may delete
+ * on merge. Waits up to `tagWaitMs` for the version's tag, then books every
+ * scope plan as Released, closes the sprint and removes its active index entry
+ * in ONE commit and ONE push onto the default branch. The scope is the only
+ * sprint in the active index at the default branch's latest commit, struck
+ * items excluded.
  *
  * @param ctx - the ports, the caller and the wait bound.
  * @param prNumber - the merged release PR.
@@ -98,17 +115,15 @@ export const finishRelease = async (
     warn(`plot-ask: release-approve: the host did not answer for PR #${prNumber}; the finish writes nothing.\n`);
     return 1;
   }
-  await ctx.trees.fetch(ctx.repoRoot, [mainBranch, pr.value.head]);
-  const pkg = await (async () => {
-    for (const ref of [`origin/${pr.value!.head}`, `origin/${mainBranch}`]) {
-      const shown = await ctx.refs.showFile(ref, 'package.json');
-      if (shown.ok) return shown.value;
-    }
-    return '';
-  })();
+  const fetched = await ctx.trees.fetch(ctx.repoRoot, mainBranch);
+  if (!fetched.ok) {
+    warn(`plot-ask: release-approve: default-branch-unfetched: could not fetch '${mainBranch}' from origin, so the released version is unknown. The finish writes nothing; run it again once the fetch works.\n`);
+    return 1;
+  }
+  const shown = await ctx.refs.showFile(`origin/${mainBranch}`, 'package.json');
   const version = (() => {
     try {
-      return String((JSON.parse(pkg) as { version?: string }).version ?? '');
+      return String((JSON.parse(shown.ok ? shown.value : '') as { version?: string }).version ?? '');
     } catch {
       return '';
     }
@@ -123,6 +138,10 @@ export const finishRelease = async (
   let tagExists = false;
   for (;;) {
     await ctx.trees.fetch(ctx.repoRoot, mainBranch);
+    // `git fetch origin <branch>` follows no tag, and publish creates the tag on
+    // the remote, so the tag is fetched by its own refspec. A failed fetch leaves
+    // the tag unread locally, and the finish then refuses `tag-absent`.
+    await ctx.trees.fetch(ctx.repoRoot, `refs/tags/${tag}:refs/tags/${tag}`);
     const dated = await ctx.refs.tagDate(tag);
     tagExists = dated.ok && dated.value !== '';
     if (tagExists || Date.now() >= deadline) break;
@@ -155,18 +174,31 @@ export const finishRelease = async (
   const book = async (wt: string): Promise<void> => {
     refusal = null;
     const active = await ctx.planStore.listDir(path.join(wt, sprintDir, 'active'));
-    const sprintLink = (active.ok ? active.value : []).find((f) => f.endsWith('.md'));
-    // The active entry is a symlink; the edit goes to the file it names, so the link survives.
-    const sprintRel = sprintLink === undefined ? '' : (() => {
-      try {
-        return path.relative(realpathSync(wt), realpathSync(path.join(wt, sprintDir, 'active', sprintLink)));
-      } catch {
-        return path.join(sprintDir, 'active', sprintLink);
-      }
-    })();
-    const sprintText = sprintRel === '' ? null : await ctx.planStore.readText(path.join(wt, sprintRel));
-    const sprintContent = sprintText !== null && sprintText.ok ? sprintText.value : null;
-    const slugs = sprintContent === null ? [] : scopeSlugs(sprintContent);
+    const sprints: FinishSprint[] = [];
+    const contents = new Map<string, string>();
+    for (const name of (active.ok ? active.value : []).filter((f) => f.endsWith('.md')).sort()) {
+      const link = path.join(sprintDir, 'active', name);
+      // The active entry is a symlink; the edit goes to the file it names.
+      const file = (() => {
+        try {
+          return path.relative(realpathSync(wt), realpathSync(path.join(wt, link)));
+        } catch {
+          return link;
+        }
+      })();
+      const text = await ctx.planStore.readText(path.join(wt, file));
+      const content = text.ok && text.value !== null ? text.value : '';
+      contents.set(file, content);
+      sprints.push({
+        slug: path.basename(file, '.md'),
+        file,
+        link,
+        state: statusField(content, ['State', 'Phase']),
+        start: statusField(content, ['Start']),
+      });
+    }
+    const only = sprints.length === 1 ? sprints[0] : undefined;
+    const slugs = only === undefined ? [] : scopeSlugs(contents.get(only.file) ?? '');
 
     const listed = await ctx.planStore.listDir(path.join(wt, planDir));
     const files = listed.ok ? listed.value : [];
@@ -188,14 +220,8 @@ export const finishRelease = async (
       });
     }
 
-    const sprintSlug = sprintRel === '' ? '' : path.basename(sprintRel, '.md');
-    const sprint = sprintContent === null ? null : {
-      slug: sprintSlug,
-      file: sprintRel,
-      state: sprintState(sprintContent),
-    };
     const out = releaseFinish(
-      { caller: ctx.caller, version: tag, tagExists, scope, sprint },
+      { caller: ctx.caller, version: tag, tagExists, scope, sprints },
       { on },
     );
     if (out.outcome === 'refused') {
@@ -219,10 +245,17 @@ export const finishRelease = async (
       recordStateReceipt(ctx.repoRoot, p.file, 'Released');
       staged.push(p.file);
     }
-    if (out.detail.closeSprint !== null && sprintContent !== null) {
-      await ctx.planStore.writeText(path.join(wt, sprintRel), closeSprintText(sprintContent, on));
-      recordStateReceipt(ctx.repoRoot, sprintRel, 'Closed');
-      staged.push(sprintRel);
+    const close = out.detail.closeSprint;
+    if (close !== null) {
+      const written = await ctx.planStore.writeText(path.join(wt, close.file), closeSprintText(contents.get(close.file) ?? '', close.actualEnd));
+      if (!written.ok) throw new Refused(`could not write ${close.file}; nothing was pushed.`);
+      recordStateReceipt(ctx.repoRoot, close.file, 'Closed');
+      try {
+        unlinkSync(path.join(wt, close.link));
+      } catch {
+        throw new Refused(`could not remove the active index entry ${close.link}; nothing was pushed.`);
+      }
+      staged.push(close.file, close.link);
     }
     await ctx.trees.stage(wt, staged);
   };

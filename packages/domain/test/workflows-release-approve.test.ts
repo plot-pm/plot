@@ -169,8 +169,8 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
     expect(calls).toEqual([]);
   });
 
-  it('refuses a PR the host did not answer as not-release-pr, and a PR or a head it lacks', () => {
-    expect(refusalOf(readings({ pr: 'unaskable' }))).toBe('not-release-pr');
+  it('refuses a PR the host did not answer as unaskable, and a PR or a head it lacks', () => {
+    expect(refusalOf(readings({ pr: 'unaskable' }))).toBe('unaskable');
     expect(refusalOf(readings({ pr: null }))).toBe('not-release-pr');
     expect(refusalOf(readings({ pr: pr({ headSha: undefined }) }))).toBe('head-moved');
   });

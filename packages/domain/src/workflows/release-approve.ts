@@ -14,7 +14,7 @@ const short = (sha: string | undefined): string =>
  * Why `releaseApprove` refused. Each is the end of the action: nothing
  * merges, and no caller retries with the pin dropped.
  */
-export type ReleaseApproveRefusal = 'unattended' | 'not-release-pr' | 'head-moved' | 'review-missing';
+export type ReleaseApproveRefusal = 'unattended' | 'unaskable' | 'not-release-pr' | 'head-moved' | 'review-missing';
 
 /** What `releaseApprove` reads. Every reading is the host's, taken fresh for this call. */
 export interface ReleaseApproveReadings {
@@ -56,7 +56,8 @@ export interface ReleaseApproveDetail {
  * Decides whether a release PR may be approved and merged at the commit the
  * caller read.
  *
- * Refuses `unattended` before any other reading, the same way `merge` does.
+ * Refuses `unattended` before any other reading, the same way `merge` does,
+ * and `unaskable` where the host did not answer for the PR.
  * A PR the host already holds merged on a release branch decides with
  * `alreadyMerged`, and no review or head is asked of it.
  *
@@ -73,7 +74,10 @@ export const releaseApprove = (
     return no('unattended', `an unattended caller does not approve release PR #${input.pr}. Approval is reviewed as an action, and this one had no reviewer.`);
   }
   const { pr } = readings;
-  if (pr === 'unaskable' || pr === null || !RELEASE_BRANCH.test(pr.head)) {
+  if (pr === 'unaskable') {
+    return no('unaskable', `the host did not answer for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
+  }
+  if (pr === null || !RELEASE_BRANCH.test(pr.head)) {
     return no('not-release-pr', `PR #${input.pr} is not on a release branch. Only ${RELEASE_BRANCH} merges through release-approve.`);
   }
   if (pr.state === 'MERGED') {
