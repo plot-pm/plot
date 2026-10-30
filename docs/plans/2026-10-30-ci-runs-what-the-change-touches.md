@@ -7,7 +7,6 @@
 - **State:** Draft
 - **Type:** feature
 - **Sprint:** delivery-loop
-- **Issue:** #2943
 - **Story:** the-fleet-delivers-a-scope-alone
 - **Review:** pr
 - **Impl:** own branches
@@ -28,7 +27,7 @@ Board impact: none to the plan format, the template or `docs/plans`. A new rule 
 
 ## Motivation
 
-[#2943](https://github.com/plot-pm/plot/issues/2943) measured 2026-10-30: `ci.yml` runs every job on every pull request and on every push to `main`, and a red `main` holds every merge and every fleet handover until a fix PR passes that same full run.
+Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every push to `main`, and a red `main` holds every merge and every fleet handover until a fix PR passes that same full run.
 
 - **The full run is slow and mostly red.** The last 40 `CI` runs: 4 success, 26 failure, 5 action_required, 4 cancelled. A green run takes 17 to 20 minutes: `helper-contracts` and `board-integration` take 13 to 14 minutes, then `validate` (`needs: [helper-contracts, board-integration]`) runs its own suites for about 6 minutes.
 - **Most changes touch little.** Of the last 40 merged PRs, 24 touched `packages/board/` or `skills/`, 12 touched only plans, changesets, docs or tests, 3 only `packages/domain/`, and 1 only `packages/fleet/`.
@@ -49,7 +48,7 @@ Board impact: none to the plan format, the template or `docs/plans`. A new rule 
 5. **One corpus reading.** The corpus scan reads the same way locally and in CI: no host token in either. A failure that only appears without a token then shows before the push.
 6. **`validate` starts with the other jobs.** Its own suites (about 6 minutes) run beside `helper-contracts` and `board-integration`; its last step still exits 1 unless both split jobs ended `success`, as today.
 7. **`main` keeps the full run.** The push to `main` runs every job, and that run is the safety net for a selection miss.
-8. **Repair PR admitted.** `merge()` gains the narrow exception for the PR the repair record names (the `merge()` half of `feature/merge-admits-the-repair-pr`, moved forward from #2904). It needs `feature/the-repair-record` (PR #2936), not fleetd's merge arm. The `slicePrNext` half stays in #2904.
+8. **Repair PR admitted.** `merge()` gains the narrow exception for the PR the repair record names (the `merge()` half of #2904's `feature/merge-admits-the-repair-pr`, moved forward on its own branch `feature/ask-merge-admits-the-repair-pr`). It needs `feature/the-repair-record` (PR #2936), not fleetd's merge arm. The `slicePrNext` half stays in #2904.
 
 ### Constraints
 
@@ -81,11 +80,11 @@ Board impact: none to the plan format, the template or `docs/plans`. A new rule 
 
 ### Repair merge
 
-- `feature/merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record -->
+- `feature/ask-merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record -->
 
 ## Notes
 
 - Not in scope: the revert of a red merge stays #2904's `feature/a-red-main-is-reverted`, which needs #2903's ticket writer.
-- Source: [#2943](https://github.com/plot-pm/plot/issues/2943). The issue is the problem statement; this plan is the proposal and stops at Draft.
+- Priority: a sprint blocker, decided by Jan Wloka on 2026-10-30. It skips the panel round and lands ahead of the other sprint plans.
 - Related: `docs/plans/2026-10-29-a-red-default-branch-is-repaired.md` (#2904), which keeps the `slicePrNext` half of the repair exception.
-- `feature/merge-admits-the-repair-pr` is named by #2904's plan today. When this plan is approved, #2904's plan drops its `merge()` half and keeps `slicePrNext`, so one branch has one owner.
+- #2904's `feature/merge-admits-the-repair-pr` keeps only the `slicePrNext` half once `feature/ask-merge-admits-the-repair-pr` merges; each branch has one owner.
