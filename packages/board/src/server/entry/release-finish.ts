@@ -7,7 +7,6 @@ import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 
 import { commitAndPush, localDate, recordStateReceipt, Refused, type Printer, type PushLock } from './ladder.js';
-import { itemsFrom, sprintFrom } from './sprint-transition.js';
 
 /** The ports and settings the finish reads and writes through. */
 export interface FinishContext {
@@ -29,6 +28,32 @@ export interface FinishContext {
   /** The default-branch push lock; the real one where absent. */
   lock?: PushLock;
 }
+
+/**
+ * The unstruck plan slugs under the Must, Should and Could headings of a sprint file.
+ *
+ * Not imported from `sprint-transition.ts`: that module runs its own entry when
+ * bundled into `plot-ask.mjs`.
+ */
+const scopeSlugs = (content: string): string[] => {
+  const slugs: string[] = [];
+  let inTier = false;
+  for (const line of content.split('\n')) {
+    if (/^#{2,3} /.test(line)) {
+      inTier = /^#{2,3} (Must|Should|Could)\b/i.test(line);
+      continue;
+    }
+    const m = inTier ? line.match(/^- \[[ x]\] \[([a-z0-9][a-z0-9-]*)\]/) : null;
+    if (m?.[1] !== undefined && !slugs.includes(m[1])) slugs.push(m[1]);
+  }
+  return slugs;
+};
+
+/** The `State:` value of a sprint file's `## Status` section, lower-cased. */
+const sprintState = (content: string): string => {
+  const body = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
+  return (body.match(/^- \*\*(?:State|Phase):\*\*\s*(.*)$/m)?.[1] ?? '').trim().toLowerCase();
+};
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -141,15 +166,7 @@ export const finishRelease = async (
     })();
     const sprintText = sprintRel === '' ? null : await ctx.planStore.readText(path.join(wt, sprintRel));
     const sprintContent = sprintText !== null && sprintText.ok ? sprintText.value : null;
-    const struck = new Set(
-      (sprintContent ?? '')
-        .split('\n')
-        .filter((l) => l.includes('~~'))
-        .flatMap((l) => [...l.matchAll(/\[([a-z0-9][a-z0-9-]*)\]/g)].map((m) => m[1] ?? '')),
-    );
-    const slugs = sprintContent === null
-      ? []
-      : itemsFrom(sprintContent).map((i) => i.plan).filter((s) => s !== '' && !struck.has(s));
+    const slugs = sprintContent === null ? [] : scopeSlugs(sprintContent);
 
     const listed = await ctx.planStore.listDir(path.join(wt, planDir));
     const files = listed.ok ? listed.value : [];
@@ -175,7 +192,7 @@ export const finishRelease = async (
     const sprint = sprintContent === null ? null : {
       slug: sprintSlug,
       file: sprintRel,
-      state: String(sprintFrom(sprintContent, sprintSlug).state).toLowerCase(),
+      state: sprintState(sprintContent),
     };
     const out = releaseFinish(
       { caller: ctx.caller, version: tag, tagExists, scope, sprint },
