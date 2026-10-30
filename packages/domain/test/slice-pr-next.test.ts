@@ -205,6 +205,12 @@ describe('slicePrNext', () => {
       const { plotReview: _p, ...noPlotReview } = row();
       expect(highArm(readings({ row: noPlotReview, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
     });
+
+    it('answers none for no row and for a row with no head', () => {
+      const { headSha: _h, ...noHead } = row({ plotReview: 'failure' });
+      expect(highArm(readings({ row: null, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
+      expect(highArm(readings({ row: noHead, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
   });
 
   describe('the CI-red arm (#2903)', () => {
@@ -261,6 +267,13 @@ describe('slicePrNext', () => {
       const { ciChecks: _c, ...noCiChecks } = row();
       const desk = { dead: true } as const;
       expect(ciRedArm(readings({ row: noCiChecks, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
+
+    it('answers none for no row and for a row with no head', () => {
+      const desk = { dead: true } as const;
+      const { headSha: _h, ...noHead } = row({ ciChecks: 'failing' });
+      expect(ciRedArm(readings({ row: null, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
+      expect(ciRedArm(readings({ row: noHead, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
     });
   });
 });
