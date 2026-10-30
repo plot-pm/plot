@@ -687,6 +687,41 @@ describe('the holding-work readings and decisions', () => {
   });
 });
 
+describe('the tick over a holding-work desk whose pull request merged', () => {
+  const holdingDesk = () => (_w: string, name: string) =>
+    name === ENDING_FILENAME
+      ? JSON.stringify({ reason: 'holding-work', actor: 'agent', branch: 'feature/x', detail: '', refusedAssignment: '' })
+      : null;
+
+  it('asks the host prMerged, and writes no marker and starts nothing for a merged, clean desk', async () => {
+    const { world, tickOver, starts, calls } = rig(started);
+    world.merged = 'merged';
+    world.heldFiles = [];
+    expect(await tickOver(holdingDesk())).toEqual([]);
+    expect(world.mergedAsks).toBe(1);
+    expect(starts).toEqual([]);
+    expect(calls.blockedMarkers).toEqual([]);
+  });
+
+  it('keeps today\'s answer for a merged desk that holds a file', async () => {
+    const { world, tickOver, starts } = rig(started);
+    world.merged = 'merged';
+    world.heldFiles = ['a.ts'];
+    const applied = await tickOver(holdingDesk());
+    expect(applied.map((a) => a.outcome)).toEqual(['started']);
+    expect(starts).toHaveLength(1);
+  });
+
+  it('keeps today\'s answer for a merged desk whose held-files read failed', async () => {
+    const { world, tickOver, starts } = rig(started);
+    world.merged = 'merged';
+    world.heldFiles = null;
+    const applied = await tickOver(holdingDesk());
+    expect(applied.map((a) => a.outcome)).toEqual(['started']);
+    expect(starts).toHaveLength(1);
+  });
+});
+
 describe('freshAgentDecisions, escalation', () => {
   it('escalates a second spent budget once and not again after the declaration exists', () => {
     const [first] = freshAgentDecisions([spentReading({ priorFreshSessions: 1 })], 2);

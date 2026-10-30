@@ -349,6 +349,7 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
   if (readings.hasManifest) return 'leave';
   if (readings.ending === 'holding-work') {
     if (takeUpRefused(readings.refusedAssignment, readings.branch)) return 'release-claim';
+    if (readings.prMerged === 'merged' && readings.dirtyTree === 'no') return 'leave';
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
   if (readings.ending !== null && FRESH_SESSION_ENDINGS.has(readings.ending)) {

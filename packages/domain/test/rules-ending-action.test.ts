@@ -73,6 +73,53 @@ describe('endingAction', () => {
     expect(endingAction(afterPrompt)).toBe('start-fresh');
   });
 
+  it('answers leave for a holding-work ending only where the PR merged and the tree is clean, at either fresh-session count', () => {
+    for (const prMerged of ['merged', 'not-merged', 'unanswerable'] as const) {
+      for (const dirtyTree of ['no', 'yes'] as const) {
+        for (const priorFreshSessions of [0, 1]) {
+          const answer = endingAction(readings({ ending: 'holding-work', prMerged, dirtyTree, priorFreshSessions }));
+          const expected =
+            prMerged === 'merged' && dirtyTree === 'no' ? 'leave' : priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
+          expect(answer, `${prMerged}/${dirtyTree}/${priorFreshSessions}`).toBe(expected);
+        }
+      }
+    }
+  });
+
+  it('answers a dirtyTree the held-files read could not answer as dirty, so a merged holding-work desk keeps its answer', () => {
+    expect(endingAction(readings({ ending: 'holding-work', prMerged: 'merged', dirtyTree: 'unanswerable' }))).toBe('start-fresh');
+  });
+
+  it('releases a take-up holding-work whatever the merge and tree readings say', () => {
+    for (const prMerged of ['merged', 'not-merged', 'unanswerable'] as const) {
+      for (const dirtyTree of ['no', 'yes'] as const) {
+        const takeUp = readings({ ending: 'holding-work', branch: 'infra/prior', refusedAssignment: 'infra/x', prMerged, dirtyTree });
+        expect(endingAction(takeUp), `${prMerged}/${dirtyTree}`).toBe('release-claim');
+      }
+    }
+  });
+
+  it('changes only #2591 among the ten measured second endings once the holding-work arm reads the merge', () => {
+    // 2026-10-09..28 second endings, all ten PRs merged later. #2591's held
+    // files at the merge are not recorded: the row assumes a clean tree.
+    const measured: [number, EndingReason][] = [
+      [1959, 'blocked'], [2356, 'blocked'], [2358, 'blocked'], [2367, 'unreadable'], [2464, 'blocked'],
+      [2468, 'blocked'], [2591, 'holding-work'], [2711, 'checks-unanswered'], [2737, 'blocked'], [2752, 'blocked'],
+    ];
+    const asRead = (ending: EndingReason, over: Partial<EndingActionReadings>) =>
+      readings({ ending, branch: 'feature/x', priorFreshSessions: 1, commitBeyondClaim: 'yes', prOpen: true, ...over });
+    const changed = measured
+      .filter(([, ending]) => {
+        const before = endingAction(asRead(ending, { prMerged: 'unanswerable', dirtyTree: 'yes' }));
+        const after = endingAction(asRead(ending, { prMerged: 'merged', dirtyTree: 'no' }));
+        const withDirty = endingAction(asRead(ending, { prMerged: 'merged', dirtyTree: 'yes' }));
+        // a dirty tree never changes an arm that predates this slice
+        return before !== after && (ending === 'holding-work' || withDirty !== after);
+      })
+      .map(([pr]) => pr);
+    expect(changed).toEqual([2591]);
+  });
+
   it('asks a person on a second after-prompt holding-work ending for the same slice', () => {
     expect(endingAction(readings({ ending: 'holding-work', branch: 'infra/prior', priorFreshSessions: 1 }))).toBe('needs-a-person');
   });
