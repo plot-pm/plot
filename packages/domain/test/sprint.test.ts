@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SprintStateSchema, MoscowTierSchema, ItemStatusSchema,
-  scoreItem, isPromised, sprintMembers, type Sprint, type SprintItem,
+  scoreItem, isPromised, sprintMembers, sprintFrom, itemsFrom, type Sprint, type SprintItem,
 } from '../src/index.js';
 
 /**
@@ -151,5 +151,47 @@ describe('an end date carries one fact each', () => {
     expect(closed.plannedEnd).toBe('2026-08-26');
     expect(closed.actualEnd).toBe('2026-08-23');
     expect(sprint.actualEnd).toBeNull();
+  });
+});
+
+describe('sprintFrom reads a file written before `State:` replaced `Phase:`', () => {
+  it('falls back to Phase when State is absent', () => {
+    const content = [
+      '# Sprint: An old sprint',
+      '',
+      '## Status',
+      '',
+      '- **Phase:** Active',
+      '- **Start:** 2026-07-01',
+      '- **End:** 2026-07-07',
+      '- **Actual End:** 2026-07-06',
+      '- **Release:** v2.1.0',
+      '',
+      '## Sprint Goal',
+      '',
+      '**ship the thing.**',
+      '',
+      '### Must Have',
+      '',
+      '- [ ] [a-plan](../plans/2026-07-01-a-plan.md) — in scope',
+      '',
+    ].join('\n');
+    const result = sprintFrom(content, 'an-old-sprint');
+    expect(result.state).toBe('Active');
+    expect(result.actualEnd).toBe('2026-07-06');
+  });
+});
+
+describe('itemsFrom keys a bare item by its line, not its text', () => {
+  it('keeps two identical bare lines as two distinct items', () => {
+    const content = [
+      '### Must Have',
+      '',
+      '- [ ] just some text with no link',
+      '- [ ] just some text with no link',
+    ].join('\n');
+    const items = itemsFrom(content);
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => item.plan === '')).toBe(true);
   });
 });
