@@ -143,7 +143,13 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 #
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=19
+#
+# RAISED TO 20 ON 2026-10-30 for `fleet/src/shared/auto-progress.ts`, which
+# sends an approved plan's merged-slice count through `plot-plan-state.sh
+# --slice-progress`. Same tracker connector and the same "no port answers this
+# yet" as the 2026-10-18 raise; the pass sits beside `auto-deliver.ts`, which
+# names its own scripts the same way.
+ALLOWED=20
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 
