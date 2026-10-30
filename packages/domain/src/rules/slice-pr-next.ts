@@ -180,14 +180,15 @@ export const ciRedArm = (_readings: SlicePrNextReadings): SlicePrStep => none('c
  *
  * Answers `review` when all hold, and `none` with the first failed reason
  * otherwise: `auto-review-off`; `not-asked`; `checks-unbound` or
- * `ci-not-green`; `reviewed`; `verdict-unwritten` (arm 3's); `budget-spent`
- * or `backoff`. A red default branch never holds a review.
+ * `ci-not-green`; `reviewed`; `budget-spent` or `backoff`. A red default
+ * branch never holds a review. Arm 3 runs first and already intercepts every
+ * `verdict.read` other than `absent`, so this arm never sees one.
  *
  * @param readings - the PR's readings.
- * @returns `review`, an `unread` hold on an unreadable verdict, or `none`.
+ * @returns `review`, or `none`.
  */
 export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
-  const { row, config, verdict, reviewStarts, now } = readings;
+  const { row, config, reviewStarts, now } = readings;
   if (!config.autoReview) return none('auto-review-off');
   if (row === null || row.plotReview === undefined || row.headSha === undefined) return none('not-asked');
   if (row.checksSha !== row.headSha || row.ciChecks === undefined) return none('checks-unbound');
@@ -199,9 +200,6 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
   const needs =
     row.plotReview === 'absent' || row.plotReview === 'error' || !onHead || pendingStale;
   if (!needs) return none('reviewed');
-
-  if (verdict.read === 'unread') return hold('unread');
-  if (verdict.read === 'verdict') return none('verdict-unwritten');
 
   const allowed = reviewStartAllowed(reviewStarts, row.headSha, config.startBudget, now);
   if (allowed !== 'ok') return none(allowed);

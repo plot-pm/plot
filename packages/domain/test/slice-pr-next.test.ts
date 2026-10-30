@@ -157,4 +157,17 @@ describe('slicePrNext', () => {
     const verdict = { read: 'verdict', state: 'success', description: 'ok' } as const;
     expect(slicePrNext(readings({ reviewRun, verdict }))).toEqual({ step: 'hold', reason: 'review-in-flight' });
   });
+
+  it('answers none for a verdict with no headSha or plotReview to match against', () => {
+    const verdict = { read: 'verdict', state: 'success', description: 'ok' } as const;
+    const { headSha: _h, ...noHeadSha } = row();
+    expect(slicePrNext(readings({ verdict, row: noHeadSha }))).toEqual({ step: 'none', why: 'not-asked' });
+    const { plotReview: _p, ...noPlotReview } = row();
+    expect(slicePrNext(readings({ verdict, row: noPlotReview }))).toEqual({ step: 'none', why: 'not-asked' });
+  });
+
+  it('holds on an unread repair record once every earlier arm answers none', () => {
+    const config = { autoReview: false, reviewBoundMs: 1, startBudget: 3, checksWaitMs: 1 };
+    expect(slicePrNext(readings({ repair: { read: 'unread' }, config }))).toEqual({ step: 'hold', reason: 'unread' });
+  });
 });
