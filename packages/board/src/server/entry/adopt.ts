@@ -8,8 +8,10 @@ import {
 } from '@plot-pm/domain/rules/adoption';
 import { proposeStack, type StackProposal } from '@plot-pm/domain/rules/stack';
 import { readingsFrom } from './stack-readings.js';
-import { realpathSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { composeRoleFiles, roleFilePaths } from '@plot-pm/domain/rules/adoption-roles';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -203,6 +205,67 @@ export const run = (
   return 0;
 };
 
+/**
+ * Provide the role definitions to a repository.
+ *
+ * ```
+ * node plot-adopt.mjs roles [--repo <dir>] [--shipped <dir>] [--dry-run]
+ * ```
+ *
+ * Independent of the config write: a repository that already carries a
+ * `## Plot Config` still receives role files it lacks. `composeRoleFiles`
+ * decides which files are written, left alone or reported stale; this reads the
+ * two sides and writes the absent files. It overwrites nothing, commits nothing.
+ *
+ * @param argv the arguments after `roles`
+ * @param write where the answer goes
+ * @returns the process exit code — 0 done, 2 unreadable arguments
+ */
+export const runRoles = (
+  argv: readonly string[],
+  write: (s: string) => void = (s) => process.stdout.write(s),
+): number => {
+  let repo = process.cwd();
+  // The plugin root: this bundle sits at <plugin>/skills/plot/scripts/board/.
+  let shipped = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+  let dryRun = false;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--repo' && argv[i + 1] !== undefined) repo = resolve(argv[++i]!);
+    else if (argv[i] === '--shipped' && argv[i + 1] !== undefined) shipped = resolve(argv[++i]!);
+    else if (argv[i] === '--dry-run') dryRun = true;
+    else {
+      process.stderr.write(`plot-adopt: unknown argument '${argv[i]}'\n`);
+      return 2;
+    }
+  }
+  const read = (root: string, p: string): string | null =>
+    existsSync(join(root, p)) ? readFileSync(join(root, p), 'utf8') : null;
+  const shippedFiles: Record<string, string> = {};
+  const present: Record<string, string | null> = {};
+  for (const p of roleFilePaths()) {
+    const content = read(shipped, p);
+    if (content !== null) shippedFiles[p] = content;
+    present[p] = read(repo, p);
+  }
+  const decision = composeRoleFiles(shippedFiles, present);
+  if (!dryRun) {
+    for (const w of decision.write) {
+      mkdirSync(dirname(join(repo, w.path)), { recursive: true });
+      writeFileSync(join(repo, w.path), w.content, { flag: 'wx' });
+    }
+  }
+  write(
+    `${JSON.stringify({
+      written: decision.write.map((w) => w.path),
+      stale: decision.stale,
+      unchanged: decision.unchanged,
+      gaps: decision.gaps,
+      dryRun,
+    })}\n`,
+  );
+  return 0;
+};
+
 // Only when RUN, never when imported.
 //
 // `pathToFileURL` RATHER THAN A TEMPLATE, for the reason `verdicts.ts` records:
@@ -211,7 +274,11 @@ export const run = (
 // bundle invoked from a sandbox compared two spellings of one path, the block
 // never ran, and the process exited 0 having written nothing.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  void endEntry(run(Buffer.concat(chunks).toString('utf8')));
+  if (process.argv[2] === 'roles') {
+    void endEntry(runRoles(process.argv.slice(3)));
+  } else {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    void endEntry(run(Buffer.concat(chunks).toString('utf8')));
+  }
 }

@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   adoptionReadingsFrom,
   answersFrom,
   decide,
   requestFrom,
   run,
+  runRoles,
 } from '../../src/server/entry/adopt.js';
 import { isAdoptionRefusal } from '@plot-pm/domain/rules/adoption';
 
@@ -206,5 +210,53 @@ describe('run', () => {
     const refused = JSON.parse(out);
     expect(refused.detail).toMatch(/^PLOT-UNASKED:/);
     expect(refused.unasked).toEqual(['Which gates make the Definition of Done?']);
+  });
+});
+
+describe('runRoles', () => {
+  const fixture = (): { shipped: string; repo: string; done: () => void } => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-adopt-roles-'));
+    const shipped = join(root, 'shipped');
+    const repo = join(root, 'repo');
+    mkdirSync(join(shipped, '.claude/agents'), { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    for (const r of ['reviewer', 'fixer', 'unblocker', 'main-repair']) {
+      writeFileSync(join(shipped, `.claude/agents/${r}.md`), `shipped ${r}\n`);
+    }
+    return { shipped, repo, done: () => rmSync(root, { recursive: true, force: true }) };
+  };
+  const answer = (args: string[]): Record<string, unknown> => {
+    let out = '';
+    expect(runRoles(args, (s) => (out += s))).toBe(0);
+    return JSON.parse(out) as Record<string, unknown>;
+  };
+
+  it('writes absent files, leaves a differing one stale, and writes nothing the second time', () => {
+    const { shipped, repo, done } = fixture();
+    try {
+      mkdirSync(join(repo, '.claude/agents'), { recursive: true });
+      writeFileSync(join(repo, '.claude/agents/fixer.md'), 'mine\n');
+      const first = answer(['--repo', repo, '--shipped', shipped]);
+      expect(first.written).toHaveLength(3);
+      expect(first.stale).toEqual(['.claude/agents/fixer.md']);
+      expect(readFileSync(join(repo, '.claude/agents/fixer.md'), 'utf8')).toBe('mine\n');
+      expect(readFileSync(join(repo, '.claude/agents/reviewer.md'), 'utf8')).toBe('shipped reviewer\n');
+      const second = answer(['--repo', repo, '--shipped', shipped]);
+      expect(second.written).toEqual([]);
+      expect(second.stale).toEqual(['.claude/agents/fixer.md']);
+    } finally {
+      done();
+    }
+  });
+
+  it('writes nothing under --dry-run', () => {
+    const { shipped, repo, done } = fixture();
+    try {
+      const out = answer(['--repo', repo, '--shipped', shipped, '--dry-run']);
+      expect(out.written).toHaveLength(4);
+      expect(() => readFileSync(join(repo, '.claude/agents/fixer.md'))).toThrow();
+    } finally {
+      done();
+    }
   });
 });
