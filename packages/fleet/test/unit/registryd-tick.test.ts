@@ -20,6 +20,7 @@ import {
   TICK_INTERVAL_MS,
   TICK_COST_MS,
   type EscalationWorld,
+  type SliceIdleReader,
   type TickReport,
 } from '../../src/server/entry/registryd.js';
 import type { QueueWorld } from '../../src/shared/queue-reading.js';
@@ -1424,5 +1425,36 @@ describe('the escalation record across ticks', () => {
     const second = await tick(input(started + 45 * 60_000));
     const secondWrite = second.decision.writes.find((w) => w.kind === 'notify');
     expect(secondWrite).toMatchObject({ rung: 'notified-2', askedAt: (firstWrite as { askedAt: string }).askedAt });
+  });
+});
+
+describe('the idle pass only adds idle-notify writes', () => {
+  const idleReader = (over: Partial<SliceIdleReader> = {}): SliceIdleReader => ({
+    readings: async () => [{ pr: { branch: 'feature/stuck', createdAt: '2026-10-01T00:00:00.000Z' }, lines: [], blocked: false }],
+    fleetdStartedAt: async () => Date.parse('2026-10-01T00:00:00.000Z'),
+    boundMs: async () => 2 * 3_600_000,
+    recordedEpisodes: async () => new Set(),
+    now: () => Date.parse('2026-10-01T03:00:00.000Z'),
+    ...over,
+  });
+
+  it('leaves every other write identical with and without the idle slice', async () => {
+    const input = { registry: async () => [manifest()], world: world() };
+    const without = await tick(input);
+    const withIdle = await tick({ ...input, idle: idleReader() });
+    const idleWrites = withIdle.decision.writes.filter((w) => w.kind === 'idle-notify');
+    expect(idleWrites).toHaveLength(1);
+    expect(withIdle.decision.writes.filter((w) => w.kind !== 'idle-notify')).toEqual(without.decision.writes);
+    expect(withIdle.decision.detail).toEqual(without.decision.detail);
+  });
+
+  it('writes nothing for a recorded episode', async () => {
+    const clockStart = '2026-10-01T00:00:00.000Z';
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      idle: idleReader({ recordedEpisodes: async () => new Set([`feature/stuck\t${clockStart}`]) }),
+    });
+    expect(report.decision.writes).toEqual([]);
   });
 });
