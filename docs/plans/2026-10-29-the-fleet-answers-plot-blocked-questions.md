@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2901
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-30, Jan Wloka, plan-PR #2913 merged
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-answer-record`
 - **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-answers-a-question`
+- **Delivered:** 2026-10-31
 
 ## Changelog
 
