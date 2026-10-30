@@ -19,7 +19,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [x] [fleet-roles-are-declared-agents] Unattended refusals on merge, continue and release; role agents loaded from the default branch with per-role gates (#2898) <!-- pr: #2908, branch: feature/plot-init-provides-roles -->
 - [x] [the-delivery-loop-keeps-a-run] The loop's run log and the idle-slice notification (#2899) <!-- pr: #2909, branch: feature/an-idle-slice-notifies -->
 - [x] [fleetd-reviews-every-slice-pr-in] fleetd reviews every slice PR in scope; the index records the review; `slicePrNext` (#2900) <!-- pr: #2917, branch: feature/a-review-opens-no-issue -->
-- [ ] [fleetd-merges-slice-prs-one-at] One merge in flight, only on `plot/review` success, only through a Merger app (#2902) <!-- pr: #2914, branch: feature/fleetd-merges-one-at-a-time -->
+- [x] [fleetd-merges-slice-prs-one-at] One merge in flight, only on `plot/review` success, only through a Merger app (#2902) <!-- pr: #2914, branch: feature/fleetd-merges-one-at-a-time -->
 - [ ] [a-high-finding-is-fixed-before] Every HIGH goes to a fixer, two attempts, then a ticket (#2903) <!-- pr: #2912, branch: feature/an-unfixed-high-is-ticketed -->
 - [ ] [the-fleet-answers-plot-blocked-questions] The unblocker answers every agent question and writes each answer into the PR body (#2901) <!-- pr: #2913, branch: feature/fleetd-answers-a-question -->
 - [x] [tickets-follow-the-delivery-loop] The plan issue shows slice progress and HIGH tickets (#2905) <!-- pr: #2916, branch: feature/jira-moves-at-approve -->
