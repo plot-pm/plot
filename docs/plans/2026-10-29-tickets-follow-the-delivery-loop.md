@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2916 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-plan-comment-renders-records`
 - **Started:** 2026-10-30, Jan Wloka, `feature/merged-slices-update-the-comment`
+- **Started:** 2026-10-30, Jan Wloka, `feature/jira-moves-at-approve`
 
 ## Changelog
 
@@ -101,11 +102,11 @@ Decided 2026-10-29 by Jan Wloka in a challenge:
 
 ### Merged slice count
 
-- `feature/merged-slices-update-the-comment` — the `sliceProgress` rule beside `allSlicesMerged`, triggered by the index's `pr merged` finding; a comment-only write while the plan reads `approved` <!-- builds: sliceProgress in rules/deliverable.ts, the pr-merged write point -->
+- `feature/merged-slices-update-the-comment` — the `sliceProgress` rule beside `allSlicesMerged`, triggered by the index's `pr merged` finding; a comment-only write while the plan reads `approved` <!-- builds: sliceProgress in rules/deliverable.ts, the pr-merged write point --> → #2950
 
 ### Jira at approve
 
-- `feature/jira-moves-at-approve` — `approve.ts` calls `plot-issue-status.sh` after its plan-state write; the status-word reads move from the shell into the bundle <!-- builds: the approve caller of plot-issue-status.sh -->
+- `feature/jira-moves-at-approve` — `approve.ts` calls `plot-issue-status.sh` after its plan-state write; the status-word reads move from the shell into the bundle <!-- builds: the approve caller of plot-issue-status.sh --> → #2954
 
 ## Notes
 

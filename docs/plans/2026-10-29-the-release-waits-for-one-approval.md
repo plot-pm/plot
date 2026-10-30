@@ -108,7 +108,7 @@ Decided 2026-10-29 by Jan Wloka in a challenge:
 
 ### Release approval
 
-- `feature/the-release-is-approved-once` — `release-approve <pr> <sha>` as a domain workflow before `merge()`, with refusals `head-moved`, `review-missing`, `not-release-pr` and `unattended`; the generic merge refuses the release PR; `RELEASE_BRANCH` moves into the domain; the D7 finish (tag wait, one booking commit and push for every scope plan with the sprint close, resumable) <!-- builds: releaseApprove, the release-approve entry and gate receipt, the batched release booking --> <!-- waits: feature/unattended-callers-are-refused --> <!-- waits: feature/merge-waits-for-a-settled-main -->
+- `feature/the-release-is-approved-once` — `release-approve <pr> <sha>` as a domain workflow before `merge()`, with refusals `head-moved`, `review-missing`, `not-release-pr` and `unattended`; the generic merge refuses the release PR; `RELEASE_BRANCH` moves into the domain; the D7 finish (tag wait, one booking commit and push for every scope plan with the sprint close, resumable) <!-- builds: releaseApprove, the release-approve entry and gate receipt, the batched release booking --> <!-- waits: feature/unattended-callers-are-refused --> <!-- waits: feature/merge-waits-for-a-settled-main --> → #2951
 
 ### Release preparation
 

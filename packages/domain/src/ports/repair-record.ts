@@ -7,7 +7,8 @@ import type { PortResult } from '../port-result.js';
  *
  * Separate from `DefaultBranchStore`: that file's schema is `.strict()` with
  * no reader tolerant of an unknown field, so this episode-scoped state lives
- * in its own file rather than growing that one. FLEETD IS THE ONLY WRITER.
+ * in its own file rather than growing that one. Fleetd opens the record; a
+ * person sets its `repairPr` through `plot-ask.mjs repair-pr <pr>`.
  */
 export interface RepairRecordStore {
   /**

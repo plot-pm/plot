@@ -71,6 +71,8 @@ export interface PlanStateReading {
   readonly planLink: string;
   /** The release version; read for `released` and ignored otherwise. */
   readonly version?: string;
+  /** The plan's merged-slice progress, rendered verbatim; absent where the caller has none to report. */
+  readonly sliceProgress?: string;
 }
 
 /**
@@ -89,7 +91,13 @@ export const planStateWrites = (reading: PlanStateReading): readonly PlanStateWr
   const phase = reading.phase;
   return reading.issues
     .filter((issue) => issue !== '')
-    .map((issue) => ({ issue, phase, planLink: reading.planLink, ...(reading.version === undefined ? {} : { version: reading.version }) }));
+    .map((issue) => ({
+      issue,
+      phase,
+      planLink: reading.planLink,
+      ...(reading.version === undefined ? {} : { version: reading.version }),
+      ...(reading.sliceProgress === undefined ? {} : { sliceProgress: reading.sliceProgress }),
+    }));
 };
 
 /** Why a release left an issue open instead of closing it. */

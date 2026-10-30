@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2899
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2909 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-loop-keeps-a-run-log`
 - **Started:** 2026-10-30, Jan Wloka, `feature/an-idle-slice-notifies`
+- **Delivered:** 2026-10-30
 
 ## Changelog
 
@@ -115,7 +116,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 ### Idle notification
 
-- `feature/an-idle-slice-notifies` — the idle-slice rule over open slice PRs, the `Slice idle after` key, the notify write kind and its `notified` line; one notification per idle episode <!-- builds: the slice-idle rule, an idle-notify Decision write -->
+- `feature/an-idle-slice-notifies` — the idle-slice rule over open slice PRs, the `Slice idle after` key, the notify write kind and its `notified` line; one notification per idle episode <!-- builds: the slice-idle rule, an idle-notify Decision write --> → #2949
 
 ## Notes
 

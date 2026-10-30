@@ -1,11 +1,22 @@
-import type { DefaultBranchReading } from '../entities/default-branch.js';
+import type { DefaultBranchReading, SettledReading } from '../entities/default-branch.js';
 import type { Pr } from '../entities/pr.js';
+import type { BuildPort } from '../ports/build.js';
 import type { DefaultBranchStore } from '../ports/default-branch.js';
 import type { Host, PrReviewReading } from '../ports/host.js';
 import type { Refs } from '../ports/refs.js';
+import type { RepairRecordStore } from '../ports/repair-record.js';
 import type { Scripts } from '../ports/scripts.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
-import { defaultBranchAgeMs } from '../rules/default-branch.js';
+import { declaredRuns, defaultBranchAgeMs, foldRuns } from '../rules/default-branch.js';
+import {
+  EPISODE_LINE_DEPTH,
+  repairEpisode,
+  repairMergeVerdict,
+  repairRoleOf,
+  type RepairMergeReading,
+  type RepairMergeRefusal,
+  type RepairRole,
+} from '../rules/repair-pr.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
@@ -27,7 +38,8 @@ export type MergeRefusal =
   | 'default-branch-unsettled'
   | 'default-branch-unread'
   | 'review-not-passed'
-  | 'release-pr';
+  | 'release-pr'
+  | Exclude<RepairMergeRefusal, 'unaskable'>;
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
 export interface MergeReadings {
@@ -55,6 +67,12 @@ export interface MergeReadings {
    * never folded from the checks rollup. `'unaskable'` where the read failed.
    */
   readonly review: PrReviewReading | 'unaskable';
+  /**
+   * The repair record, its episode and the red commit's runs asked again,
+   * read only where the default branch is settled red. Absent reads as no
+   * record: every PR then refuses `default-branch-red`.
+   */
+  readonly repair?: RepairMergeReading;
 }
 
 /** What the caller asks for. */
@@ -98,6 +116,8 @@ export interface MergeDetail {
   readonly sha: string;
   /** Whether a default-branch reading within `Checks wait` existed; absent is reported, not permitted. */
   readonly defaultBranchRead: boolean;
+  /** Which field of the repair record admitted the PR on a red default branch; absent where the branch was not red. */
+  readonly repair?: RepairRole;
 }
 
 const short = (sha: string | undefined): string =>
@@ -133,6 +153,15 @@ const short = (sha: string | undefined): string =>
  * `unaskable`, never as a pass. This check applies only where a reading
  * exists — a missing reading is `default-branch-unread` or holds nothing, as
  * above.
+ *
+ * `default-branch-red` has one exception, read by {@link repairMergeVerdict}:
+ * on a red, fresh reading, the PR that the repair record names as `repairPr`
+ * or `revertPr` passes, while the record's episode is open, its head branch is
+ * the episode's branch, and the red commit's runs, asked again, still read
+ * red. Such a PR refuses `repair-episode-closed`, `repair-branch-mismatch`,
+ * `repair-red-unconfirmed` or `unaskable` otherwise. Every other PR refuses
+ * `default-branch-red`. `default-branch-stale` and `default-branch-unsettled`
+ * refuse an admitted PR as they refuse every PR.
  *
  * `review-not-passed` guards the `plot/review` status, re-asked through the
  * host and never folded from the checks rollup — a rollup can read green with
@@ -180,6 +209,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
     return no('review-not-passed', `${seen} for PR #${input.pr}. Merge when review reads 'success' on this head.`);
   }
   const defaultBranch = readings.defaultBranch;
+  let admitted: RepairRole | undefined;
   if (defaultBranch === 'unaskable') {
     return no('unaskable', `the default branch's reading could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
   }
@@ -194,7 +224,12 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
       return no('default-branch-stale', `the reading of ${defaultBranch.branch} ${seen}; Checks wait is ${Math.floor(input.checksWaitMs / 1000)} s. A merge needs a reading a host confirmed within that bound; nothing was merged.`);
     }
     if (defaultBranch.settled?.state === 'red') {
-      return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
+      const verdict = repairMergeVerdict(readings.repair ?? { record: null, episode: 'closed', redRuns: 'unaskable' }, { number: input.pr, head: pr.head });
+      if (verdict.verdict === 'not-named') {
+        return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
+      }
+      if (verdict.verdict === 'refused') return no(verdict.reason, verdict.detail);
+      admitted = verdict.role;
     }
     if (defaultBranch.settled !== undefined) {
       const tip = readings.defaultBranchTip;
@@ -210,6 +245,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
     pr: input.pr,
     sha: input.sha,
     defaultBranchRead: readings.defaultBranch !== null,
+    ...(admitted ? { repair: admitted } : {}),
   });
 };
 
@@ -253,7 +289,31 @@ export interface MergePorts {
   requireReading?: boolean;
   /** Who is asking for this merge; an unattended caller is refused before any read. */
   caller: Caller;
+  /** The repair record's file. Absent reads as no record, so a red default branch admits no PR. */
+  repair?: RepairRecordStore;
+  /** The CI connector, asked again for the red commit's runs before a repair PR merges. */
+  build?: Pick<BuildPort, 'runsForSha'>;
+  /** The workflow names `Default branch checks` declares; empty folds every run. */
+  checks?: readonly string[];
 }
+
+/**
+ * Reads the repair exception's values for one PR on a red reading.
+ *
+ * Reads the record first, and walks the first-parent line and asks the runs
+ * again only where the record names the PR.
+ */
+const readRepair = async (ports: MergePorts, branch: string, settled: SettledReading, pr: number): Promise<RepairMergeReading> => {
+  const read = ports.repair ? await ports.repair.read() : { ok: true as const, value: null };
+  if (!read.ok) return { record: 'unaskable', episode: 'unaskable', redRuns: 'unaskable' };
+  const record = read.value;
+  if (record === null || repairRoleOf(record, pr) === null) return { record, episode: 'closed', redRuns: 'unaskable' };
+  const line = await ports.refs.firstParentLine(settled.sha, EPISODE_LINE_DEPTH);
+  const episode = repairEpisode(record, branch, settled, line.ok ? line.value : 'unaskable');
+  if (episode !== 'open' || ports.build === undefined) return { record, episode, redRuns: 'unaskable' };
+  const runs = await ports.build.runsForSha(branch, settled.sha);
+  return { record, episode, redRuns: runs.ok ? foldRuns(declaredRuns(runs.value, ports.checks ?? [])) : 'unaskable' };
+};
 
 /** What `plot-ask.mjs merge` (and fleetd) print or hold, as one JSON line. */
 export type MergeResult =
@@ -272,6 +332,10 @@ export type MergeResult =
  * pin merges with no pin flag. A refusal ends the action; nothing retries
  * without the pin. A default-branch read or tip read that fails refuses as
  * `unaskable`; an absent reading holds nothing unless `ports.requireReading`.
+ * On a settled red reading it reads the repair record last; where the record
+ * names the PR it walks the settled commit's first-parent line and asks the
+ * settled commit's runs again through `ports.build`, folding the declared
+ * `ports.checks`, so the red is confirmed immediately before the merge.
  *
  * @param ports - the host, the script port, the default-branch store, the
  *   refs port, the `Checks wait` bound, the clock and whether a reading is required.
@@ -295,6 +359,10 @@ export const mergeAt = async (
     settledReading !== null ? ports.refs.remoteSha(settledReading.branch) : null,
     ports.host.prReview(pr),
   ]);
+  // Read last, so the red commit's runs are asked immediately before the merge.
+  const repair = settledReading !== null && settledReading.settled?.state === 'red'
+    ? await readRepair(ports, settledReading.branch, settledReading.settled, pr)
+    : undefined;
   const outcome = merge(
     {
       caller: ports.caller,
@@ -302,6 +370,7 @@ export const mergeAt = async (
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tip === null ? 'unaskable' : tip.ok && tip.value !== 'unknown' ? tip.value.sha : 'unaskable',
       review: review.ok ? review.value : 'unaskable',
+      ...(repair ? { repair } : {}),
     },
     {
       pr,

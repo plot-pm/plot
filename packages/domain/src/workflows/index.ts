@@ -33,3 +33,4 @@ export * from './agent-loop.js';
 export * from './merge.js';
 export * from './release-approve.js';
 export * from './release-finish.js';
+export * from './repair-pr.js';
