@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2911 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-release-is-approved-once`
+- **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-prepares-the-release`
 
 ## Changelog
 
