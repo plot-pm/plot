@@ -1,6 +1,7 @@
 import {
   branchState,
   REPLACEABLE_BY_PREREQUISITE,
+  withPlanLandings,
   type BranchReadings,
   type HostReach,
   type PrReading,
@@ -13,7 +14,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The `node` entry point `plot-fleet-scan.sh` runs, once per plan.
  *
  * ```
- * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\t?\n' | node plot-branch-state.mjs
+ * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\t?\n' | node plot-branch-state.mjs feature/x
  * wip	0	wip
  * ```
  *
@@ -105,6 +106,14 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * *declared, not yet read*.
  */
 const FIELDS = 12;
+
+/*
+ * THE LINES' BRANCH NAMES ARRIVE AS ONE ARGUMENT, newline-separated in stdin's
+ * line order, and not as a thirteenth field. A bundle built before the argument
+ * existed ignores it, and a scan that passes none gets the answer it got
+ * before: no prerequisite is read from the plan's own landings. So an old scan
+ * and a new bundle, or a new scan and an old bundle, still answer.
+ */
 
 /**
  * The scan's PR words, in the rule's vocabulary.
@@ -274,39 +283,56 @@ const parsedFrom = (text: string): ParsedLine[] =>
  * about, and one that already carries its prerequisite's state is never asked
  * about twice.
  *
+ * A prerequisite that is a branch of the same plan reading `merged` on its own
+ * is answered `MERGED` by {@link withPlanLandings}, with or without a host
+ * reading. A branch whose every prerequisite is such a branch is not flagged.
+ *
  * @param text the stdin document, one branch per line
+ * @param branches each line's branch, in line order; empty where the caller
+ *   names none, which reads no landing from the plan
  * @returns one `state<TAB>needsPrerequisite<TAB>ownState` line per branch,
  *   newline-terminated. The third column is `branchState` asked again with no
  *   prerequisite readings.
+ * @throws when `branches` is not empty and its length differs from the lines'
  */
-export const answer = (text: string): string =>
-  parsedFrom(text)
-    .map(({ readings, waitsBranch }) => {
-      const state = branchState(readings);
+export const answer = (text: string, branches: readonly string[] = []): string => {
+  const parsed = parsedFrom(text);
+  if (branches.length > 0 && branches.length !== parsed.length) {
+    throw new Error(`${branches.length} branch name(s) for ${parsed.length} line(s)`);
+  }
+  const owns = parsed.map(({ readings }) => branchState({ ...readings, waits: [] }));
+  const landed = new Set(branches.filter((_, i) => owns[i] === 'merged'));
+  return parsed
+    .map(({ readings, waitsBranch }, i) => {
+      const waits = withPlanLandings(waitsBranch, readings.waits, landed);
+      const state = branchState({ ...readings, waits });
       const needs =
         waitsBranch.length > 0
-        && readings.waits.length === 0
+        && waits.length === 0
         && REPLACEABLE_BY_PREREQUISITE.includes(state)
           ? '1'
           : '0';
-      const own = branchState({ ...readings, waits: [] });
-      return `${state}\t${needs}\t${own}\n`;
+      return `${state}\t${needs}\t${owns[i]}\n`;
     })
     .join('');
+};
 
 /**
  * Read stdin, print the answer.
  *
  * @param text the whole of stdin
  * @param write where the answer goes
+ * @param names each line's branch, newline-separated in line order; absent
+ *   or empty where the caller names none
  * @returns the process exit code — 0 answered, 2 unreadable input
  */
 export const run = (
   text: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  names = '',
 ): number => {
   try {
-    write(answer(text));
+    write(answer(text, names.split('\n').filter((name) => name !== '')));
     return 0;
   } catch (err) {
     process.stderr.write(`plot-branch-state: ${(err as Error).message}\n`);
@@ -324,5 +350,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  void endEntry(run(Buffer.concat(chunks).toString('utf8')));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv[2]));
 }
