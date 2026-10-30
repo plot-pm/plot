@@ -7,8 +7,14 @@ import type { SprintScope } from './sprint-scope.js';
 /** A sibling plan's record, which that plan types when it builds its arm. */
 export type SiblingReading = { read: 'unread' } | { read: 'record' };
 
-/** The fixer's attempts record with its in-flight mark (#2903). */
-export type FixerReading = { read: 'unread' } | { read: 'record'; inFlight: boolean };
+/**
+ * The fixer's attempts record, read down to the two answers `highArm` and
+ * `ciRedArm` need from it (#2903): `fixerInFlight` and `fixerAttemptsExhausted`
+ * are each computed once, by the caller that holds the raw record, and
+ * carried here as plain values — these two arms are pure functions and
+ * cannot read `FixerAttemptsStore` themselves.
+ */
+export type FixerReading = { read: 'unread' } | { read: 'record'; inFlight: boolean; exhausted: boolean };
 
 /** The review verdict file `reviews/<pr>-<headSha>.md` as read through `reviewVerdict`. */
 export type VerdictReading =
@@ -53,6 +59,22 @@ export interface SlicePrNextReadings {
   readonly verdict: VerdictReading;
   readonly defaultBranch: DefaultBranchReading | null;
   readonly desk: DeskDeadAnswer;
+  /**
+   * Whether the desk's own ending record currently reads `corrections-spent`
+   * with a fresh session already spent on this slice — `endingAction`'s own
+   * `priorFreshSessions > 0` test against that one ending reason (#2903).
+   *
+   * **Why this exists alongside {@link SlicePrNextReadings.desk}.** A desk
+   * ended `corrections-spent` and given one fresh session per
+   * `FRESH_SESSION_ENDINGS` reads `deskDead` as `{dead:false, why:'waiting'}`
+   * the moment that fresh session itself reaches `needs-a-person` and writes
+   * its own `PLOT-BLOCKED` marker — `deskDead` cannot tell that `waiting` from
+   * any other blocked desk. This field is the one the CI-red arm reads
+   * instead, for that one ending reason; `desk` still answers every other
+   * aliveness question. `undefined` until the caller that reads the ending
+   * record and the fresh-session count builds it.
+   */
+  readonly correctionsSpentExhausted?: boolean;
   readonly fixer?: FixerReading;
   readonly ticket?: SiblingReading;
   readonly repair?: SiblingReading;
@@ -160,20 +182,59 @@ export const fixerInFlightArm = (readings: SlicePrNextReadings): SlicePrStep => 
 };
 
 /**
- * Arm 5 (#2903). The HIGH arms. Answers only a hold on an unread ticket record until #2903 builds the rest.
+ * Arm 5 (#2903). A HIGH on the current head starts the fixer.
+ *
+ * A HIGH is `row.plotReview === 'failure'` bound to the row's `headSha` — a
+ * failure recorded against an older push does not count, because the index
+ * never revises a `plotReview` already written for a since-moved head (D2 in
+ * the plan: there is no "desk alive" branch to build here at all, since
+ * `agent-loop.ts` seals the desk and releases the branch on green CI before
+ * any review can exist). `fixerInFlightArm` already holds a running fixer
+ * before this arm runs, so a fixer is "not in flight" by construction by the
+ * time this arm answers.
  *
  * @param readings - the PR's readings.
- * @returns an `unread` hold, or `none`.
+ * @returns an `unread` hold while the fixer or ticket record is unread, a
+ *   `fixer` step on a fresh HIGH with budget left, or `none`.
  */
-export const highArm = (readings: SlicePrNextReadings): SlicePrStep =>
-  readings.ticket?.read === 'unread' ? hold('unread') : none('high-not-built');
+export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
+  const { row, fixer, ticket } = readings;
+  if (ticket?.read === 'unread') return hold('unread');
+  if (fixer === undefined) return none('fixer-not-built');
+  if (fixer.read === 'unread') return hold('unread');
+  if (row === null || row.headSha === undefined || row.plotReview === undefined) return none('not-asked');
+  if (row.plotReview !== 'failure' || row.plotReviewSha !== row.headSha) return none('no-high');
+  if (fixer.exhausted) return none('high-attempts-spent');
+  return { step: 'fixer', head: row.headSha, evidence: 'high' };
+};
 
 /**
- * Arm 6 (#2903). The CI-red arms. Answers `none` until #2903 builds them.
+ * Arm 6 (#2903). CI red on the current head starts the fixer once the desk
+ * that owned it is gone.
  *
- * @returns `none`.
+ * "Desk dead" is arm-specific rather than one uniform read: a desk is dead
+ * per {@link DeskDeadAnswer}, OR its ending reads `corrections-spent` with its
+ * one fresh session already spent — {@link SlicePrNextReadings.correctionsSpentExhausted},
+ * the one case `deskDead` reads as `waiting` (its own fresh session's
+ * `PLOT-BLOCKED` marker) rather than `dead`. Every other `waiting` desk — a
+ * live, non-exhausted fresh session, or a live desk mid-turn — holds, because
+ * neither reading answers true for it.
+ *
+ * @param readings - the PR's readings.
+ * @returns an `unread` hold while the fixer record is unread, a budget-spent
+ *   `hold`, a `fixer` step, or `none`.
  */
-export const ciRedArm = (_readings: SlicePrNextReadings): SlicePrStep => none('ci-red-not-built');
+export const ciRedArm = (readings: SlicePrNextReadings): SlicePrStep => {
+  const { row, desk, correctionsSpentExhausted, fixer } = readings;
+  if (fixer === undefined) return none('fixer-not-built');
+  if (fixer.read === 'unread') return hold('unread');
+  if (row === null || row.headSha === undefined || row.ciChecks === undefined) return none('not-asked');
+  if (row.ciChecks !== 'failing' || row.checksSha !== row.headSha) return none('no-ci-red');
+  if (fixer.exhausted) return hold('ci-red-attempts-spent');
+  const deskGone = desk.dead || correctionsSpentExhausted === true;
+  if (!deskGone) return none('desk-alive');
+  return { step: 'fixer', head: row.headSha, evidence: 'ci-red' };
+};
 
 /**
  * Arm 7. Whether this head gets a review.
