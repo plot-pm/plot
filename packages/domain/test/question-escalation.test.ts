@@ -23,6 +23,7 @@ const reading = (over: Partial<QuestionReading> = {}): QuestionReading => ({
   ageMs: 0,
   ages: AGES,
   recordedRungs: new Set(),
+  recordedOutcome: null,
   ...over,
 });
 
@@ -95,6 +96,24 @@ describe('questionEscalation', () => {
     expect(() => questionEscalation(reading({ ageMs: 0, ages: [] }))).not.toThrow();
     expect(questionEscalation(reading({ ageMs: 0, ages: [] })).isNew).toBe(false);
   });
+
+  it('a `started` answer-record outcome yields no new rung, regardless of age', () => {
+    // FLEETD IS ALREADY WORKING THE QUESTION. An age past every threshold must
+    // not notify anyone a second time while the unblocker's own run is live.
+    const result = questionEscalation(
+      reading({ ageMs: 5 * 3_600_000, recordedOutcome: 'started' }),
+    );
+    expect(result).toEqual({ rung: null, isNew: false });
+  });
+
+  it.each(['refused no-marker', 'failed'])(
+    'a %s answer-record outcome falls through to the ordinary age-based rung',
+    (outcome) => {
+      const result = questionEscalation(reading({ ageMs: 901_000, recordedOutcome: outcome }));
+      expect(result.rung).toBe('notified-1');
+      expect(result.isNew).toBe(true);
+    },
+  );
 
   it('the recorded-rung lookup is not simply `false` — a recorded rung changes the answer', () => {
     // MUTATION: the recorded-rung lookup replaced by `false` must fail here.

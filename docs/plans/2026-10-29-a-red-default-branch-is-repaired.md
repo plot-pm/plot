@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2910 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-repair-record`
+- **Started:** 2026-10-30, Jan Wloka, `feature/merge-admits-the-repair-pr`
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
@@ -124,7 +125,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 2 and the challenges (`.plot/p
 
 ### Merge exception
 
-- `feature/merge-admits-the-repair-pr` — the narrow exception in `merge()` and `slicePrNext` for the PR the repair record names <!-- waits: feature/fleetd-merges-one-at-a-time -->
+- `feature/merge-admits-the-repair-pr` — the narrow exception in `merge()` and `slicePrNext` for the PR the repair record names <!-- waits: feature/fleetd-merges-one-at-a-time --> → #2966
 
 ### Main repair start
 

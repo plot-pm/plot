@@ -186,7 +186,7 @@ const landOne = async (
       return ports.agents.raiseCorrections(write.worktree, write.correctionAttempts);
 
     case 'blocked-marker':
-      return ports.desk.writeBlockedMarker(write.worktree, write.question);
+      return ports.desk.writeBlockedMarker(write.worktree, write.question, write.author);
 
     case 'declaration':
       return ports.desk.sealDeclaration(write.worktree, write.branch, write.status);

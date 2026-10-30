@@ -5,7 +5,7 @@ import type { BuildFinding, Desk, DeskFinding, EndingRecord } from '../../ports/
 /** Every call this estate received, for a test to assert against. */
 export interface DeskFixtureCalls {
   endings: { worktree: string; record: EndingRecord }[];
-  blockedMarkers: { worktree: string; text: string }[];
+  blockedMarkers: { worktree: string; text: string; author?: 'loop' | 'fleetd' }[];
   declarations: { worktree: string; branch: string; status?: 'ok' | 'blocked' }[];
   corrections: { worktree: string; branch: string; text: string; attempt: number; budget: number }[];
   appendedCorrections: { worktree: string; correction: string }[];
@@ -69,11 +69,11 @@ export const deskFixture = (fixture: DeskFixture = {}): Desk => {
       return answered(undefined);
     },
 
-    writeBlockedMarker: async (worktree, text): Promise<PortResult<void>> => {
+    writeBlockedMarker: async (worktree, text, author): Promise<PortResult<void>> => {
       // NO-OVERWRITE, matching `deskFs`: a worktree already marked gets no
       // second write recorded.
       if (marked.has(worktree)) return answered(undefined);
-      calls.blockedMarkers?.push({ worktree, text });
+      calls.blockedMarkers?.push(author === undefined ? { worktree, text } : { worktree, text, author });
       marked.add(worktree);
       return answered(undefined);
     },

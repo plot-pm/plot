@@ -180,6 +180,7 @@ export const supervise = (
         worktree: supervision.worktree,
         branch: supervision.branch,
         question: stopNotice(supervision),
+        author: 'fleetd',
       });
       agents.push({ ...position(supervision), supervision, boundedOut: false });
       continue;

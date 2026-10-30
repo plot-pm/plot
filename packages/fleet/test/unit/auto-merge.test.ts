@@ -127,3 +127,84 @@ describe('mergeTick', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('mergeTick on a red default branch', () => {
+  const LAST_GREEN = 'e'.repeat(40);
+  const FIRST_RED = 'f'.repeat(40);
+  const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+  const red = reading({ head: 'red', settled: { sha: TIP, state: 'red' } });
+  const record = {
+    v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: FIRST_RED,
+    redSince: '2026-10-30T10:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none', repairPr: 5,
+    at: '2026-10-30T10:00:00Z',
+  };
+
+  const redPorts = (runs: 'failure' | 'success' = 'failure') => {
+    const { ports, calls } = portsFor('answered');
+    const asked: string[] = [];
+    const base = ports as unknown as Record<string, unknown>;
+    const host = base.host as Record<string, unknown>;
+    const prState = host.prState as (n: number) => Promise<{ ok: true; value: Record<string, unknown> }>;
+    const withRepairHead = {
+      ...base,
+      host: {
+        ...host,
+        prState: async (n: number) => {
+          const out = await prState(n);
+          return { ...out, value: { ...out.value, head: n === 5 ? REPAIR_BRANCH : out.value.head } };
+        },
+      },
+      defaultBranch: { read: async () => ({ ok: true, value: red }) },
+      refs: {
+        remoteSha: async () => ({ ok: true, value: { sha: TIP } }),
+        firstParentLine: async () => ({ ok: true, value: [TIP, FIRST_RED, LAST_GREEN] }),
+      },
+      repair: { read: async () => ({ ok: true, value: record }) },
+      build: {
+        runsForSha: async (branch: string, sha: string) => {
+          asked.push(`${branch} ${sha}`);
+          return { ok: true, value: [{ sha, status: 'completed', conclusion: runs, url: '', workflow: 'CI' }] };
+        },
+      },
+      checks: ['CI'],
+    } as unknown as MergePorts;
+    return { ports: withRepairHead, calls, asked };
+  };
+  const rows = [row(3), row(5, { head: REPAIR_BRANCH })];
+  const scope = { read: 'scope', sprint: {}, slugs: ['x'], branches: ['feature/p3'] };
+  const redTick = (p: MergePorts) => tick(rows, { defaultBranch: red, scope }, p);
+
+  it('picks the repair PR while every other open row holds default-branch-red', async () => {
+    const { ports, calls } = redPorts();
+    const out = await redTick(ports);
+    expect(out.steps).toEqual([
+      { pr: 3, step: { step: 'hold', reason: 'default-branch-red' } },
+      { pr: 5, step: { step: 'merge', head: head(5) } },
+    ]);
+    expect(calls).toEqual([['pr-merge', '5', '--match-head', head(5)]]);
+    expect(out.merged).toMatchObject({ pr: 5, result: { merged: true } });
+  });
+
+  it('asks the red commit’s runs once for the tick, not once per row', async () => {
+    const { ports, asked } = redPorts();
+    await redTick(ports);
+    // The tick's one ask, plus mergeAt's own re-ask immediately before the merge.
+    expect(asked).toEqual([`main ${TIP}`, `main ${TIP}`]);
+  });
+
+  it('merges nothing where the re-asked runs read green', async () => {
+    const { ports, calls } = redPorts('success');
+    const out = await redTick(ports);
+    expect(out.steps[1]).toEqual({ pr: 5, step: { step: 'hold', reason: 'repair-red-unconfirmed' } });
+    expect(calls).toEqual([]);
+    expect(out.merged).toBeUndefined();
+  });
+
+  it('merges nothing where the record names no open row', async () => {
+    const { ports, calls, asked } = redPorts();
+    const out = await tick([row(3)], { defaultBranch: red, scope }, ports);
+    expect(out.steps).toEqual([{ pr: 3, step: { step: 'hold', reason: 'default-branch-red' } }]);
+    expect(calls).toEqual([]);
+    expect(asked).toEqual([]);
+  });
+});
