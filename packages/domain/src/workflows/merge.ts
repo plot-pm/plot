@@ -322,6 +322,10 @@ export type MergeResult =
  * pin merges with no pin flag. A refusal ends the action; nothing retries
  * without the pin. A default-branch read or tip read that fails refuses as
  * `unaskable`; an absent reading holds nothing unless `ports.requireReading`.
+ * On a settled red reading it reads the repair record last; where the record
+ * names the PR it walks the settled commit's first-parent line and asks the
+ * settled commit's runs again through `ports.build`, folding the declared
+ * `ports.checks`, so the red is confirmed immediately before the merge.
  *
  * @param ports - the host, the script port, the default-branch store, the
  *   refs port, the `Checks wait` bound, the clock and whether a reading is required.
