@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2916 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-plan-comment-renders-records`
 - **Started:** 2026-10-30, Jan Wloka, `feature/merged-slices-update-the-comment`
+- **Started:** 2026-10-30, Jan Wloka, `feature/jira-moves-at-approve`
 
 ## Changelog
 
