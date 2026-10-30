@@ -23,6 +23,7 @@ import { delimiter, join } from 'node:path';
 
 import {
   query,
+  type AgentDefinition,
   type HookCallbackMatcher,
   type ModelUsage,
   type Options,
@@ -49,6 +50,7 @@ import {
   type SettingsEnvReading,
 } from '../../rules/agent-run-env.js';
 import { pollRefusal } from '../../rules/poll-refusal.js';
+import type { RoleAgentRef } from '../../rules/role-command.js';
 import type { PermissionDenialReading } from '../../rules/sample.js';
 import { asBoardHandBack, sdkRunExit, type SdkBoardHandBack, type SdkHandBack, type SdkRunReading } from '../../rules/sdk-run-exit.js';
 import { killTree, killTreeSync } from '../bounded-run/bounded-run-process.js';
@@ -296,6 +298,36 @@ const limitReadingOf = (message: Extract<SDKMessage, { type: 'rate_limit_event' 
   utilization: utilizationOf(message.rate_limit_info),
 });
 
+/**
+ * Reads a role's `--agents` JSON and checks its settings file.
+ *
+ * @param role - the role's files.
+ * @returns the options that run the role, or the sentence for an `unstarted`
+ *   result when a file is unreadable or the JSON does not define the role.
+ *   A role is never run as a plain prompt.
+ */
+const loadRole = async (role: RoleAgentRef): Promise<Partial<Options> | string> => {
+  let agents: unknown;
+  try {
+    agents = JSON.parse(await readFile(role.agentsFile, 'utf8'));
+  } catch {
+    return `the '${role.name}' role definition '${role.agentsFile}' cannot be read as JSON`;
+  }
+  const own = typeof agents === 'object' && agents !== null ? (agents as Record<string, unknown>)[role.name] : undefined;
+  if (typeof own !== 'object' || own === null) return `'${role.agentsFile}' defines no agent named '${role.name}'`;
+  try {
+    await access(role.settingsFile, fsConstants.R_OK);
+  } catch {
+    return `the '${role.name}' role settings file '${role.settingsFile}' cannot be read`;
+  }
+  return {
+    agent: role.name,
+    agents: { [role.name]: own as AgentDefinition },
+    settings: role.settingsFile,
+    settingSources: ['user'],
+  };
+};
+
 /** A result for a run that never started. */
 const unstarted = (request: AgentRunRequest, detail: string): PortResult<AgentRunResult> =>
   answered({
@@ -391,6 +423,9 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
     const settings =
       request.contextWindow > 0 ? { ...agentSettings, autoCompactWindow: request.contextWindow } : agentSettings;
 
+    const roleOptions = request.roleAgent === undefined ? null : await loadRole(request.roleAgent);
+    if (typeof roleOptions === 'string') return unstarted(request, roleOptions);
+
     let child: SpawnedProcess | null = null;
     const abortController = new AbortController();
     const protocol = handBackProtocolFor(request.role);
@@ -421,6 +456,10 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       // settings object beside the project's `Agent settings`, never as `env`.
       settings: Object.keys(settings).length > 0 ? (settings as Options['settings']) : undefined,
       settingSources: ['user', 'project', 'local'],
+      // A ROLE RUN LOADS USER SETTINGS ONLY, as the command runner's
+      // `--setting-sources user` does: nothing from the reviewed or fixed tree
+      // applies. Its settings file replaces the inline object.
+      ...(roleOptions === null ? {} : roleOptions),
       outputFormat: { type: 'json_schema', schema: protocol.schema },
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,

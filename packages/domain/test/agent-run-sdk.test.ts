@@ -474,3 +474,41 @@ describe('agentRunSdk: the process rules', () => {
     expect(await sdk.claudeOnPath(join(dir, 'none'))).toBe('');
   });
 });
+
+describe('a role run', () => {
+  const role = async (settings = true) => {
+    const agentsFile = join(dir, 'agents.json');
+    const settingsFile = join(dir, 'fixer-settings.json');
+    await writeFile(agentsFile, JSON.stringify({ fixer: { description: 'd', prompt: 'p' } }));
+    if (settings) await writeFile(settingsFile, '{}');
+    return { name: 'fixer' as const, agentsFile, settingsFile };
+  };
+
+  it('maps the role to agent, agents, settings and user settings only', async () => {
+    captured.messages = [resultMessage()];
+    await ended({ roleAgent: await role() });
+    const options = captured.options as Record<string, unknown>;
+    expect(options.agent).toBe('fixer');
+    expect(options.agents).toEqual({ fixer: { description: 'd', prompt: 'p' } });
+    expect(options.settings).toBe(join(dir, 'fixer-settings.json'));
+    expect(options.settingSources).toEqual(['user']);
+  });
+
+  it('keeps the hand-back protocol on request.role, not the role agent', async () => {
+    captured.messages = [resultMessage()];
+    const withRole = await ended({ roleAgent: await role() });
+    const without = await ended();
+    expect(withRole.end).toEqual(without.end);
+    expect((captured.options as { outputFormat: unknown }).outputFormat).toMatchObject({ schema: { required: ['next', 'summary'] } });
+  });
+
+  it('refuses a role whose definition or settings file it cannot load, rather than running a plain prompt', async () => {
+    const missing = await ended({ roleAgent: { name: 'fixer', agentsFile: join(dir, 'none.json'), settingsFile: join(dir, 's.json') } });
+    expect(missing.end).toMatchObject({ answer: 'unstarted', detail: expect.stringContaining('cannot be read as JSON') });
+    const noSettings = await ended({ roleAgent: await role(false) });
+    expect(noSettings.end).toMatchObject({ answer: 'unstarted', detail: expect.stringContaining('settings file') });
+    const wrongName = await ended({ roleAgent: { ...(await role()), name: 'reviewer' } });
+    expect(wrongName.end).toMatchObject({ answer: 'unstarted', detail: expect.stringContaining("no agent named 'reviewer'") });
+    expect(captured.options).toBeUndefined();
+  });
+});
