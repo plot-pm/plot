@@ -11,15 +11,17 @@
  * than a bespoke script under `skills/`.
  *
  * Every predicate reads the command or path text only — the same posture as
- * `controller-gate.ts` and `main-checkout-write.ts` beside it: no adapter, no
+ * `controller-gate.ts` and `main-checkout-write.ts` beside it: no port, no
  * git, no process. The hook's `ask` wires a readings-free `Gate` once this
- * module is imported.
+ * module is imported. The one import from `adapters/` names a constant, not a
+ * capability — see `ci-workflow-path.ts`.
  */
+import { CI_WORKFLOW_DIR } from '../adapters/ci-workflow-path.js';
 import { commandRunsScript, withoutComments, withoutQuotes, wordBasename } from './ci-suite.js';
 import { gitPushCalls } from './main-checkout-write.js';
 
 /** A path a non-reviewer role may never create, edit or delete. */
-const PROTECTED_PATH_PREFIXES: readonly string[] = ['.claude/', '.github/workflows/'];
+const PROTECTED_PATH_PREFIXES: readonly string[] = ['.claude/', CI_WORKFLOW_DIR];
 
 /** A path glob a non-reviewer role may never create, edit or delete, tested by basename. */
 const PROTECTED_BASENAME_GLOBS: readonly RegExp[] = [/^check-.*\.sh$/, /.*-gate\.sh$/];
