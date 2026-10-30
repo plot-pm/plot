@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXIT, GATES, commandOf, runGates, type Gate } from '../../src/server/entry/gate.js';
+import { EXIT, GATES, NAME_ONLY_GATES, commandOf, pathOf, runGates, type Gate } from '../../src/server/entry/gate.js';
 
 /**
  * The dispatch of `plot-gate.mjs`: which gates run for a command, how their
@@ -23,9 +23,9 @@ const gate = (name: string, answer: string | null | Error, wants = true, onError
   return { g, asked };
 };
 
-const run = async (gates: Gate[], names: string[] | 'all', command = 'ls -la') => {
+const run = async (gates: Gate[], names: string[] | 'all', command = 'ls -la', path = '') => {
   const warned: string[] = [];
-  const code = await runGates(gates, names, command, (l) => warned.push(l));
+  const code = await runGates(gates, names, command, (l) => warned.push(l), path);
   return { code, warned };
 };
 
@@ -39,10 +39,46 @@ describe('commandOf', () => {
   });
 });
 
+describe('pathOf', () => {
+  it('reads tool_input.file_path from the hook JSON', () => {
+    expect(pathOf('{"tool_input":{"file_path":".claude/agents/fixer.md"}}')).toBe('.claude/agents/fixer.md');
+  });
+
+  it('reads tool_input.path when file_path is absent', () => {
+    expect(pathOf('{"tool_input":{"path":"scripts/check-x.sh"}}')).toBe('scripts/check-x.sh');
+  });
+
+  it.each(['', 'not json', '{}', '{"tool_input":{"file_path":7}}', 'null', '{"tool_input":{"command":"ls"}}'])(
+    'answers the empty string for %j',
+    (stdin) => {
+      expect(pathOf(stdin)).toBe('');
+    },
+  );
+});
+
 describe('the gate table', () => {
-  it('registers bundle-commit, brief-name, state, controller, phase, then main-checkout, then brief-push, and an empty command still allows', async () => {
-    expect(GATES.map((g) => g.name)).toEqual(['bundle-commit', 'brief-name', 'state', 'controller', 'phase', 'main-checkout', 'brief-push']);
+  it('registers bundle-commit, brief-name, state, controller, phase, main-checkout, brief-push, and an empty command still allows', async () => {
+    expect(GATES.map((g) => g.name)).toEqual([
+      'bundle-commit',
+      'brief-name',
+      'state',
+      'controller',
+      'phase',
+      'main-checkout',
+      'brief-push',
+    ]);
     expect(await run([...GATES], 'all', '')).toEqual({ code: EXIT.allow, warned: [] });
+  });
+
+  it('keeps role-deny out of GATES — reachable only by name, never through --all', () => {
+    expect(GATES.map((g) => g.name)).not.toContain('role-deny');
+    expect(NAME_ONLY_GATES.map((g) => g.name)).toContain('role-deny');
+  });
+
+  it('does not let --all apply role-deny to a pinned merge the controller gate allows', async () => {
+    const { code, warned } = await run([...GATES], 'all', 'gh pr merge 42 --match-head-commit deadbeef');
+    expect(code).toBe(EXIT.allow);
+    expect(warned).toEqual([]);
   });
 });
 
@@ -108,5 +144,51 @@ describe('runGates', () => {
     const { code, warned } = await run([], ['ghost']);
     expect(code).toBe(EXIT.allow);
     expect(warned[0]).toMatch(/no gate named ghost/);
+  });
+});
+
+describe('runGates — askPath', () => {
+  /** A gate exposing `askPath` as well as the ordinary command-based `ask`. */
+  const gateWithPath = (name: string, pathAnswer: string | null) => {
+    const asked: string[] = [];
+    const g: Gate & { askPath: (path: string) => Promise<string | null> } = {
+      name,
+      onError: 'allow',
+      wants: () => false,
+      ask: async () => null,
+      askPath: async (path) => {
+        asked.push(path);
+        return pathAnswer;
+      },
+    };
+    return { g, asked };
+  };
+
+  it('asks askPath when a path is given, even where wants(command) is false', async () => {
+    const { g, asked } = gateWithPath('role-deny', 'path refused');
+    const { code, warned } = await run([g], ['role-deny'], '', '.claude/agents/fixer.md');
+    expect(code).toBe(EXIT.refuse);
+    expect(warned).toEqual(['path refused']);
+    expect(asked).toEqual(['.claude/agents/fixer.md']);
+  });
+
+  it('does not call askPath when no path is given', async () => {
+    const { g, asked } = gateWithPath('role-deny', 'path refused');
+    const { code } = await run([g], ['role-deny'], 'ls -la', '');
+    expect(code).toBe(EXIT.allow);
+    expect(asked).toEqual([]);
+  });
+
+  it('allows a path askPath does not refuse', async () => {
+    const { g } = gateWithPath('role-deny', null);
+    const { code, warned } = await run([g], ['role-deny'], '', 'packages/domain/src/index.ts');
+    expect(code).toBe(EXIT.allow);
+    expect(warned).toEqual([]);
+  });
+
+  it('ignores a path for a gate with no askPath', async () => {
+    const { g } = gate('state', null);
+    const { code } = await run([g], ['state'], '', '.claude/agents/fixer.md');
+    expect(code).toBe(EXIT.allow);
   });
 });

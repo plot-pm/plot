@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2908 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/role-agents-are-probed`
 - **Started:** 2026-10-30, Jan Wloka, `feature/role-agent-definitions`
+- **Started:** 2026-10-30, Jan Wloka, `feature/role-agents-start-detached`
 
 ## Changelog
 
@@ -91,7 +92,7 @@ Measured 2026-10-29, Claude Code 2.1.312 (resolved via `npx -y --offline @anthro
 - Every non-reviewer role denies `plot-host.sh commit-status`, `plot-review.mjs`, `gh pr merge` and `plot-ask.mjs merge`, a push to the default branch, and edits to `.claude/**`, `scripts/check-*.sh`, `skills/plot/scripts/*-gate.sh` and `.github/workflows/**`. A commit message carrying "Fixes #N" is denied.
 - "Never commit a built bundle" stays with the existing gates (`plot-bundle-commit-gate.sh` at commit, `scripts/check-no-bundle-diff.sh` in CI). "Never join lines" and "bash 3.2" stay instructions; `check-bash32-syntax.sh` is already a local check.
 - The reviewer definition holds no write tools. `review.ts` keeps the only `plot/review` write.
-- `memory: local` writes outside the PR tree, at the path the probe records.
+- No role declares `memory: local`: probe result 4 found it writes inside the run's own tree. The fixer and main-repair declare `memory: user`, which writes under `~/.claude/agent-memory/<name>/`, outside every run's tree. The reviewer and the unblocker declare no `memory`, because enabling `memory` turns on Read, Write and Edit (sub-agents docs, "Enable persistent memory") and both roles are read-only.
 - fleetd creates every worktree itself; `isolation` in frontmatter is not relied on. The design's *Isolation* column becomes a runner input (`AgentRunRequest.worktree`).
 
 | Role | Model | Tree | Writes |
@@ -132,7 +133,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### Role definitions
 
-- `feature/role-agent-definitions` — the four definitions and per-role settings files; non-reviewer roles deny status writes, review runs, merges, pushes to main, and edits to `.claude/**` and the gates; `memory: local` outside the PR tree <!-- waits: feature/role-agents-are-probed --> <!-- builds: reviewer.md, fixer.md, unblocker.md, main-repair.md and their settings files --> → #2946
+- `feature/role-agent-definitions` — the four definitions and per-role settings files; non-reviewer roles deny status writes, review runs, merges, pushes to main, and edits to `.claude/**` and the gates; the fixer and main-repair keep `memory: user` outside every tree, and the read-only reviewer and unblocker declare no `memory` <!-- waits: feature/role-agents-are-probed --> <!-- builds: reviewer.md, fixer.md, unblocker.md, main-repair.md and their settings files --> → #2946
 
 ### Detached role start
 
