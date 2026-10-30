@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2912 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-fixer-attempts-record`
+- **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-starts-the-fixer`
 
 ## Changelog
 
