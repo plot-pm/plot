@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLOT_REPO_ROOT:-$(pwd)}/skills/plot/scripts/board/plot-gate.mjs\" role-deny"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLOT_REPO_ROOT:-$(pwd)}/skills/plot/scripts/board/plot-gate.mjs\" role-deny"
+          }
+        ]
+      }
+    ]
+  }
+}
