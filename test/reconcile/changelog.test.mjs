@@ -21,7 +21,7 @@ const parser = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-pl
 const repoRoot = path.join(here, '..', '..');
 
 const parseFile = (...files) =>
-  execFileSync('bash', [parser, ...files], { encoding: 'utf8' })
+  execFileSync('bash', [parser, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     .trim().split('\n').map((l) => JSON.parse(l));
 
 function withPlan(body, fn) {
