@@ -1,6 +1,7 @@
 import {
   branchState,
   REPLACEABLE_BY_PREREQUISITE,
+  withPlanLandings,
   type BranchReadings,
   type HostReach,
   type PrReading,
@@ -13,7 +14,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The `node` entry point `plot-fleet-scan.sh` runs, once per plan.
  *
  * ```
- * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\t?\n' | node plot-branch-state.mjs
+ * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\t?\tfeature/x\n' | node plot-branch-state.mjs
  * wip	0	wip
  * ```
  *
@@ -61,7 +62,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 /**
  * One branch's readings, as the scan writes them.
  *
- * Twelve tab-separated fields, and every one is spelled rather than implied:
+ * Thirteen tab-separated fields, and every one is spelled rather than implied:
  * `-` is the absent marker the scan already uses everywhere a middle column may
  * be empty, because a run of tabs collapses into one separator under bash's
  * `read`.
@@ -80,6 +81,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * | `waitsPr` | the prerequisites' PR words, comma-separated and in the same order, `?` where none was asked |
  * | `prListComplete` | `true` where the host's PR list held every PR, anything else otherwise |
  * | `waitsNamed` | per prerequisite, `true` where some plan names it as a slice and `false` where none does, comma-separated in field 9's order; `?` exactly where field 10 is `?` |
+ * | `branch` | the branch this line reads |
  *
  * **TWO PARALLEL COLUMNS, NOT ONE PER PREREQUISITE.** The scan still asks one
  * round trip per BRANCH, not per prerequisite, so field 10 is `?` for the whole
@@ -104,7 +106,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * `REPLACEABLE_BY_PREREQUISITE` flag depends on to tell *nothing declared* from
  * *declared, not yet read*.
  */
-const FIELDS = 12;
+const FIELDS = 13;
 
 /**
  * The scan's PR words, in the rule's vocabulary.
@@ -199,6 +201,8 @@ interface ParsedLine {
   readings: BranchReadings;
   /** Every prerequisite the plan named, empty where it named none. */
   waitsBranch: readonly string[];
+  /** The branch this line reads. */
+  branch: string;
 }
 
 /**
@@ -222,9 +226,10 @@ const parsedFrom = (text: string): ParsedLine[] =>
       }
       const [
         deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete,
-        waitsNamed,
+        waitsNamed, branch,
       ] = fields as [
         string, string, string, string, string, string, string, string, string, string, string, string,
+        string,
       ];
       const names = waitsBranch === '-' ? [] : waitsBranch.split(',');
       // `?` IS A SINGLE FLAG FOR THE WHOLE BRANCH, NEVER PER-ITEM: the scan asks
@@ -260,7 +265,7 @@ const parsedFrom = (text: string): ParsedLine[] =>
           namedSlice: namedFrom(named[index] as string, i + 1),
         })),
       };
-      return { readings, waitsBranch: names };
+      return { readings, waitsBranch: names, branch };
     });
 
 /**
@@ -274,25 +279,33 @@ const parsedFrom = (text: string): ParsedLine[] =>
  * about, and one that already carries its prerequisite's state is never asked
  * about twice.
  *
+ * A prerequisite that is a branch of the same plan reading `merged` on its own
+ * is answered `MERGED` by {@link withPlanLandings}, with or without a host
+ * reading. A branch whose every prerequisite is such a branch is not flagged.
+ *
  * @param text the stdin document, one branch per line
  * @returns one `state<TAB>needsPrerequisite<TAB>ownState` line per branch,
  *   newline-terminated. The third column is `branchState` asked again with no
  *   prerequisite readings.
  */
-export const answer = (text: string): string =>
-  parsedFrom(text)
-    .map(({ readings, waitsBranch }) => {
-      const state = branchState(readings);
+export const answer = (text: string): string => {
+  const parsed = parsedFrom(text);
+  const owns = parsed.map(({ readings }) => branchState({ ...readings, waits: [] }));
+  const landed = new Set(parsed.filter((_, i) => owns[i] === 'merged').map(({ branch }) => branch));
+  return parsed
+    .map(({ readings, waitsBranch }, i) => {
+      const waits = withPlanLandings(waitsBranch, readings.waits, landed);
+      const state = branchState({ ...readings, waits });
       const needs =
         waitsBranch.length > 0
-        && readings.waits.length === 0
+        && waits.length === 0
         && REPLACEABLE_BY_PREREQUISITE.includes(state)
           ? '1'
           : '0';
-      const own = branchState({ ...readings, waits: [] });
-      return `${state}\t${needs}\t${own}\n`;
+      return `${state}\t${needs}\t${owns[i]}\n`;
     })
     .join('');
+};
 
 /**
  * Read stdin, print the answer.

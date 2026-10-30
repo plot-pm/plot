@@ -5,12 +5,12 @@ import { answer, readingsFrom, run } from '../../src/server/entry/branch-state.j
  * THE ENTRY IS AN ADAPTER AND THESE TEST THE ADAPTATION.
  *
  * `branchState`'s own precedence is asserted in the domain, once. What can
- * only fail here is the wire: twelve tab-separated fields, where field 9 names
+ * only fail here is the wire: thirteen tab-separated fields, where field 9 names
  * every prerequisite the plan declares (comma-separated, `-` for none) and
  * field 10 carries the parallel comma-separated PR-state list (`?` where the
  * question was not yet put, never a per-item marker). Field 12 says, per
  * prerequisite, whether some plan names it as a slice, and is `?` exactly where
- * field 10 is.
+ * field 10 is. Field 13 is the line's own branch.
  *
  * `the-parser-reads-every-wait` (slice 2) teaches the scan to emit several
  * names; today it always sends one, so every live case here is a one-item
@@ -18,7 +18,7 @@ import { answer, readingsFrom, run } from '../../src/server/entry/branch-state.j
  * borrowing the first or last column.
  */
 
-/** One branch line, as the scan's twelve tab-separated fields would write it. */
+/** One branch line, as the scan's thirteen tab-separated fields would write it. */
 const line = (
   deferred: string,
   refTip: string,
@@ -32,10 +32,12 @@ const line = (
   waitsPr: string,
   listComplete: string,
   waitsNamed = '?',
+  branch = 'feature/this',
 ): string =>
-  [deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete, waitsNamed].join(
-    '\t',
-  );
+  [
+    deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete, waitsNamed,
+    branch,
+  ].join('\t');
 
 const UNSTARTED = ['false', '-', 'aaa', 'false', 'ok', 'NONE', '0', '0'] as const;
 
@@ -148,5 +150,44 @@ describe('run — the process wiring', () => {
     const code = run(`${line(...UNSTARTED, '-', '?', 'true')}\n`, (s) => out.push(s));
     expect(code).toBe(0);
     expect(out.join('')).toBe('open\t0\topen\n');
+  });
+});
+
+describe('answer — a prerequisite the same plan reads merged', () => {
+  /** A branch with no ref that a merge subject proves landed, the host unreachable. */
+  const LANDED = ['false', '-', 'aaa', 'true', 'failed', '-', '0', '0'] as const;
+  /** A branch nobody has started, the host unreachable. */
+  const UNASKED = ['false', '-', 'aaa', 'false', 'unasked', '-', '0', '0'] as const;
+
+  it('clears the wait with no host call when every prerequisite landed in this plan', () => {
+    const out = answer(
+      `${line(...LANDED, '-', '?', 'false', '?', 'feature/probe')}\n`
+        + `${line(...UNASKED, 'feature/probe', '?', 'false', '?', 'feature/definitions')}\n`,
+    );
+    expect(out).toBe('merged\t0\tmerged\nopen\t0\topen\n');
+  });
+
+  it('clears a landed prerequisite the host could not read', () => {
+    const out = answer(
+      `${line(...LANDED, '-', '?', 'false', '?', 'feature/probe')}\n`
+        + `${line(...UNASKED, 'feature/probe', '-', 'false', 'true', 'feature/definitions')}\n`,
+    );
+    expect(out).toBe('merged\t0\tmerged\nopen\t0\topen\n');
+  });
+
+  it('still asks the host for a prerequisite outside the plan', () => {
+    const out = answer(
+      `${line(...LANDED, '-', '?', 'false', '?', 'feature/probe')}\n`
+        + `${line(...UNASKED, 'feature/probe,feature/elsewhere', '?', 'false', '?', 'feature/definitions')}\n`,
+    );
+    expect(out).toBe('merged\t0\tmerged\nopen\t1\topen\n');
+  });
+
+  it('keeps a branch waiting while the host cannot read a prerequisite outside the plan', () => {
+    const out = answer(
+      `${line(...LANDED, '-', '?', 'false', '?', 'feature/probe')}\n`
+        + `${line(...UNASKED, 'feature/probe,feature/elsewhere', '-,-', 'false', 'true,true', 'feature/definitions')}\n`,
+    );
+    expect(out).toBe('merged\t0\tmerged\nwaiting\t0\topen\n');
   });
 });

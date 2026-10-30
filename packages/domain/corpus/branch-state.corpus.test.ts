@@ -7,6 +7,7 @@ import { mergeSubjectForms } from '../src/adapters/host/merge-subjects.js';
 import {
   branchState,
   namedSlices,
+  withPlanLandings,
   type BranchReadings,
   type HostReach,
   type PrReading,
@@ -361,12 +362,24 @@ const comparePass = (reading: FleetReading): Pass => {
   const disagreements: Disagreement[] = [];
   let compared = 0;
   for (const plan of reading.plans) {
+    // A PREREQUISITE THAT IS A BRANCH OF THIS PLAN is read from that branch's
+    // own state, as `withPlanLandings` says, so the plan's landed branches are
+    // derived first from the same readings.
+    const branches = plan.slices.flatMap((slice) => slice.branches);
+    const own = new Map(
+      branches.map((b) => [b.branch, readingsFor(b.branch, b.deferred, b.waits_on)] as const),
+    );
+    const landed = new Set(
+      [...own].filter(([, r]) => branchState({ ...r, waits: [] }) === 'merged').map(([name]) => name),
+    );
     for (const slice of plan.slices) {
       for (const branch of slice.branches) {
         compared += 1;
-        const derived = branchState(
-          readingsFor(branch.branch, branch.deferred, branch.waits_on),
-        );
+        const readings = own.get(branch.branch) as BranchReadings;
+        const derived = branchState({
+          ...readings,
+          waits: withPlanLandings(branch.waits_on, readings.waits, landed),
+        });
         if (derived === branch.state) continue;
         disagreements.push({
           subject: `${plan.file} :: ${branch.branch}`,
@@ -683,6 +696,7 @@ describe('the bundle answers the zero-ahead table as the rule does', () => {
       '?',
       String(r.prListComplete),
       '?',
+      'feature/this',
     ].join('\t');
 
   const runBundle = (input: string): { status: number | null; stdout: string } => {
