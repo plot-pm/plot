@@ -14,7 +14,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The `node` entry point `plot-fleet-scan.sh` runs, once per plan.
  *
  * ```
- * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\t?\tfeature/x\n' | node plot-branch-state.mjs
+ * printf 'false\tabc\tdef\tfalse\tok\tnone\t2\t2\t-\t-\tfalse\t?\n' | node plot-branch-state.mjs feature/x
  * wip	0	wip
  * ```
  *
@@ -62,7 +62,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 /**
  * One branch's readings, as the scan writes them.
  *
- * Thirteen tab-separated fields, and every one is spelled rather than implied:
+ * Twelve tab-separated fields, and every one is spelled rather than implied:
  * `-` is the absent marker the scan already uses everywhere a middle column may
  * be empty, because a run of tabs collapses into one separator under bash's
  * `read`.
@@ -81,7 +81,6 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * | `waitsPr` | the prerequisites' PR words, comma-separated and in the same order, `?` where none was asked |
  * | `prListComplete` | `true` where the host's PR list held every PR, anything else otherwise |
  * | `waitsNamed` | per prerequisite, `true` where some plan names it as a slice and `false` where none does, comma-separated in field 9's order; `?` exactly where field 10 is `?` |
- * | `branch` | the branch this line reads |
  *
  * **TWO PARALLEL COLUMNS, NOT ONE PER PREREQUISITE.** The scan still asks one
  * round trip per BRANCH, not per prerequisite, so field 10 is `?` for the whole
@@ -106,7 +105,15 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * `REPLACEABLE_BY_PREREQUISITE` flag depends on to tell *nothing declared* from
  * *declared, not yet read*.
  */
-const FIELDS = 13;
+const FIELDS = 12;
+
+/*
+ * THE LINES' BRANCH NAMES ARRIVE AS ONE ARGUMENT, newline-separated in stdin's
+ * line order, and not as a thirteenth field. A bundle built before the argument
+ * existed ignores it, and a scan that passes none gets the answer it got
+ * before: no prerequisite is read from the plan's own landings. So an old scan
+ * and a new bundle, or a new scan and an old bundle, still answer.
+ */
 
 /**
  * The scan's PR words, in the rule's vocabulary.
@@ -201,8 +208,6 @@ interface ParsedLine {
   readings: BranchReadings;
   /** Every prerequisite the plan named, empty where it named none. */
   waitsBranch: readonly string[];
-  /** The branch this line reads. */
-  branch: string;
 }
 
 /**
@@ -226,10 +231,9 @@ const parsedFrom = (text: string): ParsedLine[] =>
       }
       const [
         deferred, refTip, mainTip, subject, reach, pr, ahead, real, waitsBranch, waitsPr, listComplete,
-        waitsNamed, branch,
+        waitsNamed,
       ] = fields as [
         string, string, string, string, string, string, string, string, string, string, string, string,
-        string,
       ];
       const names = waitsBranch === '-' ? [] : waitsBranch.split(',');
       // `?` IS A SINGLE FLAG FOR THE WHOLE BRANCH, NEVER PER-ITEM: the scan asks
@@ -265,7 +269,7 @@ const parsedFrom = (text: string): ParsedLine[] =>
           namedSlice: namedFrom(named[index] as string, i + 1),
         })),
       };
-      return { readings, waitsBranch: names, branch };
+      return { readings, waitsBranch: names };
     });
 
 /**
@@ -284,14 +288,20 @@ const parsedFrom = (text: string): ParsedLine[] =>
  * reading. A branch whose every prerequisite is such a branch is not flagged.
  *
  * @param text the stdin document, one branch per line
+ * @param branches each line's branch, in line order; empty where the caller
+ *   names none, which reads no landing from the plan
  * @returns one `state<TAB>needsPrerequisite<TAB>ownState` line per branch,
  *   newline-terminated. The third column is `branchState` asked again with no
  *   prerequisite readings.
+ * @throws when `branches` is not empty and its length differs from the lines'
  */
-export const answer = (text: string): string => {
+export const answer = (text: string, branches: readonly string[] = []): string => {
   const parsed = parsedFrom(text);
+  if (branches.length > 0 && branches.length !== parsed.length) {
+    throw new Error(`${branches.length} branch name(s) for ${parsed.length} line(s)`);
+  }
   const owns = parsed.map(({ readings }) => branchState({ ...readings, waits: [] }));
-  const landed = new Set(parsed.filter((_, i) => owns[i] === 'merged').map(({ branch }) => branch));
+  const landed = new Set(branches.filter((_, i) => owns[i] === 'merged'));
   return parsed
     .map(({ readings, waitsBranch }, i) => {
       const waits = withPlanLandings(waitsBranch, readings.waits, landed);
@@ -312,14 +322,17 @@ export const answer = (text: string): string => {
  *
  * @param text the whole of stdin
  * @param write where the answer goes
+ * @param names each line's branch, newline-separated in line order; absent
+ *   or empty where the caller names none
  * @returns the process exit code — 0 answered, 2 unreadable input
  */
 export const run = (
   text: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  names = '',
 ): number => {
   try {
-    write(answer(text));
+    write(answer(text, names.split('\n').filter((name) => name !== '')));
     return 0;
   } catch (err) {
     process.stderr.write(`plot-branch-state: ${(err as Error).message}\n`);
@@ -337,5 +350,5 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  void endEntry(run(Buffer.concat(chunks).toString('utf8')));
+  void endEntry(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv[2]));
 }

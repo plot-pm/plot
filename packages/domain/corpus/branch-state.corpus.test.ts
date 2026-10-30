@@ -696,7 +696,6 @@ describe('the bundle answers the zero-ahead table as the rule does', () => {
       '?',
       String(r.prListComplete),
       '?',
-      'feature/this',
     ].join('\t');
 
   const runBundle = (input: string): { status: number | null; stdout: string } => {

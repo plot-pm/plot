@@ -4164,8 +4164,11 @@ branch_readings() { # $1=branch $2=deferred $3=plan-base $4=commits → readings
 # There is no shell fallback: a second implementation kept "just in case" is
 # the duplication this adoption removes, and it would be the copy nobody tests.
 # `plot-deliver.sh` fails the same way for the same reason.
-ask_branch_states() { # stdin=readings → one `state<TAB>needs<TAB>own` line per branch
-  node "$script_dir/board/plot-branch-state.mjs" 2>/dev/null \
+# $1 names each reading line's branch, one per line in stdin's order. The rule
+# reads a prerequisite that is a branch of the same plan from that branch's own
+# state. An argument and not a field: a bundle built before it ignores it.
+ask_branch_states() { # stdin=readings, $1=branches → one `state<TAB>needs<TAB>own` line per branch
+  node "$script_dir/board/plot-branch-state.mjs" "$1" 2>/dev/null \
     || { echo "error: cannot read branch states — run 'pnpm build:board'." >&2; exit 2; }
 }
 
@@ -4419,7 +4422,7 @@ for plan in "${plans[@]}"; do
     # "-" is the absent marker the shim writes, for the tab-collapse reason
     # above. Normalized here so everything downstream tests emptiness.
     [ "$waits" = "-" ] && waits=""
-    readings+="$(branch_readings "$br" "$deferred" "$plan_base" "$commits")	${waits:--}	?	$list_complete	?	$br"$'\n'
+    readings+="$(branch_readings "$br" "$deferred" "$plan_base" "$commits")	${waits:--}	?	$list_complete	?"$'\n'
     # Read from the readings line just built rather than from the variable: the
     # subshell `branch_readings` runs in cannot export it back.
     # FIELD 6 is the host's own word, in both arms of `branch_readings`:
@@ -4449,7 +4452,7 @@ for plan in "${plans[@]}"; do
   # There is no shell fallback: a second implementation kept "just in case" is
   # the duplication this adoption removes, and it would be the copy nobody
   # tests.
-  branch_answers=$(printf '%s' "$readings" | ask_branch_states)
+  branch_answers=$(printf '%s' "$readings" | ask_branch_states "$(printf '%s' "$order" | cut -f2)")
   [ "$(printf '%s\n' "$branch_answers" | grep -c .)" = "$(printf '%s' "$readings" | grep -c .)" ] \
     || { echo "error: branch states did not answer for every branch of $plan_base." >&2; exit 2; }
 
@@ -4488,9 +4491,7 @@ for plan in "${plans[@]}"; do
       # way. `entry/branch-state.ts` reads the two columns as parallel lists of
       # equal length and throws otherwise, so a single answer for several names
       # would desync them. Field 11 is carried, unreplaced. Field 12 says, in
-      # the same order, whether `SLICE_NAMES` holds each name. Field 13, the
-      # branch's own name, is carried: the rule reads a prerequisite that is a
-      # branch of this plan from that branch's own state.
+      # the same order, whether `SLICE_NAMES` holds each name.
       #
       # A NAMED SLICE WITH NO REF IS STILL ASKED. Its ref may be gone because it
       # merged and `plot-release-refs.sh` reaped it, and only the host's MERGED
@@ -4500,14 +4501,14 @@ for plan in "${plans[@]}"; do
         waits_state+="${waits_state:+,}$(host_pr_state "$_wn" --ask)"
         case "$SLICE_NAMES" in *$'\n'"$_wn"$'\n'*) waits_named+="${waits_named:+,}true" ;; *) waits_named+="${waits_named:+,}false" ;; esac
       done
-      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$waits_state	$(printf '%s' "$rd_line" | cut -f11)	$waits_named	$(printf '%s' "$rd_line" | cut -f13)"$'\n'
+      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$waits_state	$(printf '%s' "$rd_line" | cut -f11)	$waits_named"$'\n'
     else
       refill+="$rd_line"$'\n'
     fi
   done <<< "$readings"
 
   if [ "$needs_refill" = 1 ]; then
-    branch_answers=$(printf '%s' "$refill" | ask_branch_states)
+    branch_answers=$(printf '%s' "$refill" | ask_branch_states "$(printf '%s' "$order" | cut -f2)")
     [ "$(printf '%s\n' "$branch_answers" | grep -c .)" = "$(printf '%s' "$refill" | grep -c .)" ] \
       || { echo "error: branch states did not answer for every branch of $plan_base." >&2; exit 2; }
   fi
