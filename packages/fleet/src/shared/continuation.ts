@@ -10,7 +10,7 @@ import { isAnswered } from '@plot-pm/domain';
 import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
-import type { DeskMonitors, MonitoredDesk, MonitorPids, ProcessProbe } from '@plot-pm/domain';
+import type { Caller, DeskMonitors, MonitoredDesk, MonitorPids, ProcessProbe } from '@plot-pm/domain';
 import { deskWaitsFree, FREE_WAIT_FILENAME } from '@plot-pm/domain/rules/desk-loop-alive';
 import { deskFreeWait, readDeskLoop } from './desk-loop.js';
 import { continueTarget } from '@plot-pm/domain/rules/continue-target';
@@ -161,7 +161,7 @@ export type ContinueRefusal =
   | 'worker-finished'
   /** `restart`: an unanswered `PLOT-BLOCKED` marker sits in the tree; `continue` answers it. */
   | 'blocked-marker'
-  /** `restart`: the caller runs unattended. */
+  /** The caller runs unattended; neither `continue` nor `restart` proceeds for one. */
   | 'unattended'
   /**
    * The caller named the question it means to answer, and the desk's current
@@ -410,6 +410,8 @@ export interface DeskContinuationInput {
   opts: ContinuationOptions;
   /** The configured-value reader; defaults to the board's own. */
   readCfg?: (opts: ContinuationOptions, key: string, fallback: string) => string;
+  /** Who is asking; an unattended caller is refused before any read. */
+  caller: Caller;
   /** The branch the desk holds. */
   branch: string;
   /** The desk, absolute. */
@@ -851,6 +853,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     reason: ContinueRefusal,
     detail: string,
   ): DeskContinuation => ({ kind: 'refused', status, reason, detail });
+
+  if (input.caller === 'unattended') {
+    return refused(409, 'unattended', `an unattended caller does not continue ${branch}. Continuing answers a question, and this one had no one to ask it.`);
+  }
 
   // Read the question BEFORE spawning, and refuse when there is none. This is
   // both the precondition and the prompt's first section — see the header.

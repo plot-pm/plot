@@ -110,7 +110,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 ### Run log
 
-- `feature/the-loop-keeps-a-run-log` — the `RunLog` port, file and fixture adapters under the common git dir's `.plot/state/`, the line type and step vocabulary; dispatch, correction, fresh agent and deliver write their lines <!-- builds: RunLog port and run-log-file adapter, run-log line type and step enum -->
+- `feature/the-loop-keeps-a-run-log` — the `RunLog` port, file and fixture adapters under the common git dir's `.plot/state/`, the line type and step vocabulary; dispatch, correction, fresh agent and deliver write their lines <!-- builds: RunLog port and run-log-file adapter, run-log line type and step enum --> → #2938
 
 ### Idle notification
 

@@ -1,4 +1,4 @@
-import { type Outcome, type Write, decide, refuse } from './decision.js';
+import { type Caller, type Outcome, type Write, decide, refuse } from './decision.js';
 import type { WorkerState } from '../entities/fleet.js';
 import type { DispatchRefusal } from './dispatch.js';
 import { type PortResult, isAnswered } from '../port-result.js';
@@ -131,8 +131,8 @@ export interface RestartReadings {
   pr: BranchPrReading;
   /** Whether a recorded pid on the desk is alive. */
   loop: DeskLoop;
-  /** Whether the caller runs unattended. */
-  unattended: boolean;
+  /** Who is asking for the restart; an unattended caller is refused. */
+  caller: Caller;
 }
 
 /** What restarting decided. */
@@ -191,7 +191,7 @@ export const restartWorker = (
       'plot-dispatch: --restart needs a branch name. A slug is not enough: which stopped branch to hand to a new worker is your call.',
     );
   }
-  if (readings.unattended) {
+  if (readings.caller === 'unattended') {
     return no(
       'unattended',
       'plot-dispatch: --restart needs a person. An unattended caller does not replace a worker.',

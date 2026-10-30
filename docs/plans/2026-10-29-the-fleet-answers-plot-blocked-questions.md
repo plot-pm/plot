@@ -93,7 +93,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 ### Answer record
 
-- `feature/the-answer-record` — D6: a per-question record keyed `(worktree, askedAt)` with outcome and author, written inside `continueOnDesk`; a `question-moved` refusal on `continue` <!-- builds: the answer record port and file adapter, and the question-moved refusal -->
+- `feature/the-answer-record` — D6: a per-question record keyed `(worktree, askedAt)` with outcome and author, written inside `continueOnDesk`; a `question-moved` refusal on `continue` <!-- builds: the answer record port and file adapter, and the question-moved refusal --> → #2940
 
 ### Question answering
 

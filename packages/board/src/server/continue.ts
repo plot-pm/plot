@@ -180,6 +180,8 @@ export async function handleContinue(
     readCfg,
     pulse: readPulse(opts),
     branch,
+    // A browser hitting this same-origin route is always a person.
+    caller: 'person',
     answer,
     questionKey,
     monitors: deps.monitors,

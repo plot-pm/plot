@@ -123,7 +123,7 @@ describe('the restart-stopped entry — on a repository', () => {
       '',
       (s) => written.push(s),
       () => {},
-      { pulse: pulseOf('feature/a', desk), unattended: false, restartBranch: async (input) => { calls.push(input); return started; } },
+      { pulse: pulseOf('feature/a', desk), caller: 'person', restartBranch: async (input) => { calls.push(input); return started; } },
     );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
@@ -147,7 +147,7 @@ describe('the restart-stopped entry — on a repository', () => {
     const calls: RestartBranchInput[] = [];
     const code = await run([], repo, '/nonexistent', '', () => {}, () => {}, {
       pulse: null,
-      unattended: false,
+      caller: 'person',
       restartBranch: async (input) => { calls.push(input); return started; },
     });
     expect(code).toBe(0);
@@ -179,7 +179,7 @@ describe('the restart-stopped entry — on a repository', () => {
       (s) => warned.push(s),
       {
         pulse: null,
-        unattended: false,
+        caller: 'person',
         restartBranch: async (input) => {
           seen.push(input.branch);
           return input.branch === 'feature/live' ? refusal : started;

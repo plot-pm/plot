@@ -13,7 +13,7 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { Scripts } from '@plot-pm/domain';
 import { commitAndPush, Refused, type LadderContext } from '../../src/server/entry/ladder.js';
-import { bookDelivery, bookRelease, type DeliveryBooking } from '../../src/server/entry/deliver.js';
+import { bookDelivery, bookRelease, type DeliveryBooking, type ReleaseBooking } from '../../src/server/entry/deliver.js';
 
 const SCRIPT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../skills/plot/scripts');
 const PLAN = 'docs/plans/2026-10-01-p.md';
@@ -158,7 +158,7 @@ describe('commitAndPush against a real remote that moves during the first push',
   it('releases from the plan text main holds after the move', async () => {
     const { repo, wt, ctx } = estate('- **State:** Delivered\n- **Delivered:** 2026-10-02', appendNote);
     expect((await ctx.trees.addBranch(wt, 'plot/release-p', 'origin/main')).ok).toBe(true);
-    const booking = { rel: PLAN, slug: 'p', tagDate: '2026-10-10', tag: 'v1.2.3' };
+    const booking: ReleaseBooking = { rel: PLAN, slug: 'p', tagDate: '2026-10-10', tag: 'v1.2.3', caller: 'person' };
     const first = await bookRelease(ctx, wt, booking);
     expect(first).toEqual({ phase: 'flipped', record: 'written' });
     const reapply = async (at: string): Promise<void> => {

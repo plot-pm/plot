@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import type { FleetReading } from '@plot-pm/domain';
+import type { Caller, FleetReading } from '@plot-pm/domain';
 import { hostShell, processesShell } from '@plot-pm/domain/adapters';
 import type { ProcessReading } from '@plot-pm/domain/ports/processes';
 import { restartWorker, type BranchPrReading } from '@plot-pm/domain/workflows/dispatch-verbs';
@@ -37,8 +37,8 @@ export interface RestartBranchInput {
   branch: string;
   /** The worktree git reports for the branch; used where the reading names none. */
   worktree?: string;
-  /** Whether the caller runs unattended; such a caller restarts nothing. */
-  unattended: boolean;
+  /** Who is asking for the restart; an unattended caller restarts nothing. */
+  caller: Caller;
   /** Whether the caller promised no network; such a caller's PR question is never put. */
   offline?: boolean;
   /** Starts the desk's monitor; the shell script where absent. */
@@ -135,7 +135,7 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
       tree: { branch, path: worktree, state: worker.state, pid: worker.pid, blockedMarker: markerFile(worktree), dirty: false },
       pr,
       loop,
-      unattended: input.unattended,
+      caller: input.caller,
     });
     if (outcome.outcome === 'decided') return { ok: true };
     return { ok: false, status: 409, reason: continueReason(outcome.reason), detail: outcome.detail };
@@ -143,6 +143,7 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
   return continueOnDesk({
     opts,
     readCfg: input.readCfg,
+    caller: input.caller,
     branch,
     worktree,
     main: input.pulse?.main ?? '',

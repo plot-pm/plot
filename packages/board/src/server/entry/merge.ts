@@ -1,4 +1,4 @@
-import type { Host, Scripts } from '@plot-pm/domain';
+import type { Caller, Host, Scripts } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import { canPinMerge } from './host-pin.js';
 import { merge, type MergeRefusal } from '@plot-pm/domain/workflows/merge';
@@ -12,6 +12,8 @@ export interface MergePorts {
   checksWaitMs: number;
   /** The clock, as epoch milliseconds. */
   now: () => number;
+  /** Who is asking for this merge; an unattended caller is refused before any read. */
+  caller: Caller;
 }
 
 /** What `plot-ask.mjs merge` prints, as one JSON line. */
@@ -51,6 +53,7 @@ export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promi
   const backend = await ports.host.backend();
   const outcome = merge(
     {
+      caller: ports.caller,
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
     },

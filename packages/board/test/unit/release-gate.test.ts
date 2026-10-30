@@ -40,7 +40,7 @@ const report = (
     ],
   });
 
-const asked = { candidate: false, ignoreSprint: false, unattended: false };
+const asked = { candidate: false, ignoreSprint: false, caller: 'person' as const };
 
 describe('an open Must refuses, naming the item', () => {
   it('refuses and names the plan and its sprint', () => {
@@ -275,12 +275,18 @@ describe('the arguments', () => {
     expect(inputFrom(['--candidate', '--ignore-sprint', '--unattended'])).toEqual({
       candidate: true,
       ignoreSprint: true,
-      unattended: true,
+      caller: 'unattended',
     });
   });
 
-  it('defaults every escape to unused', () => {
-    expect(inputFrom([])).toEqual({ candidate: false, ignoreSprint: false, unattended: false });
+  it('defaults every escape to unused, and the caller to a person', () => {
+    expect(inputFrom([])).toEqual({ candidate: false, ignoreSprint: false, caller: 'person' });
+  });
+
+  // '--unattended' maps to 'unattended', never to 'fleetd': this bundle is a
+  // human-facing pre-flight CLI and produces no fleetd caller of its own.
+  it('never produces the fleetd caller from argv', () => {
+    expect(inputFrom(['--unattended']).caller).not.toBe('fleetd');
   });
 });
 
@@ -311,6 +317,17 @@ describe('the verdict is asked of the domain', () => {
     );
     expect(verdict(items, asked, ['EWZ']).openShoulds).toEqual(['[EWZ-9]']);
     expect(verdict(items, asked).openShoulds).toEqual(['[EWZ-9 open]']);
+  });
+
+  // The domain's caller gate runs before the sprint gate, so an unattended
+  // caller refuses even over a sprint with no open Musts at all — a refusal
+  // this gate must surface, not swallow as a pass.
+  it('refuses unattended even when every Must is done', () => {
+    const items = itemsFrom(report([{ tier: 'must', slug: 'alpha', state: 'done' }]));
+    const answered = verdict(items, { candidate: false, ignoreSprint: false, caller: 'unattended' });
+    expect(answered.pass).toBe(false);
+    expect(answered.reason).toBe('unattended');
+    expect(answered.detail).toContain('a release needs a person');
   });
 });
 
@@ -346,6 +363,15 @@ describe('the process', () => {
     expect(run('not json', (s) => out.push(s), [], (s) => err.push(s))).toBe(2);
     expect(out).toEqual([]);
     expect(err.join('')).toContain('plot-release-gate');
+  });
+
+  it('exits 1 for --unattended over a sprint with no open Musts', () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = run(report([]), (s) => out.push(s), ['--unattended'], (s) => err.push(s));
+    expect(code).toBe(1);
+    expect(JSON.parse(out.join('')).reason).toBe('unattended');
+    expect(err.join('')).toContain('unattended');
   });
 
   it('passes ticketPrefixes through to the printed verdict', () => {
