@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { PrIndexRow } from '../src/entities/pr-index.js';
 import type { Sprint } from '../src/entities/sprint.js';
-import { slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import { defaultBranchRed } from '../src/rules/default-branch.js';
+import type { DefaultBranchReading } from '../src/entities/default-branch.js';
+import { nextMerge, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -69,7 +71,8 @@ describe('slicePrNext', () => {
 
   it('does not review a head that holds a review on it', () => {
     const r = row({ plotReview: 'success', plotReviewSha: HEAD });
-    expect(slicePrNext(readings({ row: r }))).toEqual({ step: 'none', why: 'reviewed' });
+    // With no default-branch reading the merge arm holds, so a passed head no longer ends at `reviewed`.
+    expect(slicePrNext(readings({ row: r }))).toEqual({ step: 'hold', reason: 'default-branch-unread' });
   });
 
   it('holds on a live review run', () => {
@@ -134,7 +137,7 @@ describe('slicePrNext', () => {
   it('writes nothing when the index already reflects the verdict', () => {
     const verdict = { read: 'verdict', state: 'success', description: 'ok' } as const;
     const r = row({ plotReview: 'success', plotReviewSha: HEAD });
-    expect(slicePrNext(readings({ verdict, row: r }))).toEqual({ step: 'none', why: 'reviewed' });
+    expect(slicePrNext(readings({ verdict, row: r }))).toEqual({ step: 'hold', reason: 'default-branch-unread' });
   });
 
   it('holds on an unreadable verdict file', () => {
@@ -169,5 +172,98 @@ describe('slicePrNext', () => {
   it('holds on an unread repair record once every earlier arm answers none', () => {
     const config = { autoReview: false, reviewBoundMs: 1, startBudget: 3, checksWaitMs: 1 };
     expect(slicePrNext(readings({ repair: { read: 'unread' }, config }))).toEqual({ step: 'hold', reason: 'unread' });
+  });
+});
+
+describe('the merge arm', () => {
+  const TIP = 'c'.repeat(40);
+  const reading = (over: Partial<DefaultBranchReading> = {}): DefaultBranchReading => ({
+    v: 1,
+    branch: 'main',
+    headSha: TIP,
+    head: 'green',
+    settled: { sha: TIP, state: 'green' },
+    failingRuns: [],
+    headSince: '2026-10-30T11:00:00Z',
+    askedAt: '2026-10-30T11:55:00Z',
+    at: '2026-10-30T11:55:00Z',
+    ...over,
+  });
+  const passed = row({ plotReview: 'success', plotReviewSha: HEAD });
+  const merging = (over: Partial<SlicePrNextReadings> = {}) =>
+    slicePrNext(readings({ row: passed, defaultBranch: reading(), ...over }));
+
+  it('merges a passed review on the head against a settled green reading', () => {
+    expect(merging()).toEqual({ step: 'merge', head: HEAD });
+  });
+
+  it('answers none for a review not on the head, and for a row never asked', () => {
+    expect(merging({ row: row({ plotReview: 'success', plotReviewSha: OLD }) })).toEqual({ step: 'review', head: HEAD });
+    expect(merging({ row: row({ plotReview: 'failure', plotReviewSha: HEAD }) })).toMatchObject({ step: 'none' });
+    const { plotReview: _, ...bare } = row();
+    expect(merging({ row: bare })).toMatchObject({ step: 'none' });
+  });
+
+  it('holds default-branch-unread with no reading', () => {
+    expect(merging({ defaultBranch: null })).toEqual({ step: 'hold', reason: 'default-branch-unread' });
+  });
+
+  it('holds default-branch-red on a fresh settled red', () => {
+    const red = reading({ settled: { sha: TIP, state: 'red' } });
+    expect(merging({ defaultBranch: red })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+  });
+
+  it('holds default-branch-stale where defaultBranchRed lifts its own hold on the same reading', () => {
+    const old = reading({ settled: { sha: TIP, state: 'red' }, askedAt: '2026-10-30T09:00:00Z' });
+    expect(defaultBranchRed(old, NOW, 3_600_000)).toBe(false);
+    expect(merging({ defaultBranch: old })).toEqual({ step: 'hold', reason: 'default-branch-stale' });
+    const oldGreen = reading({ askedAt: '2026-10-30T09:00:00Z' });
+    expect(merging({ defaultBranch: oldGreen })).toEqual({ step: 'hold', reason: 'default-branch-stale' });
+    expect(merging({ defaultBranch: reading({ askedAt: 'never' }) })).toEqual({ step: 'hold', reason: 'default-branch-stale' });
+  });
+
+  it('holds default-branch-unsettled for a settled state that is not green', () => {
+    expect(merging({ defaultBranch: reading({ settled: { sha: TIP, state: 'pending' } }) })).toEqual({
+      step: 'hold',
+      reason: 'default-branch-unsettled',
+    });
+    expect(merging({ defaultBranch: reading({ settled: undefined }) })).toMatchObject({ reason: 'default-branch-unsettled' });
+  });
+
+  it('holds merge-in-flight where the settled commit is not the head', () => {
+    expect(merging({ defaultBranch: reading({ headSha: 'd'.repeat(40) }) })).toEqual({
+      step: 'hold',
+      reason: 'merge-in-flight',
+    });
+  });
+
+  it('holds merge-in-flight where a merged row is newer than the reading, though the reading looks settled', () => {
+    expect(merging({ newestMerged: { mergedAt: '2026-10-30T11:58:00Z' } })).toEqual({
+      step: 'hold',
+      reason: 'merge-in-flight',
+    });
+    expect(merging({ newestMerged: { mergedAt: 'garbled' } })).toMatchObject({ reason: 'merge-in-flight' });
+    expect(merging({ newestMerged: { mergedAt: '2026-10-30T11:50:00Z' } })).toMatchObject({ step: 'merge' });
+  });
+
+  it('holds conflicting and merger-app-missing', () => {
+    expect(merging({ row: { ...passed, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
+    expect(merging({ mergerAppMissing: true })).toEqual({ step: 'hold', reason: 'merger-app-missing' });
+    expect(merging({ mergerAppMissing: false })).toMatchObject({ step: 'merge' });
+  });
+
+  it('keeps the unread hold on an unread repair record', () => {
+    expect(merging({ repair: { read: 'unread' } })).toEqual({ step: 'hold', reason: 'unread' });
+  });
+});
+
+describe('nextMerge', () => {
+  const m = (pr: number) => ({ pr, step: { step: 'merge' as const, head: `h${pr}` } });
+  it('picks the lowest PR number among the merge steps', () => {
+    expect(nextMerge([m(9), m(4), { pr: 2, step: { step: 'hold', reason: 'conflicting' } }, m(6)])).toEqual({ pr: 4, head: 'h4' });
+  });
+  it('answers null where no row merges', () => {
+    expect(nextMerge([{ pr: 2, step: { step: 'none', why: 'x' } }])).toBeNull();
+    expect(nextMerge([])).toBeNull();
   });
 });

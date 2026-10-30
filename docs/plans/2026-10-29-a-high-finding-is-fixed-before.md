@@ -115,7 +115,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-a-
 
 ### Fixer start
 
-- `feature/fleetd-starts-the-fixer` — the HIGH and CI-red arms of `rules/slice-pr-next.ts`; fleetd owns every fixer start on a desk that has a PR: HIGH on this head, and CI red with the desk dead or corrections spent; writes the attempt first, takes the per-desk continue lock, re-asks the host before the start, logs each step <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- builds: the fixer arms and their tick -->
+- `feature/fleetd-starts-the-fixer` — the HIGH and CI-red arms of `rules/slice-pr-next.ts`; fleetd owns every fixer start on a desk that has a PR: HIGH on this head, and CI red with the desk dead or corrections spent; writes the attempt first, takes the per-desk continue lock, re-asks the host before the start, logs each step <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- builds: the fixer arms and their tick --> → #2965
 
 ### HIGH ticket
 

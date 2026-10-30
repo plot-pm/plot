@@ -488,6 +488,12 @@ describe('a release is its own kind, and it carries only a mark', () => {
     pr: { number: 300, url: 'https://host/pr/300', draft: false, state: 'none' },
   });
 
+  it('shows its stage in the status slot, and its own status where none is read', () => {
+    expect(tupleFromRow({ ...release, releaseStage: 'ready' }).status).toBe('ready to approve');
+    expect(tupleFromRow({ ...release, releaseStage: 'waiting-scope' }).status).toBe('waiting for the sprint scope');
+    expect(tupleFromRow({ ...release, releaseStage: 'not-a-stage' }).status).toBe(tupleFromRow(release).status);
+  });
+
   it('renders as a release, distinguishable from an ordinary PR', () => {
     expect(tupleFromRow(release).kindLabel).toBe('Release');
     expect(tupleFromRow(release).kind).toBe('release');

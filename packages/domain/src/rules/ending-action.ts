@@ -1,5 +1,6 @@
 import type { Ending, EndingReading, EndingReason } from '../entities/ending.js';
 import type { CommitReading } from './sample.js';
+import type { DeskDeadAnswer } from './desk-dead.js';
 
 /**
  * What one tick read of a desk whose worker ended, for {@link endingAction}
@@ -348,6 +349,7 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
   if (readings.hasManifest) return 'leave';
   if (readings.ending === 'holding-work') {
     if (takeUpRefused(readings.refusedAssignment, readings.branch)) return 'release-claim';
+    if (readings.prMerged === 'merged' && readings.dirtyTree === 'no') return 'leave';
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
   if (readings.ending !== null && FRESH_SESSION_ENDINGS.has(readings.ending)) {
@@ -596,6 +598,21 @@ export const needsPersonMarker = (ending: EndingReason, branch: string, detail: 
   }
 };
 
+/** Whether the host holds a pull request for a branch, in any state. */
+export type BranchPrReading = 'none' | 'some' | 'unanswerable';
+
+/** What the tick read of a desk the fleet launched whose worker exited 0 or left no exit record. */
+export interface DeadDeskReadings {
+  /** The desk's `.plot-worker.pid`, verbatim; `null` where the file is absent. */
+  readonly launchPid: string | null;
+  /** {@link deskDead}'s answer for the desk. */
+  readonly dead: DeskDeadAnswer;
+  /** `Trees.commitBeyondClaim` for the desk. */
+  readonly commitBeyondClaim: CommitReading;
+  /** The host's `prState` for the branch: `'none'` only for a successful answer of no pull request. */
+  readonly pr: BranchPrReading;
+}
+
 /** What the supervisor's tick read of a desk no manifest names, for {@link killedWorkerEnding}. */
 export interface KilledWorkerReadings {
   /** The desk's `.plot-worker.ending.json`, read as a value. */
@@ -606,39 +623,57 @@ export interface KilledWorkerReadings {
   readonly loopAlive: boolean;
   /** The branch the desk holds; `''` for a detached desk. */
   readonly branch: string;
+  /** The readings the exit-0 and no-exit-record arm needs; absent where the tick did not take them. */
+  readonly deadDesk?: DeadDeskReadings;
 }
 
 /**
- * The ending the supervisor writes for a desk whose worker exited non-zero
- * and wrote no ending, or `null` where the desk needs none.
+ * The ending the supervisor writes for a desk whose worker wrote no ending,
+ * or `null` where the desk needs none.
  *
- * Three facts must hold together: the ending file is absent, the exit record
- * holds a non-zero exit code, and no loop is alive on the desk. Then the
- * answer is an `unreadable` ending with actor `supervisor`, and
+ * Two arms compose an `unreadable` ending with actor `supervisor`;
  * {@link endingAction}'s `bound`/`unreadable`/`quiet` row decides what the
  * desk gets. The tick writes it to the desk, so `continueOnDesk`, the ending
  * time and the ask record read the same file every other ending gives them.
  *
- * **EACH ABSENT FACT ANSWERS `null`.** A desk with no exit record was never
- * run by a worker, for example a desk a person cut by hand. A zero exit is a
- * worker that finished. A live loop has not ended. An ending that exists — a
- * person's `stopped` ending from `plot-dispatch.sh --stop` among them — is
- * the desk's own account, and an unparseable one is not overwritten. A
- * detached desk names no branch for a fresh session.
+ * - **Non-zero exit:** the ending file is absent, the exit record holds a
+ *   non-zero code, and no loop is alive on the desk.
+ * - **Exit 0, or no exit record:** the ending file is absent, no loop is
+ *   alive, the desk names a branch, and `deadDesk` shows a launch record
+ *   holding a positive integer, a dead desk, a commit beyond the claim and
+ *   no pull request in any state.
  *
- * @param readings - the desk's ending, exit record, loop and branch.
+ * An ending that exists, a person's `stopped` ending among them, is the
+ * desk's own account, and an unparseable one is not overwritten. An empty or
+ * non-numeric exit record composes nothing. A failed or unanswerable reading
+ * composes nothing.
+ *
+ * @param readings - the desk's ending, exit record, loop, branch and dead-desk readings.
  * @returns the ending to write, or `null`.
  */
 export const killedWorkerEnding = (readings: KilledWorkerReadings): Ending | null => {
   if (readings.ending.read !== 'absent' || readings.loopAlive || readings.branch === '') return null;
-  const code = readings.exit?.trim() ?? '';
-  if (!/^[0-9]+$/.test(code) || Number(code) === 0) return null;
-  return {
-    reason: 'unreadable',
-    actor: 'supervisor',
-    branch: readings.branch,
-    detail: `the worker exited ${code} and wrote no ending`,
-    refusedAssignment: '',
-    resumeId: '',
-  };
+  const exited = readings.exit === null ? null : readings.exit.trim();
+  if (exited !== null && !/^[0-9]+$/.test(exited)) return null;
+  if (exited !== null && Number(exited) !== 0) {
+    return supervisorEnding(readings.branch, `the worker exited ${exited} and wrote no ending`);
+  }
+  const desk = readings.deadDesk;
+  if (desk === undefined || !/^\s*[1-9][0-9]*\s*$/.test(desk.launchPid ?? '')) return null;
+  if (!desk.dead.dead || desk.commitBeyondClaim !== 'yes' || desk.pr !== 'none') return null;
+  return supervisorEnding(
+    readings.branch,
+    exited === null
+      ? 'the worker left no exit record and no ending; its branch holds work and no pull request'
+      : 'the worker exited 0 and wrote no ending; its branch holds work and no pull request',
+  );
 };
+
+const supervisorEnding = (branch: string, detail: string): Ending => ({
+  reason: 'unreadable',
+  actor: 'supervisor',
+  branch,
+  detail,
+  refusedAssignment: '',
+  resumeId: '',
+});

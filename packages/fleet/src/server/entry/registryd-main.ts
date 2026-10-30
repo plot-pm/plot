@@ -59,6 +59,7 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered } from '@plot-pm/domain';
+import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
@@ -81,6 +82,10 @@ import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
 import { boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
+import { readAutoReview } from '../../shared/auto-review.js';
+import { releaseTick } from '../../shared/release-tick.js';
+import { releasePortsFor } from '../../shared/release-world.js';
+import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
@@ -112,6 +117,7 @@ import {
   unclaimedLines,
   freshAgentCandidateTrees,
   killedWorkerEndings,
+  type KilledWorkerReads,
   readFreshAgentCandidates,
   freshAgentDecisions,
   applyFreshAgentDecisions,
@@ -1958,6 +1964,45 @@ export const freshAgentDeskReads = (
 };
 
 /**
+ * The dead-desk, git and host asks {@link killedWorkerEndings} takes in production.
+ *
+ * `deskDead` reads the desk's own files: the launch record's pid through
+ * `readDeskLoop` for liveness, and the `PLOT-BLOCKED*` marker. The desk is on
+ * this machine, since the candidate list holds only local trees.
+ *
+ * @param context - the repository and its scripts directory.
+ * @param hasPr - launches the host already answered with a pull request; the caller keeps it across ticks.
+ * @param tally - the host-call counter this step adds to, one per `prState` asked.
+ * @returns the asks.
+ */
+export const killedWorkerReads = (
+  context: { repoRoot: string; scriptDir: string },
+  hasPr: Set<string>,
+  tally: HostTally = { calls: 0 },
+): KilledWorkerReads => ({
+  deskDead: async (worktree): Promise<DeskDeadAnswer> => {
+    const pid = Number((fileOrNull(join(worktree, '.plot-worker.pid')) ?? '').trim());
+    return deskDead({
+      read: 'desk',
+      worktreeHere: true,
+      pidRecorded: Number.isInteger(pid) && pid > 0,
+      liveness: readDeskLoop(worktree, { kind: 'unnamed' }).loop.kind === 'alive' ? 'live' : 'dead',
+      exit: fileOrNull(join(worktree, '.plot-worker.exit')),
+      task: { hasPr: false, blocked: (await markerReading(worktree)) !== null, dirty: false, unpushed: null },
+    });
+  },
+  commitBeyondClaim: async (worktree) => {
+    const commits = await treesGit(context).commitBeyondClaim(worktree);
+    return commits.ok ? commits.value : 'unanswerable';
+  },
+  prState: async (branch) => {
+    tally.calls += 1;
+    return hostShell(context).prState(branch);
+  },
+  hasPr,
+});
+
+/**
  * Reads, decides and applies the fresh-agent step for one completed tick.
  *
  * First, a desk whose worker exited non-zero, wrote no ending and holds no
@@ -1987,6 +2032,7 @@ export const startFreshAgents = async (
   deps: {
     deskFile: (worktree: string, name: string) => string | null;
     loopAlive: (worktree: string) => boolean;
+    killedReads: KilledWorkerReads;
     writeEnding: Desk['writeEnding'];
     record: Pick<FreshAgentRecordStore, 'rowsFor'>;
     heldFiles: (worktree: string) => Promise<readonly string[] | null>;
@@ -2001,7 +2047,7 @@ export const startFreshAgents = async (
   try {
     const candidates = freshAgentCandidateTrees(report.trees ?? []);
     if (candidates.length === 0) return [];
-    for (const { worktree, ending } of killedWorkerEndings(candidates, deps.deskFile, deps.loopAlive)) {
+    for (const { worktree, ending } of await killedWorkerEndings(candidates, deps.deskFile, deps.loopAlive, deps.killedReads)) {
       const written = await deps.writeEnding(worktree, ending);
       if (written.ok) {
         write(`plot-fleetd fresh-agent ${ending.branch}: recorded — ${ending.detail}; wrote an unreadable ending\n`);
@@ -2581,6 +2627,8 @@ export const run = async (
   const boardOpts = { repoRoot, scriptsDir };
   // THE DAEMON IS THE ONLY WRITER OF THE ASK RECORD, for the same reason.
   const endingAsks = endingAskRecordFile({ cwd: repoRoot });
+  // Launches the host answered with a pull request; emptied by a fleetd restart.
+  const launchesWithPr = new Set<string>();
   // ONE RELEASE PATH FOR BOTH STEPS: the fresh-agent step releases a
   // `bound`/`unreadable`/`quiet` desk, the nothing-done step every other
   // `release-claim`. SHARES `tally` with both steps, so a release either one
@@ -2986,6 +3034,51 @@ export const run = async (
     } catch (e) {
       warn(`plot-fleetd: idle notify failed: ${e instanceof Error ? e.message : String(e)}\n`);
     }
+    // THE RELEASE ARM, beside the idle notify and guarded the same way. A
+    // `--once` pass reads and acts on nothing; a review start also needs
+    // `Auto-review: true`, so a repository that never switched review on gets
+    // the notice and no agent.
+    if (!args.once) {
+      try {
+        const context = { repoRoot, scriptDir: scriptsDir };
+        const refs = refsGit(context);
+        const reviewOn = readAutoReview(boardOpts).autoReview;
+        const defaultBranch = await refs.defaultBranch();
+        const checksWait = checksWaitMsOf(await readConfigAsync(boardOpts, 'Checks wait', '3600'));
+        const outcome = await releaseTick(
+          releasePortsFor({
+            refs,
+            scripts,
+            plans: fleetPlanStore(context, refs),
+            host: hostShell(context),
+            index: prIndexFile({ cwd: repoRoot }),
+            build: ci,
+            log: runLogFile({ cwd: repoRoot }),
+            notifier: await notifier(),
+            ref: `origin/${defaultBranch.ok ? defaultBranch.value : 'main'}`,
+          }),
+          {
+            requiredWorkflow: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', ''))[0] ?? 'CI',
+            reviewBoundMs: checksWait,
+            startBudget: 0,
+          },
+          {
+            repoRoot,
+            script: join(scriptsDir, 'board', 'plot-review.mjs'),
+            cwd: repoRoot,
+            logFile: join(repoRoot, '.plot', 'state', 'release-review.log'),
+            detached: detachedNode(),
+            pidAlive: (pid) => pidAlive(pid),
+            limit: 1,
+          },
+          Date.now(),
+          reviewOn,
+        );
+        if (outcome.step.step !== 'none') write(`plot-fleetd: release ${outcome.stage}: ${outcome.step.step}\n`);
+      } catch (e) {
+        warn(`plot-fleetd: release tick failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
     await relayBeat(slot, warn);
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
     // starts above. A tick that was not allowed to start reports and acts on
@@ -2996,6 +3089,7 @@ export const run = async (
         report,
         {
           ...freshAgentDeskReads({ repoRoot, scriptDir: scriptsDir }, endingAsks, (branch) => merges.ask(branch), tally),
+          killedReads: killedWorkerReads({ repoRoot, scriptDir: scriptsDir }, launchesWithPr, tally),
           writeEnding: freshAgentDesk.writeEnding,
           record: freshAgentRecord,
           ports: freshAgentPorts,

@@ -16,7 +16,7 @@
 // It carries no React, so the unit suite tests it as data — which is the other
 // half of why the collapse was cheap: the hard decisions were testable without
 // a browser, and the browser only had to confirm a layout.
-import { isAgentFree, supervisionCauseWord } from '@plot-pm/domain';
+import { isAgentFree, releaseStageViewOf, supervisionCauseWord } from '@plot-pm/domain';
 import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
 
 /**
@@ -662,8 +662,10 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     // test: *falls back to the PR number and says so, rather than showing a
     // number that reads like a version*.
     const version = releaseVersion(row);
+    const stage = releaseStageViewOf(row.releaseStage);
     return {
       ...base,
+      status: stage === null ? base.status : stage.label,
       name: version && row.pr
         ? { what: 'pr', label: version, href: row.pr.url }
         : row.pr
