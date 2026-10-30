@@ -141,7 +141,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### Role adoption
 
-- `feature/plot-init-provides-roles` — `rules/adoption.ts` provides the definitions to an adopter; absent files written, a differing copy reported `stale` <!-- builds: role-definition adoption -->
+- `feature/plot-init-provides-roles` — `rules/adoption.ts` provides the definitions to an adopter; absent files written, a differing copy reported `stale` <!-- builds: role-definition adoption --> → #2957
 
 ## Notes
 

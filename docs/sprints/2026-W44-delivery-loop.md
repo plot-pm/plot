@@ -22,7 +22,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [ ] [fleetd-merges-slice-prs-one-at] One merge in flight, only on `plot/review` success, only through a Merger app (#2902) <!-- pr: #2914, branch: feature/fleetd-merges-one-at-a-time -->
 - [ ] [a-high-finding-is-fixed-before] Every HIGH goes to a fixer, two attempts, then a ticket (#2903) <!-- pr: #2912, branch: feature/an-unfixed-high-is-ticketed -->
 - [ ] [the-fleet-answers-plot-blocked-questions] The unblocker answers every agent question and writes each answer into the PR body (#2901) <!-- pr: #2913, branch: feature/fleetd-answers-a-question -->
-- [ ] [tickets-follow-the-delivery-loop] The plan issue shows slice progress and HIGH tickets (#2905) <!-- pr: #2916, branch: feature/jira-moves-at-approve -->
+- [x] [tickets-follow-the-delivery-loop] The plan issue shows slice progress and HIGH tickets (#2905) <!-- pr: #2916, branch: feature/jira-moves-at-approve -->
 - [ ] [a-dead-desk-gets-a-fixer] A dead desk reads unreadable; a merged PR asks no one (#2906) <!-- pr: #2915, branch: feature/a-dead-desk-reads-unreadable -->
 - [ ] [a-red-default-branch-is-repaired] A red main is re-run, repaired or reverted within 60 minutes (#2904) <!-- pr: #2910, branch: feature/a-red-main-is-reverted -->
 - [ ] [the-release-waits-for-one-approval] The release waits for one approval by a person (#2907) <!-- pr: #2911, branch: feature/fleetd-prepares-the-release -->
