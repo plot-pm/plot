@@ -53,7 +53,11 @@ export interface DefaultBranchWorld {
   build: Pick<BuildPort, 'runsForSha'>;
   /** The reading's file. Fleetd is its only writer. */
   store: DefaultBranchStore;
-  /** The repair record's file, written at the change from green to red. Fleetd is its only writer. */
+  /**
+   * The repair record's file, written at the change from green to red. A
+   * person may also set its `repairPr`, so fleetd keeps an open record of the
+   * same episode rather than replacing it.
+   */
   repair: RepairRecordStore;
   /** Runs one host call, inside a host slot where the CI system is GitHub Actions. */
   slot<T>(call: () => Promise<T>): Promise<T>;

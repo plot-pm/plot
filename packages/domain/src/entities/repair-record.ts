@@ -57,8 +57,12 @@ export type RepairAttempt = z.infer<typeof RepairAttemptSchema>;
  * would make every older reader lift the hold on a red main. This file is new
  * and carries no such reader.
  *
- * Fleetd is the only writer. The record is local to the machine that wrote
- * it — it guards one machine's repair, not a cross-machine lock.
+ * Two writers. Fleetd opens the record at the change from green to red, and
+ * keeps an open record of the same episode rather than replacing it. A person
+ * sets `repairPr` through `plot-ask.mjs repair-pr <pr>`, which re-reads the
+ * record before its write and refuses where it changed. The record is local
+ * to the machine that wrote it — it guards one machine's repair, not a
+ * cross-machine lock.
  */
 export const RepairRecordSchema = z
   .object({
@@ -109,7 +113,10 @@ export const RepairRecordSchema = z
     preRevertRerun: z.enum(['none', 'asked']),
     /** The one repair attempt this episode made, or absent where none has. */
     attempt: RepairAttemptSchema.optional(),
-    /** The fix PR's number, or absent where none was opened. */
+    /**
+     * The fix PR's number, or absent where none is recorded. Set by fleetd,
+     * or by a person through `plot-ask.mjs repair-pr <pr>`.
+     */
     repairPr: z.number().optional(),
     /** The revert PR's number, or absent where none was opened. */
     revertPr: z.number().optional(),
