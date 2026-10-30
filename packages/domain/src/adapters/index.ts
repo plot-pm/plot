@@ -155,7 +155,7 @@ export { fixerAttemptsFile, fixerAttemptsPath } from './fixer-attempts/fixer-att
 
 // THE REPAIR RECORD'S FILE ADAPTER. One file under `.plot/state/`, local to
 // the machine, written by `plot-fleetd` only.
-export { repairRecordFile, repairRecordPath } from './default-branch/repair-record-file.js';
+export { repairRecordFile, repairRecordPath } from './repair-record/repair-record-file.js';
 
 // THE FLEET-STOPPED RECORD'S FILE ADAPTER. One file under `.plot/state/`,
 // written by `plot-fleetctl.sh --stop` and cleared by `--start`.
