@@ -704,7 +704,10 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
   elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
   elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
   def checks_of: if (.statusCheckRollup|length) == 0 then "none" elif any(.statusCheckRollup[]; ck == "bad") then "failing"
-  elif any(.statusCheckRollup[]; ck == "wait") then "pending" else "green" end;'
+  elif any(.statusCheckRollup[]; ck == "wait") then "pending" else "green" end;
+  def ci_rollup: [.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")];
+  def ci_checks_of: (ci_rollup) as $r | if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing"
+  elif any($r[]; ck == "wait") then "pending" else "green" end;'
 
 # THE ONE FOLD of a PR's mergeability into a word, for `pr-list --rich` and both
 # `pr-state` transports. GraphQL says `mergeable` CONFLICTING|MERGEABLE|UNKNOWN
@@ -4799,7 +4802,8 @@ case "$op" in
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
-            | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
+            | jq -c "$CHECKS_OF$MERGEABLE_OF"'def plot_review_ctx: [.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0];
+              .[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
                 checks:checks_of,
@@ -4809,8 +4813,13 @@ case "$op" in
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
                 author:(.author.login // ""),
                 failing_checks:[
-                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != ""))
-              }'
+                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")),
+                ciChecks:ci_checks_of
+              } + (plot_review_ctx as $pr | if $pr == null then {plotReview:"absent"} else {
+                plotReview:($pr.state // "" | ascii_downcase),
+                plotReviewSha:(.headRefOid // ""),
+                plotReviewAt:($pr.startedAt // "")
+              } end)'
         fi
       else
         # `isDraft`, `url` AND `updatedAt` TRAVEL ON THE PLAIN ARM TOO, and they

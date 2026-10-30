@@ -8,7 +8,8 @@ import {
   type PrIndexRow,
 } from '../src/entities/pr-index.js';
 import {
-  answerKind, boundShasFor, carriedChecks, foldPrIndex, pendingOpenPrNumbers, prWindowFor, watermarkOf,
+  answerKind, boundShasFor, carriedChecks, foldPrIndex, pendingOpenPrNumbers, prWindowFor,
+  reviewReaskPrNumbers, watermarkOf,
 } from '../src/rules/pr-index.js';
 
 /**
@@ -344,9 +345,13 @@ describe('an unreadable store is nothing to start from', () => {
     // slice removed. Refusing it costs exactly one full read per machine, and
     // `prWindowFor` would have answered a full read for a store with no
     // `wholeAt` in any case.
-    expect(PR_INDEX_VERSION).toBe(5);
+    //
+    // VERSION 6 ADDS `plotReview`, `plotReviewSha`, `plotReviewAt` and
+    // `ciChecks`; a v5 file fails the same literal parse for the same reason.
+    expect(PR_INDEX_VERSION).toBe(6);
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 5 }))).toBeNull();
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 6 }))).not.toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 4 }))).toBeNull();
-    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 5 }))).not.toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 1 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 2 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 3 }))).toBeNull();
@@ -449,6 +454,90 @@ describe('the numbers a delta re-asks about', () => {
       row(3, { state: 'OPEN', checks: 'pending' }),
     ]);
     expect(pendingOpenPrNumbers(held)).toEqual([1, 3]);
+  });
+});
+
+describe('the numbers whose review a delta re-asks about', () => {
+  // MODELED ON `pendingOpenPrNumbers` ABOVE, SAME SHAPE: a completed status
+  // write does not move `updatedAt` either, so nothing but asking this number
+  // again replaces it. Unlike `pendingOpenPrNumbers`, this rule only fires
+  // once `ciChecks` already reads green on the row's own `headSha` — a row CI
+  // has not finished with is `pendingOpenPrNumbers`'s to re-ask instead.
+  const sha = 'a'.repeat(40);
+  const greenRow = (number: number, over: Partial<PrIndexRow> = {}): PrIndexRow => row(number, {
+    state: 'OPEN', checks: 'green', headSha: sha, checksSha: sha, ciChecks: 'green', ...over,
+  });
+
+  it('returns an open PR whose review is absent on an otherwise-green row', () => {
+    const held = store([greenRow(1, { plotReview: 'absent' })]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1'])).toEqual([1]);
+  });
+
+  it('returns an open PR whose review is still pending', () => {
+    const held = store([greenRow(1, { plotReview: 'pending', plotReviewSha: sha })]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1'])).toEqual([1]);
+  });
+
+  it('returns an open PR whose stored review is bound to a sha older than checksSha', () => {
+    // THE DONE-WHEN: a review on file for a commit CI has since moved past is
+    // stale, not settled — the PR may have pushed a new commit since review.
+    const held = store([greenRow(1, { plotReview: 'success', plotReviewSha: 'b'.repeat(40) })]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1'])).toEqual([1]);
+  });
+
+  it('does not return a row whose review is success on the current checksSha', () => {
+    const held = store([greenRow(1, { plotReview: 'success', plotReviewSha: sha })]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1'])).toEqual([]);
+  });
+
+  it('does not return a row whose review is failure on the current checksSha', () => {
+    // A settled failure is still settled — nothing here predicts a re-review;
+    // the next push moves `checksSha` and reopens the question on its own.
+    const held = store([greenRow(1, { plotReview: 'failure', plotReviewSha: sha })]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1'])).toEqual([]);
+  });
+
+  it('does not return a row whose ciChecks is not yet green', () => {
+    // THE DONE-WHEN: `pendingOpenPrNumbers` already covers a row CI has not
+    // finished with (via `checks`); re-asking it here too would spend the
+    // bound twice for one wait.
+    const held = store([greenRow(1, { ciChecks: 'pending', plotReview: 'absent' })]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1'])).toEqual([]);
+  });
+
+  it('does not return a draft PR, a closed PR, or one outside the given branches', () => {
+    const held = store([
+      greenRow(1, { draft: true, plotReview: 'absent' }),
+      greenRow(2, { state: 'MERGED', plotReview: 'absent' }),
+      greenRow(3, { head: 'feature/b3', plotReview: 'absent' }),
+    ]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1', 'feature/b2'])).toEqual([]);
+  });
+
+  it('does not return a row with no checksSha, or one whose checksSha trails headSha', () => {
+    // Neither Jenkins nor Bitbucket binds `ciChecks` to a commit; a row with no
+    // `checksSha` has nothing this rule can call "the current head's verdict."
+    const held = store([
+      row(1, { state: 'OPEN', checks: 'green', ciChecks: 'green', plotReview: 'absent' }),
+      row(2, {
+        state: 'OPEN', checks: 'green', headSha: sha, checksSha: 'b'.repeat(40),
+        ciChecks: 'green', plotReview: 'absent',
+      }),
+    ]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1', 'feature/b2'])).toEqual([]);
+  });
+
+  it('returns nothing where there is no store', () => {
+    expect(reviewReaskPrNumbers(null, ['feature/b1'])).toEqual([]);
+  });
+
+  it('returns every qualifying row, in row order', () => {
+    const held = store([
+      greenRow(1, { plotReview: 'absent' }),
+      greenRow(2, { plotReview: 'success', plotReviewSha: sha }),
+      greenRow(3, { head: 'feature/b3', plotReview: 'pending', plotReviewSha: sha }),
+    ]);
+    expect(reviewReaskPrNumbers(held, ['feature/b1', 'feature/b2', 'feature/b3'])).toEqual([1, 3]);
   });
 });
 
