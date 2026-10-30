@@ -1,7 +1,7 @@
 import type { Containment } from '../ports/refs.js';
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { CandidateCommit, RepairRecord } from '../entities/repair-record.js';
-import { defaultBranchAgeMs, defaultBranchRed } from './default-branch.js';
+import { defaultBranchRed } from './default-branch.js';
 
 /**
  * The episode's candidates: the first-parent SHAs strictly between the last
@@ -134,8 +134,7 @@ export const redMainPicker = (candidates: readonly RedMainCandidate[]): RedMainP
     return true;
   });
   if (qualifying.length !== 1) return 'unknown';
-  const number = prNumberOf(qualifying[0]!.subject);
-  return number === null ? 'unknown' : { pr: number };
+  return { pr: prNumberOf(qualifying[0]!.subject)! };
 };
 
 /** What `redMainStep` answers. */
@@ -214,8 +213,7 @@ export const episodeOpen = (
  * - The episode has closed (a green settled since, or the settled commit no
  *   longer descends from the record's red): `close-prs`.
  * - The reading is too old for {@link defaultBranchRed}: `hold`. This gates
- *   `hold`, `await-rerun` and `start-repair` alike — only `revert` uses the
- *   stricter {@link defaultBranchAgeMs}.
+ *   every later answer, `revert` included: a stale reading never reverts.
  * - `idle` or `rerun`: reads {@link RedMainStepInput.rerunSettled} for the
  *   first red SHA's re-run — `'none'`/`'pending'` holds `await-rerun`;
  *   `'green'` answers `close-prs` (the episode ends with no agent); `'red'`
@@ -227,10 +225,9 @@ export const episodeOpen = (
  *   red (a red re-run there points outside the repository); `await-repair`
  *   while that re-run is still pending or unasked.
  * - Once the bound passes (`now - redSince >= mainRepairBoundMs`) with the
- *   episode still open: `revert` requires the reading to be fresh by
- *   {@link defaultBranchAgeMs} and the head to equal the settled commit (no
- *   newer head pending); the picker answering `unknown` answers `exhausted`
- *   instead; a stale reading or a pending head holds at `hold`.
+ *   episode still open: `revert` requires the head to equal the settled
+ *   commit (no newer head pending); the picker answering `unknown` answers
+ *   `exhausted` instead; a pending head holds at `hold`.
  *
  * @param reading - the default-branch reading, or null where there is none.
  * @param record - the repair record, or null where none exists.
@@ -264,16 +261,12 @@ export const redMainStep = (
 
   if (record.state === 'repairing') {
     if (!boundReached) return input.repairInFlight ? 'await-repair' : 'start-repair';
-  } else if (record.state === 'reverting') {
+  } else {
     if (record.revertPr !== undefined) return 'exhausted';
     if (input.lastGreenRerunSettled === 'red') return 'exhausted';
     if (!boundReached || input.lastGreenRerunSettled !== 'green') return 'await-repair';
   }
 
-  if (!boundReached) return 'start-repair';
-
-  const age = defaultBranchAgeMs(reading, input.now);
-  if (age === null || age > input.checksWaitMs) return 'hold';
   if (reading.headSha !== reading.settled.sha) return 'hold';
 
   if (input.pickerAnswer === 'unknown') return 'exhausted';

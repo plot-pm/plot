@@ -241,4 +241,17 @@ describe('redMainPicker', () => {
   it('answers unknown when the host does not read the PR as merged', () => {
     expect(redMainPicker([candidate({ prMerged: false })])).toBe('unknown');
   });
+
+  it('reverting before the bound answers await-repair', () => {
+    expect(redMainStep(reading(), record({ state: 'reverting' }), input({ lastGreenRerunSettled: 'green' }))).toBe('await-repair');
+  });
+
+  it('reverting past the bound with the last-green re-run pending answers await-repair', () => {
+    const answer = redMainStep(
+      reading(),
+      record({ state: 'reverting', redSince: new Date(Date.parse(AT) - 2 * BOUND).toISOString() }),
+      input({ lastGreenRerunSettled: 'pending', pickerAnswer: { pr: 42 } }),
+    );
+    expect(answer).toBe('await-repair');
+  });
 });
