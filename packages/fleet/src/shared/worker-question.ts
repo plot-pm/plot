@@ -6,6 +6,12 @@ import type { FleetReading } from '@plot-pm/domain';
 export interface MarkerReading {
   firstLine: string;
   askedAt: string;
+  /**
+   * Who wrote the marker, read from its `<!-- author: loop|fleetd -->` second
+   * line; absent where the marker carries no such line — an agent's own
+   * `PLOT-BLOCKED:` write, which never goes through `writeBlockedMarker`.
+   */
+  author?: 'loop' | 'fleetd';
 }
 
 /**
@@ -115,7 +121,11 @@ const readMarkerReading = (worktree: string): MarkerReading | null => {
       continue;
     }
     try {
-      return { firstLine: firstMarkerLine(fs.readFileSync(full, 'utf8')), askedAt };
+      const text = fs.readFileSync(full, 'utf8');
+      const author = markerAuthor(text);
+      return author === undefined
+        ? { firstLine: firstMarkerLine(text), askedAt }
+        : { firstLine: firstMarkerLine(text), askedAt, author };
     } catch {
       return { firstLine: '', askedAt };
     }
@@ -155,6 +165,20 @@ export function firstMarkerLine(out: string, max = QUESTION_MAX): string {
   const bare = line.replace(/^(?:\/\/+|#+|\*+|--|<!--)\s*/, '').trim();
   if (!bare) return '';
   return bare.length > max ? `${bare.slice(0, max - 1).trimEnd()}…` : bare;
+}
+
+/**
+ * The marker's author, read from a `<!-- author: loop|fleetd -->` line
+ * anywhere in the text — `undefined` where no such line exists.
+ *
+ * `desk-fs.ts`'s `writeBlockedMarker` writes this as the marker's SECOND
+ * line, after the question text `firstMarkerLine` reads; this looks across
+ * the whole file rather than just line two; so a marker whose first line
+ * wraps still carries a readable tag.
+ */
+export function markerAuthor(text: string): 'loop' | 'fleetd' | undefined {
+  const match = text.match(/<!--\s*author:\s*(loop|fleetd)\s*-->/);
+  return match ? (match[1] as 'loop' | 'fleetd') : undefined;
 }
 
 /**
