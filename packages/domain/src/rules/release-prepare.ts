@@ -15,6 +15,42 @@ export type ReleaseStage =
   | 'released'
   | 'failed';
 
+/** What the board shows for a stage, and whether its approval button is enabled. */
+export interface ReleaseStageView {
+  readonly label: string;
+  readonly approvable: boolean;
+}
+
+const STAGE_LABEL: Readonly<Record<ReleaseStage, string>> = {
+  'waiting-scope': 'waiting for the sprint scope',
+  preparing: 'preparing',
+  ready: 'ready to approve',
+  merged: 'merged',
+  publishing: 'publishing',
+  released: 'released',
+  failed: 'failed',
+};
+
+/**
+ * The board's view of a stage.
+ *
+ * @param stage - a {@link ReleaseStage} value.
+ * @returns the label and whether the approval button is enabled; only `ready` enables it.
+ */
+export const releaseStageView = (stage: ReleaseStage): ReleaseStageView => ({
+  label: STAGE_LABEL[stage],
+  approvable: stage === 'ready',
+});
+
+/**
+ * The view for a stage word as a row carries it.
+ *
+ * @param word - the row's stage word.
+ * @returns the view, or `null` where the word is empty or names no stage.
+ */
+export const releaseStageViewOf = (word: string): ReleaseStageView | null =>
+  Object.prototype.hasOwnProperty.call(STAGE_LABEL, word) ? releaseStageView(word as ReleaseStage) : null;
+
 /** The release PR as the caller read it. `none` is the host's answer; the index never supplies it. */
 export type ReleasePrReading = PrIndexRow | 'none' | 'unaskable';
 

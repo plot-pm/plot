@@ -2663,6 +2663,13 @@ export const AgentRowSchema = z.object({
    * the honest fallback rather than an invented tag.
    */
   version: z.string().default(''),
+  /**
+   * Where a RELEASE row's release is — a `ReleaseStage` word, or "" on every
+   * other row and on a release row whose stage was not read. The tuple row
+   * shows it in the status slot; the domain's `releaseStageView` says whether
+   * the approval is enabled.
+   */
+  releaseStage: z.string().default(''),
   wave: z.string(),
   state: BranchStateSchema,
   /**

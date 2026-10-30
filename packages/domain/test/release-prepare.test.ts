@@ -10,6 +10,8 @@ import {
   releasePrepareNext,
   releaseStage,
   type ReleasePrepareReadings,
+  releaseStageView,
+  releaseStageViewOf,
 } from '../src/rules/release-prepare.js';
 
 const HEAD = 'a'.repeat(40);
@@ -172,5 +174,18 @@ describe('release changeset record', () => {
     const log = [line(), line({ outcome: encodeNotifyOutcome('unaskable', ['b.md', 'a.md']) }), line({ branch: 'other', outcome: 'sent: z.md' })];
     expect(lastNotifiedChangesets(log, BRANCH)).toEqual(['a.md', 'b.md']);
     expect(lastNotifiedChangesets([], BRANCH)).toBeNull();
+  });
+});
+
+describe('releaseStageView', () => {
+  it('enables the approval only at ready', () => {
+    const stages = ['waiting-scope', 'preparing', 'ready', 'merged', 'publishing', 'released', 'failed'] as const;
+    expect(stages.filter((stage) => releaseStageView(stage).approvable)).toEqual(['ready']);
+  });
+
+  it('reads no view from an empty or unknown word', () => {
+    expect(releaseStageViewOf('')).toBeNull();
+    expect(releaseStageViewOf('toString')).toBeNull();
+    expect(releaseStageViewOf('ready')?.label).toBe('ready to approve');
   });
 });

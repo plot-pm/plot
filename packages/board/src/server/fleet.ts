@@ -6411,6 +6411,7 @@ export function rowsFromPulse(
           // reaches the board through the planless-PR loop below, which is where
           // the version is read.
           version: '',
+          releaseStage: '',
           wave: wave.name || '(unnamed)',
           state: b.state,
           unbegun,
@@ -6797,6 +6798,7 @@ export function rowsFromPulse(
       // THE VERSION a release branch would ship, read from its own
       // `package.json` — "" on every other branch. See `releaseVersions`.
       version: versions?.get(branch) ?? '',
+      releaseStage: '',
       wave: '',
       state: 'wip',
       // No plan, so no deferral and nothing to explain.
@@ -7124,6 +7126,7 @@ export function rowsFromPulse(
       // one reaches here it is a release branch nobody opened a PR for, and its
       // version is still the honest fact to show.
       version: versions?.get(branch) ?? '',
+      releaseStage: '',
       wave: '',
       state: 'wip',
       deferredReason: '',
