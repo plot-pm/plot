@@ -1,8 +1,17 @@
 import type { FleetReading } from '../entities/fleet.js';
 import { sprintFrom, sprintMembers, type Sprint } from '../entities/sprint.js';
 
-/** Why {@link sprintScope} answers `none` rather than a scope. */
-export type ScopeRefusal = 'no-active-sprint' | 'multiple-active-sprints' | 'no-unstruck-items';
+/**
+ * Why {@link sprintScope} or `sprintScopeRef` answers `none` rather than a scope.
+ * `sprint-link-escapes` and `sprint-link-missing` come only from `sprintScopeRef`:
+ * the active symlink points outside the sprint directory, or at no regular file.
+ */
+export type ScopeRefusal =
+  | 'no-active-sprint'
+  | 'multiple-active-sprints'
+  | 'no-unstruck-items'
+  | 'sprint-link-escapes'
+  | 'sprint-link-missing';
 
 /** The branches fleetd may review or merge, and why not where there are none. */
 export type SprintScope =
