@@ -137,7 +137,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### Detached role start
 
-- `feature/role-agents-start-detached` — the role name in a domain command builder beside `reviewerCommand`, a start that does not hold the tick, a liveness reading for a role run, both runner adapters <!-- builds: a role command builder and a role-run liveness reading -->
+- `feature/role-agents-start-detached` — the role name in a domain command builder beside `reviewerCommand`, a start that does not hold the tick, a liveness reading for a role run, both runner adapters <!-- builds: a role command builder and a role-run liveness reading --> → #2956
 
 ### Role adoption
 
