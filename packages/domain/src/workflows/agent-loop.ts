@@ -504,7 +504,7 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
   const prText = readings.pr === null ? 'its PR' : `PR #${readings.pr}`;
   const question = `PLOT-BLOCKED: \`${branch}\`'s checks failed after ${readings.correctionAttempts} corrections against ${prText} — a person decides what to do next.`;
   return end(worktree, branch, 'corrections-spent', 'agent', 'correction budget spent', 0, [
-    { kind: 'blocked-marker', worktree, branch, question },
+    { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
     blockedDeclaration(worktree, branch, `${readings.correctionAttempts} corrections spent, checks still failing`),
   ]);
 };
@@ -548,7 +548,7 @@ const mergeConflictCorrectionEnding = (readings: AgentLoopReadings, branch: stri
   const prText = readings.pr === null ? 'its PR' : `PR #${readings.pr}`;
   const question = `PLOT-BLOCKED: \`${branch}\` still conflicts with the default branch after ${readings.correctionAttempts} corrections against ${prText} — a person decides what to do next.`;
   return end(worktree, branch, 'corrections-spent', 'agent', 'correction budget spent, PR still conflicting', 0, [
-    { kind: 'blocked-marker', worktree, branch, question },
+    { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
     blockedDeclaration(worktree, branch, `${readings.correctionAttempts} corrections spent, PR still conflicting`),
   ]);
 };
@@ -790,7 +790,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
       'the prompt never started, retries spent',
       1,
       [
-        { kind: 'blocked-marker', worktree, branch, question },
+        { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
         blockedDeclaration(worktree, branch, 'the prompt never started'),
       ],
       readings.checksResumeId,
@@ -806,7 +806,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   if (exit !== null && exit.answer === 'end-limited') {
     const question = `PLOT-BLOCKED: the usage limit on \`${branch}\` cannot be waited out (${exit.cause}) — a person decides when to retry.`;
     return end(worktree, branch, 'limited', 'agent', `usage limit, cause: ${exit.cause}`, 1, [
-      { kind: 'blocked-marker', worktree, branch, question },
+      { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
       blockedDeclaration(worktree, branch, `usage limit: ${exit.cause}`),
     ]);
   }
@@ -906,7 +906,7 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
       const summary = readings.finalText || 'the claim is pushed, nothing else is, every write was refused';
       const question = `PLOT-BLOCKED: the worker on \`${branch}\` was refused every write it tried (${summary}) — a person decides what to fix.`;
       return end(worktree, branch, 'permission-denied', 'agent', summary, 0, [
-        { kind: 'blocked-marker', worktree, branch, question },
+        { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
         blockedDeclaration(worktree, branch, summary),
       ]);
     }
@@ -961,7 +961,7 @@ const droppedTurn = (readings: AgentLoopReadings, branch: string, line: string):
   if (readings.backgroundDropResumed) {
     const question = `PLOT-BLOCKED: \`${branch}\`'s turn ended with its background work dropped again after one resume. The run reported: ${line} — a person decides how the slice finishes.`;
     return end(worktree, branch, 'blocked', 'agent', 'the turn ended with its background work dropped, twice', 0, [
-      { kind: 'blocked-marker', worktree, branch, question },
+      { kind: 'blocked-marker', worktree, branch, question, author: 'loop' },
       blockedDeclaration(worktree, branch, 'the turn ended with its background work dropped, twice'),
     ]);
   }

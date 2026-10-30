@@ -74,12 +74,21 @@ export interface Desk {
    * over it would answer a question nobody asked. Matches
    * `write_blocked_marker` (`plot-worker-loop.sh:494`) exactly.
    *
+   * **`author` TAGS A MARKER FLEETD OR THE LOOP WROTE, NEVER AN AGENT'S OWN.**
+   * Every call this port's two existing callers make — the loop's own
+   * end-of-turn markers, and fleetd's `needs-a-person` ask — writes `'loop'`
+   * or `'fleetd'` respectively. An agent's `PLOT-BLOCKED:` write never goes
+   * through this port at all, so it is the only marker on disk with no
+   * author line — the tag `unblockerDue` reads back to tell the two apart.
+   *
    * @param worktree - the worktree the marker lands in, absolute.
    * @param text - the marker's body.
+   * @param author - who is asking, `'loop'` or `'fleetd'`; omitted for a
+   *   caller with no author to declare.
    * @returns nothing; always answers rather than failing, matching the
    *   shell's best-effort write.
    */
-  writeBlockedMarker(worktree: string, text: string): Promise<PortResult<void>>;
+  writeBlockedMarker(worktree: string, text: string, author?: 'loop' | 'fleetd'): Promise<PortResult<void>>;
 
   /**
    * Writes the declaration for the branch that just finished, MERGING rather

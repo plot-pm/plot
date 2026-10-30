@@ -1316,7 +1316,7 @@ const askAPerson = async (
   let wrote = false;
   if (decision.escalate) {
     if (decision.markerText === '') return failure('no marker text composes for this ending');
-    if (!(await ports.desk.writeBlockedMarker(decision.worktree, decision.markerText)).ok) {
+    if (!(await ports.desk.writeBlockedMarker(decision.worktree, decision.markerText, 'fleetd')).ok) {
       return failure('the PLOT-BLOCKED.md marker could not be written');
     }
     wrote = true;

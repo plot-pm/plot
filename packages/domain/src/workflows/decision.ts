@@ -383,6 +383,12 @@ export interface BlockedMarkerWrite {
   readonly branch: string;
   /** The marker's body — why the supervisor stopped, and what a person must do. */
   readonly question: string;
+  /**
+   * Who is asking: `'loop'` for every write `agentLoop` emits, `'fleetd'` for
+   * `askAPerson`'s own. Never absent here — a write of this kind is always
+   * one of the two; an agent's own `PLOT-BLOCKED:` write never becomes one.
+   */
+  readonly author: 'loop' | 'fleetd';
 }
 
 /** Removes the registry manifest that named a worktree. */
