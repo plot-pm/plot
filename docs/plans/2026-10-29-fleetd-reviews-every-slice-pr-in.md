@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2900
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-scope-is-read-from-git`
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-review-run-is-locked`
 - **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-reviews-slice-prs`
+- **Delivered:** 2026-10-30
 
 ## Changelog
 
