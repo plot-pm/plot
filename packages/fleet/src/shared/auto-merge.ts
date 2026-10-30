@@ -19,7 +19,8 @@ import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
-import { mergeAt } from '@plot-pm/domain/workflows/merge';
+import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
+import { readRepair, mergeAt } from '@plot-pm/domain/workflows/merge';
 import { hostOf, refsOf, scriptsOf, type ActOptions } from './action-log.js';
 import { readAutoReview } from './auto-review.js';
 import { readConfig } from './config-reader.js';
@@ -38,6 +39,33 @@ export interface MergeTickResult {
 
 /** The (PR, head) pairs whose merge the host refused, for the daemon's life. */
 export type MergeRefusals = Map<number, string>;
+
+/**
+ * Reads the repair record's merge reading once for a tick.
+ *
+ * Reads nothing on a default branch that is not settled red, and nothing where
+ * the record names no open row. The re-ask of the red commit's runs happens
+ * here once, never once per row: the reading holds for every row.
+ *
+ * @param rows - the open rows.
+ * @param defaultBranch - the tick's default-branch reading.
+ * @param ports - the merge controller's ports.
+ * @returns the reading, or `undefined` where the exception has nothing to read.
+ */
+const repairReading = async (
+  rows: readonly PrIndexRow[],
+  defaultBranch: DefaultBranchReading | null,
+  ports: MergePorts,
+): Promise<RepairMergeReading | undefined> => {
+  const settled = defaultBranch?.settled;
+  if (defaultBranch === null || settled === undefined || settled.state !== 'red' || ports.repair === undefined) return undefined;
+  const record = await ports.repair.read();
+  if (!record.ok || record.value === null) return undefined;
+  const { repairPr, revertPr } = record.value;
+  const named = rows.find((r) => r.number === repairPr || r.number === revertPr);
+  if (named === undefined) return undefined;
+  return readRepair(ports, defaultBranch.branch, settled, named.number);
+};
 
 /**
  * One tick of the merge arm over the open rows.
@@ -64,11 +92,13 @@ export const mergeTick = async (
   repoRoot: string,
   pidAlive: (pid: number) => boolean,
 ): Promise<MergeTickResult> => {
+  const repairMerge = readings.repairMerge ?? (await repairReading(rows, readings.defaultBranch, ports));
   const live = liveReviewRuns(repoRoot, pidAlive, readings.now);
   const steps = rows.map((row) => {
     const run = live?.find((e) => e.pr === row.number) ?? null;
     const step = slicePrNext({
       ...readings,
+      ...(repairMerge === undefined ? {} : { repairMerge }),
       row,
       reviewRun: run === null ? null : { head: run.head, pid: run.pid, startedAt: run.startedAt, live: true },
       reviewStarts: null,
