@@ -1,5 +1,6 @@
 import type { PrIndexRow } from '../entities/pr-index.js';
 import type { RunLogLine } from '../ports/run-log.js';
+import { planSlug } from './auto-dispatch.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { ReviewRunReading } from './slice-pr-next.js';
 import type { SprintScope } from './sprint-scope.js';
@@ -92,7 +93,7 @@ export const groupChangesets = (
   changesets: readonly ReleaseChangeset[],
   slugs: readonly string[],
 ): ReleaseChangesetGroups => {
-  const inScope = (plan: string): boolean => slugs.some((slug) => plan === slug || plan.endsWith(`-${slug}`));
+  const inScope = (plan: string): boolean => slugs.includes(planSlug(plan));
   const files = (keep: (c: ReleaseChangeset) => boolean): string[] =>
     changesets.filter(keep).map((c) => c.file).sort();
   return { scope: files((c) => c.plan !== '' && inScope(c.plan)), outside: files((c) => c.plan === '' || !inScope(c.plan)) };
