@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MARKER_ONLY_NOTICE,
   isSlicePrRefusal,
+  PR_ANSWER_MAX,
   openSlicePr,
   type SlicePrReadings,
 } from '../src/rules/slice-pr.js';
@@ -317,6 +318,36 @@ describe('openSlicePr', () => {
       if (isSlicePrRefusal(result)) throw new Error('expected a decision');
       expect(result.notice).toBe('marker-only');
       expect(result.body).toContain('deferred:');
+    });
+  });
+
+  describe('answers given to the desk', () => {
+    const body = (over: Partial<SlicePrReadings>): string => {
+      const result = openSlicePr(readings(over), { draft: false });
+      if (isSlicePrRefusal(result)) throw new Error('expected a decision');
+      return result.body;
+    };
+
+    it('adds no section where there are none', () => {
+      expect(body({})).not.toContain('Answers given');
+      expect(body({ answers: [] })).not.toContain('Answers given');
+    });
+
+    it('lists each answer with its question and author', () => {
+      const text = body({
+        answers: [{ question: 'which adapter?', answer: 'use the shell\nadapter', author: 'unblocker' }],
+      });
+      expect(text).toContain('## Answers given while this slice was built');
+      expect(text).toContain('**which adapter?** — unblocker');
+      expect(text).toContain('> use the shell\n> adapter');
+    });
+
+    it('cuts an answer longer than the bound', () => {
+      const text = body({
+        answers: [{ question: 'q', answer: 'x'.repeat(PR_ANSWER_MAX + 50), author: 'jwloka' }],
+      });
+      expect(text).toContain(`${'x'.repeat(PR_ANSWER_MAX)}…`);
+      expect(text).not.toContain('x'.repeat(PR_ANSWER_MAX + 1));
     });
   });
 });

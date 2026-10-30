@@ -132,11 +132,12 @@ export const deskFs = (trees: Trees): Desk => {
       return answered(undefined);
     },
 
-    writeBlockedMarker: async (worktree, text): Promise<PortResult<void>> => {
+    writeBlockedMarker: async (worktree, text, author): Promise<PortResult<void>> => {
       const file = join(worktree, BLOCKED_MARKER_FILE);
       // NO-OVERWRITE: an existing marker is a question already asked.
       if (existsSync(file)) return answered(undefined);
-      return bestEffortWrite(file, `${text}\n`);
+      const tag = author === undefined ? '' : `\n<!-- author: ${author} -->`;
+      return bestEffortWrite(file, `${text}${tag}\n`);
     },
 
     sealDeclaration: async (worktree, branch, status = 'ok'): Promise<PortResult<void>> => {

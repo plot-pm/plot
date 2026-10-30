@@ -14,6 +14,19 @@ export interface QuestionReading {
   ages: readonly number[];
   /** Every rung already recorded for this desk path and this marker's modification time. */
   recordedRungs: ReadonlySet<Rung>;
+  /**
+   * The answer record's outcome for this desk and this marker's `askedAt`,
+   * or `null` where none exists.
+   *
+   * `'started'` means fleetd's own unblocker is already working the
+   * question, so this tick notifies no one new; the marker is still present,
+   * so without this reading the age-based rungs above would fire regardless.
+   * `'answered'` needs no case here — a successful answer removes the marker,
+   * so {@link QuestionReading.marker} is already `null` by the time this
+   * reading would matter. `'refused'` and `'failed'` fall through to the
+   * ordinary age-based rungs, unchanged.
+   */
+  recordedOutcome: string | null;
 }
 
 /** What this tick decided about one desk's question. */
@@ -32,15 +45,19 @@ const NO_QUESTION: QuestionEscalation = { rung: null, isNew: false };
  *
  * The rung is `notified-N` for the highest configured age `N` that `ageMs`
  * strictly exceeds, and `listed` where it exceeds none. An age past several
- * thresholds gives only the highest rung. `listed` is never new.
+ * thresholds gives only the highest rung. `listed` is never new. A
+ * `recordedOutcome` of `'started'` answers no rung at all, regardless of age:
+ * fleetd's own unblocker is already working the question.
  *
- * @param reading - the marker, its age, the configured ages, and the rungs
- *   already recorded for this marker.
+ * @param reading - the marker, its age, the configured ages, the rungs
+ *   already recorded for this marker, and the answer record's outcome.
  * @returns the highest rung reached, and whether it is new; `{ rung: null,
- *   isNew: false }` where the desk holds no marker.
+ *   isNew: false }` where the desk holds no marker or fleetd is already
+ *   working the question.
  */
 export const questionEscalation = (reading: QuestionReading): QuestionEscalation => {
   if (reading.marker === null) return NO_QUESTION;
+  if (reading.recordedOutcome === 'started') return NO_QUESTION;
 
   let rung: Rung = 'listed';
   for (let i = reading.ages.length - 1; i >= 0; i -= 1) {

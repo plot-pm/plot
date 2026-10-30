@@ -5,6 +5,7 @@ import path from 'node:path';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 import {
   firstMarkerLine,
+  markerAuthor,
   markerIn,
   markerReading,
   waitingWorktrees,
@@ -216,6 +217,28 @@ describe('markerReading — the line and the age, from one stat', () => {
     expect(await markerReading(treeWith({ 'src/a.ts': 'ok\n' }))).toBeNull();
   });
 
+  it('carries no author field when the marker has no tag line', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which adapter?\n' });
+    const reading = await markerReading(wt);
+    expect(reading).not.toBeNull();
+    expect(reading?.author).toBeUndefined();
+    expect(reading).not.toHaveProperty('author');
+  });
+
+  it('carries the author when the marker was written by the loop', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which adapter?\n<!-- author: loop -->\n' });
+    const reading = await markerReading(wt);
+    expect(reading?.firstLine).toBe('PLOT-BLOCKED: which adapter?');
+    expect(reading?.author).toBe('loop');
+  });
+
+  it('carries the author when the marker was written by fleetd', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which adapter?\n<!-- author: fleetd -->\n' });
+    const reading = await markerReading(wt);
+    expect(reading?.firstLine).toBe('PLOT-BLOCKED: which adapter?');
+    expect(reading?.author).toBe('fleetd');
+  });
+
   it('returns null for a worktree that has gone, and does not reject', async () => {
     await expect(markerReading(path.join(tmp, 'never-existed'))).resolves.toBeNull();
   });
@@ -253,6 +276,27 @@ describe('markerReading — the line and the age, from one stat', () => {
       // Restore so `rmTree` in `afterEach` can remove it.
       fs.chmodSync(full, 0o644);
     }
+  });
+});
+
+describe('markerAuthor — who wrote the marker, from its tag line', () => {
+  it('reads a loop tag', () => {
+    expect(markerAuthor('PLOT-BLOCKED: x\n<!-- author: loop -->\n')).toBe('loop');
+  });
+
+  it('reads a fleetd tag', () => {
+    expect(markerAuthor('PLOT-BLOCKED: x\n<!-- author: fleetd -->\n')).toBe('fleetd');
+  });
+
+  it('returns undefined when the text carries no tag', () => {
+    // An agent's own PLOT-BLOCKED write never goes through `writeBlockedMarker`,
+    // so it never gets this line — undefined is what makes it the one
+    // untagged marker on disk.
+    expect(markerAuthor('PLOT-BLOCKED: which adapter?\n')).toBeUndefined();
+  });
+
+  it('finds the tag wherever it sits, not only on line two', () => {
+    expect(markerAuthor('PLOT-BLOCKED: a question\nthat wraps\n<!-- author: loop -->\n')).toBe('loop');
   });
 });
 

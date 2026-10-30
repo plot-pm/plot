@@ -119,6 +119,19 @@ export interface SlicePrRow {
   readonly state: SlicePrState;
 }
 
+/** One answer given to the slice's desk, as the answer record holds it. */
+export interface SlicePrAnswer {
+  /** The question's first line, as the marker stated it. */
+  readonly question: string;
+  /** The answer a person or `unblocker` gave. */
+  readonly answer: string;
+  /** Who answered: `unblocker`, or a person's handle. */
+  readonly author: string;
+}
+
+/** The most characters of one answer the PR body carries; the rest is cut. */
+export const PR_ANSWER_MAX = 8192;
+
 /** What a branch's own commits say, as the adapter measured them. */
 export interface SlicePrReadings {
   /** The branch the PR would be opened for. */
@@ -154,6 +167,13 @@ export interface SlicePrReadings {
    * not one to raise on an outage and the host itself refuses a duplicate.
    */
   readonly prs: readonly SlicePrRow[];
+  /**
+   * The answers given to the slice's desk while it worked, oldest first.
+   *
+   * Absent or empty adds no section: a desk nobody answered has nothing to
+   * report, and a record that could not be read is the same fact to the body.
+   */
+  readonly answers?: readonly SlicePrAnswer[];
   /** How many commits the branch holds that its base does not. */
   readonly commits: number;
   /**
@@ -229,8 +249,20 @@ const bodyFor = (
   if (notice === 'marker-only') {
     parts.push(MARKER_ONLY_NOTICE);
   }
+  if (readings.answers !== undefined && readings.answers.length > 0) {
+    parts.push(answersSection(readings.answers));
+  }
   return parts.join('\n\n');
 };
+
+const answersSection = (answers: readonly SlicePrAnswer[]): string =>
+  [
+    '## Answers given while this slice was built',
+    ...answers.map((a) => {
+      const text = a.answer.length > PR_ANSWER_MAX ? `${a.answer.slice(0, PR_ANSWER_MAX)}…` : a.answer;
+      return `**${a.question}** — ${a.author}\n\n${text.split('\n').map((line) => `> ${line}`).join('\n')}`;
+    }),
+  ].join('\n\n');
 
 /**
  * Decides what opening a slice's pull request would write.

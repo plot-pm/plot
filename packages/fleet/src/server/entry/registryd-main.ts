@@ -70,6 +70,7 @@ import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-re
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
 import type { RunLog } from '@plot-pm/domain/ports/run-log';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
+import { answerRecordFile } from '@plot-pm/domain/adapters/answer-record/answer-record-file';
 import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
 import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
 import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
@@ -1066,7 +1067,9 @@ export const notifierFor = (configured: string): Notifier => {
  * What the tick reads to decide a desk's question escalation: the marker, the
  * configured ages, the rungs already recorded for the desk and its marker's
  * modification time (in `.plot/state/escalations.tsv` or in this daemon's
- * {@link EscalationMemory}), and whether the desk's branch merged.
+ * {@link EscalationMemory}), the answer record's own latest outcome for that
+ * key (`.plot/state/answers.tsv`, via `answerRecordFile`), and whether the
+ * desk's branch merged.
  *
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
@@ -1097,6 +1100,10 @@ export const escalationWorldForRepo = (
     ),
   recordedRungs: async (worktree, askedAt) =>
     recordedRungsFor([...readEscalations(repoRoot), ...memory.records], worktree, askedAt),
+  recordedOutcome: async (worktree, askedAt) => {
+    const rows = await answerRecordFile({ cwd: repoRoot }).rowsFor(worktree, askedAt);
+    return rows.ok && rows.value.length > 0 ? rows.value[rows.value.length - 1].outcome : null;
+  },
   merged: async (branch) => {
     // A FREE AGENT HOLDS NO BRANCH: there is no question to ask, so none is
     // spent — the same guard `prMerged` above takes.
