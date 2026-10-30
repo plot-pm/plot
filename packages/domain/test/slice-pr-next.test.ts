@@ -206,6 +206,11 @@ describe('slicePrNext', () => {
       expect(highArm(readings({ row: noPlotReview, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
     });
 
+    it('holds while the fixer record is unread', () => {
+      const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
+      expect(highArm(readings({ row: r, fixer: { read: 'unread' } }))).toEqual({ step: 'hold', reason: 'unread' });
+    });
+
     it('answers none for no row and for a row with no head', () => {
       const { headSha: _h, ...noHead } = row({ plotReview: 'failure' });
       expect(highArm(readings({ row: null, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
@@ -267,6 +272,12 @@ describe('slicePrNext', () => {
       const { ciChecks: _c, ...noCiChecks } = row();
       const desk = { dead: true } as const;
       expect(ciRedArm(readings({ row: noCiChecks, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
+
+    it('holds while the fixer record is unread', () => {
+      const r = row({ ciChecks: 'failing' });
+      const desk = { dead: true } as const;
+      expect(ciRedArm(readings({ row: r, fixer: { read: 'unread' }, desk }))).toEqual({ step: 'hold', reason: 'unread' });
     });
 
     it('answers none for no row and for a row with no head', () => {
