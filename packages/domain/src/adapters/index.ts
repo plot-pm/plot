@@ -100,6 +100,14 @@ export {
 } from './fresh-agent-record/fresh-agent-record-file.js';
 
 export {
+  runLogFile,
+  decodeRunLogLine,
+  RUN_LOG_HOME_ENV,
+  type RunLogFileOptions,
+} from './run-log/run-log-file.js';
+export { runLogFixture, type RunLogFixture } from './run-log/run-log-fixture.js';
+
+export {
   endingAskRecordFile,
   decodeEndingAskRow,
   ENDING_ASK_RECORD_HOME_ENV,

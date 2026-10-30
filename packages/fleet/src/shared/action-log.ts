@@ -1,5 +1,5 @@
-import { scriptsShell, planStoreShell, hostShell, refsGit } from '@plot-pm/domain/adapters';
-import type { Host, PlanStore, Refs, Scripts } from '@plot-pm/domain';
+import { scriptsShell, planStoreShell, hostShell, refsGit, runLogFile } from '@plot-pm/domain/adapters';
+import type { Host, PlanStore, Refs, RunLog, Scripts } from '@plot-pm/domain';
 import { agentLogPath } from './agent-log.js';
 import type { ConfigReadOptions } from './config-reader.js';
 
@@ -13,6 +13,8 @@ export interface ActOptions extends ConfigReadOptions {
   hostAdapter?: Host;
   /** The `Refs` port that reads a commit's files. Absent means the git adapter over `repoRoot`. */
   refs?: Refs;
+  /** The `RunLog` port the delivery loop appends to. Absent means the file adapter over `repoRoot`. */
+  runLog?: RunLog;
 }
 
 /**
@@ -50,6 +52,14 @@ export const hostOf = (opts: ActOptions): Host =>
  */
 export const refsOf = (opts: ActOptions): Refs =>
   opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The `RunLog` port these options append the delivery loop's actions through.
+ *
+ * @param opts - where the fleet acts.
+ * @returns the injected port, or the file adapter over `opts.repoRoot`.
+ */
+export const runLogOf = (opts: ActOptions): RunLog => opts.runLog ?? runLogFile({ cwd: opts.repoRoot });
 
 /** The fan-out Plot ships — the one this package starts, never a path a caller holds. */
 export const DISPATCH_SCRIPT = 'plot-dispatch.sh';
