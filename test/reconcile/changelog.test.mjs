@@ -20,8 +20,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const parser = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-plan-meta.sh');
 const repoRoot = path.join(here, '..', '..');
 
+// maxBuffer above Node's 1 MB default: the whole-repo sweep below parses
+// every plan in one call, and that output passed 1 MB at 617 plans.
 const parseFile = (...files) =>
-  execFileSync('bash', [parser, ...files], { encoding: 'utf8' })
+  execFileSync('bash', [parser, ...files], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
     .trim().split('\n').map((l) => JSON.parse(l));
 
 function withPlan(body, fn) {
