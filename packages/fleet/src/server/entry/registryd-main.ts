@@ -81,6 +81,10 @@ import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
 import { boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
+import { readAutoReview } from '../../shared/auto-review.js';
+import { releaseTick } from '../../shared/release-tick.js';
+import { releasePortsFor } from '../../shared/release-world.js';
+import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
@@ -3022,6 +3026,51 @@ export const run = async (
       await notifyIdleSlices(report, repoRoot, notifier, planOf, write, warn);
     } catch (e) {
       warn(`plot-fleetd: idle notify failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+    // THE RELEASE ARM, beside the idle notify and guarded the same way. A
+    // `--once` pass reads and acts on nothing; a review start also needs
+    // `Auto-review: true`, so a repository that never switched review on gets
+    // the notice and no agent.
+    if (!args.once) {
+      try {
+        const context = { repoRoot, scriptDir: scriptsDir };
+        const refs = refsGit(context);
+        const reviewOn = readAutoReview(boardOpts).autoReview;
+        const defaultBranch = await refs.defaultBranch();
+        const checksWait = checksWaitMsOf(await readConfigAsync(boardOpts, 'Checks wait', '3600'));
+        const outcome = await releaseTick(
+          releasePortsFor({
+            refs,
+            scripts,
+            plans: fleetPlanStore(context, refs),
+            host: hostShell(context),
+            index: prIndexFile({ cwd: repoRoot }),
+            build: ci,
+            log: runLogFile({ cwd: repoRoot }),
+            notifier: await notifier(),
+            ref: `origin/${defaultBranch.ok ? defaultBranch.value : 'main'}`,
+          }),
+          {
+            requiredWorkflow: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', ''))[0] ?? 'CI',
+            reviewBoundMs: checksWait,
+            startBudget: 0,
+          },
+          {
+            repoRoot,
+            script: join(scriptsDir, 'board', 'plot-review.mjs'),
+            cwd: repoRoot,
+            logFile: join(repoRoot, '.plot', 'state', 'release-review.log'),
+            detached: detachedNode(),
+            pidAlive: (pid) => pidAlive(pid),
+            limit: 1,
+          },
+          Date.now(),
+          reviewOn,
+        );
+        if (outcome.step.step !== 'none') write(`plot-fleetd: release ${outcome.stage}: ${outcome.step.step}\n`);
+      } catch (e) {
+        warn(`plot-fleetd: release tick failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
     }
     await relayBeat(slot, warn);
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
