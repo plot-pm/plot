@@ -7,6 +7,7 @@ import type {
   Processes,
   Refs,
   RefusedSliceRecord,
+  RunLog,
   Trees,
   Write,
 } from '@plot-pm/domain';
@@ -53,6 +54,8 @@ export interface LoopWritePorts {
   refusedSlices: RefusedSliceRecord;
   /** Where a `pr-ready` write lands — the only host call this applier makes. */
   host: Pick<Host, 'prReady'>;
+  /** Where a CI correction is logged, once written — read by the worker-loop entry, not by this applier. */
+  runLog: Pick<RunLog, 'append'>;
 }
 
 /** What one applied write answered, paired with the write it came from. */

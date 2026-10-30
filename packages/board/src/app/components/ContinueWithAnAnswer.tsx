@@ -69,6 +69,10 @@ export function refusalWord(reason: ContinueRefusal): string {
       return 'The worker left a question in its tree — answer it with Continue with an answer.';
     case 'unattended':
       return 'An unattended caller restarts nothing — ask a person to restart this branch.';
+    case 'question-moved':
+      // Pinned the way `merge` pins to a head — the desk moved on to a new
+      // question while this answer was in flight.
+      return 'The desk now asks a different question — reload and answer the one it is asking now.';
   }
 }
 

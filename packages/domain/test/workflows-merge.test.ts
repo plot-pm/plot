@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { merge, type MergeReadings } from '../src/workflows/index.js';
+import { merge, mergeAt, type MergeReadings, type MergePorts } from '../src/workflows/index.js';
 import type { Pr } from '../src/entities/pr.js';
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
+import type { PrReviewReading } from '../src/ports/host.js';
+import type { RepairRecord } from '../src/entities/repair-record.js';
+import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -42,9 +45,19 @@ const reading = (state: 'red' | 'green' | 'pending'): DefaultBranchReading => ({
   at: '2026-10-10T00:00:00Z',
 });
 
+/** A `plot/review` reading that passes on the fixture PR's head. */
+const review = (over: Partial<PrReviewReading> = {}): PrReviewReading => ({
+  sha: HEAD,
+  state: 'success',
+  bypass: false,
+  ...over,
+});
+
 const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
   pr: pr(),
   defaultBranch: reading('green'),
+  defaultBranchTip: OTHER,
+  review: review(),
   caller: 'person',
   ...over,
 });
@@ -201,5 +214,426 @@ describe('merge — the controller for a PR merge', () => {
   it('decides for a person, same as an unset caller', () => {
     const out = merge(readings({ caller: 'person' }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome).not.toBe('refused');
+  });
+
+  it('refuses default-branch-unsettled on a pending head past a green settled commit', () => {
+    // The head is pending while a DIFFERENT, older commit is the last one that
+    // settled green — a naive check reading only `settled.state` would pass.
+    const settledOld = { ...reading('green'), headSha: 'c'.repeat(40), head: 'pending' as const };
+    expect(refusalOf(readings({ defaultBranch: settledOld, defaultBranchTip: 'c'.repeat(40) }))).toBe('default-branch-unsettled');
+  });
+
+  it('refuses default-branch-unsettled when the tip moved past the reading', () => {
+    // The reading still names the pre-merge head; a naive check comparing the
+    // reading with itself would pass.
+    expect(refusalOf(readings({ defaultBranchTip: 'c'.repeat(40) }))).toBe('default-branch-unsettled');
+  });
+
+  it('refuses unaskable when the default-branch tip read fails, never a pass and never default-branch-unsettled', () => {
+    expect(refusalOf(readings({ defaultBranchTip: 'unaskable' }))).toBe('unaskable');
+  });
+
+  it('refuses default-branch-unread when requireReading is set and no reading exists', () => {
+    const out = merge(readings({ defaultBranch: null }), { pr: 42, sha: HEAD, ...CLOCK, requireReading: true });
+    expect(out.outcome === 'refused' && out.reason).toBe('default-branch-unread');
+  });
+
+  it('merges on a missing reading when requireReading is not set', () => {
+    const out = merge(readings({ defaultBranch: null }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).not.toBe('refused');
+  });
+
+  it.each(['absent', 'failure', 'pending'])('refuses review-not-passed for review state %s', (state) => {
+    expect(refusalOf(readings({ review: review({ state }) }))).toBe('review-not-passed');
+  });
+
+  it('refuses review-not-passed when plot/review success names a different sha than the pinned head', () => {
+    expect(refusalOf(readings({ review: review({ sha: OTHER }) }))).toBe('review-not-passed');
+  });
+
+  it('refuses review-not-passed when the review read fails', () => {
+    expect(refusalOf(readings({ review: 'unaskable' }))).toBe('review-not-passed');
+  });
+
+  it('refuses review-not-passed on a green checks rollup with plot/review absent, never reading the rollup instead', () => {
+    // Checks are green (the fixture default); only the review state is absent.
+    expect(refusalOf(readings({ review: review({ state: 'absent' }) }))).toBe('review-not-passed');
+  });
+});
+
+describe('mergeAt — the workflow wired to its ports', () => {
+  const HEAD2 = 'a'.repeat(40);
+  const NOW = Date.parse('2026-10-11T12:00:00Z');
+  const WAIT_MS2 = 3_600_000;
+
+  const settled = (state: 'red' | 'green', askedAt: string): DefaultBranchReading => ({
+    v: 1, branch: 'main', headSha: 'c'.repeat(40), head: state,
+    settled: { sha: 'c'.repeat(40), state }, failingRuns: [],
+    headSince: askedAt, askedAt, at: askedAt,
+  });
+  const red = (askedAt: string): DefaultBranchReading => settled('red', askedAt);
+
+  type Read = { ok: true; value: DefaultBranchReading | null } | { ok: false; why: 'failed' };
+
+  const prFixture = (over: Partial<Pr> = {}): Pr => ({
+    number: 7, repo: '', head: 'feature/x', base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '',
+    draft: false, mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [],
+    url: '', author: '', headSha: HEAD2, checksSha: HEAD2, ...over,
+  });
+
+  /** Ports that answer as given and record every script call. */
+  const ports = (lookup: Pr | 'unaskable', answer: 'answered' | 'failed' = 'answered', read: Read = { ok: true, value: null }, backend = 'github') => {
+    const calls: string[][] = [];
+    const p = {
+      host: {
+        backend: async () => ({ ok: true, value: backend }),
+        prState: async () => (lookup === 'unaskable'
+          ? { ok: false, why: 'unaskable' as const }
+          : { ok: true, value: lookup }),
+        prReview: async () => ({ ok: true, value: { sha: lookup === 'unaskable' ? '' : (lookup?.headSha ?? ''), state: 'success', bypass: false } }),
+      },
+      scripts: {
+        hostSaid: async (args: string[]) => {
+          calls.push(args);
+          return { answer, said: answer === 'answered' ? '' : 'GraphQL: head moved' };
+        },
+      },
+      defaultBranch: { read: async () => read },
+      refs: {
+        remoteSha: async () => ({ ok: true, value: read.ok && read.value !== null ? { sha: read.value.headSha } : 'unknown' }),
+      },
+      checksWaitMs: WAIT_MS2,
+      now: () => NOW,
+      caller: 'person',
+    } as unknown as MergePorts;
+    return { p, calls };
+  };
+
+  it('passes the head the caller read to the host as --match-head', async () => {
+    const { p, calls } = ports(prFixture());
+    const out = await mergeAt(p, 7, HEAD2);
+    expect(out).toMatchObject({ merged: true, pr: 7, sha: HEAD2, defaultBranchRead: false, unpinned: false });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD2]]);
+  });
+
+  it('refuses an unattended caller, asking the host nothing', async () => {
+    const { p, calls } = ports(prFixture());
+    p.caller = 'unattended';
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'unattended' });
+    expect(calls).toEqual([]);
+  });
+
+  it('accepts a fleetd caller and proceeds past the refusal unattended would hit', async () => {
+    const { p } = ports(prFixture());
+    p.caller = 'fleetd';
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true, pr: 7, sha: HEAD2 });
+  });
+
+  it('asks the host for checks, which Bitbucket reads only when asked', async () => {
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: null }, 'bitbucket');
+    const asked: unknown[] = [];
+    (p.host as { prState: unknown }).prState = async (_ref: number, opts?: { withChecks?: boolean }) => {
+      asked.push(opts);
+      return { ok: true, value: prFixture({ checks: opts?.withChecks === true ? 'green' : 'unknown' }) };
+    };
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true, pr: 7, sha: HEAD2 });
+    expect(asked).toEqual([{ withChecks: true }]);
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD2]]);
+  });
+
+  it('pins on bitbucket too, via a head re-read', async () => {
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: null }, 'bitbucket');
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true, pr: 7, sha: HEAD2, unpinned: false });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD2]]);
+  });
+
+  it('keeps the pin where the backend does not answer', async () => {
+    const { p, calls } = ports(prFixture());
+    p.host.backend = async () => ({ ok: false, why: 'failed' });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD2]]);
+  });
+
+  it('calls no script when the domain refuses', async () => {
+    const { p, calls } = ports(prFixture({ headSha: 'b'.repeat(40) }));
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'head-moved' });
+    expect(calls).toEqual([]);
+  });
+
+  it('merges on a Bitbucket-short 12-character head matching the caller’s full sha', async () => {
+    const { p, calls } = ports(prFixture({ headSha: HEAD2.slice(0, 12), checksSha: HEAD2.slice(0, 12) }), 'answered', { ok: true, value: null }, 'bitbucket');
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true, pr: 7, sha: HEAD2 });
+    // The pin is the host's own form of the head, so the host's re-read compares like with like.
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD2.slice(0, 12)]]);
+  });
+
+  it('pins a 12-character caller sha to the host’s 40-character head on Bitbucket', async () => {
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: null }, 'bitbucket');
+    expect(await mergeAt(p, 7, HEAD2.slice(0, 12))).toMatchObject({ merged: true, pr: 7 });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD2]]);
+  });
+
+  it('refuses a 12-character caller sha on GitHub, whose head is always full-length', async () => {
+    const { p, calls } = ports(prFixture());
+    expect(await mergeAt(p, 7, HEAD2.slice(0, 12))).toMatchObject({ merged: false, reason: 'head-moved' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses unaskable when the host lookup fails', async () => {
+    const { p, calls } = ports('unaskable');
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'unaskable' });
+    expect(calls).toEqual([]);
+  });
+
+  it('reports host-refused with the host’s words and never retries without the pin', async () => {
+    const { p, calls } = ports(prFixture(), 'failed');
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({
+      merged: false, reason: 'host-refused', detail: 'GraphQL: head moved',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('refuses unaskable when the default-branch read fails, and merges nothing', async () => {
+    const { p, calls } = ports(prFixture(), 'answered', { ok: false, why: 'failed' });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'unaskable' });
+    expect(calls).toEqual([]);
+  });
+
+  it('merges when no default-branch reading exists', async () => {
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: null });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true, defaultBranchRead: false });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('refuses on a red reading within Checks wait', async () => {
+    const fresh = new Date(NOW - WAIT_MS2 + 60_000).toISOString();
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: red(fresh) });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a red reading older than Checks wait as stale, and merges nothing', async () => {
+    const old = new Date(NOW - WAIT_MS2 - 60_000).toISOString();
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: red(old) });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-stale' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a days-old green reading as stale, and merges nothing', async () => {
+    const old = new Date(NOW - 3 * 24 * WAIT_MS2).toISOString();
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: settled('green', old) });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-stale' });
+    expect(calls).toEqual([]);
+  });
+
+  it('merges on a green reading within Checks wait', async () => {
+    const fresh = new Date(NOW - WAIT_MS2 + 60_000).toISOString();
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: settled('green', fresh) });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true, defaultBranchRead: true });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('refuses unaskable when the remote tip read fails on a settled reading', async () => {
+    const fresh = new Date(NOW - WAIT_MS2 + 60_000).toISOString();
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: settled('green', fresh) });
+    (p.refs as { remoteSha: unknown }).remoteSha = async () => ({ ok: false, why: 'failed' });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'unaskable' });
+    expect(calls).toEqual([]);
+  });
+
+  it('holds a merge with requireReading when no reading exists', async () => {
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: null });
+    p.requireReading = true;
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unread' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses review-not-passed when the host cannot answer whether the review passed', async () => {
+    const { p, calls } = ports(prFixture());
+    (p.host as { prReview: unknown }).prReview = async () => ({ ok: false, why: 'failed' });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'review-not-passed' });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('merge — the repair PR on a red default branch', () => {
+  const LAST_GREEN = 'e'.repeat(40);
+  const FIRST_RED = 'f'.repeat(40);
+  const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+  const record = (over: Partial<RepairRecord> = {}): RepairRecord => ({
+    v: 1, branch: 'main', state: 'idle', lastGreenSha: LAST_GREEN, firstRedSha: FIRST_RED,
+    redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'none', preRevertRerun: 'none',
+    repairPr: 42, at: '2026-10-10T00:00:00Z', ...over,
+  });
+  const repair = (over: Partial<RepairMergeReading> = {}): RepairMergeReading => ({
+    record: record(), episode: 'open', redRuns: 'red', ...over,
+  });
+  const onRed = (over: Partial<MergeReadings> = {}) =>
+    readings({ pr: pr({ head: REPAIR_BRANCH }), defaultBranch: reading('red'), repair: repair(), ...over });
+
+  it('admits the PR the record names, pinned to its head, and says so in the detail', () => {
+    const out = merge(onRed(), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).toBe('decided');
+    if (out.outcome === 'refused') return;
+    expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD }]);
+    expect(out.detail).toEqual({ pr: 42, sha: HEAD, defaultBranchRead: true, repair: 'repair' });
+  });
+
+  it('admits a revert PR the record names on a bug/revert-<pr> branch', () => {
+    const out = merge(onRed({ pr: pr({ head: 'bug/revert-2937' }), repair: repair({ record: record({ repairPr: undefined, revertPr: 42 }) }) }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome === 'decided' && out.detail.repair).toBe('revert');
+  });
+
+  it('refuses default-branch-red for a PR the record does not name, and with no record', () => {
+    expect(refusalOf(onRed({ repair: repair({ record: record({ repairPr: 7 }) }) }))).toBe('default-branch-red');
+    expect(refusalOf(onRed({ repair: repair({ record: null }) }))).toBe('default-branch-red');
+    expect(refusalOf(onRed({ repair: undefined }))).toBe('default-branch-red');
+  });
+
+  it('refuses repair-branch-mismatch for the named PR on another branch', () => {
+    expect(refusalOf(onRed({ pr: pr({ head: 'bug/queue-and-scan-agree-on-a-started-slice' }) }))).toBe('repair-branch-mismatch');
+  });
+
+  it('refuses repair-episode-closed and repair-red-unconfirmed', () => {
+    expect(refusalOf(onRed({ repair: repair({ episode: 'closed' }) }))).toBe('repair-episode-closed');
+    expect(refusalOf(onRed({ repair: repair({ redRuns: 'green' }) }))).toBe('repair-red-unconfirmed');
+  });
+
+  it('keeps every earlier refusal for the named PR', () => {
+    expect(refusalOf(onRed({ pr: pr({ head: REPAIR_BRANCH, checks: 'failing' }) }))).toBe('checks-not-green');
+    expect(refusalOf(onRed({ pr: pr({ head: REPAIR_BRANCH, checksSha: OTHER }) }))).toBe('checks-unbound');
+    expect(refusalOf(onRed({ review: review({ state: 'pending' }) }))).toBe('review-not-passed');
+    expect(refusalOf(onRed({ pr: pr({ head: REPAIR_BRANCH, headSha: OTHER, checksSha: OTHER }) }))).toBe('head-moved');
+    expect(refusalOf(onRed({ caller: 'unattended' }))).toBe('unattended');
+  });
+
+  it('refuses default-branch-stale for the named PR on an old red reading', () => {
+    const late = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
+    const out = merge(onRed(), { pr: 42, sha: HEAD, ...late });
+    expect(out.outcome === 'refused' && out.reason).toBe('default-branch-stale');
+  });
+
+  it('refuses default-branch-unsettled for the named PR when the tip moved past the red reading', () => {
+    expect(refusalOf(onRed({ defaultBranchTip: 'c'.repeat(40) }))).toBe('default-branch-unsettled');
+  });
+});
+
+describe('mergeAt — the repair PR on a red default branch', () => {
+  const NOW = Date.parse('2026-10-11T12:00:00Z');
+  const WAIT = 3_600_000;
+  const LAST_GREEN = 'e'.repeat(40);
+  const FIRST_RED = 'f'.repeat(40);
+  const BUNDLE = 'c'.repeat(40);
+  const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+  const at = new Date(NOW - 60_000).toISOString();
+  /** A bundle commit settled red on top of the first red SHA. */
+  const red: DefaultBranchReading = {
+    v: 1, branch: 'main', headSha: BUNDLE, head: 'red', settled: { sha: BUNDLE, state: 'red' },
+    failingRuns: [], headSince: at, askedAt: at, at,
+  };
+  const record = (over: Partial<RepairRecord> = {}): RepairRecord => ({
+    v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: FIRST_RED,
+    redSince: at, candidates: [], rerun: 'asked', preRevertRerun: 'none', repairPr: 7, at, ...over,
+  });
+  const runs = (conclusion: string) => [{ sha: BUNDLE, status: 'completed', conclusion, url: '', workflow: 'CI' }];
+
+  const ports = (over: { record?: RepairRecord | null | 'fail'; line?: readonly string[] | 'fail'; runs?: ReturnType<typeof runs> | 'fail'; build?: boolean; head?: string } = {}) => {
+    const calls: string[][] = [];
+    const asked: string[] = [];
+    const head = 'a'.repeat(40);
+    const lookup: Pr = {
+      number: 7, repo: '', head: over.head ?? REPAIR_BRANCH, base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '',
+      draft: false, mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '', author: '', headSha: head, checksSha: head,
+    };
+    const stored = over.record === undefined ? record() : over.record;
+    const p = {
+      host: {
+        backend: async () => ({ ok: true, value: 'github' }),
+        prState: async () => ({ ok: true, value: lookup }),
+        prReview: async () => ({ ok: true, value: { sha: head, state: 'success', bypass: false } }),
+      },
+      scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
+      defaultBranch: { read: async () => ({ ok: true, value: red }) },
+      refs: {
+        remoteSha: async () => ({ ok: true, value: { sha: BUNDLE } }),
+        firstParentLine: async (sha: string) => {
+          asked.push(`line ${sha}`);
+          const line = over.line ?? [BUNDLE, FIRST_RED, LAST_GREEN];
+          return line === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: line };
+        },
+      },
+      repair: { read: async () => (stored === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: stored }), write: async () => ({ ok: true, value: undefined }) },
+      ...(over.build === false ? {} : {
+        build: {
+          runsForSha: async (branch: string, sha: string) => {
+            asked.push(`runs ${branch} ${sha}`);
+            const answer = over.runs ?? runs('failure');
+            return answer === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: answer };
+          },
+        },
+      }),
+      checks: ['CI'],
+      checksWaitMs: WAIT,
+      now: () => NOW,
+      caller: 'person',
+    } as unknown as MergePorts;
+    return { p, calls, asked, head };
+  };
+
+  it('merges the named repair PR after a bundle commit settled red on top of the red SHA', async () => {
+    const { p, calls, asked, head } = ports();
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: true, pr: 7, sha: head });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', head]]);
+    expect(asked).toEqual([`line ${BUNDLE}`, `runs main ${BUNDLE}`]);
+  });
+
+  it('refuses repair-red-unconfirmed when the re-asked red commit reads green, and merges nothing', async () => {
+    const { p, calls, head } = ports({ runs: runs('success') });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-red-unconfirmed' });
+    expect(calls).toEqual([]);
+  });
+
+  it('folds only the declared checks of the red commit', async () => {
+    const { p, head } = ports({ runs: [...runs('success'), { sha: BUNDLE, status: 'completed', conclusion: 'failure', url: '', workflow: 'Release' }] });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-red-unconfirmed' });
+  });
+
+  it('folds every run where no checks are declared', async () => {
+    const { p, head } = ports();
+    delete (p as { checks?: unknown }).checks;
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: true });
+  });
+
+  it('refuses repair-episode-closed when the first red SHA is not on the settled commit’s first-parent line', async () => {
+    const { p, asked, head } = ports({ line: [BUNDLE, LAST_GREEN] });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-episode-closed' });
+    expect(asked).toEqual([`line ${BUNDLE}`]);
+  });
+
+  it('refuses repair-branch-mismatch for a named PR off the repair branch', async () => {
+    const { p, head } = ports({ head: 'bug/queue-and-scan-agree-on-a-started-slice' });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-branch-mismatch' });
+  });
+
+  it('refuses default-branch-red for a PR the record does not name, and walks nothing', async () => {
+    const { p, asked, head } = ports({ record: record({ repairPr: 8 }) });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+    expect(asked).toEqual([]);
+  });
+
+  it('refuses default-branch-red where the record read fails or no record exists', async () => {
+    const failed = ports({ record: 'fail' });
+    expect(await mergeAt(failed.p, 7, failed.head)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+    const none = ports({ record: null });
+    expect(await mergeAt(none.p, 7, none.head)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+  });
+
+  it('refuses unaskable where the walk, the re-ask, or the CI connector is missing', async () => {
+    const walk = ports({ line: 'fail' });
+    expect(await mergeAt(walk.p, 7, walk.head)).toMatchObject({ merged: false, reason: 'unaskable' });
+    const reask = ports({ runs: 'fail' });
+    expect(await mergeAt(reask.p, 7, reask.head)).toMatchObject({ merged: false, reason: 'unaskable' });
+    const noBuild = ports({ build: false });
+    expect(await mergeAt(noBuild.p, 7, noBuild.head)).toMatchObject({ merged: false, reason: 'unaskable' });
   });
 });

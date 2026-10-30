@@ -15,6 +15,8 @@ import {
   transcriptFixture,
   treesFixture,
   refusedSlicesFixture,
+  runLogFixture,
+  type RunLogFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Pr, Trees } from '@plot-pm/domain';
 import { execFileSync } from 'node:child_process';
@@ -156,6 +158,7 @@ const rig = (
     },
     boundedRun,
     refusedSlices: refusedSlicesFixture(),
+    runLog: runLogFixture(),
     build: buildFixture({
       shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'completed', conclusion: 'success', url: 'u', startedAt: '' }] },
     }),
@@ -951,6 +954,9 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.corrections[0]?.text).toMatch(/^the run at u for \S* concluded failure$/);
     expect(r.calls.corrections.map((c) => c.correctionAttempts)).toEqual([1]);
     expect(r.runs).toHaveLength(2);
+    const runLog = r.ports.runLog as RunLogFixture;
+    expect(runLog.lines).toHaveLength(1);
+    expect(runLog.lines[0]).toMatchObject({ step: 'correction', outcome: 'moved' });
   });
 
   it('never corrects a run no runner picked up, and ends checks-unanswered instead (#1295)', async () => {

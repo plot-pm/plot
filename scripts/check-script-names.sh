@@ -141,7 +141,13 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # `entry/release-gate.ts`'s own `configShell` — so this file's version was
 # switched to the same port call and its site dropped out of the count.
 #
-# RAISED TO 20 ON 2026-10-30 for `rules/role-gate.ts`'s `callsCommitStatus`,
+# RAISED TO 20 ON 2026-10-30 for `fleet/src/shared/auto-progress.ts`, which
+# sends an approved plan's merged-slice count through `plot-plan-state.sh
+# --slice-progress`. Same tracker connector and the same "no port answers this
+# yet" as the 2026-10-18 raise; the pass sits beside `auto-deliver.ts`, which
+# names its own scripts the same way.
+#
+# RAISED TO 21 ON 2026-10-30 for `rules/role-gate.ts`'s `callsCommitStatus`,
 # the same kind of site the 2026-10-04 and 2026-10-24 raises named for
 # `DISPATCH_SH`/`APPROVE_SH`/`DELIVER_SH` and `STATE_RECEIPT_SH`: the
 # predicate CLASSIFIES a command string a role-deny hook is asked to judge
@@ -153,7 +159,7 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 #
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=20
+ALLOWED=21
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 

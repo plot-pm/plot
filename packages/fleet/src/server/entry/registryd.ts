@@ -1,9 +1,10 @@
 import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/supervise';
 import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
-import type { Decision, NotifyWrite } from '@plot-pm/domain/workflows/decision';
+import type { Decision, NotifyWrite, IdleNotifyWrite } from '@plot-pm/domain/workflows/decision';
 import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
 import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-escalation';
+import { sliceIdle, type SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
 import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
@@ -29,6 +30,7 @@ import type { PortResult, Pr } from '@plot-pm/domain';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
+import type { RunLog } from '@plot-pm/domain/ports/run-log';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 
 import { readTick, type SupervisorWorld } from '../../shared/supervisor.js';
@@ -200,6 +202,31 @@ export interface EscalationWorld {
   now?(): number;
 }
 
+/**
+ * What the tick needs to decide which slices have gone idle — every reading
+ * {@link sliceIdle} takes, supplied as values rather than read inside the
+ * domain, matching every other rule in this package.
+ *
+ * **NAMED `Reader`, NOT `World`, BECAUSE THE DOMAIN ALREADY OWNS
+ * `SliceIdleWorld`.** `rules/slice-idle.ts` exports a same-named interface
+ * holding the synchronous VALUES `sliceIdle` reads; this one holds the async
+ * GETTERS this file assembles those values from. `EscalationWorld` avoids the
+ * same collision because `questionEscalation`'s own reading type is called
+ * `QuestionReading` rather than `*World` — there was no second name free here.
+ */
+export interface SliceIdleReader {
+  /** Every open slice PR to judge, with its run-log lines and marker state. */
+  readings(): Promise<readonly SliceIdleReading[]>;
+  /** When the current fleetd process started, epoch milliseconds. */
+  fleetdStartedAt(): Promise<number>;
+  /** The configured `Slice idle after` bound, in milliseconds; `null` disables the rule. */
+  boundMs(): Promise<number | null>;
+  /** Every idle-notify episode already recorded. */
+  recordedEpisodes(): Promise<ReadonlySet<string>>;
+  /** The clock, for the age computation; `Date.now` when omitted. */
+  now?(): number;
+}
+
 /** What a daemon needs to run one tick. */
 export interface TickOptions {
   /** The registry's manifests, re-read at the start of every tick. */
@@ -242,6 +269,16 @@ export interface TickOptions {
    * from (`left` included).
    */
   escalation?: EscalationWorld;
+  /**
+   * What to read which slices have gone idle through, or absent to decide
+   * nothing about it.
+   *
+   * **A FOURTH WORLD, FOR THE SAME REASON `escalation` IS A THIRD ONE.** This
+   * reads a slice PR's own open-slice population and its run-log lines — a
+   * fourth question, independent of what any agent LEFT BEHIND, what the
+   * plans have WAITING, or a desk's marker age.
+   */
+  idle?: SliceIdleReader;
   /** The clock, so a test can hold one. */
   now?(): number;
 }
@@ -294,13 +331,22 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     // because `supervise`'s own verdict says nothing about a question's age.
     // Placing this inside the `needs-a-person` arm would miss exactly the
     // 2026-10-05 case — a live loop that went free after asking.
-    const decision =
+    const escalated =
       options.escalation === undefined
         ? supervised
         : { ...supervised, writes: [...supervised.writes, ...(await escalationWrites(
             escalationDesks(supervised.detail.agents, readings.trees ?? []),
             options.escalation,
           ))] };
+
+    // THE IDLE PASS RUNS BESIDE THE ESCALATION PASS, OVER A DIFFERENT
+    // POPULATION. It judges open slice PRs rather than registered desks, so it
+    // takes its own world rather than reusing `escalationDesks`' reading of
+    // `supervised.detail.agents`.
+    const decision =
+      options.idle === undefined
+        ? escalated
+        : { ...escalated, writes: [...escalated.writes, ...(await idleNotifyWrites(options.idle))] };
 
     // THE HAND-OVER RUNS AFTER SUPERVISION, WITHIN ONE TICK, and the order is
     // load-bearing: supervision is what frees an agent, by reaping a finished
@@ -437,6 +483,52 @@ const escalationMessage = (branch: string, question: string, rung: Rung, ageMs: 
   const minutes = Math.round(ageMs / 60_000);
   return `plot: ${branch} has been waiting on you for ${minutes}m (${rung}) — ${question}`;
 };
+
+/**
+ * One `idle-notify` write per slice {@link sliceIdle} marks idle with a new
+ * episode.
+ *
+ * **THE DOMAIN TAKES READINGS AS VALUES.** Every getter on `reader` is
+ * awaited here, once, before `sliceIdle` itself is called a single time —
+ * the rule still imports no port and awaits nothing.
+ *
+ * @param reader - what to read the open slice PRs, fleetd's start, the bound
+ *   and the recorded episodes through.
+ * @returns one `idle-notify` write per slice whose idle episode is new.
+ */
+const idleNotifyWrites = async (reader: SliceIdleReader): Promise<readonly IdleNotifyWrite[]> => {
+  const [slices, fleetdStartedAt, boundMs, recordedEpisodes] = await Promise.all([
+    reader.readings(),
+    reader.fleetdStartedAt(),
+    reader.boundMs(),
+    reader.recordedEpisodes(),
+  ]);
+  const verdicts = sliceIdle({
+    slices,
+    fleetdStartedAt,
+    boundMs,
+    recordedEpisodes,
+    ...(reader.now === undefined ? {} : { now: reader.now }),
+  });
+  return verdicts
+    .filter((verdict) => verdict.idle && verdict.isNew)
+    .map((verdict) => ({
+      kind: 'idle-notify',
+      branch: verdict.branch,
+      clockStart: verdict.clockStart,
+      message: idleMessage(verdict.branch),
+    }));
+};
+
+/**
+ * The message an `idle-notify` write sends — the branch and nothing else a
+ * person must look up before deciding whether to act.
+ *
+ * @param branch - the slice's branch.
+ * @returns the message text.
+ */
+const idleMessage = (branch: string): string =>
+  `plot: ${branch} has gone idle — no dispatch, correction or fresh-agent step has moved it`;
 
 /**
  * The decision an incomplete tick carries: no writes, no verdicts.
@@ -1087,6 +1179,8 @@ export interface FreshAgentPorts {
   desk: Pick<Desk, 'writeBlockedMarker'>;
   /** The `.plot/state/ending-asks.tsv` store, appended once per ending put to a person. */
   asks: Pick<EndingAskRecordStore, 'append'>;
+  /** The run log, appended once per fresh session actually started. */
+  runLog: Pick<RunLog, 'append'>;
   /**
    * Starts the fresh session through the continue workflow.
    *
@@ -1160,6 +1254,15 @@ export const applyFreshAgentDecisions = async (
             ).ok,
         });
         if (started.kind === 'started') {
+          void ports.runLog.append({
+            plan: decision.plan,
+            branch: decision.branch,
+            pr: '',
+            head: '',
+            step: 'fresh-agent',
+            outcome: 'moved',
+            at: ports.now().toISOString(),
+          });
           out.push({
             branch: decision.branch,
             outcome: 'started',

@@ -70,11 +70,11 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Selection rule
 
-- `feature/ci-selection-rule` — the domain rule that maps changed paths to checks; `plot-local-checks.mjs` reads it; a corpus test holds the script-to-test map <!-- builds: the change-to-checks rule shared by plot-local-checks and CI, and the script-to-test map -->
+- `feature/ci-selection-rule` — the domain rule that maps changed paths to checks; `plot-local-checks.mjs` reads it; a corpus test holds the script-to-test map <!-- builds: the change-to-checks rule shared by plot-local-checks and CI, and the script-to-test map --> → #2945
 
 ### CI selection
 
-- `feature/ci-reads-the-selection` — a CI job calls the rule's bundle; suites run on the selected outputs; plan, sprint and `.plot/` changes select `corpus`; `validate`'s suites start with the other jobs <!-- waits: feature/ci-selection-rule -->
+- `feature/ci-reads-the-selection` — a CI job calls the rule's bundle; suites run on the selected outputs; plan, sprint and `.plot/` changes select `corpus`; `validate`'s suites start with the other jobs <!-- waits: feature/ci-selection-rule --> → #2947
 
 ### Corpus reading
 
@@ -82,7 +82,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Repair merge
 
-- `feature/ask-merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record -->
+- `feature/ask-merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record --> → #2952
 
 ## Notes
 
@@ -90,3 +90,4 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 - Priority: a sprint blocker, decided by Jan Wloka on 2026-10-30. It skips the panel round and lands ahead of the other sprint plans.
 - Related: `docs/plans/2026-10-29-a-red-default-branch-is-repaired.md` (#2904), which keeps the `slicePrNext` half of the repair exception.
 - #2904's `feature/merge-admits-the-repair-pr` keeps only the `slicePrNext` half once `feature/ask-merge-admits-the-repair-pr` merges; each branch has one owner.
+- Repair PR naming: option B, decided by Jan Wloka on 2026-10-30. `merge()` builds #2904's Design step 5 exception as written, and a person records the fix PR on the repair record through `plot-ask.mjs repair-pr <pr>`. The command refuses an unattended caller, no open episode, a record with no `lastGreenSha`, and a PR whose head is not `bug/main-repair-<12 hex of lastGreenSha>`. A fix on any other branch, such as #2942's, stays outside the exception.

@@ -1,5 +1,5 @@
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import { canPinMerge } from './host-pin.js';
+import { canPinMerge } from '@plot-pm/domain/workflows/merge';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';

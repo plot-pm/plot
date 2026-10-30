@@ -10,6 +10,7 @@ import {
   refsRemoteGit,
   buildShell,
   defaultBranchFile,
+  repairRecordFile,
   scriptsShell,
   treesGit,
   machineSystem,
@@ -26,6 +27,7 @@ import {
   freshAgentRecordFile,
   endingAskRecordFile,
   refusedSlicesFile,
+  runLogFile,
   deskFs,
   agentsFs,
   fleetStateFile,
@@ -42,11 +44,13 @@ import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
-import type { NotifyWrite } from '@plot-pm/domain/workflows/decision';
+import type { NotifyWrite, IdleNotifyWrite } from '@plot-pm/domain/workflows/decision';
 import {
   parseQuestionEscalation,
   DEFAULT_QUESTION_ESCALATION,
 } from '@plot-pm/domain/rules/question-escalation';
+import { parseSliceIdleAfter, DEFAULT_SLICE_IDLE_AFTER, idleEpisodeKey } from '@plot-pm/domain/rules/slice-idle';
+import type { SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
 import type { TempSweep } from '@plot-pm/domain/ports/temp-sweep';
 import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
 import { headroomFor } from '@plot-pm/domain/entities/machine';
@@ -63,6 +67,7 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
+import type { RunLog } from '@plot-pm/domain/ports/run-log';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
 import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
@@ -125,6 +130,7 @@ import {
   type TickReport,
   type TickSpend,
   type EscalationWorld,
+  type SliceIdleReader,
 } from './registryd.js';
 import { gatherReadingsAndRelease } from '../../shared/release-claim-reader.js';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
@@ -1035,6 +1041,8 @@ export const handOverWorldForRepo = (
 export const QUESTION_ESCALATION_KEY = 'Question escalation';
 /** The `## Plot Config` key naming the command a `notify` write runs. */
 export const NOTIFY_COMMAND_KEY = 'Notify command';
+/** The `## Plot Config` key naming the idle-slice bound. */
+export const SLICE_IDLE_AFTER_KEY = 'Slice idle after';
 
 /**
  * The `Notifier` a repository's `Notify command` configures — {@link notifierNone}
@@ -1089,6 +1097,78 @@ export const escalationWorldForRepo = (
     if (branch === '') return false;
     tally.calls += 1;
     return prMergedReading(await askMerged(branch)) === 'merged';
+  },
+});
+
+/**
+ * What the tick reads to decide which slices have gone idle: every desk
+ * {@link escalationDesks} would name with a non-empty branch and no merged
+ * PR, its run-log lines, its `PLOT-BLOCKED` marker state, fleetd's own
+ * start, and the configured bound.
+ *
+ * **`SlicePr.createdAt` IS ALWAYS `''` HERE, AND THAT IS A NAMED GAP RATHER
+ * THAN AN OVERSIGHT.** No port this estate owns reads a PR's creation time:
+ * `Pr` (`entities/pr.ts`) carries no `createdAt` field, `Host.prState`
+ * answers a `PrLookup` typed from it, and neither `gh pr-list`'s `--rich`
+ * fields nor Bitbucket's REST object (`plot-host.sh`) include one. Adding it
+ * would touch the `Host` port, its shell adapter and `plot-host.sh` — a
+ * larger change than this slice's write kind and rule. `sliceIdle`'s own
+ * `clockStartMs` already treats an unparseable `createdAt` as absent from the
+ * `max(...)`, so the clock still starts at `max(fleetdStartedAt, last moved
+ * line)` — safe, if slightly more conservative than the design intent for a
+ * brand-new slice with no run-log line yet, which now floors at fleetd's own
+ * start rather than at the moment its PR opened.
+ *
+ * @param repoRoot - the repository root.
+ * @param scriptsDir - where the helper scripts are.
+ * @param fleetdStartedAt - when the current fleetd process started, epoch milliseconds.
+ * @param desksNow - every desk to judge this tick; read fresh on every call,
+ *   like {@link escalationDesks} is re-derived every tick rather than held.
+ * @param askMerged - asks the host whether a branch merged; defaults to
+ *   asking with no memo, matching {@link escalationWorldForRepo}'s own default.
+ * @param tally - the host-call counter this pass increments.
+ * @returns the reader the tick's idle pass reads through.
+ */
+export const idleWorldForRepo = (
+  repoRoot: string,
+  scriptsDir: string,
+  fleetdStartedAt: number,
+  desksNow: () => Promise<readonly { worktree: string; branch: string }[]>,
+  askMerged: (branch: string) => ReturnType<Host['prMerged']> = (branch) =>
+    hostShell({ repoRoot, scriptDir: scriptsDir }).prMerged(branch),
+  tally: HostTally = { calls: 0 },
+): SliceIdleReader => ({
+  readings: async (): Promise<readonly SliceIdleReading[]> => {
+    const desks = await desksNow();
+    const lines = await runLogFile({ cwd: repoRoot }).read();
+    const allLines = lines.ok ? lines.value : [];
+    const open: SliceIdleReading[] = [];
+    for (const desk of desks) {
+      if (desk.branch === '') continue;
+      tally.calls += 1;
+      if (prMergedReading(await askMerged(desk.branch)) === 'merged') continue;
+      const marker = await markerReading(desk.worktree);
+      open.push({
+        pr: { branch: desk.branch, createdAt: '' },
+        lines: allLines
+          .filter((line) => line.branch === desk.branch)
+          .map((line) => ({ branch: line.branch, step: line.step, outcome: line.outcome, at: line.at })),
+        blocked: marker !== null,
+      });
+    }
+    return open;
+  },
+  fleetdStartedAt: async () => fleetdStartedAt,
+  boundMs: async () =>
+    parseSliceIdleAfter(await readConfigAsync({ repoRoot, scriptsDir }, SLICE_IDLE_AFTER_KEY, DEFAULT_SLICE_IDLE_AFTER)),
+  recordedEpisodes: async () => {
+    const lines = await runLogFile({ cwd: repoRoot }).read();
+    if (!lines.ok) return new Set();
+    return new Set(
+      lines.value
+        .filter((line) => line.step === 'notified')
+        .map((line) => idleEpisodeKey(line.branch, line.at)),
+    );
   },
 });
 
@@ -1560,6 +1640,64 @@ export const notifyEscalations = async (
 };
 
 /**
+ * Applies the tick's `idle-notify` writes. Each message is sent through the
+ * `Notifier`, all of them concurrently, so the slowest command bounds the
+ * pass; each result then appends one `notified` run-log line, status `sent`,
+ * `unaskable` or `failed <code>`.
+ *
+ * **THE LINE'S `at` IS THE EPISODE'S CLOCK START, NOT THE SEND TIME.** The
+ * idle rule's episode key is `(branch, clockStart)`
+ * ({@link import('@plot-pm/domain/rules/slice-idle').idleEpisodeKey}), and
+ * the `notified` lines already in the run log ARE the recorded set — no
+ * second ledger. Stamping `at` with the real send time would make every
+ * later tick's `recordedEpisodes()` read a key this line can never match,
+ * so the same stall would notify again every tick rather than once.
+ *
+ * **DELIVERY IS AT LEAST ONCE.** A crash between the send and the append
+ * repeats the message after a restart — the plan's stated, accepted trade.
+ *
+ * @param report - what the tick decided.
+ * @param repoRoot - the repository root the run log lives under.
+ * @param notifier - answers the `Notifier` to send through.
+ * @param planOf - the plan file name (without `.md`) naming a branch; `''` where none does.
+ * @param write - where a sent notification is reported.
+ * @param warn - where a failed append is reported.
+ */
+export const notifyIdleSlices = async (
+  report: TickReport,
+  repoRoot: string,
+  notifier: () => Promise<Notifier>,
+  planOf: (branch: string) => Promise<string>,
+  write: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<void> => {
+  const items = report.decision.writes.filter((item): item is IdleNotifyWrite => item.kind === 'idle-notify');
+  if (items.length === 0) return;
+  const sender = await notifier();
+  const results = await Promise.all(items.map((item) => sender.notify(item.message)));
+  const log = runLogFile({ cwd: repoRoot });
+  for (const [i, item] of items.entries()) {
+    const result = results[i];
+    const status = result.ok ? 'sent' : result.why === 'unaskable' ? 'unaskable' : `failed ${result.code}`;
+    // THE DECODER DROPS A LINE WITH NO PLAN, so an empty one would never read
+    // back as a recorded episode and the stall would notify every tick. A branch
+    // no plan names falls back to the branch itself.
+    const plan = (await planOf(item.branch)) || item.branch;
+    const appended = await log.append({
+      plan,
+      branch: item.branch,
+      pr: '',
+      head: '',
+      step: 'notified',
+      outcome: status,
+      at: item.clockStart,
+    });
+    if (!appended.ok) warn(`plot-fleetd: could not append to the run log for ${item.branch}\n`);
+    if (result.ok) write(`  ${item.branch}: idle notification sent\n`);
+  }
+};
+
+/**
  * Runs the daemon.
  *
  * **THE INTERVAL IS WAITED AFTER A TICK, NOT BETWEEN STARTS.** A slow tick
@@ -1900,6 +2038,7 @@ export const startFreshAgents = async (
  * @param deps.asks - the `.plot/state/ending-asks.tsv` store.
  * @param deps.desk - writes the `PLOT-BLOCKED.md` marker.
  * @param deps.release - decides and, where releasable, releases a branch's claim.
+ * @param deps.runLog - the run log, appended once per fresh session actually started.
  * @returns the ports {@link applyFreshAgentDecisions} acts through.
  */
 export const freshAgentPortsFor = (deps: {
@@ -1911,10 +2050,12 @@ export const freshAgentPortsFor = (deps: {
   asks: Pick<EndingAskRecordStore, 'append'>;
   desk: Pick<Desk, 'writeBlockedMarker'>;
   release: (branch: string) => Promise<{ released: boolean; detail: string }>;
+  runLog: Pick<RunLog, 'append'>;
 }): FreshAgentPorts => ({
   record: deps.record,
   asks: deps.asks,
   desk: deps.desk,
+  runLog: deps.runLog,
   now: () => new Date(),
   start: async ({ branch, worktree, answer, beforeStart }) => {
     const base = await refsGit({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir }).defaultBranch();
@@ -2350,7 +2491,8 @@ export const run = async (
   // `run()` is the ONLY writer, the same one-writer contract
   // `one-issue-index-writer.test.ts` holds for `issues.json`. A failed write
   // is reported and never stops the daemon from starting — report only.
-  const record = fleetdStartRecord(repoRoot, here, scriptsDir, process.pid, Date.now());
+  const fleetdStartedAt = Date.now();
+  const record = fleetdStartRecord(repoRoot, here, scriptsDir, process.pid, fleetdStartedAt);
   if (record !== null) {
     const written = await fleetdStartFile({ cwd: repoRoot }).write(record);
     if (!written.ok) warn(`plot-fleetd: could not write fleetd-start.json — spawner status will read unknown\n`);
@@ -2403,6 +2545,22 @@ export const run = async (
   // pass and the supervisor's own `prMerged` both ask about in the same tick
   // costs one host call, memoized by `beginTick`'s clear — not two.
   const escalation = escalationWorldForRepo(repoRoot, scriptsDir, escalated, (branch) => merges.ask(branch), tally);
+  // `--once` BUILDS NO IDLE READER, so a one-shot tick appends no run-log
+  // line and sends no notification for this pass — matching `freshAgentRunLog`
+  // above. `trees.list()` is this reader's own desk source, deliberately not
+  // `escalationDesks`' reading of `supervised.detail.agents` (`registryd.ts`'s
+  // own comment on `idleNotifyWrites`'s call site says why): the idle pass
+  // judges open slice PRs, a population the registry does not enumerate.
+  const idleTrees = treesGit({ repoRoot, scriptDir: scriptsDir });
+  const idle = args.once
+    ? undefined
+    : idleWorldForRepo(repoRoot, scriptsDir, fleetdStartedAt, async () => {
+        const listed = await idleTrees.list();
+        if (!listed.ok) return [];
+        return listed.value
+          .filter((tree) => !tree.isMain && tree.branch !== '')
+          .map((tree) => ({ worktree: tree.path, branch: tree.branch }));
+      });
   // READ WHEN A TICK HOLDS A `notify` WRITE, so a `Notify command` added
   // while the daemon runs takes effect at the next escalation.
   const notifier =
@@ -2431,6 +2589,12 @@ export const run = async (
     return { released: result.released, detail: result.detail };
   };
   const freshAgentDesk = deskFs(treesGit({ repoRoot, scriptDir: scriptsDir }));
+  // `--once` APPENDS NO RUN-LOG LINE, EVEN IF `--start-agents` WERE EVER PASSED
+  // WITH IT. No known caller combines the two flags today, but a fresh-agent
+  // start is gated by `args.startAgents` alone (`:2807`), not by `!args.once` —
+  // so the one-shot contract is held HERE, at the port, rather than assumed
+  // from how the CLI happens to be invoked.
+  const freshAgentRunLog = args.once ? { append: async () => answered(undefined) } : runLogFile({ cwd: repoRoot });
   const freshAgentPorts: FreshAgentPorts = freshAgentPortsFor({
     repoRoot,
     scriptsDir,
@@ -2440,6 +2604,7 @@ export const run = async (
     asks: endingAsks,
     desk: freshAgentDesk,
     release: releaseClaimOf,
+    runLog: freshAgentRunLog,
   });
 
   // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and
@@ -2515,6 +2680,7 @@ export const run = async (
         },
         build: ci,
         store: defaultBranchFile(repoRoot),
+        repair: repairRecordFile(repoRoot),
         // The host-slot bound is GitHub's account budget; other systems call direct.
         slot: <T,>(call: () => Promise<T>): Promise<T> =>
           ci.system() === 'github-actions'
@@ -2694,6 +2860,9 @@ export const run = async (
         // an agent-starting decision — a desk's question ages whether or not
         // this daemon is allowed to grow the fleet.
         escalation,
+        // ABSENT UNDER `--once` (see where `idle` is built above), so a
+        // one-shot tick decides nothing about idle slices either.
+        idle,
       });
     } catch (err) {
       // STDERR, AND THE ERROR'S OWN TEXT. `registryd.err` being empty on both
@@ -2797,6 +2966,18 @@ export const run = async (
       await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
     } catch (e) {
       warn(`plot-fleetd: escalation notify failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+    // SAME GUARD, BESIDE THE ESCALATION NOTIFY ABOVE: a notifier that throws
+    // must not end the tick's loop pass.
+    try {
+      // LAZY: the plan walk is paid only by a tick that holds an idle-notify write.
+      const context = { repoRoot, scriptDir: scriptsDir };
+      let planLines: ReturnType<typeof planLinesFor> | null = null;
+      const planOf = async (branch: string): Promise<string> =>
+        (await (planLines ??= planLinesFor(fleetPlanStore(context, refsGit(context))))).get(branch)?.plan ?? '';
+      await notifyIdleSlices(report, repoRoot, notifier, planOf, write, warn);
+    } catch (e) {
+      warn(`plot-fleetd: idle notify failed: ${e instanceof Error ? e.message : String(e)}\n`);
     }
     await relayBeat(slot, warn);
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the

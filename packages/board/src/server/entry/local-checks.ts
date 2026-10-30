@@ -4,11 +4,16 @@ import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import {
   DEFAULT_LOCAL_CHECKS_LIMIT,
+  candidateTests,
+  ciSelection,
+  corpusGlobs,
+  globRoot,
   localChecks,
   parseList,
   parseLocalChecks,
-  searchTerms,
+  testsNaming,
   type LocalChecksAnswer,
+  type TestFile,
 } from '@plot-pm/domain/rules/local-checks';
 import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -37,7 +42,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * `#` lines, then a `summary:` line. Exit 0 always; 2 outside a git repository.
  *
  * `--files <path>` reads the changed paths from that file, one per line, instead
- * of the branch and the working tree. Any other argument exits 2.
+ * of the branch and the working tree.
+ *
+ * `--ci` prints the `ciSelection` answer as one line of JSON instead, for a CI
+ * job to write as its outputs: `suites`, `checks` (each `suite`, `command`,
+ * `tests`, `always`), `tests`, `corpus` and `untested`. It reads the
+ * `Plan directory` and `Sprint directory` keys for the corpus globs. It
+ * combines with `--files`. Any other argument exits 2.
  */
 
 /** The exit codes the caller reads. */
@@ -73,6 +84,42 @@ export const render = (answer: LocalChecksAnswer, ciSuites: readonly string[]): 
 };
 
 /**
+ * Reads the text of each file the rule may map a changed path to: the tracked
+ * files at `HEAD` under each placeholder check's glob root, plus the changed
+ * paths, as {@link candidateTests} keeps them. A file that cannot be read,
+ * such as a deleted one, is left out.
+ *
+ * @param refs - the git adapter.
+ * @param repoRoot - the repository root.
+ * @param checks - the declared checks.
+ * @param changed - the changed paths.
+ * @returns the test files with their text.
+ */
+const readTests = async (
+  refs: ReturnType<typeof refsGit>,
+  repoRoot: string,
+  checks: ReturnType<typeof parseLocalChecks>,
+  changed: readonly string[],
+): Promise<TestFile[]> => {
+  const roots = [
+    ...new Set(
+      checks
+        .filter((check) => check.command.includes('{tests}') || check.command.includes('{changed}'))
+        .map((check) => globRoot(check.glob)),
+    ),
+  ];
+  const listed = await Promise.all((roots.includes('.') ? ['.'] : roots).map((root) => refs.listBlobs('HEAD', root)));
+  const paths = [...listed.flatMap((blobs) => (blobs.ok ? blobs.value.map((blob) => blob.path) : [])), ...changed];
+  return candidateTests(paths, checks).flatMap((file) => {
+    try {
+      return [{ path: file, text: readFileSync(path.join(repoRoot, file), 'utf8') }];
+    } catch {
+      return [];
+    }
+  });
+};
+
+/**
  * Reads the branch and the config, asks the rule, and prints the answer.
  *
  * @param cwd - a directory inside the repository.
@@ -81,6 +128,7 @@ export const render = (answer: LocalChecksAnswer, ciSuites: readonly string[]): 
  * @param warn - where an error goes.
  * @param filesFrom - a file listing the changed paths, one per line; when given,
  *   it replaces the branch and working-tree reading.
+ * @param ci - true prints the CI selection as JSON instead of the commands.
  * @returns the process exit code.
  */
 export const run = async (
@@ -89,6 +137,7 @@ export const run = async (
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
   filesFrom: string | null = null,
+  ci = false,
 ): Promise<number> => {
   let listed: string[] | null = null;
   if (filesFrom !== null) {
@@ -117,12 +166,14 @@ export const run = async (
   const refs = refsGit(context);
   const scripts = scriptsShell(context);
 
-  const [committed, working, rawChecks, rawLimit, rawSuites] = await Promise.all([
+  const [committed, working, rawChecks, rawLimit, rawSuites, rawPlans, rawSprints] = await Promise.all([
     listed === null ? refs.changedFiles('HEAD') : Promise.resolve({ ok: true as const, value: [] as string[] }),
     listed === null ? refs.workingChanges() : Promise.resolve({ ok: true as const, value: [] as string[] }),
     scripts.config('Local checks', ''),
     scripts.config('Local checks limit', String(DEFAULT_LOCAL_CHECKS_LIMIT)),
     scripts.config('CI suites', ''),
+    scripts.config('Plan directory', 'docs/plans/'),
+    scripts.config('Sprint directory', 'docs/sprints/'),
   ]);
   if (listed === null && !committed.ok) warn('plot-local-checks: could not read the branch against the default branch; reading the working tree only\n');
 
@@ -133,18 +184,25 @@ export const run = async (
   const unset = await refs.mergeUnset(changed);
   const generated = unset.ok ? unset.value : [];
   const generatedSet = new Set(generated);
-  const testGlobs = checks.filter((check) => check.command.includes('{tests}')).map((check) => check.glob);
+  const tests = await readTests(refs, repoRoot, checks, changed);
 
-  const references = new Map<string, readonly string[]>();
-  for (const file of changed) {
-    if (generatedSet.has(file) || testGlobs.length === 0) continue;
-    const found = new Set<string>();
-    for (const term of searchTerms(file)) {
-      const named = await refs.filesNaming(term, testGlobs);
-      if (named.ok) named.value.forEach((test) => found.add(test));
-    }
-    references.set(file, [...found]);
+  if (ci) {
+    const selection = ciSelection({
+      changed,
+      generated,
+      checks,
+      tests,
+      corpus: corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : ''),
+      root: repoRoot,
+    });
+    write(`${JSON.stringify(selection)}\n`);
+    return EXIT.ok;
   }
+
+  const references = testsNaming(
+    changed.filter((file) => !generatedSet.has(file)),
+    tests,
+  );
 
   write(
     render(
@@ -209,17 +267,19 @@ if (
   import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 ) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const args = process.argv.slice(2);
+  const all = process.argv.slice(2);
+  const ci = all.includes('--ci');
+  const args = all.filter((arg) => arg !== '--ci');
   if (process.argv[2] === '--ci-suite-refusal') {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
     void endEntry(await refuse(process.cwd(), scriptDir, Buffer.concat(chunks).toString('utf8')));
   } else if (args.length === 0) {
-    void endEntry(await run(process.cwd(), scriptDir));
+    void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, null, ci));
   } else if (args.length === 2 && args[0] === '--files') {
-    void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, args[1]));
+    void endEntry(await run(process.cwd(), scriptDir, undefined, undefined, args[1], ci));
   } else {
-    process.stderr.write(`plot-local-checks: unknown argument ${args[0]}\nusage: plot-local-checks.mjs [--files <path>]\n`);
+    process.stderr.write(`plot-local-checks: unknown argument ${args[0]}\nusage: plot-local-checks.mjs [--ci] [--files <path>]\n`);
     void endEntry(EXIT.usage);
   }
 }

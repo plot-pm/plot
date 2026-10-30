@@ -107,35 +107,55 @@ export const allSlicesConfirmed = (
 ): Landed => landed(meta, pulse, complete, true);
 
 /**
- * The arithmetic both exported rules share.
+ * The plan's slices counted off the pulse: how many hold at least one
+ * non-deferred branch (the denominator {@link sliceProgress} reports), and how
+ * many of those read `complete` (its numerator) — plus the same-ordered
+ * refusals {@link landed} returns, so one walk serves both rules.
+ */
+interface SliceCount {
+  /** `landed`'s answer, computed over this same walk. */
+  readonly verdict: Landed;
+  /** Non-deferred slices read `complete`. */
+  readonly mergedSlices: number;
+  /** Non-deferred slices total — a slice holding only deferred branches does not count. */
+  readonly totalSlices: number;
+}
+
+/**
+ * The walk both {@link landed} and {@link sliceProgress} need: one pass over a
+ * plan's slices, refusing in the same order `landed` always has, while also
+ * counting slices for the progress line.
  *
- * ONE BODY RATHER THAN TWO, because the deferred-branch and empty-slice
- * arithmetic is subtle enough that two copies would drift: an all-deferred
- * plan is deliverable, a slice naming no branch is not, and a deferred branch
- * beside an unfinished one is refused by its slice. Eight tests pin those and
- * each would have to be written twice.
+ * ONE WALK RATHER THAN TWO, for {@link landed}'s own reason: a plan found by
+ * the pulse is walked once, and `sliceProgress` reads the same counts
+ * `allSlicesMerged` would have reached rather than a second traversal that
+ * could drift from it.
  *
  * @param meta The plan, by file path.
  * @param pulse The scan's report, or `null`.
  * @param complete Whether the scan finished.
  * @param confirmed Whether a merge subject alone is refused as proof.
- * @returns the landing answer.
+ * @returns `null` on a partial pulse (`landed`'s `'unknown'`); otherwise the
+ *   verdict and the slice counts.
  */
-const landed = (
+const slicesOf = (
   meta: PlanFile,
   pulse: FleetReading | null,
   complete: boolean,
   confirmed: boolean,
-): Landed => {
+): SliceCount | null => {
   // Asked before the lookup: on a partial pulse an absent plan is one the scan
   // has not reached, which the lookup alone cannot tell from a real absence.
-  if (!pulse || !complete) return 'unknown';
+  if (!pulse || !complete) return null;
   const plan = pulse.plans.find((p) => p.file === basename(meta.file));
-  if (!plan) return 'not-merged';
+  if (!plan) return { verdict: 'not-merged', mergedSlices: 0, totalSlices: 0 };
   // A non-claim list item naming a branch no claim reads — already excludes
   // deferred items, which the parser never reports here. Read defensively:
   // an older pulse absent the field is no items, never a refusal.
-  if ((plan.unreadBranchItems ?? []).length > 0) return 'not-merged';
+  // THE FIRST REFUSAL, recorded rather than returned: the verdict stays the
+  // one the first refusing check names, while the walk below still counts
+  // every non-deferred slice for the progress line.
+  let refused = (plan.unreadBranchItems ?? []).length > 0;
   let merged = 0;
   // WORK GIVEN UP, counted apart from work that landed.
   //
@@ -156,6 +176,11 @@ const landed = (
   // an unfinished slice answers `not-merged` even when another slice holds weak
   // proof, since outstanding work is a stronger statement than weak proof.
   let unconfirmed = 0;
+  // THE PROGRESS COUNT, kept apart from `merged`/`deferred`'s branch
+  // arithmetic: a slice is one unit of progress however many branches it
+  // holds, so these count slices, not branches.
+  let mergedSlices = 0;
+  let totalSlices = 0;
   for (const slice of plan.slices) {
     const branches = slice.branches.filter((b) => b.state !== 'deferred');
     // A SLICE NAMING NO BRANCH IS NOT LANDED WORK, and it is refused here
@@ -168,24 +193,86 @@ const landed = (
     // Deferred branches are still exempt. A slice holding only deferred
     // branches names work somebody gave up, which is a decision; a slice
     // holding none names no work at all, which is a malformed plan.
-    if (slice.branches.length === 0) return 'not-merged';
+    if (slice.branches.length === 0) {
+      refused = true;
+      continue;
+    }
     deferred += slice.branches.length - branches.length;
     if (branches.length === 0) continue;
-    if (slice.verdict !== 'complete') return 'not-merged';
+    totalSlices += 1;
+    if (slice.verdict !== 'complete') {
+      refused = true;
+      continue;
+    }
     merged += branches.length;
+    mergedSlices += 1;
     // READ FROM THE BRANCH, which the arithmetic above deliberately does not
     // do: a slice's `verdict` carries the merge state, and this carries HOW it
     // was proved, which no verdict can express. Deferred branches are already
     // filtered out — work given up is not work awaiting confirmation.
     if (confirmed) unconfirmed += branches.filter((b) => b.evidence === 'subject').length;
   }
+  // A REFUSAL OUTRANKS WEAK PROOF, as it did when it returned mid-walk.
+  if (refused) return { verdict: 'not-merged', mergedSlices, totalSlices };
   // ASKED AFTER THE LOOP, so every stronger refusal above has had its say.
-  if (unconfirmed > 0) return 'unknown';
+  if (unconfirmed > 0) return { verdict: 'unknown', mergedSlices, totalSlices };
   // A PLAN THAT NAMES NO WORK IS NOT DELIVERABLE, which is the only case this
   // guard now refuses: `merged + deferred` is zero exactly when every slice
   // named no branch at all. A plan whose branches were all given up names
   // work and has an answer about it.
-  return merged + deferred > 0 ? 'merged' : 'not-merged';
+  return { verdict: merged + deferred > 0 ? 'merged' : 'not-merged', mergedSlices, totalSlices };
+};
+
+/**
+ * The arithmetic both exported rules share.
+ *
+ * ONE BODY RATHER THAN TWO, because the deferred-branch and empty-slice
+ * arithmetic is subtle enough that two copies would drift: an all-deferred
+ * plan is deliverable, a slice naming no branch is not, and a deferred branch
+ * beside an unfinished one is refused by its slice. Eight tests pin those and
+ * each would have to be written twice.
+ *
+ * @param meta The plan, by file path.
+ * @param pulse The scan's report, or `null`.
+ * @param complete Whether the scan finished.
+ * @param confirmed Whether a merge subject alone is refused as proof.
+ * @returns the landing answer.
+ */
+const landed = (
+  meta: PlanFile,
+  pulse: FleetReading | null,
+  complete: boolean,
+  confirmed: boolean,
+): Landed => slicesOf(meta, pulse, complete, confirmed)?.verdict ?? 'unknown';
+
+/**
+ * How many of a plan's slices have merged, as "M of N slices merged".
+ *
+ * Shares {@link landed}'s walk through {@link slicesOf} rather than a second
+ * traversal: M and N count every non-deferred slice of the plan, whatever the
+ * verdict, so N is the plan's size even while a slice is open. `merged ===
+ * total` when {@link allSlicesMerged} answers `'merged'` on the same pulse; it
+ * can also hold beside `'not-merged'`, where the refusal is an unread branch
+ * item or a slice naming no branch rather than an open slice. A slice is one
+ * unit of progress regardless of how many branches it holds — unlike
+ * `allSlicesMerged`'s own `merged`/`deferred` counters, which count branches.
+ *
+ * @param meta The plan, by file path, as {@link allSlicesMerged} takes it.
+ * @param pulse The scan's report, or `null` when none has been read.
+ * @param complete Whether the scan finished.
+ * @returns `undefined` on a partial pulse — no pulse, or an unfinished scan —
+ *   matching {@link allSlicesMerged}'s `'unknown'` refusal on the identical
+ *   fixture, so a partial pulse never renders a stale or fabricated count.
+ *   Otherwise `"<merged> of <total> slices merged"`.
+ */
+export const sliceProgress = (
+  meta: PlanFile,
+  pulse: FleetReading | null,
+  complete: boolean,
+): string | undefined => {
+  const counted = slicesOf(meta, pulse, complete, false);
+  if (!counted) return undefined;
+  return `${counted.mergedSlices} of ${counted.totalSlices} slices merged`;
 };
 
 /**

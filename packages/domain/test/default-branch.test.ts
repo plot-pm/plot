@@ -21,6 +21,7 @@ import {
   settledRed,
   failingRunsOf,
   foldRuns,
+  mainRepairBoundMsOf,
   unmatchedChecks,
   ageInWords,
 } from '../src/rules/default-branch.js';
@@ -131,6 +132,20 @@ describe('checksWaitMsOf — the Checks wait value', () => {
 
   it.each(['', '0', '-60', 'soon', 'Infinity', 'NaN'])('reads %j as the 3600 s default', (value) => {
     expect(checksWaitMsOf(value)).toBe(3_600_000);
+  });
+});
+
+describe('mainRepairBoundMsOf — the Main repair bound value', () => {
+  it.each([
+    ['3600', 3_600_000],
+    ['1800', 1_800_000],
+    ['0.5', 500],
+  ])('reads %j as %d ms', (value, ms) => {
+    expect(mainRepairBoundMsOf(value)).toBe(ms);
+  });
+
+  it.each(['', '0', '-60', 'soon', 'Infinity', 'NaN'])('reads %j as the 3600 s default', (value) => {
+    expect(mainRepairBoundMsOf(value)).toBe(3_600_000);
   });
 });
 

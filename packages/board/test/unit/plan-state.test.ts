@@ -28,6 +28,20 @@ describe('the flags a plan-state write takes', () => {
     });
   });
 
+  it('reads an optional --slice-progress, omitted where not passed', () => {
+    expect(flagsFrom(['--phase', 'approved', '--plan-link', 'docs/plans/x.md', '--slice-progress', '1 of 2 slices merged'])).toEqual({
+      phase: 'approved',
+      planLink: 'docs/plans/x.md',
+      sliceProgress: '1 of 2 slices merged',
+      skipIssues: [],
+    });
+    expect(flagsFrom(['--phase', 'approved', '--plan-link', 'docs/plans/x.md'])).toEqual({
+      phase: 'approved',
+      planLink: 'docs/plans/x.md',
+      skipIssues: [],
+    });
+  });
+
   it('refuses a phase outside the four, rather than owing nothing', () => {
     expect(() => flagsFrom(['--phase', 'release', '--plan-link', 'docs/plans/x.md'])).toThrow("unknown --phase 'release'");
   });

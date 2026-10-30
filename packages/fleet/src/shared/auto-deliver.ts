@@ -21,7 +21,7 @@ import {
 } from '@plot-pm/domain';
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
-import { deliverLogPath, hostOf, planStoreOf, refsOf, scriptsOf, type ActOptions } from './action-log.js';
+import { deliverLogPath, hostOf, planStoreOf, refsOf, scriptsOf, runLogOf, type ActOptions } from './action-log.js';
 import {
   IN_FLIGHT_RENEW_AFTER_MS,
   readInFlight,
@@ -257,6 +257,16 @@ export function runAutoDeliver(
     // Without a receipt written before it starts, the board's legitimate
     // delivery route would be refused by the gate the board itself installs.
     recordActionReceipt(opts.repoRoot, 'deliver', plan.slug);
+    // FIRE-AND-FORGET: a run-log write must never make a delivery wait on it.
+    void runLogOf(opts).append({
+      plan: plan.slug,
+      branch: '',
+      pr: '',
+      head: '',
+      step: 'deliver',
+      outcome: 'moved',
+      at: new Date().toISOString(),
+    });
     if (command) {
       // THROUGH THE `agentRun` PORT, in this process's group. A `refused`
       // outcome is not a delivery: `boardRunEnd` records it as code 1, so the

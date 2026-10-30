@@ -132,7 +132,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### Role definitions
 
-- `feature/role-agent-definitions` — the four definitions and per-role settings files; non-reviewer roles deny status writes, review runs, merges, pushes to main, and edits to `.claude/**` and the gates; `memory: local` outside the PR tree <!-- waits: feature/role-agents-are-probed --> <!-- builds: reviewer.md, fixer.md, unblocker.md, main-repair.md and their settings files -->
+- `feature/role-agent-definitions` — the four definitions and per-role settings files; non-reviewer roles deny status writes, review runs, merges, pushes to main, and edits to `.claude/**` and the gates; `memory: local` outside the PR tree <!-- waits: feature/role-agents-are-probed --> <!-- builds: reviewer.md, fixer.md, unblocker.md, main-repair.md and their settings files --> → #2946
 
 ### Detached role start
 

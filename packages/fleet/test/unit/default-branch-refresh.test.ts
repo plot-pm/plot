@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { buildFixture } from '@plot-pm/domain/adapters/build/build-fixture';
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
+import type { RepairRecord } from '@plot-pm/domain/entities/repair-record';
 import type { WorkflowShaRun } from '@plot-pm/domain/entities/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
+import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 import { ANCESTOR_ASKS_MAX, defaultBranchAgeMs, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 
 import {
@@ -22,6 +24,7 @@ const run = (workflow: string, conclusion: string | null, status = 'completed'):
 interface Rig {
   world: DefaultBranchWorld;
   stored: () => DefaultBranchReading | null;
+  repair: () => RepairRecord | null;
   calls: () => number;
   slots: () => number;
   tip: (sha: string | null) => void;
@@ -33,8 +36,13 @@ interface Rig {
   asked: () => readonly string[];
 }
 
-const rig = (initial: DefaultBranchReading | null = null, checks: readonly string[] = []): Rig => {
+const rig = (
+  initial: DefaultBranchReading | null = null,
+  checks: readonly string[] = [],
+  initialRepair: RepairRecord | null = null,
+): Rig => {
   let file = initial;
+  let repairRecord = initialRepair;
   let now = T0;
   let tipSha: string | null = 'a1';
   let calls = 0;
@@ -48,6 +56,13 @@ const rig = (initial: DefaultBranchReading | null = null, checks: readonly strin
     read: async () => ({ ok: true, value: file }),
     write: async (reading) => {
       file = reading;
+      return { ok: true, value: undefined };
+    },
+  };
+  const repair: RepairRecordStore = {
+    read: async () => ({ ok: true, value: repairRecord }),
+    write: async (record) => {
+      repairRecord = record;
       return { ok: true, value: undefined };
     },
   };
@@ -70,6 +85,7 @@ const rig = (initial: DefaultBranchReading | null = null, checks: readonly strin
         }).runsForSha(branch, sha),
     },
     store,
+    repair,
     slot: async (call) => {
       slots += 1;
       return call();
@@ -81,6 +97,7 @@ const rig = (initial: DefaultBranchReading | null = null, checks: readonly strin
   return {
     world,
     stored: () => file,
+    repair: () => repairRecord,
     calls: () => calls,
     slots: () => slots,
     tip: (sha) => {
@@ -426,6 +443,134 @@ describe('refreshDefaultBranch', () => {
     r.runs('a1', [run('ci', 'success')]);
     await refreshDefaultBranch(r.world);
     expect(r.slots()).toBe(1);
+  });
+});
+
+describe('refreshDefaultBranch — the repair record', () => {
+  const green = (sha: string): DefaultBranchReading => ({
+    v: DEFAULT_BRANCH_VERSION,
+    branch: 'main',
+    headSha: sha,
+    head: 'green',
+    settled: { sha, state: 'green' },
+    failingRuns: [],
+    headSince: new Date(T0).toISOString(),
+    askedAt: new Date(T0).toISOString(),
+    at: new Date(T0).toISOString(),
+  });
+
+  it('writes a record at the change from a green settled reading to a red one (advanceSettled arm)', async () => {
+    const r = rig(green('g1'));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.settled).toEqual({ sha: 'r1', state: 'red' });
+    expect(r.repair()).toMatchObject({ branch: 'main', state: 'idle', lastGreenSha: 'g1', firstRedSha: 'r1' });
+  });
+
+  it('writes a record at the change to red found behind a pending head (settleBehindHead arm)', async () => {
+    const r = rig(green('g1'));
+    r.line(['h', 'r1', 'g1']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'in_progress')]);
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.settled).toEqual({ sha: 'r1', state: 'red' });
+    expect(r.repair()).toMatchObject({ branch: 'main', state: 'idle', lastGreenSha: 'g1', firstRedSha: 'r1' });
+  });
+
+  it('writes a record with no lastGreenSha where there was no previous reading, and warns', async () => {
+    const r = rig(null);
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    const warnings: string[] = [];
+    await refreshDefaultBranch(r.world, (line) => warnings.push(line));
+    expect(r.repair()).toMatchObject({ branch: 'main', state: 'idle', firstRedSha: 'r1' });
+    expect(r.repair()?.lastGreenSha).toBeUndefined();
+    expect(warnings.some((line) => line.includes('no last green SHA'))).toBe(true);
+  });
+
+  it('writes no record where the settled part stays red across a refresh', async () => {
+    const r = rig(green('g1'));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    const firstRecord = r.repair();
+
+    r.clock(REASK_MS);
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toEqual(firstRecord);
+  });
+
+  const named = (over: Partial<RepairRecord> = {}): RepairRecord => ({
+    v: 1,
+    branch: 'main',
+    state: 'idle',
+    lastGreenSha: 'g1',
+    firstRedSha: 'r1',
+    redSince: new Date(T0).toISOString(),
+    candidates: [],
+    rerun: 'none',
+    preRevertRerun: 'none',
+    repairPr: 2942,
+    at: new Date(T0).toISOString(),
+    ...over,
+  });
+
+  it('keeps a person-recorded repairPr when the same episode turns red again (the race)', async () => {
+    // The reading was not written after the first change to red, so fleetd
+    // sees green -> red on r1 a second time, after a person recorded #2942.
+    const r = rig(green('g1'), [], named());
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toEqual(named());
+  });
+
+  it('replaces a record of another episode, dropping its repairPr', async () => {
+    const r = rig(green('g1'), [], named({ firstRedSha: 'r0' }));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toMatchObject({ firstRedSha: 'r1', state: 'idle' });
+    expect(r.repair()?.repairPr).toBeUndefined();
+  });
+
+  it('replaces a settled record of the same first red SHA', async () => {
+    const r = rig(green('g1'), [], named({ state: 'done' }));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toMatchObject({ firstRedSha: 'r1', state: 'idle' });
+    expect(r.repair()?.repairPr).toBeUndefined();
+  });
+
+  it('writes no record where the record on disk cannot be read, and warns', async () => {
+    const r = rig(green('g1'), [], named());
+    const writes: RepairRecord[] = [];
+    r.world.repair = {
+      read: async () => ({ ok: false, why: 'failed' }) as never,
+      write: async (record) => {
+        writes.push(record);
+        return { ok: true, value: undefined };
+      },
+    };
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    const warnings: string[] = [];
+    await refreshDefaultBranch(r.world, (line) => warnings.push(line));
+    expect(writes).toEqual([]);
+    expect(warnings.some((line) => line.includes('could not be read'))).toBe(true);
+    expect(r.stored()?.settled).toEqual({ sha: 'r1', state: 'red' });
+  });
+
+  it('writes no record where the head stays green across a refresh', async () => {
+    const r = rig(green('g1'));
+    r.clock(WAIT / 2);
+    r.runs('g1', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toBeNull();
   });
 });
 

@@ -6,12 +6,15 @@ import { scriptsFor, primeAgentSettings, readConfigAsync, refsFor, gateContractF
 import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
-import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
+import { checkNamesOf, checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
+import { buildShell } from '@plot-pm/domain/adapters/build/build-resolve';
+import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { fleetdStartFile } from '@plot-pm/domain/adapters';
+import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
-import { mergeAt } from './merge.js';
+import { mergeAt, nameRepairPrAt } from './merge.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
 
 /**
@@ -23,6 +26,7 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
  * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
  * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
  * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
+ * node skills/plot/scripts/board/plot-ask.mjs repair-pr <pr>
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
  * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
@@ -48,6 +52,12 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
  * `argv[0]` before {@link questionFrom} and prints one JSON line; it exits 0
  * when the PR merged and 1 when a rule or the host refused, the reason being in
  * the line. {@link mergeAt} is the workflow's caller.
+ *
+ * **`repair-pr` IS A WRITE OF THE SAME SHAPE.** It records a PR as the repair
+ * PR of the open red episode on `.plot/state/repair-record.json`, through
+ * {@link nameRepairPrAt}, and prints one JSON line; it exits 0 when the record
+ * names the PR and 1 on a refusal. A person runs it: `PLOT_UNATTENDED=1` maps
+ * to the `unattended` caller, which refuses before any read.
  *
  * The answer goes to stdout as JSON and nothing else does. Diagnostics go to
  * stderr, so a caller can pipe stdout into a parser the way
@@ -160,13 +170,23 @@ export const run = async (
     // reading. A mock estate's null fixture would lift the red-main refusal on
     // a merge that still lands.
     const estate = realEstate(opts);
+    // The estate's `refsGit` answers `remoteSha` as `unaskable`; `mergeAt`
+    // reads the default branch's tip through it on a settled reading, so the
+    // tip comes from `refsRemoteGit` over `git ls-remote`, as `design.ts` composes it.
+    const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
     const result = await mergeAt(
       {
         host: estate.host,
         scripts: scriptsFor(opts),
         defaultBranch: estate.defaultBranch,
+        refs: { ...estate.refs, remoteSha: remote.remoteSha },
         checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
         now: Date.now,
+        // The repair exception on a red default branch: the record, and the
+        // CI connector that asks the red commit's runs again.
+        repair: repairRecordFile(opts.repoRoot),
+        build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+        checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
         // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
         // maps to 'unattended', never to 'fleetd'.
         caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
@@ -176,6 +196,29 @@ export const run = async (
     );
     write(`${JSON.stringify(result)}\n`);
     return result.merged ? 0 : 1;
+  }
+
+  if (argv[0] === 'repair-pr') {
+    const [, pr] = argv;
+    if (!pr || !/^[0-9]+$/.test(pr) || argv.length > 2) {
+      process.stderr.write('usage: plot-ask.mjs repair-pr <pr>\n');
+      return 2;
+    }
+    const { opts } = contextFrom(here);
+    // The real estate, as for `merge`: the record names a PR that `merge` admits on the real host.
+    const estate = realEstate(opts);
+    const result = await nameRepairPrAt(
+      {
+        host: estate.host,
+        refs: estate.refs,
+        defaultBranch: estate.defaultBranch,
+        repair: repairRecordFile(opts.repoRoot),
+        caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
+      },
+      Number(pr),
+    );
+    write(`${JSON.stringify(result)}\n`);
+    return result.named ? 0 : 1;
   }
 
   if (argv[0] === 'spawner' && argv[1] === '--from-board') {

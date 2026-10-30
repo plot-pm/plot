@@ -26,6 +26,7 @@ import {
   refsGit,
   refsRemoteGit,
   refusedSlicesFile,
+  runLogFile,
   sliceSpendFile,
   transcriptFs,
   treesGit,
@@ -241,6 +242,7 @@ export const workerLoopPorts = async (
     processes,
     boundedRun,
     refusedSlices: refusedSlicesFile({ cwd: context.repoRoot }),
+    runLog: runLogFile({ cwd: context.repoRoot }),
     build,
     host,
     transcriptQuietSeconds: async (worktree: string) => quietReading(await transcript.quietSeconds(worktree)),
@@ -1869,6 +1871,17 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
         readings.correctionAttempts + 1,
         readings.correctionBudget,
       );
+      // FIRE-AND-FORGET, like the dispatch and deliver appends: a run-log
+      // write must never make the loop wait on it.
+      void deps.ports.runLog.append({
+        plan: deps.slug ?? '',
+        branch: resume.branch,
+        pr: '',
+        head: '',
+        step: 'correction',
+        outcome: 'moved',
+        at: new Date().toISOString(),
+      });
     }
 
     if (readings.exit?.answer === 'wait') {
