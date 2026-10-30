@@ -102,27 +102,39 @@ export const answerRecordFile = (options: AnswerRecordFileOptions = {}): AnswerR
     return dir === null ? null : join(dir, FILE);
   };
 
-  return {
-    rowsFor: async (worktree: string, askedAt: string): Promise<PortResult<readonly AnswerRecord[]>> => {
-      const path = await pathOf();
-      if (path === null) return answered([]);
-      let text: string;
-      try {
-        text = await readFile(path, 'utf8');
-      } catch (error) {
-        // A MISSING FILE IS AN EMPTY RECORD — the state of every repository
-        // that has not yet answered a question. Absence must never read as
-        // "this question already started."
-        if (isMissing(error)) return answered([]);
-        return failed<readonly AnswerRecord[]>();
-      }
-      const rows = text
+  const readRows = async (): Promise<PortResult<readonly AnswerRecord[]>> => {
+    const path = await pathOf();
+    if (path === null) return answered([]);
+    let text: string;
+    try {
+      text = await readFile(path, 'utf8');
+    } catch (error) {
+      // A MISSING FILE IS AN EMPTY RECORD — the state of every repository
+      // that has not yet answered a question. Absence must never read as
+      // "this question already started."
+      if (isMissing(error)) return answered([]);
+      return failed<readonly AnswerRecord[]>();
+    }
+    return answered(
+      text
         .split('\n')
         .filter((line) => line !== '')
         .map(decodeAnswerRow)
-        .filter((row): row is AnswerRecord => row !== null)
-        .filter((row) => row.worktree === worktree && row.askedAt === askedAt);
-      return answered(rows);
+        .filter((row): row is AnswerRecord => row !== null),
+    );
+  };
+
+  return {
+    rowsFor: async (worktree: string, askedAt: string): Promise<PortResult<readonly AnswerRecord[]>> => {
+      const read = await readRows();
+      if (!read.ok) return read;
+      return answered(read.value.filter((row) => row.worktree === worktree && row.askedAt === askedAt));
+    },
+
+    rowsForDesk: async (worktree: string): Promise<PortResult<readonly AnswerRecord[]>> => {
+      const read = await readRows();
+      if (!read.ok) return read;
+      return answered(read.value.filter((row) => row.worktree === worktree));
     },
 
     append: async (record: AnswerRecord): Promise<PortResult<void>> => {

@@ -58,6 +58,15 @@ export interface AnswerRecordStore {
   rowsFor(worktree: string, askedAt: string): Promise<PortResult<readonly AnswerRecord[]>>;
 
   /**
+   * Every row this record holds for one desk, whatever question it answered.
+   *
+   * @param worktree - the desk the questions were asked on.
+   * @returns the desk's rows, oldest first. A missing file answers
+   *   `answered([])`. Any other read error answers `failed()`.
+   */
+  rowsForDesk(worktree: string): Promise<PortResult<readonly AnswerRecord[]>>;
+
+  /**
    * Appends one row — one answer given.
    *
    * @param record - the desk, the question, the answer, the author and the outcome.

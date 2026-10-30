@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readingsFrom, requestFrom } from '../../src/server/entry/slice-pr.js';
+import { readAnswers, readingsFrom, requestFrom } from '../../src/server/entry/slice-pr.js';
 
 /**
  * THE ENTRY IS AN ADAPTER AND THESE TEST THE ADAPTATION.
@@ -112,5 +112,12 @@ describe('requestFrom — the whole request', () => {
     const request = requestFrom(JSON.stringify({ readings: { branch: 'feature/x' } }));
 
     expect(request.readings.prs).toEqual([]);
+  });
+});
+
+describe('readAnswers', () => {
+  it('answers none for an empty branch or a repository with no such desk', async () => {
+    expect(await readAnswers('', process.cwd())).toEqual([]);
+    expect(await readAnswers('feature/no-such-desk-anywhere', process.cwd())).toEqual([]);
   });
 });

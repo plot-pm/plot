@@ -73,6 +73,15 @@ describe('append and read', () => {
     expect(answer(await store.rowsFor(WORKTREE, ASKED_AT))).toHaveLength(1);
   });
 
+  it('rowsForDesk answers every row for one desk, whatever question it answered', async () => {
+    const store = answerRecordFile({ home });
+    answer(await store.append(row({ askedAt: ASKED_AT })));
+    answer(await store.append(row({ askedAt: '2026-10-06T09:00:00.000Z' })));
+    answer(await store.append(row({ worktree: '/repo/.worktrees/other' })));
+    expect(answer(await store.rowsForDesk(WORKTREE))).toHaveLength(2);
+    expect(answer(await store.rowsForDesk('/repo/.worktrees/none'))).toEqual([]);
+  });
+
   it('lets a second instance over the same home read what the first appended', async () => {
     const first = answerRecordFile({ home });
     const second = answerRecordFile({ home });

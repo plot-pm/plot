@@ -1,6 +1,7 @@
 import {
   isSlicePrRefusal,
   openSlicePr,
+  type SlicePrAnswer,
   type SlicePrReadings,
   type SlicePrResult,
   type SlicePrRow,
@@ -9,6 +10,9 @@ import {
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
+import { answerRecordFile } from '@plot-pm/domain/adapters/answer-record/answer-record-file';
+import { shellContext } from '@plot-pm/domain/adapters/scripts';
+import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 
 /**
  * The `node` entry point `plot-open-pr.sh` runs, once per slice PR.
@@ -34,9 +38,10 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * **A SEVENTEENTH ARTIFACT, for the reason `entry/transition.ts` gives.**
  * `plot-ask.mjs` answers `board` and `fleet` by RUNNING `plot-fleet-scan.sh`,
  * so a script asking the board to open its PR would be a script calling an
- * artifact that calls the script. This bundle spawns nothing and reads nothing
- * — every reading arrives on stdin, taken by the shell that owns the git and
- * host calls.
+ * artifact that calls the script. Every reading about the branch, its plan and
+ * its PRs arrives on stdin, taken by the shell that owns the git and host
+ * calls. The one reading the entry takes itself is the answers given to the
+ * slice's desk, through the Trees port and the answer-record adapter.
  *
  * **JSON IN, JSON OUT**, where the transition entries take tab-separated words:
  * the answer carries a multi-line markdown body, and a tab-separated wire would
@@ -167,6 +172,33 @@ export const requestFrom = (text: string): Request => {
 };
 
 /**
+ * Read the answers given to the desk holding a branch.
+ *
+ * @param branch - the slice's branch.
+ * @param repoRoot - the repository the desk belongs to.
+ * @returns the `answered` rows for that desk, oldest first. A branch with no
+ *   desk on this machine, an unreadable record, and a record with no rows all
+ *   answer `[]`: the PR body then carries no answers section.
+ */
+export const readAnswers = async (
+  branch: string,
+  repoRoot: string,
+): Promise<readonly SlicePrAnswer[]> => {
+  if (branch === '') return [];
+  try {
+    const tree = await treesGit(shellContext(repoRoot)).forBranch(branch);
+    if (!tree.ok || tree.value === null) return [];
+    const rows = await answerRecordFile({ cwd: repoRoot }).rowsForDesk(tree.value.path);
+    if (!rows.ok) return [];
+    return rows.value
+      .filter((row) => row.outcome === 'answered')
+      .map(({ question, answer, author }) => ({ question, answer, author }));
+  } catch {
+    return [];
+  }
+};
+
+/**
  * Decide one slice PR.
  *
  * @param request - what the caller asked.
@@ -188,11 +220,13 @@ export const decide = (request: Request): SlicePrResult =>
  *
  * @param text - the whole of stdin.
  * @param write - where the answer goes.
+ * @param answers - the desk's answers, which the body reports.
  * @returns the process exit code — 0 decided, 1 refused, 2 unreadable input.
  */
 export const run = (
   text: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  answers: readonly SlicePrAnswer[] = [],
 ): number => {
   let request: Request;
   try {
@@ -201,7 +235,7 @@ export const run = (
     process.stderr.write(`plot-slice-pr: ${(err as Error).message}\n`);
     return 2;
   }
-  const result = decide(request);
+  const result = decide({ ...request, readings: { ...request.readings, answers } });
   write(`${JSON.stringify(result)}\n`);
   if (isSlicePrRefusal(result)) {
     process.stderr.write(`${result.reason}\t${result.detail}\n`);
@@ -224,5 +258,13 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  void endEntry(run(Buffer.concat(chunks).toString('utf8')));
+  const text = Buffer.concat(chunks).toString('utf8');
+  let branch = '';
+  try {
+    branch = requestFrom(text).readings.branch;
+  } catch {
+    // run() reports the unreadable input.
+  }
+  const answers = await readAnswers(branch, process.env.PLOT_REPO_ROOT ?? process.cwd());
+  void endEntry(run(text, (s) => process.stdout.write(s), answers));
 }
