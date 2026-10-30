@@ -198,6 +198,42 @@ export const waitVerdict = (waits: readonly WaitsReading[]): BranchState | null 
 };
 
 /**
+ * The prerequisites, with every branch the same plan reads `merged` answered
+ * `MERGED`.
+ *
+ * A prerequisite that is a branch of the waiting branch's own plan has a
+ * reading in the same scan, and the wave gate already settles its slice on
+ * that reading. The same reading clears the wait, so the wave gate and the
+ * `waits:` hold give one answer about one branch. The queue does the same: it
+ * reads a plan's subject-proven branches as merged when it decides a `waits:`
+ * hold. Opening a slice is reversible, so a merge subject is enough evidence
+ * here (`docs/domain/merge-subject.md`).
+ *
+ * A prerequisite outside the plan keeps the host's reading.
+ *
+ * @param names - every prerequisite the plan names for the branch, in order.
+ * @param waits - the host's readings of those prerequisites, or `[]` where
+ *   none was asked yet.
+ * @param landed - the branches of the same plan whose own state is `merged`.
+ * @returns `waits` with each landed prerequisite read `MERGED`. Where no
+ *   reading was asked yet and every named prerequisite is landed, one `MERGED`
+ *   reading per name; otherwise `waits` unchanged.
+ */
+export const withPlanLandings = (
+  names: readonly string[],
+  waits: readonly WaitsReading[],
+  landed: ReadonlySet<string>,
+): readonly WaitsReading[] => {
+  if (waits.length > 0) {
+    return waits.map((w) => (landed.has(w.branch) ? { ...w, pr: 'MERGED' } : w));
+  }
+  if (names.length > 0 && names.every((name) => landed.has(name))) {
+    return names.map((branch) => ({ branch, pr: 'MERGED', namedSlice: true }));
+  }
+  return waits;
+};
+
+/**
  * The states a prerequisite may replace.
  *
  * `deferred` outranks it — somebody gave the branch up, which is a decision,

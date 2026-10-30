@@ -4164,8 +4164,11 @@ branch_readings() { # $1=branch $2=deferred $3=plan-base $4=commits → readings
 # There is no shell fallback: a second implementation kept "just in case" is
 # the duplication this adoption removes, and it would be the copy nobody tests.
 # `plot-deliver.sh` fails the same way for the same reason.
-ask_branch_states() { # stdin=readings → one `state<TAB>needs<TAB>own` line per branch
-  node "$script_dir/board/plot-branch-state.mjs" 2>/dev/null \
+# $1 names each reading line's branch, one per line in stdin's order. The rule
+# reads a prerequisite that is a branch of the same plan from that branch's own
+# state. An argument and not a field: a bundle built before it ignores it.
+ask_branch_states() { # stdin=readings, $1=branches → one `state<TAB>needs<TAB>own` line per branch
+  node "$script_dir/board/plot-branch-state.mjs" "$1" 2>/dev/null \
     || { echo "error: cannot read branch states — run 'pnpm build:board'." >&2; exit 2; }
 }
 
@@ -4449,7 +4452,7 @@ for plan in "${plans[@]}"; do
   # There is no shell fallback: a second implementation kept "just in case" is
   # the duplication this adoption removes, and it would be the copy nobody
   # tests.
-  branch_answers=$(printf '%s' "$readings" | ask_branch_states)
+  branch_answers=$(printf '%s' "$readings" | ask_branch_states "$(printf '%s' "$order" | cut -f2)")
   [ "$(printf '%s\n' "$branch_answers" | grep -c .)" = "$(printf '%s' "$readings" | grep -c .)" ] \
     || { echo "error: branch states did not answer for every branch of $plan_base." >&2; exit 2; }
 
@@ -4505,7 +4508,7 @@ for plan in "${plans[@]}"; do
   done <<< "$readings"
 
   if [ "$needs_refill" = 1 ]; then
-    branch_answers=$(printf '%s' "$refill" | ask_branch_states)
+    branch_answers=$(printf '%s' "$refill" | ask_branch_states "$(printf '%s' "$order" | cut -f2)")
     [ "$(printf '%s\n' "$branch_answers" | grep -c .)" = "$(printf '%s' "$refill" | grep -c .)" ] \
       || { echo "error: branch states did not answer for every branch of $plan_base." >&2; exit 2; }
   fi
