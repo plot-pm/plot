@@ -6,7 +6,6 @@ import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
 import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-escalation';
 import { sliceIdle, type SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
 import { unblockerDue } from '@plot-pm/domain/rules/unblocker-due';
-import type { DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
 import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
