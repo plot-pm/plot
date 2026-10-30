@@ -4,8 +4,8 @@ import type { DefaultBranchStore } from '../ports/default-branch.js';
 import type { Host, PrReviewReading } from '../ports/host.js';
 import type { Refs } from '../ports/refs.js';
 import type { Scripts } from '../ports/scripts.js';
+import { minHexLenFor } from '../adapters/host/min-hex-len.js';
 import { defaultBranchAgeMs } from '../rules/default-branch.js';
-import { minHexLenFor } from '../rules/min-hex-len.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { type Outcome, decide, refuse } from './decision.js';
 
