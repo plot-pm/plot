@@ -149,7 +149,13 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # --slice-progress`. Same tracker connector and the same "no port answers this
 # yet" as the 2026-10-18 raise; the pass sits beside `auto-deliver.ts`, which
 # names its own scripts the same way.
-ALLOWED=20
+#
+# RAISED TO 21 ON 2026-10-30 for `entry/approve.ts`, which gains its own
+# `plot-issue-status.sh` site beside the `plot-plan-state.sh` one: an approved
+# plan's issue owes its `Tracker approved status` word, the third caller of
+# the wrapper `deliver.ts` already reaches twice. Same tracker connector and
+# the same "no port answers this yet" as the 2026-10-04 and 2026-10-23 raises.
+ALLOWED=21
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 
