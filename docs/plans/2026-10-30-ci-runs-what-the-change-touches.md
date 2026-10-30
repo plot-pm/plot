@@ -70,7 +70,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Selection rule
 
-- `feature/ci-selection-rule` — the domain rule that maps changed paths to checks; `plot-local-checks.mjs` reads it; a corpus test holds the script-to-test map <!-- builds: the change-to-checks rule shared by plot-local-checks and CI, and the script-to-test map -->
+- `feature/ci-selection-rule` — the domain rule that maps changed paths to checks; `plot-local-checks.mjs` reads it; a corpus test holds the script-to-test map <!-- builds: the change-to-checks rule shared by plot-local-checks and CI, and the script-to-test map --> → #2945
 
 ### CI selection
 
