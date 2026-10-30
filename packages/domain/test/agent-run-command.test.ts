@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { agentRunCommand } from '../src/adapters/agent-run/agent-run-command.js';
 import { HARNESS_LIMIT_LINES } from '../src/adapters/harness/limit-lines.js';
+import { roleCommand } from '../src/rules/role-command.js';
 import { backgroundGateEnv } from '../src/rules/agent-run-env.js';
 import { answered, failed } from '../src/port-result.js';
 import type { BoundedRun, BoundedRunResult } from '../src/ports/bounded-run.js';
@@ -234,5 +235,23 @@ describe('agentRunCommand', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.finalText).toBeUndefined();
+  });
+
+  it('runs a role fragment unchanged, with no case keyed on a flag name', async () => {
+    let args: readonly string[] = [];
+    const boundedRun: BoundedRun = {
+      run: async (_command, given) => {
+        args = given;
+        return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
+      },
+    };
+    const built = roleCommand({ name: 'reviewer', agentsFile: '/t/a.json', settingsFile: '/t/s.json' }, 40);
+    if (built.read !== 'command') throw new Error(built.why);
+    await writeFile(logFile, '');
+    await agentRunCommand({ boundedRun, fragment: built.command, limitPatterns: undefined, now: () => 0 }).run(
+      request({}, dir, logFile),
+    );
+    expect(args[args.indexOf('-c') + 1]).toBe(`${built.command} "$@"`);
+    expect(args[args.length - 1]).toBe('echo hello');
   });
 });

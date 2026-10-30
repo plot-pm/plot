@@ -1,5 +1,6 @@
 import type { PortResult } from '../port-result.js';
 import type { TokenCountsRecord } from '../entities/slice-spend.js';
+import type { RoleAgentRef } from '../rules/role-command.js';
 import type { PermissionDenialReading } from '../rules/sample.js';
 
 /**
@@ -46,6 +47,12 @@ export interface AgentRunRequest {
   readonly sessionId?: string;
   /** The role running — `worker`, or a board role such as `idea` or `brief`. */
   readonly role: string;
+  /**
+   * The declared role this run starts as; absent for every run that is not a
+   * role run. Distinct from {@link role}, which selects the hand-back
+   * protocol and stays unchanged.
+   */
+  readonly roleAgent?: RoleAgentRef;
   /** The harness this run is asked to use; `''` when unstated. */
   readonly harness: string;
   /** The model this run is asked to use; `''` when unstated. */
