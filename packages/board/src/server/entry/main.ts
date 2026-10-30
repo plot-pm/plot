@@ -173,6 +173,9 @@ export const run = async (
         refs: { ...estate.refs, remoteSha: remote.remoteSha },
         checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
         now: Date.now,
+        // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
+        // maps to 'unattended', never to 'fleetd'.
+        caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
       },
       Number(pr),
       sha,

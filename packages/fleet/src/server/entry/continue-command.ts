@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import type { DeskMonitors, FleetReading } from '@plot-pm/domain';
+import type { Caller, DeskMonitors, FleetReading } from '@plot-pm/domain';
 import { continueBranch } from '../../shared/continue-command.js';
 import { ANSWER_MAX } from '../../shared/continuation.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -34,6 +34,8 @@ export interface ContinueCommandDeps {
   monitors?: DeskMonitors;
   /** Reads the answer from stdin; the process's stdin where absent. */
   stdin?: () => string;
+  /** Who is asking for the continue; `PLOT_UNATTENDED=1` where absent. */
+  caller?: Caller;
 }
 
 /**
@@ -90,6 +92,9 @@ export const run = async (
     opts: { repoRoot, scriptsDir: scriptDir },
     pulse: (deps.pulse ?? bridgedPulse)(repoRoot),
     branch,
+    // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
+    // maps to 'unattended', never to 'fleetd'.
+    caller: deps.caller ?? (process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person'),
     answer,
     monitors: deps.monitors,
   });

@@ -12,7 +12,7 @@ Three call sites write `plot/review` once a PR's head is ready to merge:
 
 | PR kind | Writer | State |
 |---|---|---|
-| A PR reviewed by `plot-review` | `skills/plot/scripts/board/plot-review.mjs` | `success` (no HIGH finding) or `failure` (one or more, with the follow-up issue as `target_url`) |
+| A PR reviewed by `plot-review` | `skills/plot/scripts/board/plot-review.mjs` | `success` (no HIGH finding) or `failure` (one or more), `target_url` always the PR; findings of any severity go into one marked PR comment, never a follow-up issue |
 | The plan-PR merge (`/plot-approve`) | `packages/board/src/server/entry/approve.ts` | `success`, description `approved by <who>` |
 | A ladder bookkeeping micro-PR (`/plot-approve`, `/plot-deliver`) | `packages/board/src/server/entry/ladder.ts`'s `commitAndPush` | `success`, description `bookkeeping: <rung>` |
 

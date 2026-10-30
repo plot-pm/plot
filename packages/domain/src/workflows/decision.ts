@@ -9,6 +9,20 @@
 import type { EndingActor, EndingReason } from '../entities/ending.js';
 
 /**
+ * Who is asking a workflow to act.
+ *
+ * `person` is a human at a keyboard. `unattended` is `PLOT_UNATTENDED=1` with
+ * no further wiring — a worker loop, a one-shot `claude -p` run, anything
+ * that cannot be asked a question. `fleetd` is the master agent's own
+ * in-process caller, distinct from `unattended` because a workflow may trust
+ * fleetd with a decision it would refuse from an arbitrary unattended script.
+ *
+ * One vocabulary across `merge`, `continue`, `restart` and `release` — never
+ * a boolean, never read from `process.env` inside a workflow.
+ */
+export type Caller = 'person' | 'unattended' | 'fleetd';
+
+/**
  * One write a decision would make, named so a performer can apply it and a
  * test can diff for it.
  *

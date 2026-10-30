@@ -56,6 +56,7 @@ const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
   defaultBranch: reading('green'),
   defaultBranchTip: OTHER,
   review: review(),
+  caller: 'person',
   ...over,
 });
 
@@ -198,6 +199,21 @@ describe('merge — the controller for a PR merge', () => {
     expect(out.outcome === 'refused' && out.detail).toContain(OTHER.slice(0, 12));
   });
 
+  it('refuses an unattended caller before any other reading is asked', () => {
+    // 'unaskable' would otherwise win here — the refusal must come first.
+    expect(refusalOf(readings({ caller: 'unattended', pr: 'unaskable' }))).toBe('unattended');
+  });
+
+  it('accepts a fleetd caller and proceeds past the refusal unattended would hit', () => {
+    const out = merge(readings({ caller: 'fleetd' }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).not.toBe('refused');
+  });
+
+  it('decides for a person, same as an unset caller', () => {
+    const out = merge(readings({ caller: 'person' }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).not.toBe('refused');
+  });
+
   it('refuses default-branch-unsettled on a pending head past a green settled commit', () => {
     // The head is pending while a DIFFERENT, older commit is the last one that
     // settled green — a naive check reading only `settled.state` would pass.
@@ -286,6 +302,7 @@ describe('mergeAt — the workflow wired to its ports', () => {
       },
       checksWaitMs: WAIT_MS2,
       now: () => NOW,
+      caller: 'person',
     } as unknown as MergePorts;
     return { p, calls };
   };
@@ -295,6 +312,19 @@ describe('mergeAt — the workflow wired to its ports', () => {
     const out = await mergeAt(p, 7, HEAD2);
     expect(out).toMatchObject({ merged: true, pr: 7, sha: HEAD2, defaultBranchRead: false, unpinned: false });
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD2]]);
+  });
+
+  it('refuses an unattended caller, asking the host nothing', async () => {
+    const { p, calls } = ports(prFixture());
+    p.caller = 'unattended';
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'unattended' });
+    expect(calls).toEqual([]);
+  });
+
+  it('accepts a fleetd caller and proceeds past the refusal unattended would hit', async () => {
+    const { p } = ports(prFixture());
+    p.caller = 'fleetd';
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: true, pr: 7, sha: HEAD2 });
   });
 
   it('asks the host for checks, which Bitbucket reads only when asked', async () => {

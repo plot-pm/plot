@@ -112,7 +112,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### Settled main guard
 
-- `feature/merge-waits-for-a-settled-main` — `mergeAt` moves into the domain; `merge()` refuses `default-branch-unsettled` from a fresh `Refs.remoteSha` tip read and `review-not-passed` from a re-asked `plot/review`; `requireReading` holds a merge on a missing reading; domain unit tests for each refusal, including the three cases the panel probed <!-- builds: default-branch-unsettled and review-not-passed refusals in merge, mergeAt in the domain -->
+- `feature/merge-waits-for-a-settled-main` — `mergeAt` moves into the domain; `merge()` refuses `default-branch-unsettled` from a fresh `Refs.remoteSha` tip read and `review-not-passed` from a re-asked `plot/review`; `requireReading` holds a merge on a missing reading; domain unit tests for each refusal, including the three cases the panel probed <!-- builds: default-branch-unsettled and review-not-passed refusals in merge, mergeAt in the domain --> → #2931
 
 ### One merge per pass
 

@@ -7,13 +7,14 @@ import type { Scripts } from '../ports/scripts.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
 import { defaultBranchAgeMs } from '../rules/default-branch.js';
 import { sameCommit } from '../rules/same-commit.js';
-import { type Outcome, decide, refuse } from './decision.js';
+import { type Caller, type Outcome, decide, refuse } from './decision.js';
 
 /**
  * Why `merge` refused. Each is the end of the action: nothing merges, and no
  * caller retries with the pin dropped.
  */
 export type MergeRefusal =
+  | 'unattended'
   | 'unaskable'
   | 'pr-not-open'
   | 'head-moved'
@@ -28,6 +29,8 @@ export type MergeRefusal =
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
 export interface MergeReadings {
+  /** Who is asking for the merge; an unattended caller is refused before anything else is read. */
+  readonly caller: Caller;
   /**
    * The PR as the host answers now; null where the host holds none, and
    * `'unaskable'` where the host did not answer.
@@ -138,6 +141,9 @@ const short = (sha: string | undefined): string =>
  */
 export const merge = (readings: MergeReadings, input: MergeInput): Outcome<MergeDetail, MergeRefusal> => {
   const no = (reason: MergeRefusal, detail: string) => refuse('merge', reason, detail);
+  if (readings.caller === 'unattended') {
+    return no('unattended', `an unattended caller does not merge PR #${input.pr}. Merging is reviewed as an action, and this one had no reviewer.`);
+  }
   const { pr } = readings;
   if (pr === 'unaskable') {
     return no('unaskable', `the host did not answer for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
@@ -235,6 +241,8 @@ export interface MergePorts {
   now: () => number;
   /** See {@link MergeInput.requireReading}. Off by default. */
   requireReading?: boolean;
+  /** Who is asking for this merge; an unattended caller is refused before any read. */
+  caller: Caller;
 }
 
 /** What `plot-ask.mjs merge` (and fleetd) print or hold, as one JSON line. */
@@ -273,6 +281,7 @@ export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promi
   ]);
   const outcome = merge(
     {
+      caller: ports.caller,
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tip === null ? 'unaskable' : tip.ok && tip.value !== 'unknown' ? tip.value.sha : 'unaskable',

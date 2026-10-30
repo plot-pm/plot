@@ -20,12 +20,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const parser = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-plan-meta.sh');
 const repoRoot = path.join(here, '..', '..');
 
-// maxBuffer raised past Node's 1 MB default: parsing the whole `docs/plans/`
-// estate in one call (610 plans, 8+ MB of source) pipes several MB of JSON
-// back over stdout, and the default cap made this intermittently fail with
-// ENOBUFS on CI runners — an OS pipe-buffer exhaustion, not a parse defect.
+// maxBuffer above Node's 1 MB default: parsing every plan in the repo at once
+// (the whole-estate test below) now emits just over that default and fails
+// with ENOBUFS as the estate grows, independent of anything this suite checks.
 const parseFile = (...files) =>
-  execFileSync('bash', [parser, ...files], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  execFileSync('bash', [parser, ...files], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
     .trim().split('\n').map((l) => JSON.parse(l));
 
 function withPlan(body, fn) {

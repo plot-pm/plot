@@ -47,17 +47,17 @@ describe('restartBranch', () => {
   const opts = { repoRoot: '/nonexistent', scriptsDir: '/nonexistent' };
 
   it('refuses unknown-branch with 404 where the pulse does not list the branch and git names no desk', async () => {
-    const r = await restartBranch({ opts, pulse: pulseOf('feature/other', '/w/other'), branch: 'feature/nope', unattended: false });
+    const r = await restartBranch({ opts, pulse: pulseOf('feature/other', '/w/other'), branch: 'feature/nope', caller: 'person' });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
   });
 
   it('refuses unknown-branch where there is no pulse at all', async () => {
-    const r = await restartBranch({ opts, pulse: null, branch: 'feature/nope', unattended: false });
+    const r = await restartBranch({ opts, pulse: null, branch: 'feature/nope', caller: 'person' });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
   });
 
   it('refuses no-worktree with 404 where the pulse lists the branch with no desk', async () => {
-    const r = await restartBranch({ opts, pulse: pulseOf('feature/no-desk', ''), branch: 'feature/no-desk', unattended: false });
+    const r = await restartBranch({ opts, pulse: pulseOf('feature/no-desk', ''), branch: 'feature/no-desk', caller: 'person' });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-worktree' });
   });
 });
@@ -126,7 +126,7 @@ describe('the restart on a desk', () => {
       pulse: () => pulseOf(branch, desk),
       readers: deadWorker,
       monitors,
-      unattended: false,
+      caller: 'person',
     }, (s) => out.push(s), (s) => warned.push(s));
     expect(warned.join('')).toBe('');
     expect(code).toBe(0);
@@ -142,11 +142,25 @@ describe('the restart on a desk', () => {
       pulse: () => pulseOf(branch, desk),
       readers: deadWorker,
       monitors,
-      unattended: true,
+      caller: 'unattended',
     }, () => {}, (s) => warned.push(s));
     expect(code).toBe(1);
     expect(warned.join('')).toContain('plot-restart-command: unattended:');
     expect(fs.existsSync(path.join(desk, '.plot-worker.pid'))).toBe(false);
+  });
+
+  it('accepts a fleetd caller and proceeds past the refusal unattended would hit', async () => {
+    const { repo, desk } = fixture('true');
+    const warned: string[] = [];
+    const code = await run([branch], repo, scriptDir, {
+      pulse: () => pulseOf(branch, desk),
+      readers: deadWorker,
+      monitors,
+      caller: 'fleetd',
+    }, () => {}, (s) => warned.push(s));
+    expect(warned.join('')).toBe('');
+    expect(code).toBe(0);
+    expect(fs.existsSync(path.join(desk, '.plot-worker.pid'))).toBe(true);
   });
 
   it('removes the stopped ending, so a restarted worker killed without one reads as killed', async () => {
@@ -155,7 +169,7 @@ describe('the restart on a desk', () => {
       opts: { repoRoot: repo, scriptsDir: scriptDir },
       pulse: pulseOf(branch, desk),
       branch,
-      unattended: false,
+      caller: 'person',
       readers: deadWorker,
       monitors,
     });

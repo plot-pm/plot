@@ -490,6 +490,37 @@ describe('release', () => {
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('precondition-unmet');
   });
+
+  it('refuses unattended before anything else, including a too-early phase', () => {
+    const result = release(planWith({ phase: 'approved' }), {
+      on: '2026-08-29',
+      version: 'v2.6.0',
+      caller: 'unattended',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('unattended');
+    expect(result.detail).toContain('a release needs a person');
+  });
+
+  it('refuses fleetd identically — the one place fleetd gets no exception', () => {
+    const result = release(planWith({ phase: 'delivered' }), {
+      on: '2026-08-29',
+      version: 'v2.6.0',
+      caller: 'fleetd',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('unattended');
+  });
+
+  it('decides normally for a person, the default when caller is omitted', () => {
+    const result = release(planWith({ phase: 'delivered' }), {
+      on: '2026-08-29',
+      version: 'v2.6.0',
+    });
+    expect(isDecision(result)).toBe(true);
+  });
 });
 
 describe('the offer is separate from the act', () => {

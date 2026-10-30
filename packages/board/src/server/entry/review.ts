@@ -1,24 +1,15 @@
 // THROUGH THE NARROW PATHS, as `verify.ts` does, so the bundle carries the
 // adapters and rules this command uses and no more.
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
-import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
-import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
-import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-write-spool/hand-off-issue-write';
-import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-write-spool/issue-write-spool-file';
-import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
-import { findOpenReviewIssue, REVIEW_ISSUE_LABEL, reviewIssueTitle } from '@plot-pm/domain/rules/review-issue';
-import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
-import { githubIssueComment, githubIssueOpen } from '@plot-pm/domain/adapters/tracker/tracker-github';
-import type { Host, Issue, PortResult, Tracker, Trees } from '@plot-pm/domain';
-import type { ShellContext } from '@plot-pm/domain/adapters/scripts';
+import { reviewIssue } from '@plot-pm/domain/rules/review-issue';
+import type { Host, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
-import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
 import {
   reviewerCommand,
@@ -54,26 +45,23 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The agent's final answer is written to a verdict file under the git common
  * directory and read through `reviewVerdict`, never as free text.
  *
- * Any finding opens one follow-up issue, labelled `ai-generated`, through the
- * tracker `reviewTracker` resolves: the declared `Tracker`, or a GitHub issue
- * where none is declared and the git host is `github`. Zero HIGH findings writes `success`
- * with `no HIGH findings`; one or more writes `failure` with the HIGH count.
- * The status's `target_url` is the issue, or the PR where no issue was opened.
- * A verdict with no finding at all opens no issue. The issue id is recorded
- * per PR and head SHA, so a second run against the same head reuses the
- * recorded issue and opens none — but still writes its verdict, as a comment
- * on the recorded issue. The comment and the status description carry the
- * same run marker, the review's UTC timestamp to the second, so a reader can
- * match the two. A recorded `pending` entry — an earlier run asked the
- * tracker and recorded no answer — opens nothing, as `plot-verify` does.
+ * No finding opens a follow-up issue — {@link reviewIssue} answers `none` for
+ * every count, HIGH included: a HIGH finding holds the PR at `plot/review=failure`
+ * instead, until #2903's fixer loop owns the ticket. Zero HIGH findings writes
+ * `success` with `no HIGH findings`; one or more writes `failure` with the HIGH
+ * count. The status's `target_url` is the PR.
  *
- * AN ISSUE THAT WAS NOT OPENED NEVER SKIPS THE STATUS. The status is written
- * on the reviewed SHA as above, the output names why no issue was opened, and
- * the run exits {@link EXIT.issueNotOpened}. A comment on a recorded issue
- * that the tracker does not take (`unaskable`) keeps the issue as `target_url`
- * and exits {@link EXIT.ok}; one that fails keeps the issue as `target_url`,
- * describes the status `verdict not commented`, and exits
- * {@link EXIT.issueNotOpened}. Either way the output names why.
+ * Every finding, of any severity, goes into one PR comment instead: a marked
+ * comment (`findingsMarker`) that a later run on the same PR edits in place
+ * rather than duplicating, so one PR carries at most one findings comment
+ * however many heads were reviewed. The comment and the status description
+ * carry the same run marker, the review's UTC timestamp to the second, so a
+ * reader can match the two. A verdict with no finding at all posts no comment.
+ *
+ * On a host that cannot take PR comments (`unaskable`, as Bitbucket answers),
+ * or where posting the comment fails, the status is still written, the output
+ * names the verdict file holding the findings, and the run exits
+ * {@link EXIT.issueNotOpened}.
  *
  * Every refusal writes no status and exits non-zero with the reason.
  */
@@ -87,8 +75,8 @@ export const EXIT = {
   /** The run refused; no status was written. */
   refused: 3,
   /**
-   * A status was written, and the verdict did not reach a follow-up issue: no
-   * issue was opened, or the comment on the recorded issue failed.
+   * A status was written, and the findings were not posted: the host cannot
+   * take PR comments, or posting the comment failed.
    */
   issueNotOpened: 4,
 } as const;
@@ -107,9 +95,6 @@ export type ReviewChange =
 /** What a review run touches, so a test can supply values instead of a machine. */
 export interface ReviewDeps {
   host: Host;
-  tracker: Tracker;
-  /** Where a follow-up issue Plot opened is handed to the issue index; absent hands nothing. */
-  issueWrites?: IssueWriteSpool;
   trees: Trees;
   /** The agent connector that runs `command`, the reviewer's shell fragment. */
   agentRun: (command: string) => AgentRun;
@@ -158,191 +143,30 @@ const writeTextOutcome = (deps: ReviewDeps, file: string, text: string): ReviewO
 };
 
 /**
- * The follow-up issue's title and body.
+ * The findings comment's body, naming the PR URL, the reviewed head and the
+ * counts, followed by the reviewer's verdict text.
  *
- * @param pr - the PR number.
  * @param sha - the reviewed head.
  * @param prUrl - the PR's URL.
  * @param counts - the verdict's counts.
  * @param verdictText - the reviewer's final answer.
  * @param run - this run's marker, shared with the status description so a
  *   reader can match the two.
- * @returns the issue text.
+ * @returns the comment body.
  */
-const followUpIssue = (
-  pr: number,
+const findingsBody = (
   sha: string,
   prUrl: string,
   counts: ReviewCounts,
   verdictText: string,
   run: string,
-): { title: string; body: string } => ({
-  title: reviewIssueTitle(pr),
-  body: [
-    `The reviewer found HIGH ${counts.high}, MEDIUM ${counts.medium}, LOW ${counts.low} on ${prUrl} at ${sha}.`,
-    '',
-    verdictText.trim(),
-    '',
-    `run ${run}`,
-  ].join('\n'),
-});
-
-/**
- * The follow-up issue's URL, or why no issue was opened. `uncommented` names
- * why the verdict did not reach an issue that exists; `failed` is true where
- * the tracker failed the comment rather than taking none.
- */
-type FollowUp =
-  | { ok: true; url: string; commented: boolean; uncommented?: { why: string; failed: boolean } }
-  | { ok: false; why: string };
-
-/** How many matching open issues the lookup reads; a read that stops here is not conclusive. */
-const LOOKUP_LIMIT = 200;
-
-/**
- * The open follow-up issue of a PR, asked of the tracker.
- *
- * The search is keyed by the PR's own title text rather than the whole
- * labelled backlog, so the read stays bounded by the one PR asked about
- * instead of growing with every AI-created issue in the repository. The
- * tracker's title search is not an exact match, so every candidate is still
- * checked against {@link findOpenReviewIssue} — a search naming "PR #1" can
- * return an issue titled "... on PR #12", and only the exact check tells them
- * apart.
- *
- * A failed or truncated read is `ok: false`: not knowing is not the same as
- * no issue existing, and opening on it would recreate the duplicates. A tracker
- * that cannot search issues by title (`unaskable`, as Jira answers) allows no
- * lookup, so the answer is no issue and the caller opens one, as before the
- * lookup existed.
- *
- * The search index this reads can lag a just-opened issue (GitHub's and
- * Jira's both can), so a duplicate guard that reads it right after opening
- * can still miss the row it just wrote. That is a known, named risk here —
- * not a bug the read is expected to catch.
- *
- * @param deps - the tracker.
- * @param pr - the PR number.
- * @returns the issue, or null where the complete read found none or no lookup is
- *   possible; else why it is not known.
- */
-const openIssueOfPr = async (
-  deps: ReviewDeps,
-  pr: number,
-): Promise<{ ok: true; issue: Issue | null } | { ok: false; why: string }> => {
-  const listed = await deps.tracker.issueListWithTitle(REVIEW_ISSUE_LABEL, `PR #${pr}`, LOOKUP_LIMIT);
-  if (!listed.ok && listed.why === 'unaskable') return { ok: true, issue: null };
-  if (!listed.ok) {
-    const why = deps.tracker.lastRefusal()
-      ?? `the tracker answered ${listed.why} with no reason`;
-    return { ok: false, why: `could not look for an open follow-up issue of PR #${pr}: ${why}` };
-  }
-  const issue = findOpenReviewIssue(listed.value.issues, pr);
-  if (issue === null && !listed.value.complete) {
-    return { ok: false, why: `could not look for an open follow-up issue of PR #${pr}: the read stopped at ${LOOKUP_LIMIT} issues` };
-  }
-  return { ok: true, issue };
-};
-
-/**
- * Reports one reviewed head on the follow-up issue: comments on the recorded
- * issue, else comments on the PR's open follow-up issue, else opens one.
- *
- * The issue file holds `pending` while the tracker is asked, then the issue id.
- * A refusal that starts with {@link ISSUE_MAY_EXIST} keeps `pending`, so no
- * later run opens a second issue; any other refusal removes the file — except
- * a comment on an issue that is known to exist, whether recorded or found by
- * lookup, where the id is still the right issue and removing it would make
- * the next run look up or open another. A comment on such an issue that the
- * tracker does not take (`unaskable`, as Jira answers) or that fails still
- * answers that issue's URL, with `uncommented` naming why.
- *
- * @param deps - the tracker and file operations.
- * @param issueFile - the issue file for this PR and head.
- * @param pr - the PR's number and URL.
- * @param sha - the reviewed head.
- * @param counts - the verdict's counts.
- * @param verdictText - the reviewer's final answer.
- * @param run - this run's marker, shared with the status description.
- * @returns the issue URL, or why no issue was opened.
- */
-const openFollowUp = async (
-  deps: ReviewDeps,
-  issueFile: string,
-  pr: { number: number; url: string },
-  sha: string,
-  counts: ReviewCounts,
-  verdictText: string,
-  run: string,
-): Promise<FollowUp> => {
-  const recorded = deps.readText(issueFile)?.trim() ?? '';
-  if (recorded === 'pending') {
-    return { ok: false, why: `${ISSUE_MAY_EXIST}an earlier run asked the tracker for PR #${pr.number} at ${sha} and recorded no answer; remove ${issueFile} once checked` };
-  }
-  const followUp = followUpIssue(pr.number, sha, pr.url, counts, verdictText, run);
-  let issueId = recorded;
-  let didComment = false;
-  let uncommented: { why: string; failed: boolean } | undefined;
-  if (issueId !== '') {
-    const commented = await deps.tracker.issueComment(issueId, followUp.body);
-    if (commented.ok) {
-      didComment = true;
-    } else {
-      const why = (commented.why === 'unaskable' ? commented.reason : undefined)
-        ?? deps.tracker.lastRefusal()
-        ?? `the tracker answered ${commented.why} with no reason`;
-      uncommented = { why: `could not comment on issue ${issueId}: ${why}`, failed: commented.why !== 'unaskable' };
-    }
-  } else {
-    deps.writeText(issueFile, 'pending');
-    const existing = await openIssueOfPr(deps, pr.number);
-    if (!existing.ok) {
-      deps.removeFile(issueFile);
-      return { ok: false, why: existing.why };
-    }
-    if (existing.issue !== null) {
-      issueId = existing.issue.id;
-      deps.writeText(issueFile, issueId);
-      const commented = await deps.tracker.issueComment(issueId, followUp.body);
-      if (commented.ok) {
-        didComment = true;
-      } else {
-        const why = (commented.why === 'unaskable' ? commented.reason : undefined)
-          ?? deps.tracker.lastRefusal()
-          ?? `the tracker answered ${commented.why} with no reason`;
-        uncommented = { why: `could not comment on issue ${issueId}: ${why}`, failed: commented.why !== 'unaskable' };
-      }
-    } else {
-      const opened = await deps.tracker.issueOpen({ ...followUp, labels: [REVIEW_ISSUE_LABEL] });
-      if (!opened.ok) {
-        const why = (opened.why === 'unaskable' ? opened.reason : undefined)
-          ?? deps.tracker.lastRefusal()
-          ?? `the tracker answered ${opened.why} with no reason`;
-        if (!why.startsWith(ISSUE_MAY_EXIST)) deps.removeFile(issueFile);
-        return { ok: false, why };
-      }
-      issueId = opened.value.id;
-      deps.writeText(issueFile, issueId);
-      didComment = true;
-      if (deps.issueWrites !== undefined) {
-        const { scheme, baseUrl } = deps.tracker.config();
-        await handOffIssueWrite(deps.tracker, deps.issueWrites, {
-          number: issueId,
-          title: followUp.title,
-          url: reviewIssueUrl(scheme, baseUrl, issueId, pr.url) ?? '',
-        });
-      }
-    }
-  }
-  const { scheme, baseUrl } = deps.tracker.config();
-  const url = reviewIssueUrl(scheme, baseUrl, issueId, pr.url);
-  if (url === null) {
-    return { ok: false, why: `issue ${issueId} was opened, but its URL cannot be composed for tracker '${scheme}'` };
-  }
-  return uncommented === undefined
-    ? { ok: true, url, commented: didComment }
-    : { ok: true, url, commented: false, uncommented };
-};
+): string => [
+  `The reviewer found HIGH ${counts.high}, MEDIUM ${counts.medium}, LOW ${counts.low} on ${prUrl} at ${sha}.`,
+  '',
+  verdictText.trim(),
+  '',
+  `run ${run}`,
+].join('\n');
 
 /**
  * The most UTF-8 bytes a PR comment body may hold. GitHub caps a comment at
@@ -413,7 +237,6 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const key = `${pr.number}-${sha}`;
   const reviews = path.join(deps.commonDir, 'plot', 'state', 'reviews');
   const verdictFile = path.join(reviews, `${key}.md`);
-  const issueFile = path.join(reviews, `${key}.issue`);
   const diffFile = path.join(reviews, `${key}.diff`);
   const lines: string[] = [];
 
@@ -482,49 +305,41 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
 
   const findings = counts.high + counts.medium + counts.low;
   const run = deps.now();
-  let followUp: FollowUp | null = null;
-  if (findings !== 0) {
-    try {
-      followUp = await openFollowUp(deps, issueFile, pr, sha, counts, verdictText, run);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      return refuse(`could not write ${issueFile}: ${reason}`);
-    }
-  }
-  const state = counts.high === 0 ? 'success' : 'failure';
-  const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
-  const issueUrl = followUp?.ok === true ? followUp.url : null;
-  if (followUp?.ok === false) {
-    lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
+  const decision = reviewIssue(counts);
+  let posted = true;
+  if (findings !== 0 && decision === 'none') {
     const marker = findingsMarker(pr.number);
-    const body = prCommentBody((v) => `${marker}\n${followUpIssue(pr.number, sha, pr.url, counts, v, run).body}`, verdictText, verdictFile);
-    const posted = await deps.host.prComment(pr.number, body, marker);
-    if (!posted.ok) {
-      const why = posted.why === 'unaskable'
-        ? posted.reason ?? 'this git host cannot take PR comments'
+    const body = prCommentBody(
+      (v) => `${marker}\n${findingsBody(sha, pr.url, counts, v, run)}`,
+      verdictText,
+      verdictFile,
+    );
+    const result = await deps.host.prComment(pr.number, body, marker);
+    if (!result.ok) {
+      posted = false;
+      const why = result.why === 'unaskable'
+        ? result.reason ?? 'this git host cannot take PR comments'
         : deps.host.lastRefusal()?.said ?? 'the host answered failed with no reason';
       lines.push(`plot-review: the findings were not posted on the PR: ${why}; they are only in ${verdictFile}`);
     }
   }
-  const uncommented = followUp?.ok === true ? followUp.uncommented : undefined;
-  if (uncommented !== undefined) lines.push(`plot-review: the verdict was not commented: ${uncommented.why}`);
-  const commented = followUp?.ok === true && followUp.commented;
+  const state = counts.high === 0 ? 'success' : 'failure';
+  const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
   const written = await deps.host.commitStatus({
     sha,
     state,
     context: REVIEW_CONTEXT,
-    description: followUp?.ok === false
-      ? `${description}; follow-up issue not opened`
-      : uncommented !== undefined ? `${description}; verdict not commented`
-      : commented ? `${description}; run ${run}` : description,
-    targetUrl: uncommented?.failed === false ? pr.url : (issueUrl ?? pr.url),
+    description: findings === 0
+      ? description
+      : posted ? `${description}; run ${run}` : `${description}; findings not posted`,
+    targetUrl: pr.url,
   });
   if (!written.ok) {
     return { code: EXIT.refused, lines: [...lines, `plot-review: the host did not accept the status on ${sha}`] };
   }
   const summary = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH`;
-  lines.push(`plot-review: PR #${pr.number} ${sha} ${state}, ${summary}${issueUrl === null ? '' : `, issue ${issueUrl}`}`);
-  return { code: followUp?.ok === false || uncommented?.failed === true ? EXIT.issueNotOpened : EXIT.ok, lines };
+  lines.push(`plot-review: PR #${pr.number} ${sha} ${state}, ${summary}`);
+  return { code: posted ? EXIT.ok : EXIT.issueNotOpened, lines };
 };
 
 /** `git`, run in `cwd`. */
@@ -557,41 +372,6 @@ export const readChange = async (tree: string, base: string, sha: string): Promi
 };
 
 /**
- * The tracker a review opens its follow-up issue through.
- *
- * A declared `Tracker` resolves through `trackerForIssues`, as the board and
- * `plot-verify` resolve theirs. With no `Tracker` declared and a `github` git
- * host, it is `trackerForIssues`'s git-host tracker with `issueOpen` replaced by
- * `githubIssueOpen`, so the follow-up issue opens as a GitHub issue; `plot-verify`
- * keeps the git-host tracker, whose `issueOpen` answers `unaskable`. On any
- * other git host the git-host tracker is returned unchanged. A config or
- * backend read that failed counts as an empty word.
- *
- * @param declared - the `Tracker` config key's read.
- * @param backend - the git host backend's read.
- * @param context - where the scripts and the repository are.
- * @returns the tracker; its `lastRefusal` reports the issue-open refusal where
- *   the last `issueOpen` left one, and the git-host tracker's otherwise.
- */
-export const reviewTracker = (
-  declared: PortResult<string>,
-  backend: PortResult<string>,
-  context: ShellContext,
-): Tracker => {
-  const word = declared.ok ? declared.value.trim() : '';
-  const gitHost = backend.ok ? backend.value : '';
-  const tracker = trackerForIssues(word, gitHost, context);
-  if (word !== '' || gitHost !== 'github') return tracker;
-  let refusal: string | null = null;
-  return {
-    ...tracker,
-    issueOpen: githubIssueOpen(context, (said) => { refusal = said; }),
-    issueComment: githubIssueComment(context, (said) => { refusal = said; }),
-    lastRefusal: () => refusal ?? tracker.lastRefusal(),
-  };
-};
-
-/**
  * Builds the dependencies from the machine this process runs on.
  *
  * @param cwd - a directory inside the repository or one of its linked trees.
@@ -604,17 +384,12 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   if (common.code !== 0 || commonDir === '') return null;
   const repoRoot = path.basename(commonDir) === '.git' ? path.dirname(commonDir) : cwd;
   const context = { repoRoot, scriptDir };
-  const scripts = scriptsShell(context);
   const host = hostShell(context);
-  const declared = await scripts.config('Tracker', '');
-  const backend = await host.backend();
   const branch = await git(cwd, ['branch', '--show-current']);
   const head = await git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
   const boundedRun = boundedRunProcess(processesShell(context));
   return {
     host,
-    tracker: reviewTracker(declared, backend, context),
-    issueWrites: issueWriteSpoolFile({ cwd: repoRoot }),
     trees: treesGit(context),
     agentRun: (command) =>
       agentRunCommand({ boundedRun, fragment: command, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),

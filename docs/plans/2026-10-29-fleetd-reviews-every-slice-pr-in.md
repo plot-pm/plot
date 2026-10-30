@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2917 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/a-review-opens-no-issue`
+- **Started:** 2026-10-30, Jan Wloka, `feature/the-index-records-the-review`
 
 ## Changelog
 
@@ -176,11 +177,11 @@ A second panel round ran on 2026-10-29 (`r2-safety.md`, `r2-seams.md`, both `ame
 
 ### Findings comment
 
-- `feature/a-review-opens-no-issue` — `review.ts` opens no follow-up issue for any severity; every finding goes to the one marked PR comment; `reviewIssue` in `rules/review-issue.ts` answers none for every count; Bitbucket keeps the findings in the verdict file and says so; tests: board unit `review.test.ts` with `host-fixture` (HIGH 1 and MEDIUM 2 open no issue, post one marked comment, write `failure`; a second head edits the same comment; Bitbucket `unaskable` names the verdict file, the exit code and the status description), domain unit `reviewIssue` answers none for every count <!-- builds: reviewIssue answering none for every count, the all-severity findings comment -->
+- `feature/a-review-opens-no-issue` — `review.ts` opens no follow-up issue for any severity; every finding goes to the one marked PR comment; `reviewIssue` in `rules/review-issue.ts` answers none for every count; Bitbucket keeps the findings in the verdict file and says so; tests: board unit `review.test.ts` with `host-fixture` (HIGH 1 and MEDIUM 2 open no issue, post one marked comment, write `failure`; a second head edits the same comment; Bitbucket `unaskable` names the verdict file, the exit code and the status description), domain unit `reviewIssue` answers none for every count <!-- builds: reviewIssue answering none for every count, the all-severity findings comment --> → #2928
 
 ### Indexed review state
 
-- `feature/the-index-records-the-review` — `plotReview`, `plotReviewSha`, `plotReviewAt` and `ciChecks` on `PrIndexRow` under `PR_INDEX_VERSION` 6, written by `pr-refresh.ts` on the GitHub rollup arm; `checks` unchanged; `reviewReaskPrNumbers` and its union with the delta's re-ask; Jenkins and Bitbucket rows carry no review field; tests: domain unit on the fold with the executed rollups as fixtures (CI pass and no review → `absent` and `green`; `pending` with its `startedAt`; `failure` → `ciChecks` `green`; review only → `none`), `checks` unchanged, a v5 file decodes to `null` in v6 code, the Jenkins arm carries no review field; domain unit `reviewReaskPrNumbers`; fleet unit: a delta pass re-asks a green row with an absent review, and `pending` then `success` reach the store within one re-ask <!-- builds: the review state, review SHA, review time and review-free CI colour on PrIndexRow, reviewReaskPrNumbers -->
+- `feature/the-index-records-the-review` — `plotReview`, `plotReviewSha`, `plotReviewAt` and `ciChecks` on `PrIndexRow` under `PR_INDEX_VERSION` 6, written by `pr-refresh.ts` on the GitHub rollup arm; `checks` unchanged; `reviewReaskPrNumbers` and its union with the delta's re-ask; Jenkins and Bitbucket rows carry no review field; tests: domain unit on the fold with the executed rollups as fixtures (CI pass and no review → `absent` and `green`; `pending` with its `startedAt`; `failure` → `ciChecks` `green`; review only → `none`), `checks` unchanged, a v5 file decodes to `null` in v6 code, the Jenkins arm carries no review field; domain unit `reviewReaskPrNumbers`; fleet unit: a delta pass re-asks a green row with an absent review, and `pending` then `success` reach the store within one re-ask <!-- builds: the review state, review SHA, review time and review-free CI colour on PrIndexRow, reviewReaskPrNumbers --> → #2939
 
 ### Sprint scope
 
