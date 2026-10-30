@@ -270,3 +270,63 @@ test('a deleted file still appears in the report though it has no real path of i
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+const runCi = (cwd, ...args) => {
+  const env = { ...process.env };
+  delete env.PLOT_REPO_ROOT;
+  return spawnSync('node', [bundle, '--ci', ...args], { cwd, encoding: 'utf8', timeout: 60_000, env });
+};
+
+test('--ci prints the selection as JSON: every naming test with no limit, the always checks, and the untested paths', () => {
+  const repo = sandbox();
+  try {
+    const res = runCi(repo);
+    assert.equal(res.status, 0, res.stderr);
+    const real = fs.realpathSync(repo);
+    const selection = JSON.parse(res.stdout);
+    assert.deepEqual(selection.suites, ['src', 'test']);
+    assert.deepEqual(selection.tests, ['test/tool.test.mjs', 'test/w1.test.mjs', 'test/w2.test.mjs', 'test/w3.test.mjs']);
+    assert.deepEqual(selection.checks, [
+      {
+        suite: 'test',
+        command: `node --test ${real}/test/tool.test.mjs ${real}/test/w1.test.mjs ${real}/test/w2.test.mjs ${real}/test/w3.test.mjs`,
+        tests: ['test/tool.test.mjs', 'test/w1.test.mjs', 'test/w2.test.mjs', 'test/w3.test.mjs'],
+        always: false,
+      },
+      { suite: 'src', command: 'echo typecheck', tests: [], always: true },
+    ]);
+    assert.equal(selection.corpus, false);
+    assert.deepEqual(selection.untested, ['docs/note.md']);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--ci answers corpus for a changed plan, sprint or .plot/ file read from --files', () => {
+  const repo = sandbox();
+  const list = path.join(repo, '.git', 'changed.txt');
+  try {
+    for (const file of ['docs/plans/2026-10-30-x.md', 'docs/sprints/w44.md', '.plot/briefs/x.md']) {
+      fs.writeFileSync(list, `${file}\n`);
+      const res = runCi(repo, '--files', list);
+      assert.equal(res.status, 0, res.stderr);
+      const selection = JSON.parse(res.stdout);
+      assert.equal(selection.corpus, true, file);
+      assert.ok(selection.suites.includes('corpus'), file);
+      assert.deepEqual(selection.untested, [], file);
+    }
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('--ci with an unknown argument exits 2', () => {
+  const repo = sandbox();
+  try {
+    const res = runCi(repo, '--nope');
+    assert.equal(res.status, 2, res.stdout + res.stderr);
+    assert.match(res.stderr, /usage: plot-local-checks\.mjs \[--ci\] \[--files <path>\]/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
