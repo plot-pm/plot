@@ -3,6 +3,8 @@ import { merge, mergeAt, type MergeReadings, type MergePorts } from '../src/work
 import type { Pr } from '../src/entities/pr.js';
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { PrReviewReading } from '../src/ports/host.js';
+import type { RepairRecord } from '../src/entities/repair-record.js';
+import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -451,5 +453,187 @@ describe('mergeAt — the workflow wired to its ports', () => {
     (p.host as { prReview: unknown }).prReview = async () => ({ ok: false, why: 'failed' });
     expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'review-not-passed' });
     expect(calls).toEqual([]);
+  });
+});
+
+describe('merge — the repair PR on a red default branch', () => {
+  const LAST_GREEN = 'e'.repeat(40);
+  const FIRST_RED = 'f'.repeat(40);
+  const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+  const record = (over: Partial<RepairRecord> = {}): RepairRecord => ({
+    v: 1, branch: 'main', state: 'idle', lastGreenSha: LAST_GREEN, firstRedSha: FIRST_RED,
+    redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'none', preRevertRerun: 'none',
+    repairPr: 42, at: '2026-10-10T00:00:00Z', ...over,
+  });
+  const repair = (over: Partial<RepairMergeReading> = {}): RepairMergeReading => ({
+    record: record(), episode: 'open', redRuns: 'red', ...over,
+  });
+  const onRed = (over: Partial<MergeReadings> = {}) =>
+    readings({ pr: pr({ head: REPAIR_BRANCH }), defaultBranch: reading('red'), repair: repair(), ...over });
+
+  it('admits the PR the record names, pinned to its head, and says so in the detail', () => {
+    const out = merge(onRed(), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome).toBe('decided');
+    if (out.outcome === 'refused') return;
+    expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD }]);
+    expect(out.detail).toEqual({ pr: 42, sha: HEAD, defaultBranchRead: true, repair: 'repair' });
+  });
+
+  it('admits a revert PR the record names on a bug/revert-<pr> branch', () => {
+    const out = merge(onRed({ pr: pr({ head: 'bug/revert-2937' }), repair: repair({ record: record({ repairPr: undefined, revertPr: 42 }) }) }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome === 'decided' && out.detail.repair).toBe('revert');
+  });
+
+  it('refuses default-branch-red for a PR the record does not name, and with no record', () => {
+    expect(refusalOf(onRed({ repair: repair({ record: record({ repairPr: 7 }) }) }))).toBe('default-branch-red');
+    expect(refusalOf(onRed({ repair: repair({ record: null }) }))).toBe('default-branch-red');
+    expect(refusalOf(onRed({ repair: undefined }))).toBe('default-branch-red');
+  });
+
+  it('refuses repair-branch-mismatch for the named PR on another branch', () => {
+    expect(refusalOf(onRed({ pr: pr({ head: 'bug/queue-and-scan-agree-on-a-started-slice' }) }))).toBe('repair-branch-mismatch');
+  });
+
+  it('refuses repair-episode-closed and repair-red-unconfirmed', () => {
+    expect(refusalOf(onRed({ repair: repair({ episode: 'closed' }) }))).toBe('repair-episode-closed');
+    expect(refusalOf(onRed({ repair: repair({ redRuns: 'green' }) }))).toBe('repair-red-unconfirmed');
+  });
+
+  it('keeps every earlier refusal for the named PR', () => {
+    expect(refusalOf(onRed({ pr: pr({ head: REPAIR_BRANCH, checks: 'failing' }) }))).toBe('checks-not-green');
+    expect(refusalOf(onRed({ pr: pr({ head: REPAIR_BRANCH, checksSha: OTHER }) }))).toBe('checks-unbound');
+    expect(refusalOf(onRed({ review: review({ state: 'pending' }) }))).toBe('review-not-passed');
+    expect(refusalOf(onRed({ pr: pr({ head: REPAIR_BRANCH, headSha: OTHER, checksSha: OTHER }) }))).toBe('head-moved');
+    expect(refusalOf(onRed({ caller: 'unattended' }))).toBe('unattended');
+  });
+
+  it('refuses default-branch-stale for the named PR on an old red reading', () => {
+    const late = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS, minHexLen: 7 };
+    const out = merge(onRed(), { pr: 42, sha: HEAD, ...late });
+    expect(out.outcome === 'refused' && out.reason).toBe('default-branch-stale');
+  });
+
+  it('refuses default-branch-unsettled for the named PR when the tip moved past the red reading', () => {
+    expect(refusalOf(onRed({ defaultBranchTip: 'c'.repeat(40) }))).toBe('default-branch-unsettled');
+  });
+});
+
+describe('mergeAt — the repair PR on a red default branch', () => {
+  const NOW = Date.parse('2026-10-11T12:00:00Z');
+  const WAIT = 3_600_000;
+  const LAST_GREEN = 'e'.repeat(40);
+  const FIRST_RED = 'f'.repeat(40);
+  const BUNDLE = 'c'.repeat(40);
+  const REPAIR_BRANCH = `bug/main-repair-${LAST_GREEN.slice(0, 12)}`;
+  const at = new Date(NOW - 60_000).toISOString();
+  /** A bundle commit settled red on top of the first red SHA. */
+  const red: DefaultBranchReading = {
+    v: 1, branch: 'main', headSha: BUNDLE, head: 'red', settled: { sha: BUNDLE, state: 'red' },
+    failingRuns: [], headSince: at, askedAt: at, at,
+  };
+  const record = (over: Partial<RepairRecord> = {}): RepairRecord => ({
+    v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: FIRST_RED,
+    redSince: at, candidates: [], rerun: 'asked', preRevertRerun: 'none', repairPr: 7, at, ...over,
+  });
+  const runs = (conclusion: string) => [{ sha: BUNDLE, status: 'completed', conclusion, url: '', workflow: 'CI' }];
+
+  const ports = (over: { record?: RepairRecord | null | 'fail'; line?: readonly string[] | 'fail'; runs?: ReturnType<typeof runs> | 'fail'; build?: boolean; head?: string } = {}) => {
+    const calls: string[][] = [];
+    const asked: string[] = [];
+    const head = 'a'.repeat(40);
+    const lookup: Pr = {
+      number: 7, repo: '', head: over.head ?? REPAIR_BRANCH, base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '',
+      draft: false, mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '', author: '', headSha: head, checksSha: head,
+    };
+    const stored = over.record === undefined ? record() : over.record;
+    const p = {
+      host: {
+        backend: async () => ({ ok: true, value: 'github' }),
+        prState: async () => ({ ok: true, value: lookup }),
+        prReview: async () => ({ ok: true, value: { sha: head, state: 'success', bypass: false } }),
+      },
+      scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
+      defaultBranch: { read: async () => ({ ok: true, value: red }) },
+      refs: {
+        remoteSha: async () => ({ ok: true, value: { sha: BUNDLE } }),
+        firstParentLine: async (sha: string) => {
+          asked.push(`line ${sha}`);
+          const line = over.line ?? [BUNDLE, FIRST_RED, LAST_GREEN];
+          return line === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: line };
+        },
+      },
+      repair: { read: async () => (stored === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: stored }), write: async () => ({ ok: true, value: undefined }) },
+      ...(over.build === false ? {} : {
+        build: {
+          runsForSha: async (branch: string, sha: string) => {
+            asked.push(`runs ${branch} ${sha}`);
+            const answer = over.runs ?? runs('failure');
+            return answer === 'fail' ? { ok: false, why: 'failed' } : { ok: true, value: answer };
+          },
+        },
+      }),
+      checks: ['CI'],
+      checksWaitMs: WAIT,
+      now: () => NOW,
+      caller: 'person',
+    } as unknown as MergePorts;
+    return { p, calls, asked, head };
+  };
+
+  it('merges the named repair PR after a bundle commit settled red on top of the red SHA', async () => {
+    const { p, calls, asked, head } = ports();
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: true, pr: 7, sha: head });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', head]]);
+    expect(asked).toEqual([`line ${BUNDLE}`, `runs main ${BUNDLE}`]);
+  });
+
+  it('refuses repair-red-unconfirmed when the re-asked red commit reads green, and merges nothing', async () => {
+    const { p, calls, head } = ports({ runs: runs('success') });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-red-unconfirmed' });
+    expect(calls).toEqual([]);
+  });
+
+  it('folds only the declared checks of the red commit', async () => {
+    const { p, head } = ports({ runs: [...runs('success'), { sha: BUNDLE, status: 'completed', conclusion: 'failure', url: '', workflow: 'Release' }] });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-red-unconfirmed' });
+  });
+
+  it('folds every run where no checks are declared', async () => {
+    const { p, head } = ports();
+    delete (p as { checks?: unknown }).checks;
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: true });
+  });
+
+  it('refuses repair-episode-closed when the first red SHA is not on the settled commit’s first-parent line', async () => {
+    const { p, asked, head } = ports({ line: [BUNDLE, LAST_GREEN] });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-episode-closed' });
+    expect(asked).toEqual([`line ${BUNDLE}`]);
+  });
+
+  it('refuses repair-branch-mismatch for a named PR off the repair branch', async () => {
+    const { p, head } = ports({ head: 'bug/queue-and-scan-agree-on-a-started-slice' });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'repair-branch-mismatch' });
+  });
+
+  it('refuses default-branch-red for a PR the record does not name, and walks nothing', async () => {
+    const { p, asked, head } = ports({ record: record({ repairPr: 8 }) });
+    expect(await mergeAt(p, 7, head)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+    expect(asked).toEqual([]);
+  });
+
+  it('refuses default-branch-red where the record read fails or no record exists', async () => {
+    const failed = ports({ record: 'fail' });
+    expect(await mergeAt(failed.p, 7, failed.head)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+    const none = ports({ record: null });
+    expect(await mergeAt(none.p, 7, none.head)).toMatchObject({ merged: false, reason: 'default-branch-red' });
+  });
+
+  it('refuses unaskable where the walk, the re-ask, or the CI connector is missing', async () => {
+    const walk = ports({ line: 'fail' });
+    expect(await mergeAt(walk.p, 7, walk.head)).toMatchObject({ merged: false, reason: 'unaskable' });
+    const reask = ports({ runs: 'fail' });
+    expect(await mergeAt(reask.p, 7, reask.head)).toMatchObject({ merged: false, reason: 'unaskable' });
+    const noBuild = ports({ build: false });
+    expect(await mergeAt(noBuild.p, 7, noBuild.head)).toMatchObject({ merged: false, reason: 'unaskable' });
   });
 });

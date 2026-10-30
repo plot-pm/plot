@@ -16,6 +16,7 @@
 - **Started:** 2026-10-29, Jan Wloka, `feature/a-review-opens-no-issue`
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-index-records-the-review`
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-scope-is-read-from-git`
+- **Started:** 2026-10-30, Jan Wloka, `feature/the-review-run-is-locked`
 
 ## Changelog
 
@@ -190,7 +191,7 @@ A second panel round ran on 2026-10-29 (`r2-safety.md`, `r2-seams.md`, both `ame
 
 ### Review run lock
 
-- `feature/the-review-run-is-locked` — `reviewPr` takes the `<pr>-<sha>` lock before any `removeFile`, writes `pending` with a run id, writes its final status only while its own `pending` is the newest, never replaces a `failure` on the same head, and removes a leftover worktree with no live lock owner; `Host.prReview` carries the newest description and time; `plot-review.mjs --status-only`; tests: board unit (round 1's concurrent probe as a regression test: the second run refuses `review-running` and removes neither file of the first; a superseded run writes no status; no run replaces a `failure`; a lock with a dead pid is moved aside; `--status-only` writes the verdict file's state and starts no agent) <!-- builds: the review run lock, the run id, the newest-pending and failure guards, the status-only run -->
+- `feature/the-review-run-is-locked` — `reviewPr` takes the `<pr>-<sha>` lock before any `removeFile`, writes `pending` with a run id, writes its final status only while its own `pending` is the newest, never replaces a `failure` on the same head, and removes a leftover worktree with no live lock owner; `Host.prReview` carries the newest description and time; `plot-review.mjs --status-only`; tests: board unit (round 1's concurrent probe as a regression test: the second run refuses `review-running` and removes neither file of the first; a superseded run writes no status; no run replaces a `failure`; a lock with a dead pid is moved aside; `--status-only` writes the verdict file's state and starts no agent) <!-- builds: the review run lock, the run id, the newest-pending and failure guards, the status-only run --> → #2955
 
 ### Review start
 

@@ -237,8 +237,8 @@ const PREFIXES: ReadonlySet<string> = new Set(['command', 'builtin', 'exec']);
 /** Whether a word is `flag` or `flag=<value>`. */
 const isFlag = (word: string, flag: string): boolean => word === flag || word.startsWith(`${flag}=`);
 
-/** The merge program a simple command runs with no pin, or `null`. */
-const unpinnedProgram = (words: readonly string[]): MergeProgram | null => {
+/** The merge program a simple command runs, pinned or not, with the words from that program on; `null` where it runs none. */
+const mergeCall = (words: readonly string[]): { readonly program: MergeProgram; readonly words: readonly string[] } | null => {
   if (isReadSegment(words)) return null;
   const all = programWords(words);
   let start = 0;
@@ -250,7 +250,33 @@ const unpinnedProgram = (words: readonly string[]): MergeProgram | null => {
       : program.some((w) => /^plot-host\.sh$/.test(wordBasename(w))) && program.includes('pr-merge')
         ? 'plot-host'
         : null;
-  return merges !== null && !program.some((w) => isFlag(w, PIN_FLAG[merges])) ? merges : null;
+  return merges === null ? null : { program: merges, words: program };
+};
+
+/** The merge program a simple command runs with no pin, or `null`. */
+const unpinnedProgram = (words: readonly string[]): MergeProgram | null => {
+  const call = mergeCall(words);
+  return call !== null && !call.words.some((w) => isFlag(w, PIN_FLAG[call.program])) ? call.program : null;
+};
+
+/** The merge program a simple command runs, pinned or not, or `null`. */
+const anyProgram = (words: readonly string[]): MergeProgram | null => mergeCall(words)?.program ?? null;
+
+/** Each merge program `pick` reads in a command: segment by segment, then through `readShell` where no segment answers. */
+const mergesBy = (command: string, pick: (words: readonly string[]) => MergeProgram | null): MergeProgram[] => {
+  const segments = withoutQuotes(withoutComments(command))
+    .split(/&&|\|\||[;|\n]/)
+    .map((segment) => segment.trim().split(/\s+/).filter((word) => word !== ''))
+    .filter((words) => words.length > 0)
+    .flatMap((words) => {
+      const program = pick(words);
+      return program === null ? [] : [program];
+    });
+  if (segments.length > 0) return segments;
+  return (readShell(command)?.commands ?? []).flatMap((simple) => {
+    const program = pick(simple.words.map((word) => word.value ?? word.raw));
+    return program === null ? [] : [program];
+  });
 };
 
 /**
@@ -267,21 +293,17 @@ const unpinnedProgram = (words: readonly string[]): MergeProgram | null => {
  * @param command - the command line, with any single-quoted heredoc body blanked.
  * @returns each merge program a command runs with no pin, in order; empty when none.
  */
-export const unpinnedMerges = (command: string): MergeProgram[] => {
-  const segments = withoutQuotes(withoutComments(command))
-    .split(/&&|\|\||[;|\n]/)
-    .map((segment) => segment.trim().split(/\s+/).filter((word) => word !== ''))
-    .filter((words) => words.length > 0)
-    .flatMap((words) => {
-      const program = unpinnedProgram(words);
-      return program === null ? [] : [program];
-    });
-  if (segments.length > 0) return segments;
-  return (readShell(command)?.commands ?? []).flatMap((simple) => {
-    const program = unpinnedProgram(simple.words.map((word) => word.value ?? word.raw));
-    return program === null ? [] : [program];
-  });
-};
+export const unpinnedMerges = (command: string): MergeProgram[] => mergesBy(command, unpinnedProgram);
+
+/**
+ * The merges a command runs, pinned or not: `gh pr merge` and the host
+ * helper's `pr-merge`, read exactly as {@link unpinnedMerges} reads them,
+ * with no pin test.
+ *
+ * @param command - the command line.
+ * @returns each merge program a command runs, in order; empty when none.
+ */
+export const mergeCalls = (command: string): MergeProgram[] => mergesBy(command, anyProgram);
 
 /** Quotes a path for a shell, leaving a plain one bare. */
 const shellQuote = (value: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`);

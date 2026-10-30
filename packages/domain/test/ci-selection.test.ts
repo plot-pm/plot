@@ -38,6 +38,7 @@ const selection = (over: Partial<SelectionReadings>): SelectionReadings => ({
   checks: CHECKS,
   tests: [HOST_TEST, QUEUE_TEST, UNRELATED],
   corpus: corpusGlobs('docs/plans/', 'docs/sprints/'),
+  corpusFiles: [],
   ...over,
 });
 
@@ -154,6 +155,16 @@ describe('ciSelection', () => {
       expect(answer.suites, path).toContain(CORPUS_SUITE);
       expect(answer.untested, path).toEqual([]);
     }
+  });
+
+  it('plan data selects no check, though a test names its basename', () => {
+    const fixture: TestFile = { path: 'test/reconcile/panel.test.mjs', text: "write('panel.md')\n" };
+    const answer = ciSelection(
+      selection({ changed: ['.plot/panels/x/panel.md'], tests: [fixture, HOST_TEST] }),
+    );
+    expect(answer.corpus).toBe(true);
+    expect(answer.checks.filter((check) => !check.always)).toEqual([]);
+    expect(answer.tests).toEqual([]);
   });
 
   it('a change outside plan data does not answer corpus', () => {
@@ -275,5 +286,61 @@ describe('the limit counts only the references a check can run', () => {
       limit: 20,
     });
     expect(answer.commands).toEqual(['node --test test/fixtures/data.mjs', 'vitest related --run skills/x.sh']);
+  });
+});
+
+describe('ciSelection over the corpus tier', () => {
+  const SCAN_CORPUS: TestFile = {
+    path: 'packages/domain/corpus/eligible.corpus.test.ts',
+    text: "import { compare } from './compare.js';\nconst scan = 'plot-fleet-scan.sh';\n",
+  };
+  const RULE_CORPUS: TestFile = {
+    path: 'packages/domain/corpus/sprint-score.corpus.test.ts',
+    text: "import { scoreItem } from '../src/rules/sprint-score.js';\n",
+  };
+  const SHARED: TestFile = {
+    path: 'packages/domain/corpus/compare.ts',
+    text: "import { ok } from '../src/port-result.js';\n",
+  };
+  const tier = (changed: string[]) =>
+    ciSelection(selection({ changed, corpusFiles: [SCAN_CORPUS, RULE_CORPUS, SHARED] }));
+
+  it('a script a corpus test names runs that test alone', () => {
+    const answer = tier(['skills/plot/scripts/plot-fleet-scan.sh']);
+    expect(answer.corpus).toBe(false);
+    expect(answer.corpusTests).toEqual(['packages/domain/corpus/eligible.corpus.test.ts']);
+    expect(answer.suites).toContain(CORPUS_SUITE);
+    expect(answer.untested).toEqual([]);
+  });
+
+  it('a rule source a corpus test imports runs that test alone', () => {
+    const answer = tier(['packages/domain/src/rules/sprint-score.ts']);
+    expect(answer.corpus).toBe(false);
+    expect(answer.corpusTests).toEqual(['packages/domain/corpus/sprint-score.corpus.test.ts']);
+  });
+
+  it('a changed corpus test runs itself', () => {
+    const answer = tier(['packages/domain/corpus/sprint-score.corpus.test.ts']);
+    expect(answer.corpus).toBe(false);
+    expect(answer.corpusTests).toEqual(['packages/domain/corpus/sprint-score.corpus.test.ts']);
+  });
+
+  it('a changed shared corpus module runs the whole tier', () => {
+    const answer = tier(['packages/domain/corpus/compare.ts']);
+    expect(answer.corpus).toBe(true);
+    expect(answer.untested).toEqual([]);
+  });
+
+  it('a path a shared corpus module names runs the whole tier', () => {
+    const answer = tier(['packages/domain/src/port-result.ts']);
+    expect(answer.corpus).toBe(true);
+    expect(answer.corpusTests).toEqual([]);
+  });
+
+  it('a path no corpus file names leaves the tier out', () => {
+    const answer = tier(['skills/plot/scripts/plot-reap.sh']);
+    expect(answer.corpus).toBe(false);
+    expect(answer.corpusTests).toEqual([]);
+    expect(answer.suites).not.toContain(CORPUS_SUITE);
   });
 });

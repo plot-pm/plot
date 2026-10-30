@@ -24,6 +24,7 @@ import {
   treeStrandingResetDirs,
 } from '@plot-pm/domain/rules/main-checkout-write';
 import { SPAWN_CONTRACT, spawnContractReading } from '@plot-pm/domain/rules/spawn-contract';
+import { gateInsideTree, gateInsideTreeRefusal, roleDeniesCommand, roleDeniesPath } from '@plot-pm/domain/rules/role-gate';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -705,8 +706,126 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 
 const controllerGate = controllerGateOf({ desk: underDesk, where: gitWhere, backend: hostBackend });
 
-/** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate, mainCheckoutGate, briefPushGate];
+/** What the role-deny gate reads from the world, so a test can replace it. */
+export interface RoleDenyReadings {
+  readonly defaultBranch: (cwd: string) => Promise<string>;
+  readonly currentBranch: (cwd: string, scriptDir: string) => Promise<string>;
+  /** The real path of the running gate bundle. */
+  readonly gatePath: () => string;
+  /** The real path of the working tree `cwd` lies in, `''` where it lies in none. */
+  readonly treeRoot: (cwd: string) => string;
+}
+
+/** The real path of this module's own file — the bundle a role's hook runs. */
+const ownGatePath = (): string => realpathSync(fileURLToPath(import.meta.url));
+
+/** The nearest directory at or above `cwd` that holds a `.git` entry (a checkout or a worktree), as a real path; `''` where none does. */
+const nearestTreeRoot = (cwd: string): string => {
+  let dir = realpathSync(cwd);
+  for (;;) {
+    if (existsSync(join(dir, '.git'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return '';
+    dir = parent;
+  }
+};
+
+/** The repository's default branch, `''` where git does not answer. */
+const gitDefaultBranch = async (cwd: string): Promise<string> => {
+  const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+  const { shellContext } = await import('@plot-pm/domain/adapters');
+  const read = await refsGit(shellContext(cwd)).defaultBranch();
+  return read.ok ? read.value : '';
+};
+
+/**
+ * The `tool_input.file_path` or `tool_input.path` out of the hook JSON —
+ * whichever a Write, Edit or NotebookEdit call names. Unreadable input, a
+ * missing field or a non-string yields `''`, which {@link roleDeniesPath}
+ * never refuses.
+ */
+export const pathOf = (stdin: string): string => {
+  try {
+    const toolInput = (JSON.parse(stdin) as { tool_input?: { file_path?: unknown; path?: unknown } })?.tool_input;
+    const value = [toolInput?.file_path, toolInput?.path].find((candidate) => typeof candidate === 'string');
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * `role-deny`: a non-reviewer role's own gate — refuses a commit-status
+ * write, a review run, a merge, a push to the default branch, a commit
+ * message closing an issue, or a write to a path `rules/role-gate.ts`
+ * protects (`.claude/**`, `scripts/check-*.sh`, `skills/plot/scripts/*-gate.sh`,
+ * `skills/plot/scripts/board/**`, `.github/workflows/**`, and the role-deny
+ * rule and this entry).
+ *
+ * The settings files run this bundle from `$PLOT_ROLE_GATE`, a path the role
+ * start sets to the default branch's copy outside the role's tree, and deny
+ * every call when it names no file. When this bundle's own real path lies
+ * inside the working tree the hook's cwd is in, every call is refused: a gate
+ * the role can rewrite is no gate.
+ *
+ * Only a role whose settings file wires this gate's name ever runs it — it is
+ * not in {@link GATES}, so an unqualified `--all` never applies it to the
+ * master agent or a desk worker. The path half reads `path`, a second stdin
+ * field `run()` parses alongside `command` and passes through for this gate
+ * alone; the five command predicates ignore it, the same way every other
+ * gate here ignores the fields it does not read.
+ */
+export const roleDenyGateOf = (readings: RoleDenyReadings): Gate & { readonly askPath: (path: string) => Promise<string | null> } => ({
+  name: 'role-deny',
+  wants: (command) => command !== '',
+  ask: async (command) => {
+    const cwd = process.cwd();
+    const gatePath = readings.gatePath();
+    if (gateInsideTree(gatePath, readings.treeRoot(cwd))) return gateInsideTreeRefusal(gatePath);
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const [defaultBranch, currentBranch] = await Promise.all([
+      readings.defaultBranch(cwd),
+      readings.currentBranch(cwd, scriptDir),
+    ]);
+    return roleDeniesCommand(command, defaultBranch, currentBranch);
+  },
+  askPath: async (path) => {
+    if (path === '') return null;
+    const gatePath = readings.gatePath();
+    if (gateInsideTree(gatePath, readings.treeRoot(process.cwd()))) return gateInsideTreeRefusal(gatePath);
+    return roleDeniesPath(path);
+  },
+  onError: 'refuse',
+});
+
+const roleDenyGate = roleDenyGateOf({
+  defaultBranch: gitDefaultBranch,
+  currentBranch: gitCurrentBranch,
+  gatePath: ownGatePath,
+  treeRoot: nearestTreeRoot,
+});
+
+/** The gates `--list` and `--all` enumerate — every gate the master agent's or a desk worker's own project hooks may run. */
+export const GATES: readonly Gate[] = [
+  bundleCommitGate,
+  briefNameGate,
+  stateGate,
+  controllerGate,
+  phaseGate,
+  mainCheckoutGate,
+  briefPushGate,
+];
+
+/**
+ * Gates reachable only by naming them explicitly — never through `--list` or
+ * `--all`. `role-deny` lives here, not in {@link GATES}: an unqualified
+ * `--all` is this repository's own project-wide hook registration
+ * (`plot-install-hooks.sh`, `plot-gates.sh`), run by the master agent and a
+ * desk worker, and a pinned `gh pr merge --match-head-commit` that the
+ * controller gate allows there must not be refused a second time by a gate
+ * meant for a non-reviewer role agent's settings file alone.
+ */
+export const NAME_ONLY_GATES: readonly Gate[] = [roleDenyGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;
@@ -727,12 +846,19 @@ export const commandOf = (stdin: string): string => {
 /**
  * Run the named gates (every registered gate when `names` is `'all'`) against
  * one command. Returns the exit code; each refusal goes to `warn`.
+ *
+ * `path` carries `tool_input.file_path`/`tool_input.path` for a Write, Edit or
+ * NotebookEdit call — `''` for a Bash call, which no gate here reads a path
+ * for. A gate exposing `askPath` (today, only `role-deny`) is also asked
+ * against `path` when it is non-empty; every other gate ignores it exactly as
+ * it already ignores fields it does not destructure.
  */
 export const runGates = async (
   gates: readonly Gate[],
   names: readonly string[] | 'all',
   command: string,
   warn: (line: string) => void,
+  path = '',
 ): Promise<number> => {
   const selected =
     names === 'all'
@@ -745,11 +871,20 @@ export const runGates = async (
   let code: number = EXIT.allow;
   for (const gate of selected) {
     try {
-      if (!gate.wants(command)) continue;
-      const refusal = await gate.ask(command);
-      if (refusal !== null) {
-        warn(refusal);
-        code = EXIT.refuse;
+      if (gate.wants(command)) {
+        const refusal = await gate.ask(command);
+        if (refusal !== null) {
+          warn(refusal);
+          code = EXIT.refuse;
+        }
+      }
+      const askPath = (gate as Partial<{ askPath: (path: string) => Promise<string | null> }>).askPath;
+      if (path !== '' && askPath) {
+        const refusal = await askPath(path);
+        if (refusal !== null) {
+          warn(refusal);
+          code = EXIT.refuse;
+        }
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -785,8 +920,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const names = argv.filter((a) => !a.startsWith('--'));
   const all = argv.includes('--all');
   if (!all && names.length === 0) return EXIT.allow;
-  const command = commandOf(await readStdin());
-  return runGates(GATES, all ? 'all' : names, command, (line) => process.stderr.write(`${line}\n`));
+  const stdin = await readStdin();
+  const command = commandOf(stdin);
+  const path = pathOf(stdin);
+  const gates = all ? GATES : [...GATES, ...NAME_ONLY_GATES];
+  return runGates(gates, all ? 'all' : names, command, (line) => process.stderr.write(`${line}\n`), path);
 };
 
 // Only when RUN, never when imported. `pathToFileURL` over the realpath, for

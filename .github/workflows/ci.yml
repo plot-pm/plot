@@ -64,6 +64,157 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── The selection: which jobs and tests this change needs. ─────────────────
+  #
+  # ONE RULE, TWO READERS. `plot-local-checks.mjs --ci` asks `ciSelection`
+  # (`packages/domain/src/rules/local-checks.ts`), the rule an agent's local
+  # run asks, over the `Local checks` key in CLAUDE.md. Every later job reads
+  # this job's outputs and runs only when its output is not `false`.
+  #
+  # THE SELECTION FAILS OPEN. Only an explicit `false` skips a job, so a
+  # failed install, build or selection step, an unreadable answer, or a failed
+  # job here selects every job. A push to `main` and a dispatched run also
+  # select every job: the full run on `main` is the safety net for a selection
+  # miss, and it names the suite that missed.
+  #
+  # A PATH NO CHECK REACHES SELECTS EVERY JOB, unless it is a markdown file
+  # outside `skills/`. A lockfile, a workflow or an unnamed script then runs
+  # the full set, and a changeset or a document runs only the checks below
+  # that run on every change.
+  #
+  # THE JOB MAP, read from the checks the change selects (not the `always`
+  # ones):
+  #   corpus              plan data, or a path a corpus file names
+  #   helper-contracts    the selected `test/reconcile` tests
+  #   board-integration   a `packages/board` or a `packages/domain` check
+  #   domain tests        a `packages/domain` check
+  #   fleet tests         a `packages/fleet` or a `packages/domain` check
+  #   e2e                 any of the four suites above
+  #   macos-shell-contract  a changed `.sh` file or a selected gate test
+  # The board and the fleet import the domain, so a domain change selects both.
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      corpus: ${{ steps.map.outputs.corpus }}
+      corpus_tests: ${{ steps.map.outputs.corpus_tests }}
+      contracts: ${{ steps.map.outputs.contracts }}
+      contracts_tests: ${{ steps.map.outputs.contracts_tests }}
+      board: ${{ steps.map.outputs.board }}
+      domain: ${{ steps.map.outputs.domain }}
+      fleet: ${{ steps.map.outputs.fleet }}
+      e2e: ${{ steps.map.outputs.e2e }}
+      macos: ${{ steps.map.outputs.macos }}
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The pull request's merge commit and both its parents: the change
+          # is the diff from the first parent, the current `main`.
+          fetch-depth: 2
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: ${{ github.event_name == 'pull_request' }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ github.event_name == 'pull_request' }}
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        id: install
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
+        run: pnpm install --frozen-lockfile
+
+      # THE PULL REQUEST'S OWN RULE, NOT main'S BUNDLE: a change to the rule
+      # selects by the rule it changes.
+      - name: Build the board bundles
+        id: build
+        if: ${{ github.event_name == 'pull_request' && steps.install.outcome == 'success' }}
+        continue-on-error: true
+        run: pnpm run build:board
+
+      - name: Ask the rule
+        id: ask
+        if: ${{ github.event_name == 'pull_request' && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          echo "Changed paths: $(wc -l < "$RUNNER_TEMP/changed.txt")"
+          node skills/plot/scripts/board/plot-local-checks.mjs --ci \
+            --corpus 'packages/domain/corpus/**' \
+            --files "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/selection.json"
+          jq . "$RUNNER_TEMP/selection.json"
+
+      - name: Map the selection to jobs
+        id: map
+        env:
+          EVENT: ${{ github.event_name }}
+          ASKED: ${{ steps.ask.outcome }}
+        run: |
+          set -uo pipefail
+          every() {
+            echo "Every job runs: $1"
+            for key in corpus contracts board domain fleet e2e macos; do echo "$key=true"; done >> "$GITHUB_OUTPUT"
+            printf 'corpus_tests=\ncontracts_tests=\n' >> "$GITHUB_OUTPUT"
+            echo "Every job runs: $1" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          [ "$EVENT" = "pull_request" ] || every "a $EVENT run"
+          [ "$ASKED" = "success" ] || every "the selection step ended '$ASKED'"
+          if ! jq -r --rawfile changed "$RUNNER_TEMP/changed.txt" '
+            def under($p): . == $p or startswith($p + "/");
+            ($changed | split("\n") | map(select(. != ""))) as $paths
+            | [.checks[] | select(.always | not) | .suite] as $suites
+            | ([.checks[] | select((.always | not) and .suite == "test/reconcile") | .tests[]] | unique) as $contracts
+            | ([.untested[] | select((endswith(".md") and (startswith("skills/") | not)) | not)]) as $wide
+            | ($wide | length > 0) as $all
+            | any($suites[]; under("packages/domain")) as $domain
+            | ($all or $domain or any($suites[]; under("packages/board"))) as $board
+            | ($all or $domain or any($suites[]; under("packages/fleet"))) as $fleet
+            | ($all or ($contracts | length > 0)) as $contract
+            | {
+                corpus: ($all or .corpus or (.corpusTests | length > 0)),
+                corpus_tests: (if $all or .corpus then "" else (.corpusTests | map(sub("^packages/domain/"; "")) | join(" ")) end),
+                contracts: $contract,
+                contracts_tests: (if $all then "" else ($contracts | join(" ")) end),
+                board: $board,
+                domain: ($all or $domain),
+                fleet: $fleet,
+                e2e: ($all or $contract or $board or $domain or $fleet),
+                macos: ($all or any($paths[]; endswith(".sh")) or any($contracts[]; test("^test/reconcile/[^/]*gate[^/]*[.]test[.]mjs$"))),
+                widened_by: ($wide | join(" "))
+              }
+            | to_entries[] | "\(.key)=\(.value)"
+          ' "$RUNNER_TEMP/selection.json" > "$RUNNER_TEMP/outputs.txt"; then
+            every "the selection could not be read"
+          fi
+          cat "$RUNNER_TEMP/outputs.txt"
+          grep -v '^widened_by=' "$RUNNER_TEMP/outputs.txt" >> "$GITHUB_OUTPUT"
+          { echo '```'; cat "$RUNNER_TEMP/outputs.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   # ── The corpus tier: do the adapters feed the domain the same readings
   #    production reads, against this repository's real estate — and does a
   #    rule answer what its shell duplicate answers? ────────────────────────
@@ -102,6 +253,8 @@ jobs:
   # passing test.
   corpus:
     runs-on: ubuntu-latest
+    needs: select
+    if: ${{ !cancelled() && needs.select.outputs.corpus != 'false' }}
     # Generous against the measured 42 s, and still a bound: a wedged fleet scan
     # becomes a re-runnable failure rather than a job that sits in `in_progress`
     # looking like work — the lesson `validate`'s own ceiling records.
@@ -178,9 +331,22 @@ jobs:
       - name: Build the board bundles
         run: pnpm run build:board
 
+      # THE WHOLE TIER, OR THE CORPUS TESTS THE CHANGE NAMES. `select` names
+      # the files only when no plan data and no shared corpus module changed;
+      # an empty list runs the whole tier.
       - name: Corpus tier — adapters vs production
         timeout-minutes: 10
-        run: pnpm --filter @plot-pm/domain run test:corpus
+        env:
+          CORPUS_TESTS: ${{ needs.select.outputs.corpus_tests }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CORPUS_TESTS" ]; then
+            pnpm --filter @plot-pm/domain run test:corpus
+          else
+            read -r -a files <<< "$CORPUS_TESTS"
+            echo "Selected corpus tests: ${files[*]}"
+            pnpm --filter @plot-pm/domain exec vitest run --config vitest.corpus.config.ts "${files[@]}"
+          fi
 
   # ── Shipped shell under the bash macOS actually ships. ────────────────────
   #
@@ -242,6 +408,8 @@ jobs:
   # resolves through that symlink, and nothing else on `PATH` moves.
   macos-shell-contract:
     runs-on: macos-latest
+    needs: select
+    if: ${{ !cancelled() && needs.select.outputs.macos != 'false' }}
     # Guard first, same reason as every job above: a checkout ahead of it
     # would clone an unpinned ref before anything refused.
     timeout-minutes: 15
@@ -351,10 +519,10 @@ jobs:
             test/reconcile/state-gate.test.mjs \
             test/reconcile/temp-paths-gate.test.mjs
 
-  # ── Helper contract tests: its own job, ahead of `validate`. ──────────────
+  # ── Helper contract tests: its own job, reported through `validate`. ─────
   #
-  # Runs in parallel with `board-integration`; `validate` starts after both
-  # end, through its `needs:` edge.
+  # Runs in parallel with `board-integration` and `checks`; `validate` reads
+  # its result through its `needs:` edge.
   #
   # SPLIT OUT 2026-10-20 (#2121). Measured over the 30 most recent `validate`
   # runs on `main` and on PRs: this step alone carried a median of 462.5 s and
@@ -370,6 +538,8 @@ jobs:
   # would clone an unpinned ref before anything refused.
   helper-contracts:
     runs-on: ubuntu-latest
+    needs: select
+    if: ${{ !cancelled() && needs.select.outputs.contracts != 'false' }}
     # THE JOB CAP EXCEEDS THE STEP CAP, so a wedged test step ends `failure`
     # and reaches the diagnostic step below rather than ending `cancelled` at
     # the same instant the job cap fires. Equal caps hid that step entirely:
@@ -492,9 +662,25 @@ jobs:
       #
       # SPLIT OUT OF `validate` 2026-10-20 (#2121): see the comment on the
       # `helper-contracts` job above for the measurement that drove the split.
+      #
+      # THE SELECTED FILES, OR THE WHOLE SUITE. `select` names the
+      # `test/reconcile` files that name a changed path; an empty list (a push
+      # to `main`, a dispatch, or a widened selection) runs `test:contracts`
+      # whole. Both run under `owned-run.sh` and `bounded.sh` with the same
+      # bounds as `test:contracts`.
       - name: Helper contract tests
         timeout-minutes: 16
-        run: pnpm run test:contracts
+        env:
+          CONTRACTS_TESTS: ${{ needs.select.outputs.contracts_tests }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CONTRACTS_TESTS" ]; then
+            pnpm run test:contracts
+          else
+            read -r -a files <<< "$CONTRACTS_TESTS"
+            echo "Selected ${#files[@]} contract test files"
+            ./scripts/owned-run.sh ./scripts/bounded.sh 1500 node --test --test-reporter=tap --test-timeout=300000 "${files[@]}"
+          fi
       - name: What was still running (only when the suite wedged)
         if: failure()
         run: |
@@ -507,15 +693,17 @@ jobs:
           echo "=== fixture directories ==="
           ls -dt "${TMPDIR:-/tmp}"/plot-* 2>/dev/null | head -20 || true
 
-  # ── Board integration tests: its own job, ahead of `validate`. ────────────
+  # ── Board integration tests: its own job, reported through `validate`. ───
   #
-  # Runs in parallel with `helper-contracts`; `validate` starts after both
-  # end, through its `needs:` edge.
+  # Runs in parallel with `helper-contracts` and `checks`; `validate` reads
+  # its result through its `needs:` edge.
   #
   # SPLIT OUT 2026-10-20 (#2121), same measurement as `helper-contracts` above:
   # median 542.5 s, p95 600 s, max 606 s over the last 30 `validate` runs.
   board-integration:
     runs-on: ubuntu-latest
+    needs: select
+    if: ${{ !cancelled() && needs.select.outputs.board != 'false' }}
     # The longest legitimate run was measured at 606 s (10.1 min). Raised from
     # 15 to 20 on 2026-10-23 (#2392) for the install steps' step bounds below:
     # setup (checkout, pnpm install, board build, cache restore) ~45s, system
@@ -747,42 +935,22 @@ jobs:
         timeout-minutes: 15
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run
 
-  validate:
+  # ── validate's own suites: the skill and gate checks, the typechecks, and
+  #    the domain, board, fleet and e2e suites the selection names. ─────────
+  #
+  # ITS OWN JOB SINCE 2026-10-30, so these suites start beside
+  # `helper-contracts` and `board-integration` rather than after them. Measured
+  # 2026-10-30: a green run took 17 to 20 minutes, because `validate` waited
+  # 13 to 14 minutes on the two split jobs and then ran these steps for about
+  # 6 minutes. `validate` below is now only the aggregate.
+  #
+  # THE CHECKS THAT RUN ON EVERY CHANGE stay ungated: the skill parse, the
+  # grep gates, the `scripts/check-*.sh` gates, the gate tests and the three
+  # typechecks. The suite steps (e2e, the domain tests, the board tests and
+  # the fleet tests) run when `select` names them.
+  checks:
     runs-on: ubuntu-latest
-    # `helper-contracts` and `board-integration` gate a merge through this job,
-    # because the branch ruleset (measured 2026-10-20, ruleset 24412719) names
-    # `validate` and `plot/review` as its only required contexts. A split job
-    # is not a required check by itself.
-    #
-    # `needs:` ALONE DOES NOT FAIL THIS JOB. When a needed job fails, GitHub
-    # SKIPS the dependent job, and the ruleset accepts a `skipped` required
-    # check. So `validate` runs whenever the run was not cancelled
-    # (`if: !cancelled()`), and its last step exits 1 unless both split jobs
-    # ended `success`. A red split job then makes `validate` read `failure`,
-    # and a cancelled run still reads `cancelled` — measured below.
-    #
-    # The edge orders the jobs: the two split jobs run in parallel with each
-    # other, and `validate` starts after both end. The alternative, named in
-    # the plan's Open Questions, is a ruleset change that adds both job names
-    # as their own required contexts; that is a settings change a person
-    # makes, reported rather than made here.
-    #
-    # THE CANCELLED-RUN CLAIM, MEASURED: run 40099050055 (`workflow_dispatch`
-    # on `changeset-release/main`, created 2026-10-24T13:39:05Z) was
-    # cancelled, superseded by a later dispatch in the same concurrency
-    # group. `gh api repos/plot-pm/plot/actions/runs/40099050055/jobs -q
-    # '.jobs[] | select(.name=="validate")'` reads `status completed,
-    # conclusion cancelled` for `validate` itself — not `failure`, though its
-    # `needs: [helper-contracts, board-integration]` and `if: !cancelled()`
-    # were already in place. A cancellation ends the run before any job's
-    # `if:` is evaluated, so `!cancelled()` never gets a chance to turn it
-    # into something else; the condition exists for the ordinary case, a red
-    # split job, not for this one. Recorded here rather than added as a
-    # self-cancelling workflow-dispatch job (open question (b)): that job
-    # would need its own `timeout-minutes` and dispatch guard to measure a
-    # fact that does not change per-commit, paying a CI job for no
-    # corresponding gate.
-    needs: [helper-contracts, board-integration]
+    needs: select
     if: ${{ !cancelled() }}
     # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
     # limit anyone waits for — a wedged step simply never returns, and the run
@@ -801,14 +969,14 @@ jobs:
     # 25 so a hang still turns into a FAILURE rather than a 360-minute silence,
     # and a failure can be re-run while a hang has to be noticed first.
     #
-    # THE RUN'S WALL TIME is the slower split job plus `validate`, not the
-    # slower of the three: at the step p95s, max(547.6 s, 600 s) + 376.65 s
-    # = 976.65 s (16.3 min), plus each job's checkout, install and build. Each
-    # job's `timeout-minutes` counts only its own steps, never the wait on
+    # THE RUN'S WALL TIME is `select` plus the slowest of the three parallel
+    # jobs, not the slower split job plus these steps: these steps no longer
+    # wait on `needs: [helper-contracts, board-integration]`. Each job's
+    # `timeout-minutes` counts only its own steps, never the wait on
     # `needs:`, so each job stays under its own cap: `helper-contracts` 18 min
     # (16 min test step cap, measured 10-12 min on 2026-10-26, plus the margin above),
     # `board-integration` 22 min (p95 10.0 min test step, plus its own
-    # margin), `validate` 25 min (p95 6.3 min).
+    # margin), `checks` 25 min (p95 6.3 min).
     timeout-minutes: 25
     steps:
       # The dispatch guard, ahead of any checkout for the reason the `corpus`
@@ -883,6 +1051,15 @@ jobs:
       - name: Build the board bundles
         run: pnpm run build:board
 
+      # THE GATE TESTS RUN ON EVERY CHANGE. They are an `always` entry of
+      # `Local checks` (`** = node --test test/reconcile/*gate*.test.mjs`),
+      # and `helper-contracts` now runs only the contract tests a change
+      # names, so this step keeps them on every pull request. They read the
+      # generated bundles, so they run after the build above.
+      - name: Gate tests
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh node --test --test-reporter=tap --test-timeout=300000 test/reconcile/*gate*.test.mjs
+
       # BOUNDED like the helper contract suite now split into its own
       # `helper-contracts` job: that step carries `timeout-minutes: 16`
       # because it once wedged until the job ceiling at 25 and reported
@@ -891,6 +1068,7 @@ jobs:
       # CI's gate rather than a local one, a hang here is the only place the
       # failure can surface.
       - name: E2E choreography tests
+        if: ${{ needs.select.outputs.e2e != 'false' }}
         timeout-minutes: 15
         run: pnpm run test:e2e
 
@@ -1849,6 +2027,7 @@ jobs:
       # guarantees every line is reachable from a plain function call, so an
       # uncovered line is a line nobody specified.
       - name: Domain tests + coverage gate
+        if: ${{ needs.select.outputs.domain != 'false' }}
         timeout-minutes: 10
         run: pnpm --filter @plot-pm/domain exec vitest run --coverage
 
@@ -1880,6 +2059,7 @@ jobs:
       # holding an orphaned server). A step that spawns can hang; a grep cannot,
       # which is why the gates below carry no bound and this does.
       - name: Board tests
+        if: ${{ needs.select.outputs.board != 'false' }}
         timeout-minutes: 10
         # Through `owned-run.sh`, like a local `test:board`: a private TMPDIR and
         # HOME, and a leftover entry fails the step.
@@ -1893,6 +2073,7 @@ jobs:
       # Runs after the board build: `worker-loop-bundle.test.mjs` reads the
       # shipped bundles and `packages/fleet/dist/`, which that build writes.
       - name: Fleet bundle tests
+        if: ${{ needs.select.outputs.fleet != 'false' }}
         timeout-minutes: 10
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec node --test test/*.test.mjs
 
@@ -1902,6 +2083,7 @@ jobs:
       # line there is a line nobody specified. `packages/fleet/vitest.config.ts`
       # scopes the threshold to those two files.
       - name: Fleet unit tests + loop coverage gate
+        if: ${{ needs.select.outputs.fleet != 'false' }}
         timeout-minutes: 10
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec vitest run --coverage
 
@@ -1949,39 +2131,82 @@ jobs:
 
           echo "All changeset bumps references are valid."
 
-      # LAST STEP: the split jobs' results. Moved here (2026-10-24) so every
-      # other `validate` gate reports before a failing split job ends the
-      # run — first meant every later `validate` step was skipped once a
-      # split job failed, even though those steps check things unrelated to
-      # `helper-contracts` or `board-integration`, and the skip hid every one
-      # of them from that run's output.
-      #
-      # `if: !cancelled()` ON THE STEP, NOT ONLY THE JOB. `validate`'s own
-      # `if: !cancelled()` governs whether the JOB starts; a step after a
-      # FAILED step is skipped by default regardless of the job condition,
-      # so without a condition here this step would stop running the moment
-      # any earlier `validate` step failed — the naive cut-and-paste that
-      # looks right on a green run and silently stops requiring the split
-      # jobs on every other kind of failure. With the condition, a red split
-      # job and an unrelated red `validate` step both still reach this step
-      # and both still name the split-job result.
-      - name: Require the split jobs
+  # ── The required check: every job the selection named ended `success`. ──
+  #
+  # THE BRANCH RULESET REQUIRES `validate` AND `plot/review` (measured
+  # 2026-10-20, ruleset 24412719). A split job is not a required check by
+  # itself, so this job reports `checks`, `helper-contracts` and
+  # `board-integration` under the one required name. `corpus` and
+  # `macos-shell-contract` report on their own and are not required, as before.
+  #
+  # `needs:` ALONE DOES NOT FAIL THIS JOB. When a needed job fails, GitHub
+  # SKIPS the dependent job, and the ruleset accepts a `skipped` required
+  # check. So `validate` runs whenever the run was not cancelled
+  # (`if: !cancelled()`), and its step exits 1 unless each needed job ended
+  # `success`, or ended `skipped` while `select` named it `false`. A job the
+  # selection did not name is skipped, and that skip passes; a job skipped
+  # for any other reason fails. A cancelled run still reads `cancelled`:
+  # run 40099050055 (`workflow_dispatch`, 2026-10-24) shows `validate`
+  # `cancelled` with `if: !cancelled()` in place, because a cancellation ends
+  # the run before any job's `if:` is evaluated.
+  validate:
+    runs-on: ubuntu-latest
+    needs: [select, checks, helper-contracts, board-integration]
+    if: ${{ !cancelled() }}
+    timeout-minutes: 5
+    steps:
+      # The dispatch guard, so a dispatched run on another ref or head fails
+      # here by name too. This job checks nothing out.
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      # `if: !cancelled()` ON THE STEP, NOT ONLY THE JOB: a step after a
+      # failed step is skipped by default, so without it a failed guard would
+      # skip this step, and the job would still read `failure` from the guard.
+      # The condition keeps the job results in the log in that case too.
+      - name: Require the selected jobs
         if: ${{ !cancelled() }}
         env:
+          CHECKS: ${{ needs.checks.result }}
           HELPER_CONTRACTS: ${{ needs.helper-contracts.result }}
+          HELPER_CONTRACTS_SELECTED: ${{ needs.select.outputs.contracts }}
           BOARD_INTEGRATION: ${{ needs.board-integration.result }}
+          BOARD_INTEGRATION_SELECTED: ${{ needs.select.outputs.board }}
         run: |
           set -euo pipefail
           failed=0
-          if [ "$HELPER_CONTRACTS" != "success" ]; then
-            echo "::error::helper-contracts ended '$HELPER_CONTRACTS', not 'success'"
-            failed=1
-          fi
-          if [ "$BOARD_INTEGRATION" != "success" ]; then
-            echo "::error::board-integration ended '$BOARD_INTEGRATION', not 'success'"
-            failed=1
-          fi
+          # require <job> <result> <selected>: success passes; skipped passes
+          # only when the selection named the job `false`.
+          require() {
+            if [ "$2" = "success" ]; then
+              echo "$1 ended success"
+            elif [ "$2" = "skipped" ] && [ "$3" = "false" ]; then
+              echo "$1 was not selected and was skipped"
+            else
+              echo "::error::$1 ended '$2', not 'success' (selected: '${3:-unset}')"
+              failed=1
+            fi
+          }
+          require checks "$CHECKS" true
+          require helper-contracts "$HELPER_CONTRACTS" "$HELPER_CONTRACTS_SELECTED"
+          require board-integration "$BOARD_INTEGRATION" "$BOARD_INTEGRATION_SELECTED"
           if [ "$failed" -ne 0 ]; then
             exit 1
           fi
-          echo "helper-contracts and board-integration both ended success"

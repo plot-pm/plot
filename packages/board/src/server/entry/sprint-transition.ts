@@ -1,9 +1,7 @@
 import {
   SprintStateSchema,
-  sprintGoal,
-  type MoscowTier,
-  type Sprint,
-  type SprintItem,
+  itemsFrom,
+  sprintFrom,
 } from '@plot-pm/domain/entities/sprint';
 import {
   isRefusal,
@@ -13,6 +11,9 @@ import {
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
+
+/** Re-exported for this module's existing importers; both now live in the domain beside `sprintMembers`. */
+export { itemsFrom, sprintFrom };
 
 /**
  * The `node` entry point `plot-sprint-state.sh` runs, once per transition.
@@ -48,136 +49,6 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * sprint"* would throw away the half a person acts on. The rule that fired goes
  * out beside it, so the shell can branch without matching prose.
  */
-
-/** The MoSCoW heading a member line sits under → the tier it carries. */
-const TIER_HEADINGS: ReadonlyArray<readonly [RegExp, MoscowTier]> = [
-  [/^### Must Have\b/, 'must'],
-  [/^### Should Have\b/, 'should'],
-  [/^### Could Have\b/, 'could'],
-  [/^### Deferred\b/, 'deferred'],
-];
-
-/**
- * A member line: `- [ ] …` or `- [x] …`, with or without a `[slug]` reference.
- *
- * **THE CHECKBOX MAKES THE ITEM AND THE LINK IS OPTIONAL METADATA** — the rule
- * `plot-sprint-release.sh:234` has always applied, and `skills/plot-sprint/
- * SKILL.md:240` documents the bare form. The second bracket was mandatory until
- * 2026-09-25, so `- [ ] rename the deploy step` did not match at all: `itemsFrom`
- * skipped it, the sprint reached `setSprintState` with no items, and
- * `commitment-empty` refused a sprint whose Must Haves the release gate counted
- * as two open items. One file, two readers, opposite answers.
- *
- * **A REFERENCE IS A PLAN SLUG, AND IT MAY BE STRUCK THROUGH.** The group is
- * `(?:~~)?\[([a-z0-9][a-z0-9-]*)\]`, which is `plot-sprint-release.sh:249`'s
- * own rule ported rather than a fourth reading of the format. It replaced
- * `\[([^\]]+)\]` on 2026-09-29: that bracket was any text, so `~~[slug]~~` read
- * as no reference here while the shell resolved the slug, and the board counted
- * W40's withdrawn Should as `open` where the release gate counted it
- * `withdrawn`. One file, opposite answers again.
- *
- * Only the OPENING `~~` is required, matching the shell: the estate writes both
- * `~~[slug]~~` and `~~[slug](../plans/x.md)~~`, and anchoring on the closing
- * `~~` would read the second as unstruck.
- *
- * **A NON-SLUG BRACKET IS TEXT, NOT A REFERENCE.** `- [ ] [#966](…) …` names an
- * issue and no plan, so it reads as an item with no reference — the same answer
- * the shell has always given it. The narrowing drops no line from either
- * reader: measured 2026-09-29 across all 16 sprint files, every leading bracket
- * on an item line is slug-shaped or struck.
- */
-const MEMBER_LINE = /^- \[( |x)\] (?:(?:~~)?\[([a-z0-9][a-z0-9-]*)\]\s*)?(.*)$/;
-
-/**
- * A `## Status` field: `- **Name:** value`.
- *
- * @param body - the `## Status` block.
- * @param name - the field's name, as the file spells it.
- * @returns the trimmed value, or `''` where the block names no such field.
- */
-const field = (body: string, name: string): string =>
-  body.match(new RegExp(`^- \\*\\*${name}:\\*\\* (.+)$`, 'm'))?.[1].trim() ?? '';
-
-/**
- * Read a sprint file's MoSCoW items.
- *
- * **The tier is the heading the line sits under**, so a checkbox in the goal or
- * the notes is not an item. Deduped by slug with the first occurrence winning:
- * the sections run Must → Should → Could → Deferred, so a plan listed twice
- * keeps its strongest tier — the same rule `parseSprintMembers` applies, and
- * `commitment-empty` is decided from the answer.
- *
- * **A BARE ITEM IS NEVER DEDUPED AGAINST ANOTHER.** Dedup exists because a plan
- * sliced across slices lists its slug once per slice and the sprint contains it
- * once; a line naming no plan makes no such claim. Keying those on the captured
- * plan would key them all on `''` — measured by the panel, three lines with two
- * bare keep 2 of 3, and eight bare Musts keep 1 of 8, so the bracket alone
- * improves the number without fixing it. The key is the slug where there is one
- * and the line's own position otherwise. **Never the item text**: two identical
- * bare lines are two items, and keying on text reproduces this defect in
- * miniature.
- *
- * @param content - the whole sprint file.
- * @returns its items, in file order.
- */
-export const itemsFrom = (content: string): SprintItem[] => {
-  const items: SprintItem[] = [];
-  const seen = new Set<string>();
-  let tier: MoscowTier | null = null;
-  let index = 0;
-  for (const line of content.split('\n')) {
-    index += 1;
-    if (line.startsWith('### ') || line.startsWith('## ')) {
-      tier = TIER_HEADINGS.find(([re]) => re.test(line))?.[1] ?? null;
-      continue;
-    }
-    if (!tier) continue;
-    const m = line.match(MEMBER_LINE);
-    if (!m) continue;
-    const plan = (m[2] ?? '').trim();
-    // `line:` cannot collide with a slug: a slug carries no colon, and the
-    // prefix is what keeps the two key spaces apart rather than a bare number.
-    const key = plan === '' ? `line:${index}` : plan;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    items.push({ tier, checked: m[1] === 'x', plan, text: m[3].trim() });
-  }
-  return items;
-};
-
-/**
- * Parse a sprint file into the entity the rule judges.
- *
- * **THE STATE IS CARRIED THROUGH UNPARSED, and that is the point.** A file
- * saying `Planned` produces a `Sprint` whose `state` is that word, so
- * `setSprintState` is the thing that recognises it — narrowing here would
- * refuse in this file's words and leave `state-unrecognised` as dead as it was.
- * The cast is what lets the file be wrong: `entities/sprint.ts:58` — the state
- * is *"stated in the file, so it can be wrong"*.
- *
- * @param content - the whole sprint file.
- * @param slug - the sprint's identity, cut from its filename by the caller.
- * @returns the sprint, exactly as the file states it.
- */
-export const sprintFrom = (content: string, slug: string): Sprint => {
-  const statusBody = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
-  // `State:` is the field a sprint file carries; `Phase:` is what it was called
-  // before 2026-09-07. Both are read, for the reason `parseSprintContent`
-  // gives: a file may have been written a year ago or copied from elsewhere.
-  const stated = field(statusBody, 'State') || field(statusBody, 'Phase');
-  const actualEnd = field(statusBody, 'Actual End');
-  return {
-    slug,
-    title: content.match(/^# Sprint: (.+)$/m)?.[1].trim() ?? slug,
-    state: stated as Sprint['state'],
-    start: field(statusBody, 'Start'),
-    plannedEnd: field(statusBody, 'End'),
-    actualEnd: actualEnd === '' ? null : actualEnd,
-    release: field(statusBody, 'Release'),
-    goal: sprintGoal(content),
-    items: itemsFrom(content),
-  };
-};
 
 /** What a transition asks of its caller. */
 export interface Request {
