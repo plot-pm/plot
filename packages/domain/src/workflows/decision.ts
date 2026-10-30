@@ -71,6 +71,7 @@ export type Write =
   | AgentFindingWrite
   | BuildFindingWrite
   | NotifyWrite
+  | IdleNotifyWrite
   | ClaimReleaseWrite;
 
 /** Sets a plan's `**State:**` field, inside its `## Status` section only. */
@@ -659,6 +660,36 @@ export interface NotifyWrite {
   readonly askedAt: string;
   /** The rung reached. */
   readonly rung: `notified-${number}`;
+  /** The message to send. */
+  readonly message: string;
+}
+
+/**
+ * Sends one notification that a slice has gone idle, and records the episode
+ * it was for.
+ *
+ * **A NEW, DISTINCT WRITE KIND — NOT A REUSE OF {@link NotifyWrite}.** That
+ * kind's `rung`/`askedAt` fields are shaped for a desk's `PLOT-BLOCKED`
+ * marker; a slice PR has neither. This kind's key is the slice's branch and
+ * the clock start its idle episode began at ({@link sliceIdle} in
+ * `rules/slice-idle.ts`), so a fresh `moved` line starts a fresh episode with
+ * no second ledger.
+ *
+ * **APPLIED IN `registryd-main.ts`, BESIDE `notifyEscalations`**, for the same
+ * reason `NotifyWrite` is: it reaches the `Notifier` port and appends a
+ * `notified` run-log line, both TypeScript-native, so no shell performer owns
+ * it.
+ *
+ * **DELIVERY IS AT LEAST ONCE.** A crash between the send and the run-log
+ * append sends the same message again after the daemon restarts — a stated,
+ * accepted trade, not a bug to engineer around with idempotency tokens.
+ */
+export interface IdleNotifyWrite {
+  readonly kind: 'idle-notify';
+  /** The slice's branch — half the episode key. */
+  readonly branch: string;
+  /** The idle episode's clock start, ISO-8601 — the other half of the episode key. */
+  readonly clockStart: string;
   /** The message to send. */
   readonly message: string;
 }
