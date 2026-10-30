@@ -39,6 +39,7 @@ and changes nothing.
 | 1. Probe | Small | One script call, JSON out |
 | 2. Propose and confirm | Mid | Turning signals into a proposal is judgment. The thresholds and the default-branch comparison are `proposeStack`'s, and reading its answers is transcription |
 | 3. Write config and skeleton | Small | Two script calls: `plot-write-config.sh` owns the config section and the `.gitignore` line, `plot-install-prompt.sh` owns the worker prompt. Composing the answers file from step 2 is transcription; every decision inside the write is `composeAdoption`'s |
+| 3b. Provide role files | Small | One script call: `plot-adopt.mjs roles` writes the absent role definitions and reports a differing copy `stale`. Every decision is `composeRoleFiles`'s; no question is asked |
 | 4. Offer extensions | Mid | Deciding what the repo actually needs |
 | 5. Verify and summarise | Small | Read back what landed |
 
@@ -615,6 +616,22 @@ the project's, and a rewritten one is not out of date.
 > answer, so it happens. An existing file is reported and not touched.
 > `PLOT-UNASKED: Update the existing .plot/worker-prompt.sh from the template? — refused — the wording is the project's to keep; reported as <stale|present> and the file is untouched`
 
+**Provide the role definitions, whether or not the config write refused.** The
+fleet starts a reviewer, fixer, unblocker and main-repair from
+`.claude/agents/<role>.md`, so an adopted repository needs those files. Run:
+
+```bash
+node ../plot/scripts/board/plot-adopt.mjs roles
+```
+
+The command writes each shipped file the repository lacks, keeps an identical
+one, and reports a differing one as `stale` in the printed JSON without touching
+it. A second run writes nothing. It asks no question, and an `already-adopted`
+refusal does not stop it — the two questions are independent. Report each
+`stale` path and each entry in `gaps`; `--dry-run` prints the decision and writes
+nothing. `composeRoleFiles` (`packages/domain/src/rules/adoption-roles.ts`)
+decides, and derives the file names from the declared roles.
+
 Sprints and stories are **not** created by default. They are optional lenses;
 create them when asked.
 
@@ -906,4 +923,5 @@ prerequisite is a fact a reader can act on; silence is not.
 | Writing the `## Plot Config` block by hand | No rule can refuse an already-adopted repository, and nothing records which keys the repo was meant to get — the defect this step's own history is | `plot-write-config.sh --answers <file>`; the block is `composeAdoption`'s |
 | Appending a second `## Plot Config` beside an existing one | Every key has two answers and `plot-config.sh` reads the first, so half the config is silently the old one | The command refuses `already-adopted`; edit the section that is there |
 | Filling in a Definition of Done to get past the refusal unattended | A repository is adopted with gates nobody chose, and the wrong ones gate every later merge | An empty `definitionOfDone` refuses and prints `PLOT-UNASKED`; that is the answer |
+| Copying a role definition into the repository by hand, or overwriting a `stale` one | A customised role gate is replaced silently, or a copy drifts from the shipped one with nothing to flag it | `plot-adopt.mjs roles`; a `stale` file is reported and a person decides |
 | Reading the command's exit code and not its output | A write that landed with two open gaps reports as a clean adoption | The JSON carries `gaps`; report each one |
