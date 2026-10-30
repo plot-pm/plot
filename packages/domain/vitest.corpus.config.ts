@@ -33,6 +33,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['corpus/**/*.corpus.test.ts'],
+    // NO HOST TOKEN, LOCALLY OR IN CI. CI's corpus job has none, so a local
+    // run removes the operator's token before each file and reads the host
+    // the way CI reads it (`corpus/no-host-token.ts`).
+    setupFiles: ['corpus/no-host-token.ts'],
     // The scan is ~21 s and this tier runs it twice; the default would clip a
     // correct adapter.
     testTimeout: 600_000,

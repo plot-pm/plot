@@ -8,6 +8,8 @@ Run it with `pnpm --filter @plot-pm/domain run test:corpus`. It is not part of
 the default suite and is not meant to be: it spawns `plot-fleet-scan.sh` twice
 and `plot-plan-meta.sh` over every plan, and it runs as its own CI job.
 
+**It runs with no host token, locally and in CI.** `no-host-token.ts` removes `GH_TOKEN`, `GITHUB_TOKEN`, the two enterprise token variables, `PLOT_PR_LISTING` and `PLOT_TERMINAL_CACHE`, and points `GH_CONFIG_DIR` at an empty directory before each file. CI's job has no token, so a local run now reads the host as `unasked`, as CI does. `host-environment.corpus.test.ts` fails when the setup does not reach a spawned `plot-host.sh`.
+
 ## Two pairs, one shape
 
 **Readings for an adapter; verdicts for a duplicated rule.** The pair decides
