@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2910 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-repair-record`
+- **Started:** 2026-10-30, Jan Wloka, `feature/merge-admits-the-repair-pr`
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
