@@ -17,6 +17,7 @@ import {
   foldRuns,
   unmatchedChecks,
 } from '@plot-pm/domain/rules/default-branch';
+import { keepsRepairRecord } from '@plot-pm/domain/rules/repair-pr';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
@@ -147,13 +148,19 @@ const settleBehindHead = async (
  * range). Adding one is out of this slice's scope. With no previous reading
  * the record also has no `lastGreenSha`, and `warn` is told so.
  *
+ * Reads the record on disk first and keeps it where it already holds this
+ * episode ({@link keepsRepairRecord}), so a `repairPr` that a person recorded
+ * through `plot-ask.mjs repair-pr` survives a second change to red on the same
+ * commit. A failed read writes nothing, for the same reason.
+ *
  * @param world - the reads and the repair record's file.
  * @param branch - the default branch's name.
  * @param settled - the new, red settled reading.
  * @param carried - the settled reading held before this refresh, if any.
  * @param stamp - this refresh's timestamp, ISO-8601.
  * @param warn - receives a one-line reason where the episode opens with no
- *   last green SHA, or where its candidates are not yet collected.
+ *   last green SHA, where its candidates are not yet collected, or where the
+ *   record on disk could not be read.
  */
 const writeRepairRecord = async (
   world: DefaultBranchWorld,
@@ -163,6 +170,12 @@ const writeRepairRecord = async (
   stamp: string,
   warn: (line: string) => void,
 ): Promise<void> => {
+  const existing = await world.repair.read();
+  if (!existing.ok) {
+    warn(`plot-fleetd: repair record for ${settled.sha} left unwritten — the record on disk could not be read`);
+    return;
+  }
+  if (keepsRepairRecord(existing.value, branch, settled.sha)) return;
   if (carried === undefined) {
     warn(`plot-fleetd: repair record opened for ${settled.sha} with no last green SHA to pick candidates from`);
   } else {

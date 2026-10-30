@@ -503,6 +503,68 @@ describe('refreshDefaultBranch — the repair record', () => {
     expect(r.repair()).toEqual(firstRecord);
   });
 
+  const named = (over: Partial<RepairRecord> = {}): RepairRecord => ({
+    v: 1,
+    branch: 'main',
+    state: 'idle',
+    lastGreenSha: 'g1',
+    firstRedSha: 'r1',
+    redSince: new Date(T0).toISOString(),
+    candidates: [],
+    rerun: 'none',
+    preRevertRerun: 'none',
+    repairPr: 2942,
+    at: new Date(T0).toISOString(),
+    ...over,
+  });
+
+  it('keeps a person-recorded repairPr when the same episode turns red again (the race)', async () => {
+    // The reading was not written after the first change to red, so fleetd
+    // sees green -> red on r1 a second time, after a person recorded #2942.
+    const r = rig(green('g1'), [], named());
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toEqual(named());
+  });
+
+  it('replaces a record of another episode, dropping its repairPr', async () => {
+    const r = rig(green('g1'), [], named({ firstRedSha: 'r0' }));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toMatchObject({ firstRedSha: 'r1', state: 'idle' });
+    expect(r.repair()?.repairPr).toBeUndefined();
+  });
+
+  it('replaces a settled record of the same first red SHA', async () => {
+    const r = rig(green('g1'), [], named({ state: 'done' }));
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.repair()).toMatchObject({ firstRedSha: 'r1', state: 'idle' });
+    expect(r.repair()?.repairPr).toBeUndefined();
+  });
+
+  it('writes no record where the record on disk cannot be read, and warns', async () => {
+    const r = rig(green('g1'), [], named());
+    const writes: RepairRecord[] = [];
+    r.world.repair = {
+      read: async () => ({ ok: false, why: 'failed' }) as never,
+      write: async (record) => {
+        writes.push(record);
+        return { ok: true, value: undefined };
+      },
+    };
+    r.tip('r1');
+    r.runs('r1', [run('ci', 'failure')]);
+    const warnings: string[] = [];
+    await refreshDefaultBranch(r.world, (line) => warnings.push(line));
+    expect(writes).toEqual([]);
+    expect(warnings.some((line) => line.includes('could not be read'))).toBe(true);
+    expect(r.stored()?.settled).toEqual({ sha: 'r1', state: 'red' });
+  });
+
   it('writes no record where the head stays green across a refresh', async () => {
     const r = rig(green('g1'));
     r.clock(WAIT / 2);
