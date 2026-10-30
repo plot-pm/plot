@@ -14,6 +14,7 @@ import {
   reactionTo,
   refreshIntervalMs,
   refusalKind,
+  reviewReaskPrNumbers,
   slotVerdict,
   waitExhausted,
   type LimitBasis,
@@ -453,6 +454,14 @@ export interface PrRecord {
   checksLookup?: 'skipped' | 'broken';
   /** The host's merge time; absent on an open PR. */
   mergedAt?: string;
+  /** The `plot/review` status context's state; the GitHub rollup arm only. */
+  plotReview?: 'success' | 'failure' | 'pending' | 'error' | 'absent';
+  /** The commit the rollup named for `plot/review`; absent where `plotReview` is. */
+  plotReviewSha?: string;
+  /** The `plot/review` status context's `startedAt`; absent where `plotReview` is. */
+  plotReviewAt?: string;
+  /** `checks` folded with `plot/review` excluded; the GitHub rollup arm only. */
+  ciChecks?: 'green' | 'pending' | 'failing' | 'none' | 'unknown';
 }
 
 /**
@@ -1167,6 +1176,11 @@ const storeRow = (
       ? predecessor.headSince
       : new Date(now).toISOString();
   }
+  // The GitHub rollup arm only; absent everywhere else, never defaulted.
+  if (pr.plotReview !== undefined) row.plotReview = pr.plotReview;
+  if (typeof pr.plotReviewSha === 'string' && pr.plotReviewSha !== '') row.plotReviewSha = pr.plotReviewSha;
+  if (typeof pr.plotReviewAt === 'string' && pr.plotReviewAt !== '') row.plotReviewAt = pr.plotReviewAt;
+  if (pr.ciChecks !== undefined) row.ciChecks = pr.ciChecks;
   return row;
 };
 
@@ -1214,6 +1228,10 @@ const recordOf = (row: PrIndexRow): PrRecord => {
   if (row.checksSha !== undefined) pr.checksSha = row.checksSha;
   if (row.checksLookup !== undefined) pr.checksLookup = row.checksLookup;
   if (row.mergedAt !== undefined) pr.mergedAt = row.mergedAt;
+  if (row.plotReview !== undefined) pr.plotReview = row.plotReview;
+  if (row.plotReviewSha !== undefined) pr.plotReviewSha = row.plotReviewSha;
+  if (row.plotReviewAt !== undefined) pr.plotReviewAt = row.plotReviewAt;
+  if (row.ciChecks !== undefined) pr.ciChecks = row.ciChecks;
   return pr;
 };
 
@@ -1625,7 +1643,15 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // a unit test proves against a held store with no I/O. MERGED/CLOSED rows
     // are terminal and are never re-asked even if stored as `pending`.
     if (window.since !== null) {
-      const pending = pendingOpenPrNumbers(stored);
+      // UNIONED WITH `reviewReaskPrNumbers`: this pass has no branch-scoped
+      // view of the world (`PrWorld` holds a connector, not a branch list), so
+      // every head the store already tracks counts as in scope — the same
+      // breadth `pendingOpenPrNumbers` already reasons over with no branch
+      // filter at all.
+      const pending = Array.from(new Set([
+        ...pendingOpenPrNumbers(stored),
+        ...reviewReaskPrNumbers(stored, stored?.rows.map((row) => row.head) ?? []),
+      ]));
       // STUCK-PENDING BOUND: a PR whose check queue never runs would be
       // re-asked every delta forever. A number is asked again every delta
       // while its streak of "still pending, same updatedAt" answers is under

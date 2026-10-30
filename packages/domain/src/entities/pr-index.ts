@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take.
  */
-export const PR_INDEX_VERSION = 5;
+export const PR_INDEX_VERSION = 6;
 
 /**
  * One PR as the store holds it — exactly what the host answered, and nothing
@@ -94,6 +94,44 @@ export const PrIndexRowSchema = z
     //                       fresh every pass; a row named 'broken' this pass
     //                       may be 'skipped' or absent the next.
     checksLookup: z.enum(['skipped', 'broken']).optional(),
+    /**
+     * The `plot/review` status context's state, read from the GitHub rollup.
+     *
+     * **`'absent'` MEANS ASKED AND NOT FOUND — A DIFFERENT FACT FROM MISSING.**
+     * A missing field means this row's adapter never requested a rollup
+     * (Jenkins, Bitbucket, the plain listing) — "I don't know." `'absent'`
+     * means the rollup WAS read in full and carried no `plot/review` context —
+     * "confirmed no review." Collapsing the two reintroduces the ambiguity
+     * ("no review" and "review success" both reading `green` on `checks`) this
+     * field exists to remove. Never written on a failed or partial rollup read.
+     */
+    // plot-state: reading — the status context's state as the rollup answered
+    //                       it this pass, not an order a review passes through.
+    //                       Re-read fresh every pass; bound to plotReviewSha.
+    plotReview: z.enum(['success', 'failure', 'pending', 'error', 'absent']).optional(),
+    /**
+     * The commit the rollup named for the `plot/review` status context.
+     * Present only alongside a `plotReview` other than `'absent'`; absent
+     * everywhere `plotReview` itself is absent.
+     */
+    plotReviewSha: z.string().optional(),
+    /**
+     * The `plot/review` status context's `startedAt`, ISO-8601 as the host
+     * spelled it. Present only alongside a `plotReview` other than `'absent'`;
+     * absent everywhere `plotReview` itself is absent.
+     */
+    plotReviewAt: z.string().optional(),
+    /**
+     * The GitHub rollup folded the same way `checks` is, but with the
+     * `plot/review` context excluded — green · pending · failing · none ·
+     * unknown. Bound to `checksSha`, the same commit `checks` is bound to.
+     * Absent everywhere the adapter did not request a rollup (Jenkins,
+     * Bitbucket, the plain listing); never defaulted to a word.
+     */
+    // plot-state: reading — the rollup's colour excluding plot/review, as this
+    //                       pass answered it, not an order a PR passes through.
+    //                       Re-read fresh every pass; bound to checksSha.
+    ciChecks: z.enum(['green', 'pending', 'failing', 'none', 'unknown']).optional(),
   })
   .strict();
 
