@@ -704,8 +704,7 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
   elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
   elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
   def colour_of($r): if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing" elif any($r[]; ck == "wait") then "pending" else "green" end;
-  def checks_of: colour_of(.statusCheckRollup // []);
-  def ci_checks_of: colour_of([.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")]);'
+  def checks_of: colour_of(.statusCheckRollup // []); def ci_checks_of: colour_of([.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")]);'
 
 # THE ONE FOLD of a PR's mergeability into a word, for `pr-list --rich` and both
 # `pr-state` transports. GraphQL says `mergeable` CONFLICTING|MERGEABLE|UNKNOWN
@@ -4810,8 +4809,7 @@ case "$op" in
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
                 author:(.author.login // ""),
                 failing_checks:[
-                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")),
-                ciChecks:ci_checks_of
+                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")), ciChecks:ci_checks_of
               } + (plot_review_ctx as $pr | if $pr == null then {plotReview:"absent"} else {plotReview:($pr.state // "" | ascii_downcase), plotReviewSha:(.headRefOid // ""), plotReviewAt:($pr.startedAt // "")} end)'
         fi
       else
