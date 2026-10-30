@@ -192,11 +192,11 @@ const requiredChecks = (
  * `plotReviewSha` pairs with `plotReview` and is read only beside it; a pass
  * naming another commit is not a pass on this head.
  *
- * @param row - the release PR's row.
+ * @param row - the release PR's row; its `headSha` is set.
  * @returns `true` where the review passed on the row's head.
  */
 const reviewPassed = (row: PrIndexRow): boolean =>
-  row.plotReview === 'success' && row.headSha !== undefined && row.plotReviewSha === row.headSha;
+  row.plotReview === 'success' && row.plotReviewSha === row.headSha;
 
 /**
  * Where the release is.
@@ -250,7 +250,7 @@ export const releasePrepareNext = (readings: ReleasePrepareReadings): ReleasePre
     return { step: 'hold', reason: 'unaskable' };
   }
   if (pr === 'none') return none('no-release-pr');
-  if (scope.read !== 'scope' || pr.headSha === undefined) return { step: 'hold', reason: 'unaskable' };
+  if (pr.headSha === undefined) return { step: 'hold', reason: 'unaskable' };
   const head = pr.headSha;
 
   if (stage === 'preparing') {
@@ -270,7 +270,8 @@ export const releasePrepareNext = (readings: ReleasePrepareReadings): ReleasePre
     return allowed === 'ok' ? { step: 'review', head } : none(allowed);
   }
 
-  const groups = groupChangesets(readings.changesets, scope.slugs);
+  // `releaseStage` returned `waiting-scope` above for every scope but a read one.
+  const groups = groupChangesets(readings.changesets, (scope as Extract<SprintScope, { read: 'scope' }>).slugs);
   const files = [...groups.scope, ...groups.outside].sort();
   const last = lastNotifiedChangesets(readings.log, pr.head);
   if (last === null) return { step: 'notify', head, first: true, changesets: groups };

@@ -189,3 +189,65 @@ describe('releaseStageView', () => {
     expect(releaseStageViewOf('ready')?.label).toBe('ready to approve');
   });
 });
+
+describe('releasePrepareNext, remaining arms', () => {
+  const unreviewed = { plotReview: 'absent', plotReviewSha: undefined } as const;
+
+  it('names each finish stage and reads a merged PR as merged', () => {
+    for (const finish of ['failed', 'released', 'publishing'] as const) {
+      expect(releaseStage(readings({ finish }))).toBe(finish);
+      expect(releasePrepareNext(readings({ finish }))).toEqual({ step: 'none', why: finish });
+    }
+    expect(releaseStage(readings({ pr: row({ state: 'MERGED' }) }))).toBe('merged');
+  });
+
+  it('prepares, not ready, for a PR with no head, a closed PR or an absent PR', () => {
+    expect(releaseStage(readings({ pr: row({ headSha: undefined }) }))).toBe('preparing');
+    expect(releaseStage(readings({ pr: row({ state: 'CLOSED' }) }))).toBe('preparing');
+    expect(releasePrepareNext(readings({ pr: 'none' }))).toEqual({ step: 'none', why: 'no-release-pr' });
+    expect(releasePrepareNext(readings({ pr: row({ headSha: undefined }) }))).toEqual({ step: 'hold', reason: 'unaskable' });
+  });
+
+  it('holds where the runs could not be read and says why while they fail', () => {
+    expect(releasePrepareNext(readings({ checks: { read: 'unaskable' } }))).toEqual({ step: 'hold', reason: 'unaskable' });
+    const failed = { read: 'runs', runs: [{ workflow: 'CI', status: 'completed', conclusion: 'failure' }] } as const;
+    expect(releasePrepareNext(readings({ checks: failed }))).toEqual({ step: 'none', why: 'checks-not-green' });
+  });
+
+  it('starts nothing for a review never asked, a review in its bound, and a spent budget', () => {
+    expect(releasePrepareNext(readings({ pr: row({ plotReview: undefined }) }))).toEqual({ step: 'none', why: 'not-asked' });
+    const fresh = row({ plotReview: 'pending', plotReviewAt: new Date(NOW - 1000).toISOString() });
+    expect(releasePrepareNext(readings({ pr: fresh }))).toEqual({ step: 'none', why: 'review-pending' });
+    const spent = readings({ pr: row(unreviewed), reviewStarts: { head: HEAD, count: 3, lastAt: NOW - 1 } });
+    expect(releasePrepareNext(spent)).toEqual({ step: 'none', why: 'budget-spent' });
+  });
+
+  it('restarts a review that stayed pending past the bound or ended in error', () => {
+    const stale = row({ plotReview: 'pending', plotReviewAt: new Date(NOW - 7_200_000).toISOString() });
+    expect(releasePrepareNext(readings({ pr: stale }))).toEqual({ step: 'review', head: HEAD });
+    expect(releasePrepareNext(readings({ pr: row({ plotReview: 'error' }) }))).toEqual({ step: 'review', head: HEAD });
+    const noTime = row({ plotReview: 'pending', plotReviewAt: undefined });
+    expect(releasePrepareNext(readings({ pr: noTime }))).toEqual({ step: 'none', why: 'review-pending' });
+  });
+
+  it('keeps a live run on another head from blocking a start', () => {
+    const r = readings({ pr: row(unreviewed), reviewRun: { head: OLD, pid: 1, startedAt: NOW, live: true } });
+    expect(releasePrepareNext(r)).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('holds on an unread scope and not as waiting when the phases are unread', () => {
+    expect(releasePrepareNext(readings({ phases: 'unaskable' }))).toEqual({ step: 'hold', reason: 'unaskable' });
+  });
+});
+
+describe('release changeset record, remaining arms', () => {
+  it('reads a bare status, an empty list and a line of another step', () => {
+    expect(lastNotifiedChangesets([line({ outcome: 'sent' })], BRANCH)).toEqual([]);
+    expect(lastNotifiedChangesets([line({ outcome: 'sent: ' })], BRANCH)).toEqual([]);
+    expect(lastNotifiedChangesets([line({ step: 'release-review' })], BRANCH)).toBeNull();
+  });
+
+  it('counts a changeset naming no plan as outside work', () => {
+    expect(groupChangesets([{ file: 'o.md', plan: '' }], ['x'])).toEqual({ scope: [], outside: ['o.md'] });
+  });
+});
