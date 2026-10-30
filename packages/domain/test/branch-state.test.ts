@@ -5,6 +5,7 @@ import {
   branchState,
   namedSlices,
   waitVerdict,
+  withPlanLandings,
   type BranchReadings,
   type WaitsReading,
 } from '../src/rules/branch-state.js';
@@ -563,5 +564,53 @@ describe('namedSlices holds only the slices somebody may still start', () => {
       namedSlice: names.has('feature/done'),
     });
     expect([waitVerdict([wait('MERGED')]), waitVerdict([wait('none')])]).toEqual([null, 'blocked']);
+  });
+});
+
+describe('a prerequisite the same plan reads merged clears the wait', () => {
+  const landed = new Set(['feature/role-agents-are-probed']);
+
+  it('answers an unasked prerequisite MERGED when it landed in this plan', () => {
+    // 2026-10-30, the corpus with no token: `feature/role-agent-definitions`
+    // waits on `feature/role-agents-are-probed`, which a merge subject proves.
+    // The wave gate settled that slice; the wait must clear on the same reading.
+    const waits = withPlanLandings(['feature/role-agents-are-probed'], [], landed);
+    expect(waits).toEqual([{ branch: 'feature/role-agents-are-probed', pr: 'MERGED', namedSlice: true }]);
+    expect(waitVerdict(waits)).toBeNull();
+  });
+
+  it('replaces an unreadable host answer for a landed prerequisite', () => {
+    const waits = withPlanLandings(
+      ['feature/role-agents-are-probed'],
+      [{ branch: 'feature/role-agents-are-probed', pr: 'unreadable', namedSlice: true }],
+      landed,
+    );
+    expect(waitVerdict(waits)).toBeNull();
+  });
+
+  it('keeps the host reading of a prerequisite outside the plan', () => {
+    const waits = withPlanLandings(
+      ['feature/role-agents-are-probed', 'feature/elsewhere'],
+      [
+        { branch: 'feature/role-agents-are-probed', pr: 'unreadable', namedSlice: true },
+        { branch: 'feature/elsewhere', pr: 'unreadable', namedSlice: true },
+      ],
+      landed,
+    );
+    expect(waits[1]).toEqual({ branch: 'feature/elsewhere', pr: 'unreadable', namedSlice: true });
+    expect(waitVerdict(waits)).toBe('waiting');
+  });
+
+  it('leaves an unasked list empty while one prerequisite lies outside the plan', () => {
+    expect(withPlanLandings(['feature/role-agents-are-probed', 'feature/elsewhere'], [], landed)).toEqual([]);
+  });
+
+  it('holds the branch through branchState when the plan has no landing', () => {
+    const waits = withPlanLandings(
+      ['feature/role-agents-are-probed'],
+      [{ branch: 'feature/role-agents-are-probed', pr: 'unreadable', namedSlice: true }],
+      new Set(),
+    );
+    expect(branchState(reading({ waits }))).toBe('waiting');
   });
 });
