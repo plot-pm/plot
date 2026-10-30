@@ -11,6 +11,7 @@ import {
   refsFixture,
   treesFixture,
   refusedSlicesFixture,
+  runLogFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun } from '@plot-pm/domain';
 import fs from 'node:fs';
@@ -43,6 +44,7 @@ const ports = (over: Partial<LoopWritePorts> = {}): LoopWritePorts => ({
   processes: noProcesses,
   boundedRun: noBoundedRun,
   refusedSlices: refusedSlicesFixture(),
+  runLog: runLogFixture(),
   ...over,
 });
 
