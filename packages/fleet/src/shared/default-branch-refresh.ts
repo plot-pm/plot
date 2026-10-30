@@ -143,9 +143,9 @@ const settleBehindHead = async (
  * merge commits — no port operation `DefaultBranchWorld` already holds
  * answers that for an arbitrary range (`Refs.commitSubjects` carries no sha;
  * `Refs.commitsSync` needs a local checkout directory this world does not
- * have and excludes merges; `Refs.mergeSubjects` takes no range). Adding one
- * is out of this slice's scope. With no previous reading the record also has
- * no `lastGreenSha`, and `warn` is told so.
+ * have and excludes merges; the refs port's own merge-subject reader takes no
+ * range). Adding one is out of this slice's scope. With no previous reading
+ * the record also has no `lastGreenSha`, and `warn` is told so.
  *
  * @param world - the reads and the repair record's file.
  * @param branch - the default branch's name.

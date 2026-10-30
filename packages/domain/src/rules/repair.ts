@@ -67,7 +67,7 @@ const SQUASH = /\(#(\d+)\)$/;
  * Mirrors `MERGE_SUBJECT_FORMS.github` in
  * `packages/domain/src/adapters/host/merge-subjects.ts` — that file matches a
  * KNOWN branch name the picker does not have, so this reads the same shape
- * for its `<number>` alone rather than reusing `mergedBySubject`.
+ * for its `<number>` alone rather than reusing the host adapter's own matcher.
  */
 const GITHUB_MERGE = /^Merge pull request #(\d+) from \S+$/;
 
@@ -92,10 +92,10 @@ const BITBUCKET_MERGE = /^Merged in \S+ \(pull request #(\d+)\)$/;
 const prNumberOf = (subject: string): number | null => {
   const squash = SQUASH.exec(subject);
   if (squash) return Number(squash[1]);
-  const github = GITHUB_MERGE.exec(subject);
-  if (github) return Number(github[1]);
-  const bitbucket = BITBUCKET_MERGE.exec(subject);
-  if (bitbucket) return Number(bitbucket[1]);
+  const firstForm = GITHUB_MERGE.exec(subject);
+  if (firstForm) return Number(firstForm[1]);
+  const secondForm = BITBUCKET_MERGE.exec(subject);
+  if (secondForm) return Number(secondForm[1]);
   return null;
 };
 
