@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** delivery-loop
 - **Issue:** #2898
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-29, Jan Wloka, `feature/role-agents-are-probed`
 - **Started:** 2026-10-30, Jan Wloka, `feature/role-agent-definitions`
 - **Started:** 2026-10-30, Jan Wloka, `feature/role-agents-start-detached`
+- **Delivered:** 2026-10-30
 
 ## Changelog
 
