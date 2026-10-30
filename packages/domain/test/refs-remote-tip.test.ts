@@ -194,3 +194,22 @@ describe('refsRemoteGit.remoteSha', () => {
     expect(await board.remoteSha('main')).toEqual({ ok: false, why: 'unaskable' });
   });
 });
+
+describe('refsRemoteGit.claimBranch', () => {
+  it('creates the branch with one empty claim commit, and a second claim loses', async () => {
+    const first = await refs().claimBranch('bug/main-repair-abc', pushedSha);
+    expect(first).toEqual({ ok: true, value: 'won' });
+    const tip = git(origin, ['rev-parse', 'refs/heads/bug/main-repair-abc']).trim();
+    expect(git(origin, ['log', '-1', '--format=%s', tip]).trim()).toBe('plot: claim bug/main-repair-abc');
+    expect(git(origin, ['rev-parse', `${tip}^{tree}`]).trim()).toBe(git(origin, ['rev-parse', `${pushedSha}^{tree}`]).trim());
+    expect(git(origin, ['rev-parse', `${tip}^`]).trim()).toBe(pushedSha);
+
+    const second = await refs().claimBranch('bug/main-repair-abc', pushedSha);
+    expect(second).toEqual({ ok: true, value: 'lost' });
+  });
+
+  it('fails where the base commit does not exist', async () => {
+    const result = await refs().claimBranch('bug/main-repair-none', '0'.repeat(40));
+    expect(result).toEqual({ ok: true, value: 'failed' });
+  });
+});
