@@ -15,6 +15,7 @@ import {
   MergeabilitySchema,
   DefaultBranchReadingSchema,
   CardControlsSchema,
+  RELEASE_BRANCH,
   type Phase,
   type SprintState,
 } from '@plot-pm/domain';
@@ -2578,16 +2579,7 @@ export const MachineProcessSchema = z.object({
 });
 export type MachineProcess = z.infer<typeof MachineProcessSchema>;
 
-/**
- * The branch a `changeset-release` PR rides on — the ONE name this repo matches.
- *
- * IN THE CONTRACT because both sides ask the question: the server derives a
- * row's `kind`, and the client's `isReleaseBranch` asks the same thing of the
- * same string. `fleet.ts` states the rule this obeys — the name is matched in
- * exactly one place, and *"a second copy on the client would be the defect"*.
- * A shared constant is how that holds without the client importing server code.
- */
-export const RELEASE_BRANCH = /^changeset-release\//;
+export { RELEASE_BRANCH };
 
 export const AgentRowSchema = z.object({
   /** Constant today. Present so the second repo is an addition, not a rebuild. */
