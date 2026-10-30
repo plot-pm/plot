@@ -8,7 +8,6 @@ tools:
   - Grep
   - Glob
 maxTurns: 40
-memory: user
 isolation: worktree
 ---
 
