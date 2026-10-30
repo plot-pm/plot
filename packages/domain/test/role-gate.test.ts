@@ -120,6 +120,26 @@ describe('roleDeniesCommand', () => {
     expect(roleDeniesCommand('git commit -m "a normal change"', 'main', 'fix/x')).toBeNull();
     expect(roleDeniesCommand('echo permitted-control-ran', 'main', 'fix/x')).toBeNull();
   });
+
+  it('refuses a commit-status write and names it', () => {
+    const refusal = roleDeniesCommand('plot-host.sh commit-status main abc123 success', 'main', 'fix/x');
+    expect(refusal).toContain('writes the PR review status');
+  });
+
+  it('refuses a reviewer run and names it', () => {
+    const refusal = roleDeniesCommand('plot-review.mjs 42', 'main', 'fix/x');
+    expect(refusal).toContain('runs the reviewer');
+  });
+
+  it('refuses a push to the default branch and names it', () => {
+    const refusal = roleDeniesCommand('git push origin main', 'main', 'fix/x');
+    expect(refusal).toContain('pushes the default branch');
+  });
+
+  it('refuses a commit message that closes an issue and names it', () => {
+    const refusal = roleDeniesCommand('git commit -m "Fixes #123"', 'main', 'fix/x');
+    expect(refusal).toContain('closes an issue');
+  });
 });
 
 describe('roleDeniesPath', () => {
