@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-30, Jan Wloka, plan-PR #2944 merged
+- **Started:** 2026-10-30, Jan Wloka, `feature/ci-selection-rule`
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
