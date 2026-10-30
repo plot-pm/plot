@@ -1,3 +1,4 @@
+import { runAutoProgressPass } from './auto-progress.js';
 import type { FleetReading, HeldSlice } from '@plot-pm/domain';
 
 import { runAutoDeliverPass } from './auto-deliver.js';
@@ -43,6 +44,7 @@ export const fleetAutoWrites = (
   const deliverHeldLogged = new Set<string>();
   // WHETHER A MERGED BRANCH CARRIED WORK, for the daemon's life: a merge commit cannot change.
   const deliverCarried = new Map<string, boolean>();
+  const progressSent = new Map<string, string>();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -58,6 +60,7 @@ export const fleetAutoWrites = (
       // creates one, so only it is skipped (#1577).
       if (!stopped()) own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked, briefWaits);
       await runAutoDeliverPass(opts, pulse, undefined, deliverHeldLogged, deliverCarried);
+      await runAutoProgressPass(opts, pulse, progressSent);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.
       await runAutoVerifyPass(opts, pulse, {

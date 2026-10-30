@@ -78,7 +78,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Corpus reading
 
-- `feature/corpus-reads-without-a-token` — the corpus scan reads the same with and without a host token; no check runs before a merge <!-- waits: feature/ci-reads-the-selection -->
+- `feature/corpus-reads-without-a-token` — the corpus scan reads the same with and without a host token; no check runs before a merge <!-- waits: feature/ci-reads-the-selection --> → #2953
 
 ### Repair merge
 
@@ -90,3 +90,4 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 - Priority: a sprint blocker, decided by Jan Wloka on 2026-10-30. It skips the panel round and lands ahead of the other sprint plans.
 - Related: `docs/plans/2026-10-29-a-red-default-branch-is-repaired.md` (#2904), which keeps the `slicePrNext` half of the repair exception.
 - #2904's `feature/merge-admits-the-repair-pr` keeps only the `slicePrNext` half once `feature/ask-merge-admits-the-repair-pr` merges; each branch has one owner.
+- Repair PR naming: option B, decided by Jan Wloka on 2026-10-30. `merge()` builds #2904's Design step 5 exception as written, and a person records the fix PR on the repair record through `plot-ask.mjs repair-pr <pr>`. The command refuses an unattended caller, no open episode, a record with no `lastGreenSha`, and a PR whose head is not `bug/main-repair-<12 hex of lastGreenSha>`. A fix on any other branch, such as #2942's, stays outside the exception.

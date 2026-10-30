@@ -16,7 +16,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * A plan's phase, reflected on the issues it answers, through the tracker port.
  *
  * ```
- * plot-plan-state.mjs docs/plans/x.md --phase approved --plan-link docs/plans/x.md
+ * plot-plan-state.mjs docs/plans/x.md --phase approved --plan-link docs/plans/x.md --slice-progress "1 of 2 slices merged"
  * 7	written	approved
  * summary: tracker=written
  * ```
@@ -33,6 +33,10 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * default branch otherwise) and the phase a plan file alone cannot always
  * name (a spike approval, an in-flight release version) — only the
  * calling command knows either at the moment it calls.
+ *
+ * **`--slice-progress <string>` is optional** and carries the plan's merged-slice
+ * count verbatim, read by the caller from a fresh pulse — this entry does not
+ * compute it. Omitted, the write carries none.
  *
  * **`--skip-issue <id>` (repeatable)** leaves that issue open: it is reported
  * `skipped` on its own line and never reaches the tracker. The caller decides
@@ -74,19 +78,20 @@ export const issuesFrom = (text: string): readonly string[] => {
 
 /**
  * Reads `--phase <phase>`, `--plan-link <link>`, an optional `--version <v>`,
- * and zero or more `--skip-issue <id>`.
+ * an optional `--slice-progress <string>`, and zero or more `--skip-issue <id>`.
  *
  * @param argv - the arguments after the script name.
- * @returns the phase, link and version the caller declared, and the issues to skip.
+ * @returns the phase, link, version and slice progress the caller declared, and the issues to skip.
  * @throws on an unknown flag, a flag with no value, a `--phase` outside the
  *   four, or a missing `--phase`/`--plan-link`.
  */
 export const flagsFrom = (
   argv: readonly string[],
-): Pick<PlanStateReading, 'phase' | 'planLink' | 'version'> & { skipIssues: readonly string[] } => {
+): Pick<PlanStateReading, 'phase' | 'planLink' | 'version' | 'sliceProgress'> & { skipIssues: readonly string[] } => {
   let phase: string | undefined;
   let planLink: string | undefined;
   let version: string | undefined;
+  let sliceProgress: string | undefined;
   const skipIssues: string[] = [];
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
@@ -95,13 +100,20 @@ export const flagsFrom = (
     if (flag === '--phase') phase = value;
     else if (flag === '--plan-link') planLink = value;
     else if (flag === '--version') version = value;
+    else if (flag === '--slice-progress') sliceProgress = value;
     else if (flag === '--skip-issue') skipIssues.push(value);
     else throw new Error(`unknown argument '${flag}'`);
   }
   if (phase === undefined) throw new Error('--phase is required');
   if (!isPlanStatePhase(phase)) throw new Error(`unknown --phase '${phase}'`);
   if (planLink === undefined) throw new Error('--plan-link is required');
-  return { phase, planLink, skipIssues, ...(version === undefined ? {} : { version }) };
+  return {
+    phase,
+    planLink,
+    skipIssues,
+    ...(version === undefined ? {} : { version }),
+    ...(sliceProgress === undefined ? {} : { sliceProgress }),
+  };
 };
 
 /**
@@ -180,7 +192,7 @@ export const run = async (
   } catch (err) {
     warn(`plot-plan-state: ${(err as Error).message}\n`);
     warn(
-      'plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>] [--skip-issue <id> ...]\n',
+      'plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>] [--slice-progress <string>] [--skip-issue <id> ...]\n',
     );
     write('summary: tracker=failed\n');
     return EXIT.usage;
