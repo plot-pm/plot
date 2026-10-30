@@ -65,6 +65,13 @@ describe('sliceIdle', () => {
     expect(nowIdle[0].idle).toBe(true);
   });
 
+  it('reads an unparseable `createdAt` as absent, so the clock starts at fleetd\'s start', () => {
+    const slice = reading({ pr: { branch: 'feature/x', createdAt: '' } });
+    const atBound = FLEETD_STARTED_AT + BOUND_MS;
+    expect(sliceIdle(world({ slices: [slice], now: () => atBound }))[0].idle).toBe(false);
+    expect(sliceIdle(world({ slices: [slice], now: () => atBound + 1 }))[0].idle).toBe(true);
+  });
+
   it('is idle where every run-log line past the bound is `failed` or `partial` — only `moved` resets the clock', () => {
     // THE SPLIT IS LOAD-BEARING: a slice retrying a broken correction every
     // tick still reads idle, because neither outcome counts as movement.
