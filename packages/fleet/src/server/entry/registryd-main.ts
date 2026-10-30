@@ -26,6 +26,7 @@ import {
   freshAgentRecordFile,
   endingAskRecordFile,
   refusedSlicesFile,
+  runLogFile,
   deskFs,
   agentsFs,
   fleetStateFile,
@@ -63,6 +64,7 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
+import type { RunLog } from '@plot-pm/domain/ports/run-log';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
 import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
@@ -1897,6 +1899,7 @@ export const startFreshAgents = async (
  * @param deps.asks - the `.plot/state/ending-asks.tsv` store.
  * @param deps.desk - writes the `PLOT-BLOCKED.md` marker.
  * @param deps.release - decides and, where releasable, releases a branch's claim.
+ * @param deps.runLog - the run log, appended once per fresh session actually started.
  * @returns the ports {@link applyFreshAgentDecisions} acts through.
  */
 export const freshAgentPortsFor = (deps: {
@@ -1908,10 +1911,12 @@ export const freshAgentPortsFor = (deps: {
   asks: Pick<EndingAskRecordStore, 'append'>;
   desk: Pick<Desk, 'writeBlockedMarker'>;
   release: (branch: string) => Promise<{ released: boolean; detail: string }>;
+  runLog: Pick<RunLog, 'append'>;
 }): FreshAgentPorts => ({
   record: deps.record,
   asks: deps.asks,
   desk: deps.desk,
+  runLog: deps.runLog,
   now: () => new Date(),
   start: async ({ branch, worktree, answer, beforeStart }) => {
     const base = await refsGit({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir }).defaultBranch();
@@ -2428,6 +2433,12 @@ export const run = async (
     return { released: result.released, detail: result.detail };
   };
   const freshAgentDesk = deskFs(treesGit({ repoRoot, scriptDir: scriptsDir }));
+  // `--once` APPENDS NO RUN-LOG LINE, EVEN IF `--start-agents` WERE EVER PASSED
+  // WITH IT. No known caller combines the two flags today, but a fresh-agent
+  // start is gated by `args.startAgents` alone (`:2807`), not by `!args.once` —
+  // so the one-shot contract is held HERE, at the port, rather than assumed
+  // from how the CLI happens to be invoked.
+  const freshAgentRunLog = args.once ? { append: async () => answered(undefined) } : runLogFile({ cwd: repoRoot });
   const freshAgentPorts: FreshAgentPorts = freshAgentPortsFor({
     repoRoot,
     scriptsDir,
@@ -2437,6 +2448,7 @@ export const run = async (
     asks: endingAsks,
     desk: freshAgentDesk,
     release: releaseClaimOf,
+    runLog: freshAgentRunLog,
   });
 
   // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and

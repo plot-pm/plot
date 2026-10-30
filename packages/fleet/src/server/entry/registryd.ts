@@ -29,6 +29,7 @@ import type { PortResult, Pr } from '@plot-pm/domain';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
+import type { RunLog } from '@plot-pm/domain/ports/run-log';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 
 import { readTick, type SupervisorWorld } from '../../shared/supervisor.js';
@@ -1087,6 +1088,8 @@ export interface FreshAgentPorts {
   desk: Pick<Desk, 'writeBlockedMarker'>;
   /** The `.plot/state/ending-asks.tsv` store, appended once per ending put to a person. */
   asks: Pick<EndingAskRecordStore, 'append'>;
+  /** The run log, appended once per fresh session actually started. */
+  runLog: Pick<RunLog, 'append'>;
   /**
    * Starts the fresh session through the continue workflow.
    *
@@ -1160,6 +1163,15 @@ export const applyFreshAgentDecisions = async (
             ).ok,
         });
         if (started.kind === 'started') {
+          void ports.runLog.append({
+            plan: decision.plan,
+            branch: decision.branch,
+            pr: '',
+            head: '',
+            step: 'fresh-agent',
+            outcome: 'moved',
+            at: ports.now().toISOString(),
+          });
           out.push({
             branch: decision.branch,
             outcome: 'started',

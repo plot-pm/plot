@@ -16,6 +16,7 @@ import {
   transcriptFixture,
   treesFixture,
   refusedSlicesFixture,
+  runLogFixture,
 } from '@plot-pm/domain/adapters';
 import type { AgentRunResult, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
 import type { BoundedRun, Pr } from '@plot-pm/domain';
@@ -115,6 +116,7 @@ const rig = (
     },
     boundedRun,
     refusedSlices: refusedSlicesFixture(),
+    runLog: runLogFixture(),
     build: buildFixture({ shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'completed', conclusion, url: 'u', startedAt: '' }] } }),
     host: hostFixture({ prs: [{ number: 7, head: BRANCH, state: 'OPEN' } as Pr] }),
     transcriptQuietSeconds: async () => 5000,
