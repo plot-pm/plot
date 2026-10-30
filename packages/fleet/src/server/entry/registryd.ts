@@ -1,10 +1,12 @@
 import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/supervise';
 import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
-import type { Decision, NotifyWrite, IdleNotifyWrite } from '@plot-pm/domain/workflows/decision';
+import type { Decision, NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
 import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-escalation';
 import { sliceIdle, type SliceIdleReading } from '@plot-pm/domain/rules/slice-idle';
+import { unblockerDue } from '@plot-pm/domain/rules/unblocker-due';
+import type { DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
 import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
@@ -30,6 +32,7 @@ import type { PortResult, Pr } from '@plot-pm/domain';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
+import type { AnswerRecordStore } from '@plot-pm/domain/ports/answer-record';
 import type { RunLog } from '@plot-pm/domain/ports/run-log';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 
@@ -227,6 +230,23 @@ export interface SliceIdleReader {
   now?(): number;
 }
 
+/**
+ * What the tick needs to decide whether fleetd should answer a desk's own
+ * question — every reading {@link unblockerDue} takes, supplied as values
+ * rather than read inside the domain, matching every other world in this
+ * file.
+ */
+export interface UnblockWorld {
+  /** The desk's marker, or `null` where it holds none. */
+  marker(worktree: string): Promise<MarkerReading | null>;
+  /** Whether the desk's agent can still be trusted to act. */
+  deskDead(worktree: string): Promise<DeskDeadAnswer>;
+  /** Whether an unblocker run is already live on this desk. */
+  liveFixer(worktree: string): Promise<boolean>;
+  /** The outcomes already recorded for this desk's `(worktree, askedAt)` key. */
+  recordedOutcomes(worktree: string, askedAt: string): Promise<readonly string[]>;
+}
+
 /** What a daemon needs to run one tick. */
 export interface TickOptions {
   /** The registry's manifests, re-read at the start of every tick. */
@@ -279,6 +299,15 @@ export interface TickOptions {
    * plans have WAITING, or a desk's marker age.
    */
   idle?: SliceIdleReader;
+  /**
+   * What to read whether fleetd should answer a desk's own question through,
+   * or absent to decide nothing about it.
+   *
+   * **A FIFTH WORLD, FOR THE SAME REASON `idle` IS A FOURTH ONE.** This reads
+   * an untagged marker, the desk's liveness, whether a fixer already runs
+   * there, and the record — a fifth question, independent of the other four.
+   */
+  unblock?: UnblockWorld;
   /** The clock, so a test can hold one. */
   now?(): number;
 }
@@ -343,10 +372,23 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     // POPULATION. It judges open slice PRs rather than registered desks, so it
     // takes its own world rather than reusing `escalationDesks`' reading of
     // `supervised.detail.agents`.
-    const decision =
+    const idled =
       options.idle === undefined
         ? escalated
         : { ...escalated, writes: [...escalated.writes, ...(await idleNotifyWrites(options.idle))] };
+
+    // THE UNBLOCK PASS RUNS BESIDE ESCALATION AND IDLE, OVER THE SAME DESK
+    // POPULATION ESCALATION READS. It decides nothing the other two decide —
+    // an untagged marker on a waiting desk with no fixer and no record — and
+    // it SPAWNS NOTHING: the write only names the desk, and a separate
+    // applier reaches the record port and the `AgentRun` connector.
+    const decision =
+      options.unblock === undefined
+        ? idled
+        : { ...idled, writes: [...idled.writes, ...(await unblockWrites(
+            escalationDesks(supervised.detail.agents, readings.trees ?? []),
+            options.unblock,
+          ))] };
 
     // THE HAND-OVER RUNS AFTER SUPERVISION, WITHIN ONE TICK, and the order is
     // load-bearing: supervision is what frees an agent, by reaping a finished
@@ -465,6 +507,44 @@ const escalationWrites = async (
       rung: result.rung,
       message: escalationMessage(agent.branch, marker.firstLine, result.rung, ageMs),
     });
+  }
+  return writes;
+};
+
+/**
+ * One `unblock` write per desk {@link unblockerDue} says fleetd should
+ * answer — every desk {@link escalationDesks} names, the same population
+ * the escalation pass reads.
+ *
+ * **THE DOMAIN TAKES READINGS AS VALUES**, same as {@link escalationWrites}:
+ * every getter on `world` is awaited here before `unblockerDue` is called,
+ * and the rule itself imports no port and awaits nothing.
+ *
+ * **THIS PASS SPAWNS NOTHING.** A desk `unblockerDue` says `start: true` for
+ * gets one write naming the worktree, the branch and the marker's own
+ * `askedAt` — no answer, no question copy. The applier re-reads the marker
+ * before acting, so this write carries nothing that could go stale between
+ * the tick that found it and the applier that acts on it.
+ *
+ * @param agents - every desk to read, from {@link escalationDesks}.
+ * @param world - what to read the marker, the desk's liveness, the live
+ *   fixer and the record through.
+ * @returns one `unblock` write per desk due for an answer.
+ */
+const unblockWrites = async (
+  agents: readonly EscalationDesk[],
+  world: UnblockWorld,
+): Promise<readonly UnblockWrite[]> => {
+  const writes: UnblockWrite[] = [];
+  for (const agent of agents) {
+    const marker = await world.marker(agent.worktree);
+    if (marker === null) continue;
+    const deskDeadAnswer = await world.deskDead(agent.worktree);
+    const liveFixer = await world.liveFixer(agent.worktree);
+    const recordedOutcomes = await world.recordedOutcomes(agent.worktree, marker.askedAt);
+    const result = unblockerDue({ marker, deskDead: deskDeadAnswer, liveFixer, recordedOutcomes });
+    if (!result.start) continue;
+    writes.push({ kind: 'unblock', worktree: agent.worktree, branch: agent.branch, askedAt: marker.askedAt });
   }
   return writes;
 };
@@ -1348,6 +1428,145 @@ export const freshAgentLines = (
   applied.map((entry) => ({
     line: `plot-fleetd fresh-agent ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
     error: entry.outcome !== 'started' && entry.outcome !== 'escalated' && entry.outcome !== 'released',
+  }));
+
+/** What the unblock step applied for one desk. */
+export interface UnblockApplied {
+  branch: string;
+  outcome: 'started' | 'answered' | 'refused' | 'run-failed' | 'threw';
+  /** One line saying why, or what started. */
+  detail: string;
+}
+
+/** What {@link applyUnblockDecisions} acts through. */
+export interface UnblockPorts {
+  /** The `.plot/state/answers.tsv` store. */
+  record: Pick<AnswerRecordStore, 'append'>;
+  /**
+   * Runs the `unblocker` role against the desk's own question and returns its
+   * final answer text.
+   *
+   * Everything the role run needs — the prompt, the model, `roleAgent` and
+   * where `agentsFile`/`settingsFile` live on disk — is the adapter's own
+   * concern; this port asks only for the worktree, the branch and the
+   * question, and gets back text or a failure.
+   */
+  run: (input: { worktree: string; branch: string; question: string }) => Promise<{ ok: true; answer: string } | { ok: false; detail: string }>;
+  /**
+   * Applies the run's answer through `continueOnDesk`.
+   *
+   * `beforeStart` runs after the workflow accepts the desk and before it
+   * changes anything; returning false stops the start — the same gate
+   * {@link FreshAgentPorts.start} uses, so a tick that throws after the
+   * record row never answers the same question twice.
+   */
+  start: (input: {
+    branch: string;
+    worktree: string;
+    answer: string;
+    expectedAskedAt: string;
+    beforeStart: () => Promise<boolean>;
+  }) => Promise<DeskContinuation>;
+  /** The question's first line, read fresh rather than trusted from the write. */
+  question: (worktree: string) => Promise<string>;
+  /** The clock, for the record's timestamp. */
+  now: () => Date;
+}
+
+/**
+ * Applies the unblock decisions of one tick: for every {@link UnblockWrite},
+ * runs the `unblocker` role on the desk's own question and hands its answer
+ * to `continueOnDesk`.
+ *
+ * **THE RUN HAPPENS BEFORE THE RECORD ROW**, unlike the fresh-agent step's
+ * `beforeStart` (which only ever writes a row, never spawns). The row this
+ * step writes is `started`, written inside `start`'s own `beforeStart` —
+ * after `continueOnDesk` has re-read the marker and accepted the desk, and
+ * before it changes anything — so a tick that throws between the run and the
+ * write answers nothing twice: `unblockerDue` already refuses `live-fixer`
+ * and `already-recorded` on the next tick's read.
+ *
+ * **A FAILED RUN RECORDS NOTHING.** `ports.run` failing means the desk's
+ * question was never put to anyone; the write is dropped and the next tick's
+ * `unblockerDue` finds the same untagged marker and tries again.
+ *
+ * **`expectedAskedAt` IS PINNED TO THE WRITE'S OWN `askedAt`.** A marker that
+ * moved between the tick that found it and this applier's run is caught by
+ * `continueOnDesk`'s own `question-moved` refusal, never silently answered
+ * against a newer question.
+ *
+ * **ONE DESK THROWING DOES NOT STOP THE OTHERS.** The throw is reported as
+ * `threw`.
+ *
+ * @param writes - the `unblock` writes a tick decided.
+ * @param ports - what each write acts through.
+ * @returns one entry per write, in order.
+ */
+export const applyUnblockDecisions = async (
+  writes: readonly UnblockWrite[],
+  ports: UnblockPorts,
+): Promise<readonly UnblockApplied[]> => {
+  const out: UnblockApplied[] = [];
+  for (const write of writes) {
+    try {
+      const question = await ports.question(write.worktree);
+      const ran = await ports.run({ worktree: write.worktree, branch: write.branch, question });
+      if (!ran.ok) {
+        out.push({ branch: write.branch, outcome: 'run-failed', detail: ran.detail });
+        continue;
+      }
+      const started = await ports.start({
+        branch: write.branch,
+        worktree: write.worktree,
+        answer: ran.answer,
+        expectedAskedAt: write.askedAt,
+        beforeStart: async () =>
+          (
+            await ports.record.append({
+              worktree: write.worktree,
+              askedAt: write.askedAt,
+              question,
+              answer: ran.answer,
+              author: 'unblocker',
+              outcome: 'started',
+            })
+          ).ok,
+      });
+      if (started.kind === 'started') {
+        out.push({ branch: write.branch, outcome: 'answered', detail: `unblocker answered, pid ${started.pid}` });
+      } else if (started.kind === 'refused') {
+        out.push({
+          branch: write.branch,
+          outcome: 'refused',
+          detail: `continue refused (${started.reason}): ${started.detail}`,
+        });
+      } else {
+        out.push({ branch: write.branch, outcome: 'run-failed', detail: started.error });
+      }
+    } catch (error) {
+      out.push({
+        branch: write.branch,
+        outcome: 'threw',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return out;
+};
+
+/**
+ * One log line per applied unblock outcome.
+ *
+ * @param applied - what {@link applyUnblockDecisions} returned.
+ * @returns the lines without newlines, each saying whether it belongs on the
+ *   error stream.
+ */
+export const unblockLines = (
+  applied: readonly UnblockApplied[],
+): readonly { line: string; error: boolean }[] =>
+  applied.map((entry) => ({
+    line: `plot-fleetd unblock ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
+    error: entry.outcome !== 'answered',
   }));
 
 /**

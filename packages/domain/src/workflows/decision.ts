@@ -72,6 +72,7 @@ export type Write =
   | BuildFindingWrite
   | NotifyWrite
   | IdleNotifyWrite
+  | UnblockWrite
   | ClaimReleaseWrite;
 
 /** Sets a plan's `**State:**` field, inside its `## Status` section only. */
@@ -698,6 +699,30 @@ export interface IdleNotifyWrite {
   readonly clockStart: string;
   /** The message to send. */
   readonly message: string;
+}
+
+/**
+ * Starts an `unblocker` run against one desk's own question.
+ *
+ * **NAMES THE DESK AND THE MARKER'S KEY, AND NOTHING ELSE.** The applier
+ * reads the marker fresh before acting — the same `expectedAskedAt` guard
+ * `continueOnDesk` already takes — so this write carries no answer and no
+ * copy of the question text: both would be a second, stale copy of what the
+ * marker file already holds the live one of.
+ *
+ * **APPLIED OUTSIDE THE SHELL PERFORMER**, beside {@link NotifyWrite} and
+ * {@link IdleNotifyWrite}: it reaches the answer-record port and the
+ * `AgentRun` connector, both TypeScript-native, and ends by calling
+ * `continueOnDesk` — none of which the shell side owns.
+ */
+export interface UnblockWrite {
+  readonly kind: 'unblock';
+  /** The desk's worktree path, absolute. */
+  readonly worktree: string;
+  /** The branch the desk holds. */
+  readonly branch: string;
+  /** The marker's modification time, ISO-8601 — half the answer record's key. */
+  readonly askedAt: string;
 }
 
 /** Writes a build finding line, in the shape the BuildMonitor writes today. */
