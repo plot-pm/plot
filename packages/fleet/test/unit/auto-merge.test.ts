@@ -171,7 +171,7 @@ describe('mergeTick on a red default branch', () => {
     return { ports: withRepairHead, calls, asked };
   };
   const rows = [row(3), row(5, { head: REPAIR_BRANCH })];
-  const scope = { read: 'scope', sprint: {}, slugs: ['x'], branches: ['feature/p3', 'feature/p5', REPAIR_BRANCH] };
+  const scope = { read: 'scope', sprint: {}, slugs: ['x'], branches: ['feature/p3'] };
   const redTick = (p: MergePorts) => tick(rows, { defaultBranch: red, scope }, p);
 
   it('picks the repair PR while every other open row holds default-branch-red', async () => {

@@ -54,6 +54,21 @@ export const repairRoleOf = (record: RepairRecord, pr: number): RepairRole | nul
   return null;
 };
 
+/**
+ * Whether a PR's head branch is the one its role in the record allows.
+ *
+ * @param record - the repair record.
+ * @param role - the field of the record that names the PR.
+ * @param head - the PR's head branch.
+ * @returns true for a fix PR from {@link mainRepairBranchOf} the record's last
+ *   green SHA, or a revert PR from `bug/revert-<pr>`.
+ */
+export const repairBranchMatches = (record: RepairRecord, role: RepairRole, head: string): boolean => {
+  if (role === 'revert') return isRevertBranch(head);
+  const expected = mainRepairBranchOf(record.lastGreenSha);
+  return expected !== null && head === expected;
+};
+
 /** Whether the record's episode is still open, or why that could not be read. */
 export type EpisodeReading = 'open' | 'closed' | 'unaskable';
 
@@ -97,6 +112,28 @@ export interface RepairMergeReading {
   readonly redRuns: RunsState | 'unaskable';
 }
 
+/**
+ * Whether the repair record names a PR for the fleet to act on, outside the sprint scope.
+ *
+ * True where all hold: the record was read, its episode reads `open`,
+ * `repairPr` or `revertPr` names the PR, and the PR's head branch matches
+ * that role ({@link repairBranchMatches}). The re-asked runs are not read
+ * here: the merge arm's {@link repairMergeVerdict} decides on them.
+ *
+ * @param reading - the record, the episode and the re-asked runs.
+ * @param pr - the PR's number and head branch.
+ * @returns true for the one PR an open episode names.
+ */
+export const repairNamesPr = (
+  reading: RepairMergeReading,
+  pr: { readonly number: number; readonly head: string },
+): boolean => {
+  const { record } = reading;
+  if (record === null || record === 'unaskable' || reading.episode !== 'open') return false;
+  const role = repairRoleOf(record, pr.number);
+  return role !== null && repairBranchMatches(record, role, pr.head);
+};
+
 /** What the repair exception answers for one PR on a red default branch. */
 export type RepairMergeVerdict =
   | { readonly verdict: 'not-named'; readonly why: string }
@@ -135,9 +172,8 @@ export const repairMergeVerdict = (
   if (reading.episode === 'closed') {
     return { verdict: 'refused', reason: 'repair-episode-closed', detail: `the repair record's episode (first red ${record.firstRedSha.slice(0, 12)}, state '${record.state}') is not open on the settled red commit. A closed episode admits no PR.` };
   }
-  const expected = role === 'repair' ? mainRepairBranchOf(record.lastGreenSha) : null;
-  const matches = role === 'repair' ? expected !== null && pr.head === expected : isRevertBranch(pr.head);
-  if (!matches) {
+  if (!repairBranchMatches(record, role, pr.head)) {
+    const expected = mainRepairBranchOf(record.lastGreenSha);
     const wanted = role === 'repair' ? (expected ?? 'no branch: the record has no last green SHA') : 'bug/revert-<pr>';
     return { verdict: 'refused', reason: 'repair-branch-mismatch', detail: `PR #${pr.number} comes from '${pr.head}', but the ${role} PR of this episode must come from ${wanted}. Nothing was merged.` };
   }
