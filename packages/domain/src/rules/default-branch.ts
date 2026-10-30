@@ -231,6 +231,25 @@ export const checksWaitMsOf = (value: string): number => {
   return (Number.isFinite(seconds) && seconds > 0 ? seconds : CHECKS_WAIT_DEFAULT_SECONDS) * 1000;
 };
 
+/** The `Main repair bound` default, in seconds. */
+export const MAIN_REPAIR_BOUND_DEFAULT_SECONDS = 3600;
+
+/**
+ * Reads the `Main repair bound` config value as milliseconds.
+ *
+ * Takes seconds, like `Checks wait`, and parses the same way: a non-positive
+ * or non-finite value — including `0`, a negative number and a word — falls
+ * back to the default rather than refusing.
+ *
+ * @param value - the value in seconds, as the config holds it; empty where the key is absent.
+ * @returns the value in milliseconds when it is a positive finite number;
+ *   {@link MAIN_REPAIR_BOUND_DEFAULT_SECONDS} in milliseconds for anything else.
+ */
+export const mainRepairBoundMsOf = (value: string): number => {
+  const seconds = Number(value);
+  return (Number.isFinite(seconds) && seconds > 0 ? seconds : MAIN_REPAIR_BOUND_DEFAULT_SECONDS) * 1000;
+};
+
 /**
  * How long ago a host last answered for a reading.
  *
