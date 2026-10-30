@@ -147,7 +147,13 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # yet" as the 2026-10-18 raise; the pass sits beside `auto-deliver.ts`, which
 # names its own scripts the same way.
 #
-# RAISED TO 21 ON 2026-10-30 for `rules/role-gate.ts`'s `callsCommitStatus`,
+# RAISED TO 21 ON 2026-10-30 for `entry/approve.ts`, which gains its own
+# `plot-issue-status.sh` site beside the `plot-plan-state.sh` one: an approved
+# plan's issue owes its `Tracker approved status` word, the third caller of
+# the wrapper `deliver.ts` already reaches twice. Same tracker connector and
+# the same "no port answers this yet" as the 2026-10-04 and 2026-10-23 raises.
+#
+# RAISED TO 22 ON 2026-10-30 for `rules/role-gate.ts`'s `callsCommitStatus`,
 # the same kind of site the 2026-10-04 and 2026-10-24 raises named for
 # `DISPATCH_SH`/`APPROVE_SH`/`DELIVER_SH` and `STATE_RECEIPT_SH`: the
 # predicate CLASSIFIES a command string a role-deny hook is asked to judge
@@ -159,7 +165,7 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 #
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=21
+ALLOWED=22
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 
