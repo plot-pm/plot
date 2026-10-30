@@ -56,6 +56,14 @@ export interface ContinueBranchInput {
   caller: Caller;
   /** The answer the new run reads; the caller has bounded it. */
   answer: string;
+  /**
+   * The `askedAt` of the question this answer targets, where the caller named
+   * one. Absent, today's behaviour: the desk's current marker is used with no
+   * comparison.
+   */
+  questionKey?: string;
+  /** Who gave this answer: `unblocker`, or a person's handle. */
+  author?: string;
   /** Starts the desk's monitor; the shell script where absent. */
   monitors?: DeskMonitors;
 }
@@ -98,6 +106,8 @@ export const continueBranch = async (input: ContinueBranchInput): Promise<DeskCo
     main: input.pulse?.main ?? '',
     previousPid: found.pid,
     answer: input.answer,
+    expectedAskedAt: input.questionKey,
+    author: input.author,
     monitors: input.monitors,
   });
 };

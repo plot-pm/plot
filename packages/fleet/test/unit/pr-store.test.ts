@@ -1196,3 +1196,191 @@ describe('a pending check is asked again (#1277)', () => {
     },
   );
 });
+
+describe('the index records the review', () => {
+  // THE SHAPE: these rows are the GitHub rollup arm's real output. The four
+  // field values below (`plotReview`/`plotReviewSha`/`plotReviewAt`/`ciChecks`)
+  // were produced by running the committed `plot_review_ctx`/`ci_checks_of` jq
+  // against `gh`'s OWN executed GraphQL rollup for this repository's PR #2928 —
+  // a CI-green PR whose `plot/review` status context answered SUCCESS. The
+  // `pending`/`failure` variants substitute that one context's `state` field on
+  // the same captured JSON, because this repository's full `plot/review`
+  // history (100 PRs scanned, 2026-10-29) never recorded any non-SUCCESS
+  // answer to substitute verbatim — reported as a judgement call.
+  const headSha = 'f3a9c21b7e4d5681af02c9de4b7281a6c9d4e5f0';
+
+  const reaskArgv = 'pr-list --rich --state open';
+
+  /**
+   * A fake host that answers the re-ask (`--state open`, no `--since`)
+   * differently from every other `pr-list` shape. Same shape as the
+   * `twoFacedHost` inside `'a pending check is asked again (#1277)'` above,
+   * copied rather than hoisted — this file's convention is a per-describe
+   * local helper (`prListCall` is defined three times already).
+   *
+   * MATCHES BY PREFIX, NOT EXACT EQUALITY, unlike the #1277 block's own
+   * `twoFacedHost`: every row here carries `checksSha`, which makes
+   * `pr-refresh.ts`'s rotation append `--bound-shas {...}` to the re-ask argv.
+   * An exact-equality match against the bare `reaskArgv` would silently fall
+   * through to the plain branch and never prove anything.
+   */
+  const twoFacedHost = (plainRows: readonly string[], reaskRows: readonly string[]): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-store-'));
+    const plainBody = plainRows.map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n') || ':';
+    const reaskBody = reaskRows.map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n') || ':';
+    fs.writeFileSync(
+      path.join(dir, 'plot-host.sh'),
+      '#!/usr/bin/env bash\n'
+      + `printf '%s\\n' "$*" >> ${JSON.stringify(path.join(dir, 'argv'))}\n`
+      + 'if [ "$1" = pr-list ]; then\n'
+      + `  case "$*" in\n    ${JSON.stringify(reaskArgv)}*)\n${reaskBody}\n      ;;\n`
+      + `    *)\n${plainBody}\n      ;;\n  esac\n`
+      + 'fi\nexit 0\n',
+    );
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    dirs.push(dir);
+    return dir;
+  };
+
+  const reviewedLine = (over: Record<string, unknown> = {}): string => line({
+    number: 1, head: 'feature/one', checks: 'green', headSha, checksSha: headSha,
+    plotReview: 'success', plotReviewSha: headSha, plotReviewAt: '2026-10-20T10:00:00Z',
+    ciChecks: 'green',
+    ...over,
+  });
+
+  it('writes plotReview, plotReviewSha, plotReviewAt and ciChecks from a whole read', async () => {
+    const home = storeHome();
+    await refresh(host([reviewedLine()]), home);
+    const row = onDisk(home)?.rows[0];
+    expect(row).toMatchObject({
+      plotReview: 'success', plotReviewSha: headSha,
+      plotReviewAt: '2026-10-20T10:00:00Z', ciChecks: 'green',
+    });
+  });
+
+  it('writes plotReview: "absent" with no sha or timestamp when the rollup names no review context', async () => {
+    const home = storeHome();
+    await refresh(host([line({
+      number: 1, head: 'feature/one', checks: 'green', headSha, checksSha: headSha,
+      plotReview: 'absent', ciChecks: 'green',
+    })]), home);
+    const row = onDisk(home)?.rows[0];
+    expect(row?.plotReview).toBe('absent');
+    expect(row?.plotReviewSha).toBeUndefined();
+    expect(row?.plotReviewAt).toBeUndefined();
+  });
+
+  it('leaves plotReview, plotReviewSha, plotReviewAt and ciChecks absent on a plain row with none of the four fields', async () => {
+    // Jenkins and Bitbucket never request a rollup, so `pr-refresh.ts`'s
+    // `storeRow` must not invent a value for a PR none of the four arrived on.
+    const home = storeHome();
+    await refresh(host([line({ number: 1, head: 'feature/one' })]), home);
+    const row = onDisk(home)?.rows[0];
+    expect(row).not.toHaveProperty('plotReview');
+    expect(row).not.toHaveProperty('plotReviewSha');
+    expect(row).not.toHaveProperty('plotReviewAt');
+    expect(row).not.toHaveProperty('ciChecks');
+  });
+
+  it('round-trips a pending review distinctly from a failing one, both on a CI-green row', async () => {
+    // THE DONE-WHEN THIS TEST IS FOR: CI-red and review-failure must not
+    // collapse into the same `checks` reading. Both rows below keep
+    // `checks: 'green'` and `ciChecks: 'green'` — only `plotReview` differs.
+    const home = storeHome();
+    await refresh(host([
+      reviewedLine({ number: 1, head: 'feature/one', plotReview: 'pending' }),
+      reviewedLine({ number: 2, head: 'feature/two', plotReview: 'failure' }),
+    ]), home);
+    const rows = onDisk(home)?.rows ?? [];
+    expect(rows.find((r) => r.number === 1)).toMatchObject({ checks: 'green', ciChecks: 'green', plotReview: 'pending' });
+    expect(rows.find((r) => r.number === 2)).toMatchObject({ checks: 'green', ciChecks: 'green', plotReview: 'failure' });
+  });
+
+  it('reads ciChecks: "none" on a row whose rollup carries only the review context', async () => {
+    const home = storeHome();
+    await refresh(host([line({
+      number: 1, head: 'feature/one', checks: 'green', headSha, checksSha: headSha,
+      plotReview: 'success', plotReviewSha: headSha, plotReviewAt: '2026-10-20T10:00:00Z',
+      ciChecks: 'none',
+    })]), home);
+    expect(onDisk(home)?.rows[0]).toMatchObject({ ciChecks: 'none', plotReview: 'success' });
+  });
+
+  it('re-asks a green row whose review is still absent, and settles it to success within one re-ask', async () => {
+    // MODELED ON `'re-asks by number when a stored OPEN PR is still pending'`
+    // ABOVE — the same two-faced host proves which call produced the landed
+    // review, rather than the plain delta happening to carry it.
+    const home = storeHome();
+    await refresh(host([line({
+      number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green', headSha, checksSha: headSha,
+      plotReview: 'absent', ciChecks: 'green', updatedAt: '2026-09-20T12:00:00Z',
+    })]), home);
+    expect(onDisk(home)?.rows[0]).toMatchObject({ checks: 'green', plotReview: 'absent' });
+
+    // First delta: the review is now pending. Nothing in the plain window
+    // mentions #9 — only the re-ask call carries the new state.
+    const pendingHost = twoFacedHost(
+      [],
+      [line({
+        number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green', headSha, checksSha: headSha,
+        plotReview: 'pending', plotReviewSha: headSha, plotReviewAt: '2026-09-20T12:05:00Z',
+        ciChecks: 'green', updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    const afterPending = await refresh(pendingHost, home, freshPrState());
+    const pendingCalls = argvOf(pendingHost).filter((l) => l.startsWith('pr-list'));
+    expect(pendingCalls).toHaveLength(2);
+    expect(pendingCalls[1]?.startsWith(reaskArgv)).toBe(true);
+    expect(onDisk(home)?.rows.find((r) => r.number === 9)?.plotReview).toBe('pending');
+
+    // Second delta: the review lands as success.
+    const successHost = twoFacedHost(
+      [],
+      [line({
+        number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green', headSha, checksSha: headSha,
+        plotReview: 'success', plotReviewSha: headSha, plotReviewAt: '2026-09-20T12:10:00Z',
+        ciChecks: 'green', updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    await refresh(successHost, home, afterPending);
+    const successCalls = argvOf(successHost).filter((l) => l.startsWith('pr-list'));
+    expect(successCalls).toHaveLength(2);
+    expect(successCalls[1]?.startsWith(reaskArgv)).toBe(true);
+    expect(onDisk(home)?.rows.find((r) => r.number === 9)).toMatchObject({
+      plotReview: 'success', plotReviewSha: headSha,
+    });
+  });
+
+  it('does not re-ask a row whose review is already success on the current checksSha', async () => {
+    const home = storeHome();
+    await refresh(host([reviewedLine({
+      number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green',
+      updatedAt: '2026-09-20T12:00:00Z',
+    })]), home);
+
+    const scripts = twoFacedHost([], [reviewedLine({ number: 9, head: 'feature/nine' })]);
+    await refresh(scripts, home, freshPrState());
+    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
+  });
+
+  it('re-asks a row whose stored review is bound to a sha older than the current checksSha', async () => {
+    // A stale `plotReviewSha` means the review on file predates the commit CI
+    // just passed — settled for a commit this PR no longer carries.
+    const home = storeHome();
+    const oldSha = 'a'.repeat(40);
+    await refresh(host([line({
+      number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green',
+      headSha, checksSha: headSha, ciChecks: 'green',
+      plotReview: 'success', plotReviewSha: oldSha, plotReviewAt: '2026-09-20T11:00:00Z',
+      updatedAt: '2026-09-20T12:00:00Z',
+    })]), home);
+
+    const scripts = twoFacedHost([], [reviewedLine({ number: 9, head: 'feature/nine' })]);
+    await refresh(scripts, home, freshPrState());
+    const calls = argvOf(scripts).filter((l) => l.startsWith('pr-list'));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.startsWith(reaskArgv)).toBe(true);
+    expect(onDisk(home)?.rows.find((r) => r.number === 9)?.plotReviewSha).toBe(headSha);
+  });
+});

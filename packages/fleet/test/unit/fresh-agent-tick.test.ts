@@ -9,7 +9,7 @@ import type { PortResult } from '@plot-pm/domain';
 import type { FreshAgentRecord, FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
-import { freshAgentRecordFile, endingAskRecordFile, deskFs, agentsFs } from '@plot-pm/domain/adapters';
+import { freshAgentRecordFile, endingAskRecordFile, deskFs, agentsFs, runLogFixture, type RunLogFixture } from '@plot-pm/domain/adapters';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { PrMergedReading, PrOpenReading } from '@plot-pm/domain/rules/ending-action';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
@@ -673,6 +673,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
   // `PLOT-BLOCKED.md` file gives through `hasMarker`.
   const markedWorktrees = new Set<string>();
   const calls = deskFixtureCalls();
+  const runLog = runLogFixture();
   const ports: FreshAgentPorts = {
     record,
     asks,
@@ -683,6 +684,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
         return result;
       },
     },
+    runLog,
     now: () => new Date('2026-10-05T12:00:00.000Z'),
     start: async (input) => {
       starts.push({ branch: input.branch, answer: input.answer });
@@ -720,7 +722,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
     );
     return applyFreshAgentDecisions(freshAgentDecisions(readings, 2), ports);
   };
-  return { record, asks, world, ports, calls, markedWorktrees, starts, releases, tickOver };
+  return { record, asks, world, ports, calls, markedWorktrees, starts, releases, tickOver, runLog };
 };
 
 const boundDesk = (reason: 'bound' | 'unreadable' | 'quiet' = 'bound') => (_worktree: string, name: string) =>
@@ -746,13 +748,15 @@ const started = (input: { beforeStart: () => Promise<boolean> }): Promise<DeskCo
 
 describe('the tick starts one fresh session through continue', () => {
   it('starts one continue with the composed answer for a spent desk', async () => {
-    const { starts, tickOver } = rig(started);
+    const { starts, tickOver, runLog } = rig(started);
     const applied = await tickOver(spentDesk());
     expect(applied.map((a) => a.outcome)).toEqual(['started']);
     expect(starts).toHaveLength(1);
     expect(starts[0]?.branch).toBe('feature/x');
     expect(starts[0]?.answer).toContain('CI reported: gate');
     expect(starts[0]?.answer).toContain('https://github.com/plot-pm/plot/actions/runs/123');
+    expect(runLog.lines).toHaveLength(1);
+    expect(runLog.lines[0]).toMatchObject({ branch: 'feature/x', step: 'fresh-agent', outcome: 'moved' });
   });
 
   it('starts none on the next tick once the start is recorded, and writes a marker asking a person', async () => {
@@ -1439,10 +1443,12 @@ describe('a killed worker and a stopped worker through startFreshSession and con
     const starts: string[] = [];
     const reads = freshAgentDeskReads({ repoRoot: repo, scriptDir: '/nonexistent' }, asks, async () => ({ ok: true, value: 'not-merged' }));
     const opts = { repoRoot: repo, scriptsDir: '/nonexistent', manifestDir: manifests };
+    const runLog = runLogFixture();
     const ports: FreshAgentPorts = {
       record,
       asks,
       desk: deskFs({} as Trees),
+      runLog,
       now: () => new Date('2026-10-11T12:00:00.000Z'),
       start: async ({ branch, worktree, answer, beforeStart }) => {
         starts.push(branch);
@@ -1510,15 +1516,17 @@ describe('a killed worker and a stopped worker through startFreshSession and con
       while (Date.now() < deadline && !existsSync(join(desk, EXIT_FILENAME))) await new Promise((r) => setTimeout(r, 20));
       expect(readFileSync(join(desk, EXIT_FILENAME), 'utf8')).toBe('0');
     };
-    return { desk, manifests, record, starts, releases, out, tickOnce, settled };
+    return { desk, manifests, record, starts, releases, out, tickOnce, settled, runLog };
   };
 
   it('writes the supervisor ending, starts one fresh agent, records one row, and the next tick asks a person instead', async () => {
-    const { desk, manifests, record, starts, releases, out, tickOnce, settled } = estate();
+    const { desk, manifests, record, starts, releases, out, tickOnce, settled, runLog } = estate();
     writeFileSync(join(desk, EXIT_FILENAME), '143');
 
     const first = await tickOnce();
     expect(first.map((a) => a.outcome), out.join('')).toEqual(['started']);
+    expect(runLog.lines).toHaveLength(1);
+    expect(runLog.lines[0]).toMatchObject({ branch: 'feature/x', step: 'fresh-agent', outcome: 'moved' });
     expect(JSON.parse(readFileSync(join(desk, ENDING_FILENAME), 'utf8'))).toMatchObject({
       reason: 'unreadable',
       actor: 'supervisor',

@@ -300,6 +300,53 @@ export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] =>
     .map((row) => row.number);
 };
 
+/**
+ * The open, non-draft, in-scope rows whose `plot/review` state is not yet
+ * settled for the commit CI has already passed.
+ *
+ * **MODELED ON `pendingOpenPrNumbers`, SAME SHAPE.** A completed status write
+ * does not move a PR's `updatedAt`, so a `--since` delta never notices one —
+ * the only way the index learns of it is by asking this PR again regardless
+ * of its watermark. This answers which numbers need that ask.
+ *
+ * **ONLY A ROW WHOSE `ciChecks` ALREADY READS GREEN ON THE CURRENT HEAD.** A
+ * row CI has not finished with is already covered by `pendingOpenPrNumbers`
+ * (if `checks` is `pending`/`failing`) or will be re-asked by the next normal
+ * delta once CI moves `updatedAt`; re-asking it here too would spend the same
+ * bound twice for one wait.
+ *
+ * **`plotReview` ABSENT, `pending`, OR BOUND TO AN OLDER SHA — ALL THREE ASK
+ * AGAIN.** Absent and `pending` are the two states a review can still leave;
+ * a `plotReviewSha` that is not the row's own `checksSha` means the review on
+ * file predates the commit CI just passed, so it is stale rather than
+ * settled. A `success`, `failure` or `error` bound to the CURRENT sha is
+ * settled and not re-asked.
+ *
+ * @param held - the store as it was read, or null where there was none.
+ * @param branches - the branches in scope for this pass; a row on any other
+ * head is not this pass's to re-ask.
+ * @returns the numbers of the rows whose review needs asking again.
+ */
+export const reviewReaskPrNumbers = (
+  held: PrIndex | null,
+  branches: readonly string[],
+): readonly number[] => {
+  if (held === null) return [];
+  const inScope = new Set(branches);
+  return held.rows
+    .filter((row) => row.state === 'OPEN'
+      && !row.draft
+      && inScope.has(row.head)
+      && row.ciChecks === 'green'
+      && row.checksSha !== undefined
+      && row.checksSha === row.headSha
+      && (row.plotReview === undefined
+        || row.plotReview === 'absent'
+        || row.plotReview === 'pending'
+        || row.plotReviewSha !== row.checksSha))
+    .map((row) => row.number);
+};
+
 /** What a refresh may ask the host for. */
 export interface PrWindow {
   /**

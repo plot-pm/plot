@@ -29,6 +29,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      still cannot burn a night. `0` disables the floor, not the reading. See
      skills/plot/scripts/plot-worker-loop.sh. -->
 - **Correction budget:** 2
+- **Slice idle after:** 2h
 <!-- How many times a FAILING BUILD is handed back to the agent that pushed it
      before a person is asked. The BuildMonitor publishes `build failed`; the
      loop reads it on its next pass, writes the failure text verbatim into

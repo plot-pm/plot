@@ -11,6 +11,7 @@ import {
   treesFixture,
   type AgentsFixture,
   refusedSlicesFixture,
+  runLogFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Write } from '@plot-pm/domain';
 import type { LoopWrite, LoopWritePorts } from '../../src/server/entry/loop-writes.js';
@@ -41,6 +42,7 @@ const ports = (over: Partial<LoopWritePorts> = {}): LoopWritePorts => ({
   boundedRun: noBoundedRun,
   refusedSlices: refusedSlicesFixture(),
   host: hostFixture(),
+  runLog: runLogFixture(),
   ...over,
 });
 

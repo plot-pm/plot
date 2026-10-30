@@ -29,7 +29,7 @@ import {
   type Machine as MachineEntity,
 } from '@plot-pm/domain';
 import type { AgentEntry } from './registry.js';
-import { DISPATCH_SCRIPT, dispatchLogPath, scriptsOf, type ActOptions } from './action-log.js';
+import { DISPATCH_SCRIPT, dispatchLogPath, scriptsOf, runLogOf, type ActOptions } from './action-log.js';
 import { readInFlight, writeInFlight } from './in-flight-store.js';
 import { briefPath } from './brief-path.js';
 
@@ -117,6 +117,17 @@ export function runAutoDispatch(
     // controller acting, and the gate cannot tell a timer's dispatch from a
     // hand-typed one by the command line alone.
     recordActionReceipt(opts.repoRoot, 'dispatch', plan.slug);
+    // FIRE-AND-FORGET, like the spawn beside it: a run-log write must never
+    // make a dispatch wait on it, and a failed append is not a failed dispatch.
+    void runLogOf(opts).append({
+      plan: plan.slug,
+      branch: '',
+      pr: '',
+      head: '',
+      step: 'dispatch',
+      outcome: 'moved',
+      at: new Date().toISOString(),
+    });
     scriptsOf(opts).start(DISPATCH_SCRIPT, ['--max', String(plan.max), plan.slug], {
       log: out,
       onError: (err) => console.error('auto-dispatch failed to spawn:', err),

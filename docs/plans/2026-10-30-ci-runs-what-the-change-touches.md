@@ -70,11 +70,11 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Selection rule
 
-- `feature/ci-selection-rule` — the domain rule that maps changed paths to checks; `plot-local-checks.mjs` reads it; a corpus test holds the script-to-test map <!-- builds: the change-to-checks rule shared by plot-local-checks and CI, and the script-to-test map -->
+- `feature/ci-selection-rule` — the domain rule that maps changed paths to checks; `plot-local-checks.mjs` reads it; a corpus test holds the script-to-test map <!-- builds: the change-to-checks rule shared by plot-local-checks and CI, and the script-to-test map --> → #2945
 
 ### CI selection
 
-- `feature/ci-reads-the-selection` — a CI job calls the rule's bundle; suites run on the selected outputs; plan, sprint and `.plot/` changes select `corpus`; `validate`'s suites start with the other jobs <!-- waits: feature/ci-selection-rule -->
+- `feature/ci-reads-the-selection` — a CI job calls the rule's bundle; suites run on the selected outputs; plan, sprint and `.plot/` changes select `corpus`; `validate`'s suites start with the other jobs <!-- waits: feature/ci-selection-rule --> → #2947
 
 ### Corpus reading
 
@@ -82,7 +82,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Repair merge
 
-- `feature/ask-merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record -->
+- `feature/ask-merge-admits-the-repair-pr` — the `merge()` exception for the PR the repair record names while `main` is red; `slicePrNext` stays in #2904 <!-- waits: feature/the-repair-record --> → #2952
 
 ## Notes
 

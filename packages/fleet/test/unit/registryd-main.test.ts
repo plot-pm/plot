@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, r
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { refusedSlicesFixture } from '@plot-pm/domain/adapters';
+import { refusedSlicesFixture, runLogFixture } from '@plot-pm/domain/adapters';
 import { join } from 'node:path';
 import { connect, createServer } from 'node:net';
 
@@ -2732,7 +2732,7 @@ describe('startFreshAgents', () => {
       ? JSON.stringify({ reason: 'corrections-spent', actor: 'agent', branch: 'feature/x', detail: '' })
       : null;
 
-  const deps = (calls: string[]) => ({
+  const deps = (calls: string[], runLog = runLogFixture()) => ({
     deskFile: spentDeskFile,
     record: { rowsFor: async () => ({ ok: true as const, value: [] }) },
     heldFiles: async (): Promise<readonly string[] | null> => [],
@@ -2747,6 +2747,7 @@ describe('startFreshAgents', () => {
       record: { append: async () => ({ ok: true as const, value: undefined }) },
       asks: { append: async () => ({ ok: true as const, value: undefined }) },
       desk: { writeBlockedMarker: async () => ({ ok: true as const, value: undefined }) },
+      runLog,
       now: () => new Date('2026-10-05T12:00:00.000Z'),
       start: async (input: { branch: string; beforeStart: () => Promise<boolean> }) => {
         calls.push(input.branch);
@@ -2765,10 +2766,13 @@ describe('startFreshAgents', () => {
   it('starts a fresh session for a spent desk and reports it on the log', async () => {
     const calls: string[] = [];
     const out: string[] = [];
-    const applied = await startFreshAgents(report([desk]), deps(calls), (s) => out.push(s), () => {});
+    const runLog = runLogFixture();
+    const applied = await startFreshAgents(report([desk]), deps(calls, runLog), (s) => out.push(s), () => {});
     expect(calls).toEqual(['feature/x']);
     expect(applied.map((a) => a.outcome)).toEqual(['started']);
     expect(out.join('')).toContain('fresh-agent feature/x: started');
+    expect(runLog.lines).toHaveLength(1);
+    expect(runLog.lines[0]).toMatchObject({ branch: 'feature/x', step: 'fresh-agent', outcome: 'moved' });
   });
 
   it('reports a refusal on the error stream', async () => {

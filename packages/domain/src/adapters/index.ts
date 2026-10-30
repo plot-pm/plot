@@ -100,11 +100,26 @@ export {
 } from './fresh-agent-record/fresh-agent-record-file.js';
 
 export {
+  runLogFile,
+  decodeRunLogLine,
+  RUN_LOG_HOME_ENV,
+  type RunLogFileOptions,
+} from './run-log/run-log-file.js';
+export { runLogFixture, type RunLogFixture } from './run-log/run-log-fixture.js';
+
+export {
   endingAskRecordFile,
   decodeEndingAskRow,
   ENDING_ASK_RECORD_HOME_ENV,
   type EndingAskRecordFileOptions,
 } from './ending-ask-record/ending-ask-record-file.js';
+
+export {
+  answerRecordFile,
+  decodeAnswerRow,
+  ANSWER_RECORD_HOME_ENV,
+  type AnswerRecordFileOptions,
+} from './answer-record/answer-record-file.js';
 
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
 
@@ -152,6 +167,10 @@ export {
 // written by `plot-fleetd` only.
 export { defaultBranchFile, defaultBranchPath } from './default-branch/default-branch-file.js';
 export { fixerAttemptsFile, fixerAttemptsPath } from './fixer-attempts/fixer-attempts-file.js';
+
+// THE REPAIR RECORD'S FILE ADAPTER. One file under `.plot/state/`, local to
+// the machine, written by `plot-fleetd` only.
+export { repairRecordFile, repairRecordPath } from './repair-record/repair-record-file.js';
 
 // THE FLEET-STOPPED RECORD'S FILE ADAPTER. One file under `.plot/state/`,
 // written by `plot-fleetctl.sh --stop` and cleared by `--start`.

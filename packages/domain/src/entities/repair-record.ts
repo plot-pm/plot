@@ -1,0 +1,150 @@
+import { z } from 'zod';
+
+/**
+ * The version word the repair record file carries.
+ *
+ * A literal, so a future format's file fails the parse rather than the reader.
+ */
+export const REPAIR_RECORD_VERSION = 1;
+
+/**
+ * Where one red episode's repair sits in its life.
+ *
+ * `idle`        the episode is open; no re-run has been asked yet.
+ * `rerun`       the first red SHA's failed jobs were re-run once, awaiting the answer.
+ * `repairing`   the one repair attempt is in flight: a fix PR open or in review.
+ * `reverting`   the bound passed; a revert is in flight.
+ * `done`        main settled green; any open fix or revert PR was closed.
+ * `exhausted`   the episode ends with nothing more to try — a revert already
+ *               made, an unexplained red, a conflicting revert, or an
+ *               undeclared `Merger app`.
+ */
+// plot-state: lifecycle repair-record — idle -> rerun -> repairing -> reverting
+//                                       -> done | exhausted. transitions/repair-record.ts
+//                                       holds the legal moves; done and exhausted
+//                                       are terminal.
+export const RepairStateSchema = z.enum(['idle', 'rerun', 'repairing', 'reverting', 'done', 'exhausted']);
+export type RepairState = z.infer<typeof RepairStateSchema>;
+
+/** One commit between the last green SHA and the first red SHA, as the picker reads it. */
+export const CandidateCommitSchema = z
+  .object({
+    sha: z.string(),
+    subject: z.string(),
+  })
+  .strict();
+export type CandidateCommit = z.infer<typeof CandidateCommitSchema>;
+
+/**
+ * What the record holds about the one repair attempt this episode made.
+ *
+ * Absent while the episode is `idle` or `rerun`: an attempt exists only once
+ * `start-repair` has fired.
+ */
+export const RepairAttemptSchema = z
+  .object({
+    /** The branch `redMainStep`'s caller claimed and dispatched the role to. */
+    branch: z.string(),
+  })
+  .strict();
+export type RepairAttempt = z.infer<typeof RepairAttemptSchema>;
+
+/**
+ * The facts one red episode of the default branch needs to be repaired.
+ *
+ * Separate from `default-branch.json`: that file's schema is `.strict()` and a
+ * parse failure reads as no reading, so an added field or version bump there
+ * would make every older reader lift the hold on a red main. This file is new
+ * and carries no such reader.
+ *
+ * Fleetd is the only writer. The record is local to the machine that wrote
+ * it — it guards one machine's repair, not a cross-machine lock.
+ */
+export const RepairRecordSchema = z
+  .object({
+    v: z.literal(REPAIR_RECORD_VERSION),
+    /** The default branch this episode is about. */
+    branch: z.string(),
+    /** The lifecycle state. */
+    state: RepairStateSchema,
+    /**
+     * The last commit `default-branch.json` held settled green before this
+     * episode, or absent where the refresh had no previous reading to carry
+     * one from.
+     */
+    lastGreenSha: z.string().optional(),
+    /** The first commit this episode settled red. */
+    firstRedSha: z.string(),
+    /**
+     * When fleetd first observed the settled red, ISO-8601, this machine's
+     * clock — not a CI completion time.
+     */
+    redSince: z.string(),
+    /**
+     * The first-parent commits strictly between `lastGreenSha` and
+     * `firstRedSha`, newest first. Fixed at the episode's start; never
+     * re-read as the settled SHA moves.
+     */
+    candidates: z.array(CandidateCommitSchema),
+    /**
+     * Whether the first red SHA's failed jobs have been re-run yet.
+     *
+     * A green answer here ends the episode with no agent; a red answer moves
+     * the record out of `idle`/`rerun` toward `repairing`.
+     */
+    // plot-state: reading — whether the episode's one re-run of the first red
+    //                       SHA has been asked for. Set once, at `start-repair`;
+    //                       `redMainStep` re-reads it every pass until it settles.
+    rerun: z.enum(['none', 'asked']),
+    /**
+     * Whether the last green SHA has been re-run, which `revert` requires
+     * before it fires.
+     *
+     * A red answer here means the failure sits outside the repository, so the
+     * episode goes to `exhausted` rather than reverting.
+     */
+    // plot-state: reading — whether the pre-revert re-run of the last green
+    //                       SHA has been asked for. Set once, when the repair
+    //                       bound is reached; re-read until it settles.
+    preRevertRerun: z.enum(['none', 'asked']),
+    /** The one repair attempt this episode made, or absent where none has. */
+    attempt: RepairAttemptSchema.optional(),
+    /** The fix PR's number, or absent where none was opened. */
+    repairPr: z.number().optional(),
+    /** The revert PR's number, or absent where none was opened. */
+    revertPr: z.number().optional(),
+    /** When fleetd wrote the file, ISO-8601. */
+    at: z.string(),
+  })
+  .strict();
+export type RepairRecord = z.infer<typeof RepairRecordSchema>;
+
+/**
+ * Parses the file's text, or null where it is not one this Plot knows.
+ *
+ * Every failure is null — unparseable JSON, another `v`, an empty file — and
+ * null holds no open episode.
+ *
+ * @param text - the file's contents.
+ * @returns the record, or null where the text cannot be read as one.
+ */
+export const decodeRepairRecord = (text: string): RepairRecord | null => {
+  if (text.trim() === '') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const result = RepairRecordSchema.safeParse(parsed);
+  return result.success ? result.data : null;
+};
+
+/**
+ * Renders a record as the text written to disk.
+ *
+ * @param record - the record to render.
+ * @returns the file's contents, newline-terminated.
+ */
+export const encodeRepairRecord = (record: RepairRecord): string =>
+  `${JSON.stringify(record, null, 2)}\n`;

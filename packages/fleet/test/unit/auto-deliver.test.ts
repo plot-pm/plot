@@ -40,7 +40,7 @@ import { FLEET_SCAN_BUDGET_MS } from '../../src/shared/fleet-scan.js';
 import { deliverLogPath } from '../../src/shared/action-log.js';
 import { AUTO_DELIVER_MAX_FAILURES, retryDelayMs } from '@plot-pm/domain';
 import type { Scripts, StartOptions } from '@plot-pm/domain/ports/scripts';
-import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters';
+import { planStoreFixture, planRecord, runLogFixture } from '@plot-pm/domain/adapters';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Host, Refs } from '@plot-pm/domain';
 import { refsGit } from '@plot-pm/domain/adapters';
@@ -346,6 +346,16 @@ describe('maybeAutoDeliver — the act', () => {
     await settle();
     expect(runs()[0]).toBe('deliver ship-it');
     expect([...next]).toEqual(['ship-it']);
+  });
+
+  it('appends exactly one run-log line for the delivered plan', async () => {
+    const { opts, runs } = fixture('');
+    const runLog = runLogFixture();
+    maybeAutoDeliver({ ...opts, runLog }, finished(), new Set());
+    await settle();
+    expect(runs()[0]).toBe('deliver ship-it');
+    expect(runLog.lines).toHaveLength(1);
+    expect(runLog.lines[0]).toMatchObject({ plan: 'ship-it', step: 'deliver', outcome: 'moved' });
   });
 
   // ITEM 10, the AGENT entrance: a `Deliver command` is a shell fragment, and

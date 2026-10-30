@@ -15,11 +15,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { dispatchCandidates } from '@plot-pm/domain';
-import { maybeAutoDispatch, findMissingBriefs } from '../../src/shared/auto-dispatch.js';
+import { maybeAutoDispatch, findMissingBriefs, runAutoDispatch } from '../../src/shared/auto-dispatch.js';
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import type { AgentEntry } from '../../src/shared/registry.js';
 import type { FleetSettings } from '../../src/shared/fleet-settings-store.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
+import { runLogFixture } from '@plot-pm/domain/adapters';
+import { planAutoDispatch } from '@plot-pm/domain';
 
 const made: string[] = [];
 afterEach(() => {
@@ -245,5 +247,29 @@ describe('maybeAutoDispatch — the spawn half', () => {
     maybeAutoDispatch(opts, p, on(3), [], new Set());
     await settle();
     expect(runs().sort()).toEqual(['--max 1 two', '--max 2 one']);
+  });
+
+  it('runAutoDispatch appends exactly one run-log line per dispatched plan', async () => {
+    const { opts, runs } = fixture(['feature/a', 'feature/b']);
+    const p = pulse([
+      ['2026-08-22-one.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]],
+      ['2026-08-22-two.md', 'approved', [slice('W', 'eligible', [['feature/b', 'open']])]],
+    ]);
+    const runLog = runLogFixture();
+    const plans = planAutoDispatch({
+      controls: on(5),
+      pulse: p,
+      liveCount: 0,
+      agents: [],
+      inFlight: new Set(),
+      sharedInFlight: true,
+      missingBriefs: new Set(),
+    });
+    runAutoDispatch({ ...opts, runLog }, p, plans, new Set());
+    await settle();
+    expect(runs().sort()).toEqual(['--max 1 one', '--max 1 two']);
+    expect(runLog.lines).toHaveLength(2);
+    expect(runLog.lines.map((l) => l.step)).toEqual(['dispatch', 'dispatch']);
+    expect(runLog.lines.map((l) => l.plan).sort()).toEqual(['one', 'two']);
   });
 });

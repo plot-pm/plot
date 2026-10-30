@@ -470,6 +470,9 @@
 #   issue-comment <number> <marker> <body>          (github)
 #                                 edits the comment holding <marker>, else posts
 #                                 one; an empty <marker> always posts, not idempotent.
+#   issue-comment-read <number> <marker>            (github) prints the body of
+#                                 the comment holding <marker>, or nothing where
+#                                 none does. The plan-state write's one read-back.
 #   issue-list --label <label>    keeps open issues carrying the label (github
 #                                 only; exit 4 on Bitbucket and on Jira).
 #   issue-list --title-has <text> keeps open issues whose title contains <text>,
@@ -690,6 +693,11 @@ host_err() { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; }
 # that cannot be read never falls through to "no marker found, post new".
 gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'; }
 
+# EDITS THE COMMENT `$1` HOLDS, OR POSTS `$4` TO `$3` ON `$2` (`issue` or
+# `pr`) — shared by `issue-comment` and `pr-comment`, whose tails differed
+# only in that one word.
+gh_edit_or_post_comment() { if [ -n "$1" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$1" -f body="$4" >/dev/null 2>"$HOST_ERR"; else gh "$2" comment "$3" --body "$4" >/dev/null 2>"$HOST_ERR"; fi; }
+
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
@@ -703,8 +711,8 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
   if $k != "" and ($s|IN("","COMPLETED")) then (if ($k|IN("SUCCESS","NEUTRAL","SKIPPED")) then "ok" else "bad" end)
   elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
   elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
-  def checks_of: if (.statusCheckRollup|length) == 0 then "none" elif any(.statusCheckRollup[]; ck == "bad") then "failing"
-  elif any(.statusCheckRollup[]; ck == "wait") then "pending" else "green" end;'
+  def colour_of($r): if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing" elif any($r[]; ck == "wait") then "pending" else "green" end;
+  def checks_of: colour_of(.statusCheckRollup // []); def ci_checks_of: colour_of([.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")]);'
 
 # THE ONE FOLD of a PR's mergeability into a word, for `pr-list --rich` and both
 # `pr-state` transports. GraphQL says `mergeable` CONFLICTING|MERGEABLE|UNKNOWN
@@ -4802,15 +4810,14 @@ case "$op" in
             | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
-                checks:checks_of,
-                mergeable:mergeable_of,
+                checks:checks_of, mergeable:mergeable_of,
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
                 author:(.author.login // ""),
                 failing_checks:[
-                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != ""))
-              }'
+                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")), ciChecks:ci_checks_of
+              } + (([.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0]) as $pr | if $pr == null then {plotReview:"absent"} else {plotReview:($pr.state // "" | ascii_downcase), plotReviewSha:(.headRefOid // ""), plotReviewAt:($pr.startedAt // "")} end)'
         fi
       else
         # `isDraft`, `url` AND `updatedAt` TRAVEL ON THE PLAIN ARM TOO, and they
@@ -5738,12 +5745,15 @@ case "$op" in
       *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
 
-  issue-label|issue-comment|issue-close)
+  issue-label|issue-comment|issue-comment-read|issue-close)
     # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
-    # comment per issue and closes the issue at release; nothing reads any back.
-    #   issue-label   <n> <add> [<remove,...>]  adds one label, creating it first where the repo lacks it, and removes only the listed ones the issue carries, in one `gh issue edit`
-    #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts; an empty <marker> always posts
-    #   issue-close   <n>
+    # comment per issue and closes the issue at release; nothing reads any back,
+    # except `issue-comment-read`, the plan-state comment's one sanctioned
+    # read-back (D6: recovering ticket lines a write has no record to redo).
+    #   issue-label      <n> <add> [<remove,...>]  adds one label, creating it first where the repo lacks it, and removes only the listed ones the issue carries, in one `gh issue edit`
+    #   issue-comment      <n> <marker> <body>     edits the comment holding <marker>, else posts; an empty <marker> always posts
+    #   issue-comment-read <n> <marker>            prints the marked comment's body, or nothing where none carries it
+    #   issue-close      <n>
     # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
     # with the reason, for a source that cannot be asked.
     num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
@@ -5752,9 +5762,11 @@ case "$op" in
       issue-label) add="${2:?issue-label needs a label}"; carried="$(gh issue view "$num" --json labels -q '.labels[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort) | paste -sd, -)"; gh label create "$add" --color ededed --description "Plot plan phase: ${add#plan:}" >/dev/null 2>"$HOST_ERR" || grep -qi 'already exists' "$HOST_ERR" || gh_fail; gh issue edit "$num" --add-label "$add" ${keep:+--remove-label "$keep"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
-        cid=""; [ -z "${2-}" ] || cid="$(gh_marker_comment_id "$num" "$2")" || gh_fail
-        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR"
-        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail ;;
+        cid="${2:+$(gh_marker_comment_id "$num" "$2")}" || gh_fail
+        gh_edit_or_post_comment "$cid" issue "$num" "${3-}" || gh_fail ;;
+      issue-comment-read)
+        cid="$(gh_marker_comment_id "$num" "${2:?issue-comment-read needs a marker}")" || gh_fail
+        [ -z "$cid" ] || gh api "repos/{owner}/{repo}/issues/comments/$cid" -q .body 2>"$HOST_ERR" || gh_fail ;;
     esac
     rm -f "$HOST_ERR" ;;
 
@@ -6058,11 +6070,11 @@ case "$op" in
     # KEYED BY PR NUMBER, NOT A SHA — unlike commit-status, this writes through
     # the signed-in CLI identity, so it needs no App credentials and no Node
     # helper.
-    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
-    [ -z "${3-}" ] || cid="$(gh_marker_comment_id "$num" "$3")" || gh_fail
-    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR"; fi || gh_fail; rm -f "$HOST_ERR" ;;
+    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"
+    cid="${3:+$(gh_marker_comment_id "$num" "$3")}" || gh_fail
+    gh_edit_or_post_comment "$cid" pr "$num" "${2:?pr-comment needs a body}" || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
     ;;
 esac

@@ -35,7 +35,13 @@ import {
 import type { FleetReading } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
 import { record, signalOwn } from '../../../../test/reconcile/own-process.mjs';
-import { agentsFs, freshAgentRecordFile, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
+import {
+  agentsFs,
+  freshAgentRecordFile,
+  runLogFixture,
+  transcriptDirFor,
+  TRANSCRIPT_HOME_ENV,
+} from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '@plot-pm/fleet/server/entry/registryd-main';
 import {
@@ -2575,6 +2581,7 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
       processes: {} as WorkerLoopPorts['processes'],
       boundedRun: { run: async () => ({ ok: false, why: 'failed' }) },
       refusedSlices: refusedSlicesFixture(),
+      runLog: runLogFixture(),
       build: buildFixture(),
       host: hostFixture(),
       transcriptQuietSeconds: async () => 'unavailable',
@@ -2913,6 +2920,7 @@ describe('the tick starts a fresh session on a desk whose ending asks for one, w
       record,
       asks: { append: async () => ({ ok: true, value: undefined }) },
       desk: { writeBlockedMarker: async () => ({ ok: true, value: undefined }) },
+      runLog: runLogFixture(),
       now: () => new Date('2026-10-08T12:00:00.000Z'),
       start: ({ branch, worktree, answer, beforeStart }) =>
         startFreshSession(
