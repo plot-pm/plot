@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2915 merged
 - **Started:** 2026-10-30, Jan Wloka, `feature/a-dead-desk-reads-unreadable`
+- **Started:** 2026-10-30, Jan Wloka, `feature/holding-work-reads-the-merge`
 
 ## Changelog
 
