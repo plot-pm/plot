@@ -117,7 +117,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-fl
 
 ### One merge per pass
 
-- `feature/fleetd-merges-one-at-a-time` — the merge and hold arms of `slicePrNext`, `nextMerge` with one merge per pass, the merge in the daemon's automatic writes and never in `--once`, no retry of a `host-refused` merge at the same head, and the `Merger app` refusal on GitHub (D4); fleet unit tests over fake ports <!-- builds: the merge and hold arms of slicePrNext, nextMerge --> <!-- waits: feature/fleetd-reviews-slice-prs -->
+- `feature/fleetd-merges-one-at-a-time` — the merge and hold arms of `slicePrNext`, `nextMerge` with one merge per pass, the merge in the daemon's automatic writes and never in `--once`, no retry of a `host-refused` merge at the same head, and the `Merger app` refusal on GitHub (D4); fleet unit tests over fake ports <!-- builds: the merge and hold arms of slicePrNext, nextMerge --> <!-- waits: feature/fleetd-reviews-slice-prs --> → #2961
 
 ## Notes
 

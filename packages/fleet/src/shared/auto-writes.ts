@@ -1,6 +1,7 @@
 import { runAutoProgressPass } from './auto-progress.js';
 import type { FleetReading, HeldSlice } from '@plot-pm/domain';
 
+import { runAutoMergePass } from './auto-merge.js';
 import { runAutoDeliverPass } from './auto-deliver.js';
 import { runAutoVerifyPass, verifyingCount } from './auto-verify.js';
 import { runAutoDesignPass } from './auto-design.js';
@@ -45,6 +46,8 @@ export const fleetAutoWrites = (
   // WHETHER A MERGED BRANCH CARRIED WORK, for the daemon's life: a merge commit cannot change.
   const deliverCarried = new Map<string, boolean>();
   const progressSent = new Map<string, string>();
+  // THE (PR, HEAD) PAIRS THE HOST REFUSED TO MERGE, for the daemon's life: a restart asks once more.
+  const mergeRefused = new Map<number, string>();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -61,6 +64,9 @@ export const fleetAutoWrites = (
       if (!stopped()) own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked, briefWaits);
       await runAutoDeliverPass(opts, pulse, undefined, deliverHeldLogged, deliverCarried);
       await runAutoProgressPass(opts, pulse, progressSent);
+      // ONE MERGE PER PASS, after delivery has read the merges already landed.
+      // Under `--once` the scan clock does not run, so this never does either.
+      await runAutoMergePass(opts, mergeRefused);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.
       await runAutoVerifyPass(opts, pulse, {

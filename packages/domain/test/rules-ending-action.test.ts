@@ -12,6 +12,7 @@ import {
   BOUND_ENDINGS,
   isBoundEnding,
   killedWorkerEnding,
+  type DeadDeskReadings,
   type EndingActionReadings,
   type KilledWorkerReadings,
 } from '../src/rules/ending-action.js';
@@ -70,6 +71,53 @@ describe('endingAction', () => {
     expect(endingAction(takeUp)).toBe('release-claim');
     expect(endingReleaseBranch(takeUp)).toBe('infra/x');
     expect(endingAction(afterPrompt)).toBe('start-fresh');
+  });
+
+  it('answers leave for a holding-work ending only where the PR merged and the tree is clean, at either fresh-session count', () => {
+    for (const prMerged of ['merged', 'not-merged', 'unanswerable'] as const) {
+      for (const dirtyTree of ['no', 'yes'] as const) {
+        for (const priorFreshSessions of [0, 1]) {
+          const answer = endingAction(readings({ ending: 'holding-work', prMerged, dirtyTree, priorFreshSessions }));
+          const expected =
+            prMerged === 'merged' && dirtyTree === 'no' ? 'leave' : priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
+          expect(answer, `${prMerged}/${dirtyTree}/${priorFreshSessions}`).toBe(expected);
+        }
+      }
+    }
+  });
+
+  it('answers a dirtyTree the held-files read could not answer as dirty, so a merged holding-work desk keeps its answer', () => {
+    expect(endingAction(readings({ ending: 'holding-work', prMerged: 'merged', dirtyTree: 'unanswerable' }))).toBe('start-fresh');
+  });
+
+  it('releases a take-up holding-work whatever the merge and tree readings say', () => {
+    for (const prMerged of ['merged', 'not-merged', 'unanswerable'] as const) {
+      for (const dirtyTree of ['no', 'yes'] as const) {
+        const takeUp = readings({ ending: 'holding-work', branch: 'infra/prior', refusedAssignment: 'infra/x', prMerged, dirtyTree });
+        expect(endingAction(takeUp), `${prMerged}/${dirtyTree}`).toBe('release-claim');
+      }
+    }
+  });
+
+  it('changes only #2591 among the ten measured second endings once the holding-work arm reads the merge', () => {
+    // 2026-10-09..28 second endings, all ten PRs merged later. #2591's held
+    // files at the merge are not recorded: the row assumes a clean tree.
+    const measured: [number, EndingReason][] = [
+      [1959, 'blocked'], [2356, 'blocked'], [2358, 'blocked'], [2367, 'unreadable'], [2464, 'blocked'],
+      [2468, 'blocked'], [2591, 'holding-work'], [2711, 'checks-unanswered'], [2737, 'blocked'], [2752, 'blocked'],
+    ];
+    const asRead = (ending: EndingReason, over: Partial<EndingActionReadings>) =>
+      readings({ ending, branch: 'feature/x', priorFreshSessions: 1, commitBeyondClaim: 'yes', prOpen: true, ...over });
+    const changed = measured
+      .filter(([, ending]) => {
+        const before = endingAction(asRead(ending, { prMerged: 'unanswerable', dirtyTree: 'yes' }));
+        const after = endingAction(asRead(ending, { prMerged: 'merged', dirtyTree: 'no' }));
+        const withDirty = endingAction(asRead(ending, { prMerged: 'merged', dirtyTree: 'yes' }));
+        // a dirty tree never changes an arm that predates this slice
+        return before !== after && (ending === 'holding-work' || withDirty !== after);
+      })
+      .map(([pr]) => pr);
+    expect(changed).toEqual([2591]);
   });
 
   it('asks a person on a second after-prompt holding-work ending for the same slice', () => {
@@ -499,6 +547,68 @@ describe('killedWorkerEnding', () => {
 
   it('writes nothing for a detached desk, which names no branch to start', () => {
     expect(killedWorkerEnding(desk({ branch: '' }))).toBeNull();
+  });
+
+  describe('a dead desk the fleet launched — exit 0, or no exit record', () => {
+    const composing: DeadDeskReadings = {
+      launchPid: '4242\n',
+      dead: { dead: true },
+      commitBeyondClaim: 'yes',
+      pr: 'none',
+    };
+    const dead = (over: Partial<DeadDeskReadings> = {}, rest: Partial<KilledWorkerReadings> = {}) =>
+      desk({ exit: '0', deadDesk: { ...composing, ...over }, ...rest });
+
+    it('writes an unreadable supervisor ending naming what was read, for an exit of 0', () => {
+      expect(killedWorkerEnding(dead())).toEqual({
+        reason: 'unreadable',
+        actor: 'supervisor',
+        branch: 'infra/x',
+        detail: 'the worker exited 0 and wrote no ending; its branch holds work and no pull request',
+        refusedAssignment: '',
+        resumeId: '',
+      });
+    });
+
+    it('writes the no-record wording where there is no exit record, and prints no exit code', () => {
+      const ending = killedWorkerEnding(dead({}, { exit: null }));
+      expect(ending?.detail).toBe('the worker left no exit record and no ending; its branch holds work and no pull request');
+    });
+
+    it('writes nothing with every other reading set to compose and no launch record', () => {
+      expect(killedWorkerEnding(dead({ launchPid: null }))).toBeNull();
+      for (const launchPid of ['', 'abc', '0', '-3', '1.5']) expect(killedWorkerEnding(dead({ launchPid })), launchPid).toBeNull();
+    });
+
+    it('writes nothing when any one reading does not hold', () => {
+      const flips: Partial<DeadDeskReadings>[] = [
+        { dead: { dead: false, why: 'live' } },
+        { dead: { dead: false, why: 'waiting' } },
+        { dead: { dead: false, why: 'elsewhere' } },
+        { dead: { dead: false, why: 'unread' } },
+        { commitBeyondClaim: 'no' },
+        { commitBeyondClaim: 'unanswerable' },
+        { pr: 'some' },
+        { pr: 'unanswerable' },
+      ];
+      for (const flip of flips) expect(killedWorkerEnding(dead(flip)), JSON.stringify(flip)).toBeNull();
+      expect(killedWorkerEnding(dead({}, { loopAlive: true }))).toBeNull();
+      expect(killedWorkerEnding(dead({}, { branch: '' }))).toBeNull();
+    });
+
+    it('writes nothing without dead-desk readings, and for an exit record that holds no code', () => {
+      expect(killedWorkerEnding(desk({ exit: '0' }))).toBeNull();
+      for (const exit of ['', 'x']) expect(killedWorkerEnding(dead({}, { exit })), exit).toBeNull();
+    });
+
+    it("never overwrites a person's stopped ending or an unparseable one", () => {
+      const stopped: EndingReading = {
+        read: 'ended',
+        ending: { reason: 'stopped', actor: 'operator', branch: 'infra/x', detail: '', refusedAssignment: '', resumeId: '' },
+      };
+      expect(killedWorkerEnding(dead({}, { ending: stopped }))).toBeNull();
+      expect(killedWorkerEnding(dead({}, { ending: { read: 'unreadable', why: 'not JSON' } }))).toBeNull();
+    });
   });
 });
 

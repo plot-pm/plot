@@ -1,5 +1,6 @@
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { PrIndexRow } from '../entities/pr-index.js';
+import { defaultBranchAgeMs } from './default-branch.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { SprintScope } from './sprint-scope.js';
@@ -78,6 +79,11 @@ export interface SlicePrNextReadings {
   readonly fixer?: FixerReading;
   readonly ticket?: SiblingReading;
   readonly repair?: SiblingReading;
+  /**
+   * True where the host is GitHub and `Merger app` is undeclared. Absent reads
+   * as not applicable, which is every other host.
+   */
+  readonly mergerAppMissing?: boolean;
   readonly config: SlicePrConfig;
   /** Epoch milliseconds of the tick. */
   readonly now: number;
@@ -93,6 +99,8 @@ export type HoldReason =
   | 'default-branch-unread'
   | 'merge-in-flight'
   | 'conflicting'
+  | 'merger-app-missing'
+  | 'default-branch-unsettled'
   | 'unread'
   | (string & {});
 
@@ -268,13 +276,62 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
 };
 
 /**
- * Arm 8 (#2902, with #2904's repair exception). Answers a hold on an unread repair record until #2902 builds the merge.
+ * Arm 8 (#2902, with #2904's repair exception). Whether this head merges.
+ *
+ * A row whose `plot/review` is not `success` on its head answers `none` (or an
+ * `unread` hold on an unread repair record). Otherwise the first failing hold
+ * answers: `default-branch-unread` for no reading; `default-branch-stale` for
+ * a reading whose `askedAt` is older than `Checks wait` or does not parse, red
+ * or green; `default-branch-red`; `default-branch-unsettled` for a settled
+ * state that is not green; `merge-in-flight` for a settled commit that is not
+ * the head, or a merged row newer than the reading; `conflicting`;
+ * `merger-app-missing`. The stale check is this arm's own and never
+ * `defaultBranchRed`: a merge cannot be undone, so an old reading holds here
+ * where it lifts the queue's hold.
  *
  * @param readings - the PR's readings.
- * @returns an `unread` hold, or `none`.
+ * @returns `merge`, a hold, or `none`.
  */
-export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep =>
-  readings.repair?.read === 'unread' ? hold('unread') : none('merge-not-built');
+export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
+  const { row, defaultBranch, newestMerged, config, now } = readings;
+  if (readings.repair?.read === 'unread') return hold('unread');
+  if (row === null || row.headSha === undefined) return none('not-asked');
+  if (row.plotReview !== 'success' || row.plotReviewSha !== row.headSha) return none('not-passed');
+  if (defaultBranch === null) return hold('default-branch-unread');
+  const age = defaultBranchAgeMs(defaultBranch, now);
+  if (age === null || age > config.checksWaitMs) return hold('default-branch-stale');
+  const { settled } = defaultBranch;
+  if (settled?.state === 'red') return hold('default-branch-red');
+  if (settled === undefined || settled.state !== 'green') return hold('default-branch-unsettled');
+  const mergedAt = newestMerged === null ? Number.NaN : Date.parse(newestMerged.mergedAt);
+  const askedAt = Date.parse(defaultBranch.askedAt);
+  if (settled.sha !== defaultBranch.headSha || (newestMerged !== null && !(mergedAt <= askedAt))) {
+    return hold('merge-in-flight');
+  }
+  if (row.mergeable === 'CONFLICTING') return hold('conflicting');
+  if (readings.mergerAppMissing === true) return hold('merger-app-missing');
+  return { step: 'merge', head: row.headSha };
+};
+
+/** One open PR and the step {@link slicePrNext} answered for it. */
+export interface PrStepAnswer {
+  readonly pr: number;
+  readonly step: SlicePrStep;
+}
+
+/**
+ * Picks the one PR to merge in a pass.
+ *
+ * @param answers - each open PR's step.
+ * @returns the lowest-numbered PR whose step is `merge` with its head, or `null` where none is.
+ */
+export const nextMerge = (answers: readonly PrStepAnswer[]): { pr: number; head: string } | null => {
+  let pick: { pr: number; head: string } | null = null;
+  for (const { pr, step } of answers) {
+    if (step.step === 'merge' && (pick === null || pr < pick.pr)) pick = { pr, head: step.head };
+  }
+  return pick;
+};
 
 /**
  * The next step for one open PR.

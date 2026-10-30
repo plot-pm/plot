@@ -369,6 +369,31 @@ describe('run — the loop wiring', () => {
     expect(events).toEqual(['tick-ok', 'relay', 'sleep', 'tick-throws', 'relay', 'sleep', 'channel-stop']);
   });
 
+  it('runs no scan beat under --once, so the automatic writes and their merge never run', async () => {
+    const events: string[] = [];
+    const clock = clockManual(0);
+    let scans = 0;
+    await run(
+      ['--once'],
+      dir,
+      () => undefined,
+      async () => {
+        await prBeat(clock);
+      },
+      () => true,
+      () => undefined,
+      dir,
+      quiet(events, {
+        clock,
+        tick: async () => completedTick(),
+        scan: async () => {
+          scans += 1;
+        },
+      }),
+    );
+    expect(scans).toBe(0);
+  });
+
   it('retries a failed bind on a later PR beat, reads the default branch there, and stops the channel it bound', async () => {
     const events: string[] = [];
     const warnings: string[] = [];
