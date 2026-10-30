@@ -98,6 +98,15 @@ describe('a plan reflects its phase on its issues', () => {
       { issue: '7', phase: 'delivered', planLink: 'docs/plans/x.md' },
     ]);
   });
+
+  it('carries sliceProgress where the caller passes it, and omits it where not', () => {
+    expect(
+      planStateWrites({ phase: 'approved', issues: ['7'], planLink: 'docs/plans/x.md', sliceProgress: '1 of 2 slices merged' }),
+    ).toEqual([{ issue: '7', phase: 'approved', planLink: 'docs/plans/x.md', sliceProgress: '1 of 2 slices merged' }]);
+    expect(planStateWrites({ phase: 'approved', issues: ['7'], planLink: 'docs/plans/x.md' })).toEqual([
+      { issue: '7', phase: 'approved', planLink: 'docs/plans/x.md' },
+    ]);
+  });
 });
 
 describe('a run’s write outcomes reduce to the one a caller reports', () => {
