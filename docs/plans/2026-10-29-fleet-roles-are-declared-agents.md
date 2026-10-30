@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2908 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/role-agents-are-probed`
 - **Started:** 2026-10-30, Jan Wloka, `feature/role-agent-definitions`
+- **Started:** 2026-10-30, Jan Wloka, `feature/role-agents-start-detached`
 
 ## Changelog
 
