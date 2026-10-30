@@ -17,6 +17,7 @@
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-index-records-the-review`
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-scope-is-read-from-git`
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-review-run-is-locked`
+- **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-reviews-slice-prs`
 
 ## Changelog
 
