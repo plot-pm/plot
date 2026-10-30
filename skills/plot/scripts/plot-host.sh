@@ -703,8 +703,7 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
   if $k != "" and ($s|IN("","COMPLETED")) then (if ($k|IN("SUCCESS","NEUTRAL","SKIPPED")) then "ok" else "bad" end)
   elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
   elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
-  def colour_of($r): if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing"
-  elif any($r[]; ck == "wait") then "pending" else "green" end;
+  def colour_of($r): if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing" elif any($r[]; ck == "wait") then "pending" else "green" end;
   def checks_of: colour_of(.statusCheckRollup // []);
   def ci_checks_of: colour_of([.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")]);'
 
@@ -4801,8 +4800,7 @@ case "$op" in
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
-            | jq -c "$CHECKS_OF$MERGEABLE_OF"'def plot_review_ctx: [.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0];
-              .[] | {
+            | jq -c "$CHECKS_OF$MERGEABLE_OF"'def plot_review_ctx: [.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0]; .[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
                 checks:checks_of,
@@ -4814,11 +4812,7 @@ case "$op" in
                 failing_checks:[
                   .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")),
                 ciChecks:ci_checks_of
-              } + (plot_review_ctx as $pr | if $pr == null then {plotReview:"absent"} else {
-                plotReview:($pr.state // "" | ascii_downcase),
-                plotReviewSha:(.headRefOid // ""),
-                plotReviewAt:($pr.startedAt // "")
-              } end)'
+              } + (plot_review_ctx as $pr | if $pr == null then {plotReview:"absent"} else {plotReview:($pr.state // "" | ascii_downcase), plotReviewSha:(.headRefOid // ""), plotReviewAt:($pr.startedAt // "")} end)'
         fi
       else
         # `isDraft`, `url` AND `updatedAt` TRAVEL ON THE PLAIN ARM TOO, and they
