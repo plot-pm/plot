@@ -832,6 +832,7 @@ export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   // docs/plans/2026-10-29-the-release-waits-for-one-approval.md; the hand-over
   // to `merge` it decides is new behaviour with no prior shell equivalent.
   'release-approve': 'fixture',
+  'release-finish': 'fixture',
   // FIXTURE-VERIFIED ONLY, AND THERE IS NO SCRIPT TO BORROW FROM. The tick is
   // specified in docs/plans/2026-08-31-the-registry-supervises-its-agents.md
   // and `plot-registryd` is this workflow's caller rather than its source, so
