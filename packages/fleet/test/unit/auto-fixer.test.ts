@@ -9,11 +9,15 @@ import os from 'node:os';
 import path from 'node:path';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { FixerAttemptsRecord } from '@plot-pm/domain/entities/fixer-attempts';
+import { execFileSync } from 'node:child_process';
+import { treesGit } from '@plot-pm/domain/adapters';
 import { removeTree as rmTree } from '../rm-tree.mjs';
+import { takeContinueLock, releaseContinueLock } from '../../src/shared/continue-lock.js';
 import {
   fixerTick,
   deskDeadFromWorkerState,
   fixerRunDir,
+  fixerLockDir,
   type FixerTickWorld,
   type FixerTickReadings,
 } from '../../src/shared/auto-fixer.js';
@@ -69,6 +73,10 @@ interface WorldOptions {
   agentRunStarts?: { pid: number }[];
   /** How the started agent run settles: launches a pid, or fails to spawn at all. */
   agentRunOutcome?: 'starts' | 'never-spawns' | 'exits-unstarted' | 'rejects';
+  /** Every path `addBranch` was asked to create. */
+  addCalls?: string[];
+  /** Every path `removeOnly` was asked to remove. */
+  removeCalls?: string[];
 }
 
 const world = (opts: WorldOptions = {}): FixerTickWorld => ({
@@ -77,9 +85,19 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => ({
       opts.deskPath === undefined || opts.deskPath === null
         ? { ok: true, value: null }
         : { ok: true, value: { path: opts.deskPath, branch: 'feature/x', detached: false } },
+    // Behaves like `git worktree add`: refuses a target that exists and is
+    // not empty, and leaves a `.git` file in the tree it creates.
     addBranch: async (dir) => {
+      opts.addCalls?.push(dir);
       if (opts.addBranchOk === false) return { ok: false, why: 'failed' };
+      if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) return { ok: false, why: 'failed' };
       fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, '.git'), 'gitdir: elsewhere\n');
+      return { ok: true, value: undefined };
+    },
+    removeOnly: async (dir) => {
+      opts.removeCalls?.push(dir);
+      fs.rmSync(dir, { recursive: true, force: true });
       return { ok: true, value: undefined };
     },
   }),
@@ -309,6 +327,117 @@ describe('fixerTick', () => {
     const w = world({ roleText: null });
     const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, w);
     expect(result!.started).toEqual({ started: false, why: 'role-files-failed' });
+  });
+
+  it('creates the worktree at a run directory that does not exist yet, and leaves no lock behind', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const addCalls: string[] = [];
+    const w = world({ addCalls });
+    const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, w);
+    expect(result!.started).toEqual({ started: true, pid: 9001 });
+    expect(addCalls).toEqual([fixerRunDir(repoRoot, 7)]);
+    expect(fs.readdirSync(fixerRunDir(repoRoot, 7))).toEqual(['.git']);
+    expect(fs.readdirSync(fixerLockDir(repoRoot, 7))).toEqual([]);
+  });
+
+  it('refuses the start as lock-held while another start holds the PR lock', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const lockDir = fixerLockDir(repoRoot, 7);
+    fs.mkdirSync(lockDir, { recursive: true });
+    const held = takeContinueLock(lockDir);
+    expect(held).not.toBeNull();
+    try {
+      const addCalls: string[] = [];
+      const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ addCalls }));
+      expect(result!.started).toEqual({ started: false, why: 'lock-held' });
+      expect(addCalls).toEqual([]);
+    } finally {
+      releaseContinueLock(lockDir, held!);
+    }
+  });
+
+  it('starts over a run directory an earlier failed start left empty or holding only its lock files', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const runDir = fixerRunDir(repoRoot, 7);
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, '.plot-worker.continue.lock'), 'stale');
+    fs.writeFileSync(path.join(runDir, '.plot-worker.continue.lock.guard'), '');
+    const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world());
+    expect(result!.started).toEqual({ started: true, pid: 9001 });
+    expect(fs.readdirSync(runDir)).toEqual(['.git']);
+  });
+
+  it('refuses the start as worktree-leftover where the run directory holds anything else, and removes nothing', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const runDir = fixerRunDir(repoRoot, 7);
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, '.git'), 'gitdir: elsewhere\n');
+    const addCalls: string[] = [];
+    const removeCalls: string[] = [];
+    const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ addCalls, removeCalls }));
+    expect(result!.started).toEqual({ started: false, why: 'worktree-leftover' });
+    expect(addCalls).toEqual([]);
+    expect(removeCalls).toEqual([]);
+    expect(fs.readdirSync(runDir)).toEqual(['.git']);
+  });
+
+  it('removes the worktree it created when the start fails after creating it, so the next start succeeds', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const removeCalls: string[] = [];
+    const [failed] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ roleText: null, removeCalls }));
+    expect(failed!.started).toEqual({ started: false, why: 'role-files-failed' });
+    expect(removeCalls).toEqual([fixerRunDir(repoRoot, 7)]);
+    expect(fs.existsSync(fixerRunDir(repoRoot, 7))).toBe(false);
+
+    const [retried] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world());
+    expect(retried!.started).toEqual({ started: true, pid: 9001 });
+  });
+
+  it('removes nothing when the start fails before it created the worktree', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const removeCalls: string[] = [];
+    const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ prState: 'fail', removeCalls }));
+    expect(result!.started).toEqual({ started: false, why: 'unaskable' });
+    expect(removeCalls).toEqual([]);
+  });
+});
+
+describe('fixerTick against a real git repository', () => {
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+      cwd,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    }).trim();
+
+  const repo = () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-autofix-git-'));
+    made.push(repoRoot);
+    git(repoRoot, 'init', '-q', '-b', 'main');
+    git(repoRoot, 'commit', '-q', '--allow-empty', '-m', 'init');
+    const head = git(repoRoot, 'rev-parse', 'HEAD');
+    return { repoRoot, head };
+  };
+
+  const realWorld = (repoRoot: string, head: string, roleText?: string | null): FixerTickWorld => ({
+    ...world({ prState: { number: 7, state: 'OPEN', headSha: head }, roleText }),
+    trees: () => treesGit({ repoRoot, scriptDir: repoRoot }),
+  });
+
+  it('creates the fixer worktree on the PR branch, and removes it after a failed start so a retry succeeds', async () => {
+    const { repoRoot, head } = repo();
+    const row: PrIndexRow = { ...highRow, headSha: head, plotReviewSha: head };
+    const runDir = fixerRunDir(repoRoot, 7);
+
+    const [failed] = await fixerTick([row], baseReadings, { repoRoot, scriptsDir: repoRoot }, realWorld(repoRoot, head, null));
+    expect(failed!.step).toEqual({ step: 'fixer', head, evidence: 'high' });
+    expect(failed!.started).toEqual({ started: false, why: 'role-files-failed' });
+    expect(fs.existsSync(runDir)).toBe(false);
+
+    const [started] = await fixerTick([row], baseReadings, { repoRoot, scriptsDir: repoRoot }, realWorld(repoRoot, head));
+    expect(started!.started).toEqual({ started: true, pid: 9001 });
+    expect(git(runDir, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feature/x');
+    expect(git(runDir, 'rev-parse', 'HEAD')).toBe(head);
   });
 });
 

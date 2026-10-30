@@ -31,13 +31,13 @@ import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-line
 import { sameCommit } from '@plot-pm/domain/rules/same-commit';
 import type { WorkerState } from '@plot-pm/domain/entities/fleet';
 import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
-import { takeContinueLock, releaseContinueLock } from './continue-lock.js';
+import { takeContinueLock, releaseContinueLock, continueLockPath } from './continue-lock.js';
 import { mainCheckout } from './main-checkout.js';
 import type { ActOptions } from './action-log.js';
 
 /** What the fixer tick reads and acts through; a test replaces each. */
 export interface FixerTickWorld {
-  readonly trees: (opts: ActOptions) => Pick<Trees, 'forBranch' | 'addBranch'>;
+  readonly trees: (opts: ActOptions) => Pick<Trees, 'forBranch' | 'addBranch' | 'removeOnly'>;
   readonly host: (opts: ActOptions) => Pick<Host, 'prState'>;
   readonly worker: (opts: ActOptions) => Pick<Processes, 'workerState'>;
   readonly attempts: (opts: ActOptions) => Pick<FixerAttemptsStore, 'read' | 'append'>;
@@ -60,22 +60,61 @@ export type FixerStartRefusal =
   | 'pr-not-open'
   | 'head-moved'
   | 'unaskable'
+  | 'worktree-leftover'
   | 'worktree-failed'
   | 'role-files-failed'
   | 'role-command-refused'
   | 'command-exited-unstarted';
+
+/** What one fixer start answered: a launched process and its pid, or why none started. */
+export type FixerStartOutcome = { started: true; pid: number } | { started: false; why: FixerStartRefusal | string };
 
 /** What one tick did for one PR. */
 export interface FixerTickResult {
   readonly pr: number;
   readonly step: SlicePrStep;
   /** Set where the step was `fixer` and a start was tried. */
-  readonly started?: { started: true; pid: number } | { started: false; why: FixerStartRefusal | string };
+  readonly started?: FixerStartOutcome;
 }
 
 /** The worktree a fixer run works in, inside the fleet's own run directory. */
 export const fixerRunDir = (repoRoot: string, pr: number): string =>
   path.join(repoRoot, '.plot', 'fixer', String(pr));
+
+/**
+ * The directory that holds a PR's fixer start lock, outside {@link fixerRunDir}.
+ *
+ * `git worktree add` refuses a target path that exists and is not empty, so
+ * the lock file must not live in the worktree it serialises the creation of.
+ */
+export const fixerLockDir = (repoRoot: string, pr: number): string =>
+  path.join(repoRoot, '.plot', 'state', 'fixer', `${pr}.lock`);
+
+/** The name every continue-lock file, guard and scratch file starts with. */
+const LOCK_REMNANT_PREFIX = path.basename(continueLockPath('/'));
+
+/**
+ * Clears a run directory that holds no worktree, so `git worktree add` can create it.
+ *
+ * Removes the directory where it is empty or holds only continue-lock files —
+ * what a failed `git worktree add`, or a start that took its lock inside the
+ * run directory, leaves. Removes nothing else.
+ *
+ * @param dir - the fixer's run directory, absolute.
+ * @returns `true` where no directory is at `dir` now, `false` where something
+ *   other than lock files is there (a worktree among them) or the removal failed.
+ */
+const clearRunDirRemnants = (dir: string): boolean => {
+  try {
+    const entries = fs.readdirSync(dir);
+    if (!entries.every((entry) => entry.startsWith(LOCK_REMNANT_PREFIX))) return false;
+    for (const entry of entries) fs.rmSync(path.join(dir, entry), { force: true });
+    fs.rmdirSync(dir);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+};
 
 /** Where this fixer run's `--agents` JSON is written — outside the run's own tree, as `PLOT_ROLE_GATE` requires. */
 const fixerAgentsJsonPath = (repoRoot: string, pr: number): string =>
@@ -143,12 +182,12 @@ const correctionsSpentExhausted = async (
  * and whether its one fresh session is already spent on `corrections-spent`,
  * plus the fixer attempts record, then asks {@link slicePrNext}. On a `fixer`
  * step: writes the attempt first and refuses the start outright on any
- * failure to do so, takes the desk's continue lock, re-asks the host for the
- * PR's current state and head before starting, creates the fixer's OWN
- * worktree (separate from the slice's) on the PR's own branch, and starts the
- * role through the `command` agent runner with a `roleCommand`-built
- * fragment. The lock is released once the start call returns; it bounds the
- * start sequence, not the fixer's run.
+ * failure to do so, takes the PR's fixer start lock in {@link fixerLockDir},
+ * re-asks the host for the PR's current state and head before starting,
+ * creates the fixer's OWN worktree (separate from the slice's) on the PR's own
+ * branch at {@link fixerRunDir}, and starts the role through the `command`
+ * agent runner with a `roleCommand`-built fragment. The lock is released once
+ * the start call returns; it bounds the start sequence, not the fixer's run.
  *
  * @param rows - the open rows.
  * @param readings - the readings that do not depend on the row.
@@ -201,6 +240,13 @@ const findingFor = (step: { readonly evidence: 'high' | 'ci-red' }, head: string
  * Carries out a `fixer` step: write the attempt, take the lock, re-ask the
  * host, create the worktree, and start the role.
  *
+ * The lock lives in {@link fixerLockDir}, so the run directory does not exist
+ * when `git worktree add` creates it. A run directory that holds only lock
+ * files or nothing is removed first; one that holds anything else, a
+ * worktree among them, refuses the start as `worktree-leftover`. A start that
+ * created the worktree and then failed removes it through
+ * {@link Trees.removeOnly} before it releases the lock.
+ *
  * **WRITES NO `inFlight` MARK — a gap this wave inherits, not one it
  * invented.** The plan's text ("writes the attempt and its in-flight mark
  * before it starts the fixer") presumes the pid is known before the append;
@@ -228,92 +274,120 @@ const startFixer = async (
   row: PrIndexRow,
   step: { readonly head: string; readonly evidence: 'high' | 'ci-red' },
   worktree: string,
-): Promise<{ started: true; pid: number } | { started: false; why: FixerStartRefusal | string }> => {
+): Promise<FixerStartOutcome> => {
   const store = world.attempts(opts);
   const appended = await store.append(row.number, { headSha: step.head, finding: findingFor(step, step.head) });
   if (!appended.ok) return { started: false, why: 'append-failed' };
 
-  // The lock file lives inside `worktree`, which `addBranch` below does not
-  // create until after the lock is taken — so the directory must exist first.
-  fs.mkdirSync(worktree, { recursive: true });
-  const lock = takeContinueLock(worktree);
+  const lockDir = fixerLockDir(opts.repoRoot, row.number);
+  fs.mkdirSync(lockDir, { recursive: true });
+  const lock = takeContinueLock(lockDir);
   if (lock === null) return { started: false, why: 'lock-held' };
+  const trees = world.trees(opts);
+  let added = false;
+  let outcome: FixerStartOutcome = { started: false, why: 'unaskable' };
   try {
     const asked = await world.host(opts).prState(row.number, { withChecks: true });
-    if (!asked.ok) return { started: false, why: 'unaskable' };
+    if (!asked.ok) return (outcome = { started: false, why: 'unaskable' });
     const pr = asked.value;
-    if (pr === null || pr.state !== 'OPEN') return { started: false, why: 'pr-not-open' };
-    if (pr.headSha === undefined || pr.headSha === '') return { started: false, why: 'unaskable' };
-    if (!sameCommit(pr.headSha, step.head)) return { started: false, why: 'head-moved' };
+    if (pr === null || pr.state !== 'OPEN') return (outcome = { started: false, why: 'pr-not-open' });
+    if (pr.headSha === undefined || pr.headSha === '') return (outcome = { started: false, why: 'unaskable' });
+    if (!sameCommit(pr.headSha, step.head)) return (outcome = { started: false, why: 'head-moved' });
 
-    const main = mainCheckout(opts.repoRoot);
-    const added = await world.trees(opts).addBranch(worktree, row.head, pr.headSha);
-    if (!added.ok) return { started: false, why: 'worktree-failed' };
-
-    const text = world.readRoleFile(main, 'fixer');
-    if (text === null) return { started: false, why: 'role-files-failed' };
-    const json = roleAgentsJson('fixer', text);
-    if (json.read !== 'json') return { started: false, why: 'role-files-failed' };
-    const agentsFile = fixerAgentsJsonPath(opts.repoRoot, row.number);
-    fs.mkdirSync(path.dirname(agentsFile), { recursive: true });
-    fs.writeFileSync(agentsFile, json.json, 'utf8');
-
-    const ref: RoleAgentRef = {
-      name: 'fixer',
-      agentsFile,
-      settingsFile: path.join(main, '.claude', 'settings', 'fixer.json'),
-    };
-    const command = roleCommand(ref, maxTurnsOf(text));
-    if (command.read !== 'command') return { started: false, why: 'role-command-refused' };
-
-    const logFile = path.join(opts.repoRoot, '.plot', 'state', 'fixer', `${row.number}.log`);
-    fs.mkdirSync(path.dirname(logFile), { recursive: true });
-    return await new Promise<{ started: true; pid: number } | { started: false; why: FixerStartRefusal | string }>(
-      (resolve) => {
-        let settled = false;
-        // NOT AWAITED: the run itself is the fixer's whole session, which can
-        // run for its full turn bound. `startFixer` resolves once the process
-        // is launched — mirroring `board-run.ts`'s `startBoardRun`, the
-        // fleet's existing shape for "start a role, don't wait for it to end."
-        world
-          .agentRun(opts, command.command)
-          .run({
-            worktree,
-            prompt: '',
-            resumeId: '',
-            role: 'fixer',
-            harness: '',
-            model: '',
-            effort: '',
-            maxTurns: 0,
-            maxSpendUsd: 0,
-            boundSeconds: 0,
-            contextWindow: 0,
-            capabilities: [],
-            env: { PLOT_ROLE_GATE: path.join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs') },
-            logFile,
-            onStarted: (pid) => {
-              settled = true;
-              resolve({ started: true, pid });
-            },
-          })
-          .then((result) => {
-            // Reached only where the process never spawned at all — `onStarted`
-            // settles this promise in every path that does.
-            if (settled) return;
-            settled = true;
-            resolve({ started: false, why: result.ok ? 'command-exited-unstarted' : result.why });
-          })
-          .catch((err: unknown) => {
-            if (settled) return;
-            settled = true;
-            resolve({ started: false, why: err instanceof Error ? err.message : String(err) });
-          });
-      },
-    );
+    if (!clearRunDirRemnants(worktree)) return (outcome = { started: false, why: 'worktree-leftover' });
+    fs.mkdirSync(path.dirname(worktree), { recursive: true });
+    const made = await trees.addBranch(worktree, row.head, pr.headSha);
+    if (!made.ok) {
+      clearRunDirRemnants(worktree);
+      return (outcome = { started: false, why: 'worktree-failed' });
+    }
+    added = true;
+    outcome = await launchFixer(world, opts, row, worktree);
+    return outcome;
   } finally {
-    releaseContinueLock(worktree, lock);
+    if (added && !outcome.started) {
+      const removed = await trees.removeOnly(worktree);
+      if (!removed.ok) console.error(`could not remove the fixer worktree ${worktree} after a failed start`);
+    }
+    releaseContinueLock(lockDir, lock);
   }
+};
+
+/**
+ * Writes the role's `--agents` JSON and starts the fixer in its worktree.
+ *
+ * @param world - the fixer tick's world.
+ * @param opts - the repository and scripts directory.
+ * @param row - the PR's row, for its number.
+ * @param worktree - the fixer's worktree, absolute; it exists.
+ * @returns whether a process started, and its pid, or why not.
+ */
+const launchFixer = async (
+  world: FixerTickWorld,
+  opts: ActOptions,
+  row: PrIndexRow,
+  worktree: string,
+): Promise<FixerStartOutcome> => {
+  const main = mainCheckout(opts.repoRoot);
+  const text = world.readRoleFile(main, 'fixer');
+  if (text === null) return { started: false, why: 'role-files-failed' };
+  const json = roleAgentsJson('fixer', text);
+  if (json.read !== 'json') return { started: false, why: 'role-files-failed' };
+  const agentsFile = fixerAgentsJsonPath(opts.repoRoot, row.number);
+  fs.mkdirSync(path.dirname(agentsFile), { recursive: true });
+  fs.writeFileSync(agentsFile, json.json, 'utf8');
+
+  const ref: RoleAgentRef = {
+    name: 'fixer',
+    agentsFile,
+    settingsFile: path.join(main, '.claude', 'settings', 'fixer.json'),
+  };
+  const command = roleCommand(ref, maxTurnsOf(text));
+  if (command.read !== 'command') return { started: false, why: 'role-command-refused' };
+
+  const logFile = path.join(opts.repoRoot, '.plot', 'state', 'fixer', `${row.number}.log`);
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  return await new Promise<FixerStartOutcome>((resolve) => {
+    let settled = false;
+    // NOT AWAITED: the run itself is the fixer's whole session, which can
+    // run for its full turn bound. `launchFixer` resolves once the process
+    // is launched — mirroring `board-run.ts`'s `startBoardRun`, the
+    // fleet's existing shape for "start a role, don't wait for it to end."
+    world
+      .agentRun(opts, command.command)
+      .run({
+        worktree,
+        prompt: '',
+        resumeId: '',
+        role: 'fixer',
+        harness: '',
+        model: '',
+        effort: '',
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: 0,
+        contextWindow: 0,
+        capabilities: [],
+        env: { PLOT_ROLE_GATE: path.join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs') },
+        logFile,
+        onStarted: (pid) => {
+          settled = true;
+          resolve({ started: true, pid });
+        },
+      })
+      .then((result) => {
+        // Reached only where the process never spawned at all — `onStarted`
+        // settles this promise in every path that does.
+        if (settled) return;
+        settled = true;
+        resolve({ started: false, why: result.ok ? 'command-exited-unstarted' : result.why });
+      })
+      .catch((err: unknown) => {
+        if (settled) return;
+        settled = true;
+        resolve({ started: false, why: err instanceof Error ? err.message : String(err) });
+      });
+  });
 };
 
 /** The ports built from the real adapters. */
