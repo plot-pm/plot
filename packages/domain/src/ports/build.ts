@@ -120,6 +120,21 @@ export interface BuildPort {
   runsForSha(branch: string, sha: string): Promise<PortResult<readonly WorkflowShaRun[]>>;
 
   /**
+   * Re-runs the failed jobs of every run that concluded as a failure for ONE commit.
+   *
+   * A WRITE, and the only one on this port. It starts work on the CI system and
+   * is not repeated by the connector: a caller asks once per episode and reads
+   * the outcome through {@link runsForSha}.
+   *
+   * @param branch - the branch the runs belong to.
+   * @param sha - the commit whose failed runs are re-run.
+   * @returns `answered` with nothing once the host accepted every re-run;
+   *   `unaskable` where there is no CI to ask or the connector has no arm for
+   *   the write; `failed` where the host refused one.
+   */
+  rerunFailed(branch: string, sha: string): Promise<PortResult<null>>;
+
+  /**
    * What is this connector's limit, and how well does it know it?
    *
    * ITS OWN, and that is why the operation is here rather than borrowed from

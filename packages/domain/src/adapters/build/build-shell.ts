@@ -198,6 +198,9 @@ export const buildReads = (shell: BuildShell, env: Readonly<Record<string, strin
         stdout.trim() === '' ? [] : asJson<RawShaRun[]>(stdout).map(workflowShaRunOf),
       ),
 
+    rerunFailed: (branch: string, sha: string): Promise<PortResult<null>> =>
+      ask(['rerun-failed', branch, sha], () => null),
+
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
       const readings = await ask(['ci-limit'], (stdout) =>
         asJsonLines<RawLimit>(stdout).map(limitOf),

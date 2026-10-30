@@ -123,6 +123,9 @@ export const buildJenkins = (context: ShellContext): BuildPort => {
       );
     },
 
+    // `plot-host.sh rerun-failed` exits 4 for Jenkins, which reads `unaskable`.
+    rerunFailed: (branch, sha): Promise<PortResult<null>> => reads.rerunFailed(branch, sha),
+
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 
     lastRefusal: (): string | null => reads.lastRefusal(),

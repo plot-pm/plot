@@ -5219,6 +5219,16 @@ case "$op" in
       '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, startedAt, completedAt, steps: [(.steps // [])[].conclusion]}]}' || exit 4
     ;;
 
+  rerun-failed)
+    # Re-runs the failed jobs of every concluded-red run for ONE sha. Exit 4
+    # is *cannot be asked*: any CI but GitHub Actions on GitHub, and a failing `gh`.
+    branch="${1:?$op needs a branch}"; sha="${2:?$op needs a sha}"
+    [ "$(ci_scheme)" = github-actions ] && [ "$be" = github ] || exit 4
+    _ids=$(gh run list --branch "$branch" --limit 50 --json headSha,conclusion,databaseId \
+      --jq ".[] | select(.headSha == \"$sha\" and .conclusion == \"failure\") | .databaseId" 2>/dev/null) || exit 4
+    for _id in $_ids; do gh run rerun "$_id" --failed >/dev/null 2>&1 || exit 4; done
+    ;;
+
   issue-list)
     # Open tracker issues — the board's inbox, and READ-ONLY in both
     # directions. Nothing here writes a label, an assignee or a close: the
