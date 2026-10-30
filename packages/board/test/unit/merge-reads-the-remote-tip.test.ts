@@ -109,7 +109,7 @@ describe('plot-ask merge reads the default branch\'s remote tip', () => {
         host: {
           backend: async () => answered('github'),
           prState: async () => answered(pr),
-          prReview: async () => answered({ sha: HEAD, state: 'success', bypass: false }),
+          prReview: async () => answered({ sha: HEAD, state: 'success', description: '', time: '', bypass: false }),
         } as unknown as MergePorts['host'],
         scripts: {
           hostSaid: async (args: string[]) => {

@@ -49,6 +49,8 @@ const reading = (state: 'red' | 'green' | 'pending'): DefaultBranchReading => ({
 const review = (over: Partial<PrReviewReading> = {}): PrReviewReading => ({
   sha: HEAD,
   state: 'success',
+  description: '',
+  time: '',
   bypass: false,
   ...over,
 });
@@ -307,7 +309,7 @@ describe('mergeAt — the workflow wired to its ports', () => {
         prState: async () => (lookup === 'unaskable'
           ? { ok: false, why: 'unaskable' as const }
           : { ok: true, value: lookup }),
-        prReview: async () => ({ ok: true, value: { sha: lookup === 'unaskable' ? '' : (lookup?.headSha ?? ''), state: 'success', bypass: false } }),
+        prReview: async () => ({ ok: true, value: { sha: lookup === 'unaskable' ? '' : (lookup?.headSha ?? ''), state: 'success', description: '', time: '', bypass: false } }),
       },
       scripts: {
         hostSaid: async (args: string[]) => {
@@ -567,7 +569,7 @@ describe('mergeAt — the repair PR on a red default branch', () => {
       host: {
         backend: async () => ({ ok: true, value: 'github' }),
         prState: async () => ({ ok: true, value: lookup }),
-        prReview: async () => ({ ok: true, value: { sha: head, state: 'success', bypass: false } }),
+        prReview: async () => ({ ok: true, value: { sha: head, state: 'success', description: '', time: '', bypass: false } }),
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: red }) },

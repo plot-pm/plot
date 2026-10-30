@@ -111,14 +111,19 @@
 #                                 (exit 0) where none merged. The same query
 #                                 `pr-merge-commit` runs. EXIT 3 is the question
 #                                 failing.
-#   pr-review <number>             one JSON line `{"sha","state","bypass"}`: the PR's
-#                                 head sha, the newest `plot/review` status on it
-#                                 (`success|failure|pending|error`, or `absent`),
-#                                 and whether a comment starts `review-bypass:`.
-#                                 Bitbucket reads the same words from the
+#   pr-review <number>             one JSON line `{"sha","state","description","time","bypass"}`:
+#                                 the PR's head sha, the newest `plot/review`
+#                                 status on it (`success|failure|pending|error`,
+#                                 or `absent`), that status's description and
+#                                 time (both `""` where state is `absent`), and
+#                                 whether a comment starts `review-bypass:`.
+#                                 Bitbucket reads the same state words from the
 #                                 `plot/review` commit status (SUCCESSFUL,
-#                                 FAILED, INPROGRESS, STOPPED). EXIT 3 is the
-#                                 question failing.
+#                                 FAILED, INPROGRESS, STOPPED), its
+#                                 `description`, and its `updated_on` as the
+#                                 time — `commit-status` writes that status
+#                                 through `plot-bitbucket-commit-status.mjs`.
+#                                 EXIT 3 is the question failing.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
@@ -4412,7 +4417,7 @@ case "$op" in
         || die3 "pr-review: the read failed"
       exit 0; fi
     out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
-      && jq -c --argjson st "$st" '{sha: .headRefOid, state: ([$st[] | select(.context == "plot/review")][0].state // "absent"), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
+      && jq -c --argjson st "$st" '[$st[] | select(.context == "plot/review")][0] as $m | {sha: .headRefOid, state: ($m.state // "absent"), description: ($m.description // ""), time: ($m.updated_at // ""), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
       || die3 "pr-review: the read failed" ;;
 
   pr-create)

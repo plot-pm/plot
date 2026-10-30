@@ -444,7 +444,7 @@ describe('a repository with no CI answers unaskable everywhere', () => {
 
 describe('hostFixture: prReview', () => {
   it('answers the listed reading and fails a PR it does not list', async () => {
-    const reading = { sha: 'abc', state: 'success', bypass: false };
+    const reading = { sha: 'abc', state: 'success', description: '', time: '', bypass: false };
     const host = hostFixture({ reviews: { 7: reading } });
     expect(await host.prReview(7)).toEqual({ ok: true, value: reading });
     expect(await host.prReview(8)).toEqual({ ok: false, why: 'failed' });

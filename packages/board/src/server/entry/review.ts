@@ -8,7 +8,7 @@ import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { reviewIssue } from '@plot-pm/domain/rules/review-issue';
-import type { Host, Trees } from '@plot-pm/domain';
+import type { Host, Pr, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
 import {
@@ -17,7 +17,8 @@ import {
   reviewVerdict,
   type ReviewCounts,
 } from '@plot-pm/domain/rules/review-verdict';
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -119,7 +120,47 @@ export interface ReviewDeps {
   removeFile: (file: string) => void;
   /** The current time, UTC to the second, as `2026-10-19T16:44:37Z`. */
   now: () => string;
+  /** This process's id, for the run lock. */
+  pid: () => number;
+  /** A fresh unique id, for the run lock and the newest-pending check. */
+  runId: () => string;
+  /**
+   * Whether a pid is a live process. `null` where the question could not be
+   * put at all — the same three-way answer `pidAlive` in `slots-file.ts`
+   * gives, so a lock whose liveness cannot be determined is never treated as
+   * dead.
+   */
+  isAlive: (pid: number) => boolean | null;
+  /**
+   * Publishes `content` under `path`, whole, the way `slots-file.ts` claims a
+   * slot: write a scratch file first, then `link` it into `path`. `wx` alone
+   * publishes the name before the content, so a second reader could open an
+   * empty file; `link` only ever makes a complete one visible.
+   *
+   * @returns `taken` where `path` is now held by this write, `held` where a
+   *   name was already there, `failed` where the filesystem refused outright.
+   */
+  publishLock: (path: string, content: string) => 'taken' | 'held' | 'failed';
+  /** Removes a lock file; a missing file is success, matching `removeFile`. */
+  removeLock: (path: string) => void;
 }
+
+/** One run's claim on a `<pr>-<sha>` lock. */
+interface RunLock {
+  pid: number;
+  runId: string;
+}
+
+/** How a run lock is written — one line, two fields, no parser needed. */
+const encodeLock = (lock: RunLock): string => `${Math.trunc(lock.pid)}\t${lock.runId}\n`;
+
+/** Reads a run lock back, or null where the text is not one this wrote. */
+const decodeLock = (text: string): RunLock | null => {
+  const [pid, runId] = text.trim().split('\t');
+  const parsedPid = Number(pid);
+  if (!Number.isFinite(parsedPid) || runId === undefined || runId === '') return null;
+  return { pid: parsedPid, runId };
+};
 
 /** What one review run answered. */
 export interface ReviewOutcome {
@@ -139,6 +180,38 @@ const writeTextOutcome = (deps: ReviewDeps, file: string, text: string): ReviewO
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return refuse(`could not write ${file}: ${reason}`);
+  }
+};
+
+/**
+ * Takes the exclusive run lock at `path`, the way `slots-file.ts` claims a
+ * slot: write the whole claim to a scratch file, then publish it with `link`
+ * so the name and the content always arrive together. A lock already held by
+ * a dead pid is moved aside and the take is tried once more; held by a live
+ * one, this run refuses.
+ *
+ * @returns this run's own lock, or null where another live run holds it or
+ *   the filesystem refused outright.
+ */
+const acquireRunLock = (deps: ReviewDeps, path: string): RunLock | null => {
+  const mine: RunLock = { pid: deps.pid(), runId: deps.runId() };
+  const scratch = `${path}.${mine.pid}.${mine.runId}.tmp`;
+  try {
+    deps.writeText(scratch, encodeLock(mine));
+  } catch {
+    return null;
+  }
+  try {
+    const first = deps.publishLock(scratch, path);
+    if (first === 'taken') return mine;
+    if (first === 'failed') return null;
+    const held = decodeLock(deps.readText(path) ?? '');
+    if (held !== null && deps.isAlive(held.pid) !== false) return null;
+    deps.removeLock(path);
+    const retaken = deps.publishLock(scratch, path);
+    return retaken === 'taken' ? mine : null;
+  } finally {
+    deps.removeLock(scratch);
   }
 };
 
@@ -210,6 +283,34 @@ const prCommentBody = (text: (verdict: string) => string, verdictText: string, v
 };
 
 /**
+ * Reads the head's `plot/review` status, then writes this run's `pending`
+ * status with `run <run id>` in its description.
+ *
+ * The read comes first because `pending` becomes the newest status on the
+ * head: a `failure` written before this run is only visible before that
+ * write. A head that reads `failure` gets no `pending` write, so a run that
+ * stops before its final write leaves the `failure` in place.
+ *
+ * @param deps - the ports.
+ * @param pr - the pull request under review.
+ * @param sha - the reviewed head.
+ * @param lock - this run's lock, whose run id the description carries.
+ * @returns null where `pending` was written; otherwise the refusal, which
+ *   names a failed read, a reading for another head, an existing `failure`,
+ *   or a refused write.
+ */
+const markPending = async (deps: ReviewDeps, pr: Pr, sha: string, lock: RunLock): Promise<ReviewOutcome | null> => {
+  const before = await deps.host.prReview(pr.number);
+  if (!before.ok) return refuse(`the host did not answer the review status of PR #${pr.number}`);
+  if (before.value.sha !== sha) return refuse(`the host read the review status of PR #${pr.number} on ${before.value.sha}, not on ${sha}`);
+  if (before.value.state === 'failure') return refuse(`${sha} already carries a failure status; no run replaces it`);
+  const pending = await deps.host.commitStatus({
+    sha, state: 'pending', context: REVIEW_CONTEXT, description: `run ${lock.runId}`, targetUrl: pr.url,
+  });
+  return pending.ok ? null : refuse(`the host did not accept the pending status on ${sha}`);
+};
+
+/**
  * Runs one review.
  *
  * @param deps - the ports and file operations.
@@ -238,66 +339,136 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const reviews = path.join(deps.commonDir, 'plot', 'state', 'reviews');
   const verdictFile = path.join(reviews, `${key}.md`);
   const diffFile = path.join(reviews, `${key}.diff`);
+  const lockFile = path.join(reviews, `${key}.lock`);
   const lines: string[] = [];
 
   const command = reviewerCommand(charter.charter, [reviews]);
   if (command.read === 'refused') return refuse(command.why);
   const agentRun = deps.agentRun(command.command);
 
-  deps.removeFile(verdictFile);
-  deps.removeFile(diffFile);
-  const tree = path.join(deps.repoRoot, '.worktrees', `review-${pr.number}-${sha.slice(0, 7)}`);
-  const logFile = path.join(deps.repoRoot, '.plot', 'logs', `review-${pr.number}-${sha.slice(0, 7)}.log`);
-  if (!(await deps.fetchSha(sha))) return refuse(`commit ${sha} is not available locally and could not be fetched`);
-  await deps.trees.prune();
-  const added = await deps.trees.add(tree, sha);
-  if (!added.ok) return refuse(`could not create the review worktree ${tree}`);
-  let ran;
+  const lock = acquireRunLock(deps, lockFile);
+  if (lock === null) return refuse(`PR #${pr.number} at ${sha} is already under review: review-running`);
   try {
-    const change = await deps.readChange(tree, pr.base, sha);
-    if (!change.ok) return refuse(`the change of PR #${pr.number} could not be read: ${change.why}`);
-    const diffWrite = writeTextOutcome(deps, diffFile, change.diff);
-    if (diffWrite !== null) return diffWrite;
-    const request = reviewRequestBlock({
-      pr: pr.number,
-      headSha: sha,
-      base: pr.base,
-      mergeBase: change.mergeBase,
-      files: change.files,
-      diffPath: diffFile,
-      diff: change.diff,
-    });
-    ran = await agentRun.run({
-      worktree: tree,
-      prompt: `${charter.charter.prompt}\n\n${request}`,
-      resumeId: '',
-      role: 'reviewer',
-      harness: charter.charter.harness,
-      model: charter.charter.model,
-      effort: charter.charter.effort,
-      maxTurns: 0,
-      maxSpendUsd: 0,
-      boundSeconds: REVIEW_BOUND_SECONDS,
-      contextWindow: 0,
-      capabilities: [...new Set(['read-only', ...charter.charter.capabilities])],
-      env: {},
-      logFile,
-      onStarted: () => {},
-    });
-  } finally {
-    await deps.trees.removeOnly(tree);
-  }
-  if (!ran.ok) return refuse('the reviewer run could not be started');
-  if (ran.value.end.answer !== 'ran') return refuse(`the reviewer run ended without finishing: ${ran.value.end.answer}`);
+    const started = await markPending(deps, pr, sha, lock);
+    if (started !== null) return started;
 
-  const verdictText = ran.value.finalText ?? '';
-  if (verdictText.trim() === '') return refuse('the reviewer gave no final answer');
-  const verdictWrite = writeTextOutcome(deps, verdictFile, verdictText);
-  if (verdictWrite !== null) return verdictWrite;
+    deps.removeFile(verdictFile);
+    deps.removeFile(diffFile);
+    const tree = path.join(deps.repoRoot, '.worktrees', `review-${pr.number}-${sha.slice(0, 7)}`);
+    const logFile = path.join(deps.repoRoot, '.plot', 'logs', `review-${pr.number}-${sha.slice(0, 7)}.log`);
+    if (!(await deps.fetchSha(sha))) return refuse(`commit ${sha} is not available locally and could not be fetched`);
+    await deps.trees.prune();
+    const added = await deps.trees.add(tree, sha);
+    if (!added.ok) return refuse(`could not create the review worktree ${tree}`);
+    let ran;
+    try {
+      const change = await deps.readChange(tree, pr.base, sha);
+      if (!change.ok) return refuse(`the change of PR #${pr.number} could not be read: ${change.why}`);
+      const diffWrite = writeTextOutcome(deps, diffFile, change.diff);
+      if (diffWrite !== null) return diffWrite;
+      const request = reviewRequestBlock({
+        pr: pr.number,
+        headSha: sha,
+        base: pr.base,
+        mergeBase: change.mergeBase,
+        files: change.files,
+        diffPath: diffFile,
+        diff: change.diff,
+      });
+      ran = await agentRun.run({
+        worktree: tree,
+        prompt: `${charter.charter.prompt}\n\n${request}`,
+        resumeId: '',
+        role: 'reviewer',
+        harness: charter.charter.harness,
+        model: charter.charter.model,
+        effort: charter.charter.effort,
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: REVIEW_BOUND_SECONDS,
+        contextWindow: 0,
+        capabilities: [...new Set(['read-only', ...charter.charter.capabilities])],
+        env: {},
+        logFile,
+        onStarted: () => {},
+      });
+    } finally {
+      await deps.trees.removeOnly(tree);
+    }
+    if (!ran.ok) return refuse('the reviewer run could not be started');
+    if (ran.value.end.answer !== 'ran') return refuse(`the reviewer run ended without finishing: ${ran.value.end.answer}`);
+
+    const verdictText = ran.value.finalText ?? '';
+    if (verdictText.trim() === '') return refuse('the reviewer gave no final answer');
+    const verdictWrite = writeTextOutcome(deps, verdictFile, verdictText);
+    if (verdictWrite !== null) return verdictWrite;
+    const verdict = reviewVerdict(verdictText);
+    if (verdict.read === 'refused') return refuse(`verdict ${verdictFile} refused: ${verdict.why}`);
+
+    return finishReview(deps, pr, sha, verdictFile, verdictText, verdict.counts, lock, lines);
+  } finally {
+    deps.removeLock(lockFile);
+  }
+};
+
+/**
+ * Writes the status tail alone, for a run that already has a verdict file
+ * from an earlier, interrupted attempt: no fetch, no worktree, no agent.
+ * Takes the same lock and the same two write-time guards as a full run.
+ *
+ * @param deps - the ports and file operations.
+ * @param ref - the PR number, or `''` for the current branch's PR.
+ * @returns the exit code and the lines to print.
+ */
+export const reviewStatusOnly = async (deps: ReviewDeps, ref: string): Promise<ReviewOutcome> => {
+  const asked = ref === '' ? deps.currentBranch : ref;
+  if (asked === '') return refuse('no PR number given and the current branch is unknown');
+  const looked = await deps.host.prState(asked);
+  if (!looked.ok) return refuse(`the host did not answer for ${asked}`);
+  const pr = looked.value;
+  if (pr === null) return refuse(`${asked} has no pull request`);
+  if (pr.state !== 'OPEN') return refuse(`PR #${pr.number} is ${pr.state}, not open`);
+  const sha = pr.headSha ?? '';
+  if (sha === '') return refuse(`the host named no head commit for PR #${pr.number}`);
+  if (pr.url === '') return refuse(`the host named no URL for PR #${pr.number}`);
+
+  const key = `${pr.number}-${sha}`;
+  const reviews = path.join(deps.commonDir, 'plot', 'state', 'reviews');
+  const verdictFile = path.join(reviews, `${key}.md`);
+  const lockFile = path.join(reviews, `${key}.lock`);
+  const lines: string[] = [];
+
+  const verdictText = deps.readText(verdictFile);
+  if (verdictText === null) return refuse(`no verdict file ${verdictFile} to write a status from`);
   const verdict = reviewVerdict(verdictText);
   if (verdict.read === 'refused') return refuse(`verdict ${verdictFile} refused: ${verdict.why}`);
-  const { counts } = verdict;
 
+  const lock = acquireRunLock(deps, lockFile);
+  if (lock === null) return refuse(`PR #${pr.number} at ${sha} is already under review: review-running`);
+  try {
+    const started = await markPending(deps, pr, sha, lock);
+    if (started !== null) return started;
+    return finishReview(deps, pr, sha, verdictFile, verdictText, verdict.counts, lock, lines);
+  } finally {
+    deps.removeLock(lockFile);
+  }
+};
+
+/**
+ * The status-write tail, shared by a full run and `--status-only`: posts the
+ * findings comment, then writes the final status under the newest-pending
+ * and no-replace-failure guards.
+ */
+const finishReview = async (
+  deps: ReviewDeps,
+  pr: Pr,
+  sha: string,
+  verdictFile: string,
+  verdictText: string,
+  counts: ReviewCounts,
+  lock: RunLock,
+  lines: string[],
+): Promise<ReviewOutcome> => {
   const after = await deps.host.prState(String(pr.number));
   if (after.ok && after.value !== null && (after.value.headSha ?? '') !== sha) {
     lines.push(`plot-review: the head of PR #${pr.number} moved to ${after.value.headSha} during review; the status is written on the reviewed ${sha}`);
@@ -323,6 +494,18 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
       lines.push(`plot-review: the findings were not posted on the PR: ${why}; they are only in ${verdictFile}`);
     }
   }
+
+  const reading = await deps.host.prReview(pr.number);
+  if (reading.ok && reading.value.sha === sha) {
+    if (reading.value.state === 'failure') {
+      return { code: EXIT.refused, lines: [...lines, `plot-review: ${sha} already carries a failure status; no run replaces it`] };
+    }
+    const newest = reading.value.description;
+    if (reading.value.state === 'pending' && newest !== `run ${lock.runId}`) {
+      return { code: EXIT.refused, lines: [...lines, `plot-review: superseded by ${newest || 'another run'} before the status could be written`] };
+    }
+  }
+
   const state = counts.high === 0 ? 'success' : 'failure';
   const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
   const written = await deps.host.commitStatus({
@@ -412,6 +595,28 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
     },
     removeFile: (file) => rmSync(file, { force: true }),
     now: () => new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+    pid: () => process.pid,
+    runId: () => randomUUID(),
+    isAlive: (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ESRCH') return false;
+        if (code === 'EPERM') return true;
+        return null;
+      }
+    },
+    publishLock: (scratch, target) => {
+      try {
+        linkSync(scratch, target);
+        return 'taken';
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'EEXIST' ? 'held' : 'failed';
+      }
+    },
+    removeLock: (file) => rmSync(file, { force: true }),
   };
 };
 
@@ -432,8 +637,14 @@ export const run = async (
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
-  if (argv.length > 1 || (argv[0] !== undefined && !/^\d+$/.test(argv[0]))) {
-    warn('plot-review: usage: plot-review.mjs [<pr-number>]\n');
+  let statusOnly = false;
+  const positional: string[] = [];
+  for (const arg of argv) {
+    if (arg === '--status-only') statusOnly = true;
+    else positional.push(arg);
+  }
+  if (positional.length > 1 || (positional[0] !== undefined && !/^\d+$/.test(positional[0]))) {
+    warn('plot-review: usage: plot-review.mjs [<pr-number>] [--status-only]\n');
     return EXIT.usage;
   }
   const deps = await machineDeps(cwd, scriptDir);
@@ -441,7 +652,9 @@ export const run = async (
     warn('plot-review: not a git repository — run this from inside the checkout\n');
     return EXIT.usage;
   }
-  const outcome = await reviewPr(deps, argv[0] ?? '');
+  const outcome = statusOnly
+    ? await reviewStatusOnly(deps, positional[0] ?? '')
+    : await reviewPr(deps, positional[0] ?? '');
   const out = outcome.code === EXIT.ok ? write : warn;
   for (const line of outcome.lines) out(`${line}\n`);
   return outcome.code;

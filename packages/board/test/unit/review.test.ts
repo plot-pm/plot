@@ -4,8 +4,9 @@ import type { Pr } from '@plot-pm/domain/entities/pr';
 import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
 import type { AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
 import type { Trees } from '@plot-pm/domain';
-import { EXIT, reviewPr, type ReviewChange, type ReviewDeps } from '../../src/server/entry/review.js';
+import { EXIT, reviewPr, reviewStatusOnly, type ReviewChange, type ReviewDeps } from '../../src/server/entry/review.js';
 import { REVIEW_INLINE_DIFF_LIMIT } from '@plot-pm/domain/rules/review-verdict';
+import { bitbucketReview } from '@plot-pm/domain/rules/bitbucket-pr-reading';
 
 const answered = <T>(value: T) => ({ ok: true as const, value });
 const HEAD = 'a'.repeat(40);
@@ -20,7 +21,10 @@ const pr = (over: Partial<Pr> = {}): Pr => ({
 
 interface Rig {
   deps: ReviewDeps;
+  /** Every `commitStatus` write except the lock's own `pending` marker. */
   statuses: CommitStatusWrite[];
+  /** Every `commitStatus` write, `pending` included, in call order. */
+  allStatuses: CommitStatusWrite[];
   requests: AgentRunRequest[];
   commands: string[];
   files: Map<string, string>;
@@ -28,6 +32,9 @@ interface Rig {
   written: string[];
   changeBases: string[];
   prComments: { pr: number; body: string }[];
+  locks: Map<string, string>;
+  pids: Map<number, boolean | null>;
+  runIds: string[];
 }
 
 const RUN = '2026-10-19T16:44:37Z';
@@ -38,6 +45,22 @@ const TREE = '/repo/.worktrees/review-7-aaaaaaa';
 const REVIEWS = '/repo/.git/plot/state/reviews';
 const DIFF_FILE = `${REVIEWS}/7-${HEAD}.diff`;
 
+const BITBUCKET_WORD: Readonly<Record<string, string>> = { success: 'SUCCESSFUL', failure: 'FAILED', pending: 'INPROGRESS' };
+
+/**
+ * What Bitbucket's `/commit/<sha>/statuses?sort=-created_on` returns after
+ * `writes`, oldest first: one status per key, a later write replacing the
+ * earlier one's state and description, newest first.
+ */
+const bitbucketStatuses = (writes: CommitStatusWrite[]) => {
+  const byKey = new Map<string, { key: string; state: string; description: string; updated_on: string }>();
+  writes.forEach((w, i) => {
+    byKey.delete(w.context);
+    byKey.set(w.context, { key: w.context, state: BITBUCKET_WORD[w.state] ?? 'STOPPED', description: w.description, updated_on: `2026-10-30T10:00:${String(i).padStart(2, '0')}Z` });
+  });
+  return [...byKey.values()].reverse();
+};
+
 const rig = (
   verdict: string | null,
   opts: {
@@ -47,9 +70,17 @@ const rig = (
     change?: ReviewChange;
     prCommentFails?: boolean;
     prCommentUnaskable?: boolean;
+    pid?: number;
+    runIds?: string[];
+    pids?: Map<number, boolean | null>;
+    locks?: Map<string, string>;
+    /** Statuses already on the head before the run starts, oldest first. */
+    prior?: CommitStatusWrite[];
+    /** Which host's status store `prReview` replays: GitHub's list, or Bitbucket's one status per key. */
+    backend?: 'github' | 'bitbucket';
   } = {},
 ): Rig => {
-  const statuses: CommitStatusWrite[] = [];
+  const allStatuses: CommitStatusWrite[] = [];
   const requests: AgentRunRequest[] = [];
   const commands: string[] = [];
   const removed: string[] = [];
@@ -57,11 +88,15 @@ const rig = (
   const changeBases: string[] = [];
   const prComments: { pr: number; body: string }[] = [];
   const files = opts.files ?? new Map<string, string>();
+  const locks = opts.locks ?? new Map<string, string>();
+  const pids = opts.pids ?? new Map<number, boolean | null>();
+  const runIds = opts.runIds ?? [];
+  let runIdCalls = 0;
   let asked = 0;
   const prs = opts.prs ?? [pr()];
   const hostBase = hostFixture({
     prs,
-    commitStatuses: statuses,
+    commitStatuses: allStatuses,
     prComments,
     prCommentFails: opts.prCommentFails,
     prCommentUnaskable: opts.prCommentUnaskable,
@@ -74,6 +109,19 @@ const rig = (
       asked += 1;
       if (asked > 1 && opts.headAfter !== undefined) return answered(pr({ headSha: opts.headAfter }));
       return hostBase.prState(ref);
+    },
+    // Mirrors a real git host: `prReview` reads back whatever `commitStatus`
+    // last wrote for that sha, newest pending included — never the fixture's
+    // own static `reviews` map, which no caller here populates.
+    prReview: async (number: number) => {
+      const asked = prs.find((p) => p.number === number);
+      if (asked === undefined) return hostBase.prReview(number);
+      const head = asked.headSha ?? '';
+      const mine = [...(opts.prior ?? []), ...allStatuses].filter((s) => s.targetUrl === asked.url && s.sha === head);
+      if (opts.backend === 'bitbucket') return answered(bitbucketReview(head, bitbucketStatuses(mine), []));
+      const last = mine.at(-1);
+      if (last === undefined) return answered({ sha: head, state: 'absent', description: '', time: '', bypass: false });
+      return answered({ sha: last.sha, state: last.state, description: last.description, time: RUN, bypass: false });
     },
   };
   const agentRun: AgentRun = {
@@ -99,12 +147,31 @@ const rig = (
     fetchSha: async () => true,
     readChange: async (_tree, base) => { changeBases.push(base); return opts.change ?? CHANGE; },
     readCharterText: () => CHARTER,
-    readText: (f) => files.get(f) ?? null,
+    readText: (f) => files.get(f) ?? locks.get(f) ?? null,
     writeText: (f, t) => { written.push(f); files.set(f, t); },
     removeFile: (f) => { files.delete(f); },
     now: () => RUN,
+    pid: () => opts.pid ?? 1234,
+    runId: () => {
+      const id = runIds[runIdCalls] ?? `run-id-${runIdCalls}`;
+      runIdCalls += 1;
+      return id;
+    },
+    isAlive: (p) => pids.get(p) ?? true,
+    publishLock: (scratch, target) => {
+      if (locks.has(target)) return 'held';
+      const content = files.get(scratch);
+      if (content === undefined) return 'failed';
+      locks.set(target, content);
+      return 'taken';
+    },
+    removeLock: (f) => { locks.delete(f); files.delete(f); },
   };
-  return { deps, statuses, requests, commands, files, removed, written, changeBases, prComments };
+  return {
+    deps,
+    get statuses() { return allStatuses.filter((s) => s.state !== 'pending'); },
+    allStatuses, requests, commands, files, removed, written, changeBases, prComments, locks, pids, runIds,
+  };
 };
 
 const FINDINGS = '- [HIGH] leaks a token\nFindings: HIGH 2, MEDIUM 1, LOW 0\n';
@@ -141,7 +208,8 @@ describe('reviewPr', () => {
   });
 
   it('a second run on an unchanged head edits the same comment, not a second one', async () => {
-    const r = rig(FINDINGS);
+    // HIGH 0: a first run's `failure` would refuse the second run outright.
+    const r = rig('- [MEDIUM] slow loop\nFindings: HIGH 0, MEDIUM 1, LOW 0\n');
     await reviewPr(r.deps, '7');
     await reviewPr(r.deps, '7');
     expect(r.prComments).toHaveLength(1);
@@ -155,8 +223,7 @@ describe('reviewPr', () => {
   it('keeps the worst-case description within the host\'s 140-character cap', async () => {
     const r = rig('Findings: HIGH 99, MEDIUM 99, LOW 99\n');
     await reviewPr(r.deps, '7');
-    await reviewPr(r.deps, '7');
-    const description = r.statuses[1]!.description;
+    const description = r.statuses[0]!.description;
     expect(description).toBe(`99 HIGH findings; run ${RUN}`);
     expect(description.length).toBeLessThanOrEqual(140);
   });
@@ -335,8 +402,10 @@ describe('reviewPr', () => {
 
   it('refuses by name when a tracked regular file blocks the reviews directory, instead of throwing', async () => {
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
-    r.deps.writeText = (file) => {
-      throw new Error(`ENOTDIR: not a directory, mkdir '${REVIEWS}'`);
+    const original = r.deps.writeText;
+    r.deps.writeText = (file, text) => {
+      if (file === DIFF_FILE) throw new Error(`ENOTDIR: not a directory, mkdir '${REVIEWS}'`);
+      original(file, text);
     };
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.refused);
@@ -369,6 +438,111 @@ describe('reviewPr', () => {
     const r = rig(FINDINGS, { prs: [pr({ state: 'MERGED' })] });
     expect((await reviewPr(r.deps, '7')).code).toBe(EXIT.refused);
     expect(r.requests).toHaveLength(0);
+  });
+});
+
+describe('the run lock', () => {
+  const LOCK_FILE = `${REVIEWS}/7-${HEAD}.lock`;
+
+  it('a second run refuses review-running and removes neither file of the first', async () => {
+    const files = new Map([
+      [`/repo/.git/plot/state/reviews/7-${HEAD}.md`, 'earlier verdict\n'],
+      [DIFF_FILE, 'earlier diff\n'],
+    ]);
+    const locks = new Map([[LOCK_FILE, '999\tother-run\n']]);
+    const r = rig(FINDINGS, { files, locks, pids: new Map([[999, true]]) });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines[0]).toContain('review-running');
+    expect(r.files.get(`/repo/.git/plot/state/reviews/7-${HEAD}.md`)).toBe('earlier verdict\n');
+    expect(r.files.get(DIFF_FILE)).toBe('earlier diff\n');
+    expect(r.statuses).toHaveLength(0);
+    expect(r.requests).toHaveLength(0);
+  });
+
+  it('a lock with a dead pid is moved aside and the next run\'s take succeeds', async () => {
+    const locks = new Map([[LOCK_FILE, '999\tdead-run\n']]);
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { locks, pids: new Map([[999, false]]) });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(r.statuses).toHaveLength(1);
+  });
+
+  it('a superseded run writes no status at all', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    r.deps.host.prReview = async (number: number) =>
+      answered({ sha: HEAD, state: 'pending', description: 'run someone-elses-run-id', time: RUN, bypass: false });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('superseded');
+    expect(r.statuses).toHaveLength(0);
+  });
+
+  const FAILED_BEFORE: CommitStatusWrite = {
+    sha: HEAD, state: 'failure', context: 'plot/review', description: '1 HIGH finding', targetUrl: 'https://github.com/o/r/pull/7',
+  };
+
+  it('no run replaces a failure written before it started, and writes no pending over it', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { prior: [FAILED_BEFORE] });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('already carries a failure status');
+    expect(r.allStatuses).toHaveLength(0);
+    expect(r.requests).toHaveLength(0);
+    expect((await r.deps.host.prReview(7))).toMatchObject({ ok: true, value: { state: 'failure' } });
+  });
+
+  it('--status-only replaces no failure written before it started', async () => {
+    const files = new Map([[`/repo/.git/plot/state/reviews/7-${HEAD}.md`, 'Findings: HIGH 0, MEDIUM 0, LOW 0\n']]);
+    const r = rig(null, { files, prior: [FAILED_BEFORE] });
+    const out = await reviewStatusOnly(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('already carries a failure status');
+    expect(r.allStatuses).toHaveLength(0);
+  });
+
+  it('a run that stops before its final write leaves an earlier failure in place, not pending', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { prior: [FAILED_BEFORE] });
+    r.deps.fetchSha = async () => false;
+    await reviewPr(r.deps, '7');
+    expect((await r.deps.host.prReview(7))).toMatchObject({ ok: true, value: { state: 'failure', description: '1 HIGH finding' } });
+  });
+
+  it('refuses and writes nothing when the host does not answer the review status', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    r.deps.host.prReview = async () => ({ ok: false as const, why: 'failed' as const });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.lines).toEqual(['plot-review: the host did not answer the review status of PR #7']);
+    expect(r.allStatuses).toHaveLength(0);
+  });
+
+  it('refuses and writes nothing when the review status names another head', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    r.deps.host.prReview = async () => answered({ sha: MOVED, state: 'absent', description: '', time: '', bypass: false });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.lines).toEqual([`plot-review: the host read the review status of PR #7 on ${MOVED}, not on ${HEAD}`]);
+    expect(r.allStatuses).toHaveLength(0);
+  });
+
+  it('--status-only writes the status matching the verdict file and starts no agent', async () => {
+    const files = new Map([[`/repo/.git/plot/state/reviews/7-${HEAD}.md`, FINDINGS]]);
+    const r = rig(null, { files });
+    const out = await reviewStatusOnly(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(r.requests).toHaveLength(0);
+    expect(r.commands).toHaveLength(0);
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'failure', context: 'plot/review', description: `2 HIGH findings; run ${RUN}`,
+      targetUrl: 'https://github.com/o/r/pull/7',
+    }]);
+  });
+
+  it('--status-only refuses with no verdict file to read', async () => {
+    const r = rig(null);
+    const out = await reviewStatusOnly(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(r.requests).toHaveLength(0);
+    expect(r.statuses).toHaveLength(0);
   });
 });
 
@@ -431,5 +605,53 @@ describe('one findings comment per PR', () => {
       sha: HEAD, state: 'failure', context: 'plot/review', description: '1 HIGH finding; findings not posted',
       targetUrl: 'https://github.com/o/r/pull/7',
     }]);
+  });
+});
+
+describe('the run on Bitbucket, whose status store keeps one plot/review per head', () => {
+  const BB_URL = 'https://bitbucket.org/ws/repo/pull-requests/7';
+  const bbRig = (verdict: string, opts: { prior?: CommitStatusWrite[] } = {}) =>
+    rig(verdict, { prs: [pr({ url: BB_URL })], backend: 'bitbucket', ...opts });
+
+  it('writes success on no HIGH findings, reading its own run id back from the status description', async () => {
+    const r = bbRig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(r.statuses.map((s) => s.state)).toEqual(['success']);
+    expect((await r.deps.host.prReview(7))).toMatchObject({ ok: true, value: { state: 'success' } });
+  });
+
+  it('writes failure on HIGH findings', async () => {
+    const r = bbRig(FINDINGS);
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(r.statuses.map((s) => s.state)).toEqual(['failure']);
+  });
+
+  it('refuses as superseded when another run writes its pending during this run', async () => {
+    const r = bbRig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    const own = r.deps.agentRun;
+    r.deps.agentRun = (command) => {
+      const inner = own(command);
+      return {
+        run: async (request) => {
+          await r.deps.host.commitStatus({ sha: HEAD, state: 'pending', context: 'plot/review', description: 'run other-run', targetUrl: BB_URL });
+          return inner.run(request);
+        },
+      };
+    };
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('superseded by run other-run');
+    expect(r.statuses).toHaveLength(0);
+  });
+
+  it('writes no pending over a failure, which Bitbucket would replace in place', async () => {
+    const r = bbRig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', {
+      prior: [{ sha: HEAD, state: 'failure', context: 'plot/review', description: '1 HIGH finding', targetUrl: BB_URL }],
+    });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.lines.join('\n')).toContain('already carries a failure status');
+    expect((await r.deps.host.prReview(7))).toMatchObject({ ok: true, value: { state: 'failure' } });
   });
 });
