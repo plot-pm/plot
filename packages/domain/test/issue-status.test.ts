@@ -73,6 +73,10 @@ describe('a plan reflects its phase on its issues', () => {
     }
   });
 
+  it('owes nothing where the plan names no issue, even with a sliceProgress to carry', () => {
+    expect(planStateWrites({ phase: 'approved', issues: [], planLink: 'docs/plans/x.md', sliceProgress: '1 of 2 slices merged' })).toEqual([]);
+  });
+
   it('owes nothing outside the four phases', () => {
     expect(planStateWrites({ phase: 'design', issues: ['7'], planLink: 'docs/plans/x.md' })).toEqual([]);
   });

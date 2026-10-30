@@ -1,3 +1,4 @@
+import { runAutoProgressPass } from './auto-progress.js';
 import type { FleetReading, HeldSlice } from '@plot-pm/domain';
 
 import { runAutoDeliverPass } from './auto-deliver.js';
@@ -43,6 +44,7 @@ export const fleetAutoWrites = (
   const deliverHeldLogged = new Set<string>();
   // WHETHER A MERGED BRANCH CARRIED WORK, for the daemon's life: a merge commit cannot change.
   const deliverCarried = new Map<string, boolean>();
+  const progressSent = new Map<string, string>();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
