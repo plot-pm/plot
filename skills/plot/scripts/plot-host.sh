@@ -703,11 +703,10 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
   if $k != "" and ($s|IN("","COMPLETED")) then (if ($k|IN("SUCCESS","NEUTRAL","SKIPPED")) then "ok" else "bad" end)
   elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
   elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
-  def checks_of: if (.statusCheckRollup|length) == 0 then "none" elif any(.statusCheckRollup[]; ck == "bad") then "failing"
-  elif any(.statusCheckRollup[]; ck == "wait") then "pending" else "green" end;
-  def ci_rollup: [.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")];
-  def ci_checks_of: (ci_rollup) as $r | if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing"
-  elif any($r[]; ck == "wait") then "pending" else "green" end;'
+  def colour_of($r): if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing"
+  elif any($r[]; ck == "wait") then "pending" else "green" end;
+  def checks_of: colour_of(.statusCheckRollup // []);
+  def ci_checks_of: colour_of([.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")]);'
 
 # THE ONE FOLD of a PR's mergeability into a word, for `pr-list --rich` and both
 # `pr-state` transports. GraphQL says `mergeable` CONFLICTING|MERGEABLE|UNKNOWN
