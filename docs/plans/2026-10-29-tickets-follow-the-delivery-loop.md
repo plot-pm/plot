@@ -101,7 +101,7 @@ Decided 2026-10-29 by Jan Wloka in a challenge:
 
 ### Merged slice count
 
-- `feature/merged-slices-update-the-comment` — the `sliceProgress` rule beside `allSlicesMerged`, triggered by the index's `pr merged` finding; a comment-only write while the plan reads `approved` <!-- builds: sliceProgress in rules/deliverable.ts, the pr-merged write point -->
+- `feature/merged-slices-update-the-comment` — the `sliceProgress` rule beside `allSlicesMerged`, triggered by the index's `pr merged` finding; a comment-only write while the plan reads `approved` <!-- builds: sliceProgress in rules/deliverable.ts, the pr-merged write point --> → #2950
 
 ### Jira at approve
 

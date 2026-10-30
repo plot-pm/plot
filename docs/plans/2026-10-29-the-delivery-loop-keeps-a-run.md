@@ -115,7 +115,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-th
 
 ### Idle notification
 
-- `feature/an-idle-slice-notifies` — the idle-slice rule over open slice PRs, the `Slice idle after` key, the notify write kind and its `notified` line; one notification per idle episode <!-- builds: the slice-idle rule, an idle-notify Decision write -->
+- `feature/an-idle-slice-notifies` — the idle-slice rule over open slice PRs, the `Slice idle after` key, the notify write kind and its `notified` line; one notification per idle episode <!-- builds: the slice-idle rule, an idle-notify Decision write --> → #2949
 
 ## Notes
 
