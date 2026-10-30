@@ -63,6 +63,7 @@ export interface ReleaseTickResult {
  * @param config - the rule's constants.
  * @param start - the review start's paths, ports and bounds, without the mode.
  * @param now - epoch milliseconds of the tick.
+ * @param reviewEnabled - whether a `review` step may start an agent; the notice is sent either way.
  * @returns the stage, the step and what the action came to.
  */
 export const releaseTick = async (
@@ -70,6 +71,7 @@ export const releaseTick = async (
   config: ReleasePrepareConfig,
   start: Omit<StartReviewOptions, 'mode' | 'now'>,
   now: number,
+  reviewEnabled = true,
 ): Promise<ReleaseTickResult> => {
   const [scope, phases, pr, changesets, finish, logRead] = await Promise.all([
     ports.scope(),
@@ -113,7 +115,7 @@ export const releaseTick = async (
     at,
   });
 
-  if (step.step === 'review') {
+  if (step.step === 'review' && reviewEnabled) {
     const started = startReview(row.number, step.head, { ...start, mode: 'review', now });
     await ports.log.append(line(RELEASE_REVIEW_STEP, step.head, started.started ? 'moved' : `failed: ${started.why}`));
     return { stage, step, started };
