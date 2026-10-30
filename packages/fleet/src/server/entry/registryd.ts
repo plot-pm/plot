@@ -192,6 +192,8 @@ export interface EscalationWorld {
   ages(): Promise<readonly number[]>;
   /** The rungs already recorded for this desk path and this marker's modification time. */
   recordedRungs(worktree: string, askedAt: string): Promise<ReadonlySet<Rung>>;
+  /** The answer record's outcome for this desk and this marker's `askedAt`, or `null` where none exists. */
+  recordedOutcome(worktree: string, askedAt: string): Promise<string | null>;
   /**
    * Whether the host merged a PR for this branch.
    *
@@ -479,7 +481,8 @@ export const escalationDesks = (
  *
  * @param agents - every desk to read, from {@link escalationDesks}.
  * @param world - what to read the marker, the config and the record through.
- * @returns one `notify` write per desk whose rung is new.
+ * @returns one `notify` write per desk whose rung is new; a desk whose answer
+ *   record reads `started` gets none — fleetd is already working it.
  */
 const escalationWrites = async (
   agents: readonly EscalationDesk[],
@@ -497,8 +500,9 @@ const escalationWrites = async (
     // (`EscalationWorld.merged`'s caller), never a second unmemoized one.
     if (await world.merged(agent.branch)) continue;
     const recordedRungs = await world.recordedRungs(agent.worktree, marker.askedAt);
+    const recordedOutcome = await world.recordedOutcome(agent.worktree, marker.askedAt);
     const ageMs = now() - new Date(marker.askedAt).getTime();
-    const result = questionEscalation({ marker, ageMs, ages, recordedRungs });
+    const result = questionEscalation({ marker, ageMs, ages, recordedRungs, recordedOutcome });
     if (!result.isNew || result.rung === null || result.rung === 'listed') continue;
     writes.push({
       kind: 'notify',

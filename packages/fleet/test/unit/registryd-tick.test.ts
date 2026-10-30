@@ -1177,6 +1177,7 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
     marker: async () => null,
     ages: async () => AGES,
     recordedRungs: async () => new Set(),
+    recordedOutcome: async () => null,
     merged: async () => false,
     ...over,
   });
@@ -1342,6 +1343,7 @@ describe('the escalation record across ticks', () => {
     marker: async () => marker,
     ages: async () => AGES,
     recordedRungs: async (worktree, askedAt) => recordedRungsFor(readEscalations(root), worktree, askedAt),
+    recordedOutcome: async () => null,
     merged: async () => false,
     now: () => now,
   });
@@ -1407,6 +1409,7 @@ describe('the escalation record across ticks', () => {
       marker: (worktree) => markerReading(worktree),
       ages: async () => AGES,
       recordedRungs: async () => new Set(),
+      recordedOutcome: async () => null,
       merged: async () => false,
       now: () => now,
     });
