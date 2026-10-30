@@ -104,16 +104,16 @@ export const roleAgentsJson = (name: RoleName, text: string): RoleAgentsJson => 
   if (match === null) return { read: 'refused', why: `the ${name} definition has no frontmatter` };
   const definition: Record<string, unknown> = {};
   let list: string | null = null;
-  for (const line of (match[1] ?? '').split('\n')) {
+  for (const line of match[1]!.split('\n')) {
     const item = /^\s+-\s+(.*)$/.exec(line);
     if (item !== null && list !== null) {
-      (definition[list] as unknown[]).push(scalar((item[1] ?? '').trim()));
+      (definition[list] as unknown[]).push(scalar(item[1]!.trim()));
       continue;
     }
     const pair = /^([A-Za-z]+):\s*(.*)$/.exec(line);
     if (pair === null) continue;
-    const key = pair[1] ?? '';
-    const value = (pair[2] ?? '').trim();
+    const key = pair[1]!;
+    const value = pair[2]!.trim();
     list = null;
     if (!JSON_KEYS.has(key)) continue;
     if (value === '') {
@@ -121,7 +121,7 @@ export const roleAgentsJson = (name: RoleName, text: string): RoleAgentsJson => 
       list = key;
     } else definition[key] = scalar(value);
   }
-  const prompt = (match[2] ?? '').trim();
+  const prompt = match[2]!.trim();
   if (typeof definition.description !== 'string' || definition.description === '') {
     return { read: 'refused', why: `the ${name} definition names no description` };
   }

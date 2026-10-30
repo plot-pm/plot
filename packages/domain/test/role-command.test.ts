@@ -59,6 +59,11 @@ describe('roleAgentsJson', () => {
     });
   });
 
+  it('skips unknown keys and non-key lines, unquotes scalars, and ignores a list item under no key', () => {
+    const built = roleAgentsJson('fixer', '---\n# note\n  - orphan\nunknown: x\ndescription: "quoted"\nskills:\n  - a\n---\nbody');
+    expect(built).toEqual({ read: 'json', json: JSON.stringify({ fixer: { description: 'quoted', skills: ['a'], prompt: 'body' } }) });
+  });
+
   it('refuses a file with no frontmatter, no description or no body', () => {
     expect(roleAgentsJson('fixer', 'plain').read).toBe('refused');
     expect(roleAgentsJson('fixer', '---\nmodel: opus\n---\nbody').read).toBe('refused');
