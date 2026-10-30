@@ -3,6 +3,7 @@ import {
   allSlicesConfirmed,
   allSlicesMerged,
   deliveryPulse,
+  sliceProgress,
   FleetReadingSchema,
   type FleetReading,
   type BranchState,
@@ -184,6 +185,59 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       const p = pulse(BASE, [slice('Reached', 'complete', [['feature/a', 'merged']])]);
       expect(allSlicesMerged({ file: '///' }, p, true)).toBe('not-merged');
     });
+  });
+});
+
+describe('sliceProgress — the M of N slices merged line', () => {
+  it('returns undefined on a partial pulse, matching allSlicesMerged\'s unknown on the identical fixture', () => {
+    const p = pulse(BASE, [slice('Reached', 'complete', [['feature/a', 'merged']])]);
+    expect(allSlicesMerged({ file: PLAN }, p, false)).toBe('unknown');
+    expect(sliceProgress({ file: PLAN }, p, false)).toBeUndefined();
+  });
+
+  it('returns undefined with no pulse at all, matching allSlicesMerged\'s unknown', () => {
+    expect(allSlicesMerged({ file: PLAN }, null, true)).toBe('unknown');
+    expect(sliceProgress({ file: PLAN }, null, true)).toBeUndefined();
+  });
+
+  it('renders merged === total exactly when allSlicesMerged answers merged on the same fixture', () => {
+    const p = pulse(BASE, [
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Verified', 'complete', [['feature/b', 'merged'], ['feature/c', 'merged']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('2 of 2 slices merged');
+  });
+
+  it('renders a partial count when one non-deferred slice has not merged', () => {
+    const p = pulse(BASE, [
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Verified', 'eligible', [['feature/b', 'open']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('1 of 2 slices merged');
+  });
+
+  it('counts a plan as the number of non-deferred slices, not branches', () => {
+    const p = pulse(BASE, [
+      slice('Reached', 'complete', [['feature/a', 'merged'], ['feature/b', 'merged']]),
+    ]);
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('1 of 1 slices merged');
+  });
+
+  it('excludes a deferred branch from the total, matching allSlicesMerged\'s exemption', () => {
+    const p = pulse(BASE, [
+      slice('Shelved', 'blocked', [['feature/a', 'deferred']]),
+      slice('Reached', 'complete', [['feature/b', 'merged']]),
+    ]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('1 of 1 slices merged');
+  });
+
+  it('reads a complete scan that does not name the plan as zero of zero', () => {
+    const p = pulse('some-other-plan.md', [slice('Reached', 'complete', [['feature/a', 'merged']])]);
+    expect(allSlicesMerged({ file: PLAN }, p, true)).toBe('not-merged');
+    expect(sliceProgress({ file: PLAN }, p, true)).toBe('0 of 0 slices merged');
   });
 });
 
