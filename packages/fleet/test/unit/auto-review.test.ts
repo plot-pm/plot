@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { Detached } from '@plot-pm/domain/ports/detached';
 import { readReviewStarts } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { removeTree } from '../rm-tree.mjs';
 import { AUTO_REVIEW_KEY, autoReview, reviewTick, type ReviewTickReadings } from '../../src/shared/auto-review.js';
 
 const HEAD = 'a'.repeat(40);
@@ -18,7 +19,7 @@ beforeEach(() => {
   starts = 0;
 });
 afterEach(() => {
-  fs.rmSync(root, { recursive: true, force: true });
+  removeTree(root);
 });
 
 const row: PrIndexRow = {
