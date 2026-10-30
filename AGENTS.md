@@ -638,7 +638,8 @@ board that could not answer a request in 25 seconds. Three suites here take 5–
 minutes; several agents run them at once, on the one machine the board also
 lives on.
 
-**Nothing local depends on it passing.** CI runs it on every PR, bounded by
+**Nothing local depends on it passing.** CI runs it on every PR that selects a
+TypeScript or contract suite, and on every push to `main`, bounded by
 `timeout-minutes`, and CI is the authority. An agent that runs it locally is
 paying the cost twice and starving everything else the second time.
 
@@ -646,7 +647,7 @@ The trade is explicit: skipping it locally means an e2e failure is discovered
 after a push, costing one CI round trip. That cost is bounded and serialised. An
 unbounded local run is neither, and it takes the machine down with it.
 
-**Always install dependencies and run the checks your change touches.** Before each push, run `node skills/plot/scripts/board/plot-local-checks.mjs` and run what it prints: the tests that name a changed file, the related tests and typecheck of a changed package, and the gate tests and `scripts/check-*.sh`. The suites in the `CI suites` key run in CI on every pull request; a fleet agent does not run them, and the controller gate refuses it at a fleet desk. If a check fails because `node_modules` is missing, install and retry — never skip a failing test or dismiss the failure.
+**Always install dependencies and run the checks your change touches.** Before each push, run `node skills/plot/scripts/board/plot-local-checks.mjs` and run what it prints: the tests that name a changed file, the related tests and typecheck of a changed package, and the gate tests and `scripts/check-*.sh`. On a pull request, CI's `select` job maps the changed paths to the suites in the `CI suites` key through the same rule and runs only those, plus every `scripts/check-*.sh` gate and the typechecks; a push to `main` runs every suite. A fleet agent does not run these suites, and the controller gate refuses it at a fleet desk. The corpus tier runs with no host token, locally and in CI: `packages/domain/corpus/no-host-token.ts` removes the token variables and points `GH_CONFIG_DIR` at an empty directory before each corpus file, so a corpus failure that depends on a host answer shows in a local run too. If a check fails because `node_modules` is missing, install and retry — never skip a failing test or dismiss the failure.
 
 **The board is first-class.** Keeping it working — and considering board impact when planning changes to the plan format, template, helper scripts, or `docs/plans` layout — is part of the [Definition of Done](docs/definition-of-done.md), gated in CI.
 
