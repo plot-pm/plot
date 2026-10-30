@@ -1,7 +1,9 @@
 import type { Pr } from '../entities/pr.js';
 import type { PrReviewReading } from '../ports/host.js';
+import { minHexLenFor } from '../adapters/host/min-hex-len.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { sameCommit } from '../rules/same-commit.js';
+import { type MergePorts, type MergeRefusal, mergeAt } from './merge.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
 
 /** The sha prefix to show in a refusal's detail text. */
@@ -46,6 +48,8 @@ export interface ReleaseApproveDetail {
   readonly pr: number;
   /** The head commit the approval is pinned to. */
   readonly sha: string;
+  /** True where the host already holds the PR merged: nothing merges, and the finish resumes. */
+  readonly alreadyMerged: boolean;
 }
 
 /**
@@ -53,6 +57,8 @@ export interface ReleaseApproveDetail {
  * caller read.
  *
  * Refuses `unattended` before any other reading, the same way `merge` does.
+ * A PR the host already holds merged on a release branch decides with
+ * `alreadyMerged`, and no review or head is asked of it.
  *
  * @param readings - the host's PR answer and the review reading.
  * @param input - the PR, the head commit the caller read, and the sha floor.
@@ -71,18 +77,67 @@ export const releaseApprove = (
   if (!RELEASE_BRANCH.test(branch)) {
     return no('not-release-pr', `PR #${input.pr} is not on a release branch. Only ${RELEASE_BRANCH} merges through release-approve.`);
   }
-  if (pr === 'unaskable' || pr === null || !sameCommit(pr.headSha, input.sha, input.minHexLen)) {
-    const seen = pr === 'unaskable' || pr === null ? 'none' : short(pr.headSha);
+  if (pr !== 'unaskable' && pr !== null && pr.state === 'MERGED') {
+    return decide('release-approve', [], { pr: input.pr, sha: input.sha, alreadyMerged: true });
+  }
+  const head = pr === 'unaskable' || pr === null ? '' : (pr.headSha ?? '');
+  if (!sameCommit(head, input.sha, input.minHexLen)) {
+    const seen = short(head);
     return no('head-moved', `the head of PR #${input.pr} is ${seen}; the caller approved ${short(input.sha)}. Re-review the new head.`);
   }
   const { review } = readings;
-  if (review === 'unaskable' || review.state !== 'success' || !sameCommit(review.sha, pr.headSha, input.minHexLen)) {
+  if (review === 'unaskable' || review.state !== 'success' || !sameCommit(review.sha, head, input.minHexLen)) {
     const seen = review === 'unaskable'
       ? 'the review read failed'
-      : !sameCommit(review.sha, pr.headSha, input.minHexLen)
-        ? `'plot/review' names ${short(review.sha)}, not the head ${short(pr.headSha)}`
+      : !sameCommit(review.sha, head, input.minHexLen)
+        ? `'plot/review' names ${short(review.sha)}, not the head ${short(head)}`
         : `'plot/review' reads '${review.state}'`;
     return no('review-missing', `${seen} for PR #${input.pr}. Run the review on this head, then approve again.`);
   }
-  return decide('release-approve', [], { pr: input.pr, sha: input.sha });
+  return decide('release-approve', [], { pr: input.pr, sha: input.sha, alreadyMerged: false });
+};
+
+/** What `plot-ask.mjs release-approve` prints before the finish: the approval, or the refusal that stopped it. */
+export type ReleaseApproveResult =
+  | { approved: true; pr: number; sha: string; alreadyMerged: boolean }
+  | { approved: false; reason: ReleaseApproveRefusal | MergeRefusal | 'host-refused'; detail: string };
+
+/**
+ * Approves a release PR at the head commit the person read, merges it, or refuses.
+ *
+ * An unattended caller is refused before any host read. Otherwise the PR and its
+ * `plot/review` reading are asked of the host fresh, never from the PR index. On
+ * a pass the merge goes through {@link mergeAt}, so its pin, check, review and
+ * default-branch rules apply unchanged. A PR the host already holds merged skips
+ * the merge.
+ *
+ * @param ports - the ports {@link mergeAt} takes.
+ * @param pr - the PR number.
+ * @param sha - the head commit the person read the review for.
+ * @returns the approval, or the refusal naming its reason; `host-refused`
+ *   carries the host's own words.
+ */
+export const releaseApproveAt = async (
+  ports: MergePorts,
+  pr: number,
+  sha: string,
+): Promise<ReleaseApproveResult> => {
+  const refusedAs = (reason: ReleaseApproveRefusal | MergeRefusal | 'host-refused', detail: string): ReleaseApproveResult =>
+    ({ approved: false, reason, detail });
+  const asked = ports.caller === 'unattended'
+    ? null
+    : await Promise.all([ports.host.prState(pr), ports.host.prReview(pr), ports.host.backend()]);
+  const out = releaseApprove(
+    {
+      caller: ports.caller,
+      pr: asked?.[0].ok ? asked[0].value : 'unaskable',
+      review: asked?.[1].ok ? asked[1].value : 'unaskable',
+    },
+    { pr, sha, minHexLen: minHexLenFor(asked?.[2].ok ? asked[2].value : '') },
+  );
+  if (out.outcome === 'refused') return refusedAs(out.reason, out.detail);
+  if (out.detail.alreadyMerged) return { approved: true, pr, sha, alreadyMerged: true };
+  const merged = await mergeAt(ports, pr, sha, true);
+  if (!merged.merged) return refusedAs(merged.reason, merged.detail);
+  return { approved: true, pr, sha, alreadyMerged: false };
 };
