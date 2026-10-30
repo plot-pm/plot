@@ -14,6 +14,8 @@ import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetect
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt, type MergePorts } from './merge.js';
 import { releaseApproveAt } from './release-approve.js';
+import { finishRelease } from './release-finish.js';
+import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
 
@@ -26,6 +28,7 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
  * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
  * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
  * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
+ * node skills/plot/scripts/board/plot-ask.mjs release-approve <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
  * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
@@ -201,9 +204,28 @@ export const run = async (
     }
     const { opts } = contextFrom(here);
     recordActionReceipt(opts.repoRoot, 'release-approve', pr);
-    const result = await releaseApproveAt(await mergePortsFor(opts), Number(pr), sha);
+    const ports = await mergePortsFor(opts);
+    const result = await releaseApproveAt(ports, Number(pr), sha);
     write(`${JSON.stringify(result)}\n`);
-    return result.approved ? 0 : 1;
+    if (!result.approved) return 1;
+    // The finish runs as the person: an unattended caller was refused above.
+    const estate = realEstate(opts);
+    return finishRelease(
+      {
+        repoRoot: opts.repoRoot,
+        refs: estate.refs,
+        host: estate.host,
+        planStore: estate.planStore,
+        scripts: ports.scripts,
+        trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+        caller: ports.caller,
+        tagWaitMs: ports.checksWaitMs,
+        pollMs: 15_000,
+      },
+      Number(pr),
+      (s) => write(s),
+      (s) => process.stderr.write(s),
+    );
   }
 
   if (argv[0] === 'spawner' && argv[1] === '--from-board') {
