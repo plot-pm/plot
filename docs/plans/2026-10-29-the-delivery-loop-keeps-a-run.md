@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2899
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2909 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-loop-keeps-a-run-log`
 - **Started:** 2026-10-30, Jan Wloka, `feature/an-idle-slice-notifies`
+- **Delivered:** 2026-10-30
 
 ## Changelog
 
