@@ -74,7 +74,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### CI selection
 
-- `feature/ci-reads-the-selection` — a CI job calls the rule's bundle; suites run on the selected outputs; plan, sprint and `.plot/` changes select `corpus`; `validate`'s suites start with the other jobs <!-- waits: feature/ci-selection-rule -->
+- `feature/ci-reads-the-selection` — a CI job calls the rule's bundle; suites run on the selected outputs; plan, sprint and `.plot/` changes select `corpus`; `validate`'s suites start with the other jobs <!-- waits: feature/ci-selection-rule --> → #2947
 
 ### Corpus reading
 
