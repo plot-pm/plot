@@ -119,10 +119,10 @@
 #                                 whether a comment starts `review-bypass:`.
 #                                 Bitbucket reads the same state words from the
 #                                 `plot/review` commit status (SUCCESSFUL,
-#                                 FAILED, INPROGRESS, STOPPED) and answers `""`
-#                                 for description and time — Bitbucket has no
-#                                 `commit-status` writer this host can drive, so
-#                                 no run ever needs to read them back there.
+#                                 FAILED, INPROGRESS, STOPPED), its
+#                                 `description`, and its `updated_on` as the
+#                                 time — `commit-status` writes that status
+#                                 through `plot-bitbucket-commit-status.mjs`.
 #                                 EXIT 3 is the question failing.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL

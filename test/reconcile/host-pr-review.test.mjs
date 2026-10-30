@@ -56,7 +56,7 @@ test('pr-review reads the newest plot/review status, not the CI status beside it
       { context: 'plot/review', state: 'success' }],
   }));
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'failure', bypass: false });
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'failure', description: '', time: '', bypass: false });
 });
 
 test('pr-review answers absent for a PR with green CI and no plot/review status', () => {
@@ -128,14 +128,31 @@ test('pr-review on Bitbucket reads the newest plot/review commit status and maps
   for (const [word, state] of cases) {
     const out = bbPrReview(bbStub({ statuses: { values: [status('ci/build', 'SUCCESSFUL'), status('plot/review', word)] } }));
     assert.equal(out.status, 0, out.stderr);
-    assert.deepEqual(JSON.parse(out.stdout), { sha: 'abc123', state, bypass: false }, word);
+    assert.deepEqual(JSON.parse(out.stdout), { sha: 'abc123', state, description: '', time: '', bypass: false }, word);
   }
+});
+
+test('pr-review on Bitbucket carries the plot/review status description and updated_on', () => {
+  const r = bbPrReview(bbStub({ statuses: { values: [
+    { key: 'plot/review', state: 'INPROGRESS', description: 'run r-1', updated_on: '2026-10-30T10:00:00Z' },
+  ] } }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', bypass: false });
+});
+
+test('pr-review carries the newest plot/review status description and updated_at on GitHub', () => {
+  const r = prReview(ghStub({
+    view: view(),
+    statuses: [{ context: 'plot/review', state: 'pending', description: 'run r-1', updated_at: '2026-10-30T10:00:00Z' }],
+  }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', bypass: false });
 });
 
 test('pr-review on Bitbucket answers absent with green CI and no plot/review status', () => {
   const r = bbPrReview(bbStub({ statuses: { values: [status('ci/build', 'SUCCESSFUL')] } }));
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'absent', bypass: false });
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'absent', description: '', time: '', bypass: false });
 });
 
 test('pr-review on Bitbucket reports a comment starting review-bypass:', () => {

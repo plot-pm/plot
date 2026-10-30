@@ -283,6 +283,34 @@ const prCommentBody = (text: (verdict: string) => string, verdictText: string, v
 };
 
 /**
+ * Reads the head's `plot/review` status, then writes this run's `pending`
+ * status with `run <run id>` in its description.
+ *
+ * The read comes first because `pending` becomes the newest status on the
+ * head: a `failure` written before this run is only visible before that
+ * write. A head that reads `failure` gets no `pending` write, so a run that
+ * stops before its final write leaves the `failure` in place.
+ *
+ * @param deps - the ports.
+ * @param pr - the pull request under review.
+ * @param sha - the reviewed head.
+ * @param lock - this run's lock, whose run id the description carries.
+ * @returns null where `pending` was written; otherwise the refusal, which
+ *   names a failed read, a reading for another head, an existing `failure`,
+ *   or a refused write.
+ */
+const markPending = async (deps: ReviewDeps, pr: Pr, sha: string, lock: RunLock): Promise<ReviewOutcome | null> => {
+  const before = await deps.host.prReview(pr.number);
+  if (!before.ok) return refuse(`the host did not answer the review status of PR #${pr.number}`);
+  if (before.value.sha !== sha) return refuse(`the host read the review status of PR #${pr.number} on ${before.value.sha}, not on ${sha}`);
+  if (before.value.state === 'failure') return refuse(`${sha} already carries a failure status; no run replaces it`);
+  const pending = await deps.host.commitStatus({
+    sha, state: 'pending', context: REVIEW_CONTEXT, description: `run ${lock.runId}`, targetUrl: pr.url,
+  });
+  return pending.ok ? null : refuse(`the host did not accept the pending status on ${sha}`);
+};
+
+/**
  * Runs one review.
  *
  * @param deps - the ports and file operations.
@@ -321,10 +349,8 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const lock = acquireRunLock(deps, lockFile);
   if (lock === null) return refuse(`PR #${pr.number} at ${sha} is already under review: review-running`);
   try {
-    const pending = await deps.host.commitStatus({
-      sha, state: 'pending', context: REVIEW_CONTEXT, description: `run ${lock.runId}`, targetUrl: pr.url,
-    });
-    if (!pending.ok) return refuse(`the host did not accept the pending status on ${sha}`);
+    const started = await markPending(deps, pr, sha, lock);
+    if (started !== null) return started;
 
     deps.removeFile(verdictFile);
     deps.removeFile(diffFile);
@@ -420,10 +446,8 @@ export const reviewStatusOnly = async (deps: ReviewDeps, ref: string): Promise<R
   const lock = acquireRunLock(deps, lockFile);
   if (lock === null) return refuse(`PR #${pr.number} at ${sha} is already under review: review-running`);
   try {
-    const pending = await deps.host.commitStatus({
-      sha, state: 'pending', context: REVIEW_CONTEXT, description: `run ${lock.runId}`, targetUrl: pr.url,
-    });
-    if (!pending.ok) return refuse(`the host did not accept the pending status on ${sha}`);
+    const started = await markPending(deps, pr, sha, lock);
+    if (started !== null) return started;
     return finishReview(deps, pr, sha, verdictFile, verdictText, verdict.counts, lock, lines);
   } finally {
     deps.removeLock(lockFile);

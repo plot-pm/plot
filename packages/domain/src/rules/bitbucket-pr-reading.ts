@@ -109,25 +109,33 @@ const REVIEW_STATE: Readonly<Record<string, string>> = {
 /**
  * The `pr-review` reading of a Bitbucket pull request.
  *
- * `description` and `time` answer `''` always — Bitbucket has no
- * `commitStatus` writer this host can drive, so no run embeds a run id here
- * for a newest-pending-wins rule to read back.
+ * Bitbucket keeps one build status per `key` on a commit, and a later write
+ * with the same key replaces it. `plot-bitbucket-commit-status.mjs` writes
+ * `plot/review` with the caller's description, so `description` carries the
+ * `run <run id>` text a review run wrote, and `time` carries the status's
+ * `updated_on` (its `created_on` where `updated_on` is missing).
  *
  * @param sha - the pull request's head commit.
  * @param statuses - the commit's build statuses, newest first.
  * @param comments - the pull request's comments.
  * @returns the newest `plot/review` status in GitHub's words (`absent` where
- *   none exists or its state has no mapping), and whether a comment starts
+ *   none exists or its state has no mapping), its description and time (`''`
+ *   where the state is `absent`), and whether a comment starts
  *   `review-bypass:`.
  */
 export const bitbucketReview = (
   sha: string,
-  statuses: ReadonlyArray<{ key?: string; state?: string }>,
+  statuses: ReadonlyArray<{ key?: string; state?: string; description?: string; updated_on?: string; created_on?: string }>,
   comments: ReadonlyArray<{ content?: { raw?: string } }>,
-): { sha: string; state: string; description: string; time: string; bypass: boolean } => ({
-  sha,
-  state: REVIEW_STATE[statuses.find((s) => s.key === 'plot/review')?.state ?? ''] ?? 'absent',
-  description: '',
-  time: '',
-  bypass: comments.some((c) => (c.content?.raw ?? '').startsWith('review-bypass:')),
-});
+): { sha: string; state: string; description: string; time: string; bypass: boolean } => {
+  const newest = statuses.find((s) => s.key === 'plot/review');
+  const state = REVIEW_STATE[newest?.state ?? ''] ?? 'absent';
+  const named = state === 'absent' ? undefined : newest;
+  return {
+    sha,
+    state,
+    description: named?.description ?? '',
+    time: named?.updated_on ?? named?.created_on ?? '',
+    bypass: comments.some((c) => (c.content?.raw ?? '').startsWith('review-bypass:')),
+  };
+};
