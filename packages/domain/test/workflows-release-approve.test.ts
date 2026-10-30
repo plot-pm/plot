@@ -32,6 +32,8 @@ const pr = (over: Partial<Pr> = {}): Pr => ({
 const review = (over: Partial<PrReviewReading> = {}): PrReviewReading => ({
   sha: HEAD,
   state: 'success',
+  description: '',
+  time: '',
   bypass: false,
   ...over,
 });
