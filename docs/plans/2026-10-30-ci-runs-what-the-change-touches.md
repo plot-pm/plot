@@ -78,7 +78,7 @@ Measured 2026-10-30: `ci.yml` runs every job on every pull request and on every 
 
 ### Corpus reading
 
-- `feature/corpus-reads-without-a-token` — the corpus scan reads the same with and without a host token, and `corpus` runs against the merge with the current `main` before a merge <!-- waits: feature/ci-reads-the-selection -->
+- `feature/corpus-reads-without-a-token` — the corpus scan reads the same with and without a host token, and `corpus` runs against the merge with the current `main` before a merge <!-- waits: feature/ci-reads-the-selection --> → #2953
 
 ### Repair merge
 
