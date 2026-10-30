@@ -4799,18 +4799,17 @@ case "$op" in
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
-            | jq -c "$CHECKS_OF$MERGEABLE_OF"'def plot_review_ctx: [.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0]; .[] | {
+            | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
-                checks:checks_of,
-                mergeable:mergeable_of,
+                checks:checks_of, mergeable:mergeable_of,
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
                 author:(.author.login // ""),
                 failing_checks:[
                   .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")), ciChecks:ci_checks_of
-              } + (plot_review_ctx as $pr | if $pr == null then {plotReview:"absent"} else {plotReview:($pr.state // "" | ascii_downcase), plotReviewSha:(.headRefOid // ""), plotReviewAt:($pr.startedAt // "")} end)'
+              } + (([.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0]) as $pr | if $pr == null then {plotReview:"absent"} else {plotReview:($pr.state // "" | ascii_downcase), plotReviewSha:(.headRefOid // ""), plotReviewAt:($pr.startedAt // "")} end)'
         fi
       else
         # `isDraft`, `url` AND `updatedAt` TRAVEL ON THE PLAIN ARM TOO, and they
