@@ -1059,7 +1059,8 @@ export const readFreshAgentCandidates = async (
       // `bound`/`unreadable`/`quiet`; an ending already asked about answers
       // `leave` whatever the host says.
       prMerged:
-        (endingAsksPersonOutright(ending) || isBoundEnding(ending)) && !endingAsked
+        (endingAsksPersonOutright(ending) || isBoundEnding(ending) || ending === 'holding-work') &&
+        !endingAsked
           ? await asks.prMerged(tree.branch)
           : 'unanswerable',
       heldFiles: await heldFiles(tree.path),
@@ -1180,7 +1181,7 @@ export const freshAgentDecisions = (
       priorFreshSessions: reading.priorFreshSessions,
       commitBeyondClaim: bound ? reading.commitBeyondClaim : 'no',
       prOpen: bound ? reading.prOpen : false,
-      dirtyTree: bound ? dirtyTreeReading(reading.heldFiles) : 'no',
+      dirtyTree: bound || reading.ending === 'holding-work' ? dirtyTreeReading(reading.heldFiles) : 'no',
       prMerged: reading.prMerged,
       endingAsked: reading.endingAsked,
       blockedMarker: reading.escalated,
