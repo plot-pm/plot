@@ -44,8 +44,9 @@ const planBody = (review: string, impl: string): string =>
     '## Branches', '', '### Wave one', `- \`feature/${SLUG}\` — the work`, '',
   ].join('\n');
 
-/** One call to `plot-plan-state.sh`: its arguments, and the plan text the file held when it ran. */
+/** One call to `plot-plan-state.sh` or `plot-issue-status.sh`: its arguments, and the plan text the file held when it ran. */
 interface PlanStateCall {
+  script?: string;
   args: readonly string[];
   plan: string;
 }
@@ -54,17 +55,25 @@ interface PlanStateCall {
  * The real adapters over `repo`, with `plot-plan-state.sh` answered by `answer`
  * and recorded in `calls` — the tracker is the one thing this test does not reach.
  */
+const NO_STATUS = { stdout: 'summary: tracker=none\n', stderr: '', code: 0 };
+
 const ctxOver = (
   repo: string,
   calls: PlanStateCall[],
   answer: { stdout: string; stderr: string; code: number },
+  statusAnswer: { stdout: string; stderr: string; code: number } = NO_STATUS,
+  statusCalls: PlanStateCall[] = [],
 ): Context => {
   const context = { repoRoot: repo, scriptDir: SCRIPT_DIR };
   const scripts = scriptsShell(context);
   const awaited = scripts.awaited.bind(scripts);
   scripts.awaited = async (script, args, options) => {
-    if (script !== 'plot-plan-state.sh') return awaited(script, args, options);
+    if (script !== 'plot-plan-state.sh' && script !== 'plot-issue-status.sh') return awaited(script, args, options);
     const file = args[0] ?? '';
+    if (script === 'plot-issue-status.sh') {
+      statusCalls.push({ args: [...args], plan: existsSync(file) ? readFileSync(file, 'utf8') : '' });
+      return statusAnswer;
+    }
     calls.push({ args: [...args], plan: existsSync(file) ? readFileSync(file, 'utf8') : '' });
     return answer;
   };
@@ -133,7 +142,7 @@ describe('an approval reflects the approved plan on its issue', () => {
     expect(calls[0]?.plan).toContain('- **Phase:** Approved');
     expect(calls[0]?.plan).toContain('- **Issue:** #7');
     expect(said).toContain('  plan-state: #7\twritten\tapproved\n');
-    expect(said).toMatch(/summary: merged=skipped-in-session .* push=clean plan-state=written\n/);
+    expect(said).toMatch(/summary: merged=skipped-in-session .* push=clean plan-state=written tracker=none\n/);
     expect(existsSync(calls[0]?.args[0] ?? ''), 'the copy of the booked plan outlived the approval').toBe(false);
   }, 60_000);
 
@@ -147,7 +156,7 @@ describe('an approval reflects the approved plan on its issue', () => {
     const said = out.join('');
     expect(code, said).toBe(0);
     expect(said).toContain("  plan-state: plot-plan-state: 'x' is not a plan file\n");
-    expect(said).toMatch(/ plan-state=failed\n/);
+    expect(said).toMatch(/ plan-state=failed tracker=none\n/);
     git(repo, 'fetch', '-q', 'origin', 'main');
     expect(git(repo, 'show', `origin/main:${PLAN}`)).toContain('- **Phase:** Approved');
   }, 60_000);
@@ -185,6 +194,34 @@ describe('an approval reflects the approved plan on its issue', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.args).toEqual([path.join(repo, PLAN), '--phase', 'approved', '--plan-link', 'https://github.com/o/r/pull/9']);
     expect(calls[0]?.plan).toContain('- **Phase:** Approved');
-    expect(said).toMatch(/ push=local plan-state=written\n/);
+    expect(said).toMatch(/ push=local plan-state=written tracker=none\n/);
+  }, 60_000);
+
+  it('writes the approved status through plot-issue-status.sh and reports it', async () => {
+    const repo = behindOrigin();
+    const statusCalls: PlanStateCall[] = [];
+    const out: string[] = [];
+    const status = { stdout: '#7\twritten\tOpen\nsummary: tracker=written\n', stderr: '', code: 0 };
+    const code = await perform(ctxOver(repo, [], WRITTEN, status, statusCalls), { dryRun: false, spike: false, who: 'jw', slug: SLUG }, (s) => out.push(s), () => {});
+
+    const said = out.join('');
+    expect(code, said).toBe(0);
+    expect(statusCalls).toHaveLength(1);
+    expect(statusCalls[0]?.plan).toContain('- **Phase:** Approved');
+    expect(said).toContain('  tracker: #7\twritten\tOpen\n');
+    expect(said).toMatch(/ plan-state=written tracker=written\n/);
+    expect(existsSync(statusCalls[0]?.args[0] ?? ''), 'the copy of the booked plan outlived the approval').toBe(false);
+  }, 60_000);
+
+  it('reports a failing status write and the approval stands', async () => {
+    const repo = behindOrigin();
+    const out: string[] = [];
+    const failing = { stdout: 'summary: tracker=failed\n', stderr: 'plot-issue-status: the bundle failed\n', code: 2 };
+    const code = await perform(ctxOver(repo, [], WRITTEN, failing), { dryRun: false, spike: false, who: 'jw', slug: SLUG }, (s) => out.push(s), () => {});
+
+    const said = out.join('');
+    expect(code, said).toBe(0);
+    expect(said).toContain('  tracker: plot-issue-status: the bundle failed\n');
+    expect(said).toMatch(/ plan-state=written tracker=failed\n/);
   }, 60_000);
 });

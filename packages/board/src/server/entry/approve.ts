@@ -105,7 +105,7 @@ const USAGE = [
   '#               spike and for a plan a person approves, otherwise defaults to git user.name',
   '#   <slug>      the plan to approve',
   '# Output: one `step:` line per step, then a machine-countable summary:',
-  '#             summary: merged=yes phase=flipped record=written holds=1 sprint=none push=clean plan-state=none',
+  '#             summary: merged=yes phase=flipped record=written holds=1 sprint=none push=clean plan-state=none tracker=none',
   '#         Exit 0 when the plan is Approved on the default branch (whether this',
   '#         run did the work or found it already done); 1 on a refusal or a',
   '#         failure, with the reason on stderr.',
@@ -1112,8 +1112,8 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   // A batch PR's merge lands its other plans unapproved; the summary names them
   // so a reader approves each by its own slug.
   const carriedField = merged === 'yes' && landedDraft.length > 0 ? ` carried=${landedDraft.join(',')}` : '';
-  const summary = (report: WriteReport, push: string, planState: string): string =>
-    `summary: merged=${merged} phase=${report.phase} record=${report.record} holds=${report.holds} sprint=${report.sprint} push=${push} plan-state=${planState}${carriedField}\n`;
+  const summary = (report: WriteReport, push: string, planState: string, tracker = 'skipped'): string =>
+    `summary: merged=${merged} phase=${report.phase} record=${report.record} holds=${report.holds} sprint=${report.sprint} push=${push} plan-state=${planState} tracker=${tracker}${carriedField}\n`;
 
   let report: WriteReport;
   let push: string;
@@ -1168,19 +1168,25 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   // A plan's phase, reflected on its issues — see Tracker.planStateWrite. Only
   // a whole-plan approval owes it: a spike leaves the phase where it was, and
   // reports `skipped`. A failed write is reported and the approval stands.
+  // Its status word follows (`Tracker approved status`), through the same
+  // wrapper deliver and release call; that write's failure is reported the same way.
   let planState = 'skipped';
+  let trackerStatus = 'skipped';
   try {
     if (!args.spike) {
       const run = await ctx.scripts.awaited('plot-plan-state.sh', [approvedPlan.file, '--phase', 'approved', '--plan-link', approvedPlan.link]);
       const told = trackerReportOf(run);
       for (const line of told.lines) write(`  plan-state: ${line}\n`);
       planState = told.outcome;
+      const status = trackerReportOf(await ctx.scripts.awaited('plot-issue-status.sh', [approvedPlan.file]));
+      for (const line of status.lines) write(`  tracker: ${line}\n`);
+      trackerStatus = status.outcome;
     }
   } finally {
     approvedPlan.dispose();
   }
 
-  write(summary(report, push, planState));
+  write(summary(report, push, planState, trackerStatus));
   spendActionReceipt(ctx.repoRoot, 'approve');
   return 0;
 };

@@ -1,5 +1,6 @@
-import { handOffIssueWrite, issueWriteSpoolFile, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { handOffIssueWrite, issueWriteSpoolFile, scriptsShell, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
 import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
+import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import {
   issueStatusWrites,
@@ -17,7 +18,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * A finished plan's issue status, written through the tracker port.
  *
  * ```
- * plot-plan-meta.sh plan.md | plot-issue-status.mjs --delivered '' --released Done
+ * plot-plan-meta.sh plan.md | plot-issue-status.mjs
  * PROJ-7	written	Done
  * ```
  *
@@ -25,9 +26,9 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * `plot-host.sh` through the connector. `plot-ask.mjs` answers by running the
  * fleet scan, 18.3 s, to reach a rule that needs one plan's phase.
  *
- * **THE PLAN ARRIVES ON STDIN** as `plot-plan-meta.sh`'s JSON, and the two
- * status words as flags: the shell that owns the plan file and the config reads
- * both, so this entry opens no file.
+ * **THE PLAN ARRIVES ON STDIN** as `plot-plan-meta.sh`'s JSON; the three
+ * status words are read from `## Plot Config` here, through the `Scripts` port.
+ * The shell owns the plan file, so this entry opens no file.
  *
  * **Tab-separated out**, one line per owed write:
  * `<issue>\t<written|already|unreachable|no-target|unaskable|failed>\t<reason>`.
@@ -67,39 +68,39 @@ export const planFrom = (text: string): Pick<IssueStatusReading, 'phase' | 'issu
 };
 
 /**
- * Reads `--approved <word>`, `--delivered <word>` and `--released <word>`; an absent flag is `''`.
+ * Reads zero or more `--skip-issue <id>`.
  *
  * @param argv - the arguments after the script name.
- * @returns the configured words.
+ * @returns the issues to skip.
  * @throws on an unknown flag or a flag with no value.
  */
-export const wordsFrom = (argv: readonly string[]): IssueStatusWords => {
-  const { approved, delivered, released } = flagsFrom(argv);
-  return { approved, delivered, released };
-};
-
-/**
- * Reads `--approved <word>`, `--delivered <word>`, `--released <word>` and
- * zero or more `--skip-issue <id>`; an absent word flag is `''`.
- *
- * @param argv - the arguments after the script name.
- * @returns the configured words and the issues to skip.
- * @throws on an unknown flag or a flag with no value.
- */
-export const flagsFrom = (argv: readonly string[]): IssueStatusWords & { skipIssues: readonly string[] } => {
-  const words = { approved: '', delivered: '', released: '' };
+export const flagsFrom = (argv: readonly string[]): { skipIssues: readonly string[] } => {
   const skipIssues: string[] = [];
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (value === undefined) throw new Error(`${flag} needs a value`);
-    if (flag === '--approved') words.approved = value;
-    else if (flag === '--delivered') words.delivered = value;
-    else if (flag === '--released') words.released = value;
-    else if (flag === '--skip-issue') skipIssues.push(value);
+    if (flag === '--skip-issue') skipIssues.push(value);
     else throw new Error(`unknown argument '${flag}'`);
   }
-  return { ...words, skipIssues };
+  return { skipIssues };
+};
+
+/**
+ * Reads the three status words from `## Plot Config`; a key that is unset or
+ * unreadable is `''`, which owes no write at that phase.
+ *
+ * @param scripts - the port that reads config.
+ * @returns the configured words.
+ */
+export const wordsFromConfig = async (scripts: Scripts): Promise<IssueStatusWords> => {
+  const [approved, delivered, released] = await Promise.all([
+    scripts.config('Tracker approved status', ''),
+    scripts.config('Tracker delivered status', ''),
+    scripts.config('Tracker released status', ''),
+  ]);
+  const word = (read: typeof approved): string => (read.ok ? read.value.trim() : '');
+  return { approved: word(approved), delivered: word(delivered), released: word(released) };
 };
 
 /**
@@ -159,13 +160,12 @@ export const run = async (
   let reading: IssueStatusReading;
   let skipIssues: readonly string[];
   try {
-    const { skipIssues: skip, ...words } = flagsFrom(argv);
-    skipIssues = skip;
-    reading = { ...planFrom(stdin), words };
+    skipIssues = flagsFrom(argv).skipIssues;
+    reading = { ...planFrom(stdin), words: await wordsFromConfig(scriptsShell(context)) };
   } catch (err) {
     process.stderr.write(`plot-issue-status: ${(err as Error).message}\n`);
     process.stderr.write(
-      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--approved <word>] [--delivered <word>] [--released <word>] [--skip-issue <id> ...]\n',
+      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--skip-issue <id> ...]\n',
     );
     return EXIT.usage;
   }

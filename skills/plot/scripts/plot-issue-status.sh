@@ -11,15 +11,15 @@
 #         Exit 0 on every write outcome, `failed` included; 2 when the plan or
 #         the bundle cannot be read.
 #
-# THE MECHANICAL HALF, reached by two callers: plot-deliver.sh after its push,
-# and /plot-release step 4 after the `Released` write. One wrapper, so the
+# THE MECHANICAL HALF, reached by three callers: plot-approve (after the `Approved`
+# write), plot-deliver.sh after its push, and /plot-release step 4 after the `Released` write. One wrapper, so the
 # bundle's stdin has one writer.
 #
 # IT DECIDES NOTHING. Which writes a plan owes is `issueStatusWrites`
 # (packages/domain/src/rules/issue-status.ts), reached through
 # board/plot-issue-status.mjs; the write goes through the tracker connector, which
 # is the only caller of `plot-host.sh issue-status`. This script reads the plan
-# and the two config keys, and does not prefilter: a plan naming no issue is the
+# and does not prefilter: a plan naming no issue is the
 # rule's answer to give, not this script's. The bundle itself reduces the
 # per-issue outcomes to the one summary line (`trackerWriteSummary`,
 # packages/domain/src/rules/issue-status.ts) — this script only prints what it is given.
@@ -41,12 +41,8 @@ fail_as() { echo "plot-issue-status: $1" >&2; echo "summary: tracker=failed"; ex
 meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
 [ -n "$meta" ] || fail_as "cannot parse '$plan_file'"
 
-approved=$(bash "$script_dir/plot-config.sh" get "Tracker approved status" '' 2>/dev/null) || approved=""
-delivered=$(bash "$script_dir/plot-config.sh" get "Tracker delivered status" '' 2>/dev/null) || delivered=""
-released=$(bash "$script_dir/plot-config.sh" get "Tracker released status" '' 2>/dev/null) || released=""
-
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$repo_root" ] || repo_root=$(pwd)
 out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released" "${@:2}") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
+  node "$bundle" "${@:2}") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
 printf '%s\n' "$out"
 exit 0
