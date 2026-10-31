@@ -63,6 +63,39 @@ describe('estatePlans — which plan blobs the estate holds', () => {
   });
 });
 
+describe('estatePlans — link resolution forms', () => {
+  it('resolves parent segments, absolute links and a bare plan directory', () => {
+    const estate = estatePlans({
+      planDir: 'docs/plans/',
+      activeDir: 'docs/plans/active/',
+      deliveredDir: 'docs/plans/delivered/',
+      main: [
+        blob('docs/plans/real.md', 'r'),
+        blob('docs/plans/up.md', 'u', '120000'),
+        blob('docs/plans/abs.md', 'x', '120000'),
+        blob('docs/plans/delivered/real.md', 'd', '120000'),
+      ],
+      links: new Map([['u', './sub/../real.md'], ['x', '/elsewhere/real.md'], ['d', '../real.md']]),
+      branches: [],
+    });
+    expect(estate.plans.map((p) => p.path)).toEqual(['docs/plans/real.md', 'docs/plans/real.md', 'docs/plans/real.md']);
+    expect(estate.indexes).toEqual([{ index: 'delivered', path: 'docs/plans/delivered/real.md', target: '../real.md' }]);
+  });
+
+  it('reads a link with no recorded text as dangling and a root-level path as bare', () => {
+    const estate = estatePlans({
+      planDir: '',
+      activeDir: 'active/',
+      deliveredDir: 'delivered/',
+      main: [blob('l.md', 'l', '120000'), blob('active/p.md', 'q', '120000')],
+      links: new Map(),
+      branches: [],
+    });
+    expect(estate.dangling).toEqual(['l.md']);
+    expect(estate.indexes).toEqual([{ index: 'active', path: 'active/p.md', target: '' }]);
+  });
+});
+
 describe('readEstate — one snapshot, parsed by object name', () => {
   const world = (over: Partial<Parameters<typeof refsFixture>[0]> = {}) =>
     refsFixture({
@@ -113,6 +146,46 @@ describe('readEstate — one snapshot, parsed by object name', () => {
     const refs = world({ blobs: { 'sha-a': planText('feature/a') } });
     const store = planStoreRef(refs, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
     expect((await readEstate(refs, store, INPUT)).ok).toBe(false);
+  });
+
+  it('fails the beat when branch tips cannot be read', async () => {
+    const refs: Refs = { ...world(), branchTips: async () => failed() };
+    const store = planStoreRef(refs, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
+    expect((await readEstate(refs, store, INPUT)).ok).toBe(false);
+  });
+
+  it('fails the beat when a branch tree cannot be listed', async () => {
+    const base = world();
+    const refs: Refs = {
+      ...base,
+      listBlobs: (ref, dir) => (ref === 't1' ? Promise.resolve(failed<readonly TreeBlob[]>()) : base.listBlobs(ref, dir)),
+    };
+    const store = planStoreRef(refs, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
+    expect((await readEstate(refs, store, INPUT)).ok).toBe(false);
+  });
+
+  it('lists branches in bytewise order and skips main and HEAD', async () => {
+    const base = world({ tips: { 'feature/z': 't1', 'feature/a': 't1', 'feature/m': 't1', main: 'm1', HEAD: 'm1' } });
+    const listed: string[] = [];
+    const spy: Refs = { ...base, listBlobs: (ref, dir) => (listed.push(ref), base.listBlobs(ref, dir)) };
+    const store = planStoreRef(spy, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
+    expect((await readEstate(spy, store, INPUT)).ok).toBe(true);
+    expect(listed).toEqual(['m1', 't1', 't1', 't1']);
+  });
+
+  it('fails the beat when a symlink target cannot be read', async () => {
+    const link = blob('docs/plans/active/a.md', 'l1', '120000');
+    const unreadable = world({ trees: { m1: [blob('docs/plans/a.md', 'sha-a'), link] } });
+    const store = planStoreRef(unreadable, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
+    expect((await readEstate(unreadable, store, INPUT)).ok).toBe(false);
+    const broken: Refs = { ...unreadable, readBlobs: async () => failed() };
+    expect((await readEstate(broken, store, INPUT)).ok).toBe(false);
+  });
+
+  it('answers the failure of the plan store as the failure of the beat', async () => {
+    const refs = world();
+    const store = { ...planStoreFixture({ plans: [] }), readPlansAt: async () => failed() };
+    expect((await readEstate(refs, store as never, INPUT)).ok).toBe(false);
   });
 
   it('accepts a store that returns records in blob order', async () => {

@@ -63,7 +63,7 @@ export const readEstate = async (
   if (!tips.ok) return failed<Estate>();
   const ordered = [...tips.value]
     .filter((tip) => tip.branch !== input.mainBranch && tip.branch !== 'HEAD')
-    .sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : 0));
+    .sort((a, b) => (a.branch < b.branch ? -1 : 1));
   const branches = [];
   for (const tip of ordered) {
     const blobs = await refs.listBlobs(tip.sha, input.planDir);
