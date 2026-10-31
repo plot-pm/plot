@@ -2760,41 +2760,25 @@ if [ "$PLAN_SOURCE" = "ref" ]; then
   [ -n "$REF_TMP" ] || PLAN_SOURCE="worktree"
 fi
 
-# EVERY PLAN PATH'S MODE, IN ONE CALL — see `REMOTE_REFS` for the measurement.
-#
-# `ref_plan_file` asked `git ls-tree` once per plan for a single field: the file
-# MODE, which is how a symlink (120000) is told from a regular file. Profiled
-# 2026-08-20 that was 69 spawns of the scan's 459, and unlike `show-ref` these
-# are not cheap — reading a tree out of a packfile is real work.
-#
-# `ls-tree -r` over the plan directories answers for every path at once: 134
-# entries in 512 ms here, against 69 separate spawns at 31-56 ms of launch
-# overhead EACH before any work happens.
-#
-# Scoped to the two directories plot keeps plans in rather than the whole tree,
-# because that is all `ref_plan_file` is ever asked about, and an unbounded
-# `ls-tree -r` on a large repo would trade one cost for another.
+# EVERY PLAN PATH'S MODE, IN ONE CALL: the file mode tells a symlink (120000)
+# from a regular file, and one `ls-tree -r` over the two plan directories
+# answers for every path instead of one spawn per plan.
 PLAN_MODES=$(git ls-tree -r "origin/$MAIN" \
   -- "$PLAN_DIR" "$ACTIVE_DIR" </dev/null 2>/dev/null)
 
-# The mode of $1 in the ref, from the batch. Empty when the path is not there,
-# which is what a failed per-path `ls-tree` also produced.
 # A lookup table in plain variables, for bash 3.2. A path is keyed by its
 # alphanumerics; paths that share a key share a value, so a read confirms the
 # whole path. A pattern with a leading `*` over the whole text is quadratic.
-kv_put() { # $1=prefix $2=path $3=value
-  local _k=$1${2//[^A-Za-z0-9]/_}
-  printf -v "$_k" '%s' "${!_k:-}${!_k:+$'\n'}$2"$'\t'"$3"
-}
 kv_get_into() { # $1=prefix $2=path → $kv_reply, "" when absent
-  local _k=$1${2//[^A-Za-z0-9]/_} _e
-  _e=$'\n'${!_k:-}$'\n'; kv_reply=""
-  case "$_e" in *$'\n'"$2"$'\t'*) _e=${_e#*$'\n'"$2"$'\t'}; kv_reply=${_e%%$'\n'*} ;; esac
+  local _k=$1${2//[^A-Za-z0-9]/_}
+  kv_reply=$'\n'${!_k:-}$'\n'
+  kv_reply=${kv_reply#*$'\n'"$2"$'\t'}
+  kv_reply=${kv_reply%%$'\n'*}
 }
 while IFS=$'\t' read -r _pm_meta _pm_path; do
-  [ -n "$_pm_path" ] && kv_put _PM_ "$_pm_path" "${_pm_meta%% *}"
+  _pm_k=_PM_${_pm_path//[^A-Za-z0-9]/_}
+  printf -v "$_pm_k" '%s' "${!_pm_k:-}${!_pm_k:+$'\n'}$_pm_path"$'\t'"${_pm_meta%% *}"
 done <<< "$PLAN_MODES"
-ref_mode_of() { kv_get_into _PM_ "$1"; printf '%s' "$kv_reply"; } # $1=path → mode, or ""
 
 # EVERY PLAN BLOB, WRITTEN IN ONE PROCESS.
 #
@@ -2846,14 +2830,14 @@ if [ -n "$REF_TMP" ] && [ -n "$PLAN_MODES" ] && command -v perl >/dev/null 2>&1;
 fi
 
 ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
-  local p="$1" mode target content out
-  mode=$(ref_mode_of "$p")
+  local p="$1" target content out
+  kv_get_into _PM_ "$p"
   # A path the batch does not carry may still exist — the batch is scoped to the
   # plan directories, and a symlink can point outside them. Asked directly only
   # then, so the fallback costs one spawn for a case that does not arise here
   # rather than one per plan for the case that always does.
-  [ -n "$mode" ] || mode=$(git ls-tree "origin/$MAIN" -- "$p" </dev/null 2>/dev/null | awk '{print $1; exit}')
-  if [ "$mode" = "120000" ]; then
+  [ -n "$kv_reply" ] || kv_reply=$(git ls-tree "origin/$MAIN" -- "$p" </dev/null 2>/dev/null | awk '{print $1; exit}')
+  if [ "$kv_reply" = "120000" ]; then
     target=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
     [ -n "$target" ] || return 1
     case "$target" in
@@ -2882,15 +2866,7 @@ ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
         done ;;
     esac
   fi
-  # ALREADY MATERIALISED? The batch below wrote every plan blob in the plan
-  # directory into `$REF_TMP` in ONE process. A hit here costs no git at all.
-  #
-  # THE MEASUREMENT that made this the change worth making, 2026-08-20: one
-  # `git show` of a plan blob cost 407-621 ms — variable because four worktrees
-  # were hitting one object store — while `cat-file --batch` read NINETEEN
-  # blobs in 559 ms, in a single process. Reading every plan therefore costs
-  # about what reading one did, and 68 `show` spawns were ~31 s of the scan on
-  # their own: over the whole 30 s budget for that one call site.
+  # ALREADY MATERIALISED? The batch below wrote every plan blob in one process.
   if [ -n "$REF_TMP" ] && [ -f "$REF_TMP/${p##*/}" ]; then
     printf '%s' "$REF_TMP/${p##*/}"
     return 0
@@ -3723,14 +3699,16 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
   # front, and a recreated branch carrying new work must not be settled by the
   # first attempt's subject.
   SUBJECT_PLAN_SECTIONS=""
-  while IFS=$'\t' read -r _sp_k _sp_v; do [ -n "$_sp_v" ] && kv_put _SA_ "$_sp_k" "$_sp_v"; done <<< "$SUBJECT_ADDING"
+  while IFS=$'\t' read -r _sp_k _sp_v; do
+    _sp_kv=_SA_${_sp_k//[^A-Za-z0-9]/_}
+    printf -v "$_sp_kv" '%s' "${!_sp_kv:-}${!_sp_kv:+$'\n'}$_sp_k"$'\t'"$_sp_v"
+  done <<< "$SUBJECT_ADDING"
   for _sp_i in "${!plans[@]}"; do
     _sp_plan="${plans[$_sp_i]}"
     # Ref mode names the blob after the resolved link: its basename is the key.
-    if [ "$PLAN_SOURCE" = "ref" ]; then _sp_base=${plan_reads[$_sp_i]##*/}
-    else _sp_base=$(basename "$(readlink "$_sp_plan" 2>/dev/null || echo "$_sp_plan")"); fi
-    _sp_path="$PLAN_DIR$_sp_base"
-    kv_get_into _SA_ "$_sp_path"; _sp_added=$kv_reply
+    _sp_base=${plan_reads[$_sp_i]##*/}
+    [ "$PLAN_SOURCE" = "ref" ] || _sp_base=$(basename "$(readlink "$_sp_plan" 2>/dev/null || echo "$_sp_plan")")
+    kv_get_into _SA_ "$PLAN_DIR$_sp_base"
     # KEYED ON THE FILE THAT WAS PARSED, which is what `plan_meta_files` holds
     # — `$plan_reads[i]`, the same key the row loop uses at pass 1a. In ref mode
     # that is a materialized blob under a temp path and not `$PLAN_DIR` at all,
@@ -3750,7 +3728,7 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
     # the full path, which is what git reports — the two are joined here, once,
     # rather than at every lookup.
     SUBJECT_PLAN_SECTIONS+="@plan $_sp_base"$'\n'
-    SUBJECT_PLAN_SECTIONS+="@added ${_sp_added:--}"$'\n'
+    SUBJECT_PLAN_SECTIONS+="@added ${kv_reply:--}"$'\n'
     SUBJECT_PLAN_SECTIONS+="$_sp_branches"
   done
 
@@ -4334,11 +4312,8 @@ for plan in "${plans[@]}"; do
   # In ref mode the resolution already happened in ref-space and the temp file
   # was named after its result, so its basename IS the answer — `readlink`
   # would ask the working tree, which the ref enumeration stopped doing.
-  if [ "$PLAN_SOURCE" = "ref" ]; then
-    plan_base=$(basename "$plan_read")
-  else
-    plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
-  fi
+  plan_base=${plan_read##*/}
+  [ "$PLAN_SOURCE" = "ref" ] || plan_base=$(basename "$(readlink "$plan" 2>/dev/null || echo "$plan")")
 
   # --log-pulse WRITES, so it needs a path in the working tree — a pulse line
   # appended to a materialized blob would be discarded with the temp dir, and a
