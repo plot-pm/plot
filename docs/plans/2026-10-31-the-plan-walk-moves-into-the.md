@@ -74,7 +74,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Estate
 
-- `feature/the-walk-reads-the-estate` — the estate stage: plans from the ref by oid, branch-only plans, the index links and the parse, with the `PlanStore` parse-by-oid operation and the `plan-store-ref.ts` fixes <!-- waits: feature/the-subject-walk-skips-settled-plans --> <!-- builds: planWalk estate stage -->
+- `feature/the-walk-reads-the-estate` — the estate stage: plans from the ref by oid, branch-only plans, the index links and the parse, with the `PlanStore` parse-by-oid operation and the `plan-store-ref.ts` fixes <!-- waits: feature/the-subject-walk-skips-settled-plans --> <!-- builds: planWalk estate stage --> → #2987
 
 ### Branch readings
 
