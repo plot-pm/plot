@@ -135,7 +135,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 2 and the challenges (`.plot/p
 
 ### Breaking merge revert
 
-- `feature/a-red-main-is-reverted` — revert, re-run, close-PR operations on a port; re-run the last green commit before a revert; reverts only a merge the host reads MERGED; `unknown` notifies; a ticket through #2903's writer <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- waits: feature/an-unfixed-high-is-ticketed --> <!-- builds: the revert and close-PR port operations on both drives, and the claim push onto bug/revert-<pr> -->
+- `feature/a-red-main-is-reverted` — revert, re-run, close-PR operations on a port; re-run the last green commit before a revert; reverts only a merge the host reads MERGED; `unknown` notifies; a ticket through #2903's writer <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- waits: feature/an-unfixed-high-is-ticketed --> <!-- builds: the revert and close-PR port operations on both drives, and the claim push onto bug/revert-<pr> --> → #2977
 
 ## Notes
 
