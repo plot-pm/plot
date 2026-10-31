@@ -3716,6 +3716,8 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
     plan_meta_index_into "${plan_reads[$_sp_i]}"
     _sp_meta_i=$plan_meta_index_reply
     [ -n "$_sp_meta_i" ] || continue
+    # Settled plans are not asked: the row loop leaves them before any lookup.
+    case "${plan_meta_phases[$_sp_meta_i]}" in released|rejected|superseded) continue ;; delivered) case "${plan_meta_types[$_sp_meta_i]}" in docs|infra) continue ;; esac ;; esac
     _sp_branches=""
     while IFS=$'\t' read -r _sp_idx _sp_br _sp_rest; do
       [ -n "$_sp_br" ] || continue
