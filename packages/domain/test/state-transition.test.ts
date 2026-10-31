@@ -454,6 +454,13 @@ describe('effectivePaths', () => {
       effectivePaths(at('sub/'), 'git add .. && git commit -m x').filter((entry) => entry.carries === 'working'),
     ).toHaveLength(3);
   });
+
+  it('keeps every chained add in scope when commitArgs is given and inRoot is left at its default', () => {
+    expect(effectivePaths(readings, 'git add b.md && git commit -m x', ['-m', 'x'])).toEqual([
+      { path: 'b.md', carries: 'working' },
+      { path: 'docs/plans/s.md', carries: 'index' },
+    ]);
+  });
 });
 
 describe('stateTransitionRefusal', () => {
