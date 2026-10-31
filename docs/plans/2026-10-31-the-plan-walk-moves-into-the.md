@@ -15,6 +15,7 @@
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-reads-the-branches`
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-reads-the-desks`
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-assembles-the-reading`
+- **Started:** 2026-11-01, Jan Wloka, `feature/scan-once-walks-in-process`
 
 ## Changelog
 
