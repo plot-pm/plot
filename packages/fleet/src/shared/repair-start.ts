@@ -6,7 +6,7 @@ import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 import type { Containment, Refs } from '@plot-pm/domain/ports/refs';
 import { mainRepairBranchOf } from '@plot-pm/domain/rules/repair-pr';
 import { redMainStep } from '@plot-pm/domain/rules/repair';
-import { rerunSettledOf } from '@plot-pm/domain/rules/repair-start';
+import { repairAttemptStep, rerunSettledOf, type RoleRunReading } from '@plot-pm/domain/rules/repair-start';
 
 /** What one repair-start pass did, for the log and the tests. */
 export type RepairStartOutcome =
@@ -17,10 +17,11 @@ export type RepairStartOutcome =
   | 'claim-lost'
   | 'claim-failed'
   | 'role-started'
+  | 'role-resumed'
   | 'role-failed'
+  | 'attempt-ended'
   | 'awaiting-repair'
-  | 'review-started'
-  | 'review-refused';
+  | 'pr-recorded';
 
 /** What one repair-start pass reads and acts through. */
 export interface RepairStartWorld {
@@ -42,10 +43,8 @@ export interface RepairStartWorld {
   hasDesk(branch: string): Promise<boolean>;
   /** Creates the desk where absent and starts the `main-repair` role in it. */
   startRole(branch: string): Promise<'started' | 'failed'>;
-  /** Whether the branch's role run is alive on this machine. */
-  roleAlive(branch: string): boolean;
-  /** Starts the review of the fix PR's head. */
-  review(pr: number, head: string): Promise<'started' | 'refused'>;
+  /** The branch's role run on this machine, counting only a run started at or after `sinceMs`. */
+  roleRun(branch: string, sinceMs: number): RoleRunReading;
   /** Runs one host call, inside a host slot where the CI system is GitHub Actions. */
   slot<T>(call: () => Promise<T>): Promise<T>;
   /** Epoch ms. */
@@ -60,7 +59,7 @@ export interface RepairStartWorld {
 
 /**
  * Takes the next repair step for a red default branch: the re-run, the claim
- * and start of the repair role, and the review of the fix PR.
+ * and start of the repair role, and the record of the fix PR.
  *
  * Reads the record and the reading, asks `redMainStep`, and acts on three of
  * its answers; `revert`, `close-prs` and `exhausted` are left to their own
@@ -69,12 +68,15 @@ export interface RepairStartWorld {
  *
  * - `await-rerun`: re-runs the first red SHA's failed jobs once, then records
  *   `rerun: 'asked'`.
- * - `start-repair`: claims `bug/main-repair-<lastGreenSha first 12 hex>`
- *   before any worktree exists, records the attempt, and starts the role on a
- *   won claim only. A branch with a desk on this machine is resumed without a
- *   second claim.
- * - `await-repair`: looks up the fix PR by its branch, records its number as
- *   `repairPr`, and starts its review.
+ * - `start-repair`: acts on `repairAttemptStep`'s answer. It claims
+ *   `bug/main-repair-<lastGreenSha first 12 hex>` before any worktree exists,
+ *   records the attempt, and starts the role on a won claim only. A lost claim
+ *   records `outcome: 'lost'`; an ended run records `outcome: 'ended'`; both
+ *   end the attempt for the episode. A run that crashed with no ending record
+ *   is resumed once, after `resumed: true` is written.
+ * - `await-repair`: looks up the fix PR by its branch and records its number
+ *   as `repairPr`, where this machine did not lose the claim. It starts no
+ *   review: the auto-review pass reviews the PR the record names.
  *
  * @param world - the reads and the actions.
  * @param warn - receives one line for each held pass and refusal.
@@ -104,6 +106,7 @@ export const repairStartTick = async (
   }
 
   const attempt = record.attempt?.branch;
+  const since = Date.parse(record.redSince);
   let pr: Awaited<ReturnType<Host['prState']>> | null = null;
   if (attempt !== undefined) pr = await world.slot(() => world.host.prState(attempt));
   if (pr !== null && !pr.ok) {
@@ -111,7 +114,8 @@ export const repairStartTick = async (
     return 'held';
   }
   const prOpen = pr?.ok === true && pr.value !== null && pr.value.state === 'OPEN' ? pr.value : null;
-  const repairInFlight = attempt !== undefined && (prOpen !== null || world.roleAlive(attempt));
+  const run = attempt === undefined ? 'none' : world.roleRun(attempt, since);
+  const repairInFlight = attempt !== undefined && (prOpen !== null || run === 'alive');
 
   const step = redMainStep(reading, record, {
     now,
@@ -135,31 +139,28 @@ export const repairStartTick = async (
     return 'rerun-asked';
   }
 
-  if (step === 'start-repair') return startRepair(world, record, stamp, warn);
+  if (step === 'start-repair') return startRepair(world, record, run, stamp, warn);
 
   if (step === 'await-repair') {
-    if (prOpen === null) return 'awaiting-repair';
-    if (record.repairPr !== prOpen.number) await world.repair.write({ ...record, repairPr: prOpen.number, at: stamp });
-    if (prOpen.headSha === undefined) {
-      warn(`plot-fleetd: repair-start held — the host named no head for PR ${prOpen.number}`);
-      return 'held';
-    }
-    return (await world.review(prOpen.number, prOpen.headSha)) === 'started' ? 'review-started' : 'review-refused';
+    if (prOpen === null || record.attempt?.outcome === 'lost' || record.repairPr === prOpen.number) return 'awaiting-repair';
+    await world.repair.write({ ...record, repairPr: prOpen.number, at: stamp });
+    return 'pr-recorded';
   }
 
   return 'none';
 };
 
 /**
- * The `start-repair` step: claim, record the attempt, start the role.
+ * The `start-repair` step: acts on {@link repairAttemptStep}'s answer.
  *
- * The attempt is recorded before the claim so a crash between the two leaves a
- * record naming the branch; a desk on this machine then proves the claim was
+ * The attempt is recorded before the claim, so a crash between the two leaves
+ * a record naming the branch; a desk on this machine then proves the claim was
  * won here, and the next pass starts the role without claiming again.
  */
 const startRepair = async (
   world: RepairStartWorld,
   record: RepairRecord,
+  run: RoleRunReading,
   stamp: string,
   warn: (line: string) => void,
 ): Promise<RepairStartOutcome> => {
@@ -168,21 +169,47 @@ const startRepair = async (
     warn('plot-fleetd: repair-start held — the episode has no last green SHA to name a repair branch from');
     return 'held';
   }
-  if (record.attempt === undefined) {
-    await world.repair.write({ ...record, state: 'repairing', attempt: { branch }, at: stamp });
+  const desk = await world.hasDesk(branch);
+  const next = repairAttemptStep(record.attempt, desk, run);
+  const attempt = record.attempt ?? { branch };
+
+  switch (next) {
+    case 'lost':
+      return 'claim-lost';
+    case 'ended':
+      return 'attempt-ended';
+    case 'wait':
+      return 'awaiting-repair';
+    case 'record-ended':
+      await world.repair.write({ ...record, attempt: { ...attempt, outcome: 'ended' }, at: stamp });
+      return 'attempt-ended';
+    case 'resume':
+      await world.repair.write({ ...record, attempt: { ...attempt, resumed: true }, at: stamp });
+      return (await world.startRole(branch)) === 'started' ? 'role-resumed' : 'role-failed';
+    case 'start':
+      return (await world.startRole(branch)) === 'started' ? 'role-started' : 'role-failed';
+    case 'claim':
+      break;
+    default:
+      return next satisfies never;
   }
-  if (!(await world.hasDesk(branch))) {
-    const base = await world.baseSha();
-    if (base === null) {
-      warn(`plot-fleetd: repair-start held — the default branch's tip could not be read to claim '${branch}'`);
-      return 'held';
-    }
-    const claimed = await world.claim(branch, base);
-    if (claimed === 'failed') {
-      warn(`plot-fleetd: repair-start held — the claim of '${branch}' could not be pushed`);
-      return 'claim-failed';
-    }
-    if (claimed === 'lost') return 'claim-lost';
+
+  if (record.attempt === undefined) {
+    await world.repair.write({ ...record, state: 'repairing', attempt, at: stamp });
+  }
+  const base = await world.baseSha();
+  if (base === null) {
+    warn(`plot-fleetd: repair-start held — the default branch's tip could not be read to claim '${branch}'`);
+    return 'held';
+  }
+  const claimed = await world.claim(branch, base);
+  if (claimed === 'failed') {
+    warn(`plot-fleetd: repair-start held — the claim of '${branch}' could not be pushed`);
+    return 'claim-failed';
+  }
+  if (claimed === 'lost') {
+    await world.repair.write({ ...record, state: 'repairing', attempt: { ...attempt, outcome: 'lost' }, at: stamp });
+    return 'claim-lost';
   }
   return (await world.startRole(branch)) === 'started' ? 'role-started' : 'role-failed';
 };

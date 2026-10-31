@@ -2,9 +2,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import { boundedRunProcess, hostShell, processesShell, refsGit, refsRemoteGit, repairRecordFile, defaultBranchFile, treesGit } from '@plot-pm/domain/adapters';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
-import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
-import { startReview } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 
 import { pidAlive } from './fleet-run.js';
@@ -21,8 +19,6 @@ export interface RepairStartWorldOptions {
   slot: RepairStartWorld['slot'];
   /** The configured `Worktree root`, `''` for the default. */
   worktreeRoot: string;
-  /** `Auto-review: true`. Where false, a fix PR is recorded and no review starts. */
-  reviewOn: boolean;
   checksWaitMs: number;
   mainRepairBoundMs: number;
   checks: readonly string[];
@@ -34,8 +30,7 @@ export interface RepairStartWorldOptions {
  * own adapters.
  *
  * The claim is `refsRemoteGit(...).claimBranch` against the default branch's
- * remote tip; the desk is `<Worktree root>/desk-<branch with / as ->`; the
- * review start is `startReview` with the release tick's limit of one.
+ * remote tip; the desk is `<Worktree root>/desk-<branch with / as ->`.
  *
  * @param options - the paths, the connector and the bounds.
  * @returns the world.
@@ -85,22 +80,7 @@ export const repairStartWorldOf = (options: RepairStartWorldOptions): RepairStar
     },
     hasDesk: role.hasDesk,
     startRole: role.startRole,
-    roleAlive: role.roleAlive,
-    review: async (pr, head) => {
-      if (!options.reviewOn) return 'refused';
-      const started = startReview(pr, head, {
-        repoRoot: options.repoRoot,
-        script: join(options.scriptsDir, 'board', 'plot-review.mjs'),
-        cwd: options.repoRoot,
-        logFile: join(options.repoRoot, '.plot', 'state', 'main-repair-review.log'),
-        detached: detachedNode(),
-        pidAlive: (pid) => pidAlive(pid),
-        limit: 1,
-        mode: 'review',
-        now: Date.now(),
-      });
-      return started.started ? 'started' : 'refused';
-    },
+    roleRun: role.roleRun,
     slot: options.slot,
     now: Date.now,
     checksWaitMs: options.checksWaitMs,

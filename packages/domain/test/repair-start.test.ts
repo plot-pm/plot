@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkflowShaRun } from '../src/entities/build.js';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '../src/entities/repair-record.js';
-import { RERUN_GRACE_MS, rerunSettledOf } from '../src/rules/repair-start.js';
+import { RERUN_GRACE_MS, repairAttemptStep, rerunSettledOf } from '../src/rules/repair-start.js';
 
 const ASKED = Date.parse('2026-10-30T07:00:00Z');
 const AFTER = ASKED + RERUN_GRACE_MS;
@@ -61,5 +61,41 @@ describe('rerunSettledOf', () => {
 
   it('reads pending where no run exists', () => {
     expect(rerunSettledOf(record(), [], ['CI'], AFTER)).toBe('pending');
+  });
+});
+
+describe('repairAttemptStep', () => {
+  const BRANCH = 'bug/main-repair-aaaaaaaaaaaa';
+
+  it('claims where no attempt is recorded', () => {
+    expect(repairAttemptStep(undefined, false, 'none')).toBe('claim');
+  });
+
+  it('starts nothing once another machine won the claim', () => {
+    expect(repairAttemptStep({ branch: BRANCH, outcome: 'lost' }, false, 'none')).toBe('lost');
+  });
+
+  it('starts nothing once the attempt ended, whatever the run reads', () => {
+    for (const run of ['none', 'alive', 'ended', 'crashed'] as const) {
+      expect(repairAttemptStep({ branch: BRANCH, outcome: 'ended' }, true, run)).toBe('ended');
+    }
+  });
+
+  it('waits while the run is alive', () => {
+    expect(repairAttemptStep({ branch: BRANCH }, true, 'alive')).toBe('wait');
+  });
+
+  it('ends the attempt where the run wrote its ending record', () => {
+    expect(repairAttemptStep({ branch: BRANCH }, true, 'ended')).toBe('record-ended');
+  });
+
+  it('resumes a crashed run once, then ends the attempt', () => {
+    expect(repairAttemptStep({ branch: BRANCH }, true, 'crashed')).toBe('resume');
+    expect(repairAttemptStep({ branch: BRANCH, resumed: true }, true, 'crashed')).toBe('record-ended');
+  });
+
+  it('starts the role on a desk it holds, and claims where it holds none', () => {
+    expect(repairAttemptStep({ branch: BRANCH }, true, 'none')).toBe('start');
+    expect(repairAttemptStep({ branch: BRANCH }, false, 'none')).toBe('claim');
   });
 });

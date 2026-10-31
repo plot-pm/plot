@@ -3081,8 +3081,8 @@ export const run = async (
         warn(`plot-fleetd: release tick failed: ${e instanceof Error ? e.message : String(e)}\n`);
       }
     }
-    // THE REPAIR-START ARM drives the red-main re-run, claim, role start and fix
-    // PR review. It starts an agent, so `--start-agents` gates it as it gates
+    // THE REPAIR-START ARM drives the red-main re-run, claim and role start, and
+    // records the fix PR; the auto-review pass reviews the PR the record names. It starts an agent, so `--start-agents` gates it as it gates
     // every other start; a `--once` pass acts on nothing.
     if (args.startAgents && !args.once) {
       try {
@@ -3094,7 +3094,6 @@ export const run = async (
             slot: <T,>(call: () => Promise<T>): Promise<T> =>
               ci.system() === 'github-actions' ? withHostSlot(prState, call) : call(),
             worktreeRoot: readConfig(boardOpts, 'Worktree root', ''),
-            reviewOn: readAutoReview(boardOpts).autoReview,
             checksWaitMs: checksWaitMsOf(await readConfigAsync(boardOpts, 'Checks wait', '3600')),
             mainRepairBoundMs: mainRepairBoundMsOf(await readConfigAsync(boardOpts, 'Main repair bound', '3600')),
             checks: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', '')),

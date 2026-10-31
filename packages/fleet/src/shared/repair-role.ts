@@ -5,6 +5,7 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { roleAgentsJson, roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
+import type { RoleRunReading } from '@plot-pm/domain/rules/repair-start';
 import { roleRunAlive } from '@plot-pm/domain/rules/role-run-alive';
 
 /** The role file and its settings, read from the default branch. */
@@ -36,11 +37,12 @@ export interface RepairRoleDeps {
   warn: (line: string) => void;
 }
 
-/** The recorded run of the role. */
+/** The recorded run of the role; `endedAt` is its ending record, written when the run ends. */
 interface RunRecord {
   branch: string;
   pid: number;
   startedAt: number;
+  endedAt?: number;
 }
 
 /** The directory outside any desk that holds the role's files, its log and its run record. */
@@ -49,9 +51,9 @@ const stateDir = (repoRoot: string): string => join(repoRoot, '.plot', 'state', 
 const readRun = (repoRoot: string): RunRecord | null => {
   try {
     const parsed = JSON.parse(readFileSync(join(stateDir(repoRoot), 'run.json'), 'utf8')) as Partial<RunRecord>;
-    return typeof parsed.branch === 'string' && typeof parsed.pid === 'number' && typeof parsed.startedAt === 'number'
-      ? { branch: parsed.branch, pid: parsed.pid, startedAt: parsed.startedAt }
-      : null;
+    if (typeof parsed.branch !== 'string' || typeof parsed.pid !== 'number' || typeof parsed.startedAt !== 'number') return null;
+    const run: RunRecord = { branch: parsed.branch, pid: parsed.pid, startedAt: parsed.startedAt };
+    return typeof parsed.endedAt === 'number' ? { ...run, endedAt: parsed.endedAt } : run;
   } catch {
     return null;
   }
@@ -65,16 +67,18 @@ const writeRun = (repoRoot: string, run: RunRecord): void => {
 };
 
 /**
- * The world's role half: the desk check, the role start and the liveness read.
+ * The world's role half: the desk check, the role start and the run read.
  *
  * `startRole` fetches the claimed branch, creates the desk on it where none
  * exists, writes the role's `--agents` JSON and settings file from the default
  * branch's copies into `.plot/state/main-repair/` (outside the desk), and
  * starts the role through `runnerOf` without awaiting it. `PLOT_ROLE_GATE`
- * names the gate bundle under `scriptsDir`, outside the desk.
+ * names the gate bundle under `scriptsDir`, outside the desk. The run record
+ * `.plot/state/main-repair/run.json` names the branch, the pid and the start
+ * time; when the run ends, `endedAt` is added to it as the ending record.
  *
  * @param deps - the ports and paths.
- * @returns `hasDesk`, `startRole` and `roleAlive` for {@link RepairStartWorld}.
+ * @returns `hasDesk`, `startRole` and `roleRun` for {@link RepairStartWorld}.
  */
 export const repairRoleOf = (deps: RepairRoleDeps) => {
   const dir = stateDir(deps.repoRoot);
@@ -84,14 +88,16 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
     return listed.ok && listed.value.some((tree) => tree.branch === branch);
   };
 
-  const roleAlive = (branch: string): boolean => {
+  const roleRun = (branch: string, sinceMs: number): RoleRunReading => {
     const run = readRun(deps.repoRoot);
-    if (run === null || run.branch !== branch) return false;
-    return roleRunAlive({
+    if (run === null || run.branch !== branch || run.startedAt < sinceMs) return 'none';
+    if (run.endedAt !== undefined) return 'ended';
+    const alive = roleRunAlive({
       role: 'main-repair',
       pid: String(run.pid),
       check: (pid) => (deps.pidAlive(Number(pid)) ? 'alive' : 'dead'),
     });
+    return alive ? 'alive' : 'crashed';
   };
 
   /** Writes the role's two files from the default branch; null names why it could not. */
@@ -130,19 +136,26 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
       return 'failed';
     }
     const started = new Promise<boolean>((resolve) => {
+      let record: RunRecord | null = null;
       const run = agentRunOf(deps, deps.runnerOf(command.command), role, desk, branch, (pid) => {
-        writeRun(deps.repoRoot, { branch, pid, startedAt: deps.now() });
+        record = { branch, pid, startedAt: deps.now() };
+        writeRun(deps.repoRoot, record);
         resolve(true);
       });
       void run.then((ok) => {
         if (!ok) deps.warn(`plot-fleetd: the main-repair run for '${branch}' ended without a result`);
+        try {
+          if (record !== null) writeRun(deps.repoRoot, { ...record, endedAt: deps.now() });
+        } catch {
+          deps.warn(`plot-fleetd: the ending record of the main-repair run for '${branch}' could not be written`);
+        }
         resolve(false);
       });
     });
     return (await started) ? 'started' : 'failed';
   };
 
-  return { hasDesk, startRole, roleAlive };
+  return { hasDesk, startRole, roleRun };
 };
 
 /** Starts the run; resolves `true` when the agent answered. `onStarted` fires on the pid. */

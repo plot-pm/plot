@@ -5,7 +5,7 @@ import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/doma
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 import type { Pr } from '@plot-pm/domain/entities/pr';
 import type { PortResult } from '@plot-pm/domain';
-import { RERUN_GRACE_MS } from '@plot-pm/domain/rules/repair-start';
+import { RERUN_GRACE_MS, type RoleRunReading } from '@plot-pm/domain/rules/repair-start';
 
 import { repairStartTick, type RepairStartWorld } from '../../src/shared/repair-start.js';
 
@@ -61,10 +61,9 @@ interface Rigging {
   pr: PortResult<Pr | null>;
   claim: 'won' | 'lost' | 'failed';
   desk: boolean;
-  alive: boolean;
+  run: RoleRunReading;
   base: string | null;
   role: 'started' | 'failed';
-  review: 'started' | 'refused';
 }
 
 const rig = (initial: RepairRecord | null, now = T0): Rig => {
@@ -77,10 +76,9 @@ const rig = (initial: RepairRecord | null, now = T0): Rig => {
     pr: answered(null),
     claim: 'won',
     desk: false,
-    alive: false,
+    run: 'none',
     base: 'b'.repeat(40),
     role: 'started',
-    review: 'started',
   };
   const world: RepairStartWorld = {
     reading: async () => reading(),
@@ -111,11 +109,7 @@ const rig = (initial: RepairRecord | null, now = T0): Rig => {
       calls.push('role');
       return state.role;
     },
-    roleAlive: () => state.alive,
-    review: async () => {
-      calls.push('review');
-      return state.review;
-    },
+    roleRun: () => state.run,
     slot: (call) => call(),
     now: () => state.now,
     checksWaitMs: 3_600_000,
@@ -200,29 +194,33 @@ describe('repairStartTick — the claim', () => {
   });
 });
 
-describe('repairStartTick — the review', () => {
+describe('repairStartTick — the fix PR', () => {
   const repairing = (): RepairRecord => record({ state: 'repairing', rerun: 'asked', attempt: { branch: BRANCH } });
   const later = T0 + RERUN_GRACE_MS + 1;
 
   it('waits while no PR exists and the role runs', async () => {
     const r = rig(repairing(), later);
-    r.set({ alive: true });
+    r.set({ run: 'alive' });
     expect(await repairStartTick(r.world)).toBe('awaiting-repair');
     expect(r.calls).toEqual([]);
   });
 
-  it('records the fix PR and starts its review', async () => {
+  it('records the fix PR once and starts no review of its own', async () => {
     const r = rig(repairing(), later);
     r.set({ pr: answered(pr()) });
-    expect(await repairStartTick(r.world)).toBe('review-started');
+    expect(await repairStartTick(r.world)).toBe('pr-recorded');
     expect(r.stored()?.repairPr).toBe(7);
-    expect(r.calls).toEqual(['write', 'review']);
+    expect(r.calls).toEqual(['write']);
+    expect(await repairStartTick(r.world)).toBe('awaiting-repair');
+    expect(r.calls).toEqual(['write']);
   });
 
-  it('reports a refused review start', async () => {
-    const r = rig(repairing(), later);
-    r.set({ pr: answered(pr()), review: 'refused' });
-    expect(await repairStartTick(r.world)).toBe('review-refused');
+  it('records no fix PR on a machine that lost the claim', async () => {
+    const r = rig(record({ state: 'repairing', rerun: 'asked', attempt: { branch: BRANCH, outcome: 'lost' } }), later);
+    r.set({ pr: answered(pr()) });
+    expect(await repairStartTick(r.world)).toBe('awaiting-repair');
+    expect(r.stored()?.repairPr).toBeUndefined();
+    expect(r.calls).toEqual([]);
   });
 
   it('holds where the host cannot be asked about the branch', async () => {
@@ -235,5 +233,51 @@ describe('repairStartTick — the review', () => {
   it('does nothing where no episode is recorded', async () => {
     const r = rig(null);
     expect(await repairStartTick(r.world)).toBe('none');
+  });
+});
+
+describe('repairStartTick — one attempt per episode', () => {
+  const repairing = (over: Partial<RepairRecord['attempt']> = {}): RepairRecord =>
+    record({ state: 'repairing', rerun: 'asked', attempt: { branch: BRANCH, ...over } });
+  const later = T0 + RERUN_GRACE_MS + 1;
+
+  it('records a lost claim and starts nothing on the next pass', async () => {
+    const r = rig(record({ state: 'rerun', rerun: 'asked' }), later);
+    r.set({ claim: 'lost' });
+    expect(await repairStartTick(r.world)).toBe('claim-lost');
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, outcome: 'lost' });
+    expect(await repairStartTick(r.world)).toBe('claim-lost');
+    expect(r.calls.filter((c) => c === 'claim')).toHaveLength(1);
+    expect(r.calls).not.toContain('role');
+  });
+
+  it('ends the attempt where the role ended with no PR, and starts no second run', async () => {
+    const r = rig(repairing(), later);
+    r.set({ desk: true, run: 'ended' });
+    expect(await repairStartTick(r.world)).toBe('attempt-ended');
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, outcome: 'ended' });
+    r.set({ run: 'none' });
+    expect(await repairStartTick(r.world)).toBe('attempt-ended');
+    expect(r.calls).not.toContain('role');
+    expect(r.calls).not.toContain('claim');
+  });
+
+  it('starts no second run once the fix PR is closed', async () => {
+    const r = rig(repairing(), later);
+    r.set({ desk: true, run: 'ended', pr: answered(pr({ state: 'CLOSED' })) });
+    expect(await repairStartTick(r.world)).toBe('attempt-ended');
+    expect(await repairStartTick(r.world)).toBe('attempt-ended');
+    expect(r.calls).not.toContain('role');
+  });
+
+  it('resumes a run that crashed with no ending record once, then ends the attempt', async () => {
+    const r = rig(repairing(), later);
+    r.set({ desk: true, run: 'crashed' });
+    expect(await repairStartTick(r.world)).toBe('role-resumed');
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, resumed: true });
+    expect(await repairStartTick(r.world)).toBe('attempt-ended');
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, resumed: true, outcome: 'ended' });
+    expect(await repairStartTick(r.world)).toBe('attempt-ended');
+    expect(r.calls.filter((c) => c === 'role')).toHaveLength(1);
   });
 });

@@ -1,5 +1,5 @@
 import type { WorkflowShaRun } from '../entities/build.js';
-import type { RepairRecord } from '../entities/repair-record.js';
+import type { RepairAttempt, RepairRecord } from '../entities/repair-record.js';
 import { declaredRuns, foldRuns } from './default-branch.js';
 
 /**
@@ -34,4 +34,56 @@ export const rerunSettledOf = (
   if (Number.isNaN(askedAt) || now - askedAt < RERUN_GRACE_MS || runs === null) return 'pending';
   const state = foldRuns(declaredRuns(runs, checks));
   return state === 'red' || state === 'green' ? state : 'pending';
+};
+
+/**
+ * The `main-repair` role's run for the attempt's branch on this machine.
+ *
+ * `none` where no run of the branch started in this episode; `alive` while its
+ * pid answers; `ended` where the run wrote its ending record; `crashed` where
+ * the pid is gone and no ending record exists.
+ */
+export type RoleRunReading = 'none' | 'alive' | 'ended' | 'crashed';
+
+/** What the `start-repair` step does with the episode's one attempt. */
+export type RepairAttemptStep =
+  | 'claim'
+  | 'start'
+  | 'resume'
+  | 'wait'
+  | 'record-ended'
+  | 'ended'
+  | 'lost';
+
+/**
+ * The next action on the episode's one repair attempt, once `redMainStep`
+ * answers `start-repair`.
+ *
+ * One attempt per episode. A finished run ends the attempt; only a run that
+ * crashed with no ending record resumes, and at most once.
+ *
+ * - No attempt recorded: `claim`.
+ * - `outcome: 'lost'`: `lost`. `outcome: 'ended'`: `ended`. Neither starts anything.
+ * - Run `alive`: `wait`.
+ * - Run `ended`: `record-ended`; the caller writes `outcome: 'ended'`.
+ * - Run `crashed`: `resume` where `resumed` is unset, else `record-ended`.
+ * - Run `none`: `start` where this machine holds the desk, else `claim`.
+ *
+ * @param attempt - the record's attempt, or undefined where none is recorded.
+ * @param desk - whether this machine holds a desk for the attempt's branch.
+ * @param run - the role run's reading for the attempt's branch.
+ * @returns the action.
+ */
+export const repairAttemptStep = (
+  attempt: RepairAttempt | undefined,
+  desk: boolean,
+  run: RoleRunReading,
+): RepairAttemptStep => {
+  if (attempt === undefined) return 'claim';
+  if (attempt.outcome === 'lost') return 'lost';
+  if (attempt.outcome === 'ended') return 'ended';
+  if (run === 'alive') return 'wait';
+  if (run === 'ended') return 'record-ended';
+  if (run === 'crashed') return attempt.resumed === true ? 'record-ended' : 'resume';
+  return desk ? 'start' : 'claim';
 };

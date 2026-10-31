@@ -45,6 +45,16 @@ export const RepairAttemptSchema = z
   .object({
     /** The branch `redMainStep`'s caller claimed and dispatched the role to. */
     branch: z.string(),
+    /**
+     * How the attempt ended on this machine: `lost` where another machine won
+     * the claim, `ended` where the role run ended. Absent while the attempt is
+     * open. Either value ends the attempt for the episode.
+     */
+    // plot-state: reading — what ended this machine's attempt, written once by
+    //                       `repairAttemptStep`'s caller; read on every pass.
+    outcome: z.enum(['lost', 'ended']).optional(),
+    /** True once a run that crashed with no ending record was resumed; a run resumes at most once. */
+    resumed: z.literal(true).optional(),
   })
   .strict();
 export type RepairAttempt = z.infer<typeof RepairAttemptSchema>;

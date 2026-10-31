@@ -301,9 +301,12 @@ export interface MergePorts {
  * Reads the repair exception's values for one PR on a red reading.
  *
  * Reads the record first, and walks the first-parent line and asks the runs
- * again only where the record names the PR.
+ * again only where the record names the PR. Without `ports.build` the runs
+ * read `unaskable`.
  */
-export const readRepair = async (ports: MergePorts, branch: string, settled: SettledReading, pr: number): Promise<RepairMergeReading> => {
+export const readRepair = async (
+  ports: Pick<MergePorts, 'repair' | 'build' | 'checks'> & { refs: Pick<Refs, 'firstParentLine'> },
+  branch: string, settled: SettledReading, pr: number): Promise<RepairMergeReading> => {
   const read = ports.repair ? await ports.repair.read() : { ok: true as const, value: null };
   if (!read.ok) return { record: 'unaskable', episode: 'unaskable', redRuns: 'unaskable' };
   const record = read.value;
