@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-31, Jan Wloka, plan-PR #2981 merged
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-reads-the-estate`
+- **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-reads-the-branches`
 
 ## Changelog
 
