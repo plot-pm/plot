@@ -62,7 +62,7 @@ import { answered } from '@plot-pm/domain';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
-import { checkNamesOf, checksWaitMsOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
+import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
@@ -84,6 +84,8 @@ import { specRunningCount } from '../../shared/auto-design.js';
 import { boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
 import { readAutoReview } from '../../shared/auto-review.js';
 import { releaseTick } from '../../shared/release-tick.js';
+import { repairStartWorldOf } from '../../shared/repair-start-world.js';
+import { repairStartTick } from '../../shared/repair-start.js';
 import { releasePortsFor } from '../../shared/release-world.js';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { runDeskRelay } from '../../shared/desk-relay.js';
@@ -3077,6 +3079,32 @@ export const run = async (
         if (outcome.step.step !== 'none') write(`plot-fleetd: release ${outcome.stage}: ${outcome.step.step}\n`);
       } catch (e) {
         warn(`plot-fleetd: release tick failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
+    // THE REPAIR-START ARM drives the red-main re-run, claim, role start and fix
+    // PR review. It starts an agent, so `--start-agents` gates it as it gates
+    // every other start; a `--once` pass acts on nothing.
+    if (args.startAgents && !args.once) {
+      try {
+        const outcome = await repairStartTick(
+          repairStartWorldOf({
+            repoRoot,
+            scriptsDir,
+            build: ci,
+            slot: <T,>(call: () => Promise<T>): Promise<T> =>
+              ci.system() === 'github-actions' ? withHostSlot(prState, call) : call(),
+            worktreeRoot: readConfig(boardOpts, 'Worktree root', ''),
+            reviewOn: readAutoReview(boardOpts).autoReview,
+            checksWaitMs: checksWaitMsOf(await readConfigAsync(boardOpts, 'Checks wait', '3600')),
+            mainRepairBoundMs: mainRepairBoundMsOf(await readConfigAsync(boardOpts, 'Main repair bound', '3600')),
+            checks: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', '')),
+            warn,
+          }),
+          warn,
+        );
+        if (outcome !== 'none') write(`plot-fleetd: repair ${outcome}\n`);
+      } catch (e) {
+        warn(`plot-fleetd: repair start failed: ${e instanceof Error ? e.message : String(e)}\n`);
       }
     }
     await relayBeat(slot, warn);

@@ -23,7 +23,7 @@ export interface RepairRoleDeps {
   trees: Pick<Trees, 'list' | 'fetch' | 'addBranch'>;
   refs: Pick<Refs, 'defaultBranch' | 'showFile'>;
   /** Builds the runner for one shell fragment; the starter does not await its run. */
-  agentRunFor: (fragment: string) => AgentRun;
+  runnerOf: (fragment: string) => AgentRun;
   /** The desk path for a branch, from the `Worktree root` key. */
   deskPath: (branch: string) => string;
   /** The `Main repair bound`, in seconds, the run's `boundSeconds`. */
@@ -70,7 +70,7 @@ const writeRun = (repoRoot: string, run: RunRecord): void => {
  * `startRole` fetches the claimed branch, creates the desk on it where none
  * exists, writes the role's `--agents` JSON and settings file from the default
  * branch's copies into `.plot/state/main-repair/` (outside the desk), and
- * starts the role through `agentRunFor` without awaiting it. `PLOT_ROLE_GATE`
+ * starts the role through `runnerOf` without awaiting it. `PLOT_ROLE_GATE`
  * names the gate bundle under `scriptsDir`, outside the desk.
  *
  * @param deps - the ports and paths.
@@ -130,7 +130,7 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
       return 'failed';
     }
     const started = new Promise<boolean>((resolve) => {
-      const run = agentRunOf(deps, deps.agentRunFor(command.command), role, desk, branch, (pid) => {
+      const run = agentRunOf(deps, deps.runnerOf(command.command), role, desk, branch, (pid) => {
         writeRun(deps.repoRoot, { branch, pid, startedAt: deps.now() });
         resolve(true);
       });

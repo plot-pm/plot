@@ -46,7 +46,7 @@ const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean } = {}) 
       showFile: async (_ref, path) =>
         over.files === false ? failed() : answered(path.endsWith('.md') ? DEFINITION : '{"hooks":{}}'),
     },
-    agentRunFor: (fragment): AgentRun => {
+    runnerOf: (fragment): AgentRun => {
       fragments.push(fragment);
       return {
         run: async (request) => {
