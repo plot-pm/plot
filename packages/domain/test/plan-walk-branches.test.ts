@@ -189,3 +189,65 @@ describe('readBranchReadings — an unreadable snapshot fails the beat', () => {
     expect(out.branches[0]!.readings).toMatchObject({ hostReach: 'failed', pr: 'unreadable', prListComplete: false });
   });
 });
+
+describe('readBranchReadings — how a host list is read', () => {
+  const pr = (head: string, state: string, mergedAt: string | null, number = 1) =>
+    ({ number, repo: '', head, base: 'main', state, mergedAt, mergeCommit: '', draft: false, mergeable: 'unknown', review: 'none', checks: 'none', failingChecks: [], url: '', author: '' }) as never;
+  const base = hostFixture({ backend: 'github' });
+  const refusing = (kind: 'throttled' | 'secondary' | 'failed' | null, said: string): Host => ({
+    ...base,
+    prList: async () => failed(),
+    lastRefusal: () => (kind === null && said === '' ? null : ({ kind, said } as never)),
+  });
+  const reach = async (host: Host) => (await read(world(), host, line('feature/here'))).branches[0]!.readings.hostReach;
+
+  it('passes a throttle and a secondary limit through, and reads a missing identity as unasked', async () => {
+    expect(await reach(refusing('throttled', 'rate'))).toBe('throttled');
+    expect(await reach(refusing('secondary', 'abuse'))).toBe('secondary');
+    expect(await reach(refusing('failed', 'gh: not logged in'))).toBe('unasked');
+    expect(await reach(refusing('failed', 'boom'))).toBe('failed');
+    expect(await reach(refusing(null, ''))).toBe('failed');
+  });
+
+  it('reads a closed PR, a PR of another state, and a complete list with no PR', async () => {
+    const host = hostFixture({
+      backend: 'github',
+      prs: [pr('feature/c', 'CLOSED', null, 1), pr('feature/m', 'MERGED', null, 2), pr('feature/x', 'WEIRD', null, 3), pr('feature/y', 'WEIRD', null, 4)],
+    });
+    const out = await read(world(), host, line('feature/c'), line('feature/m'), line('feature/x'), line('feature/none'));
+    expect(out.branches.map((b) => b.readings.pr)).toEqual(['CLOSED', 'CLOSED', 'unreadable', 'none']);
+    expect(out.branches[0]!.readings.prListComplete).toBe(true);
+  });
+
+  it('ranks a closed PR below a merged one for the same head', async () => {
+    const host = hostFixture({ backend: 'github', prs: [pr('feature/h', 'CLOSED', null, 1), pr('feature/h', 'MERGED', '2026-10-01T00:00:00Z', 2)] });
+    expect((await read(world(), host, line('feature/h'))).branches[0]!.readings.pr).toBe('MERGED');
+  });
+
+  it('falls back to empty backend and origin when the host and remote cannot be read', async () => {
+    const host: Host = { ...base, backend: async () => failed() };
+    const refs: Refs = { ...world(), remoteUrl: async () => failed() };
+    const out = await read(refs, host, line('feature/here'));
+    expect(out.backend).toBe('');
+    expect(out.origin).toBe('');
+  });
+
+  it('reads no changed paths for a branch with a ref and no commit ahead', async () => {
+    const refs = world({ commitSubjects: { 'origin/main..origin/feature/here': [] } });
+    const out = await read(refs, base, line('feature/here'));
+    expect(out.branches[0]).toMatchObject({ changedPaths: [] });
+    expect(out.branches[0]!.readings.commitsAhead).toBe(0);
+  });
+
+  it('skips the branches of a released plan', async () => {
+    const released = estateOf(line('feature/here'));
+    released.plans[0]!.record = { ...released.plans[0]!.record, phase: 'released' };
+    const answer = await readBranchReadings(world(), base, released, INPUT);
+    expect(isAnswered(answer) && answer.value.branches).toEqual([]);
+  });
+
+  it('reads a merged-state PR with no mergedAt as closed', async () => {
+    const host = hostFixture({ backend: 'github', prs: [pr('feature/z', 'MERGED', null)] });
+    expect((await read(world(), host, line('feature/z'))).branches[0]!.readings.pr).toBe('CLOSED');
+  });
+});
