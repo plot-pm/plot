@@ -1,0 +1,1 @@
+../2026-10-31-the-commit-gates-match-only-the.md
