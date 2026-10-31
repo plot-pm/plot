@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkflowShaRun } from '../src/entities/build.js';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '../src/entities/repair-record.js';
-import { RERUN_GRACE_MS, lastGreenRerunSettledOf, repairAttemptStep, rerunSettledOf } from '../src/rules/repair-start.js';
+import { RERUN_GRACE_MS, lastGreenRerunOverdue, lastGreenRerunSettledOf, repairAttemptStep, rerunSettledOf } from '../src/rules/repair-start.js';
 
 const ASKED = Date.parse('2026-10-30T07:00:00Z');
 const AFTER = ASKED + RERUN_GRACE_MS;
@@ -132,5 +132,16 @@ describe('repairAttemptStep', () => {
   it('starts the role on a desk it holds, and claims where it holds none', () => {
     expect(repairAttemptStep({ branch: BRANCH }, true, 'none')).toBe('start');
     expect(repairAttemptStep({ branch: BRANCH }, false, 'none')).toBe('claim');
+  });
+});
+
+describe('lastGreenRerunOverdue', () => {
+  const since = Date.parse('2026-10-30T06:00:00Z');
+  it('is overdue from redSince plus the repair bound plus Checks wait, not before', () => {
+    expect(lastGreenRerunOverdue(record(), since + 3000 - 1, 1000, 2000)).toBe(false);
+    expect(lastGreenRerunOverdue(record(), since + 3000, 1000, 2000)).toBe(true);
+  });
+  it('is never overdue where redSince does not parse', () => {
+    expect(lastGreenRerunOverdue(record({ redSince: 'x' }), since * 2, 1000, 2000)).toBe(false);
   });
 });

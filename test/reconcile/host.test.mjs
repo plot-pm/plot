@@ -5491,6 +5491,13 @@ test('host: rerun-all re-runs every run of the sha in full, whatever each conclu
   assert.deepEqual(reruns, ['run rerun 1', 'run rerun 2', 'run rerun 3']);
 });
 
+test('host: rerun-all fails, not unaskable, where no run matches the sha', () => {
+  const stubs = makeRerunStub(THREE_WORKFLOWS);
+  const res = runAllowFail(['rerun-all', 'main', 'nosuchsha'], { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  assert.equal(res.code, 1);
+  assert.deepEqual(callsOf(stubs.callsFile).filter((c) => c.startsWith('run rerun')), []);
+});
+
 test('host: rerun-failed re-runs only the failed jobs of the sha\'s failed runs', () => {
   const stubs = makeRerunStub(THREE_WORKFLOWS);
   run(['rerun-failed', 'main', 'abc123'], { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });

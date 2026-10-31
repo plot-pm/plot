@@ -17,20 +17,22 @@ import {
   type RedMainCandidate,
   type RedMainPickerAnswer,
 } from '@plot-pm/domain/rules/repair';
-import { lastGreenRerunSettledOf } from '@plot-pm/domain/rules/repair-start';
+import { lastGreenRerunOverdue, lastGreenRerunSettledOf } from '@plot-pm/domain/rules/repair-start';
 import {
   REVERT_TICKET_LABEL,
   revertTicketBody,
   revertTicketHead,
+  revertTicketPlan,
   revertTicketTitle,
 } from '@plot-pm/domain/rules/revert-ticket';
 import { moveRepairState } from '@plot-pm/domain/transitions/repair-record';
 
 /** What one revert pass did, for the log and the tests. */
-export type RevertOutcome =
+export type RevertTickOutcome =
   | 'none'
   | 'held'
   | 'awaiting-rerun'
+  | 'awaiting-repair'
   | 'awaiting-revert'
   | 'rerun-asked'
   | 'claim-lost'
@@ -56,6 +58,12 @@ export interface RevertWorld {
   host: Pick<Host, 'prState' | 'prCreate' | 'prClose'>;
   /** The revert git operation. */
   revert: Revert;
+  /**
+   * The reverted PR's head branch, as the host lists its merged PRs, and the
+   * plan file whose slices name that branch (`''` where none does). Either is
+   * undefined where its read failed or found nothing to read.
+   */
+  revertedFacts(pr: number): Promise<{ branch: string | undefined; plan: string | undefined }>;
   /** One candidate commit with the readings the picker needs; null where a host, CI or git read failed. */
   candidate(commit: { sha: string; subject: string }): Promise<RedMainCandidate | null>;
   /** The default branch's remote tip, the base of the claim commit; null where it could not be read. */
@@ -104,7 +112,7 @@ const moved = async (
   return written.ok;
 };
 
-const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): Promise<RevertOutcome> => {
+const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): Promise<RevertTickOutcome> => {
   if (!(await moved(world, record, 'exhausted', {}))) return 'held';
   await world.notify(`plot-fleetd: main repair exhausted — ${why}. Nothing more is tried for this episode.`);
   return 'exhausted';
@@ -121,17 +129,24 @@ const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): P
  * - `revert` with the record `repairing`: asks the full re-run of the last
  *   green SHA's runs once and records `reverting` with `preRevertRerun:
  *   'asked'`. Only the new attempt's runs answer it (`lastGreenRerunSettledOf`).
+ *   A re-run not accepted or not settled by `lastGreenRerunOverdue` ends the
+ *   episode at `exhausted`.
  * - `revert` with the record `reverting`: confirms the breaking commit is on
  *   the default branch and not yet reverted, re-reads the first red SHA's runs,
  *   claims `bug/revert-<pr>` before the revert commit is made, reverts, pushes,
- *   opens the revert PR, records it as `revertPr` and starts its review. A won
- *   claim is recorded before the desk is made, so a failed desk is made on a
- *   later pass without a second claim. Every
- *   step reads the world first, so a pass after a crash resumes at the step
- *   that did not finish. A conflicting revert ends the episode at `exhausted`.
+ *   opens the revert PR, records it as `revertPr` and starts its review. The
+ *   reverted PR, its branch and its plan are recorded with the first write.
+ *   The claim's outcome is recorded: `won` before the desk is made, so a
+ *   failed desk is made on a later pass without a second claim; `lost` ends
+ *   this machine's revert for the episode. Every step reads the world first,
+ *   so a pass after a crash resumes at the step that did not finish. A
+ *   conflicting revert ends the episode at `exhausted`.
  * - `close-prs`: closes each open PR the record names, writes the ticket for a
- *   merged revert, and records `done`. A reading without a settled commit, or
- *   an ancestry answer of `unknown`, closes nothing.
+ *   merged revert from the recorded reverted PR, branch and plan, records
+ *   `done`, and notifies that the revert merged. A reading without a settled
+ *   commit, or an ancestry answer of `unknown`, closes nothing.
+ * - `hold`: `held`. `await-repair`: `awaiting-rerun` for a `reverting` record,
+ *   `awaiting-repair` otherwise. Every other step: `none`.
  * - `exhausted`: records it and notifies once.
  *
  * A candidate whose host, CI or git read failed holds the pass: the picker
@@ -144,7 +159,7 @@ const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): P
 export const repairRevertTick = async (
   world: RevertWorld,
   warn: (line: string) => void = () => undefined,
-): Promise<RevertOutcome> => {
+): Promise<RevertTickOutcome> => {
   const reading = await world.reading();
   const read = await world.repair.read();
   if (!read.ok || read.value === null) return 'none';
@@ -194,6 +209,13 @@ export const repairRevertTick = async (
     lastGreenRerunSettled,
   });
 
+  const rerunOverdue =
+    record.revertPr === undefined &&
+    lastGreenRerunOverdue(record, now, world.mainRepairBoundMs, world.checksWaitMs);
+  if (rerunOverdue && record.state === 'reverting' && step === 'await-repair') {
+    return exhaust(world, record, `the re-run of the last green SHA did not settle within Checks wait`);
+  }
+
   if (step === 'exhausted' && record.revertPr !== undefined && lastGreenRerunSettled !== 'red') {
     return judgeRevertPr(world, reading, record, record.revertPr, warn);
   }
@@ -211,7 +233,9 @@ export const repairRevertTick = async (
     return closePrs(world, record, warn);
   }
 
-  if (step !== 'revert') return record.state === 'reverting' ? 'awaiting-rerun' : 'none';
+  if (step === 'hold') return 'held';
+  if (step === 'await-repair') return record.state === 'reverting' ? 'awaiting-rerun' : 'awaiting-repair';
+  if (step !== 'revert') return 'none';
   if (reading === null) return 'held';
 
   if (record.state === 'repairing') {
@@ -219,6 +243,7 @@ export const repairRevertTick = async (
     const lastGreen = record.lastGreenSha;
     const asked = await world.slot(() => world.build.rerunAll(reading.branch, lastGreen));
     if (!asked.ok) {
+      if (rerunOverdue) return exhaust(world, record, `the re-run of ${lastGreen} was not accepted within Checks wait`);
       warn(`plot-fleetd: revert held — the re-run of ${lastGreen} was not accepted`);
       return 'held';
     }
@@ -243,7 +268,7 @@ const judgeRevertPr = async (
   record: RepairRecord,
   revertPr: number,
   warn: (line: string) => void,
-): Promise<RevertOutcome> => {
+): Promise<RevertTickOutcome> => {
   const looked = await world.slot(() => world.host.prState(revertPr, { withChecks: true }));
   if (!looked.ok) {
     warn(`plot-fleetd: revert held — the host did not answer for PR #${revertPr}`);
@@ -283,7 +308,8 @@ const makeRevert = async (
   reading: DefaultBranchReading,
   revertedPr: number,
   warn: (line: string) => void,
-): Promise<RevertOutcome> => {
+): Promise<RevertTickOutcome> => {
+  if (record.revertClaim === 'lost') return 'claim-lost';
   const breaking = record.candidates.find((c) => prNumberOf(c.subject) === revertedPr);
   const base = await world.refs.defaultBranch();
   if (breaking === undefined || !base.ok) return 'held';
@@ -313,17 +339,26 @@ const makeRevert = async (
     }
   }
 
-  let current = record;
+  let current: RepairRecord = { ...record, revertedPr };
+  if (record.revertedPr !== revertedPr || record.revertedBranch === undefined || record.revertedPlan === undefined) {
+    const facts = await world.revertedFacts(revertedPr);
+    const kept = record.revertedPr === revertedPr ? record : { ...record, revertedBranch: undefined, revertedPlan: undefined };
+    current = {
+      ...current,
+      revertedBranch: facts.branch ?? kept.revertedBranch,
+      revertedPlan: facts.plan ?? kept.revertedPlan,
+    };
+  }
   let desk = await world.deskOf(branch);
   if (desk === null && open === null) {
-    if (current.revertClaimed !== true) {
+    if (current.revertClaim !== 'won') {
       const tip = await world.baseSha();
       if (tip === null) return 'held';
       const claimed = await world.claim(branch, tip);
       if (claimed === 'failed') return 'claim-failed';
-      if (claimed === 'lost') return 'claim-lost';
-      current = { ...current, revertClaimed: true, at: new Date(world.now()).toISOString() };
+      current = { ...current, revertClaim: claimed, at: new Date(world.now()).toISOString() };
       if (!(await world.repair.write(current)).ok) return 'held';
+      if (claimed === 'lost') return 'claim-lost';
     }
     desk = await world.makeDesk(branch);
   }
@@ -367,8 +402,9 @@ const closePrs = async (
   world: RevertWorld,
   record: RepairRecord,
   warn: (line: string) => void,
-): Promise<RevertOutcome> => {
+): Promise<RevertTickOutcome> => {
   let merged: { revertPr: number; revertedPr: number } | null = null;
+  let revertMerged = false;
   for (const number of [record.repairPr, record.revertPr]) {
     if (number === undefined) continue;
     const looked = await world.slot(() => world.host.prState(number));
@@ -379,8 +415,8 @@ const closePrs = async (
     const pr = looked.value;
     if (pr === null) continue;
     if (pr.state === 'MERGED' && number === record.revertPr) {
-      const revertedPr = Number(/^bug\/revert-([1-9][0-9]*)$/.exec(pr.head)?.[1]);
-      if (Number.isInteger(revertedPr)) merged = { revertPr: number, revertedPr };
+      revertMerged = true;
+      if (record.revertedPr !== undefined) merged = { revertPr: number, revertedPr: record.revertedPr };
     }
     if (pr.state !== 'OPEN') continue;
     const closed = await world.slot(() => world.host.prClose(number));
@@ -389,8 +425,14 @@ const closePrs = async (
       return 'held';
     }
   }
+  if (revertMerged && merged === null) warn(`plot-fleetd: revert PR #${record.revertPr} merged, and the record names no reverted PR to ticket`);
   if (merged !== null) await ticketMergedRevert(world, record, merged, warn);
-  return (await moved(world, record, 'done', {})) ? 'closed' : 'held';
+  if (!(await moved(world, record, 'done', {}))) return 'held';
+  if (merged !== null) {
+    const plan = revertTicketPlan({ revertedBranch: record.revertedBranch, plan: record.revertedPlan });
+    await world.notify(`plot-fleetd: revert PR #${merged.revertPr} merged and the default branch is green; PR #${merged.revertedPr} is reverted (plan: ${plan}).`);
+  }
+  return 'closed';
 };
 
 /**
@@ -406,11 +448,10 @@ const ticketMergedRevert = async (
   merged: { revertPr: number; revertedPr: number },
   warn: (line: string) => void,
 ): Promise<void> => {
-  const reverted = await world.slot(() => world.host.prState(merged.revertedPr));
-  const branch = reverted.ok && reverted.value !== null ? reverted.value.head : '';
   const body = revertTicketBody({
     revertedPr: merged.revertedPr,
-    revertedBranch: branch,
+    revertedBranch: record.revertedBranch,
+    plan: record.revertedPlan,
     revertPr: merged.revertPr,
     firstRedSha: record.firstRedSha,
   });

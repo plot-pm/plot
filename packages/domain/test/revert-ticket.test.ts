@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   REVERT_TICKET_LABEL,
-  planSlugOfBranch,
   revertTicketBody,
   revertTicketHead,
   revertTicketTitle,
@@ -18,22 +17,31 @@ describe('revert ticket', () => {
     expect(revertTicketTitle(12)).toContain('PR #12');
   });
 
-  it('reads the plan from the part of the branch after the first slash', () => {
-    expect(planSlugOfBranch('feature/the-slug')).toBe('the-slug');
-    expect(planSlugOfBranch('feature/a/b')).toBe('a/b');
-    expect(planSlugOfBranch('nobranchprefix')).toBe('');
-  });
-
-  it('names the reverted PR, its plan, the revert PR and the red commit', () => {
-    const body = revertTicketBody({ revertedPr: 12, revertedBranch: 'feature/the-slug', revertPr: 13, firstRedSha: 'abc' });
+  it('names the reverted PR, its branch, its plan file, the revert PR and the red commit', () => {
+    const body = revertTicketBody({
+      revertedPr: 12,
+      revertedBranch: 'feature/a-red-main-is-reverted',
+      plan: 'docs/plans/2026-10-29-a-red-default-branch-is-repaired.md',
+      revertPr: 13,
+      firstRedSha: 'abc',
+    });
     expect(body).toContain('Reverted PR: #12');
-    expect(body).toContain('Plan: the-slug');
+    expect(body).toContain('Branch: feature/a-red-main-is-reverted');
+    expect(body).toContain('Plan: docs/plans/2026-10-29-a-red-default-branch-is-repaired.md');
     expect(body).toContain('Revert PR: #13');
     expect(body).toContain('abc');
   });
 
-  it('says so where the branch name gives no plan', () => {
-    const body = revertTicketBody({ revertedPr: 12, revertedBranch: 'detached', revertPr: 13, firstRedSha: 'abc' });
-    expect(body).toContain('Plan: not derivable from the branch name');
+  it('says why the plan is not derivable, and never names the branch slug as the plan', () => {
+    const facts = { revertedPr: 12, revertPr: 13, firstRedSha: 'abc' };
+    expect(revertTicketBody({ ...facts, revertedBranch: 'feature/the-slug', plan: '' })).toContain(
+      "Plan: not derivable: no plan's slices name feature/the-slug",
+    );
+    expect(revertTicketBody({ ...facts, revertedBranch: 'feature/the-slug', plan: undefined })).toContain(
+      'Plan: not derivable: the plans were not read',
+    );
+    const unread = revertTicketBody({ ...facts, revertedBranch: undefined, plan: undefined });
+    expect(unread).toContain('Branch: not read');
+    expect(unread).toContain('Plan: not derivable: the branch of the reverted PR was not read');
   });
 });

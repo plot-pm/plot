@@ -70,6 +70,31 @@ export const lastGreenRerunSettledOf = (
 };
 
 /**
+ * Whether the pre-revert re-run of the last green SHA is past its bound.
+ *
+ * The re-run has `Checks wait` from the moment the repair bound passes to be
+ * asked and to settle. Past that, the episode ends at `exhausted`: a re-run
+ * that matched no run, a CI system that cannot re-run, or runs that left the
+ * CI listing would otherwise hold the episode with no end.
+ *
+ * @param record - the repair record.
+ * @param now - the current time, as epoch milliseconds.
+ * @param mainRepairBoundMs - the `Main repair bound`, in milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns true at or after `redSince + mainRepairBoundMs + checksWaitMs`;
+ *   false before it, or where `redSince` does not parse.
+ */
+export const lastGreenRerunOverdue = (
+  record: RepairRecord,
+  now: number,
+  mainRepairBoundMs: number,
+  checksWaitMs: number,
+): boolean => {
+  const since = Date.parse(record.redSince);
+  return !Number.isNaN(since) && now >= since + mainRepairBoundMs + checksWaitMs;
+};
+
+/**
  * The `main-repair` role's run for the attempt's branch on this machine.
  *
  * `none` where no run of the branch started in this episode; `alive` while its

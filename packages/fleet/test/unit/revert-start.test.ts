@@ -43,20 +43,45 @@ const record = (over: Partial<RepairRecord> = {}): RepairRecord => ({
   candidates: [{ sha: BREAKING, subject: SUBJECT }],
   rerun: 'asked',
   preRevertRerun: 'none',
-  attempt: 'started',
+  attempt: { branch: 'bug/main-repair-gggggggggggg' },
   repairPr: 5,
   at: new Date(T0).toISOString(),
   ...over,
 });
 
-const run = (sha: string, conclusion: string | null, startedAt = ''): WorkflowShaRun =>
-  ({ sha, workflow: 'CI', status: conclusion === null ? 'in_progress' : 'completed', conclusion, url: '', startedAt }) as WorkflowShaRun;
+const run = (sha: string, conclusion: string | null, startedAt = ''): WorkflowShaRun => ({
+  sha,
+  workflow: 'CI',
+  status: conclusion === null ? 'in_progress' : 'completed',
+  conclusion,
+  url: '',
+  startedAt,
+});
 
 /** The last green SHA's own runs, which concluded before the episode opened. */
 const OLD_GREEN_START = new Date(T0 - HOUR).toISOString();
 
-const pr = (over: Partial<Pr> = {}): Pr =>
-  ({ number: 9, head: REVERT_BRANCH, state: 'OPEN', checks: 'pending', headSha: 'd'.repeat(40), url: '', mergeCommit: '', ...over }) as Pr;
+/** A PR as `prState` answers it: no `pr-state` path reports the head branch, so `head` is `''`. */
+const pr = (over: Partial<Pr> = {}): Pr => ({
+  number: 9,
+  repo: '',
+  head: '',
+  base: 'main',
+  state: 'OPEN',
+  mergedAt: null,
+  mergeCommit: '',
+  draft: false,
+  mergeable: 'unknown',
+  review: '',
+  checks: 'pending',
+  failingChecks: [],
+  url: '',
+  author: '',
+  headSha: 'd'.repeat(40),
+  ...over,
+});
+
+const REVERTED_PLAN = 'docs/plans/2026-10-29-the-thing-is-planned.md';
 
 interface Rigging {
   now: number;
@@ -82,6 +107,8 @@ interface Rigging {
   reviewRefused: boolean;
   /** The checks a PR reads where they are not asked for: Bitbucket under Jenkins answers `unknown`. */
   checksWithout: 'as-set' | 'unknown';
+  /** Where false, `rerunAll` is refused. */
+  rerunAccepted: boolean;
 }
 
 const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
@@ -113,6 +140,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     deskFails: false,
     reviewRefused: false,
     checksWithout: 'as-set',
+    rerunAccepted: true,
   };
   const started: string[] = [];
   ticket = state.ticket;
@@ -136,6 +164,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
       // A full re-run starts a new attempt of every run; a failed-only re-run of a green SHA would start none.
       rerunAll: async (_branch, sha) => {
         calls.push(`rerun:${sha === GREEN ? 'green' : 'red'}`);
+        if (!state.rerunAccepted) return { ok: false, why: 'failed' };
         state.runs.set(sha, [run(sha, state.greenRerun, new Date(state.now).toISOString())]);
         return answered(null);
       },
@@ -144,11 +173,11 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
       prState: async (key, opts) => {
         const found = state.prs.get(key) ?? null;
         if (found === null || opts?.withChecks === true || state.checksWithout === 'as-set') return answered(found);
-        return answered({ ...found, checks: 'unknown' } as Pr);
+        return answered({ ...found, checks: 'unknown' });
       },
       prCreate: async (input) => {
-        calls.push(`pr-create:${input.head}`);
-        state.prs.set(input.head, pr());
+        calls.push(`pr-create:${input.head ?? ''}`);
+        state.prs.set(input.head ?? '', pr());
         return answered('https://example/pull/9');
       },
       prClose: async (number) => {
@@ -164,6 +193,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
         return answered(state.revert);
       },
     },
+    revertedFacts: async () => ({ branch: 'feature/the-thing', plan: REVERTED_PLAN }),
     candidate: async (commit) =>
       state.candidateFails
         ? null
@@ -213,19 +243,19 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     tracker: {
       issueOpen: async (input) => {
         opened.push(input);
-        return answered({ id: 'T-1' });
+        return answered({ outcome: 'opened' as const, id: 'T-1' });
       },
-      issueComment: async () => answered(undefined),
+      issueComment: async () => answered({ outcome: 'commented' as const }),
     },
     notify: async (message) => {
       notes.push(message);
     },
-    slot: (call) => call(),
+    slot: async (call) => call(),
     now: () => state.now,
     checksWaitMs: 100 * HOUR,
     mainRepairBoundMs: HOUR,
     checks: ['CI'],
-  } as unknown as RevertWorld;
+  };
   return { world, stored: () => file, calls, notes, opened, set: (patch: Partial<Rigging>) => Object.assign(state, patch), state };
 };
 
@@ -286,12 +316,12 @@ describe('repairRevertTick — a failed read holds', () => {
     r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
     r.set({ deskFails: true, now: T0 + 3 * HOUR });
     expect(await repairRevertTick(r.world)).toBe('held');
-    expect(r.stored()).toMatchObject({ state: 'reverting', revertClaimed: true });
+    expect(r.stored()).toMatchObject({ state: 'reverting', revertClaim: 'won' });
     // The claim branch now exists on origin: a second claim would lose.
     r.set({ deskFails: false, claim: 'lost', now: r.state.now + 2 * 60_000 });
     expect(await repairRevertTick(r.world)).toBe('revert-opened');
     expect(r.calls.filter((c) => c === 'claim')).toHaveLength(1);
-    expect(r.stored()).toMatchObject({ revertPr: 9, revertClaimed: true });
+    expect(r.stored()).toMatchObject({ revertPr: 9, revertClaim: 'won' });
   });
 });
 
@@ -337,6 +367,49 @@ describe('repairRevertTick — the revert PR', () => {
     expect(r.calls.filter((c) => c === 'review:9')).toHaveLength(2);
     expect(await repairRevertTick(r.world)).toBe('awaiting-revert');
     expect(r.calls.filter((c) => c === 'review:9')).toHaveLength(2);
+  });
+});
+
+describe('repairRevertTick — the bounds and the claim', () => {
+  const PAST = T0 + HOUR + 100 * HOUR;
+
+  it('exhausts once, with one notification, where the last green re-run never shows a new attempt within Checks wait', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.set({ now: PAST - 60_000, reading: reading({ askedAt: new Date(PAST - 60_000).toISOString() }) });
+    expect(await repairRevertTick(r.world)).toBe('awaiting-rerun');
+    r.set({ now: PAST, reading: reading({ askedAt: new Date(PAST).toISOString() }) });
+    expect(await repairRevertTick(r.world)).toBe('exhausted');
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toContain('did not settle within Checks wait');
+    expect(await repairRevertTick(r.world)).toBe('none');
+    expect(r.notes).toHaveLength(1);
+  });
+
+  it('exhausts where the re-run of the last green SHA is still refused at the bound', async () => {
+    const r = rig(record());
+    r.set({ rerunAccepted: false });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    r.set({ now: PAST, reading: reading({ askedAt: new Date(PAST).toISOString() }) });
+    expect(await repairRevertTick(r.world)).toBe('exhausted');
+    expect(r.notes).toHaveLength(1);
+  });
+
+  it('records a lost claim once and never pushes another claim this episode', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
+    r.set({ claim: 'lost', now: T0 + 3 * HOUR });
+    expect(await repairRevertTick(r.world)).toBe('claim-lost');
+    expect(r.stored()).toMatchObject({ state: 'reverting', revertClaim: 'lost' });
+    r.set({ now: T0 + 3 * HOUR + 12 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('claim-lost');
+    expect(r.calls.filter((c) => c === 'claim')).toHaveLength(1);
+  });
+
+  it('reports a hold on a stale reading as held, not as a re-run wait', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.world.checksWaitMs = HOUR;
+    r.set({ now: T0 + 2 * HOUR, reading: reading({ askedAt: new Date(T0).toISOString() }) });
+    expect(await repairRevertTick(r.world)).toBe('held');
   });
 });
 
@@ -409,18 +482,32 @@ describe('repairRevertTick — close-prs', () => {
     expect(r.stored()?.state).toBe('done');
   });
 
-  it('writes a ticket keyed by the reverted PR after a merged revert', async () => {
-    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked', revertPr: 9 }));
+  it('writes a ticket from the recorded reverted PR, branch and plan after a merged revert, and notifies once', async () => {
+    const r = rig(
+      record({
+        state: 'reverting',
+        preRevertRerun: 'asked',
+        revertPr: 9,
+        revertedPr: 41,
+        revertedBranch: 'feature/the-thing',
+        revertedPlan: REVERTED_PLAN,
+      }),
+    );
     r.set({ reading: reading({ headSha: 'n'.repeat(40), head: 'green', settled: { sha: 'n'.repeat(40), state: 'green' } }) });
+    // As every real `pr-state` path answers: no head branch on the merged revert PR.
     r.state.prs.set(9, pr({ state: 'MERGED' }));
-    r.state.prs.set(41, pr({ number: 41, head: 'feature/the-thing', state: 'MERGED' }));
     expect(await repairRevertTick(r.world)).toBe('closed');
     expect(r.calls).toContain('ticket:pending');
     expect(r.calls).toContain('ticket:opened');
     expect(r.opened).toHaveLength(1);
     expect(r.opened[0]?.labels).toContain('ai-generated');
-    expect(r.opened[0]?.body).toContain('#41');
+    expect(r.opened[0]?.body).toContain('Reverted PR: #41');
+    expect(r.opened[0]?.body).toContain('Branch: feature/the-thing');
+    expect(r.opened[0]?.body).toContain(`Plan: ${REVERTED_PLAN}`);
     expect(r.calls).not.toContain('pr-close:9');
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toContain('PR #41 is reverted');
+    expect(r.notes[0]).toContain(REVERTED_PLAN);
   });
 });
 
@@ -459,7 +546,11 @@ describe('repairRevertTick — the anti-goal', () => {
       outcomes.push(await repairRevertTick(r.world));
     }
     expect(r.stored()?.state).toBe('done');
-    expect(r.notes).toHaveLength(0);
+    expect(r.stored()).toMatchObject({ revertedPr: 41, revertedBranch: 'feature/the-thing', revertedPlan: REVERTED_PLAN });
+    expect(r.opened).toHaveLength(1);
+    expect(r.opened[0]?.body).toContain(`Plan: ${REVERTED_PLAN}`);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toContain('PR #41 is reverted');
     expect(r.calls.filter((c) => c === 'revert-commit')).toHaveLength(1);
     expect(r.calls.filter((c) => c === 'rerun:green')).toHaveLength(1);
     expect(outcomes).toContain('revert-opened');

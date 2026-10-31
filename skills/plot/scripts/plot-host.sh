@@ -127,12 +127,12 @@
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
+#                                 merge the PR. --match-head is
 #                                 mandatory on every backend. bitbucket
 #                                 re-reads the head before merging; a
 #                                 mismatch refuses `head-moved` (exit 1).
 #   pr-ready <number>              take a PR out of draft
 #   pr-close <number>              close a PR unmerged (bitbucket: decline)
-#                                 merge the PR
 #   pr-list [--state open|merged|closed|all|settled] [--limit N] [--rich|--rich-open]
 #                                 settled is merged+declined on bitbucket (no
 #                                 open sweep) and --state all on github, which
@@ -5210,14 +5210,16 @@ case "$op" in
     # sha; `rerun-all` re-runs every job of every run for it, whatever each
     # concluded. GitHub resets a re-run run's `startedAt` to the new attempt.
     # Exit 4 is *cannot be asked*: any CI but GitHub Actions on GitHub, and a
-    # failing `gh`.
+    # failing `gh`. Exit 1 is `rerun-all` matching no run for the sha: nothing
+    # was re-run, so a caller waiting for a new attempt would wait forever.
     branch="${1:?$op needs a branch}"; sha="${2:?$op needs a sha}"
     [ "$(ci_scheme)" = github-actions ] && [ "$be" = github ] || exit 4
-    _flag=--failed
-    [ "$op" = rerun-all ] && _flag=
+    # Empty for `rerun-all`; non-empty, and so `--failed` below, for `rerun-failed`.
+    _failed_only=${op#rerun-all}
     _ids=$(gh run list --branch "$branch" --limit 50 --json headSha,conclusion,databaseId \
-      --jq ".[] | select(.headSha == \"$sha\" and (\"$_flag\" == \"\" or .conclusion == \"failure\")) | .databaseId" 2>/dev/null) || exit 4
-    for _id in $_ids; do gh run rerun "$_id" $_flag >/dev/null 2>&1 || exit 4; done
+      --jq ".[] | select(.headSha == \"$sha\" and (\"$_failed_only\" == \"\" or .conclusion == \"failure\")) | .databaseId" 2>/dev/null) || exit 4
+    [ -n "$_ids$_failed_only" ] || exit 1
+    for _id in $_ids; do gh run rerun "$_id" ${_failed_only:+--failed} >/dev/null 2>&1 || exit 4; done
     ;;
 
   issue-list)

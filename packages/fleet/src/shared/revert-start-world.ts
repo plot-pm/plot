@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import {
   defaultBranchFile,
   hostShell,
+  planStoreShell,
   prIndexFile,
   refsGit,
   refsRemoteGit,
@@ -18,6 +19,7 @@ import { readReviewStarts, startReview } from '@plot-pm/domain/adapters/review-s
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { declaredRuns, foldRuns } from '@plot-pm/domain/rules/default-branch';
+import { planForBranch, plansMentioning } from '@plot-pm/domain/rules/plan-for-branch';
 import { prNumberOf, type RedMainCandidate } from '@plot-pm/domain/rules/repair';
 
 import { REVIEW_RUN_LIMIT } from './auto-review.js';
@@ -49,7 +51,9 @@ export interface RevertWorldOptions {
  * remote tip; the desk is `<Worktree root>/desk-<branch with / as ->`, cut
  * from `origin/<branch>` after the claim. A candidate's `touchesState` is true
  * where the commit changes any file under the `Plan directory` or the
- * `Sprint directory`. A candidate is null where its PR, its runs, its files,
+ * `Sprint directory`. The reverted PR's branch is read from the host's 100
+ * newest merged PRs, and its plan is the first file under the `Plan directory`
+ * whose slices name the branch (`planForBranch`). A candidate is null where its PR, its runs, its files,
  * the default branch's name or either directory could not be read.
  *
  * @param options - the paths, the connector and the bounds.
@@ -75,6 +79,24 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
     return asked.flatMap((answer) => (answer.ok && answer.value.trim() !== '' ? [answer.value.trim().replace(/\/?$/, '/')] : []));
   };
 
+  const planOf = async (branch: string): Promise<string | undefined> => {
+    const dir = await scripts.config('Plan directory', 'docs/plans/');
+    if (!dir.ok) return undefined;
+    const planDir = dir.value.trim() === '' ? 'docs/plans/' : dir.value.trim();
+    const store = planStoreShell(context);
+    const listed = await store.listDir(planDir);
+    if (!listed.ok) return undefined;
+    const texts = [];
+    for (const name of listed.value.filter((entry) => entry.endsWith('.md'))) {
+      const file = join(planDir, name);
+      const read = await store.readText(file);
+      if (read.ok && read.value !== null) texts.push({ file, text: read.value });
+    }
+    const parsed = await store.readPlans(plansMentioning(texts, branch));
+    if (!parsed.ok) return undefined;
+    return planForBranch(parsed.value, branch)?.file ?? '';
+  };
+
   const tracker = async (): Promise<Tracker> => {
     const [declared, backend] = await Promise.all([scripts.config('Tracker', ''), host.backend()]);
     return trackerForIssues(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '', context);
@@ -90,6 +112,11 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
     build: options.build,
     host,
     revert: revertGit(context),
+    revertedFacts: async (pr) => {
+      const listed = await options.slot(() => host.prList('merged', 100));
+      const branch = listed.ok ? listed.value.find((row) => row.number === pr)?.head || undefined : undefined;
+      return { branch, plan: branch === undefined ? undefined : await planOf(branch) };
+    },
     candidate: async (commit): Promise<RedMainCandidate | null> => {
       const number = prNumberOf(commit.subject);
       const pr = number === null ? null : await options.slot(() => host.prState(number));
