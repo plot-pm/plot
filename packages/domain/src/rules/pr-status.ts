@@ -110,7 +110,11 @@ export interface PrStatusInput {
   nextInSeconds: number | null;
   /** How many spenders the budget record accounts for, or null where it cannot say. */
   spenders: number | null;
-  /** The ordinary refresh interval, in seconds: the grace past a scheduled read, or the age limit's unit where no read is scheduled. */
+  /**
+   * The ordinary refresh interval, in seconds: the age limit's unit where no
+   * read is scheduled, and the grace past a scheduled read where it is longer
+   * than {@link PR_OVERDUE_GRACE_SECONDS}.
+   */
   intervalSeconds: number;
   /**
    * Seconds the next scheduled read is past due, 0 while it is still ahead.
@@ -121,9 +125,32 @@ export interface PrStatusInput {
 }
 
 /**
+ * The beat a PR reader asks its cadence gate on, in milliseconds: fleetd's
+ * clock, the standalone PR reader and a board each run one PR pass per beat.
+ * A read that falls due between two beats starts on the next beat.
+ */
+export const PR_READ_BEAT_MS = 60_000;
+
+/**
+ * What one PR pass may take on a loaded fleetd, from its beat to the
+ * published reader state, in milliseconds. fleetd's log on 2026-10-31 read
+ * `cost=29345ms..33897ms` per tick.
+ */
+export const PR_PASS_COST_MS = 35_000;
+
+/**
+ * How far past its schedule a healthy read can land as a board sees it, in
+ * seconds: one beat until the reader's gate opens, one pass, and one beat
+ * until a following board re-reads the reader state. 155 s.
+ */
+export const PR_OVERDUE_GRACE_SECONDS = (2 * PR_READ_BEAT_MS + PR_PASS_COST_MS) / 1000;
+
+/**
  * Why a reading with no refusal counts as stale.
  *
- * `overdue`  the next scheduled read is past due by more than one interval.
+ * `overdue`  the next scheduled read is past due by more than the grace:
+ *            {@link PR_OVERDUE_GRACE_SECONDS}, or the interval where that is
+ *            longer.
  * `aged`     no schedule is known, and the data is older than twice the
  *            interval.
  */
@@ -207,9 +234,10 @@ export const prStatus = (input: PrStatusInput): PrStatus => {
  * Whether data on screen with no refusal is stale, and why.
  *
  * With a known schedule, the data is stale only when the next scheduled read
- * is overdue by more than one interval: a read the reader stretched for the
- * account's spend is on schedule however old the data is. With no schedule
- * known, the data is stale when it is older than twice the interval.
+ * is overdue by more than {@link PR_OVERDUE_GRACE_SECONDS}, or by more than
+ * one interval where the interval is longer: a read the reader stretched for
+ * the account's spend is on schedule however old the data is. With no
+ * schedule known, the data is stale when it is older than twice the interval.
  *
  * @param ageSeconds - seconds since the data on screen was read.
  * @param intervalSeconds - the ordinary refresh interval.
@@ -223,7 +251,9 @@ export const prStaleness = (
   overdueSeconds: number | null,
 ): PrStaleness | null => {
   if (intervalSeconds <= 0) return null;
-  if (overdueSeconds !== null) return overdueSeconds > intervalSeconds ? 'overdue' : null;
+  if (overdueSeconds !== null) {
+    return overdueSeconds > Math.max(intervalSeconds, PR_OVERDUE_GRACE_SECONDS) ? 'overdue' : null;
+  }
   return ageSeconds > intervalSeconds * 2 ? 'aged' : null;
 };
 

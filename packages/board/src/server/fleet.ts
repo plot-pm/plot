@@ -42,6 +42,7 @@ import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, rea
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
+import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { logDir } from '@plot-pm/fleet/shared/process-log';
@@ -185,9 +186,9 @@ const REFRESH_MS = 5_000;
  * 60 s is chosen against what the data actually does: a review landing or a
  * check turning green is a minutes-scale event, so five-second freshness buys
  * nothing here. The freshness that matters at 5 s is git's, and git stays at
- * 5 s.
+ * 5 s. The domain's staleness grace counts in the same beat.
  */
-const PR_REFRESH_MS = 60_000;
+const PR_REFRESH_MS = PR_READ_BEAT_MS;
 
 
 /**
