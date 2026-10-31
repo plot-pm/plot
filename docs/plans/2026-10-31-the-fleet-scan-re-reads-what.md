@@ -83,7 +83,7 @@ Measured 2026-10-31:
 
 ### Settled plans
 
-- `feature/the-subject-walk-skips-settled-plans` — prove which readers consume a settled plan's subject answers, then filter the merge-subject walk to the plans some reader needs <!-- builds: settled-plan filter on the merge-subject loop -->
+- `feature/the-subject-walk-skips-settled-plans` — prove which readers consume a settled plan's subject answers, then filter the merge-subject walk to the plans some reader needs <!-- builds: settled-plan filter on the merge-subject loop --> → #2985
 
 ## Done when
 
