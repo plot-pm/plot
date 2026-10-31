@@ -11,7 +11,9 @@ Round 1, 2026-10-31. Subject: `docs/plans/2026-10-31-the-commit-gates-match-only
 - **testability:** ran the four gates through their launchers against fixtures, and staged a rebase replay of a receipted `State:` change.
 - **seams:** ran `readShell` and `gitWriteDirs` from `origin/main` over six wrapper forms, and read `controller-gate.ts`, `phase-gate.ts` and the shell launchers.
 
-Three of four jurors executed code. Their findings agree on every point below. No finding rests on reading alone.
+All four jurors executed code. Their findings agree on every point below. No finding rests on reading alone.
+
+`layering.md` cites three line numbers in `packages/domain/src/rules/main-checkout-write.ts` that do not match `origin/main`: `writeDirOf` is at `:183-205` (not `:156-180`), `joined` at `:125-128` (not `:114-117`), and the doc of calls the text cannot place at `:266-271` (not `:262-266`). The verdict file stays as the juror wrote it.
 
 ## Agreed findings
 
