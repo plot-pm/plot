@@ -132,7 +132,9 @@ export const readBranchReadings = async (
   input: BranchStageInput,
 ): Promise<PortResult<BranchStageReadings>> => {
   const mainRef = `origin/${input.mainBranch}`;
-  const tips = await refs.branchTips(['refs/remotes/origin/*']);
+  // A prefix, not a glob: `refs/remotes/origin/*` does not match a name with a
+  // slash in it, so every `feature/...` branch would read as having no ref.
+  const tips = await refs.branchTips(['refs/remotes/origin/']);
   if (!tips.ok) return failed<BranchStageReadings>();
   const tipOf = new Map(tips.value.map((tip) => [tip.branch, tip.sha] as const));
 
