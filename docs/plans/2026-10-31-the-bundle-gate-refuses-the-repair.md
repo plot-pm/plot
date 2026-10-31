@@ -65,7 +65,7 @@ A branch that carries an old copy of a generated bundle cannot be repaired by an
 
 ### Gate
 
-- `feature/the-bundle-gate-refuses-the-repair` — the bundle-commit rule compares a staged generated path's (mode, sha) with the merge base the commit will have, prints a restore from that base's sha, and fails closed on every unreadable reading; the `Refs` port gains the index (mode, sha), an N-revision merge base and a batched (mode, sha) read at a ref, in the git, fixture and remote-git adapters; `CLAUDE.md`/`AGENTS.md`, `docs/definition-of-done.md`, `.gitattributes`, `stuck.ts`/`actions.ts`, `check-no-bundle-diff.sh` and `merge-conflict.ts` print the same restore source <!-- builds: bundleCommitRefusal against the post-commit merge base -->
+- `feature/the-bundle-gate-refuses-the-repair` — the bundle-commit rule compares a staged generated path's (mode, sha) with the merge base the commit will have, prints a restore from that base's sha, and fails closed on every unreadable reading; the `Refs` port gains the index (mode, sha), an N-revision merge base and a batched (mode, sha) read at a ref, in the git, fixture and remote-git adapters; `CLAUDE.md`/`AGENTS.md`, `docs/definition-of-done.md`, `.gitattributes`, `stuck.ts`/`actions.ts`, `check-no-bundle-diff.sh` and `merge-conflict.ts` print the same restore source <!-- builds: bundleCommitRefusal against the post-commit merge base --> → #2976
 
 ## Done when
 
