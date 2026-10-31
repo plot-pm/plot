@@ -69,7 +69,7 @@ Measured 2026-10-31:
 
 ### Open Questions
 
-- [ ] Slice 3: which readers consume the subject answers of a settled plan? The slice answers this first and records it.
+- [x] Slice 3: which readers consume the subject answers of a settled plan? Three: `merged_by_subject` and `subject_predates_plan` at `plot-fleet-scan.sh` `:3956`, `:4544` and `:4754`, all inside the row loop. That loop skips `released`, `rejected` and `superseded` plans at `:4292`; a `delivered` plan stays in the pulse and is asked (a delivered docs or infra plan leaves at `:4299`, and the walk still asks it, because the shell-line ratchet leaves no room for the extra test). The subject walk skips the three phases. `is_terminal_phase` alone would be too wide because it includes `delivered`. Measured on this checkout (small estate, load 5): `--offline --json` 2.07 s user+sys against 2.16 s before, normalised JSON identical.
 
 ## Slices
 
