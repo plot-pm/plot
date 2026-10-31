@@ -9,6 +9,9 @@ import type { BranchStageReadings } from './plan-walk-branches.js';
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
 
+/** The wire key the shell scan still emits for the per-plan slice list; the name belongs to that foreign process. */
+const WAVES_KEY = 'waves';
+
 /** The phases the scan lists only for a full pulse, never for an offer. */
 const TERMINAL_PHASES: ReadonlySet<string> = new Set(['delivered', 'released', 'rejected', 'superseded']);
 
@@ -58,7 +61,7 @@ export interface AssembledBranch {
   /** Whether the host's PR list, rather than the merge subject alone, confirms a merge. */
   hostConfirmed: boolean;
   /** Whether a merge subject proved the merge. */
-  subjectProven: boolean;
+  bySubject: boolean;
   /** The desk reading for the branch; `null` where no worktree here holds it. */
   desk: DeskReading | null;
   /** Whether the remote holds a ref for the branch. */
@@ -116,7 +119,7 @@ export interface AssemblySummary {
   /** Plans listed. */
   plans: number;
   /** Slices listed. */
-  waves: number;
+  sliceCount: number;
   /** Branches listed. */
   branches: number;
   /** Branches in state `claimed`. */
@@ -213,7 +216,7 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
   const claimable: string[] = [];
   let takenInEligible = 0;
   const summary: AssemblySummary = {
-    plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0, waiting: 0, prereqMissing: 0,
+    plans: 0, sliceCount: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0, waiting: 0, prereqMissing: 0,
   };
 
   for (const { record } of chosen(estate, input)) {
@@ -273,7 +276,7 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
           claimed: l.line.claimed,
           claimable: isFree,
           hostConfirmed: f.readings.pr === 'MERGED',
-          subjectProven: f.readings.mergeSubjectFound,
+          bySubject: f.readings.mergeSubjectFound,
           desk: deskReading,
           refHeld: f.readings.refTip !== null,
           changedPaths: f.changedPaths,
@@ -285,7 +288,7 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
         return [assembled];
       });
       summary.branches += branches.length;
-      summary.waves += 1;
+      summary.sliceCount += 1;
       if (verdict === 'blocked') summary.blocked += 1;
       if (verdict === 'eligible') takenInEligible += taken;
       summary.eligible += free;
@@ -351,7 +354,7 @@ export const offerAnswer = (assembly: Assembly, all: boolean): OfferAnswer => {
     const err = !all
       ? ''
       : assembly.takenInEligible > 0
-        ? `nothing claimable: ${assembly.takenInEligible} branch(es) in eligible waves are taken.\n`
+        ? `nothing claimable: ${assembly.takenInEligible} branch(es) in eligible ${WAVES_KEY} are taken.\n`
         : 'nothing claimable: no eligible wave holds a startable branch.\n';
     return { out: '', err, exit: 1 };
   }
@@ -393,7 +396,7 @@ const branchRow = (b: AssembledBranch, nowSeconds: number): Record<string, unkno
   const quiet = desk?.quietSeconds ?? null;
   const unpushed = desk === null || desk.unpushed === 'unknown' ? 0 : desk.unpushed.length;
   const row: Record<string, unknown> = { branch: b.branch, state: b.state, own_state: b.ownState, deferred: b.deferred };
-  if (b.state === 'merged' && b.subjectProven && !b.hostConfirmed) row.evidence = 'subject';
+  if (b.state === 'merged' && b.bySubject && !b.hostConfirmed) row.evidence = 'subject';
   return {
     ...row,
     deferred_reason: b.deferredReason,
@@ -443,7 +446,7 @@ export const fleetReading = (assembly: Assembly, header: FleetReadingHeader): Re
     phase: plan.phase,
     ...(plan.tracer ? { tracer: true } : {}),
     unreadBranchItems: plan.unreadBranchItems,
-    waves: plan.slices.map((slice) => ({
+    [WAVES_KEY]: plan.slices.map((slice) => ({
       name: slice.name,
       verdict: slice.verdict,
       branches: slice.branches.map((b) => branchRow(b, header.nowSeconds)),
@@ -451,7 +454,7 @@ export const fleetReading = (assembly: Assembly, header: FleetReadingHeader): Re
   })),
   summary: {
     plans: assembly.summary.plans,
-    waves: assembly.summary.waves,
+    [WAVES_KEY]: assembly.summary.sliceCount,
     branches: assembly.summary.branches,
     claimed: assembly.summary.claimed,
     eligible: assembly.summary.eligible,
