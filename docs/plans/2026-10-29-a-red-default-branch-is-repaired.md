@@ -16,6 +16,7 @@
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-repair-record`
 - **Started:** 2026-10-30, Jan Wloka, `feature/merge-admits-the-repair-pr`
 - **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-starts-main-repair`
+- **Started:** 2026-10-31, Jan Wloka, `feature/a-red-main-is-reverted`
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
