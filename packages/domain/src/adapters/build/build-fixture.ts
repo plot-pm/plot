@@ -33,6 +33,8 @@ export interface BuildFixture {
   onRunsForSha?: (branch: string, sha: string) => void;
   /** Receives each `rerunFailed` call, so a test asserts the write happened and how often. */
   onRerunFailed?: (branch: string, sha: string) => void;
+  /** Receives each `rerunAll` call, so a test asserts the write happened and how often. */
+  onRerunAll?: (branch: string, sha: string) => void;
   /**
    * The limit readings `limit` reports.
    *
@@ -88,6 +90,11 @@ export const buildFixture = (fixture: BuildFixture = {}): BuildPort => {
 
     rerunFailed: async (branch, sha): Promise<PortResult<null>> => {
       fixture.onRerunFailed?.(branch, sha);
+      return broken ? failed() : answered(null);
+    },
+
+    rerunAll: async (branch, sha): Promise<PortResult<null>> => {
+      fixture.onRerunAll?.(branch, sha);
       return broken ? failed() : answered(null);
     },
 

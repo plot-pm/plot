@@ -14,12 +14,13 @@ import {
   treesGit,
 } from '@plot-pm/domain/adapters';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
-import { startReview } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { readReviewStarts, startReview } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { declaredRuns, foldRuns } from '@plot-pm/domain/rules/default-branch';
 import { prNumberOf, type RedMainCandidate } from '@plot-pm/domain/rules/repair';
 
+import { REVIEW_RUN_LIMIT } from './auto-review.js';
 import { pidAlive } from './fleet-run.js';
 import type { RevertWorld } from './revert-start.js';
 
@@ -48,7 +49,8 @@ export interface RevertWorldOptions {
  * remote tip; the desk is `<Worktree root>/desk-<branch with / as ->`, cut
  * from `origin/<branch>` after the claim. A candidate's `touchesState` is true
  * where the commit changes any file under the `Plan directory` or the
- * `Sprint directory`.
+ * `Sprint directory`. A candidate is null where its PR, its runs, its files,
+ * the default branch's name or either directory could not be read.
  *
  * @param options - the paths, the connector and the bounds.
  * @returns the world.
@@ -64,11 +66,12 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
   const deskPath = (branch: string): string =>
     join(isAbsolute(root) ? root : resolve(options.repoRoot, root), `desk-${branch.replace(/\//g, '-')}`);
 
-  const stateDirs = async (): Promise<string[]> => {
+  const stateDirs = async (): Promise<string[] | null> => {
     const asked = await Promise.all([
       scripts.config('Plan directory', 'docs/plans/'),
       scripts.config('Sprint directory', 'docs/sprints/'),
     ]);
+    if (asked.some((answer) => !answer.ok)) return null;
     return asked.flatMap((answer) => (answer.ok && answer.value.trim() !== '' ? [answer.value.trim().replace(/\/?$/, '/')] : []));
   };
 
@@ -87,21 +90,23 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
     build: options.build,
     host,
     revert: revertGit(context),
-    candidate: async (commit): Promise<RedMainCandidate> => {
+    candidate: async (commit): Promise<RedMainCandidate | null> => {
       const number = prNumberOf(commit.subject);
       const pr = number === null ? null : await options.slot(() => host.prState(number));
-      const found = pr !== null && pr.ok ? pr.value : null;
+      if (pr !== null && !pr.ok) return null;
+      const found = pr === null ? null : pr.value;
       const defaultBranch = await refs.defaultBranch();
-      const branch = defaultBranch.ok ? defaultBranch.value : 'main';
-      const runs = await options.slot(() => options.build.runsForSha(branch, commit.sha));
+      if (!defaultBranch.ok) return null;
+      const runs = await options.slot(() => options.build.runsForSha(defaultBranch.value, commit.sha));
       const files = await refs.commitFiles(commit.sha);
       const dirs = await stateDirs();
+      if (!runs.ok || !files.ok || dirs === null) return null;
       return {
         ...commit,
         prMerged: found !== null && found.state === 'MERGED',
         hostMergeCommit: found !== null && found.state === 'MERGED' ? found.mergeCommit : '',
-        settledRed: runs.ok && foldRuns(declaredRuns(runs.value, options.checks)) === 'red',
-        touchesState: !files.ok || files.value.some((file) => dirs.some((dir) => file.startsWith(dir))),
+        settledRed: foldRuns(declaredRuns(runs.value, options.checks)) === 'red',
+        touchesState: files.value.some((file) => dirs.some((dir) => file.startsWith(dir))),
       };
     },
     baseSha: async () => {
@@ -134,6 +139,8 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
       if (!store.ok || store.value === null) return false;
       return store.value.rows.some((row) => row.number === pr && row.state === 'OPEN' && row.plotReview === 'failure');
     },
+    reviewStarted: async (pr, head) =>
+      readReviewStarts(options.repoRoot)?.some((start) => start.pr === pr && start.head === head) ?? false,
     startReview: async (pr, head) =>
       startReview(pr, head, {
         repoRoot: options.repoRoot,
@@ -142,7 +149,7 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
         logFile: join(options.repoRoot, '.plot', 'state', 'revert-review.log'),
         detached: detachedNode(),
         pidAlive: (pid) => pidAlive(pid),
-        limit: 1,
+        limit: REVIEW_RUN_LIMIT,
         mode: 'review',
         now: Date.now(),
       }).started,

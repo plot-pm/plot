@@ -17,7 +17,7 @@ import {
   type RedMainCandidate,
   type RedMainPickerAnswer,
 } from '@plot-pm/domain/rules/repair';
-import { rerunSettledOf } from '@plot-pm/domain/rules/repair-start';
+import { lastGreenRerunSettledOf } from '@plot-pm/domain/rules/repair-start';
 import {
   REVERT_TICKET_LABEL,
   revertTicketBody,
@@ -50,14 +50,14 @@ export interface RevertWorld {
   repair: RepairRecordStore;
   /** Ancestry of the breaking commit and the episode's red SHA, and the default branch's name. */
   refs: Pick<Refs, 'contains' | 'defaultBranch'>;
-  /** The CI connector: a SHA's runs, and the re-run. */
-  build: Pick<BuildPort, 'runsForSha' | 'rerunFailed'>;
+  /** The CI connector: a SHA's runs, and the full re-run. */
+  build: Pick<BuildPort, 'runsForSha' | 'rerunAll'>;
   /** The host: PR lookup, PR creation and PR close. */
   host: Pick<Host, 'prState' | 'prCreate' | 'prClose'>;
   /** The revert git operation. */
   revert: Revert;
-  /** One candidate commit with the readings the picker needs. */
-  candidate(commit: { sha: string; subject: string }): Promise<RedMainCandidate>;
+  /** One candidate commit with the readings the picker needs; null where a host, CI or git read failed. */
+  candidate(commit: { sha: string; subject: string }): Promise<RedMainCandidate | null>;
   /** The default branch's remote tip, the base of the claim commit; null where it could not be read. */
   baseSha(): Promise<string | null>;
   /** Pushes an empty claim commit for the branch without a checkout. */
@@ -70,6 +70,8 @@ export interface RevertWorld {
   push(desk: string, branch: string): Promise<boolean>;
   /** Whether the PR index reads the PR's `plot/review` status as a failure (a HIGH finding). */
   reviewFailed(pr: number): Promise<boolean>;
+  /** Whether a review of the PR at this head has been started. */
+  reviewStarted(pr: number, head: string): Promise<boolean>;
   /** Starts the review of a PR at a head; false where none started. */
   startReview(pr: number, head: string): Promise<boolean>;
   /** The ticket records, keyed by the reverted PR. */
@@ -116,18 +118,24 @@ const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): P
  * re-run, the fix PR and the role belong to `repairStartTick`. A host answer
  * that did not come ends the pass with `held` and writes nothing.
  *
- * - `revert` with the record `repairing`: asks the last green SHA's re-run once
- *   and records `reverting` with `preRevertRerun: 'asked'`.
+ * - `revert` with the record `repairing`: asks the full re-run of the last
+ *   green SHA's runs once and records `reverting` with `preRevertRerun:
+ *   'asked'`. Only the new attempt's runs answer it (`lastGreenRerunSettledOf`).
  * - `revert` with the record `reverting`: confirms the breaking commit is on
  *   the default branch and not yet reverted, re-reads the first red SHA's runs,
  *   claims `bug/revert-<pr>` before the revert commit is made, reverts, pushes,
- *   opens the revert PR, records it as `revertPr` and starts its review. Every
+ *   opens the revert PR, records it as `revertPr` and starts its review. A won
+ *   claim is recorded before the desk is made, so a failed desk is made on a
+ *   later pass without a second claim. Every
  *   step reads the world first, so a pass after a crash resumes at the step
  *   that did not finish. A conflicting revert ends the episode at `exhausted`.
  * - `close-prs`: closes each open PR the record names, writes the ticket for a
  *   merged revert, and records `done`. A reading without a settled commit, or
  *   an ancestry answer of `unknown`, closes nothing.
  * - `exhausted`: records it and notifies once.
+ *
+ * A candidate whose host, CI or git read failed holds the pass: the picker
+ * never reads a failed call as a fact.
  *
  * @param world - the reads and the actions.
  * @param warn - receives one line for each held pass.
@@ -158,18 +166,21 @@ export const repairRevertTick = async (
     reading.headSha === reading.settled.sha;
 
   let pickerAnswer: RedMainPickerAnswer = 'unknown';
-  if (inRevertWindow) pickerAnswer = redMainPicker(await Promise.all(record.candidates.map((c) => world.candidate(c))));
+  if (inRevertWindow) {
+    const candidates = await Promise.all(record.candidates.map((c) => world.candidate(c)));
+    const read = candidates.filter((c): c is RedMainCandidate => c !== null);
+    if (read.length !== candidates.length) {
+      warn('plot-fleetd: revert held — a candidate commit could not be read');
+      return 'held';
+    }
+    pickerAnswer = redMainPicker(read);
+  }
 
   let lastGreenRerunSettled: 'pending' | 'green' | 'red' | 'none' = 'none';
   if (record.state === 'reverting' && record.preRevertRerun === 'asked' && record.lastGreenSha !== undefined && reading !== null) {
     const lastGreen = record.lastGreenSha;
     const asked = await world.slot(() => world.build.runsForSha(reading.branch, lastGreen));
-    lastGreenRerunSettled = rerunSettledOf(
-      { ...record, rerun: record.preRevertRerun },
-      asked.ok ? asked.value : null,
-      world.checks,
-      now,
-    );
+    lastGreenRerunSettled = lastGreenRerunSettledOf(record, asked.ok ? asked.value : null, world.checks, now);
   }
 
   const step = redMainStep(reading, record, {
@@ -206,7 +217,7 @@ export const repairRevertTick = async (
   if (record.state === 'repairing') {
     if (record.lastGreenSha === undefined) return exhaust(world, record, 'the episode has no last green SHA to re-run');
     const lastGreen = record.lastGreenSha;
-    const asked = await world.slot(() => world.build.rerunFailed(reading.branch, lastGreen));
+    const asked = await world.slot(() => world.build.rerunAll(reading.branch, lastGreen));
     if (!asked.ok) {
       warn(`plot-fleetd: revert held — the re-run of ${lastGreen} was not accepted`);
       return 'held';
@@ -223,7 +234,8 @@ export const repairRevertTick = async (
  * red: `redMainStep` answers `exhausted` for any recorded revert PR, and this
  * keeps the episode open while that PR is open, not red and not rejected by
  * its review, and while a merged revert has not yet settled on the default
- * branch (`mergedRevertStep`).
+ * branch (`mergedRevertStep`). Starts the open PR's review where none has
+ * started at its head, so a start refused at capacity is asked again.
  */
 const judgeRevertPr = async (
   world: RevertWorld,
@@ -232,7 +244,7 @@ const judgeRevertPr = async (
   revertPr: number,
   warn: (line: string) => void,
 ): Promise<RevertOutcome> => {
-  const looked = await world.slot(() => world.host.prState(revertPr));
+  const looked = await world.slot(() => world.host.prState(revertPr, { withChecks: true }));
   if (!looked.ok) {
     warn(`plot-fleetd: revert held — the host did not answer for PR #${revertPr}`);
     return 'held';
@@ -257,6 +269,10 @@ const judgeRevertPr = async (
   if (pr.state === 'CLOSED') return exhaust(world, record, `revert PR #${revertPr} was closed without merging`);
   if (pr.checks === 'failing') return exhaust(world, record, `revert PR #${revertPr} reads red`);
   if (await world.reviewFailed(revertPr)) return exhaust(world, record, `the review of revert PR #${revertPr} found a HIGH`);
+  const head = pr.headSha;
+  if (pr.state === 'OPEN' && head !== undefined && !(await world.reviewStarted(revertPr, head))) {
+    if (!(await world.startReview(revertPr, head))) warn(`plot-fleetd: the review of revert PR #${revertPr} did not start`);
+  }
   return 'awaiting-revert';
 };
 
@@ -297,41 +313,51 @@ const makeRevert = async (
     }
   }
 
+  let current = record;
   let desk = await world.deskOf(branch);
   if (desk === null && open === null) {
-    const tip = await world.baseSha();
-    if (tip === null) return 'held';
-    const claimed = await world.claim(branch, tip);
-    if (claimed === 'failed') return 'claim-failed';
-    if (claimed === 'lost') return 'claim-lost';
+    if (current.revertClaimed !== true) {
+      const tip = await world.baseSha();
+      if (tip === null) return 'held';
+      const claimed = await world.claim(branch, tip);
+      if (claimed === 'failed') return 'claim-failed';
+      if (claimed === 'lost') return 'claim-lost';
+      current = { ...current, revertClaimed: true, at: new Date(world.now()).toISOString() };
+      if (!(await world.repair.write(current)).ok) return 'held';
+    }
     desk = await world.makeDesk(branch);
   }
-  if (desk === null) return 'held';
+  if (desk === null) {
+    warn(`plot-fleetd: revert held — no desk for '${branch}'`);
+    return 'held';
+  }
 
   const done = await world.revert.isReverted(breaking.sha, branch);
   if (!done.ok) return 'held';
   if (!done.value) {
     const made = await world.revert.revertCommit(desk, breaking.sha);
     if (!made.ok) return 'revert-failed';
-    if (made.value === 'conflict') return exhaust(world, record, `the revert of ${breaking.sha} conflicts with the default branch`);
+    if (made.value === 'conflict') return exhaust(world, current, `the revert of ${breaking.sha} conflicts with the default branch`);
   }
   if (!(await world.push(desk, branch))) return 'push-failed';
 
   let pr = open;
   if (pr === null) {
-    const created = await world.host.prCreate({
-      head: branch,
-      base: base.value,
-      title: `Revert PR #${revertedPr}: ${breaking.subject}`,
-      body: `Reverts ${breaking.sha} (PR #${revertedPr}), the merge that turned ${reading.branch} red at ${record.firstRedSha}.`,
-    });
+    const created = await world.slot(() =>
+      world.host.prCreate({
+        head: branch,
+        base: base.value,
+        title: `Revert PR #${revertedPr}: ${breaking.subject}`,
+        body: `Reverts ${breaking.sha} (PR #${revertedPr}), the merge that turned ${reading.branch} red at ${record.firstRedSha}.`,
+      }),
+    );
     if (!created.ok) return 'pr-failed';
     const looked = await world.slot(() => world.host.prState(branch));
     pr = looked.ok ? looked.value : null;
   }
   if (pr === null) return 'pr-failed';
 
-  await world.repair.write({ ...record, revertPr: pr.number, at: new Date(world.now()).toISOString() });
+  await world.repair.write({ ...current, revertPr: pr.number, at: new Date(world.now()).toISOString() });
   if (pr.headSha !== undefined) await world.startReview(pr.number, pr.headSha);
   return 'revert-opened';
 };

@@ -5469,6 +5469,35 @@ test('host: runs-for-sha prints every run for the sha, not the first, from one l
   assert.match(calls[0], /^run list /);
 });
 
+// A `gh` stub that applies `run list`'s own `--jq` filter, so the ids the
+// re-run ops pick are the ids the real CLI would hand them.
+const makeRerunStub = (listJson) => {
+  const stubs = makeRunForShaStub({ listJson });
+  const q = (v) => String(v).replace(/'/g, `'\\''`);
+  writeFileSync(path.join(stubs.dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${stubs.callsFile}"
+if [ "$1 $2" = "run list" ]; then
+  while [ $# -gt 0 ]; do [ "$1" = --jq ] && { printf '%s' '${q(listJson)}' | jq -r "$2"; exit; }; shift; done
+fi
+exit 0
+`);
+  return stubs;
+};
+
+test('host: rerun-all re-runs every run of the sha in full, whatever each concluded', () => {
+  const stubs = makeRerunStub(THREE_WORKFLOWS);
+  run(['rerun-all', 'main', 'abc123'], { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  const reruns = callsOf(stubs.callsFile).filter((c) => c.startsWith('run rerun'));
+  assert.deepEqual(reruns, ['run rerun 1', 'run rerun 2', 'run rerun 3']);
+});
+
+test('host: rerun-failed re-runs only the failed jobs of the sha\'s failed runs', () => {
+  const stubs = makeRerunStub(THREE_WORKFLOWS);
+  run(['rerun-failed', 'main', 'abc123'], { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  const reruns = callsOf(stubs.callsFile).filter((c) => c.startsWith('run rerun'));
+  assert.deepEqual(reruns, ['run rerun 2 --failed']);
+});
+
 test('host: runs-for-sha answers [] at exit 0 when the host holds no run for the sha', () => {
   const stubs = makeRunForShaStub({ listJson: '[]' });
   const res = runAllowFail(['runs-for-sha', 'main', 'abc123'],

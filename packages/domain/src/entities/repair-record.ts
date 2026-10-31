@@ -130,6 +130,11 @@ export const RepairRecordSchema = z
     repairPr: z.number().optional(),
     /** The revert PR's number, or absent where none was opened. */
     revertPr: z.number().optional(),
+    /**
+     * True once this machine won the claim of the revert branch; absent
+     * before. A later pass makes the desk without claiming again.
+     */
+    revertClaimed: z.literal(true).optional(),
     /** When fleetd wrote the file, ISO-8601. */
     at: z.string(),
   })

@@ -37,6 +37,39 @@ export const rerunSettledOf = (
 };
 
 /**
+ * Reads the last green SHA's pre-revert re-run as `redMainStep`'s
+ * `lastGreenRerunSettled` input.
+ *
+ * Reads only the new attempt. The last green SHA's own runs concluded before
+ * the episode opened, so a declared run whose `startedAt` is not after
+ * `record.redSince` is the old attempt, and the answer stays `pending` until
+ * every declared run reports a newer start.
+ *
+ * @param record - the repair record.
+ * @param runs - every workflow run of `record.lastGreenSha`, or null where the CI system did not answer.
+ * @param checks - the declared workflow names, from `checkNamesOf`.
+ * @param now - the current time, as epoch milliseconds.
+ * @returns `none` while no re-run is asked; `pending` inside {@link RERUN_GRACE_MS} of
+ *   the ask, with no answer from CI, while any declared run is the old attempt, or
+ *   while any run is unconcluded; `red` or `green` as the new attempt's runs fold.
+ */
+export const lastGreenRerunSettledOf = (
+  record: RepairRecord,
+  runs: readonly WorkflowShaRun[] | null,
+  checks: readonly string[],
+  now: number,
+): 'pending' | 'green' | 'red' | 'none' => {
+  if (record.preRevertRerun === 'none') return 'none';
+  const askedAt = Date.parse(record.at);
+  if (Number.isNaN(askedAt) || now - askedAt < RERUN_GRACE_MS || runs === null) return 'pending';
+  const since = Date.parse(record.redSince);
+  const declared = declaredRuns(runs, checks);
+  if (declared.some((run) => !(Date.parse(run.startedAt) > since))) return 'pending';
+  const state = foldRuns(declared);
+  return state === 'red' || state === 'green' ? state : 'pending';
+};
+
+/**
  * The `main-repair` role's run for the attempt's branch on this machine.
  *
  * `none` where no run of the branch started in this episode; `alive` while its

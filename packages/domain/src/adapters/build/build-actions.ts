@@ -51,6 +51,8 @@ export const buildActions = (context: ShellContext): BuildPort => {
 
     rerunFailed: (branch, sha): Promise<PortResult<null>> => reads.rerunFailed(branch, sha),
 
+    rerunAll: (branch, sha): Promise<PortResult<null>> => reads.rerunAll(branch, sha),
+
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 
     lastRefusal: (): string | null => reads.lastRefusal(),

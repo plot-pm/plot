@@ -49,8 +49,11 @@ const record = (over: Partial<RepairRecord> = {}): RepairRecord => ({
   ...over,
 });
 
-const run = (sha: string, conclusion: string | null): WorkflowShaRun =>
-  ({ sha, workflow: 'CI', status: conclusion === null ? 'in_progress' : 'completed', conclusion, url: '', startedAt: '' }) as WorkflowShaRun;
+const run = (sha: string, conclusion: string | null, startedAt = ''): WorkflowShaRun =>
+  ({ sha, workflow: 'CI', status: conclusion === null ? 'in_progress' : 'completed', conclusion, url: '', startedAt }) as WorkflowShaRun;
+
+/** The last green SHA's own runs, which concluded before the episode opened. */
+const OLD_GREEN_START = new Date(T0 - HOUR).toISOString();
 
 const pr = (over: Partial<Pr> = {}): Pr =>
   ({ number: 9, head: REVERT_BRANCH, state: 'OPEN', checks: 'pending', headSha: 'd'.repeat(40), url: '', mergeCommit: '', ...over }) as Pr;
@@ -69,6 +72,16 @@ interface Rigging {
   ticket: TicketRecord | 'none';
   descends: 'yes' | 'no' | 'unknown';
   settledHasRevert: 'yes' | 'no' | 'unknown';
+  /** How the last green SHA's new attempt concludes once a full re-run is asked. */
+  greenRerun: 'success' | 'failure';
+  /** Where true, every candidate read fails. */
+  candidateFails: boolean;
+  /** Where true, the next desk is not made. */
+  deskFails: boolean;
+  /** Where true, a review start is refused (another review holds the one slot). */
+  reviewRefused: boolean;
+  /** The checks a PR reads where they are not asked for: Bitbucket under Jenkins answers `unknown`. */
+  checksWithout: 'as-set' | 'unknown';
 }
 
 const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
@@ -82,7 +95,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     reading: reading(),
     runs: new Map([
       [RED, [run(RED, 'failure')]],
-      [GREEN, [run(GREEN, 'success')]],
+      [GREEN, [run(GREEN, 'success', OLD_GREEN_START)]],
       [BREAKING, [run(BREAKING, 'failure')]],
     ]),
     prs: new Map(),
@@ -95,7 +108,13 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     ticket: 'none',
     descends: 'yes',
     settledHasRevert: 'no',
+    greenRerun: 'success',
+    candidateFails: false,
+    deskFails: false,
+    reviewRefused: false,
+    checksWithout: 'as-set',
   };
+  const started: string[] = [];
   ticket = state.ticket;
   const world: RevertWorld = {
     reading: async () => state.reading,
@@ -114,13 +133,19 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     },
     build: {
       runsForSha: async (_branch, sha) => answered(state.runs.get(sha) ?? []),
-      rerunFailed: async (_branch, sha) => {
+      // A full re-run starts a new attempt of every run; a failed-only re-run of a green SHA would start none.
+      rerunAll: async (_branch, sha) => {
         calls.push(`rerun:${sha === GREEN ? 'green' : 'red'}`);
+        state.runs.set(sha, [run(sha, state.greenRerun, new Date(state.now).toISOString())]);
         return answered(null);
       },
     },
     host: {
-      prState: async (key) => answered(state.prs.get(key) ?? null),
+      prState: async (key, opts) => {
+        const found = state.prs.get(key) ?? null;
+        if (found === null || opts?.withChecks === true || state.checksWithout === 'as-set') return answered(found);
+        return answered({ ...found, checks: 'unknown' } as Pr);
+      },
       prCreate: async (input) => {
         calls.push(`pr-create:${input.head}`);
         state.prs.set(input.head, pr());
@@ -139,13 +164,16 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
         return answered(state.revert);
       },
     },
-    candidate: async (commit) => ({
-      ...commit,
-      prMerged: true,
-      hostMergeCommit: commit.sha,
-      settledRed: true,
-      touchesState: false,
-    }),
+    candidate: async (commit) =>
+      state.candidateFails
+        ? null
+        : {
+            ...commit,
+            prMerged: true,
+            hostMergeCommit: commit.sha,
+            settledRed: true,
+            touchesState: false,
+          },
     baseSha: async () => 'b'.repeat(40),
     claim: async () => {
       calls.push('claim');
@@ -154,6 +182,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     deskOf: async () => state.desk,
     makeDesk: async () => {
       calls.push('desk');
+      if (state.deskFails) return null;
       state.desk = '/desk/revert';
       return state.desk;
     },
@@ -162,8 +191,11 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
       return true;
     },
     reviewFailed: async () => state.reviewFailed,
-    startReview: async (n) => {
+    reviewStarted: async (n, head) => started.includes(`${n}@${head}`),
+    startReview: async (n, head) => {
       calls.push(`review:${n}`);
+      if (state.reviewRefused) return false;
+      started.push(`${n}@${head}`);
       return true;
     },
     tickets: {
@@ -213,9 +245,105 @@ describe('repairRevertTick — the arc to an open revert PR', () => {
   });
 });
 
+describe('repairRevertTick — the last green re-run', () => {
+  it('asks a full re-run and exhausts when the new attempt of the last green SHA reads red', async () => {
+    const r = rig(record());
+    r.set({ greenRerun: 'failure' });
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+    expect(r.calls).toContain('rerun:green');
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('exhausted');
+    expect(r.notes[0]).toContain('the last green SHA reads red on a re-run');
+    expect(r.calls).not.toContain('claim');
+  });
+
+  it('never reverts on the old green attempt where the re-run started no new one', async () => {
+    const r = rig(record());
+    // A failed-only re-run of a green SHA re-runs nothing: the old runs stay.
+    r.world.build.rerunAll = async () => answered(null);
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('awaiting-rerun');
+    expect(r.calls).not.toContain('claim');
+    expect(r.stored()?.revertPr).toBeUndefined();
+  });
+});
+
+describe('repairRevertTick — a failed read holds', () => {
+  it('holds, and does not exhaust, where a candidate commit could not be read', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
+    r.set({ candidateFails: true, now: T0 + 3 * HOUR });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    expect(r.stored()?.state).toBe('reverting');
+    expect(r.notes).toHaveLength(0);
+    r.set({ candidateFails: false });
+    expect(await repairRevertTick(r.world)).toBe('revert-opened');
+  });
+
+  it('makes the desk on a later pass after a won claim, without a second claim', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
+    r.set({ deskFails: true, now: T0 + 3 * HOUR });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    expect(r.stored()).toMatchObject({ state: 'reverting', revertClaimed: true });
+    // The claim branch now exists on origin: a second claim would lose.
+    r.set({ deskFails: false, claim: 'lost', now: r.state.now + 2 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('revert-opened');
+    expect(r.calls.filter((c) => c === 'claim')).toHaveLength(1);
+    expect(r.stored()).toMatchObject({ revertPr: 9, revertClaimed: true });
+  });
+});
+
+describe('repairRevertTick — the revert PR', () => {
+  it('asks for the checks, so a red revert PR on Bitbucket under Jenkins exhausts', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked', revertPr: 9 }));
+    r.set({ checksWithout: 'unknown' });
+    r.state.prs.set(9, pr({ checks: 'failing' }));
+    expect(await repairRevertTick(r.world)).toBe('exhausted');
+  });
+
+  it('creates the revert PR inside a host slot', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
+    r.set({ now: T0 + 3 * HOUR });
+    let inSlot = false;
+    const create = r.world.host.prCreate;
+    r.world.slot = async (call) => {
+      inSlot = true;
+      try {
+        return await call();
+      } finally {
+        inSlot = false;
+      }
+    };
+    r.world.host.prCreate = async (input) => {
+      r.calls.push(`pr-create-in-slot:${inSlot}`);
+      return create(input);
+    };
+    expect(await repairRevertTick(r.world)).toBe('revert-opened');
+    expect(r.calls).toContain('pr-create-in-slot:true');
+  });
+
+  it('starts the review again on a later pass where the first start was refused', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
+    r.set({ reviewRefused: true, now: T0 + 3 * HOUR });
+    expect(await repairRevertTick(r.world)).toBe('revert-opened');
+    expect(r.calls.filter((c) => c === 'review:9')).toHaveLength(1);
+    r.state.prs.set(9, pr());
+    r.set({ reviewRefused: false });
+    expect(await repairRevertTick(r.world)).toBe('awaiting-revert');
+    expect(r.calls.filter((c) => c === 'review:9')).toHaveLength(2);
+    expect(await repairRevertTick(r.world)).toBe('awaiting-revert');
+    expect(r.calls.filter((c) => c === 'review:9')).toHaveLength(2);
+  });
+});
+
 describe('repairRevertTick — exhausted', () => {
   it('ends a conflicting revert at exhausted with one notification and no second attempt', async () => {
     const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
+    r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
     r.set({ revert: 'conflict', now: T0 + 3 * HOUR });
     expect(await repairRevertTick(r.world)).toBe('exhausted');
     expect(r.stored()?.state).toBe('exhausted');

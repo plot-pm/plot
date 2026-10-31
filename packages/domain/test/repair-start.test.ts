@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkflowShaRun } from '../src/entities/build.js';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '../src/entities/repair-record.js';
-import { RERUN_GRACE_MS, repairAttemptStep, rerunSettledOf } from '../src/rules/repair-start.js';
+import { RERUN_GRACE_MS, lastGreenRerunSettledOf, repairAttemptStep, rerunSettledOf } from '../src/rules/repair-start.js';
 
 const ASKED = Date.parse('2026-10-30T07:00:00Z');
 const AFTER = ASKED + RERUN_GRACE_MS;
@@ -61,6 +61,41 @@ describe('rerunSettledOf', () => {
 
   it('reads pending where no run exists', () => {
     expect(rerunSettledOf(record(), [], ['CI'], AFTER)).toBe('pending');
+  });
+});
+
+describe('lastGreenRerunSettledOf', () => {
+  const asked = record({ state: 'reverting', preRevertRerun: 'asked' });
+  const started = (workflow: string, conclusion: string | null, startedAt: string): WorkflowShaRun => ({
+    ...run(workflow, conclusion),
+    startedAt,
+  });
+  const OLD = '2026-10-30T05:59:00Z';
+  const NEW = '2026-10-30T07:00:30Z';
+
+  it('answers none while no pre-revert re-run is asked', () => {
+    expect(lastGreenRerunSettledOf(record({ preRevertRerun: 'none' }), [started('CI', 'failure', NEW)], [], AFTER)).toBe('none');
+  });
+
+  it('reads pending inside the grace window and where CI did not answer', () => {
+    expect(lastGreenRerunSettledOf(asked, [started('CI', 'failure', NEW)], ['CI'], AFTER - 1)).toBe('pending');
+    expect(lastGreenRerunSettledOf(asked, null, ['CI'], AFTER)).toBe('pending');
+  });
+
+  it('never reads the old green attempt as the answer', () => {
+    expect(lastGreenRerunSettledOf(asked, [started('CI', 'success', OLD)], ['CI'], AFTER)).toBe('pending');
+    expect(lastGreenRerunSettledOf(asked, [started('CI', 'success', '')], ['CI'], AFTER)).toBe('pending');
+  });
+
+  it('waits for every declared run to report the new attempt', () => {
+    const runs = [started('CI', 'success', NEW), started('Lint', 'success', OLD)];
+    expect(lastGreenRerunSettledOf(asked, runs, ['CI', 'Lint'], AFTER)).toBe('pending');
+  });
+
+  it('reads the new attempt red or green as it concluded', () => {
+    expect(lastGreenRerunSettledOf(asked, [started('CI', 'failure', NEW)], ['CI'], AFTER)).toBe('red');
+    expect(lastGreenRerunSettledOf(asked, [started('CI', 'success', NEW)], ['CI'], AFTER)).toBe('green');
+    expect(lastGreenRerunSettledOf(asked, [started('CI', null, NEW)], ['CI'], AFTER)).toBe('pending');
   });
 });
 
