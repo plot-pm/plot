@@ -134,6 +134,14 @@ export interface AssemblySummary {
 }
 
 /**
+ * Whether a parsed file is a plan: its phase parsed to something. A note in the
+ * plan directory carries no `Phase:` field and parses to an empty phase; `unknown`
+ * (a phase word the parser did not recognise) still counts as a plan.
+ */
+const isPlan = (record: { phase: string }): boolean =>
+  record.phase !== '' && record.phase.toLowerCase() !== 'none';
+
+/**
  * The names a `waits:` annotation may wait on: every non-deferred branch of a
  * plan whose phase is not terminal, once each, in plan order.
  *
@@ -144,7 +152,7 @@ export const sliceNamesOf = (estate: Estate): string[] => {
   const seen = new Set<string>();
   const names: string[] = [];
   for (const { record } of estate.plans) {
-    if (TERMINAL_PHASES.has(record.phase)) continue;
+    if (!isPlan(record) || TERMINAL_PHASES.has(record.phase)) continue;
     for (const slice of record.slices) {
       for (const line of slice.branches) {
         if (line.deferred || seen.has(line.branch)) continue;
@@ -162,10 +170,10 @@ export const sliceNamesOf = (estate: Estate): string[] => {
  */
 const chosen = (estate: Estate, input: AssemblyInput) => {
   if (input.slug !== '') {
-    const hit = estate.plans.find(({ record }) => record.file.endsWith(`${input.slug}.md`));
+    const hit = estate.plans.find(({ record }) => isPlan(record) && record.file.endsWith(`${input.slug}.md`));
     return hit === undefined ? [] : [hit];
   }
-  return estate.plans.filter(({ record }) => !(input.offer && TERMINAL_PHASES.has(record.phase)));
+  return estate.plans.filter(({ record }) => isPlan(record) && !(input.offer && TERMINAL_PHASES.has(record.phase)));
 };
 
 /**

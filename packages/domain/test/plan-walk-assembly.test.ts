@@ -171,4 +171,14 @@ describe('sliceNamesOf', () => {
     expect(sliceNamesText(['x', 'w'])).toBe('x\nw\n');
     expect(sliceNamesText([])).toBe('');
   });
+
+  it('reads a file with no parsed phase as a note, not a plan', () => {
+    const estate = estateOf(planOf('note.md', '', [[{ branch: 'n' }]]), planOf('a.md', 'approved', [[{ branch: 'x' }]]));
+    expect(sliceNamesOf(estate)).toEqual(['x']);
+    const out = assemblePlanWalk(
+      { estate: answered(estate), branches: answered(branchesOf(['a.md', 'x', open()])), desks: answered({ mainSha: 'm1', desks: [] }) } as never,
+      { slug: '', offer: false },
+    );
+    expect(out.ok && out.value.plans.map((p) => p.file)).toEqual(['a.md']);
+  });
 });
