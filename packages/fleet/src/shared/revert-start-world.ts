@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import {
   defaultBranchFile,
   hostShell,
+  prIndexFile,
   refsGit,
   refsRemoteGit,
   repairRecordFile,
@@ -126,6 +127,13 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
       return added.ok ? desk : null;
     },
     push: async (desk, branch) => (await trees.push(desk, branch)).ok,
+    reviewFailed: async (pr) => {
+      const backend = await host.backend();
+      if (!backend.ok) return false;
+      const store = await prIndexFile({ cwd: options.repoRoot }).read(backend.value);
+      if (!store.ok || store.value === null) return false;
+      return store.value.rows.some((row) => row.number === pr && row.state === 'OPEN' && row.plotReview === 'failure');
+    },
     startReview: async (pr, head) =>
       startReview(pr, head, {
         repoRoot: options.repoRoot,

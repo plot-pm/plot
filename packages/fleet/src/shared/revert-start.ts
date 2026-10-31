@@ -24,6 +24,7 @@ export type RevertOutcome =
   | 'none'
   | 'held'
   | 'awaiting-rerun'
+  | 'awaiting-revert'
   | 'rerun-asked'
   | 'claim-lost'
   | 'claim-failed'
@@ -60,6 +61,8 @@ export interface RevertWorld {
   makeDesk(branch: string): Promise<string | null>;
   /** Pushes the desk's branch. */
   push(desk: string, branch: string): Promise<boolean>;
+  /** Whether the PR index reads the PR's `plot/review` status as a failure (a HIGH finding). */
+  reviewFailed(pr: number): Promise<boolean>;
   /** Starts the review of a PR at a head; false where none started. */
   startReview(pr: number, head: string): Promise<boolean>;
   /** The ticket records, keyed by the reverted PR. */
@@ -173,6 +176,10 @@ export const repairRevertTick = async (
     lastGreenRerunSettled,
   });
 
+  if (step === 'exhausted' && record.revertPr !== undefined && lastGreenRerunSettled !== 'red') {
+    return judgeRevertPr(world, record, record.revertPr, warn);
+  }
+
   if (step === 'exhausted') {
     const why = record.revertPr !== undefined ? 'the revert PR is already recorded' : lastGreenRerunSettled === 'red' ? 'the last green SHA reads red on a re-run' : 'no single breaking merge could be named';
     return exhaust(world, record, why);
@@ -202,6 +209,32 @@ export const repairRevertTick = async (
 
   if (pickerAnswer === 'unknown') return 'held';
   return makeRevert(world, record, reading, pickerAnswer.pr, warn);
+};
+
+/**
+ * Decides what a recorded revert PR means while the default branch still reads
+ * red: `redMainStep` answers `exhausted` for any recorded revert PR, and this
+ * keeps the episode open only while that PR is open, not red and not rejected
+ * by its review.
+ */
+const judgeRevertPr = async (
+  world: RevertWorld,
+  record: RepairRecord,
+  revertPr: number,
+  warn: (line: string) => void,
+): Promise<RevertOutcome> => {
+  const looked = await world.slot(() => world.host.prState(revertPr));
+  if (!looked.ok) {
+    warn(`plot-fleetd: revert held — the host did not answer for PR #${revertPr}`);
+    return 'held';
+  }
+  const pr = looked.value;
+  if (pr === null) return 'held';
+  if (pr.state === 'MERGED') return exhaust(world, record, `the default branch still reads red after revert PR #${revertPr} merged`);
+  if (pr.state === 'CLOSED') return exhaust(world, record, `revert PR #${revertPr} was closed without merging`);
+  if (pr.checks === 'failing') return exhaust(world, record, `revert PR #${revertPr} reads red`);
+  if (await world.reviewFailed(revertPr)) return exhaust(world, record, `the review of revert PR #${revertPr} found a HIGH`);
+  return 'awaiting-revert';
 };
 
 /** The `revert` step of a `reverting` record. */

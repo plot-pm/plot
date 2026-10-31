@@ -408,6 +408,18 @@ describe('prReady', () => {
   });
 });
 
+describe('prClose', () => {
+  it('passes the PR number and reads exit 0 as closed', async () => {
+    const answer = await hostShell(hostThat('[ "$1 $2" = "pr-close 7" ] && [ $# = 2 ] || exit 1')).prClose(7);
+    expect(answer).toEqual({ ok: true, value: undefined });
+  });
+
+  it('reads exit 3 as failed and exit 4 as unaskable', async () => {
+    expect(await hostShell(hostThat('exit 3')).prClose(7)).toEqual({ ok: false, why: 'failed' });
+    expect(await hostShell(hostThat('exit 4')).prClose(7)).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
 describe('prComment', () => {
   it('passes the PR number and the body as one argument, and reads exit 0 as written', async () => {
     const answer = await hostShell(
