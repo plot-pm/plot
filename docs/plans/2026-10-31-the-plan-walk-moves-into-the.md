@@ -79,7 +79,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Branch readings
 
-- `feature/the-walk-reads-the-branches` — the branch-readings stage: refs, batched ancestry (`containsMany`), merge subjects on both hosts, landed commits, conflicts and changed paths <!-- waits: feature/the-walk-reads-the-estate --> <!-- builds: planWalk branch-readings stage -->
+- `feature/the-walk-reads-the-branches` — the branch-readings stage: refs, batched ancestry (`containsMany`), merge subjects on both hosts, landed commits, conflicts and changed paths <!-- waits: feature/the-walk-reads-the-estate --> <!-- builds: planWalk branch-readings stage --> → #2988
 
 ### Desks
 
