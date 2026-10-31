@@ -89,7 +89,7 @@ const BITBUCKET_MERGE = /^Merged in \S+ \(pull request #(\d+)\)$/;
  * @param subject - the commit's subject line.
  * @returns the PR number, or null where the subject names none.
  */
-const prNumberOf = (subject: string): number | null => {
+export const prNumberOf = (subject: string): number | null => {
   const squash = SQUASH.exec(subject);
   if (squash) return Number(squash[1]);
   const firstForm = GITHUB_MERGE.exec(subject);
