@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-31, Jan Wloka, plan-PR #2979 merged
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-scan-walk-starts-no-process-per-plan`
+- **Started:** 2026-10-31, Jan Wloka, `feature/a-fleetd-whose-scans-start-owns-the-scan`
 
 ## Changelog
 
