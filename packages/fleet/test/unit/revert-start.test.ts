@@ -16,6 +16,7 @@ const RED = 'r'.repeat(40);
 const BREAKING = 'c'.repeat(40);
 const SUBJECT = 'Merge pull request #41 from o/feature/the-thing';
 const REVERT_BRANCH = 'bug/revert-41';
+const REVERT_MERGE = 'm'.repeat(40);
 
 const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
 
@@ -67,6 +68,7 @@ interface Rigging {
   reviewFailed: boolean;
   ticket: TicketRecord | 'none';
   descends: 'yes' | 'no' | 'unknown';
+  settledHasRevert: 'yes' | 'no' | 'unknown';
 }
 
 const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
@@ -92,6 +94,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     reviewFailed: false,
     ticket: 'none',
     descends: 'yes',
+    settledHasRevert: 'no',
   };
   ticket = state.ticket;
   const world: RevertWorld = {
@@ -105,7 +108,8 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
       },
     },
     refs: {
-      contains: async (a, b) => (a === BREAKING ? answered(state.onMain) : answered(state.descends)),
+      contains: async (a) =>
+        a === BREAKING ? answered(state.onMain) : a === REVERT_MERGE ? answered(state.settledHasRevert) : answered(state.descends),
       defaultBranch: async () => answered('main'),
     },
     build: {
@@ -241,10 +245,27 @@ describe('repairRevertTick — exhausted', () => {
     expect(await repairRevertTick(high.world)).toBe('exhausted');
   });
 
-  it('exhausts a revert that merged with main still red', async () => {
+  it('awaits a merged revert until the settled commit contains it, then exhausts if main still reads red', async () => {
     const r = rig(record({ state: 'reverting', preRevertRerun: 'asked', revertPr: 9 }));
-    r.state.prs.set(9, pr({ state: 'MERGED' }));
+    r.state.prs.set(9, pr({ state: 'MERGED', mergeCommit: REVERT_MERGE }));
+    r.set({ reading: reading({ headSha: REVERT_MERGE, head: 'pending' }), settledHasRevert: 'no' });
+    expect(await repairRevertTick(r.world)).toBe('awaiting-revert');
+    expect(r.stored()?.state).toBe('reverting');
+    expect(r.notes).toHaveLength(0);
+
+    const after = 'n'.repeat(40);
+    r.set({ reading: reading({ headSha: after, settled: { sha: after, state: 'red' } }), settledHasRevert: 'yes' });
     expect(await repairRevertTick(r.world)).toBe('exhausted');
+    expect(r.stored()?.state).toBe('exhausted');
+    expect(r.notes).toHaveLength(1);
+  });
+
+  it('holds a merged revert whose merge commit cannot be read against the settled commit', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked', revertPr: 9 }));
+    r.state.prs.set(9, pr({ state: 'MERGED', mergeCommit: REVERT_MERGE }));
+    r.set({ settledHasRevert: 'unknown' });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    expect(r.stored()?.state).toBe('reverting');
   });
 });
 
@@ -291,13 +312,15 @@ describe('repairRevertTick — the anti-goal', () => {
       const botAhead = tick % 2 === 1;
       r.state.prs.set(41, pr({ number: 41, head: 'feature/the-thing', state: 'MERGED' }));
       const revertPr = r.stored()?.revertPr;
+      // The revert merges one tick before its merge commit settles: on that tick the settled SHA is still red.
+      const settledGreen = merged;
       if (revertPr !== undefined && minute >= 60 + 20 + 30 + 20) {
         merged = true;
-        r.state.prs.set(revertPr, pr({ number: revertPr, state: 'MERGED' }));
+        r.state.prs.set(revertPr, pr({ number: revertPr, state: 'MERGED', mergeCommit: REVERT_MERGE }));
       }
       r.set({
         now,
-        reading: merged
+        reading: settledGreen
           ? reading({ headSha: 'n'.repeat(40), head: 'green', settled: { sha: 'n'.repeat(40), state: 'green' }, askedAt: new Date(now).toISOString() })
           : reading({
               headSha: botAhead ? 'f'.repeat(40) : settledSha,
@@ -312,6 +335,7 @@ describe('repairRevertTick — the anti-goal', () => {
     expect(r.calls.filter((c) => c === 'revert-commit')).toHaveLength(1);
     expect(r.calls.filter((c) => c === 'rerun:green')).toHaveLength(1);
     expect(outcomes).toContain('revert-opened');
+    expect(outcomes).toContain('awaiting-revert');
     expect(tick * 12 * MIN).toBeLessThanOrEqual(HOUR + 20 * MIN + 30 * MIN + 30 * MIN + 12 * MIN * 3);
   });
 });

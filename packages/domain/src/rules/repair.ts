@@ -273,3 +273,37 @@ export const redMainStep = (
 
   return 'revert';
 };
+
+/** What a merged revert PR means while the episode still reads red. */
+export type MergedRevertAnswer = 'exhausted' | 'await-revert' | 'hold';
+
+/**
+ * Whether a merged revert PR ends the episode at `exhausted`.
+ *
+ * SPAWNS NOTHING AND AWAITS NOTHING. The caller supplies the ancestry answer.
+ *
+ * After the revert merges, the settled reading names an older red commit until
+ * the revert's merge commit settles. Only a settled commit that contains the
+ * merge commit shows the revert did not turn the default branch green.
+ *
+ * - The settled SHA equals the merge commit, or contains it: `exhausted`.
+ * - The settled commit does not contain the merge commit: `await-revert`.
+ * - No settled commit, no merge commit from the host, or an ancestry answer
+ *   of `unknown`: `hold`.
+ *
+ * @param reading - the default-branch reading, or null where there is none.
+ * @param mergeCommit - the revert PR's merge commit SHA; `''` where the host did not say.
+ * @param settledContainsMerge - an ancestry answer for the merge commit
+ *   against the settled SHA, supplied by the caller.
+ * @returns the next step for the merged revert.
+ */
+export const mergedRevertStep = (
+  reading: DefaultBranchReading | null,
+  mergeCommit: string,
+  settledContainsMerge: Containment,
+): MergedRevertAnswer => {
+  if (reading?.settled === undefined || mergeCommit === '') return 'hold';
+  if (reading.settled.sha === mergeCommit || settledContainsMerge === 'yes') return 'exhausted';
+  if (settledContainsMerge === 'no') return 'await-revert';
+  return 'hold';
+};

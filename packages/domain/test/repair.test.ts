@@ -4,6 +4,7 @@ import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '../src/entiti
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '../src/entities/repair-record.js';
 import {
   episodeOpen,
+  mergedRevertStep,
   redMainPicker,
   redMainStep,
   type RedMainCandidate,
@@ -253,5 +254,28 @@ describe('redMainPicker', () => {
       input({ lastGreenRerunSettled: 'pending', pickerAnswer: { pr: 42 } }),
     );
     expect(answer).toBe('await-repair');
+  });
+});
+
+describe('mergedRevertStep', () => {
+  const MERGE = 'm'.repeat(40);
+
+  it('awaits the revert while the settled commit is the older red one', () => {
+    expect(mergedRevertStep(reading({ headSha: MERGE, head: 'pending' }), MERGE, 'no')).toBe('await-revert');
+  });
+
+  it('exhausts once the settled commit is the merge commit and reads red', () => {
+    expect(mergedRevertStep(reading({ headSha: MERGE, settled: { sha: MERGE, state: 'red' } }), MERGE, 'unknown')).toBe('exhausted');
+  });
+
+  it('exhausts once the settled commit contains the merge commit', () => {
+    expect(mergedRevertStep(reading({ settled: { sha: 'n'.repeat(40), state: 'red' } }), MERGE, 'yes')).toBe('exhausted');
+  });
+
+  it('holds with no settled commit, no merge commit, or an unknown ancestry answer', () => {
+    expect(mergedRevertStep(null, MERGE, 'yes')).toBe('hold');
+    expect(mergedRevertStep(reading({ settled: undefined }), MERGE, 'yes')).toBe('hold');
+    expect(mergedRevertStep(reading(), '', 'yes')).toBe('hold');
+    expect(mergedRevertStep(reading(), MERGE, 'unknown')).toBe('hold');
   });
 });

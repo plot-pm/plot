@@ -9,7 +9,14 @@ import type { Revert } from '@plot-pm/domain/ports/revert';
 import type { TicketRecordStore } from '@plot-pm/domain/ports/ticket-record';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { declaredRuns, foldRuns } from '@plot-pm/domain/rules/default-branch';
-import { prNumberOf, redMainPicker, redMainStep, type RedMainCandidate, type RedMainPickerAnswer } from '@plot-pm/domain/rules/repair';
+import {
+  mergedRevertStep,
+  prNumberOf,
+  redMainPicker,
+  redMainStep,
+  type RedMainCandidate,
+  type RedMainPickerAnswer,
+} from '@plot-pm/domain/rules/repair';
 import { rerunSettledOf } from '@plot-pm/domain/rules/repair-start';
 import {
   REVERT_TICKET_LABEL,
@@ -177,7 +184,7 @@ export const repairRevertTick = async (
   });
 
   if (step === 'exhausted' && record.revertPr !== undefined && lastGreenRerunSettled !== 'red') {
-    return judgeRevertPr(world, record, record.revertPr, warn);
+    return judgeRevertPr(world, reading, record, record.revertPr, warn);
   }
 
   if (step === 'exhausted') {
@@ -214,11 +221,13 @@ export const repairRevertTick = async (
 /**
  * Decides what a recorded revert PR means while the default branch still reads
  * red: `redMainStep` answers `exhausted` for any recorded revert PR, and this
- * keeps the episode open only while that PR is open, not red and not rejected
- * by its review.
+ * keeps the episode open while that PR is open, not red and not rejected by
+ * its review, and while a merged revert has not yet settled on the default
+ * branch (`mergedRevertStep`).
  */
 const judgeRevertPr = async (
   world: RevertWorld,
+  reading: DefaultBranchReading | null,
   record: RepairRecord,
   revertPr: number,
   warn: (line: string) => void,
@@ -230,7 +239,21 @@ const judgeRevertPr = async (
   }
   const pr = looked.value;
   if (pr === null) return 'held';
-  if (pr.state === 'MERGED') return exhaust(world, record, `the default branch still reads red after revert PR #${revertPr} merged`);
+  if (pr.state === 'MERGED') {
+    const settled = reading?.settled?.sha;
+    let contains: Containment = 'unknown';
+    if (settled !== undefined && pr.mergeCommit !== '' && settled !== pr.mergeCommit) {
+      const asked = await world.refs.contains(pr.mergeCommit, settled);
+      contains = asked.ok ? asked.value : 'unknown';
+    }
+    const merged = mergedRevertStep(reading, pr.mergeCommit, contains);
+    if (merged === 'await-revert') return 'awaiting-revert';
+    if (merged === 'hold') {
+      warn(`plot-fleetd: revert held — the settled commit could not be read against the merge commit of revert PR #${revertPr}`);
+      return 'held';
+    }
+    return exhaust(world, record, `the default branch still reads red after revert PR #${revertPr} merged`);
+  }
   if (pr.state === 'CLOSED') return exhaust(world, record, `revert PR #${revertPr} was closed without merging`);
   if (pr.checks === 'failing') return exhaust(world, record, `revert PR #${revertPr} reads red`);
   if (await world.reviewFailed(revertPr)) return exhaust(world, record, `the review of revert PR #${revertPr} found a HIGH`);
