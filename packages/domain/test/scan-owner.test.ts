@@ -97,6 +97,10 @@ describe('ownedBridgeNote', () => {
     expect(note).toContain('200 s ago');
     expect(note).toContain('scan exceeded 90 s');
   });
+  it('says no reason was recorded for a failed attempt that carries none', () => {
+    const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: { startedAt: NOW - 100_000, outcome: 'failed', error: null }, now: NOW });
+    expect(note).toContain('no reason recorded');
+  });
   it('names only the age when the last attempt did not fail', () => {
     const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: { startedAt: NOW - 50_000, outcome: 'running', error: null }, now: NOW });
     expect(note).toContain('200 s ago');
