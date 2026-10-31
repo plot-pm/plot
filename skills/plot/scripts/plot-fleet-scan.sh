@@ -3704,10 +3704,9 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
     printf -v "$_sp_kv" '%s' "${!_sp_kv:-}${!_sp_kv:+$'\n'}$_sp_k"$'\t'"$_sp_v"
   done <<< "$SUBJECT_ADDING"
   for _sp_i in "${!plans[@]}"; do
-    _sp_plan="${plans[$_sp_i]}"
     # Ref mode names the blob after the resolved link: its basename is the key.
     _sp_base=${plan_reads[$_sp_i]##*/}
-    [ "$PLAN_SOURCE" = "ref" ] || _sp_base=$(basename "$(readlink "$_sp_plan" 2>/dev/null || echo "$_sp_plan")")
+    [ "$PLAN_SOURCE" = "ref" ] || _sp_base=$(basename "$(readlink "${plans[$_sp_i]}" 2>/dev/null || echo "${plans[$_sp_i]}")")
     kv_get_into _SA_ "$PLAN_DIR$_sp_base"
     # KEYED ON THE FILE THAT WAS PARSED, which is what `plan_meta_files` holds
     # — `$plan_reads[i]`, the same key the row loop uses at pass 1a. In ref mode
@@ -3716,8 +3715,8 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
     plan_meta_index_into "${plan_reads[$_sp_i]}"
     _sp_meta_i=$plan_meta_index_reply
     [ -n "$_sp_meta_i" ] || continue
-    # Settled plans are not asked: the row loop leaves them before any lookup.
-    case "${plan_meta_phases[$_sp_meta_i]}" in released|rejected|superseded) continue ;; delivered) case "${plan_meta_types[$_sp_meta_i]}" in docs|infra) continue ;; esac ;; esac
+    # Released, rejected and superseded plans are not asked: the row loop leaves them before any lookup.
+    [[ ${plan_meta_phases[$_sp_meta_i]} =~ ^(released|rejected|superseded)$ ]] && continue
     _sp_branches=""
     while IFS=$'\t' read -r _sp_idx _sp_br _sp_rest; do
       [ -n "$_sp_br" ] || continue
@@ -3729,9 +3728,7 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
     # `$plan_base` and what the lookup tests. The adding-commit walk keys on
     # the full path, which is what git reports — the two are joined here, once,
     # rather than at every lookup.
-    SUBJECT_PLAN_SECTIONS+="@plan $_sp_base"$'\n'
-    SUBJECT_PLAN_SECTIONS+="@added ${kv_reply:--}"$'\n'
-    SUBJECT_PLAN_SECTIONS+="$_sp_branches"
+    SUBJECT_PLAN_SECTIONS+="@plan $_sp_base"$'\n'"@added ${kv_reply:--}"$'\n'"$_sp_branches"
   done
 
   if [ -n "$SUBJECT_PLAN_SECTIONS" ]; then
