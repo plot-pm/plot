@@ -1074,6 +1074,15 @@ test('host: pr-body github maps to gh pr edit --body', () => {
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'edit', '4', '--body', 'new text']);
 });
 
+test('host: pr-close maps to gh pr close on github and bb pr close on bitbucket', () => {
+  const gh = makeStubs();
+  run(['pr-close', '4'], { env: { PLOT_HOST: 'github' }, stubs: gh });
+  assert.deepEqual(argvOf(gh.ghArgv), ['pr', 'close', '4']);
+  const bb = makeStubs();
+  run(['pr-close', '4'], { env: { PLOT_HOST: 'bitbucket' }, stubs: bb });
+  assert.deepEqual(argvOf(bb.bbArgv), ['pr', 'close', '4']);
+});
+
 // --- pr-list --rich: check state for the agent view ------------------------
 //
 // The board needs to tell "a person is the blocker" from "a machine is busy".
