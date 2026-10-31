@@ -84,7 +84,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Desks
 
-- `feature/the-walk-reads-the-desks` — the desk stage: worktrees, worker state, markers, unpushed commits and quiet time <!-- waits: feature/the-walk-reads-the-branches --> <!-- builds: planWalk desk stage -->
+- `feature/the-walk-reads-the-desks` — the desk stage: worktrees, worker state, markers, unpushed commits and quiet time <!-- waits: feature/the-walk-reads-the-branches --> <!-- builds: planWalk desk stage --> → #2989
 
 ### Assembly
 
