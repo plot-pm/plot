@@ -338,6 +338,13 @@ export interface LifecycleReading {
    * a property of the path.
    */
   otherParents?: readonly (FileVersion | null)[];
+  /**
+   * The path's version at the commit a rebase or cherry-pick is replaying
+   * (`REBASE_HEAD`/`CHERRY_PICK_HEAD`), and at that commit's own first parent.
+   * Absent for a plain commit, which carries no picked commit to compare
+   * against.
+   */
+  picked?: { commit: FileVersion | null; parent: FileVersion | null };
 }
 
 /**
@@ -476,6 +483,53 @@ export const effectivePaths = (readings: CommitReadings, command: string): reado
   for (const path of new Set(readings.staged)) if (!working.has(path)) carried.push({ path, carries: 'index' });
   return carried.sort((a, b) => (a.path < b.path ? -1 : 1));
 };
+
+/**
+ * The field value a picked commit (`REBASE_HEAD`/`CHERRY_PICK_HEAD`) itself
+ * changed at a path, read the same way {@link stateTransitionOf} and
+ * {@link spikeTransitionOf} read the working commit's own change — against
+ * the picked commit's own first parent, not `HEAD`.
+ *
+ * @param field - which field to read; absent for the `State:` line.
+ * @param parentText - the path's text at the picked commit's first parent, or
+ *   `null` when the parent holds no such file.
+ * @param pickedText - the path's text at the picked commit, or `null` when the
+ *   picked commit holds no such file.
+ */
+export const pickedTransitionOf = (
+  field: typeof SPIKE_APPROVED_FIELD | undefined,
+  parentText: string | null,
+  pickedText: string | null,
+): { before: string; after: string } => {
+  const valueOf = field === SPIKE_APPROVED_FIELD ? spikeApprovalOf : statusStateOf;
+  return {
+    before: parentText === null ? '' : valueOf(parentText),
+    after: pickedText === null ? '' : valueOf(pickedText),
+  };
+};
+
+/**
+ * Whether a picked commit (`REBASE_HEAD`/`CHERRY_PICK_HEAD`) clears an
+ * otherwise-uncleared transition: it made the identical `before -> after`
+ * change to the identical path (and field) against its own first parent.
+ *
+ * A rebase or cherry-pick that stops on a conflict re-presents the same
+ * commit to the gate; the receipt its first run spent is already gone, and
+ * without this check the replay would be refused for a write the lifecycle
+ * already allowed once. Comparing the picked commit's OWN before/after — not
+ * the working tree's — is what keeps a revert refused: a revert's before and
+ * after are the receipted change's own after and before, swapped, so they
+ * never equal `transition`'s pair.
+ *
+ * @param transition - an uncleared transition, read from the working commit.
+ * @param pickedBefore - the picked commit's own `before` for the same path and field.
+ * @param pickedAfter - the picked commit's own `after` for the same path and field.
+ */
+export const pickedClears = (
+  transition: StateTransition,
+  pickedBefore: string,
+  pickedAfter: string,
+): boolean => transition.before === pickedBefore && transition.after === pickedAfter;
 
 /**
  * The refusal for transitions no receipt cleared, or `null` when there are
