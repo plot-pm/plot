@@ -416,10 +416,8 @@ fi
 # which runs the estate, branch, desk and assembly stages and decides with the
 # domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here.
 # `--offline` still asks the host on the offer modes, as above.
-READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
-[ -n "$READ_REF" ] || READ_REF="unknown"
-LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
-[ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
+READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
+LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
 [ "${PLOT_SCAN_WALK:-shell}$loose$stream$log_pulse" != domain000 ] || [ "$slice_names$why_nothing$next_only$as_json" = 0000 ] || exec node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
   "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"
 
@@ -4176,9 +4174,7 @@ ask_branch_states() { # stdin=readings, $1=branches → one `state<TAB>needs<TAB
 # Prose is suppressed by BOTH alternate output modes. --json accumulates the
 # same derivation into a document instead of printing it; the arithmetic below
 # is untouched, which is what keeps the human report byte-identical.
-quiet=0
-[ "$next_only" = 1 ] && quiet=1
-[ "$as_json" = 1 ] && quiet=1
+quiet=$((next_only | as_json))
 # The ref this scan READ, and the ref the operator is STANDING ON. They are
 # different questions, and conflating them is the bug this block exists to
 # stop: every fact below is derived from `origin/$MAIN`, but the banner was
@@ -4192,7 +4188,6 @@ quiet=0
 # Kept as an alias for one release: the board reads `head` today (Delivery tab),
 # and renaming a field out from under a live consumer is a break nobody asked
 # for. Removed once the board reads `read_ref`.
-HEAD_SHORT="$LOCAL_HEAD"
 json_plans=""
 
 # Emit a JSON string with the six characters JSON forbids escaped. Branch names
@@ -5264,7 +5259,7 @@ if [ "$build_doc" = 1 ]; then
   # today; it goes away once the board reads the pair.
   reading_doc=$(printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s",' \
     "$(json_str "$MAIN")" "$(json_str "$READ_REF")" "$(json_str "$LOCAL_HEAD")" \
-    "$(json_str "$HEAD_SHORT")")
+    "$(json_str "$LOCAL_HEAD")")
   # Three more facts about the EVIDENCE, not about the fleet — a consumer that
   # renders the numbers below should be able to say how much to trust them.
   # They answer the question `read_ref` raises: that field names the ref, and
