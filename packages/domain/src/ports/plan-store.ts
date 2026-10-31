@@ -103,6 +103,14 @@ export interface PlanRecordBranch {
   commits?: readonly string[];
 }
 
+/** One plan blob a caller already holds: the object name and the path it sits at. */
+export interface PlanBlobRef {
+  /** The blob's object name, from a tree listing the caller took. */
+  sha: string;
+  /** The path the blob sits at, relative to the repository root. Becomes the record's `file`. */
+  path: string;
+}
+
 /**
  * Reads and writes the plan, story and sprint files — the STATED source of
  * truth — and the other repository files a lifecycle write edits beside them,
@@ -134,6 +142,29 @@ export interface PlanStore {
    * @returns one record per readable file, in the order the parser emits them.
    */
   readPlans(files: readonly string[]): Promise<PortResult<readonly PlanRecord[]>>;
+
+  /**
+   * Parses plan blobs the caller already holds, keyed by object name.
+   *
+   * The read is a function of the blobs handed in: it lists no tree and
+   * resolves no ref, so a fetch that lands between the caller's snapshot and
+   * this call cannot change what is parsed. Batched: one object read and one
+   * parser spawn for the whole set.
+   *
+   * @param blobs - the plan blobs, from one tree snapshot.
+   * @param prefixes - the configured branch prefixes without a trailing slash,
+   *   such as `['idea', 'feature']`. Passed to the parser as `--prefixes`; an
+   *   empty list leaves the parser at its default list.
+   * @returns one record per blob, in `blobs` order, with `file` set to the
+   *   blob's path. A blob the repository cannot supply and a blob the parser
+   *   rejects each fail the whole call: the caller handed in an object name
+   *   from a snapshot, so an absent one is an unreadable repository and not a
+   *   smaller estate. Unaskable where the store reads a working tree.
+   */
+  readPlansAt(
+    blobs: readonly PlanBlobRef[],
+    prefixes: readonly string[],
+  ): Promise<PortResult<readonly PlanRecord[]>>;
 
   /**
    * Lists every plan file the repository holds.

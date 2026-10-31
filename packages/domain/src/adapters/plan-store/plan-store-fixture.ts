@@ -81,6 +81,13 @@ export const planStoreFixture = (fixture: PlanStoreFixture = {}): PlanStore => {
       return plan === undefined ? failed<PlanRecord>() : answered(plan);
     },
 
+    readPlansAt: async (blobs) => {
+      const found = blobs.map((blob) => byFile.get(blob.path));
+      return found.every((plan) => plan !== undefined)
+        ? answered(found as PlanRecord[])
+        : failed<readonly PlanRecord[]>();
+    },
+
     listPlans: async () => answered(plans.map((plan) => plan.file)),
 
     config: async (key, fallback) => answered(config[key] ?? fallback),

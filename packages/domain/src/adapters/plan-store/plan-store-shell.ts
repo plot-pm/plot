@@ -8,7 +8,7 @@ import type {
   PlanRecordUnreadBranchItem,
   PlanStore,
 } from '../../ports/plan-store.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import { asJsonLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -188,6 +188,25 @@ export const statusField = (body: string, name: string): string =>
   body.match(new RegExp(`^- \\*\\*${name}:\\*\\* (.+)$`, 'm'))?.[1]?.trim() ?? '';
 
 /**
+ * Turns a `Branch prefixes` config value into the parser's `--prefixes`
+ * argument.
+ *
+ * Mirrors `plot-fleet-scan.sh`'s `PREFIX_RE`: spaces dropped, a trailing slash
+ * stripped, empty entries skipped, joined with `|`.
+ *
+ * @param value - the config value, such as `idea/, feature/, bug/`.
+ * @returns the `--prefixes` argument pair, or no arguments where the value
+ *   names no prefix, which leaves the parser at its default list.
+ */
+export const prefixArgs = (value: string): readonly string[] => {
+  const prefixes = value
+    .split(',')
+    .map((p) => p.replace(/\s/g, '').replace(/\/$/, ''))
+    .filter((p) => p !== '');
+  return prefixes.length === 0 ? [] : ['--prefixes', prefixes.join('|')];
+};
+
+/**
  * Reads plan files through `plot-plan-meta.sh`, which is the format contract.
  *
  * The parser is not reimplemented here. It already knows the three spellings a
@@ -206,7 +225,17 @@ export const planStoreShell = (context: ShellContext): PlanStore => {
     files: readonly string[],
   ): Promise<PortResult<readonly PlanRecord[]>> => {
     if (files.length === 0) return answered([]);
-    const run = await runProcess('bash', [meta, ...files], { cwd: context.repoRoot });
+    // THE CONFIGURED PREFIXES, never the parser's default: a repository whose
+    // list differs would otherwise parse every branch outside the default
+    // `idea|feature|bug|docs|infra` as a non-branch.
+    const configured = await runScript('bash', [config, 'get', 'Branch prefixes', ''], asText, {
+      cwd: context.repoRoot,
+    });
+    const run = await runProcess(
+      'bash',
+      [meta, ...(configured.ok ? prefixArgs(configured.value) : []), ...files],
+      { cwd: context.repoRoot },
+    );
     const parsed = resultOf(run, (stdout) =>
       asJsonLines<RawPlan>(stdout)
         .filter((raw) => raw.error === undefined)
@@ -241,6 +270,8 @@ export const planStoreShell = (context: ShellContext): PlanStore => {
       const [first] = many.value;
       return first === undefined ? failed<PlanRecord>() : answered(first);
     },
+
+    readPlansAt: async () => unaskable<readonly PlanRecord[]>('the shell store reads the working tree, not object names'),
 
     listPlans: () =>
       runScript(

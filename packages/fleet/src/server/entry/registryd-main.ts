@@ -58,7 +58,7 @@ import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { HeldSlice, PortResult } from '@plot-pm/domain';
-import { answered } from '@plot-pm/domain';
+import { answered, failed } from '@plot-pm/domain';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
@@ -1309,7 +1309,7 @@ const dirtyCountOf = async (
  */
 const fleetPlanStore = (context: { repoRoot: string; scriptDir: string }, refs: Refs): PlanStore => {
   const scripts = scriptsShell(context);
-  const storeFor = async (): Promise<Pick<PlanStore, 'listPlans' | 'readPlans'> | null> => {
+  const storeFor = async (): Promise<Pick<PlanStore, 'listPlans' | 'readPlans' | 'readPlansAt'> | null> => {
     const base = await refs.defaultBranch();
     if (!base.ok) return null;
     const planDir = await planDirectory(scripts);
@@ -1324,6 +1324,10 @@ const fleetPlanStore = (context: { repoRoot: string; scriptDir: string }, refs: 
     readPlans: async (files) => {
       const store = await storeFor();
       return store === null ? answered([]) : store.readPlans(files);
+    },
+    readPlansAt: async (blobs, prefixes) => {
+      const store = await storeFor();
+      return store === null ? failed<readonly PlanRecord[]>() : store.readPlansAt(blobs, prefixes);
     },
     readPlan: shell.readPlan,
     config: shell.config,
