@@ -79,6 +79,7 @@ skills/plot/scripts/board/plot-landed.mjs -merge
 skills/plot/scripts/board/plot-review-bypass.mjs -merge
 skills/plot/scripts/board/plot-local-checks.mjs -merge
 skills/plot/scripts/board/plot-merge-subject.mjs -merge
+skills/plot/scripts/board/plot-scan-walk.mjs -merge
 skills/plot/scripts/board/plot-release-chain.mjs -merge
 skills/plot/scripts/board/plot-bitbucket-slug.mjs -merge
 skills/plot/scripts/board/plot-listing-walk.mjs -merge

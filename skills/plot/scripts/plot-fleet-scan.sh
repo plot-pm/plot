@@ -415,10 +415,12 @@ fi
 # `--list-eligible`, `--why-nothing`, `--slice-names`) to `plot-scan-walk.mjs`,
 # which runs the estate, branch, desk and assembly stages and decides with the
 # domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here.
-# `--offline` still asks the host on the offer modes, as above.
+# `--offline` still asks the host on the offer modes, as above. A scan whose
+# `origin/<main>` does not resolve stays here: the estate stage has no
+# working-tree fallback and the shell does.
 READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
-[ "${PLOT_SCAN_WALK:-shell}$loose$stream$log_pulse" != domain000 ] || [ "$slice_names$why_nothing$next_only$as_json" = 0000 ] || exec node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
+[ "${PLOT_SCAN_WALK:-shell}$loose$stream$log_pulse" != domain000 ] || [ "$slice_names$why_nothing$next_only$as_json" = 0000 ] || [ "$READ_REF" = unknown ] || exec node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
   "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"
 
 # ---------------------------------------------------------------------------
