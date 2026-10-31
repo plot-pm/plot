@@ -42,6 +42,11 @@ describe('reviewStatus', () => {
     expect(reviewStatus(counts, { read: 'unread' }, true).state).toBe('failure');
   });
 
+  it('words a single HIGH in the singular', () => {
+    expect(reviewStatus({ high: 1, medium: 0, low: 0 }, confirmed, true).description).toBe('1 HIGH finding; ticketed #12');
+    expect(reviewStatus({ high: 1, medium: 0, low: 0 }, confirmed, false).description).toBe('1 HIGH finding');
+  });
+
   it('passes a review with no HIGH and keeps the description within 140 characters', () => {
     expect(reviewStatus({ high: 0, medium: 3, low: 1 }, { read: 'unread' }, false).state).toBe('success');
     const long = reviewStatus({ high: 99, medium: 0, low: 0 }, { ...confirmed, id: 'X'.repeat(400) }, true);
