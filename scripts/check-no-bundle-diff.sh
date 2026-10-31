@@ -35,7 +35,10 @@
 # it would blame a branch for bundles `main` itself changed after the branch
 # was cut. `HEAD` alone cannot tell "the branch changed this" from "the branch
 # never touched this", which is the same reason the restore line below reads
-# from the merge base rather than from either tip.
+# from the merge base rather than from either tip. The commit-time gate
+# (`plot-bundle-commit-gate.sh`) compares a staged path with the same base,
+# `git merge-base origin/main HEAD <each MERGE_HEAD>`, so it allows a commit
+# exactly when this script reads the path clean.
 #
 # THE REFUSAL PRINTS THE EXACT REPAIR: one `git checkout <merge-base> --
 # <path>` per changed generated path that the merge base holds, and `git rm`

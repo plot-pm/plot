@@ -7,8 +7,17 @@ import path from 'node:path';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { Detached } from '@plot-pm/domain/ports/detached';
 import { readReviewStarts } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { runLogFixture } from '@plot-pm/domain/adapters';
 import { removeTree } from '../rm-tree.mjs';
-import { AUTO_REVIEW_KEY, autoReview, reviewTick, type ReviewTickReadings } from '../../src/shared/auto-review.js';
+import {
+  AUTO_REVIEW_KEY,
+  autoReview,
+  reviewTick,
+  runAutoReviewPass,
+  type ReviewPassReading,
+  type ReviewPassWorld,
+  type ReviewTickReadings,
+} from '../../src/shared/auto-review.js';
 
 const HEAD = 'a'.repeat(40);
 const NOW = 5_000_000_000;
@@ -95,5 +104,96 @@ describe('autoReview', () => {
     expect(AUTO_REVIEW_KEY).toBe('Auto-review');
     expect(autoReview({ autoReview: true })).toBe(true);
     expect(autoReview({ autoReview: false })).toBe(false);
+  });
+});
+
+describe('runAutoReviewPass', () => {
+  const opts = () => ({ repoRoot: root, scriptsDir: root, runLog: runLogFixture() });
+  const world = (over: Partial<ReviewPassWorld> = {}): ReviewPassWorld => ({
+    autoReview: () => true,
+    detached: start().detached,
+    pidAlive: () => true,
+    readLock: () => null,
+    ...over,
+  });
+  const reading = (rows: readonly PrIndexRow[]): ReviewPassReading => ({ rows, readings: readings(NOW) });
+
+  it('starts one review on an in-scope green head with no plot/review, and logs the start', async () => {
+    const o = opts();
+    const out = await runAutoReviewPass(o, new Set(), NOW, world(), async () => reading([row]));
+    expect(out?.[0]?.started).toEqual({ started: true, pid: 9001 });
+    expect(starts).toBe(1);
+    expect(o.runLog.lines).toEqual([
+      { plan: '', branch: 'feature/x', pr: '7', head: HEAD, step: 'review-start', outcome: 'moved', at: new Date(NOW).toISOString() },
+    ]);
+  });
+
+  it('starts none on a head that already has a plot/review status', async () => {
+    const o = opts();
+    const reviewed = { ...row, plotReview: 'success' as const, plotReviewSha: HEAD };
+    const out = await runAutoReviewPass(o, new Set(), NOW, world(), async () => reading([reviewed]));
+    // The merge arm answers on a reviewed head; with no default-branch reading it holds.
+    expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'default-branch-unread' });
+    expect(out?.[0]?.started).toBeUndefined();
+    expect(starts).toBe(0);
+    expect(o.runLog.lines).toEqual([]);
+  });
+
+  it('reads nothing and starts none with Auto-review off', async () => {
+    let read = 0;
+    const out = await runAutoReviewPass(opts(), new Set(), NOW, world({ autoReview: () => false }), async () => {
+      read += 1;
+      return reading([row]);
+    });
+    expect(out).toBeNull();
+    expect(read).toBe(0);
+    expect(starts).toBe(0);
+  });
+
+  it('starts none while a live run holds the review lock of the head', async () => {
+    const o = opts();
+    const out = await runAutoReviewPass(
+      o,
+      new Set(),
+      NOW,
+      world({ readLock: (_o, pr, head) => (pr === 7 && head === HEAD ? '4242\trun-1\n' : null) }),
+      async () => reading([row]),
+    );
+    expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'review-in-flight' });
+    expect(starts).toBe(0);
+  });
+
+  it('starts a review where the lock names a dead pid', async () => {
+    const out = await runAutoReviewPass(
+      opts(),
+      new Set(),
+      NOW,
+      world({ readLock: () => '4242\trun-1\n', pidAlive: (pid) => pid !== 4242 }),
+      async () => reading([row]),
+    );
+    expect(out?.[0]?.started).toMatchObject({ started: true });
+    expect(starts).toBe(1);
+  });
+
+  it('logs a repeating start refusal once per PR, head and reason', async () => {
+    const o = opts();
+    const logged = new Set<string>();
+    const second: PrIndexRow = { ...row, number: 8, head: 'feature/z', url: 'u8' };
+    const scoped = (): ReviewPassReading => ({
+      rows: [row, second],
+      readings: { ...readings(NOW), scope: { read: 'scope', sprint: {} as never, slugs: ['x'], branches: ['feature/x', 'feature/z'] } },
+    });
+    await runAutoReviewPass(o, logged, NOW, world(), async () => scoped());
+    await runAutoReviewPass(o, logged, NOW + 1000, world(), async () => scoped());
+    expect(starts).toBe(1);
+    expect(o.runLog.lines.map((l) => [l.pr, l.outcome])).toEqual([
+      ['7', 'moved'],
+      ['8', 'failed: at-capacity'],
+    ]);
+  });
+
+  it('acts on nothing where the reading gives nothing', async () => {
+    expect(await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => null)).toBeNull();
+    expect(starts).toBe(0);
   });
 });

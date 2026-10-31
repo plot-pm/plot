@@ -5,7 +5,7 @@ import type { Sprint } from '../src/entities/sprint.js';
 import { defaultBranchRed } from '../src/rules/default-branch.js';
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
-import { nextMerge, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import { ciRedArm, highArm, nextMerge, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -146,9 +146,12 @@ describe('slicePrNext', () => {
   });
 
   it('holds on a live fixer mark over an otherwise green new head, before the review arm', () => {
-    const fixer = { read: 'record', inFlight: true } as const;
+    const fixer = { read: 'record', inFlight: true, exhausted: false } as const;
     expect(slicePrNext(readings({ fixer }))).toEqual({ step: 'hold', reason: 'fixer-in-flight' });
-    expect(slicePrNext(readings({ fixer: { read: 'record', inFlight: false } }))).toEqual({ step: 'review', head: HEAD });
+    expect(slicePrNext(readings({ fixer: { read: 'record', inFlight: false, exhausted: false } }))).toEqual({
+      step: 'review',
+      head: HEAD,
+    });
   });
 
   it('holds on an unread sibling record', () => {
@@ -173,6 +176,117 @@ describe('slicePrNext', () => {
   it('holds on an unread repair record once every earlier arm answers none', () => {
     const config = { autoReview: false, reviewBoundMs: 1, startBudget: 3, checksWaitMs: 1 };
     expect(slicePrNext(readings({ repair: { read: 'unread' }, config }))).toEqual({ step: 'hold', reason: 'unread' });
+  });
+
+  describe('the HIGH arm (#2903)', () => {
+    const fixerFresh = { read: 'record', inFlight: false, exhausted: false } as const;
+
+    it('starts the fixer for a HIGH bound to the current head', () => {
+      const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
+      expect(slicePrNext(readings({ row: r, fixer: fixerFresh }))).toEqual({
+        step: 'fixer',
+        head: HEAD,
+        evidence: 'high',
+      });
+      expect(highArm(readings({ row: r, fixer: fixerFresh }))).toEqual({ step: 'fixer', head: HEAD, evidence: 'high' });
+    });
+
+    it('does not trigger on a HIGH recorded against a since-moved head', () => {
+      const r = row({ plotReview: 'failure', plotReviewSha: OLD });
+      expect(highArm(readings({ row: r, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'no-high' });
+    });
+
+    it('does not start a second fixer once the attempts budget is spent', () => {
+      const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
+      const fixer = { read: 'record', inFlight: false, exhausted: true } as const;
+      expect(highArm(readings({ row: r, fixer }))).toEqual({ step: 'none', why: 'high-attempts-spent' });
+    });
+
+    it('answers none for a row never asked about plotReview', () => {
+      const { plotReview: _p, ...noPlotReview } = row();
+      expect(highArm(readings({ row: noPlotReview, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
+
+    it('holds while the fixer record is unread', () => {
+      const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
+      expect(highArm(readings({ row: r, fixer: { read: 'unread' } }))).toEqual({ step: 'hold', reason: 'unread' });
+    });
+
+    it('answers none for no row and for a row with no head', () => {
+      const { headSha: _h, ...noHead } = row({ plotReview: 'failure' });
+      expect(highArm(readings({ row: null, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
+      expect(highArm(readings({ row: noHead, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
+  });
+
+  describe('the CI-red arm (#2903)', () => {
+    const fixerFresh = { read: 'record', inFlight: false, exhausted: false } as const;
+    const ciRedRow = row({ ciChecks: 'failing', checksSha: HEAD });
+
+    it('starts the fixer once the desk is dead', () => {
+      const desk = { dead: true } as const;
+      expect(slicePrNext(readings({ row: ciRedRow, fixer: fixerFresh, desk }))).toEqual({
+        step: 'fixer',
+        head: HEAD,
+        evidence: 'ci-red',
+      });
+      expect(ciRedArm(readings({ row: ciRedRow, fixer: fixerFresh, desk }))).toEqual({
+        step: 'fixer',
+        head: HEAD,
+        evidence: 'ci-red',
+      });
+    });
+
+    it('starts the fixer on a corrections-spent desk whose fresh session also ended, even though deskDead reads it waiting', () => {
+      const desk = { dead: false, why: 'waiting' } as const;
+      expect(
+        slicePrNext(readings({ row: ciRedRow, fixer: fixerFresh, desk, correctionsSpentExhausted: true })),
+      ).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+    });
+
+    it('does not start the fixer on a desk merely waiting for any other reason', () => {
+      const desk = { dead: false, why: 'waiting' } as const;
+      expect(ciRedArm(readings({ row: ciRedRow, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'desk-alive' });
+      expect(
+        ciRedArm(readings({ row: ciRedRow, fixer: fixerFresh, desk, correctionsSpentExhausted: false })),
+      ).toEqual({ step: 'none', why: 'desk-alive' });
+    });
+
+    it('does not start the fixer on a live desk', () => {
+      const desk = { dead: false, why: 'live' } as const;
+      expect(ciRedArm(readings({ row: ciRedRow, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'desk-alive' });
+    });
+
+    it('holds once the attempts budget is spent on a dead desk with CI still red', () => {
+      const desk = { dead: true } as const;
+      const fixer = { read: 'record', inFlight: false, exhausted: true } as const;
+      expect(slicePrNext(readings({ row: ciRedRow, fixer, desk }))).toEqual({ step: 'hold', reason: 'ci-red-attempts-spent' });
+    });
+
+    it('does not trigger on CI red bound to a since-moved head', () => {
+      const r = row({ ciChecks: 'failing', checksSha: OLD });
+      const desk = { dead: true } as const;
+      expect(ciRedArm(readings({ row: r, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'no-ci-red' });
+    });
+
+    it('answers none for a row never asked about ciChecks', () => {
+      const { ciChecks: _c, ...noCiChecks } = row();
+      const desk = { dead: true } as const;
+      expect(ciRedArm(readings({ row: noCiChecks, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
+
+    it('holds while the fixer record is unread', () => {
+      const r = row({ ciChecks: 'failing' });
+      const desk = { dead: true } as const;
+      expect(ciRedArm(readings({ row: r, fixer: { read: 'unread' }, desk }))).toEqual({ step: 'hold', reason: 'unread' });
+    });
+
+    it('answers none for no row and for a row with no head', () => {
+      const desk = { dead: true } as const;
+      const { headSha: _h, ...noHead } = row({ ciChecks: 'failing' });
+      expect(ciRedArm(readings({ row: null, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
+      expect(ciRedArm(readings({ row: noHead, fixer: fixerFresh, desk }))).toEqual({ step: 'none', why: 'not-asked' });
+    });
   });
 });
 

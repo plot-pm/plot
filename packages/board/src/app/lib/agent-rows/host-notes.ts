@@ -335,11 +335,11 @@ function agePhrase(ageSeconds: number | null): string | null {
  * ever landed, which `checkout-health.ts`'s `rose` entry already shows is not
  * reserved for a dead server. `warning` keeps `amber`.
  *
- * A STALE CACHE WITH NO REFUSAL IS NOW VISIBLE, which it was not before this
- * wave: `prNote` returned null whenever `fleet.prError` was unset, so a cache
- * past twice the refresh interval said nothing even though `prStatusLevel`
- * already called that `warning`. `prStatus`'s own contract is the fix —
- * `cause` stays null and the sentence below names only the age.
+ * A STALE CACHE WITH NO REFUSAL SHOWS, and `prStatus.stale` says which clock
+ * judged it. `overdue`: the reader's scheduled read is late by more than one
+ * interval, and the sentence names how late. `aged`: no schedule is known and
+ * the data is older than twice `prIntervalMs`. A read the reader stretched for
+ * the account's spend is on schedule and shows nothing. `cause` stays null.
  *
  * THE RESET IS PRINTED ONLY WHERE `prStatus` SAYS SO (`backoffInSeconds`
  * non-null), which already encodes `resetApplies` — a secondary limit or an
@@ -375,7 +375,7 @@ function agePhrase(ageSeconds: number | null): string | null {
  */
 export function prStatusEntry(
   fleet: Pick<Fleet, 'prError' | 'prNextInSeconds' | 'prAgeSeconds'> &
-    Partial<Pick<Fleet, 'prSpenders' | 'prIntervalMs'>>,
+    Partial<Pick<Fleet, 'prSpenders' | 'prIntervalMs' | 'prOverdueSeconds'>>,
 ): BoardStatus | null {
   // UNASKED IS NOT AN ERROR. `prStatusLevel` reads a null age as `error`
   // unconditionally, because for a call that HAS been made that is the right
@@ -394,6 +394,7 @@ export function prStatusEntry(
     nextInSeconds: fleet.prNextInSeconds,
     spenders: fleet.prSpenders ?? null,
     intervalSeconds,
+    overdueSeconds: fleet.prOverdueSeconds ?? null,
   });
   if (status.level === 'info') return null;
 
@@ -449,9 +450,13 @@ export function prStatusEntry(
       // land at all), not whether that call's text named a failure.
       return `${levelWord} — no PR data has landed yet; the last read named no failure, only the notices under Show details.`;
     }
-    // No refusal at all — a stale cache past twice the refresh interval, the
-    // one `warning` shape `prStatus` reports with no `kind`. Previously
-    // invisible: `prNote` returned null whenever `fleet.prError` was unset.
+    // No refusal at all — the one `warning` shape `prStatus` reports with no
+    // `kind`. `status.stale` says which clock judged it: the reader's own
+    // schedule, or the ordinary interval where no schedule is known.
+    if (status.stale === 'overdue') {
+      const overdue = agePhrase(fleet.prOverdueSeconds ?? null);
+      return `${levelWord}${ageSuffix} — the fetch has not refused, but the scheduled refresh is ${overdue === null ? '' : `${overdue} `}overdue.`;
+    }
     return `${levelWord}${ageSuffix} — the fetch has not refused, but the data on screen is older than the usual refresh.`;
   })();
 

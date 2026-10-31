@@ -18,6 +18,7 @@ import type {
   StagedEntry,
   StagedPath,
   TreeBlob,
+  TreeEntry,
 } from '../../ports/refs.js';
 
 /** The estate a fixture `Refs` answers from. */
@@ -60,7 +61,7 @@ export interface RefsFixture {
   /** The in-progress merge's parents — for {@link Refs.mergeParents}; absent means no merge in progress. */
   mergeParents?: readonly string[];
   /**
-   * `<a> <b>` to the two revisions' merge-base sha, for {@link Refs.mergeBase}.
+   * The space-joined revisions to their merge-base sha, for {@link Refs.mergeBase}.
    *
    * A pair absent from the table fails — the same reading the real adapter
    * gives when the revisions share no history or either does not resolve.
@@ -287,9 +288,22 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       return sha === undefined ? failed<string>() : answered(sha);
     },
 
-    mergeBase: async (a, b) => {
-      const sha = fixture.mergeBases?.[`${a} ${b}`];
+    mergeBase: async (a, b, ...more) => {
+      const sha = fixture.mergeBases?.[[a, b, ...more].join(' ')];
       return sha === undefined ? failed<string>() : answered(sha);
+    },
+
+    entriesAt: async (ref, paths) => {
+      const tree = trees[ref];
+      if (tree === undefined) return failed<Readonly<Record<string, TreeEntry | null>>>();
+      return answered(
+        Object.fromEntries(
+          paths.map((path) => {
+            const blob = tree.find((candidate) => candidate.path === path);
+            return [path, blob === undefined ? null : { mode: blob.mode, sha: blob.sha }];
+          }),
+        ),
+      );
     },
 
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),

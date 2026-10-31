@@ -18,6 +18,7 @@ import type {
   StagedEntry,
   StagedPath,
   TreeBlob,
+  TreeEntry,
 } from '../../ports/refs.js';
 import {
   asJson,
@@ -333,10 +334,10 @@ export const recordCommitOf = (stdout: string, field: string): string | null => 
 export const stagedEntriesOf = (stdout: string): readonly StagedEntry[] =>
   asLines(stdout).flatMap((line): readonly StagedEntry[] => {
     const [meta = '', a, b] = line.split('\t');
-    const fields = /^:(\d{6}) (\d{6}) \S+ \S+ ([A-Z])\d*$/.exec(meta);
+    const fields = /^:(\d{6}) (\d{6}) \S+ (\S+) ([A-Z])\d*$/.exec(meta);
     if (fields === null || !a) return [];
-    const modes = { headMode: fields[1]!, indexMode: fields[2]! };
-    switch (fields[3]) {
+    const modes = { headMode: fields[1]!, indexMode: fields[2]!, indexSha: fields[3]! };
+    switch (fields[4]) {
       case 'A':
         return [{ status: 'added', path: a, ...modes }];
       case 'M':
@@ -397,8 +398,25 @@ export const refsGit = (context: ShellContext): Refs => {
     resolve: (ref) =>
       runScript('git', ['rev-parse', ref], asText, inRepo),
 
-    mergeBase: (a, b) =>
-      runScript('git', ['merge-base', a, b], asText, inRepo),
+    mergeBase: (a, b, ...more) =>
+      runScript('git', ['merge-base', a, b, ...more], asText, inRepo),
+
+    entriesAt: (ref, paths) =>
+      paths.length === 0
+        ? Promise.resolve(answered<Readonly<Record<string, TreeEntry | null>>>({}))
+        : runScript(
+            'git',
+            ['ls-tree', '-z', '--full-tree', ref, '--', ...paths],
+            (stdout) => {
+              const held = new Map<string, TreeEntry>();
+              for (const record of stdout.split('\0')) {
+                const m = TREE_LINE.exec(record);
+                if (m && m[2] === 'blob') held.set(m[4]!, { mode: m[1]!, sha: m[3]! });
+              }
+              return Object.fromEntries(paths.map((path) => [path, held.get(path) ?? null]));
+            },
+            inRepo,
+          ),
 
     changedFiles: async (branch) => {
       const main = await defaultBranch();

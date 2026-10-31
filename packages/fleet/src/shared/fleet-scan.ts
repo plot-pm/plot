@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
-import { listingBackoff, listingSpend, type LimitBasis } from '@plot-pm/domain';
+import { listingBackoff, listingSpend, PR_READ_BEAT_MS, type LimitBasis } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
@@ -19,8 +19,11 @@ export const FLEET_SCAN = 'plot-fleet-scan.sh';
 /** The pulse's base beat, in ms. The scan takes every beat. */
 export const REFRESH_MS = 5_000;
 
-/** The PR reader's cadence, in ms. It takes every twelfth beat. */
-export const PR_REFRESH_MS = 60_000;
+/**
+ * The PR reader's cadence, in ms. It takes every twelfth beat. The domain's
+ * staleness grace counts in the same beat.
+ */
+export const PR_REFRESH_MS = PR_READ_BEAT_MS;
 
 /**
  * The listing's own unstretched base, in ms — the board's own 60 s share, and

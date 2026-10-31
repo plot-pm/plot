@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractHostNotices, prStatus, prStatusLevel } from '../src/rules/pr-status.js';
+import {
+  extractHostNotices,
+  PR_OVERDUE_GRACE_SECONDS,
+  PR_PASS_COST_MS,
+  PR_READ_BEAT_MS,
+  prStaleness,
+  prStatus,
+  prStatusLevel,
+} from '../src/rules/pr-status.js';
 
 /**
  * THE PROPERTY THIS FILE EXISTS FOR: the PR footer's level, cause and backoff
@@ -367,5 +375,90 @@ describe('prStatus — the composed decision', () => {
     expect(status.level).toBe('error');
     expect(status.kind).toBeNull();
     expect(status.cause).toBeNull();
+  });
+});
+
+/**
+ * Issue #2843: fleetd stretches the PR read cadence by the account's spend, so
+ * the next read lands minutes after the last one while the ordinary interval
+ * stays 60 s. A read on schedule is not stale; a read past its schedule is.
+ */
+describe('prStatus — a scheduled read decides staleness', () => {
+  const at = (ageSeconds: number, overdueSeconds: number | null, error: string | null = null) =>
+    prStatus({ error, ageSeconds, nextInSeconds: null, spenders: null, intervalSeconds: INTERVAL_S, overdueSeconds });
+
+  it('info: a stretched read still ahead of its schedule, though the age passes twice the interval', () => {
+    const status = at(245, 0);
+    expect(status.level).toBe('info');
+    expect(status.stale).toBeNull();
+  });
+
+  it('info: a read due inside the grace', () => {
+    expect(at(450, PR_OVERDUE_GRACE_SECONDS).level).toBe('info');
+  });
+
+  it('warning: a read overdue past the grace', () => {
+    const status = at(500, PR_OVERDUE_GRACE_SECONDS + 1);
+    expect(status.level).toBe('warning');
+    expect(status.stale).toBe('overdue');
+    expect(status.kind).toBeNull();
+  });
+
+  // Measured 2026-10-31 on a live board with fleetd reading: one read landed
+  // 67 s past its schedule, the one before it about 110 s past.
+  it('info: a healthy read 67 s or 110 s past its schedule, measured on a live board', () => {
+    expect(at(420, 67).stale).toBeNull();
+    expect(at(420, 67).level).toBe('info');
+    expect(at(460, 110).stale).toBeNull();
+    expect(at(460, 110).level).toBe('info');
+  });
+
+  it('warning: a read 5 min past its schedule', () => {
+    const status = at(660, 300);
+    expect(status.level).toBe('warning');
+    expect(status.stale).toBe('overdue');
+  });
+
+  it('the grace covers two reader beats and one pass', () => {
+    expect(PR_OVERDUE_GRACE_SECONDS).toBe((2 * PR_READ_BEAT_MS + PR_PASS_COST_MS) / 1000);
+    expect(PR_OVERDUE_GRACE_SECONDS).toBeGreaterThan(110);
+  });
+
+  it('an interval longer than the grace is the grace', () => {
+    const longInterval = PR_OVERDUE_GRACE_SECONDS + 60;
+    const stretched = (overdueSeconds: number) =>
+      prStaleness(900, longInterval, overdueSeconds);
+    expect(stretched(longInterval)).toBeNull();
+    expect(stretched(longInterval + 1)).toBe('overdue');
+  });
+
+  it('falls back to twice the interval where no schedule is known', () => {
+    const status = at(121, null);
+    expect(status.level).toBe('warning');
+    expect(status.stale).toBe('aged');
+    expect(at(119, null).stale).toBeNull();
+  });
+
+  it('a refusal stays a warning whatever the schedule says', () => {
+    const status = at(30, 0, QUOTA_ERROR);
+    expect(status.level).toBe('warning');
+    expect(status.kind).toBe('quota');
+    expect(status.stale).toBeNull();
+  });
+
+  it('no data stays an error whatever the schedule says', () => {
+    const status = prStatus({ error: null, ageSeconds: null, nextInSeconds: null, spenders: null, intervalSeconds: INTERVAL_S, overdueSeconds: 0 });
+    expect(status.level).toBe('error');
+  });
+});
+
+describe('prStaleness — a non-positive interval judges nothing', () => {
+  it('returns null for an interval of zero, however old the data is', () => {
+    expect(prStaleness(10_000, 0, null)).toBeNull();
+    expect(prStaleness(10_000, 0, 10_000)).toBeNull();
+  });
+
+  it('returns null for a negative interval', () => {
+    expect(prStaleness(10_000, -5, null)).toBeNull();
   });
 });

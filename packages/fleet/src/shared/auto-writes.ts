@@ -2,6 +2,8 @@ import { runAutoProgressPass } from './auto-progress.js';
 import type { FleetReading, HeldSlice } from '@plot-pm/domain';
 
 import { runAutoMergePass } from './auto-merge.js';
+import { runAutoFixerPass } from './auto-fixer.js';
+import { runAutoReviewPass } from './auto-review.js';
 import { runAutoDeliverPass } from './auto-deliver.js';
 import { runAutoVerifyPass, verifyingCount } from './auto-verify.js';
 import { runAutoDesignPass } from './auto-design.js';
@@ -13,7 +15,8 @@ import { bashCleanliness, readAgentRegistryWithInfo } from './registry.js';
 
 /**
  * Builds the pass that makes the fleet's automatic writes: auto-dispatch, then
- * auto-delivery, then automatic verification, on the pulse the scan just wrote.
+ * auto-delivery, then the fixer starts, then the review starts, then the
+ * merge, then automatic verification, on the pulse the scan just wrote.
  *
  * The pass reads its inputs fresh: the settings file, the registry with
  * refreshed states, and one machine measurement. Dispatch runs before delivery
@@ -26,7 +29,7 @@ import { bashCleanliness, readAgentRegistryWithInfo } from './registry.js';
  * @param opts - where the fleet acts; `scripts` is the daemon's own port.
  * @param warn - receives a one-line reason when the pass throws.
  * @param queueHeld - the slices the queue's last tick held, or `null` before a tick has run.
- * @param stopped - true once the daemon has a stop request; dispatch then starts no agent, while delivery, verification and design finish their bookkeeping.
+ * @param stopped - true once the daemon has a stop request; dispatch, the fixer pass and the review pass then start no agent, while delivery, verification and design finish their bookkeeping.
  * @returns the function to hand to {@link fleetScan} as `after`.
  */
 export const fleetAutoWrites = (
@@ -48,6 +51,10 @@ export const fleetAutoWrites = (
   const progressSent = new Map<string, string>();
   // THE (PR, HEAD) PAIRS THE HOST REFUSED TO MERGE, for the daemon's life: a restart asks once more.
   const mergeRefused = new Map<number, string>();
+  // THE FIXER REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
+  const fixerLogged = new Set<string>();
+  // THE REVIEW START REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
+  const reviewLogged = new Set<string>();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -64,6 +71,11 @@ export const fleetAutoWrites = (
       if (!stopped()) own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked, briefWaits);
       await runAutoDeliverPass(opts, pulse, undefined, deliverHeldLogged, deliverCarried);
       await runAutoProgressPass(opts, pulse, progressSent);
+      // A FIXER IS AN AGENT, so a stop skips its start as it skips dispatch.
+      if (!stopped()) await runAutoFixerPass(opts, fixerLogged);
+      // A REVIEW IS AN AGENT RUN, so a stop skips its start too. It goes
+      // before the merge, because a merge needs `plot/review` success.
+      if (!stopped()) await runAutoReviewPass(opts, reviewLogged);
       // ONE MERGE PER PASS, after delivery has read the merges already landed.
       // Under `--once` the scan clock does not run, so this never does either.
       await runAutoMergePass(opts, mergeRefused);

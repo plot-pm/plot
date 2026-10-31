@@ -610,14 +610,17 @@ There is deliberately no third kind. A site that would need one is a site that s
 Plot is a pnpm workspace: the skills live at the repo root, and the board is a
 package under `packages/`.
 
-**Node 24.** Pinned in `.nvmrc`, declared in both `package.json` `engines`
-blocks, and used by every CI job — run `nvm use` before anything else. This is
-not a preference: `pnpm` crashes outright on Node 26, and a background job
-under it exits silently having produced nothing, which reads exactly like a
-hung test run rather than a wrong interpreter.
+**Node 26.** Pinned in `.nvmrc`, declared in every `package.json` `engines`
+block, and used by every CI job — run `nvm use` before anything else. Plot has
+one pinned major on purpose: the fleet helpers read `.nvmrc` and refuse a
+different major, and the contract tests assert that, so CI runs one Node, not a
+matrix. A wrong interpreter makes a background job exit silently having
+produced nothing, which reads exactly like a hung test run. (Until 2026-10-30
+the pin was 24; an older note here said `pnpm` crashed on Node 26 — it does not
+on 26.13.0 with pnpm 10.27.0.)
 
 ```bash
-nvm use              # Node 24, per .nvmrc — pnpm crashes on 26
+nvm use              # Node 26, per .nvmrc
 pnpm install         # install dependencies first if node_modules is missing
 pnpm test            # validates all skills parse correctly
 pnpm run test:contracts   # contract tests for the helper estate + CI gates (75 files)
@@ -654,7 +657,7 @@ unbounded local run is neither, and it takes the machine down with it.
 
 **The board is first-class.** Keeping it working — and considering board impact when planning changes to the plan format, template, helper scripts, or `docs/plans` layout — is part of the [Definition of Done](docs/definition-of-done.md), gated in CI.
 
-**On a conflict in `board-server.mjs`, do not read the diff, and do not commit the rebuild.** It is generated output marked `-merge` in `.gitattributes`, so git keeps one version whole rather than splicing markers into it. A PR's diff must carry no generated bundle (`scripts/check-no-bundle-diff.sh`), so the repair is to restore every conflicting generated path from the merge base against `origin/main` — the command the gate's own refusal prints — never to take a side and commit a rebuild: `main` builds its own bundles after every merge, and a bundle this branch commits is refused at commit time and again in CI. Run `pnpm build:board` only to test the result locally, then restore the generated paths before you push. Never phrase it as "take ours": *ours* inverts between `git merge` and `git rebase`. Full procedure: [Definition of Done › Resolving a board artifact conflict](docs/definition-of-done.md#resolving-a-board-artifact-conflict).
+**On a conflict in `board-server.mjs`, do not read the diff, and do not commit the rebuild.** It is generated output marked `-merge` in `.gitattributes`, so git keeps one version whole rather than splicing markers into it. A PR's diff must carry no generated bundle (`scripts/check-no-bundle-diff.sh`), so the repair is to restore every conflicting generated path from the merge base the commit will have, `git merge-base origin/main HEAD MERGE_HEAD` during a merge, which is `origin/main` itself — the command the gate's own refusal prints, naming the resolved sha — never to take a side and commit a rebuild: `main` builds its own bundles after every merge, and a bundle this branch commits is refused at commit time and again in CI. Run `pnpm build:board` only to test the result locally, then restore the generated paths before you push. Never phrase it as "take ours": *ours* inverts between `git merge` and `git rebase`. Full procedure: [Definition of Done › Resolving a board artifact conflict](docs/definition-of-done.md#resolving-a-board-artifact-conflict).
 
 **Fleet user test:** [docs/fleet-user-test.md](docs/fleet-user-test.md) — a
 guided run of `/plot-pulse`, `/plot-dispatch`, and `/plot-merge-queue` in a

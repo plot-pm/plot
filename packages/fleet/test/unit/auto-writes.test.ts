@@ -11,6 +11,15 @@ vi.mock('../../src/shared/auto-dispatch.js', () => ({
 vi.mock('../../src/shared/auto-deliver.js', () => ({
   runAutoDeliverPass: () => { calls.push('deliver'); },
 }));
+vi.mock('../../src/shared/auto-fixer.js', () => ({
+  runAutoFixerPass: () => { calls.push('fixer'); },
+}));
+vi.mock('../../src/shared/auto-review.js', () => ({
+  runAutoReviewPass: () => { calls.push('review'); },
+}));
+vi.mock('../../src/shared/auto-merge.js', () => ({
+  runAutoMergePass: () => { calls.push('merge'); },
+}));
 vi.mock('../../src/shared/machine-reading.js', () => ({ readMachine: async () => undefined }));
 vi.mock('../../src/shared/fleet-settings-store.js', () => ({
   readFleetSettings: async () => ({ autoDispatch: true, parallelAgents: 2, machineOverride: false }),
@@ -25,16 +34,16 @@ import { fleetAutoWrites } from '../../src/shared/auto-writes.js';
 const PULSE = { main: 'main', head: 'abc', plans: [], summary: {} } as unknown as FleetReading;
 
 describe('fleetAutoWrites', () => {
-  it('dispatches, then delivers, on one pulse', async () => {
+  it('dispatches, delivers, starts fixers, starts reviews, then merges, on one pulse', async () => {
     calls.length = 0;
     await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {})(PULSE);
-    expect(calls).toEqual(['dispatch', 'deliver']);
+    expect(calls).toEqual(['dispatch', 'deliver', 'fixer', 'review', 'merge']);
   });
 
-  it('starts no agent once a stop is requested, and still delivers', async () => {
+  it('starts no agent, no fixer and no review once a stop is requested, and still delivers and merges', async () => {
     calls.length = 0;
     await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null, () => true)(PULSE);
-    expect(calls).toEqual(['deliver']);
+    expect(calls).toEqual(['deliver', 'merge']);
   });
 
   it('reads the stop request after the pass starts, not when it is built', async () => {
@@ -43,7 +52,7 @@ describe('fleetAutoWrites', () => {
     const pass = fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null, () => stop);
     stop = true;
     await pass(PULSE);
-    expect(calls).toEqual(['deliver']);
+    expect(calls).toEqual(['deliver', 'merge']);
   });
 
   it('contains a throw and reports it', async () => {

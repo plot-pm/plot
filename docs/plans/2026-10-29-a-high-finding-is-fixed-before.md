@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-29, Jan Wloka, plan-PR #2912 merged
 - **Started:** 2026-10-29, Jan Wloka, `feature/the-fixer-attempts-record`
 - **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-starts-the-fixer`
+- **Started:** 2026-10-31, Jan Wloka, `feature/an-unfixed-high-is-ticketed`
 
 ## Changelog
 
@@ -119,7 +120,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 1 (`.plot/panels/2026-10-29-a-
 
 ### HIGH ticket
 
-- `feature/an-unfixed-high-is-ticketed` — the per-PR ticket record (`pending`, then the id) and the tracker resolution as an adapter export; `reviewStatus(counts, ticket)` gates the accepted `success` naming the ticket; the merge stays #2902's; the notification when both attempts answered the same finding <!-- builds: the HIGH ticket record, reviewStatus, the accepted plot/review success -->
+- `feature/an-unfixed-high-is-ticketed` — the per-PR ticket record (`pending`, then the id) and the tracker resolution as an adapter export; `reviewStatus(counts, ticket)` gates the accepted `success` naming the ticket; the merge stays #2902's; the notification when both attempts answered the same finding <!-- builds: the HIGH ticket record, reviewStatus, the accepted plot/review success --> → #2975
 
 ## Notes
 

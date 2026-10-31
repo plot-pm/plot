@@ -38,22 +38,33 @@ sources still collide there, and the diff cannot be read.
 `.gitattributes` marks all 36 `-merge`, so git keeps one version whole and
 reports the conflict **without writing conflict markers into it**. The file
 stays valid JavaScript through the conflict, and the resolution is to **restore
-from the merge base, never to commit a rebuild**: `main` builds and pushes its
+from the merge base the commit will have, never to commit a rebuild**: `main` builds and pushes its
 own bundles after every merge, so a PR's diff must carry none of them
 (`scripts/check-no-bundle-diff.sh`), and a commit staging one is refused at
 commit time too.
 
 ```bash
-git checkout "$(git merge-base HEAD origin/main)" -- <each conflicting generated path>
+git restore --staged --worktree --source="$(git merge-base origin/main HEAD MERGE_HEAD)" -- <each conflicting generated path>
 ```
+
+During a merge in progress, `MERGE_HEAD` makes that base `origin/main`, so the
+restore takes main's copy. A `git merge-base` over `HEAD` and `origin/main`
+without `MERGE_HEAD` resolves the base from before the merge and leaves a path that
+differs from the commit's real base; the bundle-commit gate refuses it again.
+Outside a merge, drop `MERGE_HEAD`. The command names the resolved sha, so a
+`git fetch` between the two steps moves nothing under it. The gate allows a
+staged generated path exactly when its mode and content equal that base, which
+is what `scripts/check-no-bundle-diff.sh` reads after the commit.
 
 **Run `pnpm build:board` only to test the result locally.** The build is useful
 to confirm your source changes still work; its output must not be staged or
 pushed. If the gate ever refuses a staged generated path, the refusal prints
 this exact restore command with the paths filled in — run it, then continue.
+On a branch behind `origin/main` with no merge in progress, the refusal adds a
+line telling you to run `git merge origin/main` first.
 
 **Do not read the diff, and do not think about which side to take.** The merge
-base's version is what git will carry forward regardless of which side a
+base's version is what the gate compares against regardless of which side a
 conflict marker names, and `main` rebuilds every bundle from source again after
 the merge lands — so neither side's committed copy survives the next build
 either way.
