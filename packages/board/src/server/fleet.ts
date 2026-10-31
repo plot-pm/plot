@@ -748,6 +748,13 @@ export interface CacheEntry {
    */
   prNextIsBackoff: boolean;
   /**
+   * Whether `prNextAt` is a read some reader scheduled: this board's own
+   * refresh, or the reader state another reader published. False where the
+   * board follows a reader that published no state, and `prNextAt` only paces
+   * the board's own re-read of the store.
+   */
+  prNextScheduled: boolean;
+  /**
    * The interval this board is currently leaving between PR refreshes, in ms.
    *
    * THE BOARD'S OWN CONTRIBUTION, WHICH IS WHAT IT SUBTRACTS FROM THE OBSERVED
@@ -2459,6 +2466,21 @@ const electBoardVerdict = async (
 };
 
 /**
+ * Seconds the next scheduled PR read is past due, 0 while it is still ahead.
+ *
+ * @param entry - the board's cache entry.
+ * @param now - the current time, in ms.
+ * @returns null where the entry holds no scheduled read (`prNextScheduled`
+ *   false) or the schedule is a host backoff; otherwise the whole seconds
+ *   since `prNextAt`, never below 0.
+ */
+export const prOverdueSecondsFor = (
+  entry: Pick<CacheEntry, 'prNextAt' | 'prNextIsBackoff' | 'prNextScheduled'>,
+  now: number,
+): number | null =>
+  !entry.prNextScheduled || entry.prNextIsBackoff ? null : Math.max(0, Math.round((now - entry.prNextAt) / 1000));
+
+/**
  * Serves the maps the reader's last fold left in the store, and asks the host
  * nothing. CI runs are still read here: the board owns them.
  *
@@ -2488,9 +2510,11 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
     entry.prNextAt = published.value.prNextAt;
     entry.prNextIsBackoff = published.value.prNextIsBackoff;
     entry.prFullReadFailedAt = published.value.prFullReadFailedAt;
+    entry.prNextScheduled = true;
   } else {
     entry.prNextAt = startedAt + PR_REFRESH_MS;
     entry.prNextIsBackoff = false;
+    entry.prNextScheduled = false;
   }
 };
 
@@ -2602,6 +2626,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
       // nothing, heartbeats nothing and starts no reader. It serves its own
       // overlay, as a board with no reader does.
       entry.prReader = whoReadsPrs(null, 'unknown', false);
+      entry.prNextScheduled = true;
       await refreshPrs(opts, entry, overlayFor(opts, entry));
     } else {
       const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
@@ -2621,6 +2646,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
         // answer in memory, so the store stays the reader's to write. Inferred
         // from the lock's own holder, which is the only liveness signal this
         // function reads for PRs now.
+        entry.prNextScheduled = true;
         await refreshPrs(opts, entry, overlayFor(opts, entry));
       }
     }
@@ -2979,7 +3005,7 @@ export function freshCacheEntry(): CacheEntry {
     prLimitBasis: 'unknown',
     prAccount: null, prSlotsHeld: null,
     // 0, so the first fetch happens immediately rather than a minute in.
-    prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
+    prNextAt: 0, prNextIsBackoff: false, prNextScheduled: true, prIntervalMs: PR_REFRESH_MS,
     issueNextAt: 0, issueNextIsBackoff: false, issueRequests: 0, issueBackoffUntil: null, issueConnector: null, issueAccount: null,
     issueSets: null, issueAt: null,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
@@ -7737,6 +7763,7 @@ export async function buildFleet(
     // drift from it. Clamped at 0 because a due-but-not-yet-fired fetch is "any
     // moment now", and a negative countdown is nothing at all.
     prNextInSeconds: Math.max(0, Math.round((entry.prNextAt - now) / 1000)),
+    prOverdueSeconds: prOverdueSecondsFor(entry, now),
     // Same reasoning one interval down: the scan is a fixed-rate timer that
     // stamps `entry.at` when it lands, so the next one is due REFRESH_MS after
     // that. The client cannot derive this — its own poll runs at a different
