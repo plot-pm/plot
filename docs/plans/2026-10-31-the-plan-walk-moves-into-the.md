@@ -14,6 +14,7 @@
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-reads-the-estate`
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-reads-the-branches`
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-reads-the-desks`
+- **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-assembles-the-reading`
 
 ## Changelog
 
