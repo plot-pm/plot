@@ -73,7 +73,7 @@ Measured 2026-10-31:
 
 ### Process starts
 
-- `feature/the-scan-walk-starts-no-process-per-plan` — replace the per-plan `basename`, `readlink`, `case` and `printf | awk` process starts at `plot-fleet-scan.sh:2783`, `:2883-2884` and `:3716-3722` with parameter expansion and one lookup table, output byte-identical <!-- builds: single-pass symlink, mode and adding-commit lookup in plot-fleet-scan.sh -->
+- `feature/the-scan-walk-starts-no-process-per-plan` — replace the per-plan `basename`, `readlink`, `case` and `printf | awk` process starts at `plot-fleet-scan.sh:2783`, `:2883-2884` and `:3716-3722` with parameter expansion and one lookup table, output byte-identical <!-- builds: single-pass symlink, mode and adding-commit lookup in plot-fleet-scan.sh --> → #2982
 
 ### Scan ownership
 
