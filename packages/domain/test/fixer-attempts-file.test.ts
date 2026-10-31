@@ -103,3 +103,41 @@ describe('fixerAttemptsFile', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('fixerAttemptsFile.markInFlight', () => {
+  const mark = { pid: 4242, startedAt: '2026-10-31T10:00:00.000Z' };
+
+  it('sets the mark on the named attempt and leaves the others as written', async () => {
+    const store = fixerAttemptsFile(root);
+    const second: FixerAttempt = { headSha: 'b'.repeat(40), finding: { kind: 'ci', runId: 'r1' } };
+    await store.append(42, attempt);
+    await store.append(42, second);
+    expect(await store.markInFlight(42, 1, mark)).toEqual({ ok: true, value: undefined });
+    expect(await store.read(42)).toEqual({
+      ok: true,
+      value: { v: FIXER_ATTEMPTS_VERSION, pr: 42, attempts: [attempt, { ...second, inFlight: mark }] },
+    });
+  });
+
+  it('replaces an existing mark, and removes it on null', async () => {
+    const store = fixerAttemptsFile(root);
+    await store.append(42, { ...attempt, inFlight: { pid: 1, startedAt: 'x' } });
+    await store.markInFlight(42, 0, mark);
+    expect(await store.read(42)).toEqual({
+      ok: true,
+      value: { v: FIXER_ATTEMPTS_VERSION, pr: 42, attempts: [{ ...attempt, inFlight: mark }] },
+    });
+    await store.markInFlight(42, 0, null);
+    expect(await store.read(42)).toEqual({ ok: true, value: { v: FIXER_ATTEMPTS_VERSION, pr: 42, attempts: [attempt] } });
+  });
+
+  it('fails for a missing record, an unreadable one, and an index that names no attempt', async () => {
+    const store = fixerAttemptsFile(root);
+    expect(await store.markInFlight(42, 0, mark)).toEqual({ ok: false, why: 'failed' });
+    await store.append(42, attempt);
+    expect(await store.markInFlight(42, 1, mark)).toEqual({ ok: false, why: 'failed' });
+    writeFileSync(fixerAttemptsPath(root, 43), '{ not json');
+    expect(await store.markInFlight(43, 0, mark)).toEqual({ ok: false, why: 'failed' });
+    expect(await store.read(43)).toEqual({ ok: true, value: 'unreadable' });
+  });
+});
