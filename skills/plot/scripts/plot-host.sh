@@ -131,6 +131,7 @@
 #                                 re-reads the head before merging; a
 #                                 mismatch refuses `head-moved` (exit 1).
 #   pr-ready <number>              take a PR out of draft
+#   pr-close <number>              close a PR unmerged (bitbucket: decline)
 #                                 merge the PR
 #   pr-list [--state open|merged|closed|all|settled] [--limit N] [--rich|--rich-open]
 #                                 settled is merged+declined on bitbucket (no
@@ -4474,6 +4475,14 @@ case "$op" in
     else
       bb pr update "$num" --ready
     fi
+    ;;
+
+  pr-close)
+    # CLOSE (GitHub) OR DECLINE (Bitbucket) ONE PR WITHOUT MERGING IT. `bb pr
+    # close` declines. The repair arm closes the fix and revert PRs of an episode.
+    num="${1:?pr-close needs a PR number}"
+    cli=gh; [ "$be" = github ] || cli=bb
+    "$cli" pr close "$num"
     ;;
 
   pr-list)

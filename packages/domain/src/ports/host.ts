@@ -238,6 +238,14 @@ export interface Host {
   prReady(pr: number): Promise<PortResult<void>>;
 
   /**
+   * Closes a PR without merging it; Bitbucket declines it.
+   *
+   * @param pr - the PR's number.
+   * @returns `failed` where the host refused; `unaskable` where the host CLI cannot be asked.
+   */
+  prClose(pr: number): Promise<PortResult<void>>;
+
+  /**
    * Whether the host merged ANY PR for this branch.
    *
    * Reads the merge timestamp rather than the state — a merged PR reports
