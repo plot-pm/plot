@@ -85,6 +85,10 @@ export interface Gate {
  * today, and reported on stderr naming `gateName` and `command` — the panel's
  * explicit rejection of a silent allow for a call no root loop can place.
  *
+ * A command with no committing call the walk can read — one only the
+ * `git commit` substring floor matches — is read at `cwd`, so each gate takes
+ * its whole-line reading there.
+ *
  * A root `refs.repoRoot()` cannot resolve is dropped: with no root, a gate
  * cannot place the call in any checkout to ask about, the same as today's
  * single-root gates already read a failed `repoRoot()` as "nothing to ask".
@@ -97,7 +101,11 @@ export interface Gate {
 const commitRootsFor = async (command: string, cwd: string, scriptDir: string, gateName: string): Promise<readonly string[]> => {
   const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
   const roots = new Set<string>();
-  for (const dir of commitDirs(command)) {
+  const dirs = commitDirs(command);
+  // A line only the `git commit` substring floor matches (`bash -c "git
+  // commit -am x"`, `sudo git commit`) has no committing call the walk can
+  // read, so it is read at `cwd` as a whole line.
+  for (const dir of dirs.length === 0 ? [null] : dirs) {
     if (dir === 'unplaced') {
       process.stderr.write(`${gateName}: a committing call's directory is not given in the text: ${command}\n`);
     }

@@ -1,7 +1,7 @@
 import type { StagedPath } from '../ports/refs.js';
 import { BRIEFS_DIR, briefPath } from './brief-path.js';
 import { chainedAddsOf, type ChainedAdd } from './chained-add.js';
-import { gitCallsWhere } from './main-checkout-write.js';
+import { commitDirs, gitCallsWhere } from './main-checkout-write.js';
 
 /** The `Branch prefixes` fallback, the same list `plot-phase-gate.sh` and `plot-release-refs.sh` use. */
 export const DEFAULT_BRANCH_PREFIXES = 'idea/, feature/, bug/, docs/, infra/';
@@ -74,6 +74,29 @@ export interface ChainedStages {
 }
 
 /**
+ * The destination of each `git mv` in `command`, by substring, for a line
+ * with no committing call the walk can read. A segment holding no `git add`
+ * is read from its first `git mv` to its end; quoted text is not removed.
+ *
+ * @param command - the Bash command text.
+ * @returns one entry per `git mv`, each placed at the working directory.
+ */
+const substringMovesOf = (command: string): readonly ChainedMove[] => {
+  const moves: ChainedMove[] = [];
+  for (const segment of command.split(/&&|;|\||\n/)) {
+    const mv = segment.indexOf('git mv');
+    if (segment.includes('git add') || mv === -1) continue;
+    const words = segment
+      .slice(mv + 'git mv'.length)
+      .split(/\s+/)
+      .filter((token) => token !== '' && !token.startsWith('-'));
+    const last = words[words.length - 1];
+    if (last !== undefined) moves.push({ dest: last.replace(/^\.\//, ''), dir: null });
+  }
+  return moves;
+};
+
+/**
  * The paths a chained `git add` or `git mv` in the same Bash call stages,
  * which a hook reading the index cannot see because it runs first.
  *
@@ -81,13 +104,15 @@ export interface ChainedStages {
  * too. The `git mv` calls are found the same `-C`/`cd`-aware way, through
  * {@link gitCallsWhere}; each move keeps the call's own placed directory
  * unresolved, so a caller joins it to the `showPrefix` of whichever root it is
- * judging, after filtering to the calls placed in that root. It is not a
- * shell parser.
+ * judging, after filtering to the calls placed in that root. A line with no
+ * committing call the walk can read is read by substring instead, as
+ * {@link chainedAddsOf} reads it. It is not a shell parser.
  *
  * @param command - the Bash command text.
  * @returns the pathspecs `git add` names and the destination tokens `git mv` names.
  */
 export const chainedStagesOf = (command: string): ChainedStages => {
+  if (commitDirs(command).length === 0) return { adds: chainedAddsOf(command), moves: substringMovesOf(command) };
   const moves: ChainedMove[] = [];
   for (const call of gitCallsWhere(command, (sub) => sub === 'mv')) {
     const words = call.args.filter((token) => !token.startsWith('-'));

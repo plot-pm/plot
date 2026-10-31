@@ -170,22 +170,11 @@ const withoutLeadingKeywords = (words: readonly string[]): readonly string[] => 
 };
 
 /**
- * The directory a mutating git call in one simple command runs in.
- *
- * @param words - one simple command, split on whitespace, quotes already removed.
- * @param base - the directory an earlier `cd` moved to: `null` for the working
- *   directory, `undefined` where the text does not give it.
- * @param accepts - narrows which mutating calls count; receives the subcommand and its arguments.
- * @returns `base` joined with the path the `-C` options name, or `undefined`
- *   where the command is no mutating git call, `accepts` refuses it, or its directory cannot be read
- *   from the text. An absolute `-C` path places the call whatever came before it.
- */
-/**
  * The subcommand and arguments of one simple command, with git's global
  * options (and successive `-C` values, joined the way git joins them)
  * skipped first — `undefined` where the words are not a `git` call. Shared by
- * {@link writeDirOf} and {@link isAcceptedGitCall} so both skip options the
- * same way.
+ * {@link writeDirOf} and {@link gitCallsWhere} so both skip options the same
+ * way.
  *
  * @param words - one simple command, split on whitespace, quotes already removed.
  * @param base - the directory a `-C` is relative to; carried through to `dir`.
@@ -213,6 +202,17 @@ const subAndArgsOf = (
   return { sub, args: program.slice(i + 1), dir };
 };
 
+/**
+ * The directory a mutating git call in one simple command runs in.
+ *
+ * @param words - one simple command, split on whitespace, quotes already removed.
+ * @param base - the directory an earlier `cd` moved to: `null` for the working
+ *   directory, `undefined` where the text does not give it.
+ * @param accepts - narrows which mutating calls count; receives the subcommand and its arguments.
+ * @returns `base` joined with the path the `-C` options name, or `undefined`
+ *   where the command is no mutating git call, `accepts` refuses it, or its directory cannot be read
+ *   from the text. An absolute `-C` path places the call whatever came before it.
+ */
 const writeDirOf = (
   words: readonly string[],
   base: string | null | undefined,
@@ -221,26 +221,6 @@ const writeDirOf = (
   const found = subAndArgsOf(words, base);
   if (found === undefined || !MUTATING_GIT_SUBCOMMANDS.has(found.sub) || readsOnly(found.sub, found.args)) return undefined;
   return accepts(found.sub, found.args) ? found.dir : undefined;
-};
-
-/**
- * Whether one simple command is a git call `accepts` keeps, ignoring where it
- * is placed — the subcommand test {@link writeDirOf} makes before it folds in
- * `-C`, pulled out so a caller can tell "not a matching call" apart from "a
- * matching call whose directory the text does not give" (an unknowable `-C`
- * value makes {@link writeDirOf} return `undefined` for both, the same as a
- * non-match).
- *
- * @param words - one simple command, split on whitespace, quotes already removed.
- * @param accepts - the subcommand predicate.
- */
-const isAcceptedGitCall = (
-  words: readonly string[],
-  accepts: (sub: string, args: readonly string[]) => boolean,
-): boolean => {
-  const found = subAndArgsOf(words, null);
-  if (found === undefined || !MUTATING_GIT_SUBCOMMANDS.has(found.sub) || readsOnly(found.sub, found.args)) return false;
-  return accepts(found.sub, found.args);
 };
 
 /**
@@ -328,9 +308,9 @@ export type GitCallEntry =
  * uses for `cd`/`pushd`/`-C` placement, but keeping a call whose directory
  * the text does not give as `{ placed: false }` rather than dropping it —
  * {@link writeDirOf} collapses "not accepted" and "accepted with an
- * unknowable directory" into the same `undefined`, so acceptance is tested
- * with {@link isAcceptedGitCall}, which never reads `-C`, before placement is
- * read from {@link writeDirOf}.
+ * unknowable directory" into the same `undefined`, so the walk reads
+ * {@link subAndArgsOf} directly: acceptance from its `sub` and `args`, and
+ * placement from its `dir`.
  *
  * @param command - the command line.
  * @param accepts - the subcommand predicate.

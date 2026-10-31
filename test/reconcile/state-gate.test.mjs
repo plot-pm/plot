@@ -271,6 +271,29 @@ test('state gate: a commit that stages for itself is still read', () => {
   assert.equal(r.status, 2, `stderr: ${r.stderr}`);
 });
 
+// A wrapper hides the committing call from the walk, so only the `git commit`
+// substring floor matches it. The gate then reads the hook's working directory
+// with the whole line, as before the walk existed.
+test('state gate: a wrapped commit that takes the working copy is read at the working directory', () => {
+  for (const command of ['bash -c "git commit -am x"', 'bash -c "git add -A && git commit -m x"']) {
+    const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') } });
+    writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
+    const r = run(dir, command);
+    assert.equal(r.status, 2, `${command} must block (stderr: ${r.stderr})`);
+  }
+});
+
+test('state gate: a wrapped commit of a staged transition is read at the working directory', () => {
+  for (const command of ['timeout 60 git commit -m x', 'sudo git commit -m x']) {
+    const dir = repo({
+      committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+      files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+    });
+    const r = run(dir, command);
+    assert.equal(r.status, 2, `${command} must block (stderr: ${r.stderr})`);
+  }
+});
+
 // A quote against the flag is still `-am`: the shell hands git `-amsg`.
 test('state gate: -am with the message quoted against it takes the working copy', () => {
   for (const command of ['git commit -am"msg"', "git commit -am'msg'"]) {

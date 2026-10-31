@@ -62,6 +62,12 @@ describe('briefComputedPath', () => {
 });
 
 describe('chainedStagesOf', () => {
+  it('reads a line with no committing call the walk can read by substring, at the working directory', () => {
+    expect(chainedStagesOf('bash -c "git add .plot/briefs/x.md && git commit -m x"').adds).toEqual([
+      { spec: '.plot/briefs/x.md', dir: null },
+    ]);
+    expect(chainedStagesOf('bash -c "git mv a.md b.md && git commit -m x"').moves).toEqual([{ dest: 'b.md', dir: null }]);
+  });
   it('reads a bare path after git add', () => {
     expect(chainedStagesOf('git add .plot/briefs/feature-x.md && git commit -m x')).toEqual({
       adds: [{ spec: '.plot/briefs/feature-x.md', dir: null }],

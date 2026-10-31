@@ -22,4 +22,9 @@ describe('chainedAddsOf', () => {
     expect(chainedAddsOf('echo git add x\ngit commit -m y')).toEqual([]);
     expect(chainedAddsOf('git status && git commit -m x')).toEqual([]);
   });
+
+  it('reads a line with no committing call the walk can read by substring, at the working directory', () => {
+    expect(chainedAddsOf('bash -c "git add -A && git commit -m x"')).toEqual([{ spec: null, dir: null }]);
+    expect(chainedAddsOf("sh -c 'git add docs/a.md; git commit -m x'")).toEqual([{ spec: 'docs/a.md', dir: null }]);
+  });
 });
