@@ -493,6 +493,7 @@ export const effectivePaths = (
     for (const path of readings.workingChanges) working.add(path);
   } else {
     for (const add of adds) {
+      /* v8 ignore next -- a null spec makes `whole` true on line 491, so this branch's add is always non-null here */
       if (add.spec === null) continue;
       const path = normalizedPath(`${readings.showPrefix}${add.spec.replace(/^["']|["']$/g, '')}`);
       if (path === '') {
