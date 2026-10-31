@@ -5,16 +5,17 @@ import type { PlanRecord } from '../src/ports/plan-store.js';
 import type { BranchReadings, PrReading, WaitsReading } from '../src/rules/branch-state.js';
 import {
   assemblePlanWalk,
+  fleetReading,
   offerAnswer,
   sliceNamesOf,
   sliceNamesText,
   whyNothingText,
 } from '../src/workflows/plan-walk-assembly.js';
 import type { BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
-import type { DeskStageReadings } from '../src/workflows/plan-walk-desks.js';
+import type { DeskReading, DeskStageReadings } from '../src/workflows/plan-walk-desks.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
 
-type Line = { branch: string; waitsOn?: string[]; deferred?: boolean };
+type Line = { branch: string; waitsOn?: string[]; deferred?: boolean; spike?: boolean };
 
 const planOf = (file: string, phase: string, slices: Line[][], type = 'feature'): PlanRecord =>
   ({
@@ -29,6 +30,7 @@ const planOf = (file: string, phase: string, slices: Line[][], type = 'feature')
         deferredReason: '',
         claimed: '',
         waitsOn: l.waitsOn ?? [],
+        ...(l.spike === undefined ? {} : { spike: l.spike }),
       })),
     })),
   }) as unknown as PlanRecord;
@@ -180,5 +182,141 @@ describe('sliceNamesOf', () => {
       { slug: '', offer: false },
     );
     expect(out.ok && out.value.plans.map((p) => p.file)).toEqual(['a.md']);
+  });
+});
+
+const deskOn = (branch: string, over: Partial<DeskReading> = {}): DeskReading =>
+  ({
+    branch,
+    worktree: `/w/${branch}`,
+    desk: {},
+    process: { state: 'running', pid: '42', exitCode: '', activity: 'busy' },
+    locked: true,
+    unpushed: ['c1', 'c2'],
+    quietSeconds: 30,
+    ...over,
+  }) as unknown as DeskReading;
+
+const assembled = (estate: Estate, branches: BranchStageReadings, desks: DeskStageReadings = noDesks) => {
+  const result = assemblePlanWalk(
+    { estate: answered(estate), branches: answered(branches), desks: answered(desks) },
+    { slug: '', offer: false },
+  );
+  if (!result.ok) throw new Error('failed');
+  return result.value;
+};
+
+const header = {
+  main: 'main', readRef: 'abc', localHead: 'def', fetchFailed: false, fetchError: '',
+  planDir: 'docs/plans/', host: 'github', mergeDetect: 'host', nowSeconds: 1000,
+};
+
+describe('assemblePlanWalk coverage of plan shapes', () => {
+  it('counts each branch state in the summary and marks a spike plan a tracer', () => {
+    const plan = { ...planOf('p.md', 'approved', [[
+      { branch: 'feature/claimed', spike: true }, { branch: 'feature/def', deferred: true },
+      { branch: 'feature/blocked', waitsOn: ['feature/x'] }, { branch: 'feature/waiting', waitsOn: ['feature/y'] },
+    ]]), spikeApprovedRaw: 'jwloka' } as PlanRecord;
+    const value = assembled(
+      estateOf(plan),
+      branchesOf(
+        ['p.md', 'feature/claimed', open({ commitsAhead: 1, realCommitsAhead: 0 })],
+        ['p.md', 'feature/def', open({ deferredByPlan: true })],
+        ['p.md', 'feature/blocked', open({ waits: [wait('feature/x', 'none', false)] })],
+        ['p.md', 'feature/waiting', open({ waits: [wait('feature/y', 'OPEN')] })],
+      ),
+    );
+    expect(value.plans[0]!.tracer).toBe(true);
+    expect(value.summary).toMatchObject({ claimed: 1, deferred: 1, prereqMissing: 1, waiting: 1, branches: 4 });
+  });
+
+  it('lists no plan a slug does not name, and none that left or were delivered as docs', () => {
+    const estate = estateOf(
+      planOf('a.md', 'released', [[{ branch: 'a' }]]),
+      planOf('b.md', 'delivered', [[{ branch: 'b' }]], 'docs'),
+      planOf('c.md', 'delivered', [[{ branch: 'c' }]], 'infra'),
+    );
+    const branches = branchesOf(['a.md', 'a', merged()], ['b.md', 'b', merged()], ['c.md', 'c', merged()]);
+    expect(assembled(estate, branches).plans).toEqual([]);
+    const out = assemblePlanWalk(
+      { estate: answered(estate), branches: answered(branches), desks: answered(noDesks) },
+      { slug: 'nothing', offer: false },
+    );
+    expect(out.ok && out.value.plans).toEqual([]);
+  });
+
+  it('fails the walk when a plan branch has no reading', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }]]));
+    const out = assemblePlanWalk(
+      { estate: answered(estate), branches: answered(branchesOf()), desks: answered(noDesks) },
+      { slug: '', offer: false },
+    );
+    expect(out.ok).toBe(false);
+  });
+});
+
+describe('offerAnswer', () => {
+  const base = (over: object) => ({ claimable: [], takenInEligible: 0, ...over }) as never;
+
+  it('is silent on an empty --next and names the taken branches on an empty --list-eligible', () => {
+    expect(offerAnswer(base({}), false)).toEqual({ out: '', err: '', exit: 1 });
+    expect(offerAnswer(base({ takenInEligible: 2 }), true).err).toBe('nothing claimable: 2 branch(es) in eligible waves are taken.\n');
+  });
+
+  it('prints the first claimable branch for --next and all of them for --list-eligible', () => {
+    expect(offerAnswer(base({ claimable: ['a', 'b'] }), false).out).toBe('a\n');
+    expect(offerAnswer(base({ claimable: ['a', 'b'] }), true).out).toBe('a\nb\n');
+  });
+
+  it('counts a started branch of an eligible slice as taken', () => {
+    const value = assembled(
+      estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }]])),
+      branchesOf(['p.md', 'feature/a', open({ pr: 'OPEN', commitsAhead: 1, realCommitsAhead: 1 })]),
+    );
+    expect(value.takenInEligible).toBe(1);
+    expect(offerAnswer(value, true).err).toContain('1 branch(es)');
+  });
+});
+
+describe('fleetReading', () => {
+  it('prints a branch with a desk, a held worktree and a running worker', () => {
+    const estate = estateOf(planOf('docs/plans/p.md', 'approved', [[{ branch: 'feature/a', spike: true }]]));
+    const doc = fleetReading(
+      assembled(estate, branchesOf(['docs/plans/p.md', 'feature/a', open()]), { mainSha: 'm1', desks: [deskOn('feature/a')] }),
+      header,
+    ) as any;
+    expect(doc.plans[0]).toMatchObject({ file: 'p.md', tracer: true });
+    expect(doc.plans[0].waves[0].branches[0]).toMatchObject({
+      held: true, local_locked: true, local_worktree: '/w/feature/a', local_ahead: 2,
+      changed_ago_seconds: 30, changed_at: 970, worker: 'running', worker_pid: '42', worker_activity: 'busy',
+    });
+    expect(doc.summary).toMatchObject({ waves: 1, host: 'github', merge_detect: 'host' });
+  });
+
+  it('prints a branch with no desk as elsewhere, and reads unknown unpushed and no quiet time as zero and null', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }, { branch: 'feature/b' }]]));
+    const branches = branchesOf(['p.md', 'feature/a', open()], ['p.md', 'feature/b', open()]);
+    const idle = deskOn('feature/b', {
+      unpushed: 'unknown', quietSeconds: null,
+      process: { state: 'finished', pid: '', exitCode: '0', activity: 'idle' } as never,
+    });
+    const doc = fleetReading(assembled(estate, branches, { mainSha: 'm1', desks: [idle] }), header) as any;
+    const [none, desk] = doc.plans[0].waves[0].branches;
+    expect(doc.plans[0].file).toBe('p.md');
+    expect(doc.plans[0].tracer).toBeUndefined();
+    expect(none).toMatchObject({ held: false, worker: 'elsewhere', worker_pid: '', worker_exit: '', worker_activity: '', local_ahead: 0, changed_at: null });
+    expect(desk).toMatchObject({ local_ahead: 0, changed_at: null, worker: 'finished', worker_exit: '0', worker_activity: '' });
+  });
+
+  it('marks a branch merged on its subject alone, and not one the host confirmed', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/s' }, { branch: 'feature/h' }]]));
+    const branches = branchesOf(
+      ['p.md', 'feature/s', open({ refTip: null, mergeSubjectFound: true })],
+      ['p.md', 'feature/h', open({ refTip: null, mergeSubjectFound: true, pr: 'MERGED' })],
+    );
+    const doc = fleetReading(assembled(estate, branches), header) as any;
+    const [bySubject, byHost] = doc.plans[0].waves[0].branches;
+    expect(bySubject.evidence).toBe('subject');
+    expect(byHost.evidence).toBeUndefined();
   });
 });
