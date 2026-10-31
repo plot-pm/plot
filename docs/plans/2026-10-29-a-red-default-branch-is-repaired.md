@@ -130,7 +130,7 @@ Decided 2026-10-29 by Jan Wloka after panel round 2 and the challenges (`.plot/p
 
 ### Main repair start
 
-- `feature/fleetd-starts-main-repair` — re-run the red commit's failed jobs once first; then main-repair start and its fix PR, reviewed through #2900's `startReview` <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- builds: the re-run port operation on both drives, and the claim push onto bug/main-repair-<last-green-sha12> -->
+- `feature/fleetd-starts-main-repair` — re-run the red commit's failed jobs once first; then main-repair start and its fix PR, reviewed through #2900's `startReview` <!-- waits: feature/role-agents-start-detached --> <!-- waits: feature/fleetd-reviews-slice-prs --> <!-- builds: the re-run port operation on both drives, and the claim push onto bug/main-repair-<last-green-sha12> --> → #2973
 
 ### Breaking merge revert
 
