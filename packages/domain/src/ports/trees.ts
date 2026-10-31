@@ -133,6 +133,20 @@ export interface Trees {
   changedUnder(path: string, pathspecs: readonly string[]): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Whether git holds an index lock on a worktree.
+   *
+   * Reads the filesystem and spawns nothing: `.git` is a directory in the main
+   * checkout and a one-line `gitdir:` pointer in a linked one, and the lock is
+   * `index.lock` in the directory it names. Relative pointers resolve against
+   * the worktree.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns true when `index.lock` exists. A missing or unreadable `.git`
+   *   answers false: absent is absent, never a guess.
+   */
+  locked(path: string): Promise<PortResult<boolean>>;
+
+  /**
    * Seconds since the newest thing in a desk's tree changed.
    *
    * The newest of HEAD's committer time, each dirty path's mtime, and the

@@ -1,5 +1,5 @@
-import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import type { Mergeability } from '../../entities/pr.js';
 import type { Worktree } from '../../entities/worktree.js';
@@ -349,6 +349,21 @@ export const treesGit = (context: ShellContext): Trees => {
     // written, so a collapsed `?? dir/` would read an agent mid-edit as quiet.
     // The desk root's own mtime is never read — the loop rewrites its records
     // there — so a parent counts only below the root.
+    locked: async (path): Promise<PortResult<boolean>> => {
+      try {
+        const dotGit = join(path, '.git');
+        let gitDir = dotGit;
+        if (statSync(dotGit).isFile()) {
+          const pointer = readFileSync(dotGit, 'utf8').split('\n')[0]!.replace(/^gitdir:/, '').trim();
+          if (pointer === '') return answered(false);
+          gitDir = isAbsolute(pointer) ? pointer : join(path, pointer);
+        }
+        return answered(existsSync(join(gitDir, 'index.lock')));
+      } catch {
+        return answered(false);
+      }
+    },
+
     quietSeconds: async (path) => {
       let directory = false;
       try {
