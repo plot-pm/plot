@@ -1,13 +1,13 @@
-import type { FixerAttempt, FixerAttemptsRecord } from '../entities/fixer-attempts.js';
+import type { FixerAttempt, FixerAttemptsRecord, FixerInFlight } from '../entities/fixer-attempts.js';
 import type { PortResult } from '../port-result.js';
 
 /**
  * Keeps one PR's fixer attempts — one file per PR, under `.plot/state/` in
  * the common git dir.
  *
- * **ONE WRITER.** The tick that starts a fixer (`feature/fleetd-starts-the-
- * fixer`) is the only caller of {@link FixerAttemptsStore.append}. Every other
- * reader of this port only calls `read`.
+ * **ONE WRITER.** fleetd's fixer tick is the only caller of
+ * {@link FixerAttemptsStore.append} and {@link FixerAttemptsStore.markInFlight}.
+ * Every other reader of this port only calls `read`.
  *
  * **THE ATTEMPT IS WRITTEN BEFORE THE FIXER STARTS.** The caller refuses the
  * start when `append` does not land — see {@link FixerAttemptsStore.append}.
@@ -41,4 +41,19 @@ export interface FixerAttemptsStore {
    * @returns nothing on success; `failed` where the write did not land.
    */
   append(pr: number, attempt: FixerAttempt): Promise<PortResult<void>>;
+
+  /**
+   * Sets or removes the in-flight mark of one recorded attempt.
+   *
+   * The starter calls it with the fixer's own pid once the process runs, and
+   * with `null` once the fixer has ended. Every other field of the attempt
+   * stays as written.
+   *
+   * @param pr - the PR number.
+   * @param index - the attempt's position in the record's `attempts`, from 0.
+   * @param mark - the new mark, or `null` to remove it.
+   * @returns nothing on success; `failed` where the record is missing or
+   *   unreadable, `index` names no attempt, or the write did not land.
+   */
+  markInFlight(pr: number, index: number, mark: FixerInFlight | null): Promise<PortResult<void>>;
 }

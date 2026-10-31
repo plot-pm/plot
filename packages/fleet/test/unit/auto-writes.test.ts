@@ -11,6 +11,9 @@ vi.mock('../../src/shared/auto-dispatch.js', () => ({
 vi.mock('../../src/shared/auto-deliver.js', () => ({
   runAutoDeliverPass: () => { calls.push('deliver'); },
 }));
+vi.mock('../../src/shared/auto-fixer.js', () => ({
+  runAutoFixerPass: () => { calls.push('fixer'); },
+}));
 vi.mock('../../src/shared/machine-reading.js', () => ({ readMachine: async () => undefined }));
 vi.mock('../../src/shared/fleet-settings-store.js', () => ({
   readFleetSettings: async () => ({ autoDispatch: true, parallelAgents: 2, machineOverride: false }),
@@ -25,13 +28,13 @@ import { fleetAutoWrites } from '../../src/shared/auto-writes.js';
 const PULSE = { main: 'main', head: 'abc', plans: [], summary: {} } as unknown as FleetReading;
 
 describe('fleetAutoWrites', () => {
-  it('dispatches, then delivers, on one pulse', async () => {
+  it('dispatches, then delivers, then starts fixers, on one pulse', async () => {
     calls.length = 0;
     await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {})(PULSE);
-    expect(calls).toEqual(['dispatch', 'deliver']);
+    expect(calls).toEqual(['dispatch', 'deliver', 'fixer']);
   });
 
-  it('starts no agent once a stop is requested, and still delivers', async () => {
+  it('starts no agent and no fixer once a stop is requested, and still delivers', async () => {
     calls.length = 0;
     await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null, () => true)(PULSE);
     expect(calls).toEqual(['deliver']);
