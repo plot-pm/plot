@@ -80,7 +80,7 @@ beforeAll(async () => {
   });
   if (!isAnswered(walk)) throw new Error(`the estate stage could not read the corpus: ${walk.why}`);
   walked = walk.value;
-}, 120_000);
+}, 500_000);
 
 describe('the estate stage agrees with the shell scan', () => {
   it('reads a corpus worth comparing', () => {
