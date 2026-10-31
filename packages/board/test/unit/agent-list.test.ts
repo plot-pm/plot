@@ -2694,7 +2694,7 @@ describe('prStatusEntry — the refresh interval decides a stale cache with no r
     } as Fleet)).toBeNull();
   });
 
-  it('warns once the scheduled read is overdue past one interval', () => {
+  it('warns once the scheduled read is overdue past the grace', () => {
     const entry = prStatusEntry({
       prError: null, prNextInSeconds: 0, prAgeSeconds: 600, prIntervalMs: 60_000, prOverdueSeconds: 180,
     } as Fleet);
@@ -3020,7 +3020,8 @@ describe('the change marker costs nothing outside the client', () => {
       readFileSync(new URL(file, import.meta.url), 'utf8');
     expect(read('../../src/app/App.tsx')).toContain('FLEET_POLL_MS = 4_000');
     const fleetSrc = read('../../src/server/fleet.ts');
-    expect(fleetSrc).toContain('PR_REFRESH_MS = 60_000');
+    expect(fleetSrc).toContain('PR_REFRESH_MS = PR_READ_BEAT_MS');
+    expect(read('../../../domain/src/rules/pr-status.ts')).toContain('PR_READ_BEAT_MS = 60_000');
     // The backoff ceiling moved with the PR reader into the fleet package.
     expect(read('../../../fleet/src/shared/pr-refresh.ts')).toContain('PR_BACKOFF_MAX_MS = 120_000');
   });
