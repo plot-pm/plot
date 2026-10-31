@@ -78,7 +78,7 @@ Measured 2026-10-31:
 
 ### Scan ownership
 
-- `feature/a-fleetd-whose-scans-start-owns-the-scan` — fleetd records each scan attempt; `fleetOwnsScan` keeps a fleetd whose last scan started within 2 × `FLEET_SCAN_BUDGET_MS` as owner; the board shows the bridge's age and fleetd's last scan failure instead of scanning <!-- builds: scan attempt in fleetd's record, fleetOwnsScan reads it -->
+- `feature/a-fleetd-whose-scans-start-owns-the-scan` — fleetd records each scan attempt; `fleetOwnsScan` keeps a fleetd whose last scan started within 2 × `FLEET_SCAN_BUDGET_MS` as owner; the board shows the bridge's age and fleetd's last scan failure instead of scanning <!-- builds: scan attempt in fleetd's record, fleetOwnsScan reads it --> → #2983
 
 ### Settled plans
 
