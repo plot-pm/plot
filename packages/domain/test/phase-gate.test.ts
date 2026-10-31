@@ -4,6 +4,7 @@ import {
   holdRefusal,
   implementationPrefixesOf,
   isPlanFileFor,
+  mergeOwnPathsOf,
   outsidePlanDir,
   outsideReviewArtifacts,
   phaseGateRefusal,
@@ -180,5 +181,31 @@ describe('notes', () => {
   it('name the ref and the remedy', () => {
     expect(unpushedPlanNote('x', 'origin/main', 'feature/x')).toContain('origin/feature/x');
     expect(unreadableRefNote('origin/main')).toContain('git fetch');
+  });
+});
+
+describe('mergeOwnPathsOf', () => {
+  it('drops a staged path whose blob equals a MERGE_HEAD commit\'s own blob there', () => {
+    const staged = [{ path: 'src/a.js', sha: 'sha-a' }];
+    const atMergeHeads = [{ 'src/a.js': { sha: 'sha-a' } }];
+    expect(mergeOwnPathsOf(staged, atMergeHeads)).toEqual(['src/a.js']);
+  });
+
+  it('keeps a staged path whose blob the resolution changed', () => {
+    const staged = [{ path: 'src/a.js', sha: 'sha-resolved' }];
+    const atMergeHeads = [{ 'src/a.js': { sha: 'sha-a' } }];
+    expect(mergeOwnPathsOf(staged, atMergeHeads)).toEqual([]);
+  });
+
+  it('keeps a staged path absent from every MERGE_HEAD commit', () => {
+    const staged = [{ path: 'src/b.js', sha: 'sha-b' }];
+    const atMergeHeads = [{ 'src/a.js': { sha: 'sha-a' }, 'src/b.js': null }];
+    expect(mergeOwnPathsOf(staged, atMergeHeads)).toEqual([]);
+  });
+
+  it('drops a path matching any one of several MERGE_HEAD commits', () => {
+    const staged = [{ path: 'src/a.js', sha: 'sha-a' }];
+    const atMergeHeads = [{ 'src/a.js': null }, { 'src/a.js': { sha: 'sha-a' } }];
+    expect(mergeOwnPathsOf(staged, atMergeHeads)).toEqual(['src/a.js']);
   });
 });
