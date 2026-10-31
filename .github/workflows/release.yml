@@ -60,7 +60,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24 # OIDC trusted publishing requires Node >= 22.14
+          node-version: 26 # OIDC trusted publishing requires Node >= 22.14
           cache: pnpm
           # Points npm at the public registry; with no NODE_AUTH_TOKEN set, npm
           # >= 11.5.1 authenticates the publish via OIDC (trusted publishing).
@@ -218,7 +218,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24 # OIDC trusted publishing requires Node >= 22.14
+          node-version: 26 # OIDC trusted publishing requires Node >= 22.14
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
