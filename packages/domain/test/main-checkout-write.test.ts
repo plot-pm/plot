@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  commitCallsOf,
   commitDirs,
   gatesMainCheckout,
   gatesStrandingReset,
@@ -296,6 +297,10 @@ describe('commitDirs', () => {
     ['git fetch --all && git commit -m x', [null]],
     ['if git commit -m x; then :; fi', [null]],
     ['time git commit', [null]],
+    ['(cd /repo/desk && git commit -m x); git commit -m y', ['/repo/desk', null]],
+    ['X=$(cd /repo/desk && git commit -m x) && git reset --hard', ['/repo/desk']],
+    ['echo `cd /repo/desk && git commit -m x` && git reset --hard', ['/repo/desk']],
+    ['cd /repo/main; case x in a) git commit -m x;; esac', ['/repo/main']],
   ])('reads %s as %j', (command, dirs) => expect(commitDirs(command)).toEqual(dirs));
 
   it.each([
@@ -325,6 +330,17 @@ describe('commitDirs', () => {
     'git rebase main',
     'git status',
   ])('reads %s as making no commit', (command) => expect(commitDirs(command)).toEqual([]));
+});
+
+describe('commitCallsOf', () => {
+  it('reads each committing call with its own placement and arguments', () => {
+    expect(commitCallsOf('git -C /x commit -m y && git commit --amend')).toEqual([
+      { placed: true, dir: '/x', args: ['-m', 'y'] },
+      { placed: true, dir: null, args: ['--amend'] },
+    ]);
+    expect(commitCallsOf('git -C "$d" commit -m x')).toEqual([{ placed: false, args: ['-m', 'x'] }]);
+    expect(commitCallsOf('git status')).toEqual([]);
+  });
 });
 
 describe('makesCommit', () => {
