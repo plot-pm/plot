@@ -27,11 +27,11 @@ import {
  * one caller mode is printed.
  *
  * ```
- * plot-scan-walk.mjs <mode> <slug> <main> <planDir> <activeDir> <deliveredDir> \
+ * plot-scan-walk.mjs <flags> <slug> <main> <planDir> <activeDir> <deliveredDir> \
  *   <prefixes, "|"-separated> <offline 0|1> <readRef> <localHead> <fetchFailed 0|1> <fetchError>
  * ```
  *
- * `mode` is `json`, `next`, `list-eligible`, `why-nothing` or `slice-names`.
+ * `flags` is the scan's `slice_names why_nothing list_all next_only as_json` bits in that order; they select `slice-names`, `why-nothing`, `list-eligible`, `next` or `json`.
  * The offer modes (`next`, `list-eligible`, `why-nothing`) read no desks;
  * `slice-names` reads the estate alone. With `offline` set and the mode not an
  * offer, the host answers `unaskable` for every question that costs a request.
@@ -57,8 +57,10 @@ const unaskedHost = (host: Host): Host =>
   });
 
 const main = async (): Promise<number> => {
-  const [mode = '', slug = '', mainBranch = 'main', planDir = '', activeDir = '', deliveredDir = '', prefixList = '', offline = '0', readRef = 'unknown', localHead = 'unknown', fetchFailed = '0', fetchError = ''] =
+  const [flags = '00000', slug = '', mainBranch = 'main', planDir = '', activeDir = '', deliveredDir = '', prefixList = '', offline = '0', readRef = 'unknown', localHead = 'unknown', fetchFailed = '0', fetchError = ''] =
     process.argv.slice(2);
+  const [sliceNames, whyNothing, listAll, nextOnly] = flags;
+  const mode = sliceNames === '1' ? 'slice-names' : whyNothing === '1' ? 'why-nothing' : listAll === '1' ? 'list-eligible' : nextOnly === '1' ? 'next' : 'json';
   const prefixes = prefixList.split('|').filter((p) => p !== '');
   const offer = mode === 'next' || mode === 'list-eligible' || mode === 'why-nothing';
   const root = process.env.PLOT_REPO_ROOT ?? process.cwd();

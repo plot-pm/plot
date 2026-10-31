@@ -420,17 +420,8 @@ READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
 [ -n "$READ_REF" ] || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
 [ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
-if [ "${PLOT_SCAN_WALK:-shell}" = domain ] && [ "$loose$stream$log_pulse" = 000 ]; then
-  walk_mode=""
-  if [ "$slice_names" = 1 ]; then walk_mode=slice-names
-  elif [ "$why_nothing" = 1 ]; then walk_mode=why-nothing
-  elif [ "$list_all" = 1 ]; then walk_mode=list-eligible
-  elif [ "$next_only" = 1 ]; then walk_mode=next
-  elif [ "$as_json" = 1 ]; then walk_mode=json; fi
-  [ -z "$walk_mode" ] || exec node "$script_dir/board/plot-scan-walk.mjs" "$walk_mode" "$slug" "$MAIN" \
-    "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" \
-    "$FETCH_FAILED" "$FETCH_ERROR"
-fi
+[ "${PLOT_SCAN_WALK:-shell}$loose$stream$log_pulse" != domain000 ] || [ "$slice_names$why_nothing$next_only$as_json" = 0000 ] || exec node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
+  "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"
 
 # ---------------------------------------------------------------------------
 # Merged-and-deleted branches: the evidence that survives the ref
