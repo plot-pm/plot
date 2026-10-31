@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  commitDirs,
   gatesMainCheckout,
   gatesStrandingReset,
   gitPushCalls,
   gitWriteDirs,
   MAIN_CHECKOUT_WRITER_ENV,
   mainCheckoutWriteRefusal,
+  makesCommit,
   mutatesGitState,
   strandingResetRefusal,
   strandsTree,
@@ -260,6 +262,98 @@ describe('gitWriteDirs', () => {
       '/repo/desk',
     ]);
   });
+});
+
+// Table lifted verbatim from docs/plans/2026-10-31-the-commit-gates-match-only-the.md's
+// `## Notes` table: each row's `commitDirs` column is its expected value, and
+// `makesCommit` must agree with the `Matches` column (floor rows return `[]`
+// from commitDirs alone — the substring floor in gate.ts, not this rule, is
+// what matches them; a floor-only row is tested here as a non-match).
+describe('commitDirs', () => {
+  it.each([
+    ['git commit -m x', [null]],
+    ['git commit --amend', [null]],
+    ['git -C /x commit -m y', ['/x']],
+    ['git -C /a -C b commit', ['/a/b']],
+    ['git -c a=b commit', [null]],
+    ['git  commit', [null]],
+    ['cd x && git commit', ['x']],
+    ['cd x && git -C sub commit', ['x/sub']],
+    ['git -C /a commit && git -C /b commit', ['/a', '/b']],
+    ['git -C "$d" commit', ['unplaced']],
+    ['cd "$desk" && git commit', ['unplaced']],
+    ['git add -A && git -C y commit', ['y']],
+    ['git -C y add -A && git -C y commit', ['y']],
+    ['git merge --continue', [null]],
+    ['git rebase --continue', [null]],
+    ['GIT_EDITOR=true git rebase --continue', [null]],
+    ['git cherry-pick --continue', [null]],
+    ['git revert --continue', [null]],
+    ['git am --continue', [null]],
+    ['git am --resolved', [null]],
+    ['git am -r', [null]],
+    ['git commit -m a && git -C sub commit -m b', [null, 'sub']],
+    ['git fetch --all && git commit -m x', [null]],
+    ['if git commit -m x; then :; fi', [null]],
+    ['time git commit', [null]],
+  ])('reads %s as %j', (command, dirs) => expect(commitDirs(command)).toEqual(dirs));
+
+  it.each([
+    'bash -c "git commit -m x"',
+    'bash -c "git commit -am x"',
+    'bash -c "git add -A && git commit -m x"',
+    "sh -c 'cd /d && git commit -m x'",
+    'eval "git commit -m x"',
+    'command git commit',
+    'timeout 60 git commit -m x',
+    'nice git commit',
+    'sudo git commit',
+    'xargs git commit',
+    'git commit-tree abc',
+    'echo "run git commit later"',
+  ])('leaves out a floor-only wrapper the walker cannot place: %s', (command) => expect(commitDirs(command)).toEqual([]));
+
+  it.each([
+    'git merge origin/main',
+    'git merge --no-commit x',
+    'git merge --squash x',
+    'git merge --abort',
+    'git rebase --skip',
+    'git cherry-pick --quit',
+    'git pull',
+    'git cherry-pick abc',
+    'git rebase main',
+    'git status',
+  ])('reads %s as making no commit', (command) => expect(commitDirs(command)).toEqual([]));
+});
+
+describe('makesCommit', () => {
+  it.each([
+    'git commit -m x',
+    'git -C /x commit -m y',
+    'git merge --continue',
+    'git rebase --continue',
+    'git cherry-pick --continue',
+    'git revert --continue',
+    'git am --continue',
+    'git am --resolved',
+    'git am -r',
+    'git -C "$d" commit',
+  ])('reads %s as making a commit', (command) => expect(makesCommit(command)).toBe(true));
+
+  it.each([
+    'git merge origin/main',
+    'git merge --no-commit x',
+    'git merge --squash x',
+    'git merge --abort',
+    'git rebase --skip',
+    'git cherry-pick --quit',
+    'git pull',
+    'git cherry-pick abc',
+    'git rebase main',
+    'git status',
+    'bash -c "git commit -m x"',
+  ])('reads %s as making no commit', (command) => expect(makesCommit(command)).toBe(false));
 });
 
 describe('gatesMainCheckout', () => {

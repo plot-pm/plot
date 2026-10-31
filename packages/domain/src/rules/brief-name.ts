@@ -1,6 +1,7 @@
 import type { StagedPath } from '../ports/refs.js';
 import { BRIEFS_DIR, briefPath } from './brief-path.js';
-import { chainedAddsOf } from './chained-add.js';
+import { chainedAddsOf, type ChainedAdd } from './chained-add.js';
+import { gitCallsWhere } from './main-checkout-write.js';
 
 /** The `Branch prefixes` fallback, the same list `plot-phase-gate.sh` and `plot-release-refs.sh` use. */
 export const DEFAULT_BRANCH_PREFIXES = 'idea/, feature/, bug/, docs/, infra/';
@@ -56,15 +57,20 @@ export const briefComputedPath = (path: string, prefixes: readonly string[]): st
   return null;
 };
 
+/** The destination token of a chained `git mv`, and where that call is placed. */
+export interface ChainedMove {
+  /** The last non-flag argument, as typed (relative to the call's own working directory, `./` stripped). */
+  dest: string;
+  /** The directory the call is placed in: `null` for the working directory, `'unplaced'` when the text does not give it. */
+  dir: string | null | 'unplaced';
+}
+
 /** What a commit command stages before it commits. */
 export interface ChainedStages {
-  /**
-   * One entry per `git add` pathspec, from {@link chainedAddsOf}; `null`
-   * stands for the whole tree (`-A`, `--all`, `-a`, `.`, `-u`, `--update`).
-   */
-  adds: readonly (string | null)[];
-  /** The repository-relative destination of each `git mv`. */
-  moves: readonly string[];
+  /** One entry per `git add` pathspec, from {@link chainedAddsOf}. */
+  adds: readonly ChainedAdd[];
+  /** One entry per `git mv` destination. */
+  moves: readonly ChainedMove[];
 }
 
 /**
@@ -72,25 +78,22 @@ export interface ChainedStages {
  * which a hook reading the index cannot see because it runs first.
  *
  * The adds are {@link chainedAddsOf}'s, the one parser the state gate reads
- * too. A segment holding no `git add` is matched by substring for `git mv`.
- * It is not a shell parser.
+ * too. The `git mv` calls are found the same `-C`/`cd`-aware way, through
+ * {@link gitCallsWhere}; each move keeps the call's own placed directory
+ * unresolved, so a caller joins it to the `showPrefix` of whichever root it is
+ * judging, after filtering to the calls placed in that root. It is not a
+ * shell parser.
  *
  * @param command - the Bash command text.
- * @param showPrefix - the working directory relative to the repository root,
- *   with a trailing `/`, or `''` at the root.
- * @returns the pathspecs `git add` names and the destinations `git mv` names.
+ * @returns the pathspecs `git add` names and the destination tokens `git mv` names.
  */
-export const chainedStagesOf = (command: string, showPrefix: string): ChainedStages => {
-  const moves: string[] = [];
-  for (const segment of command.split(/&&|;|\||\n/)) {
-    const mv = segment.indexOf('git mv');
-    if (segment.includes('git add') || mv === -1) continue;
-    const words = segment
-      .slice(mv + 'git mv'.length)
-      .split(/\s+/)
-      .filter((token) => token !== '' && !token.startsWith('-'));
+export const chainedStagesOf = (command: string): ChainedStages => {
+  const moves: ChainedMove[] = [];
+  for (const call of gitCallsWhere(command, (sub) => sub === 'mv')) {
+    const words = call.args.filter((token) => !token.startsWith('-'));
     const last = words[words.length - 1];
-    if (last !== undefined) moves.push(`${showPrefix}${last.replace(/^\.\//, '')}`);
+    if (last === undefined) continue;
+    moves.push({ dest: last.replace(/^\.\//, ''), dir: call.placed ? call.dir : 'unplaced' });
   }
   return { adds: chainedAddsOf(command), moves };
 };

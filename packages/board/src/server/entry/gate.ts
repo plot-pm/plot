@@ -14,10 +14,12 @@ import {
 } from '@plot-pm/domain/rules/controller-gate';
 import { briefPushRefusal, gatesBriefPush, pushesBriefBranch } from '@plot-pm/domain/rules/brief-push';
 import {
+  commitDirs,
   gatesMainCheckout,
   gatesStrandingReset,
   gitWriteDirs,
   mainCheckoutWriteRefusal,
+  makesCommit,
   mutatesGitState,
   strandingResetRefusal,
   strandsTree,
@@ -71,65 +73,106 @@ export interface Gate {
 }
 
 /**
+ * The distinct repository roots a commit-gate must ask about for `command`,
+ * resolved from {@link commitDirs} against `cwd`. One entry per distinct
+ * root — never one per `commitDirs` entry — because the `state` gate spends a
+ * single-use receipt per transition: `git commit -m a && git -C sub commit -m
+ * b` in one worktree must ask once, or a second ask finds its own receipt
+ * already spent and refuses a transition its first ask already cleared.
+ *
+ * An `'unplaced'` entry (a `-C` or `cd` argument the text cannot give) is
+ * read at `process.cwd()`, same as a gate with no root loop would read it
+ * today, and reported on stderr naming `gateName` and `command` — the panel's
+ * explicit rejection of a silent allow for a call no root loop can place.
+ *
+ * A root `refs.repoRoot()` cannot resolve is dropped: with no root, a gate
+ * cannot place the call in any checkout to ask about, the same as today's
+ * single-root gates already read a failed `repoRoot()` as "nothing to ask".
+ *
+ * @param command - the command line.
+ * @param cwd - the working directory the hook itself runs in.
+ * @param scriptDir - the script directory passed to `refsGit`.
+ * @param gateName - the gate naming an unplaced entry on stderr.
+ */
+const commitRootsFor = async (command: string, cwd: string, scriptDir: string, gateName: string): Promise<readonly string[]> => {
+  const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+  const roots = new Set<string>();
+  for (const dir of commitDirs(command)) {
+    if (dir === 'unplaced') {
+      process.stderr.write(`${gateName}: a committing call's directory is not given in the text: ${command}\n`);
+    }
+    const at = dir === 'unplaced' || dir === null ? cwd : resolve(cwd, dir);
+    const root = await refsGit({ repoRoot: at, scriptDir }).repoRoot();
+    if (root.ok) roots.add(root.value);
+  }
+  return [...roots];
+};
+
+/**
  * `bundle-commit`: refuses a commit that stages a generated board bundle.
  *
  * `wants` is a pure string test — no adapter loads for a command with no
- * `git commit` in it. `ask` reads the repository root and its
- * `packages/board/build.mjs`; a repository with no `build.mjs` builds no
- * bundle, so the gate allows. Otherwise it reads the staged paths and, only
- * when one of them is in the declared set, the merge base the commit will
- * have against `origin/main` (over every `MERGE_HEAD` during a merge) and the
- * (mode, sha) it holds at each such path. All of it goes to
- * {@link bundleCommitRefusal}, which compares it with the index.
+ * `git commit` in it. `ask` asks once per distinct repository root among the
+ * committing calls `command` makes ({@link commitRootsFor}); within a root it
+ * reads that root's `packages/board/build.mjs` (a repository with none builds
+ * no bundle, so it allows), the staged paths and, only when one of them is in
+ * the declared set, the merge base the commit will have against
+ * `origin/main` (over every `MERGE_HEAD` during a merge) and the (mode, sha)
+ * it holds at each such path. All of it goes to {@link bundleCommitRefusal},
+ * which compares it with the index; the first root that refuses decides.
  */
 const bundleCommitGate: Gate = {
   name: 'bundle-commit',
-  wants: (command) => command.includes('git commit'),
-  ask: async (_command) => {
+  wants: (command) => command.includes('git commit') || makesCommit(command),
+  ask: async (command) => {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
-    const { shellContext } = await import('@plot-pm/domain/adapters');
     const { bundleCommitPaths, bundleCommitRefusal, shippedPathsOf } = await import(
       '@plot-pm/domain/rules/bundle-commit'
     );
 
-    const refs = refsGit(shellContext(process.cwd()));
-    const root = await refs.repoRoot();
-    if (!root.ok) return null;
+    const cwd = process.cwd();
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const roots = await commitRootsFor(command, cwd, scriptDir, 'bundle-commit');
+    for (const root of roots) {
+      const refs = refsGit({ repoRoot: root, scriptDir });
 
-    const buildFile = join(root.value, 'packages/board/build.mjs');
-    if (!existsSync(buildFile)) return null;
-    const generated = shippedPathsOf(readFileSync(buildFile, 'utf8'));
-    if (generated.length === 0) return null;
+      const buildFile = join(root, 'packages/board/build.mjs');
+      if (!existsSync(buildFile)) continue;
+      const generated = shippedPathsOf(readFileSync(buildFile, 'utf8'));
+      if (generated.length === 0) continue;
 
-    const staged = await refs.stagedEntries();
-    if (!staged.ok) return null;
-    const touched = bundleCommitPaths({ generated, staged: staged.value });
-    if (touched.length === 0) return null;
+      const staged = await refs.stagedEntries();
+      if (!staged.ok) continue;
+      const touched = bundleCommitPaths({ generated, staged: staged.value });
+      if (touched.length === 0) continue;
 
-    // The base the commit will have: against a merge in progress, the merge
-    // base of `origin/main`, `HEAD` and every `MERGE_HEAD`. Every failed read
-    // reaches the rule as `null` and refuses there.
-    const parents = await refs.mergeParents();
-    const heads: string[] = [];
-    let readable = parents.ok;
-    for (const head of parents.ok ? parents.value : []) {
-      const resolved = await refs.resolve(head);
-      if (resolved.ok) heads.push(resolved.value);
-      else readable = false;
+      // The base the commit will have: against a merge in progress, the merge
+      // base of `origin/main`, `HEAD` and every `MERGE_HEAD`. Every failed read
+      // reaches the rule as `null` and refuses there.
+      const parents = await refs.mergeParents();
+      const heads: string[] = [];
+      let readable = parents.ok;
+      for (const head of parents.ok ? parents.value : []) {
+        const resolved = await refs.resolve(head);
+        if (resolved.ok) heads.push(resolved.value);
+        else readable = false;
+      }
+      const mergeBaseResult = readable ? await refs.mergeBase('origin/main', 'HEAD', ...heads) : null;
+      const mergeBase = mergeBaseResult?.ok ? mergeBaseResult.value : null;
+      const entries = mergeBase === null ? null : await refs.entriesAt(mergeBase, touched);
+      const mainTip = await refs.resolve('origin/main');
+
+      const refusal = bundleCommitRefusal({
+        generated,
+        staged: staged.value,
+        mergeBase,
+        atMergeBase: entries?.ok ? entries.value : null,
+        mainTip: mainTip.ok ? mainTip.value : null,
+        merging: heads.length > 0,
+      });
+      if (refusal !== null) return refusal;
     }
-    const mergeBaseResult = readable ? await refs.mergeBase('origin/main', 'HEAD', ...heads) : null;
-    const mergeBase = mergeBaseResult?.ok ? mergeBaseResult.value : null;
-    const entries = mergeBase === null ? null : await refs.entriesAt(mergeBase, touched);
-    const mainTip = await refs.resolve('origin/main');
-
-    return bundleCommitRefusal({
-      generated,
-      staged: staged.value,
-      mergeBase,
-      atMergeBase: entries?.ok ? entries.value : null,
-      mainTip: mainTip.ok ? mainTip.value : null,
-      merging: heads.length > 0,
-    });
+    return null;
   },
   onError: 'allow',
 };
@@ -150,7 +193,7 @@ const bundleCommitGate: Gate = {
  */
 const briefNameGate: Gate = {
   name: 'brief-name',
-  wants: (command) => command.includes('git commit'),
+  wants: (command) => command.includes('git commit') || makesCommit(command),
   ask: async (command) => {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
@@ -159,48 +202,66 @@ const briefNameGate: Gate = {
 
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const refs = refsGit({ repoRoot: cwd, scriptDir });
+    const roots = await commitRootsFor(command, cwd, scriptDir, 'brief-name');
+    const chained = chainedStagesOf(command);
+    const at = (dir: string | null | 'unplaced') => (dir === null || dir === 'unplaced' ? cwd : resolve(cwd, dir));
+    const rootOf = async (dir: string | null | 'unplaced') => {
+      const read = await refsGit({ repoRoot: at(dir), scriptDir }).repoRoot();
+      return read.ok ? read.value : null;
+    };
 
-    const root = await refs.repoRoot();
-    if (!root.ok) return null;
-    const config = await scriptsShell({ repoRoot: cwd, scriptDir }).config('Branch prefixes', DEFAULT_BRANCH_PREFIXES);
-    if (!config.ok) throw new Error('the Branch prefixes config read failed');
-    const prefixes = briefPrefixesOf(config.value);
+    for (const root of roots) {
+      const refs = refsGit({ repoRoot: root, scriptDir });
+      const config = await scriptsShell({ repoRoot: root, scriptDir }).config('Branch prefixes', DEFAULT_BRANCH_PREFIXES);
+      if (!config.ok) throw new Error('the Branch prefixes config read failed');
+      const prefixes = briefPrefixesOf(config.value);
 
-    const staged = await refs.stagedPaths();
-    const showPrefix = await refs.showPrefix();
-    if (!staged.ok || !showPrefix.ok) return null;
+      const staged = await refs.stagedPaths();
+      if (!staged.ok) continue;
 
-    const chained = chainedStagesOf(command, showPrefix.value);
-    const untracked: string[] = [];
-    for (const pathspec of chained.adds) {
-      const paths = await refs.untrackedPaths(pathspec);
-      if (paths.ok) untracked.push(...paths.value);
-    }
-    const landed = { staged: staged.value, untracked, moves: chained.moves, prefixes };
-    const candidates = briefNameCandidates(landed);
-    if (candidates.length === 0) return null;
-
-    const inHead = new Set<string>();
-    const texts = new Map<string, string>();
-    const present = new Set<string>();
-    for (const { path, want } of candidates) {
-      const held = refs.fileExistsSync('HEAD', path);
-      if (held.ok && held.value) inHead.add(path);
-      try {
-        texts.set(path, readFileSync(join(root.value, path), 'utf8'));
-      } catch {
-        // No text in the working tree reads as no branch named.
+      const untracked: string[] = [];
+      for (const add of chained.adds) {
+        if ((await rootOf(add.dir)) !== root) continue;
+        const callRefs = refsGit({ repoRoot: at(add.dir), scriptDir });
+        const showPrefix = await callRefs.showPrefix();
+        if (!showPrefix.ok) continue;
+        const pathspec = add.spec === null ? null : `${showPrefix.value}${add.spec}`;
+        const paths = await refs.untrackedPaths(pathspec);
+        if (paths.ok) untracked.push(...paths.value);
       }
-      if (existsSync(join(root.value, want))) present.add(want);
-    }
-    const branches = new Set<string>();
-    for (const remote of [false, true]) {
-      const names = await refs.listBranches(remote);
-      if (names.ok) for (const name of names.value) branches.add(name);
-    }
+      const moves: string[] = [];
+      for (const move of chained.moves) {
+        if ((await rootOf(move.dir)) !== root) continue;
+        const showPrefix = await refsGit({ repoRoot: at(move.dir), scriptDir }).showPrefix();
+        if (showPrefix.ok) moves.push(`${showPrefix.value}${move.dest}`);
+      }
+      const landed = { staged: staged.value, untracked, moves, prefixes };
+      const candidates = briefNameCandidates(landed);
+      if (candidates.length === 0) continue;
 
-    return briefNameRefusal({ ...landed, inHead, branches, texts, present });
+      const inHead = new Set<string>();
+      const texts = new Map<string, string>();
+      const present = new Set<string>();
+      for (const { path, want } of candidates) {
+        const held = refs.fileExistsSync('HEAD', path);
+        if (held.ok && held.value) inHead.add(path);
+        try {
+          texts.set(path, readFileSync(join(root, path), 'utf8'));
+        } catch {
+          // No text in the working tree reads as no branch named.
+        }
+        if (existsSync(join(root, want))) present.add(want);
+      }
+      const branches = new Set<string>();
+      for (const remote of [false, true]) {
+        const names = await refs.listBranches(remote);
+        if (names.ok) for (const name of names.value) branches.add(name);
+      }
+
+      const refusal = briefNameRefusal({ ...landed, inHead, branches, texts, present });
+      if (refusal !== null) return refusal;
+    }
+    return null;
   },
   onError: 'allow',
 };
@@ -229,11 +290,13 @@ const briefNameGate: Gate = {
  */
 const stateGate: Gate = {
   name: 'state',
-  wants: (command) => command.includes('git commit'),
+  wants: (command) => command.includes('git commit') || makesCommit(command),
   ask: async (command) => {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
     const { stateReceiptsFile } = await import('@plot-pm/domain/adapters/state-receipts/state-receipts-file');
+    const { chainedAddsOf } = await import('@plot-pm/domain/rules/chained-add');
+    const { commitCallsOf } = await import('@plot-pm/domain/rules/main-checkout-write');
     const {
       SYMLINK_MODE,
       effectivePaths,
@@ -248,107 +311,129 @@ const stateGate: Gate = {
 
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const refs = refsGit({ repoRoot: cwd, scriptDir });
-    const root = await refs.repoRoot();
-    if (!root.ok) return null;
+    const roots = await commitRootsFor(command, cwd, scriptDir, 'state');
+    const calls = commitCallsOf(command);
+    const at = (dir: string | null | 'unplaced') => (dir === null || dir === 'unplaced' ? cwd : resolve(cwd, dir));
 
-    const scripts = scriptsShell({ repoRoot: cwd, scriptDir });
-    const planDir = await scripts.config('Plan directory', 'docs/plans/');
-    const sprintDir = await scripts.config('Sprint directory', 'docs/sprints/');
-    if (!planDir.ok || !sprintDir.ok) throw new Error('the Plan directory or Sprint directory config read failed');
-
-    const staged = await refs.stagedEntries();
-    const workingChanges = await refs.workingChanges();
-    const showPrefix = await refs.showPrefix();
-    if (!staged.ok) return null;
-    const carried = effectivePaths(
-      {
-        staged: staged.value.map((entry) => entry.path),
-        workingChanges: workingChanges.ok ? workingChanges.value : [],
-        showPrefix: showPrefix.ok ? showPrefix.value : '',
-      },
-      command,
-    );
-
-    // `ls-tree` reads its pathspec against the cwd, so `HEAD`'s mode is read
-    // from the repository root.
-    const atRoot = refsGit({ repoRoot: root.value, scriptDir });
-    const versionAt = async (ref: string, path: string) => {
-      const text = await refs.showFile(ref, path);
-      if (!text.ok) return null;
-      const blobs = await atRoot.listBlobs(ref, path);
-      const link = blobs.ok && blobs.value.some((blob) => blob.path === path && blob.mode === SYMLINK_MODE);
-      return { text: text.value, link };
+    // `effectivePaths`'s `inRoot` is a synchronous predicate, so every distinct
+    // dir a chained add or committing call names is resolved to its own root
+    // once, ahead of the per-root loop below.
+    const rootByDir = new Map<string | null | 'unplaced', string | null>();
+    const resolveDir = async (dir: string | null | 'unplaced') => {
+      if (rootByDir.has(dir)) return;
+      const read = await refsGit({ repoRoot: at(dir), scriptDir }).repoRoot();
+      rootByDir.set(dir, read.ok ? read.value : null);
     };
-    const headOf = (path: string) => versionAt('HEAD', path);
-    // `MERGE_HEAD` exists only between a merge that did not fast-forward and
-    // the commit that completes it, so a plain commit reads no other parents.
-    const mergeParents = await refs.mergeParents();
-    const otherParentShas = mergeParents.ok ? mergeParents.value : [];
-    const otherParentsOf = async (path: string) =>
-      Promise.all(otherParentShas.map((sha) => versionAt(sha, path)));
-    const indexModes = new Map(staged.value.map((entry) => [entry.path, entry.indexMode]));
-    const readings = [];
-    for (const { path, carries } of carried) {
-      const kind = lifecycleKindOf(path, planDir.value.trim(), sprintDir.value.trim());
-      if (kind === null) continue;
-      let committed = null;
-      if (carries === 'working') {
-        try {
-          const full = join(root.value, path);
-          committed = lstatSync(full).isSymbolicLink()
-            ? { text: readlinkSync(full), link: true }
-            : { text: readFileSync(full, 'utf8'), link: false };
-        } catch {
-          // No working copy: the commit carries a deletion.
-        }
-      } else {
-        const index = await refs.showFile(':0', path);
-        if (index.ok) committed = { text: index.value, link: indexModes.get(path) === SYMLINK_MODE };
-      }
-      readings.push({ path, kind, head: await headOf(path), committed, otherParents: await otherParentsOf(path) });
-    }
-    // Git pairs a staged rename into one entry under its new path, so the
-    // path it left is read here.
-    for (const entry of staged.value) {
-      if (entry.from === undefined || readings.some((reading) => reading.path === entry.from)) continue;
-      const kind = lifecycleKindOf(entry.from, planDir.value.trim(), sprintDir.value.trim());
-      if (kind !== null) {
-        readings.push({
-          path: entry.from,
-          kind,
-          head: await headOf(entry.from),
-          committed: null,
-          otherParents: await otherParentsOf(entry.from),
-        });
-      }
-    }
+    for (const add of chainedAddsOf(command)) await resolveDir(add.dir);
+    for (const call of calls) await resolveDir(call.placed ? call.dir : 'unplaced');
 
-    // A rebase or cherry-pick stopped on a conflict re-presents the commit it is
-    // replaying; its own first run already spent the receipt, so a transition
-    // the picked commit made identically against its own first parent clears
-    // with no second receipt. `git am --continue` leaves neither file and reads
-    // as a plain commit, carrying no picked commit to compare against.
-    const pickedRead = await refs.pickedHead();
-    const pickedSha = pickedRead.ok ? pickedRead.value : null;
-    const pickedValueAt = async (path: string) => {
-      if (pickedSha === null) return null;
-      const [parent, picked] = await Promise.all([refs.showFile(`${pickedSha}^`, path), refs.showFile(pickedSha, path)]);
-      return { parentText: parent.ok ? parent.value : null, pickedText: picked.ok ? picked.value : null };
-    };
-
-    const receipts = stateReceiptsFile(root.value, gitBlobOid);
     const uncleared = [];
-    for (const transition of stateTransitionsOf(readings, planDir.value.trim(), sprintDir.value.trim())) {
-      const { key, value } = receiptOf(transition);
-      const spent = await receipts.spend(key, value);
-      if (spent.ok && spent.value) continue;
-      const picked = await pickedValueAt(transition.path);
-      if (picked !== null) {
-        const { before, after } = pickedTransitionOf(transition.field, picked.parentText, picked.pickedText);
-        if (pickedClears(transition, before, after)) continue;
+
+    for (const root of roots) {
+      const refs = refsGit({ repoRoot: root, scriptDir });
+
+      const scripts = scriptsShell({ repoRoot: root, scriptDir });
+      const planDir = await scripts.config('Plan directory', 'docs/plans/');
+      const sprintDir = await scripts.config('Sprint directory', 'docs/sprints/');
+      if (!planDir.ok || !sprintDir.ok) throw new Error('the Plan directory or Sprint directory config read failed');
+
+      const staged = await refs.stagedEntries();
+      const workingChanges = await refs.workingChanges();
+      const showPrefix = await refs.showPrefix();
+      if (!staged.ok) continue;
+
+      const own = calls.find((call) => call.placed && rootByDir.get(call.dir) === root);
+      const commitArgs = own === undefined ? null : own.args;
+      const carried = effectivePaths(
+        {
+          staged: staged.value.map((entry) => entry.path),
+          workingChanges: workingChanges.ok ? workingChanges.value : [],
+          showPrefix: showPrefix.ok ? showPrefix.value : '',
+        },
+        command,
+        commitArgs,
+        (dir) => rootByDir.get(dir) === root,
+      );
+
+      // `ls-tree` reads its pathspec against the cwd, so `HEAD`'s mode is read
+      // from the repository root.
+      const atRoot = refsGit({ repoRoot: root, scriptDir });
+      const versionAt = async (ref: string, path: string) => {
+        const text = await refs.showFile(ref, path);
+        if (!text.ok) return null;
+        const blobs = await atRoot.listBlobs(ref, path);
+        const link = blobs.ok && blobs.value.some((blob) => blob.path === path && blob.mode === SYMLINK_MODE);
+        return { text: text.value, link };
+      };
+      const headOf = (path: string) => versionAt('HEAD', path);
+      // `MERGE_HEAD` exists only between a merge that did not fast-forward and
+      // the commit that completes it, so a plain commit reads no other parents.
+      const mergeParents = await refs.mergeParents();
+      const otherParentShas = mergeParents.ok ? mergeParents.value : [];
+      const otherParentsOf = async (path: string) =>
+        Promise.all(otherParentShas.map((sha) => versionAt(sha, path)));
+      const indexModes = new Map(staged.value.map((entry) => [entry.path, entry.indexMode]));
+      const readings = [];
+      for (const { path, carries } of carried) {
+        const kind = lifecycleKindOf(path, planDir.value.trim(), sprintDir.value.trim());
+        if (kind === null) continue;
+        let committed = null;
+        if (carries === 'working') {
+          try {
+            const full = join(root, path);
+            committed = lstatSync(full).isSymbolicLink()
+              ? { text: readlinkSync(full), link: true }
+              : { text: readFileSync(full, 'utf8'), link: false };
+          } catch {
+            // No working copy: the commit carries a deletion.
+          }
+        } else {
+          const index = await refs.showFile(':0', path);
+          if (index.ok) committed = { text: index.value, link: indexModes.get(path) === SYMLINK_MODE };
+        }
+        readings.push({ path, kind, head: await headOf(path), committed, otherParents: await otherParentsOf(path) });
       }
-      uncleared.push(transition);
+      // Git pairs a staged rename into one entry under its new path, so the
+      // path it left is read here.
+      for (const entry of staged.value) {
+        if (entry.from === undefined || readings.some((reading) => reading.path === entry.from)) continue;
+        const kind = lifecycleKindOf(entry.from, planDir.value.trim(), sprintDir.value.trim());
+        if (kind !== null) {
+          readings.push({
+            path: entry.from,
+            kind,
+            head: await headOf(entry.from),
+            committed: null,
+            otherParents: await otherParentsOf(entry.from),
+          });
+        }
+      }
+
+      // A rebase or cherry-pick stopped on a conflict re-presents the commit it is
+      // replaying; its own first run already spent the receipt, so a transition
+      // the picked commit made identically against its own first parent clears
+      // with no second receipt. `git am --continue` leaves neither file and reads
+      // as a plain commit, carrying no picked commit to compare against.
+      const pickedRead = await refs.pickedHead();
+      const pickedSha = pickedRead.ok ? pickedRead.value : null;
+      const pickedValueAt = async (path: string) => {
+        if (pickedSha === null) return null;
+        const [parent, picked] = await Promise.all([refs.showFile(`${pickedSha}^`, path), refs.showFile(pickedSha, path)]);
+        return { parentText: parent.ok ? parent.value : null, pickedText: picked.ok ? picked.value : null };
+      };
+
+      const receipts = stateReceiptsFile(root, gitBlobOid);
+      for (const transition of stateTransitionsOf(readings, planDir.value.trim(), sprintDir.value.trim())) {
+        const { key, value } = receiptOf(transition);
+        const spent = await receipts.spend(key, value);
+        if (spent.ok && spent.value) continue;
+        const picked = await pickedValueAt(transition.path);
+        if (picked !== null) {
+          const { before, after } = pickedTransitionOf(transition.field, picked.parentText, picked.pickedText);
+          if (pickedClears(transition, before, after)) continue;
+        }
+        uncleared.push(transition);
+      }
     }
     return stateTransitionRefusal(uncleared);
   },
@@ -394,10 +479,11 @@ const approvedSpikeOf = async (text: string, planPath: string, cwd: string, scri
  */
 const phaseGate: Gate = {
   name: 'phase',
-  wants: (command) => command.includes('git commit'),
+  wants: (command) => command.includes('git commit') || makesCommit(command),
   ask: async (command) => {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
+    const { commitCallsOf } = await import('@plot-pm/domain/rules/main-checkout-write');
     const { effectivePaths } = await import('@plot-pm/domain/rules/state-transition');
     const {
       holdRefusal,
@@ -414,127 +500,149 @@ const phaseGate: Gate = {
 
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const refs = refsGit({ repoRoot: cwd, scriptDir });
-    const branchRead = await refs.currentBranch();
-    const root = await refs.repoRoot();
-    if (!branchRead.ok || !root.ok) return null;
-    const branch = branchRead.value;
+    const roots = await commitRootsFor(command, cwd, scriptDir, 'phase');
+    const calls = commitCallsOf(command);
+    const at = (dir: string | null | 'unplaced') => (dir === null || dir === 'unplaced' ? cwd : resolve(cwd, dir));
 
-    const scripts = scriptsShell({ repoRoot: cwd, scriptDir });
-    const planDirRead = await scripts.config('Plan directory', 'docs/plans/');
-    const storyDirRead = await scripts.config('Story directory', 'docs/stories/');
-    const prefixRead = await scripts.config('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/');
-    if (!planDirRead.ok || !storyDirRead.ok || !prefixRead.ok) {
-      throw new Error('the Plan directory, Story directory or Branch prefixes config read failed');
+    // `effectivePaths`'s `inRoot` is a synchronous predicate, so every distinct
+    // dir a committing call names is resolved to its own root once, ahead of
+    // the per-root loop below.
+    const rootByDir = new Map<string | null | 'unplaced', string | null>();
+    for (const call of calls) {
+      const dir = call.placed ? call.dir : 'unplaced';
+      if (rootByDir.has(dir)) continue;
+      const read = await refsGit({ repoRoot: at(dir), scriptDir }).repoRoot();
+      rootByDir.set(dir, read.ok ? read.value : null);
     }
-    const homes = {
-      planDir: planDirRead.value.trim().replace(/\/+$/, ''),
-      storyDir: storyDirRead.value.trim().replace(/\/+$/, ''),
-    };
 
-    const staged = await refs.stagedPaths();
-    const workingChanges = await refs.workingChanges();
-    const showPrefix = await refs.showPrefix();
-    let paths = (
-      staged.ok
-        ? effectivePaths(
-            {
-              staged: staged.value.map((entry) => entry.path),
-              workingChanges: workingChanges.ok ? workingChanges.value : [],
-              showPrefix: showPrefix.ok ? showPrefix.value : '',
-            },
-            command,
-          )
-        : []
-    ).map((entry) => entry.path);
+    for (const root of roots) {
+      const refs = refsGit({ repoRoot: root, scriptDir });
+      const branchRead = await refs.currentBranch();
+      if (!branchRead.ok) continue;
+      const branch = branchRead.value;
 
-    const mainRead = await scripts.config('Main branch', '');
-    let main = mainRead.ok ? mainRead.value.trim() : '';
-    if (main === '') {
-      const head = await refs.defaultBranch();
-      main = head.ok && head.value.trim() !== '' ? head.value.trim() : 'main';
-    }
-    const mainRef = `origin/${main}`;
-
-    // Completing a conflicted `git merge origin/<main>` stages every path the
-    // merge resolved, including every path main touched that the branch never
-    // did; those are not the branch's own and must not trip the checks below.
-    // The carve-out runs only once every `MERGE_HEAD` commit is confirmed
-    // contained in `origin/<main>` — never on `no` or `unknown` — so a merge of
-    // some other branch gets no such pass.
-    const mergeParentsRead = await refs.mergeParents();
-    const mergeParentShas = mergeParentsRead.ok ? mergeParentsRead.value : [];
-    if (mergeParentShas.length > 0) {
-      const containments = await Promise.all(mergeParentShas.map((sha) => refs.contains(sha, mainRef)));
-      if (containments.every((containment) => containment.ok && containment.value === 'yes')) {
-        const entries = await refs.stagedEntries();
-        const blobs = entries.ok
-          ? entries.value.filter((entry) => entry.status !== 'deleted').map((entry) => ({ path: entry.path, sha: entry.indexSha }))
-          : [];
-        const atMergeHeads = await Promise.all(
-          mergeParentShas.map(async (sha) => {
-            const read = await refs.entriesAt(sha, blobs.map((blob) => blob.path));
-            return read.ok ? read.value : {};
-          }),
-        );
-        const drop = new Set(mergeOwnPathsOf(blobs, atMergeHeads));
-        if (drop.size > 0) paths = paths.filter((path) => !drop.has(path));
+      const scripts = scriptsShell({ repoRoot: root, scriptDir });
+      const planDirRead = await scripts.config('Plan directory', 'docs/plans/');
+      const storyDirRead = await scripts.config('Story directory', 'docs/stories/');
+      const prefixRead = await scripts.config('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/');
+      if (!planDirRead.ok || !storyDirRead.ok || !prefixRead.ok) {
+        throw new Error('the Plan directory, Story directory or Branch prefixes config read failed');
       }
-    }
+      const homes = {
+        planDir: planDirRead.value.trim().replace(/\/+$/, ''),
+        storyDir: storyDirRead.value.trim().replace(/\/+$/, ''),
+      };
 
-    let hold: string | null = null;
-    try {
-      hold = readFileSync(join(root.value, '.plot', 'hold'), 'utf8');
-    } catch {
-      // No hold file holds nothing.
-    }
-    const held = holdRefusal({ branch, hold, paths, ...homes });
-    if (held !== null) return held;
+      const own = calls.find((call) => call.placed && rootByDir.get(call.dir) === root);
+      const commitArgs = own === undefined ? null : own.args;
+      const staged = await refs.stagedPaths();
+      const workingChanges = await refs.workingChanges();
+      const showPrefix = await refs.showPrefix();
+      let paths = (
+        staged.ok
+          ? effectivePaths(
+              {
+                staged: staged.value.map((entry) => entry.path),
+                workingChanges: workingChanges.ok ? workingChanges.value : [],
+                showPrefix: showPrefix.ok ? showPrefix.value : '',
+              },
+              command,
+              commitArgs,
+              (dir) => rootByDir.get(dir) === root,
+            )
+          : []
+      ).map((entry) => entry.path);
 
-    const slug = slugOfBranch(branch, implementationPrefixesOf(prefixRead.value));
-    if (slug === null || !paths.some((path) => outsidePlanDir(path, homes.planDir))) return null;
+      const mainRead = await scripts.config('Main branch', '');
+      let main = mainRead.ok ? mainRead.value.trim() : '';
+      if (main === '') {
+        const head = await refs.defaultBranch();
+        main = head.ok && head.value.trim() !== '' ? head.value.trim() : 'main';
+      }
+      const mainRef = `origin/${main}`;
 
-    let ref = mainRef;
-    const mainTip = await refs.resolve(`${ref}^{commit}`);
-    if (!mainTip.ok) {
-      process.stderr.write(`${unreadableRefNote(ref)}\n`);
-      return null;
-    }
+      // Completing a conflicted `git merge origin/<main>` stages every path the
+      // merge resolved, including every path main touched that the branch never
+      // did; those are not the branch's own and must not trip the checks below.
+      // The carve-out runs only once every `MERGE_HEAD` commit is confirmed
+      // contained in `origin/<main>` — never on `no` or `unknown` — so a merge of
+      // some other branch gets no such pass.
+      const mergeParentsRead = await refs.mergeParents();
+      const mergeParentShas = mergeParentsRead.ok ? mergeParentsRead.value : [];
+      if (mergeParentShas.length > 0) {
+        const containments = await Promise.all(mergeParentShas.map((sha) => refs.contains(sha, mainRef)));
+        if (containments.every((containment) => containment.ok && containment.value === 'yes')) {
+          const entries = await refs.stagedEntries();
+          const blobs = entries.ok
+            ? entries.value.filter((entry) => entry.status !== 'deleted').map((entry) => ({ path: entry.path, sha: entry.indexSha }))
+            : [];
+          const atMergeHeads = await Promise.all(
+            mergeParentShas.map(async (sha) => {
+              const read = await refs.entriesAt(sha, blobs.map((blob) => blob.path));
+              return read.ok ? read.value : {};
+            }),
+          );
+          const drop = new Set(mergeOwnPathsOf(blobs, atMergeHeads));
+          if (drop.size > 0) paths = paths.filter((path) => !drop.has(path));
+        }
+      }
 
-    // `ls-tree` reads its pathspec against the cwd, so the plan is listed
-    // from the repository root: a commit run from a subdirectory reads the
-    // same plan directory as one run from the top.
-    const atRoot = refsGit({ repoRoot: root.value, scriptDir });
-    const planOn = async (at: string): Promise<string | null> => {
-      const tip = await refs.resolve(`${at}^{commit}`);
-      if (!tip.ok) return null;
-      const blobs = await atRoot.listBlobs(at, `${homes.planDir}/`);
-      return blobs.ok ? planPathFor(blobs.value.map((blob) => blob.path), homes.planDir, slug) : null;
-    };
-    let planPath = await planOn(ref);
-    if (planPath === null) {
-      planPath = await planOn(`origin/${branch}`);
+      let hold: string | null = null;
+      try {
+        hold = readFileSync(join(root, '.plot', 'hold'), 'utf8');
+      } catch {
+        // No hold file holds nothing.
+      }
+      const held = holdRefusal({ branch, hold, paths, ...homes });
+      if (held !== null) return held;
+
+      const slug = slugOfBranch(branch, implementationPrefixesOf(prefixRead.value));
+      if (slug === null || !paths.some((path) => outsidePlanDir(path, homes.planDir))) continue;
+
+      let ref = mainRef;
+      const mainTip = await refs.resolve(`${ref}^{commit}`);
+      if (!mainTip.ok) {
+        process.stderr.write(`${unreadableRefNote(ref)}\n`);
+        continue;
+      }
+
+      // `ls-tree` reads its pathspec against the cwd, so the plan is listed
+      // from the repository root: a commit run from a subdirectory reads the
+      // same plan directory as one run from the top.
+      const atRoot = refsGit({ repoRoot: root, scriptDir });
+      const planOn = async (at: string): Promise<string | null> => {
+        const tip = await refs.resolve(`${at}^{commit}`);
+        if (!tip.ok) return null;
+        const blobs = await atRoot.listBlobs(at, `${homes.planDir}/`);
+        return blobs.ok ? planPathFor(blobs.value.map((blob) => blob.path), homes.planDir, slug) : null;
+      };
+      let planPath = await planOn(ref);
       if (planPath === null) {
-        let local: string[] = [];
-        try {
-          local = readdirSync(join(root.value, homes.planDir)).map((name) => `${homes.planDir}/${name}`);
-        } catch {
-          // No plan directory: no local plan.
+        planPath = await planOn(`origin/${branch}`);
+        if (planPath === null) {
+          let local: string[] = [];
+          try {
+            local = readdirSync(join(root, homes.planDir)).map((name) => `${homes.planDir}/${name}`);
+          } catch {
+            // No plan directory: no local plan.
+          }
+          if (planPathFor(local, homes.planDir, slug) !== null) {
+            process.stderr.write(`${unpushedPlanNote(slug, ref, branch)}\n`);
+          }
+          continue;
         }
-        if (planPathFor(local, homes.planDir, slug) !== null) {
-          process.stderr.write(`${unpushedPlanNote(slug, ref, branch)}\n`);
-        }
-        return null;
+        ref = `origin/${branch}`;
       }
-      ref = `origin/${branch}`;
-    }
 
-    const text = await refs.showFile(ref, planPath);
-    if (!text.ok) return null;
-    const phase = planPhaseOf(text.value);
-    // Only a Design plan can admit a branch, so only then is the plan parsed.
-    const spikeBranch = phase === 'design' ? await approvedSpikeOf(text.value, planPath, cwd, scriptDir) : '';
-    return phaseGateRefusal({ branch, slug, ref, phase, paths, planDir: homes.planDir, spikeBranch });
+      const text = await refs.showFile(ref, planPath);
+      if (!text.ok) continue;
+      const phase = planPhaseOf(text.value);
+      // Only a Design plan can admit a branch, so only then is the plan parsed.
+      const spikeBranch = phase === 'design' ? await approvedSpikeOf(text.value, planPath, root, scriptDir) : '';
+      const refusal = phaseGateRefusal({ branch, slug, ref, phase, paths, planDir: homes.planDir, spikeBranch });
+      if (refusal !== null) return refusal;
+    }
+    return null;
   },
   onError: 'allow',
 };

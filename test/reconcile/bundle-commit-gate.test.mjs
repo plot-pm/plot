@@ -131,7 +131,7 @@ test('bundle-commit gate: a repository with no build.mjs allows a staged bundle'
   assert.equal(r.status, 0, `no build.mjs means no generated set (stderr: ${r.stderr})`);
 });
 
-test('bundle-commit gate: a command with no "git commit" is ignored', () => {
+test('bundle-commit gate: a command that makes no commit is ignored', () => {
   const { dir } = repo({ files: { 'skills/plot/scripts/board/board-server.mjs': 'rebuilt locally\n' } });
   const r = run(dir, 'git status');
   assert.equal(r.status, 0);
