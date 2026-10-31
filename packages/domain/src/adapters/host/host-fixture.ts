@@ -100,6 +100,10 @@ export interface HostFixture {
    * Default is to succeed.
    */
   prReadyFails?: boolean;
+  /** Where every `prClose` call is recorded, in call order. */
+  closed?: number[];
+  /** Whether `prClose` fails. Default is to succeed. */
+  prCloseFails?: boolean;
 }
 
 /**
@@ -220,6 +224,12 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
       // test proving a second call asks nothing must still see the attempt.
       readied.push(pr);
       if (fixture.prReadyFails === true) return failed();
+      return answered(undefined);
+    },
+
+    prClose: async (pr: number): Promise<PortResult<void>> => {
+      (fixture.closed ??= []).push(pr);
+      if (fixture.prCloseFails === true) return failed();
       return answered(undefined);
     },
 

@@ -130,6 +130,24 @@ export const RepairRecordSchema = z
     repairPr: z.number().optional(),
     /** The revert PR's number, or absent where none was opened. */
     revertPr: z.number().optional(),
+    /** The PR the revert reverts, recorded when the revert is picked; absent before. */
+    revertedPr: z.number().optional(),
+    /** The reverted PR's head branch, as the host listed it; absent where it was not read. */
+    revertedBranch: z.string().optional(),
+    /**
+     * The plan file whose slices name `revertedBranch`, `''` where no plan
+     * names it, or absent where the plans were not read.
+     */
+    revertedPlan: z.string().optional(),
+    /**
+     * This machine's claim of the revert branch: `won` before the desk is
+     * made, so a later pass makes it without a second claim; `lost` where
+     * another machine holds the branch, which ends this machine's revert for
+     * the episode. Absent before the claim.
+     */
+    // plot-state: reading — the outcome of this machine's one claim push for the
+    //                       revert branch, written once; read on every pass.
+    revertClaim: z.enum(['won', 'lost']).optional(),
     /** When fleetd wrote the file, ISO-8601. */
     at: z.string(),
   })

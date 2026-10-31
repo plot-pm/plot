@@ -1074,6 +1074,15 @@ test('host: pr-body github maps to gh pr edit --body', () => {
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'edit', '4', '--body', 'new text']);
 });
 
+test('host: pr-close maps to gh pr close on github and bb pr close on bitbucket', () => {
+  const gh = makeStubs();
+  run(['pr-close', '4'], { env: { PLOT_HOST: 'github' }, stubs: gh });
+  assert.deepEqual(argvOf(gh.ghArgv), ['pr', 'close', '4']);
+  const bb = makeStubs();
+  run(['pr-close', '4'], { env: { PLOT_HOST: 'bitbucket' }, stubs: bb });
+  assert.deepEqual(argvOf(bb.bbArgv), ['pr', 'close', '4']);
+});
+
 // --- pr-list --rich: check state for the agent view ------------------------
 //
 // The board needs to tell "a person is the blocker" from "a machine is busy".
@@ -5458,6 +5467,42 @@ test('host: runs-for-sha prints every run for the sha, not the first, from one l
   const calls = readFileSync(stubs.callsFile, 'utf8').trim().split('\n');
   assert.equal(calls.length, 1, `one listing call and no gh run view\n${calls.join('\n')}`);
   assert.match(calls[0], /^run list /);
+});
+
+// A `gh` stub that applies `run list`'s own `--jq` filter, so the ids the
+// re-run ops pick are the ids the real CLI would hand them.
+const makeRerunStub = (listJson) => {
+  const stubs = makeRunForShaStub({ listJson });
+  const q = (v) => String(v).replace(/'/g, `'\\''`);
+  writeFileSync(path.join(stubs.dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${stubs.callsFile}"
+if [ "$1 $2" = "run list" ]; then
+  while [ $# -gt 0 ]; do [ "$1" = --jq ] && { printf '%s' '${q(listJson)}' | jq -r "$2"; exit; }; shift; done
+fi
+exit 0
+`);
+  return stubs;
+};
+
+test('host: rerun-all re-runs every run of the sha in full, whatever each concluded', () => {
+  const stubs = makeRerunStub(THREE_WORKFLOWS);
+  run(['rerun-all', 'main', 'abc123'], { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  const reruns = callsOf(stubs.callsFile).filter((c) => c.startsWith('run rerun'));
+  assert.deepEqual(reruns, ['run rerun 1', 'run rerun 2', 'run rerun 3']);
+});
+
+test('host: rerun-all fails, not unaskable, where no run matches the sha', () => {
+  const stubs = makeRerunStub(THREE_WORKFLOWS);
+  const res = runAllowFail(['rerun-all', 'main', 'nosuchsha'], { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  assert.equal(res.code, 1);
+  assert.deepEqual(callsOf(stubs.callsFile).filter((c) => c.startsWith('run rerun')), []);
+});
+
+test('host: rerun-failed re-runs only the failed jobs of the sha\'s failed runs', () => {
+  const stubs = makeRerunStub(THREE_WORKFLOWS);
+  run(['rerun-failed', 'main', 'abc123'], { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  const reruns = callsOf(stubs.callsFile).filter((c) => c.startsWith('run rerun'));
+  assert.deepEqual(reruns, ['run rerun 2 --failed']);
 });
 
 test('host: runs-for-sha answers [] at exit 0 when the host holds no run for the sha', () => {

@@ -135,6 +135,20 @@ export interface BuildPort {
   rerunFailed(branch: string, sha: string): Promise<PortResult<null>>;
 
   /**
+   * Re-runs every job of every run for ONE commit, whatever each concluded.
+   *
+   * A WRITE, asked once per episode, like {@link rerunFailed}. A re-run run
+   * reports the new attempt's `startedAt` through {@link runsForSha}.
+   *
+   * @param branch - the branch the runs belong to.
+   * @param sha - the commit whose runs are re-run.
+   * @returns `answered` with nothing once the host accepted every re-run;
+   *   `unaskable` where there is no CI to ask or the connector has no arm for
+   *   the write; `failed` where the host refused one.
+   */
+  rerunAll(branch: string, sha: string): Promise<PortResult<null>>;
+
+  /**
    * What is this connector's limit, and how well does it know it?
    *
    * ITS OWN, and that is why the operation is here rather than borrowed from

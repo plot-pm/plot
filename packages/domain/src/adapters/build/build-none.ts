@@ -34,6 +34,7 @@ export const buildNone = (): BuildPort => ({
   runForSha: async (): Promise<PortResult<ShaRun | null>> => unaskable(),
   runsForSha: async (): Promise<PortResult<readonly WorkflowShaRun[]>> => unaskable(),
   rerunFailed: async (): Promise<PortResult<null>> => unaskable(),
+  rerunAll: async (): Promise<PortResult<null>> => unaskable(),
   limit: async (): Promise<PortResult<readonly LimitReading[]>> => unaskable(),
   // NEVER A REFUSAL. A CI system nobody declared is not refusing anything; it is
   // answering, permanently and correctly, that there is nothing to ask.

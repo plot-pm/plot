@@ -234,6 +234,7 @@ export {
   type AgentsFixture,
 } from './agents/agents-fixture.js';
 
+export { revertGit } from './revert/revert-git.js';
 export { treesGit } from './trees/trees-git.js';
 export { treesFixture, type TreesFixture } from './trees/trees-fixture.js';
 

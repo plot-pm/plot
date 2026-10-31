@@ -37,6 +37,64 @@ export const rerunSettledOf = (
 };
 
 /**
+ * Reads the last green SHA's pre-revert re-run as `redMainStep`'s
+ * `lastGreenRerunSettled` input.
+ *
+ * Reads only the new attempt. The last green SHA's own runs concluded before
+ * the episode opened, so a declared run whose `startedAt` is not after
+ * `record.redSince` is the old attempt, and the answer stays `pending` until
+ * every declared run reports a newer start.
+ *
+ * @param record - the repair record.
+ * @param runs - every workflow run of `record.lastGreenSha`, or null where the CI system did not answer.
+ * @param checks - the declared workflow names, from `checkNamesOf`.
+ * @param now - the current time, as epoch milliseconds.
+ * @returns `none` while no re-run is asked; `pending` inside {@link RERUN_GRACE_MS} of
+ *   the ask, with no answer from CI, while any declared run is the old attempt, or
+ *   while any run is unconcluded; `red` or `green` as the new attempt's runs fold.
+ */
+export const lastGreenRerunSettledOf = (
+  record: RepairRecord,
+  runs: readonly WorkflowShaRun[] | null,
+  checks: readonly string[],
+  now: number,
+): 'pending' | 'green' | 'red' | 'none' => {
+  if (record.preRevertRerun === 'none') return 'none';
+  const askedAt = Date.parse(record.at);
+  if (Number.isNaN(askedAt) || now - askedAt < RERUN_GRACE_MS || runs === null) return 'pending';
+  const since = Date.parse(record.redSince);
+  const declared = declaredRuns(runs, checks);
+  if (declared.some((run) => !(Date.parse(run.startedAt) > since))) return 'pending';
+  const state = foldRuns(declared);
+  return state === 'red' || state === 'green' ? state : 'pending';
+};
+
+/**
+ * Whether the pre-revert re-run of the last green SHA is past its bound.
+ *
+ * The re-run has `Checks wait` from the moment the repair bound passes to be
+ * asked and to settle. Past that, the episode ends at `exhausted`: a re-run
+ * that matched no run, a CI system that cannot re-run, or runs that left the
+ * CI listing would otherwise hold the episode with no end.
+ *
+ * @param record - the repair record.
+ * @param now - the current time, as epoch milliseconds.
+ * @param mainRepairBoundMs - the `Main repair bound`, in milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns true at or after `redSince + mainRepairBoundMs + checksWaitMs`;
+ *   false before it, or where `redSince` does not parse.
+ */
+export const lastGreenRerunOverdue = (
+  record: RepairRecord,
+  now: number,
+  mainRepairBoundMs: number,
+  checksWaitMs: number,
+): boolean => {
+  const since = Date.parse(record.redSince);
+  return !Number.isNaN(since) && now >= since + mainRepairBoundMs + checksWaitMs;
+};
+
+/**
  * The `main-repair` role's run for the attempt's branch on this machine.
  *
  * `none` where no run of the branch started in this episode; `alive` while its

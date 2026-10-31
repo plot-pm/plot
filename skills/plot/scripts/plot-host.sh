@@ -127,11 +127,12 @@
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
+#                                 merge the PR. --match-head is
 #                                 mandatory on every backend. bitbucket
 #                                 re-reads the head before merging; a
 #                                 mismatch refuses `head-moved` (exit 1).
 #   pr-ready <number>              take a PR out of draft
-#                                 merge the PR
+#   pr-close <number>              close a PR unmerged (bitbucket: decline)
 #   pr-list [--state open|merged|closed|all|settled] [--limit N] [--rich|--rich-open]
 #                                 settled is merged+declined on bitbucket (no
 #                                 open sweep) and --state all on github, which
@@ -3955,6 +3956,8 @@ be="$(backend)" || exit $?
 # emptiness is the honest value — there is no route where there is no fork.
 route=""
 [ "$be" = "github" ] && route="$(gh_route "$op")"
+# THE HOST CLI FOR OPS WHOSE TWO ARMS DIFFER ONLY IN ITS NAME.
+cli=gh; [ "$be" = "github" ] || cli=bb
 
 case "$op" in
   backend)
@@ -4458,21 +4461,24 @@ case "$op" in
     fi
     ;;
 
-  pr-ready)
-    # TAKE A PR OUT OF DRAFT. One call, and the ONE place that talks to the host
-    # CLI keeps that property — `plot-approve.sh` needs this before it merges,
-    # and reaching for `gh` there would put a second host caller in the estate.
+  pr-ready|pr-close)
+    # TAKE A PR OUT OF DRAFT (`pr-ready`) OR CLOSE IT WITHOUT MERGING (`pr-close`;
+    # `bb pr close` declines). One call each, and the ONE place that talks to the
+    # host CLI keeps that property — `plot-approve.sh` needs the first before it
+    # merges, and the repair arm closes the fix and revert PRs of an episode with
+    # the second; reaching for `gh` there would put a second host caller in the
+    # estate.
     #
     # Bitbucket's support depends on the bb CLI version (see the caveat list at
     # the top of this file, which already names `--draft`/`--ready`), so a
     # failure here surfaces as the CLI's own message rather than being
     # swallowed: the caller must be able to tell *the host refused* from *the
-    # PR is now ready*.
-    num="${1:?pr-ready needs a PR number}"; shift
-    if [ "$be" = "github" ]; then
-      gh pr ready "$num"
-    else
+    # PR is now ready or closed*.
+    num="${1:?$op needs a PR number}"
+    if [ "$op" = "pr-ready" ] && [ "$cli" = "bb" ]; then
       bb pr update "$num" --ready
+    else
+      "$cli" pr "${op#pr-}" "$num"
     fi
     ;;
 
@@ -5199,14 +5205,21 @@ case "$op" in
       '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, startedAt, completedAt, steps: [(.steps // [])[].conclusion]}]}' || exit 4
     ;;
 
-  rerun-failed)
-    # Re-runs the failed jobs of every concluded-red run for ONE sha. Exit 4
-    # is *cannot be asked*: any CI but GitHub Actions on GitHub, and a failing `gh`.
+  rerun-failed|rerun-all)
+    # `rerun-failed` re-runs the failed jobs of every concluded-red run for ONE
+    # sha; `rerun-all` re-runs every job of every run for it, whatever each
+    # concluded. GitHub resets a re-run run's `startedAt` to the new attempt.
+    # Exit 4 is *cannot be asked*: any CI but GitHub Actions on GitHub, and a
+    # failing `gh`. Exit 1 is `rerun-all` matching no run for the sha: nothing
+    # was re-run, so a caller waiting for a new attempt would wait forever.
     branch="${1:?$op needs a branch}"; sha="${2:?$op needs a sha}"
     [ "$(ci_scheme)" = github-actions ] && [ "$be" = github ] || exit 4
+    # Empty for `rerun-all`; non-empty, and so `--failed` below, for `rerun-failed`.
+    _failed_only=${op#rerun-all}
     _ids=$(gh run list --branch "$branch" --limit 50 --json headSha,conclusion,databaseId \
-      --jq ".[] | select(.headSha == \"$sha\" and .conclusion == \"failure\") | .databaseId" 2>/dev/null) || exit 4
-    for _id in $_ids; do gh run rerun "$_id" --failed >/dev/null 2>&1 || exit 4; done
+      --jq ".[] | select(.headSha == \"$sha\" and (\"$_failed_only\" == \"\" or .conclusion == \"failure\")) | .databaseId" 2>/dev/null) || exit 4
+    [ -n "$_ids$_failed_only" ] || exit 1
+    for _id in $_ids; do gh run rerun "$_id" ${_failed_only:+--failed} >/dev/null 2>&1 || exit 4; done
     ;;
 
   issue-list)
@@ -5569,7 +5582,7 @@ case "$op" in
     # exit codes are deliberately THE SAME ONES — a consumer that already maps
     # 4 to `unsupported` and anything else to `failed` must not need a second
     # table to read this op.
-    num="${1:?issue-view needs an issue number}"; shift
+    num="${1:?issue-view needs an issue number}"
     # Asked once, before the arms, exactly as issue-list does — the same
     # question with the same three answers and the same exit codes. A consumer
     # that maps 4 to `unsupported` needs no second table to read this op.
@@ -5784,11 +5797,7 @@ case "$op" in
       esac
     done
     [ -n "$body" ] || die "pr-body needs --body"
-    if [ "$be" = "github" ]; then
-      gh pr edit "$num" --body "$body"
-    else
-      bb pr edit "$num" --body "$body"
-    fi
+    "$cli" pr edit "$num" --body "$body"
     ;;
 
   rate-limit)

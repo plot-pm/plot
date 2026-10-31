@@ -201,6 +201,9 @@ export const buildReads = (shell: BuildShell, env: Readonly<Record<string, strin
     rerunFailed: (branch: string, sha: string): Promise<PortResult<null>> =>
       ask(['rerun-failed', branch, sha], () => null),
 
+    rerunAll: (branch: string, sha: string): Promise<PortResult<null>> =>
+      ask(['rerun-all', branch, sha], () => null),
+
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
       const readings = await ask(['ci-limit'], (stdout) =>
         asJsonLines<RawLimit>(stdout).map(limitOf),
