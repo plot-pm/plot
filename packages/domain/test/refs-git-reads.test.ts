@@ -225,6 +225,12 @@ describe('refsGit: the tree and file readings the board renders from', () => {
     if (changed.ok) expect(changed.value).toContain('docs/plans/b.md');
   });
 
+  it('reports the files a branch changed against a named default branch', async () => {
+    const changed = await refs().changedFiles('feature/ahead', 'main');
+    expect(changed.ok).toBe(true);
+    if (changed.ok) expect(changed.value).toContain('docs/plans/b.md');
+  });
+
   it('names the repository root', async () => {
     const root = await refs().repoRoot();
     expect(root.ok).toBe(true);
@@ -565,6 +571,56 @@ describe('refsGit: the merge-subject readings', () => {
     expect(await subjects().contains(merge, added)).toEqual({ ok: true, value: 'no' });
     expect(await subjects().contains(added, merge)).toEqual({ ok: true, value: 'yes' });
     expect(await subjects().contains('no-such-commit', merge)).toEqual({ ok: true, value: 'unknown' });
+  });
+
+  it('answers many containments in one call, each equal to the single answer', async () => {
+    const merge = sha('origin/main');
+    const added = sha('added');
+    const pairs = [
+      { ancestor: merge, descendant: added },
+      { ancestor: added, descendant: merge },
+      { ancestor: 'no-such-commit', descendant: merge },
+      { ancestor: sha('feature/one'), descendant: 'origin/main' },
+      { ancestor: merge, descendant: 'no-such-commit' },
+    ];
+    const many = await subjects().containsMany(pairs);
+    expect(many).toEqual({ ok: true, value: ['no', 'yes', 'unknown', 'yes', 'unknown'] });
+    for (const [at, pair] of pairs.entries()) {
+      const one = await subjects().contains(pair.ancestor, pair.descendant);
+      expect(many.ok && many.value[at]).toBe(one.ok && one.value);
+    }
+  });
+
+  it('answers an empty batch with an empty answer', async () => {
+    expect(await subjects().containsMany([])).toEqual({ ok: true, value: [] });
+  });
+
+  it('answers unknown, never no, for every pair of a repository with a replace ref', async () => {
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-replace-'));
+    try {
+      execFileSync('git', ['clone', '--quiet', estate, copy]);
+      git(copy, ['replace', sha('added'), sha('added^1')]);
+      const refused = await refsGit({ repoRoot: copy, scriptDir: path.join(copy, 'scripts') }).containsMany([
+        { ancestor: sha('added'), descendant: sha('origin/main') },
+        { ancestor: sha('origin/main'), descendant: sha('added') },
+      ]);
+      expect(refused).toEqual({ ok: true, value: ['unknown', 'unknown'] });
+    } finally {
+      fs.rmSync(copy, { recursive: true, force: true });
+    }
+  });
+
+  it('answers unknown for every pair of a shallow repository', async () => {
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-shallow-'));
+    try {
+      execFileSync('git', ['clone', '--quiet', '--depth=1', `file://${estate}`, copy]);
+      const refused = await refsGit({ repoRoot: copy, scriptDir: path.join(copy, 'scripts') }).containsMany([
+        { ancestor: sha('added'), descendant: sha('origin/main') },
+      ]);
+      expect(refused).toEqual({ ok: true, value: ['unknown'] });
+    } finally {
+      fs.rmSync(copy, { recursive: true, force: true });
+    }
   });
 
   it('walks the first-parent line, newest first, without the merged branch', async () => {

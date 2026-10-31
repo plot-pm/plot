@@ -418,8 +418,8 @@ export const refsGit = (context: ShellContext): Refs => {
             inRepo,
           ),
 
-    changedFiles: async (branch) => {
-      const main = await defaultBranch();
+    changedFiles: async (branch, against) => {
+      const main = against === undefined ? await defaultBranch() : answered(against);
       if (!main.ok) return main as PortResult<readonly string[]>;
       return runScript(
         'git',
@@ -802,6 +802,63 @@ export const refsGit = (context: ShellContext): Refs => {
       if (run.code === 0) return answered<Containment>('yes');
       if (run.code === 1) return answered<Containment>('no');
       return answered<Containment>('unknown');
+    },
+
+    containsMany: async (pairs): Promise<PortResult<readonly Containment[]>> => {
+      if (pairs.length === 0) return answered<readonly Containment[]>([]);
+      const unknowns = pairs.map((): Containment => 'unknown');
+      // A SHALLOW CHECKOUT OR A REWRITTEN GRAPH REFUSES THE WHOLE BATCH, and the
+      // refusal answers `unknown` — a walk over history git cannot see would
+      // answer `no` for a commit that is contained.
+      const shallow = await runProcess('git', ['rev-parse', '--is-shallow-repository'], inRepo);
+      if (shallow.code !== 0) return failed<readonly Containment[]>();
+      if (shallow.stdout.trim() !== 'false') return answered(unknowns);
+      const replaced = await runProcess('git', ['for-each-ref', '--count=1', 'refs/replace'], inRepo);
+      if (replaced.code !== 0) return failed<readonly Containment[]>();
+      if (replaced.stdout.trim() !== '') return answered(unknowns);
+
+      // ONE READ NAMES EVERY REVISION: a revision this checkout lacks prints
+      // `<rev> missing` on its own line and does not stop the rest.
+      const revs = [...new Set(pairs.flatMap((p) => [p.ancestor, p.descendant]))];
+      const named = await runBytes(
+        'git',
+        ['cat-file', '--batch-check'],
+        revs.map((rev) => `${rev}^{commit}`).join('\n') + '\n',
+        { ...inRepo, maxBuffer: BATCH_MAX_BUFFER },
+      );
+      if (named.code !== 0) return failed<readonly Containment[]>();
+      const lines = named.stdout.toString('utf8').split('\n').filter((line) => line !== '');
+      if (lines.length !== revs.length) return failed<readonly Containment[]>();
+      const shaOf = new Map<string, string>();
+      lines.forEach((line, at) => {
+        const [sha, type] = line.split(' ');
+        if (type === 'commit' && sha !== undefined) shaOf.set(revs[at]!, sha);
+      });
+
+      // ONE WALK PER DISTINCT DESCENDANT, not per pair: the walk lists every
+      // commit the descendant reaches, and each ancestor is a set lookup.
+      const reach = new Map<string, Set<string>>();
+      for (const rev of new Set(pairs.map((p) => p.descendant))) {
+        const sha = shaOf.get(rev);
+        if (sha === undefined || reach.has(sha)) continue;
+        // plot-ancestry: evidence — the same question as `contains` above, asked
+        // for a list; the caller decides what containment means and reads
+        // `unknown` as proving nothing.
+        const walk = await runBytes('git', ['rev-list', '--end-of-options', sha], '', {
+          ...inRepo,
+          maxBuffer: BATCH_MAX_BUFFER,
+        });
+        if (walk.code !== 0) return failed<readonly Containment[]>();
+        reach.set(sha, new Set(walk.stdout.toString('utf8').split('\n')));
+      }
+      return answered(
+        pairs.map(({ ancestor, descendant }): Containment => {
+          const a = shaOf.get(ancestor);
+          const d = shaOf.get(descendant);
+          if (a === undefined || d === undefined) return 'unknown';
+          return reach.get(d)?.has(a) === true ? 'yes' : 'no';
+        }),
+      );
     },
 
     firstParentLine: (sha, max) =>

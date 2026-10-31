@@ -151,7 +151,7 @@ export interface RefsFixture {
    */
   ancestry?: Readonly<Record<string, Containment>>;
   /** The operations that fail on this estate, by port member name. */
-  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'commitSubjects')[];
+  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'containsMany' | 'commitSubjects')[];
   /**
    * The branches whose `remoteHead` call fails, answering `unknown`.
    *
@@ -199,9 +199,13 @@ const matchesRef = (pattern: string, branch: string): boolean => {
   const prefix = 'refs/remotes/origin/';
   if (!pattern.startsWith(prefix)) return false;
   const wanted = pattern.slice(prefix.length);
-  return wanted.endsWith('*')
-    ? branch.startsWith(wanted.slice(0, -1))
-    : branch === wanted;
+  // As git matches: a trailing `/` is a prefix, a trailing `*` stops at a `/`.
+  if (wanted === '' || wanted.endsWith('/')) return branch.startsWith(wanted);
+  if (wanted.endsWith('*')) {
+    const head = wanted.slice(0, -1);
+    return branch.startsWith(head) && !branch.slice(head.length).includes('/');
+  }
+  return branch === wanted;
 };
 
 /**
@@ -466,6 +470,13 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       failing.has('contains')
         ? failed<Containment>()
         : answered<Containment>(ancestry[`${ancestor} ${descendant}`] ?? 'unknown'),
+
+    containsMany: async (pairs) =>
+      failing.has('containsMany')
+        ? failed<readonly Containment[]>()
+        : answered<readonly Containment[]>(
+            pairs.map((p) => ancestry[`${p.ancestor} ${p.descendant}`] ?? 'unknown'),
+          ),
 
     remoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> =>
       unknownRemoteHead.has(branch)
