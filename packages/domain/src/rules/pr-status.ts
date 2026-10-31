@@ -110,9 +110,51 @@ export interface PrStatusInput {
   nextInSeconds: number | null;
   /** How many spenders the budget record accounts for, or null where it cannot say. */
   spenders: number | null;
-  /** The refresh interval the age is measured against, in seconds. */
+  /**
+   * The ordinary refresh interval, in seconds: the age limit's unit where no
+   * read is scheduled, and the grace past a scheduled read where it is longer
+   * than {@link PR_OVERDUE_GRACE_SECONDS}.
+   */
   intervalSeconds: number;
+  /**
+   * Seconds the next scheduled read is past due, 0 while it is still ahead.
+   * Null or absent where no schedule is known, or where the schedule is a
+   * host backoff: the age is then measured against the interval.
+   */
+  overdueSeconds?: number | null;
 }
+
+/**
+ * The beat a PR reader asks its cadence gate on, in milliseconds: fleetd's
+ * clock, the standalone PR reader and a board each run one PR pass per beat.
+ * A read that falls due between two beats starts on the next beat.
+ */
+export const PR_READ_BEAT_MS = 60_000;
+
+/**
+ * What one PR pass may take on a loaded fleetd, from its beat to the
+ * published reader state, in milliseconds. fleetd's log on 2026-10-31 read
+ * `cost=29345ms..33897ms` per tick.
+ */
+export const PR_PASS_COST_MS = 35_000;
+
+/**
+ * How far past its schedule a healthy read can land as a board sees it, in
+ * seconds: one beat until the reader's gate opens, one pass, and one beat
+ * until a following board re-reads the reader state. 155 s.
+ */
+export const PR_OVERDUE_GRACE_SECONDS = (2 * PR_READ_BEAT_MS + PR_PASS_COST_MS) / 1000;
+
+/**
+ * Why a reading with no refusal counts as stale.
+ *
+ * `overdue`  the next scheduled read is past due by more than the grace:
+ *            {@link PR_OVERDUE_GRACE_SECONDS}, or the interval where that is
+ *            longer.
+ * `aged`     no schedule is known, and the data is older than twice the
+ *            interval.
+ */
+export type PrStaleness = 'overdue' | 'aged';
 
 /**
  * The decision the PR footer renders — level, cause, backoff end and notices,
@@ -135,6 +177,11 @@ export interface PrStatus {
   spenders: number | null;
   /** `plot-host`'s own notices, kept separate from `cause` for a diagnostics view. */
   notices: HostNotice[];
+  /**
+   * Why the data counts as stale, or null where it does not: a refusal, no
+   * data, or a read still on schedule.
+   */
+  stale: PrStaleness | null;
 }
 
 /**
@@ -149,8 +196,8 @@ export interface PrStatus {
  * is `error`, whatever the refusal, and so it is where the refusal names
  * missing credentials, whether or not data is on screen. With data on screen
  * and no missing credentials, any other refusal — a spent quota, a secondary
- * limit, or an outage — is `warning`, and so is a cache older than twice the
- * refresh interval. Everything else is `info`.
+ * limit, or an outage — is `warning`, and so is a stale cache (see
+ * {@link prStaleness}). Everything else is `info`.
  *
  * `backoffInSeconds` reads `input.nextInSeconds` for every refusal kind — a
  * secondary limit's gate ends in seconds, same as a spent quota's, and the
@@ -166,15 +213,48 @@ export const prStatus = (input: PrStatusInput): PrStatus => {
   const kind = refusalKind(remainder);
 
   const backoffInSeconds = kind === null ? null : input.nextInSeconds;
+  const credentialsMissing = missingCredentials(remainder);
+  const stale =
+    kind === null && !credentialsMissing && input.ageSeconds !== null
+      ? prStaleness(input.ageSeconds, input.intervalSeconds, input.overdueSeconds ?? null)
+      : null;
 
   return {
-    level: prStatusLevel(kind, input.ageSeconds, input.intervalSeconds, missingCredentials(remainder)),
+    level: prStatusLevel(kind, input.ageSeconds, input.intervalSeconds, credentialsMissing, input.overdueSeconds ?? null),
     kind,
     cause: kind === null ? null : remainder,
     backoffInSeconds,
     spenders: kind === 'secondary' ? input.spenders : null,
     notices,
+    stale,
   };
+};
+
+/**
+ * Whether data on screen with no refusal is stale, and why.
+ *
+ * With a known schedule, the data is stale only when the next scheduled read
+ * is overdue by more than {@link PR_OVERDUE_GRACE_SECONDS}, or by more than
+ * one interval where the interval is longer: a read the reader stretched for
+ * the account's spend is on schedule however old the data is. With no
+ * schedule known, the data is stale when it is older than twice the interval.
+ *
+ * @param ageSeconds - seconds since the data on screen was read.
+ * @param intervalSeconds - the ordinary refresh interval.
+ * @param overdueSeconds - seconds the next scheduled read is past due (0 while
+ *   it is ahead), or null where no schedule is known.
+ * @returns `overdue`, `aged`, or null where the data is not stale.
+ */
+export const prStaleness = (
+  ageSeconds: number,
+  intervalSeconds: number,
+  overdueSeconds: number | null,
+): PrStaleness | null => {
+  if (intervalSeconds <= 0) return null;
+  if (overdueSeconds !== null) {
+    return overdueSeconds > Math.max(intervalSeconds, PR_OVERDUE_GRACE_SECONDS) ? 'overdue' : null;
+  }
+  return ageSeconds > intervalSeconds * 2 ? 'aged' : null;
 };
 
 /**
@@ -187,19 +267,22 @@ export const prStatus = (input: PrStatusInput): PrStatus => {
  * @param credentialsMissing - whether the refusal names missing credentials.
  *   The plan table calls this `error` whether or not data is on screen, unlike
  *   every other refusal kind.
+ * @param overdueSeconds - seconds the next scheduled read is past due (0 while
+ *   it is ahead), or null where no schedule is known.
  * @returns `error` where no data has landed, or credentials are missing;
- *   `warning` where data is on screen and a refusal is present or the age
- *   exceeds twice the interval; `info` otherwise.
+ *   `warning` where data is on screen and a refusal is present or
+ *   {@link prStaleness} calls the data stale; `info` otherwise.
  */
 export const prStatusLevel = (
   kind: RefusalKind | null,
   ageSeconds: number | null,
   intervalSeconds: number,
   credentialsMissing = false,
+  overdueSeconds: number | null = null,
 ): PrStatusLevel => {
   if (ageSeconds === null) return 'error';
   if (credentialsMissing) return 'error';
   if (kind !== null) return 'warning';
-  if (intervalSeconds > 0 && ageSeconds > intervalSeconds * 2) return 'warning';
+  if (prStaleness(ageSeconds, intervalSeconds, overdueSeconds) !== null) return 'warning';
   return 'info';
 };

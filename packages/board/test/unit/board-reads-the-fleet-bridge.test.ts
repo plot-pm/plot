@@ -22,7 +22,7 @@ vi.mock('@plot-pm/domain', async (importOriginal) => {
   };
 });
 
-import { freshCacheEntry, maybeRefreshPrs, pulseFor, refresh, stopFleetRefresh } from '../../src/server/fleet.js';
+import { freshCacheEntry, maybeRefreshPrs, prOverdueSecondsFor, pulseFor, refresh, stopFleetRefresh } from '../../src/server/fleet.js';
 import { prIndexFile } from '@plot-pm/domain/adapters';
 
 // While a fleet runs it owns the scan: the board reads the pulse the fleet
@@ -260,6 +260,35 @@ describe('the PR reader while a fleet runs', () => {
     await refresh(opts, entry);
     await maybeRefreshPrs(opts, entry);
     expect(entry.prError).toBeNull();
+  });
+
+  // Issue #2843: the reader stretched its next read 7 min out, and the board
+  // judged the data stale against the ordinary 60 s.
+  it('reports the reader\'s own schedule as not overdue while the stretched read is ahead', async () => {
+    const { dir, opts } = fixture(true);
+    await seedStore(dir);
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const now = Date.now();
+    await opts.readerLock?.writeReaderState('github', {
+      v: READER_STATE_VERSION, prError: null, prNextAt: now + 420_000, prNextIsBackoff: false, prFullReadFailedAt: null, at: now,
+    });
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    await maybeRefreshPrs(opts, entry);
+    expect(entry.prNextScheduled).toBe(true);
+    expect(prOverdueSecondsFor(entry, now)).toBe(0);
+    expect(prOverdueSecondsFor(entry, now + 600_000)).toBe(180);
+  });
+
+  it('reports no schedule where the reader published none', async () => {
+    const { dir, opts } = fixture(true);
+    await seedStore(dir);
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    await maybeRefreshPrs(opts, entry);
+    expect(entry.prNextScheduled).toBe(false);
+    expect(prOverdueSecondsFor(entry, Date.now())).toBeNull();
   });
 
   it('names an unreadable index instead of leaving the reader looking healthy', async () => {
