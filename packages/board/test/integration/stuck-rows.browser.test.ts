@@ -493,7 +493,7 @@ describe('a stuck branch says so in its row', () => {
       expect(await row.locator('[data-stuck-cue]').count()).toBe(0);
       const text = await row.locator('[data-stuck]').innerText();
       expect(text).toContain(ARTIFACT);
-      expect(text).toMatch(/git checkout .*merge-base.* -- /);
+      expect(text).toMatch(/git restore .*merge-base.* -- /);
       expect(text).not.toMatch(/repair|rebuild|resolve/i);
     } finally {
       await page.close();

@@ -201,13 +201,13 @@ export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] 
     case 'artifact-conflict':
       // NAMES THE RESTORE COMMAND, and never the directory. A PR must never
       // carry a generated bundle (`check-no-bundle-diff.sh`), so this conflict
-      // is a committed rebuild and the fix is the merge-base checkout that
-      // gate's own refusal prints — one `git checkout <merge-base> -- <path>`
-      // per conflicting path, since `README.md` and `plot-monitor.mjs` sit
+      // is a committed rebuild and the fix is the restore the gate's own
+      // refusal prints — one `git restore --source=<merge base> -- <path>`
+      // per conflicting path, from the merge base the commit will have, since `README.md` and `plot-monitor.mjs` sit
       // beside the generated bundles and are not generated themselves.
       return stuck.conflicts.length > 0
         ? [`conflicting: ${stuck.conflicts.join(', ')}`,
-           'restore each from the merge base: git checkout "$(git merge-base HEAD origin/main)" -- <path>']
+           'restore each from the merge base the commit will have: git restore --staged --worktree --source="$(git merge-base origin/main HEAD MERGE_HEAD)" -- <path>']
         : ['the host reports this branch does not merge — no file list available'];
     case 'conflict':
       // The set travels with the answer so a reader can COUNT it rather than
