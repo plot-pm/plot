@@ -5,9 +5,12 @@ import {
   lifecycleKindOf,
   normalizedPath,
   owningCommand,
+  pickedClears,
+  pickedTransitionOf,
   slugOf,
   sprintVerb,
   renamedFromOf,
+  SPIKE_APPROVED_FIELD,
   stateTransitionOf,
   stateTransitionRefusal,
   stateTransitionsOf,
@@ -478,5 +481,35 @@ describe('stateTransitionRefusal', () => {
     expect(text).toContain("No command removes a 'State:' line");
     expect(text).toContain('(no State line) -> Approved, written by hand.');
     expect(text).toContain('Design -> Approved, written by hand (renamed from docs/plans/2026-01-01-z.md).');
+  });
+});
+
+describe('pickedTransitionOf', () => {
+  it('reads the State line when no field is given', () => {
+    expect(pickedTransitionOf(undefined, doc('Draft'), doc('Design'))).toEqual({ before: 'Draft', after: 'Design' });
+  });
+
+  it('reads the Spike approved record when the field is given', () => {
+    const before = '# P\n\n## Status\n\n- **State:** Design\n';
+    const after = '# P\n\n## Status\n\n- **State:** Design\n- **Spike approved:** 2026-10-10, J\n';
+    expect(pickedTransitionOf(SPIKE_APPROVED_FIELD, before, after)).toEqual({ before: '', after: '2026-10-10, J' });
+  });
+
+  it('reads an absent side as empty', () => {
+    expect(pickedTransitionOf(undefined, null, doc('Approved'))).toEqual({ before: '', after: 'Approved' });
+    expect(pickedTransitionOf(undefined, doc('Approved'), null)).toEqual({ before: 'Approved', after: '' });
+  });
+});
+
+describe('pickedClears', () => {
+  const transition = { path: 'docs/plans/2026-01-01-x.md', kind: 'plan' as const, before: 'Draft', after: 'Design' };
+
+  it('clears when the picked commit made the identical change', () => {
+    expect(pickedClears(transition, 'Draft', 'Design')).toBe(true);
+  });
+
+  it('does not clear a different before or after', () => {
+    expect(pickedClears(transition, 'Design', 'Draft')).toBe(false);
+    expect(pickedClears(transition, 'Draft', 'Approved')).toBe(false);
   });
 });

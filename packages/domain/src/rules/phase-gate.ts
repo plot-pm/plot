@@ -204,6 +204,44 @@ export const phaseGateRefusal = ({
   ].join('\n');
 };
 
+/** A staged path's own blob, read for the merge carve-out below. */
+export interface StagedBlob {
+  /** The repository-relative path. */
+  path: string;
+  /** The object name the index holds at the path. */
+  sha: string;
+}
+
+/**
+ * The staged paths a conflicted merge of `origin/<main>` carries that are not
+ * the branch's own: every staged path whose blob is UNCHANGED from the blob
+ * one of the merge's `MERGE_HEAD` commits already holds there.
+ *
+ * Completing `git merge origin/main` stages every file the merge resolved,
+ * including every path `origin/main` touched and the branch did not — without
+ * this, the phase gate reads those as the branch's own and refuses finishing a
+ * merge the plan never objected to. A path the resolution CHANGED still counts
+ * as the branch's own: only a staged blob equal to a `MERGE_HEAD` commit's own
+ * blob at that path is main's, unmodified by the merge.
+ *
+ * The carve-out runs only once every `MERGE_HEAD` commit is confirmed
+ * contained in `origin/<main>` ({@link Containment}, never on `no` or
+ * `unknown`) — the caller's job, since containment is evidence this rule takes
+ * as a given rather than reads itself.
+ *
+ * @param staged - every staged path with its index blob.
+ * @param atMergeHeads - for each `MERGE_HEAD` commit, the blob it holds at
+ *   each staged path (`null` where that commit holds no such path).
+ * @returns the paths to drop before the phase gate reads what remains.
+ */
+export const mergeOwnPathsOf = (
+  staged: readonly StagedBlob[],
+  atMergeHeads: readonly Readonly<Record<string, { sha: string } | null>>[],
+): readonly string[] =>
+  staged
+    .filter(({ path, sha }) => atMergeHeads.some((entries) => entries[path]?.sha === sha))
+    .map(({ path }) => path);
+
 /** The line printed when the plan is on neither shared ref but a local copy exists. */
 export const unpushedPlanNote = (slug: string, ref: string, branch: string): string =>
   [

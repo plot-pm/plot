@@ -484,6 +484,20 @@ export const refsGit = (context: ShellContext): Refs => {
         inRepo,
       ),
 
+    pickedHead: () =>
+      runScript(
+        'bash',
+        [
+          '-c',
+          'cat "$(git rev-parse --git-path REBASE_HEAD)" 2>/dev/null || cat "$(git rev-parse --git-path CHERRY_PICK_HEAD)" 2>/dev/null || true',
+        ],
+        (stdout) => {
+          const sha = stdout.trim();
+          return sha === '' ? null : sha;
+        },
+        inRepo,
+      ),
+
     filesNaming: async (term, globs) => {
       if (globs.length === 0) return answered<readonly string[]>([]);
       // `git grep` exits 1 when nothing matches, which is an answer, not a failure.

@@ -831,4 +831,22 @@ export interface Refs {
    *   empty where no merge is in progress.
    */
   mergeParents(): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * The commit a rebase or cherry-pick is replaying, from `REBASE_HEAD` or
+   * `CHERRY_PICK_HEAD`.
+   *
+   * **NOT `am`.** `git am --continue` leaves neither file, so a mailbox apply
+   * reads as a plain commit here — the plan's own decision, since it carries
+   * no picked commit a gate could compare against.
+   *
+   * `REBASE_HEAD` exists only between a rebase step that stopped on a conflict
+   * and the commit that resolves it; `CHERRY_PICK_HEAD` the same, for a
+   * cherry-pick. Both are read the way {@link Refs.mergeParents} reads
+   * `MERGE_HEAD`, `--git-path` first so a linked worktree finds its own.
+   *
+   * @returns the full sha of the commit being replayed; `null` where neither
+   *   file exists.
+   */
+  pickedHead(): Promise<PortResult<string | null>>;
 }

@@ -60,6 +60,8 @@ export interface RefsFixture {
   linkedWorktree?: boolean;
   /** The in-progress merge's parents — for {@link Refs.mergeParents}; absent means no merge in progress. */
   mergeParents?: readonly string[];
+  /** The commit a rebase or cherry-pick is replaying — for {@link Refs.pickedHead}; absent means neither is in progress. */
+  pickedHead?: string | null;
   /**
    * The space-joined revisions to their merge-base sha, for {@link Refs.mergeBase}.
    *
@@ -329,6 +331,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     linkedWorktree: async () => answered(fixture.linkedWorktree === true),
 
     mergeParents: async () => answered(fixture.mergeParents ?? []),
+
+    pickedHead: async () => answered(fixture.pickedHead ?? null),
 
     filesNaming: async (term, globs) => {
       const patterns = globs.map(globToRegExp);

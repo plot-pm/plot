@@ -234,9 +234,16 @@ const stateGate: Gate = {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
     const { stateReceiptsFile } = await import('@plot-pm/domain/adapters/state-receipts/state-receipts-file');
-    const { SYMLINK_MODE, effectivePaths, lifecycleKindOf, receiptOf, stateTransitionRefusal, stateTransitionsOf } = await import(
-      '@plot-pm/domain/rules/state-transition'
-    );
+    const {
+      SYMLINK_MODE,
+      effectivePaths,
+      lifecycleKindOf,
+      pickedClears,
+      pickedTransitionOf,
+      receiptOf,
+      stateTransitionRefusal,
+      stateTransitionsOf,
+    } = await import('@plot-pm/domain/rules/state-transition');
     const { gitBlobOid } = await import('./ladder.js');
 
     const cwd = process.cwd();
@@ -317,12 +324,31 @@ const stateGate: Gate = {
       }
     }
 
+    // A rebase or cherry-pick stopped on a conflict re-presents the commit it is
+    // replaying; its own first run already spent the receipt, so a transition
+    // the picked commit made identically against its own first parent clears
+    // with no second receipt. `git am --continue` leaves neither file and reads
+    // as a plain commit, carrying no picked commit to compare against.
+    const pickedRead = await refs.pickedHead();
+    const pickedSha = pickedRead.ok ? pickedRead.value : null;
+    const pickedValueAt = async (path: string) => {
+      if (pickedSha === null) return null;
+      const [parent, picked] = await Promise.all([refs.showFile(`${pickedSha}^`, path), refs.showFile(pickedSha, path)]);
+      return { parentText: parent.ok ? parent.value : null, pickedText: picked.ok ? picked.value : null };
+    };
+
     const receipts = stateReceiptsFile(root.value, gitBlobOid);
     const uncleared = [];
     for (const transition of stateTransitionsOf(readings, planDir.value.trim(), sprintDir.value.trim())) {
       const { key, value } = receiptOf(transition);
       const spent = await receipts.spend(key, value);
-      if (!(spent.ok && spent.value)) uncleared.push(transition);
+      if (spent.ok && spent.value) continue;
+      const picked = await pickedValueAt(transition.path);
+      if (picked !== null) {
+        const { before, after } = pickedTransitionOf(transition.field, picked.parentText, picked.pickedText);
+        if (pickedClears(transition, before, after)) continue;
+      }
+      uncleared.push(transition);
     }
     return stateTransitionRefusal(uncleared);
   },
@@ -376,6 +402,7 @@ const phaseGate: Gate = {
     const {
       holdRefusal,
       implementationPrefixesOf,
+      mergeOwnPathsOf,
       outsidePlanDir,
       phaseGateRefusal,
       planPathFor,
@@ -408,7 +435,7 @@ const phaseGate: Gate = {
     const staged = await refs.stagedPaths();
     const workingChanges = await refs.workingChanges();
     const showPrefix = await refs.showPrefix();
-    const paths = (
+    let paths = (
       staged.ok
         ? effectivePaths(
             {
@@ -420,6 +447,40 @@ const phaseGate: Gate = {
           )
         : []
     ).map((entry) => entry.path);
+
+    const mainRead = await scripts.config('Main branch', '');
+    let main = mainRead.ok ? mainRead.value.trim() : '';
+    if (main === '') {
+      const head = await refs.defaultBranch();
+      main = head.ok && head.value.trim() !== '' ? head.value.trim() : 'main';
+    }
+    const mainRef = `origin/${main}`;
+
+    // Completing a conflicted `git merge origin/<main>` stages every path the
+    // merge resolved, including every path main touched that the branch never
+    // did; those are not the branch's own and must not trip the checks below.
+    // The carve-out runs only once every `MERGE_HEAD` commit is confirmed
+    // contained in `origin/<main>` — never on `no` or `unknown` — so a merge of
+    // some other branch gets no such pass.
+    const mergeParentsRead = await refs.mergeParents();
+    const mergeParentShas = mergeParentsRead.ok ? mergeParentsRead.value : [];
+    if (mergeParentShas.length > 0) {
+      const containments = await Promise.all(mergeParentShas.map((sha) => refs.contains(sha, mainRef)));
+      if (containments.every((containment) => containment.ok && containment.value === 'yes')) {
+        const entries = await refs.stagedEntries();
+        const blobs = entries.ok
+          ? entries.value.filter((entry) => entry.status !== 'deleted').map((entry) => ({ path: entry.path, sha: entry.indexSha }))
+          : [];
+        const atMergeHeads = await Promise.all(
+          mergeParentShas.map(async (sha) => {
+            const read = await refs.entriesAt(sha, blobs.map((blob) => blob.path));
+            return read.ok ? read.value : {};
+          }),
+        );
+        const drop = new Set(mergeOwnPathsOf(blobs, atMergeHeads));
+        if (drop.size > 0) paths = paths.filter((path) => !drop.has(path));
+      }
+    }
 
     let hold: string | null = null;
     try {
@@ -433,13 +494,7 @@ const phaseGate: Gate = {
     const slug = slugOfBranch(branch, implementationPrefixesOf(prefixRead.value));
     if (slug === null || !paths.some((path) => outsidePlanDir(path, homes.planDir))) return null;
 
-    const mainRead = await scripts.config('Main branch', '');
-    let main = mainRead.ok ? mainRead.value.trim() : '';
-    if (main === '') {
-      const head = await refs.defaultBranch();
-      main = head.ok && head.value.trim() !== '' ? head.value.trim() : 'main';
-    }
-    let ref = `origin/${main}`;
+    let ref = mainRef;
     const mainTip = await refs.resolve(`${ref}^{commit}`);
     if (!mainTip.ok) {
       process.stderr.write(`${unreadableRefNote(ref)}\n`);
