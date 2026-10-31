@@ -83,12 +83,14 @@ describe('the subject rule has named callers', () => {
     expect(SOURCES.length).toBeGreaterThan(50);
   });
 
-  // THE RULE ITSELF. Reached by the bundle that answers for the scan and by
-  // the supervisor's queue world, which reads the same rule.
+  // THE RULE ITSELF. Reached by the bundle that answers for the scan, by
+  // the supervisor's queue world, and by the plan walk's branch stage, which
+  // gathers the evidence and decides nothing.
   it('names `mergedBySubject` only where the rule is asked', () => {
     expect(callersOf('mergedBySubject')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
       'packages/domain/src/rules/merge-subject.ts',
+      'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });
@@ -97,6 +99,7 @@ describe('the subject rule has named callers', () => {
     expect(callersOf('ownerOfRemote')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
       'packages/domain/src/rules/remote-owner.ts',
+      'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });
@@ -115,6 +118,7 @@ describe('the subject rule has named callers', () => {
       'packages/domain/src/adapters/refs/refs-fixture.ts',
       'packages/domain/src/adapters/refs/refs-git.ts',
       'packages/domain/src/ports/refs.ts',
+      'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });
@@ -144,6 +148,7 @@ describe('the subject rule has named callers', () => {
     expect(callersOf('mergeSubjectForms')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
       'packages/domain/src/adapters/host/merge-subjects.ts',
+      'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });

@@ -418,8 +418,8 @@ export const refsGit = (context: ShellContext): Refs => {
             inRepo,
           ),
 
-    changedFiles: async (branch) => {
-      const main = await defaultBranch();
+    changedFiles: async (branch, against) => {
+      const main = against === undefined ? await defaultBranch() : answered(against);
       if (!main.ok) return main as PortResult<readonly string[]>;
       return runScript(
         'git',

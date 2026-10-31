@@ -240,7 +240,7 @@ export const readBranchReadings = async (
           commitsAhead = range.value.length;
           realCommitsAhead = realCommits(range.value);
           if (commitsAhead > 0) {
-            const files = await refs.changedFiles(`origin/${line.branch}`);
+            const files = await refs.changedFiles(`origin/${line.branch}`, input.mainBranch);
             if (!files.ok) return failed<BranchStageReadings>();
             changedPaths = files.value.slice(0, CHANGED_PATHS_CAP);
           }

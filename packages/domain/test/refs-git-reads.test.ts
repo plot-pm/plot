@@ -225,6 +225,12 @@ describe('refsGit: the tree and file readings the board renders from', () => {
     if (changed.ok) expect(changed.value).toContain('docs/plans/b.md');
   });
 
+  it('reports the files a branch changed against a named default branch', async () => {
+    const changed = await refs().changedFiles('feature/ahead', 'main');
+    expect(changed.ok).toBe(true);
+    if (changed.ok) expect(changed.value).toContain('docs/plans/b.md');
+  });
+
   it('names the repository root', async () => {
     const root = await refs().repoRoot();
     expect(root.ok).toBe(true);

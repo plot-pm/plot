@@ -224,6 +224,17 @@ describe('readBranchReadings — how a host list is read', () => {
     expect((await read(world(), host, line('feature/h'))).branches[0]!.readings.pr).toBe('MERGED');
   });
 
+  it('keeps the first PR of a head when a later one does not outrank it', async () => {
+    const host = hostFixture({ backend: 'github', prs: [pr('feature/h', 'MERGED', '2026-10-01T00:00:00Z', 1), pr('feature/h', 'CLOSED', null, 2)] });
+    expect((await read(world(), host, line('feature/h'))).branches[0]!.readings.pr).toBe('MERGED');
+  });
+
+  it('proves nothing by subject for a plan with no recorded addition', async () => {
+    const out = await read(world({ additions: {} }), base, line('feature/gone'));
+    expect(out.branches[0]!.readings.mergeSubjectFound).toBe(false);
+    expect(out.added.size).toBe(0);
+  });
+
   it('falls back to empty backend and origin when the host and remote cannot be read', async () => {
     const host: Host = { ...base, backend: async () => failed() };
     const refs: Refs = { ...world(), remoteUrl: async () => failed() };

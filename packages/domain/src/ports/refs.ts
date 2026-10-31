@@ -254,9 +254,12 @@ export interface Refs {
    * Lists the files a branch changed against the default branch.
    *
    * @param branch - the branch to read.
+   * @param against - the default branch's name, such as `main`. Absent, the
+   *   adapter resolves it from `origin/HEAD`, which a checkout that fetched
+   *   branches by refspec never sets.
    * @returns the paths, relative to the repository root.
    */
-  changedFiles(branch: string): Promise<PortResult<readonly string[]>>;
+  changedFiles(branch: string, against?: string): Promise<PortResult<readonly string[]>>;
 
   /**
    * Lists the paths the working tree changes against HEAD: modified, staged,
