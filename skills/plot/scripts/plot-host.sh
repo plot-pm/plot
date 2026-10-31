@@ -3956,6 +3956,8 @@ be="$(backend)" || exit $?
 # emptiness is the honest value — there is no route where there is no fork.
 route=""
 [ "$be" = "github" ] && route="$(gh_route "$op")"
+# THE HOST CLI FOR OPS WHOSE TWO ARMS DIFFER ONLY IN ITS NAME.
+cli=gh; [ "$be" = "github" ] || cli=bb
 
 case "$op" in
   backend)
@@ -4473,12 +4475,10 @@ case "$op" in
     # swallowed: the caller must be able to tell *the host refused* from *the
     # PR is now ready or closed*.
     num="${1:?$op needs a PR number}"
-    if [ "$be" = "github" ]; then
-      gh pr "${op#pr-}" "$num"
-    elif [ "$op" = "pr-ready" ]; then
+    if [ "$op" = "pr-ready" ] && [ "$cli" = "bb" ]; then
       bb pr update "$num" --ready
     else
-      bb pr close "$num"
+      "$cli" pr "${op#pr-}" "$num"
     fi
     ;;
 
@@ -5575,7 +5575,7 @@ case "$op" in
     # exit codes are deliberately THE SAME ONES — a consumer that already maps
     # 4 to `unsupported` and anything else to `failed` must not need a second
     # table to read this op.
-    num="${1:?issue-view needs an issue number}"; shift
+    num="${1:?issue-view needs an issue number}"
     # Asked once, before the arms, exactly as issue-list does — the same
     # question with the same three answers and the same exit codes. A consumer
     # that maps 4 to `unsupported` needs no second table to read this op.
@@ -5790,11 +5790,7 @@ case "$op" in
       esac
     done
     [ -n "$body" ] || die "pr-body needs --body"
-    if [ "$be" = "github" ]; then
-      gh pr edit "$num" --body "$body"
-    else
-      bb pr edit "$num" --body "$body"
-    fi
+    "$cli" pr edit "$num" --body "$body"
     ;;
 
   rate-limit)
