@@ -5,6 +5,8 @@
 #               and exit: the estate's non-deferred slices of non-terminal plans,
 #               whatever slug is given. No fetch, no host call.
 #   --no-fetch  skip `git fetch`
+#   PLOT_SCAN_WALK=domain  run --json, --next, --list-eligible, --why-nothing and
+#               --slice-names through the domain walk (plot-scan-walk.mjs).
 #   --offline   same (no fetch) — used for cheap, ambient pulses.
 #               The fetch also PRUNES remote-tracking refs, so skipping it
 #               keeps whatever stale refs this checkout holds: a branch merged
@@ -407,6 +409,20 @@ if [ "$loose" = 1 ] && [ "$do_fetch" = 1 ]; then
   loose_backend=$("$script_dir/plot-host.sh" backend 2>/dev/null)
   [ -n "$loose_backend" ] && [ "$loose_backend" != "none" ] && loose_verifiable=1
 fi
+
+# THE DOMAIN WALK, behind `PLOT_SCAN_WALK=domain`. `shell` (the default) is this
+# script. `domain` hands the five machine modes (`--json`, `--next`,
+# `--list-eligible`, `--why-nothing`, `--slice-names`) to `plot-scan-walk.mjs`,
+# which runs the estate, branch, desk and assembly stages and decides with the
+# domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here.
+# `--offline` still asks the host on the offer modes, as above. A scan whose
+# `origin/<main>` does not resolve stays here: the estate stage has no
+# working-tree fallback and the shell does. The node call is not `exec`ed:
+# the scan's EXIT trap must remove its temp registry.
+READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
+LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
+[ "${PLOT_SCAN_WALK:-shell}$loose$stream$log_pulse" != domain000 ] || [ "$slice_names$why_nothing$next_only$as_json" = 0000 ] || [ "$READ_REF" = unknown ] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
+  "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"; exit $?; }
 
 # ---------------------------------------------------------------------------
 # Merged-and-deleted branches: the evidence that survives the ref
@@ -4161,9 +4177,7 @@ ask_branch_states() { # stdin=readings, $1=branches → one `state<TAB>needs<TAB
 # Prose is suppressed by BOTH alternate output modes. --json accumulates the
 # same derivation into a document instead of printing it; the arithmetic below
 # is untouched, which is what keeps the human report byte-identical.
-quiet=0
-[ "$next_only" = 1 ] && quiet=1
-[ "$as_json" = 1 ] && quiet=1
+quiet=$((next_only | as_json))
 # The ref this scan READ, and the ref the operator is STANDING ON. They are
 # different questions, and conflating them is the bug this block exists to
 # stop: every fact below is derived from `origin/$MAIN`, but the banner was
@@ -4174,14 +4188,9 @@ quiet=0
 # reported as unknown. It does NOT fall back to `HEAD`: that would reintroduce
 # this bug in the one case where nothing can catch it, and a banner that says
 # "unknown" gets investigated in seconds where a real-looking SHA gets believed.
-READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
-[ -n "$READ_REF" ] || READ_REF="unknown"
-LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
-[ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
 # Kept as an alias for one release: the board reads `head` today (Delivery tab),
 # and renaming a field out from under a live consumer is a break nobody asked
 # for. Removed once the board reads `read_ref`.
-HEAD_SHORT="$LOCAL_HEAD"
 json_plans=""
 
 # Emit a JSON string with the six characters JSON forbids escaped. Branch names
@@ -5253,7 +5262,7 @@ if [ "$build_doc" = 1 ]; then
   # today; it goes away once the board reads the pair.
   reading_doc=$(printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s",' \
     "$(json_str "$MAIN")" "$(json_str "$READ_REF")" "$(json_str "$LOCAL_HEAD")" \
-    "$(json_str "$HEAD_SHORT")")
+    "$(json_str "$LOCAL_HEAD")")
   # Three more facts about the EVIDENCE, not about the fleet — a consumer that
   # renders the numbers below should be able to say how much to trust them.
   # They answer the question `read_ref` raises: that field names the ref, and

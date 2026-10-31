@@ -131,11 +131,16 @@ exec '${process.execPath}' "$@"
   delete env.PLOT_REPO_ROOT;
   delete env.PLOT_UNATTENDED;
   json = JSON.parse(execFileSync('bash', [scan, '--offline', '--json'], { encoding: 'utf8', cwd: repo, env }));
-  calls = fs.readFileSync(log, 'utf8').split('--\n').filter(Boolean)
+  // The domain walk never pipes rows into plot-verdicts.mjs, so it leaves no tap log.
+  calls = (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '').split('--\n').filter(Boolean)
     .map((call) => call.split('\n').filter(Boolean).map((line) => line.split('\t')));
 });
 
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+const viaShell = process.env.PLOT_SCAN_WALK === 'domain'
+  ? { skip: 'asserts the shell-to-plot-verdicts pipe, which the domain walk does not have; the spike outcome is asserted by the --list-eligible tests below' }
+  : {};
 
 const planOf = (slug) => json.plans.find((p) => p.file.includes(slug));
 
@@ -149,7 +154,7 @@ test('scan: the widened P row still reads the phase', () => {
   assert.equal(planOf('plain-plan').phase, 'approved');
 });
 
-test('scan: spike reads 1 only on the slice holding the annotated branch', () => {
+test('scan: spike reads 1 only on the slice holding the annotated branch', viaShell, () => {
   const tracer = calls.find((lines) => lines.length === 3);
   assert.ok(tracer, `no three-slice verdict call in ${JSON.stringify(calls)}`);
   assert.deepEqual(tracer.map((cols) => cols.length), [6, 6, 6]);
@@ -158,7 +163,7 @@ test('scan: spike reads 1 only on the slice holding the annotated branch', () =>
   assert.deepEqual(tracer.map((cols) => cols[5]), ['1', '1', '1']);
 });
 
-test('scan: spike_approved reads 1 for a plan with the record and 0 without', () => {
+test('scan: spike_approved reads 1 for a plan with the record and 0 without', viaShell, () => {
   const tracer = calls.find((lines) => lines.length === 3);
   const plain = calls.find((lines) => lines.length === 1 && lines[0][1] === 'approved');
   assert.deepEqual(tracer.map((cols) => cols[4]), ['1', '1', '1']);
