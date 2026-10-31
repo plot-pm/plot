@@ -169,7 +169,6 @@ const agentRunOf = async (
     contextWindow: 0,
     capabilities: [],
     env: {
-      PLOT_UNATTENDED: '1',
       PLOT_ROLE_GATE: join(deps.scriptsDir, 'board', 'plot-gate.mjs'),
     },
     logFile: join(stateDir(deps.repoRoot), 'run.log'),

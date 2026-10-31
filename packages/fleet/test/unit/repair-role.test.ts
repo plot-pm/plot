@@ -76,7 +76,7 @@ describe('repairRoleOf', () => {
       worktree: `/desk/${BRANCH}`,
       boundSeconds: 3600,
       role: 'main-repair',
-      env: { PLOT_UNATTENDED: '1', PLOT_ROLE_GATE: '/plugin/scripts/board/plot-gate.mjs' },
+      env: { PLOT_ROLE_GATE: '/plugin/scripts/board/plot-gate.mjs' },
     });
     expect(r.fragments[0]).toContain('--agent main-repair');
     const agents = JSON.parse(readFileSync(r.requests[0]!.roleAgent!.agentsFile, 'utf8'));
