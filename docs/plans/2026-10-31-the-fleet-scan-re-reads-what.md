@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #2978
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-scan-walk-starts-no-process-per-plan`
 - **Started:** 2026-10-31, Jan Wloka, `feature/a-fleetd-whose-scans-start-owns-the-scan`
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-subject-walk-skips-settled-plans`
+- **Delivered:** 2026-10-31
 
 ## Changelog
 
