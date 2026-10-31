@@ -196,10 +196,51 @@ describe('slicePrNext', () => {
       expect(highArm(readings({ row: r, fixer: fixerFresh }))).toEqual({ step: 'none', why: 'no-high' });
     });
 
-    it('does not start a second fixer once the attempts budget is spent', () => {
+    describe('with the attempts spent', () => {
       const r = row({ plotReview: 'failure', plotReviewSha: HEAD });
       const fixer = { read: 'record', inFlight: false, exhausted: true } as const;
-      expect(highArm(readings({ row: r, fixer }))).toEqual({ step: 'none', why: 'high-attempts-spent' });
+      const none = { read: 'record', ticket: 'none' } as const;
+
+      it('asks for a ticket where none is recorded', () => {
+        expect(highArm(readings({ row: r, fixer, ticket: none }))).toEqual({ step: 'ticket', head: HEAD });
+      });
+
+      it('holds on a pending record, neither opening a second ticket nor writing success', () => {
+        expect(highArm(readings({ row: r, fixer, ticket: { read: 'record', ticket: 'pending' } }))).toEqual({
+          step: 'hold',
+          reason: 'ticket-pending',
+        });
+      });
+
+      it('holds while the ticket record is unread', () => {
+        expect(highArm(readings({ row: r, fixer, ticket: { read: 'unread' } }))).toEqual({ step: 'hold', reason: 'unread' });
+      });
+
+      it('asks for the findings of a later head to reach the open ticket', () => {
+        const ticket = { read: 'record', ticket: 'opened', id: '#9', coversHead: false } as const;
+        expect(highArm(readings({ row: r, fixer, ticket }))).toEqual({ step: 'ticket', head: HEAD });
+      });
+
+      it('writes the accepted success where the ticket carries this head', () => {
+        const ticket = { read: 'record', ticket: 'opened', id: '#9', coversHead: true } as const;
+        expect(highArm(readings({ row: r, fixer, ticket }))).toEqual({
+          step: 'write-status',
+          head: HEAD,
+          state: 'success',
+          description: 'ticketed #9',
+          why: 'ticket-accepted',
+        });
+      });
+
+      it('answers none once the head carries an accepted success, leaving the merge to its arm', () => {
+        const done = row({ plotReview: 'success', plotReviewSha: HEAD });
+        const ticket = { read: 'record', ticket: 'opened', id: '#9', coversHead: true } as const;
+        expect(highArm(readings({ row: done, fixer, ticket }))).toEqual({ step: 'none', why: 'no-high' });
+      });
+
+      it('answers none where the ticket arm is not built', () => {
+        expect(highArm(readings({ row: r, fixer }))).toEqual({ step: 'none', why: 'ticket-not-built' });
+      });
     });
 
     it('answers none for a row never asked about plotReview', () => {

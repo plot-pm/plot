@@ -167,6 +167,7 @@ export {
 // written by `plot-fleetd` only.
 export { defaultBranchFile, defaultBranchPath } from './default-branch/default-branch-file.js';
 export { fixerAttemptsFile, fixerAttemptsPath } from './fixer-attempts/fixer-attempts-file.js';
+export { ticketRecordFile, ticketRecordPath } from './ticket-record/ticket-record-file.js';
 
 // THE REPAIR RECORD'S FILE ADAPTER. One file under `.plot/state/`, local to
 // the machine, written by `plot-fleetd` only.

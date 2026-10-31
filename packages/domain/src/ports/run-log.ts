@@ -19,12 +19,14 @@ import type { PortResult } from '../port-result.js';
  *   cleared its in-flight mark.
  * `review-start` — fleetd started `plot-review` on a slice PR's head, or
  *   refused the start; the outcome names the refusal.
+ * `ticket-open` — fleetd put a HIGH's findings on the PR's ticket, or refused.
+ * `ticket-status` — fleetd wrote the accepted `plot/review` success for a ticketed HIGH, or refused.
  */
 // plot-state: classification — one action the delivery loop took on a slice,
 // or a notification it sent about one. A step never transitions into another:
 // a slice's next line may name any step, in any order, because the loop acts
 // on whatever the pulse shows it this tick.
-export const RunLogStepSchema = z.enum(['dispatch', 'correction', 'fresh-agent', 'deliver', 'notified', 'release-review', 'release-notified', 'fixer-start', 'fixer-end', 'review-start']);
+export const RunLogStepSchema = z.enum(['dispatch', 'correction', 'fresh-agent', 'deliver', 'notified', 'release-review', 'release-notified', 'fixer-start', 'fixer-end', 'review-start', 'ticket-open', 'ticket-status']);
 export type RunLogStep = z.infer<typeof RunLogStepSchema>;
 
 /**
