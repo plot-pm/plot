@@ -92,6 +92,23 @@ test('state gate: a hand-written plan transition is refused and names its comman
   assert.match(r.stderr, /\/plot-approve x/, 'the refusal names the command that owns the write');
 });
 
+test('state gate: run from outside the fixture, git -C <dir> commit is still read', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+  });
+  const outside = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-state-gate-outside-')));
+  const env = { ...process.env };
+  delete env.PLOT_UNATTENDED;
+  const r = spawnSync('bash', [gate], {
+    cwd: outside,
+    env,
+    input: JSON.stringify({ tool_input: { command: `git -C ${dir} commit -m x` } }),
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, `must refuse from outside the fixture (stderr: ${r.stderr})`);
+});
+
 test('state gate: Approved -> Delivered names /plot-deliver, not /plot-approve', () => {
   const dir = repo({
     committed: { 'docs/plans/2026-01-01-x.md': plan('Approved') },

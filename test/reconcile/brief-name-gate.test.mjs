@@ -68,6 +68,17 @@ test('brief-name gate: adding <prefix>-<slug>.md is refused and names the comput
   assert.match(r.stderr, /git mv \.plot\/briefs\/infra-x\.md \.plot\/briefs\/x\.md/, 'the refusal prints the rename');
 });
 
+test('brief-name gate: run from outside the fixture, git -C <dir> commit is still read', () => {
+  const { dir } = repo({ files: { '.plot/briefs/infra-x.md': brief } });
+  const outside = scratch('plot-brief-name-gate-outside-');
+  const r = spawnSync('bash', [gate], {
+    cwd: outside,
+    input: JSON.stringify({ tool_input: { command: `git -C ${dir} commit -m x` } }),
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, `must refuse from outside the fixture (stderr: ${r.stderr})`);
+});
+
 test('brief-name gate: every default prefix is refused', () => {
   for (const p of ['idea', 'feature', 'bug', 'docs', 'infra']) {
     const { dir } = repo({ files: { [`.plot/briefs/${p}-a-slug.md`]: brief } });

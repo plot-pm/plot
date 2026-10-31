@@ -134,6 +134,17 @@ test('gate: blocks impl commit on Draft plan from a subdirectory', () => {
   assert.doesNotMatch(r.stderr, /phase unverified/);
 });
 
+// Run from OUTSIDE the fixture entirely — not merely a subdirectory of it —
+// through `git -C <dir> commit`, the form an unattended agent's repair work
+// uses. The gate's cwd carries no relation to the repository at all.
+test('gate: blocks impl commit on Draft plan run from outside the fixture', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: ['src/a.js'] });
+  const outside = scratch('plot-gate-outside-');
+  const r = runGate(outside, `git -C ${dir} commit -m x`);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /still Draft/);
+});
+
 test('gate: allows impl commit on Approved plan', () => {
   const dir = repoWith({ branch: 'feature/x', planPhase: 'Approved', stage: ['src/a.js'] });
   assert.equal(runGate(dir).code, 0);
