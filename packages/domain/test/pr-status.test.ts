@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractHostNotices, prStatus, prStatusLevel } from '../src/rules/pr-status.js';
+import { extractHostNotices, prStaleness, prStatus, prStatusLevel } from '../src/rules/pr-status.js';
 
 /**
  * THE PROPERTY THIS FILE EXISTS FOR: the PR footer's level, cause and backoff
@@ -413,5 +413,16 @@ describe('prStatus — a scheduled read decides staleness', () => {
   it('no data stays an error whatever the schedule says', () => {
     const status = prStatus({ error: null, ageSeconds: null, nextInSeconds: null, spenders: null, intervalSeconds: INTERVAL_S, overdueSeconds: 0 });
     expect(status.level).toBe('error');
+  });
+});
+
+describe('prStaleness — a non-positive interval judges nothing', () => {
+  it('returns null for an interval of zero, however old the data is', () => {
+    expect(prStaleness(10_000, 0, null)).toBeNull();
+    expect(prStaleness(10_000, 0, 10_000)).toBeNull();
+  });
+
+  it('returns null for a negative interval', () => {
+    expect(prStaleness(10_000, -5, null)).toBeNull();
   });
 });
