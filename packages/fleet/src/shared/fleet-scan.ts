@@ -796,6 +796,7 @@ export const scanOnce = async (
  * @param result - what the scan read.
  * @param at - epoch ms the scan completed.
  * @param prError - the fleet's last PR-read failure sentence, or `null`.
+ * @param startedAt - epoch ms the attempt started; defaults to `at`.
  * @returns whether the write landed.
  */
 export const writeScan = async (
@@ -803,6 +804,7 @@ export const writeScan = async (
   result: ScanResult,
   at: number,
   prError: string | null,
+  startedAt: number = at,
 ): Promise<boolean> => {
   const written = await fleetState.write({
     at,
@@ -812,6 +814,7 @@ export const writeScan = async (
     approvedAt: result.approvedAt,
     ideaPlans: result.ideaPlans,
     prError,
+    attempt: { startedAt, endedAt: at, outcome: 'ok', error: null },
   });
   return written.ok;
 };

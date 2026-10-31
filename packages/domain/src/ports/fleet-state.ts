@@ -45,9 +45,10 @@ export interface FleetState {
   /**
    * Writes the bridged pulse, replacing whatever was there.
    *
-   * **ONLY EVER CALLED AFTER A SCAN SUCCEEDS.** A failed scan must not
+   * **A FAILED SCAN NEVER REPLACES THE PULSE.** A failed scan must not
    * overwrite the last good answer — the one thing standing between a restart
-   * and an empty board.
+   * and an empty board. The fleet may re-write the last good pulse with only
+   * `attempt` changed, to record that an attempt started or failed.
    *
    * **A FAILED WRITE IS A VALUE, NEVER A THROW.** A read-only checkout or a
    * full disk must cost the caller nothing but a missed write.
@@ -56,6 +57,22 @@ export interface FleetState {
    * @returns nothing on success; `failed` where the write did not land.
    */
   write(pulse: BridgedPulse): Promise<PortResult<void>>;
+}
+
+/**
+ * The fleet's last scan attempt, recorded beside the pulse it may not have
+ * produced. Written by the fleet only; the board reads it to decide ownership
+ * and to show why the bridge is old.
+ */
+export interface ScanAttempt {
+  /** Epoch ms the attempt started. */
+  startedAt: number;
+  /** Epoch ms the attempt ended, or `null` while it runs. */
+  endedAt: number | null;
+  /** `running` until the attempt ends; then `ok` or `failed` (a timeout is `failed`). */
+  outcome: 'running' | 'ok' | 'failed';
+  /** The failure sentence of a `failed` attempt, else `null`. */
+  error: string | null;
 }
 
 /**
@@ -82,4 +99,9 @@ export interface BridgedPulse {
    * in owned mode; the board relays this and sets it nowhere.
    */
   prError: string | null;
+  /**
+   * The fleet's last scan attempt, or absent where the file records none.
+   * `at` stays the completion time of the last SUCCESSFUL scan.
+   */
+  attempt?: ScanAttempt;
 }

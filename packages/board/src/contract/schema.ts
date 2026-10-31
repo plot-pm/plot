@@ -4358,6 +4358,12 @@ export const FleetShape = z.object({
   /** Last scan error, if any. A failed refresh never clears a good result. */
   error: z.string().nullable(),
   /**
+   * Why the bridge the board shows is old while the fleet still owns the scan:
+   * its age and the fleet's last failed attempt. Null where the bridge is fresh
+   * or the board scans itself.
+   */
+  scanNote: z.string().nullable().default(null),
+  /**
    * What the most recent SUCCESSFUL scan lost relative to its predecessor.
    *
    * A DIFFERENT condition from `error`, and beside it rather than folded into
