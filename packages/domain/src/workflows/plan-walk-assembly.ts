@@ -4,6 +4,7 @@ import { branchState, withPlanLandings } from '../rules/branch-state.js';
 import { isClaimable, sliceVerdicts, type SliceReadings } from '../rules/eligible.js';
 import { spikeSliceOf } from '../rules/spike.js';
 import { nextWork, type SliceOutlookReading } from '../rules/waiting.js';
+import type { PlanRecord } from '../ports/plan-store.js';
 import type { BranchStageReadings } from './plan-walk-branches.js';
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
@@ -90,6 +91,8 @@ export interface AssembledPlan {
   tracer: boolean;
   /** The slices in plan order. */
   slices: readonly AssembledSlice[];
+  /** Branch-section items that name a branch no claim grammar reads, verbatim from the plan record. */
+  unreadBranchItems: PlanRecord['unreadBranchItems'];
 }
 
 /** Everything the walk decided. */
@@ -280,7 +283,13 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
       summary.eligible += free;
       return { name: sliceRecord.name, verdict, branches, taken, free };
     });
-    plans.push({ file: record.file, phase: record.phase, tracer: planSpikes > 0, slices });
+    plans.push({
+      file: record.file,
+      phase: record.phase,
+      tracer: planSpikes > 0,
+      slices,
+      unreadBranchItems: record.unreadBranchItems,
+    });
   }
 
   return answered({ mainSha: branchStage.mainSha, plans, claimable, takenInEligible, sliceNames, summary });
@@ -348,3 +357,99 @@ export const offerAnswer = (assembly: Assembly, all: boolean): OfferAnswer => {
  * @returns one name per line, or `''` for none.
  */
 export const sliceNamesText = (names: readonly string[]): string => (names.length === 0 ? '' : `${names.join('\n')}\n`);
+
+/** What the caller knows about the checkout, for the document's header. */
+export interface FleetReadingHeader {
+  /** The default branch's name. */
+  main: string;
+  /** The short commit of `origin/<main>`, or `'unknown'`. */
+  readRef: string;
+  /** The short commit of the checkout's `HEAD`, or `'unknown'`. */
+  localHead: string;
+  /** Whether the fetch failed. */
+  fetchFailed: boolean;
+  /** The fetch's message; `''` where it succeeded. */
+  fetchError: string;
+  /** The host word the summary carries. */
+  host: string;
+  /** The merge-detection word the summary carries. */
+  mergeDetect: string;
+  /** The wall clock in epoch seconds, for `changed_at`. */
+  nowSeconds: number;
+}
+
+const branchRow = (b: AssembledBranch, nowSeconds: number): Record<string, unknown> => {
+  const desk = b.desk;
+  const quiet = desk?.quietSeconds ?? null;
+  const unpushed = desk === null || desk.unpushed === 'unknown' ? 0 : desk.unpushed.length;
+  const row: Record<string, unknown> = { branch: b.branch, state: b.state, own_state: b.ownState, deferred: b.deferred };
+  if (b.state === 'merged' && b.subjectProven && !b.hostConfirmed) row.evidence = 'subject';
+  return {
+    ...row,
+    deferred_reason: b.deferredReason,
+    waits_on: b.waitsOn,
+    claimed: b.claimed,
+    local_dirty: false,
+    local_locked: desk?.locked ?? false,
+    local_worktree: desk?.worktree ?? '',
+    held: desk !== null && b.state !== 'merged',
+    ref_held: b.refHeld,
+    local_ahead: unpushed,
+    changed_ago_seconds: quiet,
+    changed_at: quiet === null ? null : nowSeconds - quiet,
+    worker: desk === null ? 'elsewhere' : desk.process.state,
+    worker_pid: desk?.process.pid ?? '',
+    worker_exit: desk?.process.exitCode ?? '',
+    worker_activity: desk !== null && desk.process.state === 'running' ? desk.process.activity : '',
+    worker_dirty_paths: [],
+    conflicts_known: false,
+    conflicts: [],
+    changed_paths: [],
+  };
+};
+
+/**
+ * The document `plot-fleet-scan.sh --json` prints.
+ *
+ * Fields with no stage reading carry the value the scan writes where it
+ * cannot tell: `local_dirty` `false`, `worker_dirty_paths` `[]`,
+ * `conflicts_known` `false`. The summary's `host` is the branch stage's reach
+ * word, which never reads `partial`.
+ *
+ * @param assembly - the assembly.
+ * @param header - the checkout's facts.
+ * @returns the document.
+ */
+export const fleetReading = (assembly: Assembly, header: FleetReadingHeader): Record<string, unknown> => ({
+  main: header.main,
+  read_ref: header.readRef,
+  local_head: header.localHead,
+  head: header.localHead,
+  fetch_failed: header.fetchFailed,
+  fetch_error: header.fetchError,
+  plan_source: 'ref',
+  plans: assembly.plans.map((plan) => ({
+    file: plan.file,
+    phase: plan.phase,
+    ...(plan.tracer ? { tracer: true } : {}),
+    unreadBranchItems: plan.unreadBranchItems,
+    waves: plan.slices.map((slice) => ({
+      name: slice.name,
+      verdict: slice.verdict,
+      branches: slice.branches.map((b) => branchRow(b, header.nowSeconds)),
+    })),
+  })),
+  summary: {
+    plans: assembly.summary.plans,
+    waves: assembly.summary.waves,
+    branches: assembly.summary.branches,
+    claimed: assembly.summary.claimed,
+    eligible: assembly.summary.eligible,
+    blocked: assembly.summary.blocked,
+    deferred: assembly.summary.deferred,
+    waiting: assembly.summary.waiting,
+    prereq_missing: assembly.summary.prereqMissing,
+    merge_detect: header.mergeDetect,
+    host: header.host,
+  },
+});

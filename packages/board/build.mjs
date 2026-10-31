@@ -1419,6 +1419,27 @@ await esbuild.build({
 fs.copyFileSync(mergeSubjectArtifact, shippedMergeSubject);
 fs.chmodSync(shippedMergeSubject, 0o755);
 
+// The plan walk for `plot-fleet-scan.sh` under `PLOT_SCAN_WALK=domain`: the
+// estate, branch, desk and assembly stages run in process and print one caller
+// mode's answer.
+const scanWalkArtifact = path.join(here, 'dist/plot-scan-walk.mjs');
+const shippedScanWalk = path.join(here, '../../skills/plot/scripts/board/plot-scan-walk.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/scan-walk.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: scanWalkArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(scanWalkArtifact, shippedScanWalk);
+fs.chmodSync(shippedScanWalk, 0o755);
+
 // Which tag shipped a delivered plan whose PR's merge commit is empty or
 // absent from the clone, for `plot-reconcile-scan.sh` section 6. Where the PR
 // merged into a non-default branch, it walks that branch's merged PRs onward

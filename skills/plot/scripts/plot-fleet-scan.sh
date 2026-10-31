@@ -5,6 +5,8 @@
 #               and exit: the estate's non-deferred slices of non-terminal plans,
 #               whatever slug is given. No fetch, no host call.
 #   --no-fetch  skip `git fetch`
+#   PLOT_SCAN_WALK=domain  run --json, --next, --list-eligible, --why-nothing and
+#               --slice-names through the domain walk (plot-scan-walk.mjs).
 #   --offline   same (no fetch) — used for cheap, ambient pulses.
 #               The fetch also PRUNES remote-tracking refs, so skipping it
 #               keeps whatever stale refs this checkout holds: a branch merged
@@ -406,6 +408,28 @@ loose_verifiable=0
 if [ "$loose" = 1 ] && [ "$do_fetch" = 1 ]; then
   loose_backend=$("$script_dir/plot-host.sh" backend 2>/dev/null)
   [ -n "$loose_backend" ] && [ "$loose_backend" != "none" ] && loose_verifiable=1
+fi
+
+# THE DOMAIN WALK, behind `PLOT_SCAN_WALK=domain`. `shell` (the default) is this
+# script. `domain` hands the five machine modes (`--json`, `--next`,
+# `--list-eligible`, `--why-nothing`, `--slice-names`) to `plot-scan-walk.mjs`,
+# which runs the estate, branch, desk and assembly stages and decides with the
+# domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here.
+# `--offline` still asks the host on the offer modes, as above.
+READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
+[ -n "$READ_REF" ] || READ_REF="unknown"
+LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
+[ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
+if [ "${PLOT_SCAN_WALK:-shell}" = domain ] && [ "$loose$stream$log_pulse" = 000 ]; then
+  walk_mode=""
+  if [ "$slice_names" = 1 ]; then walk_mode=slice-names
+  elif [ "$why_nothing" = 1 ]; then walk_mode=why-nothing
+  elif [ "$list_all" = 1 ]; then walk_mode=list-eligible
+  elif [ "$next_only" = 1 ]; then walk_mode=next
+  elif [ "$as_json" = 1 ]; then walk_mode=json; fi
+  [ -z "$walk_mode" ] || exec node "$script_dir/board/plot-scan-walk.mjs" "$walk_mode" "$slug" "$MAIN" \
+    "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" \
+    "$FETCH_FAILED" "$FETCH_ERROR"
 fi
 
 # ---------------------------------------------------------------------------
@@ -4174,10 +4198,6 @@ quiet=0
 # reported as unknown. It does NOT fall back to `HEAD`: that would reintroduce
 # this bug in the one case where nothing can catch it, and a banner that says
 # "unknown" gets investigated in seconds where a real-looking SHA gets believed.
-READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
-[ -n "$READ_REF" ] || READ_REF="unknown"
-LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
-[ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
 # Kept as an alias for one release: the board reads `head` today (Delivery tab),
 # and renaming a field out from under a live consumer is a break nobody asked
 # for. Removed once the board reads `read_ref`.
