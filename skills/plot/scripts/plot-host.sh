@@ -4459,30 +4459,27 @@ case "$op" in
     fi
     ;;
 
-  pr-ready)
-    # TAKE A PR OUT OF DRAFT. One call, and the ONE place that talks to the host
-    # CLI keeps that property — `plot-approve.sh` needs this before it merges,
-    # and reaching for `gh` there would put a second host caller in the estate.
+  pr-ready|pr-close)
+    # TAKE A PR OUT OF DRAFT (`pr-ready`) OR CLOSE IT WITHOUT MERGING (`pr-close`;
+    # `bb pr close` declines). One call each, and the ONE place that talks to the
+    # host CLI keeps that property — `plot-approve.sh` needs the first before it
+    # merges, and the repair arm closes the fix and revert PRs of an episode with
+    # the second; reaching for `gh` there would put a second host caller in the
+    # estate.
     #
     # Bitbucket's support depends on the bb CLI version (see the caveat list at
     # the top of this file, which already names `--draft`/`--ready`), so a
     # failure here surfaces as the CLI's own message rather than being
     # swallowed: the caller must be able to tell *the host refused* from *the
-    # PR is now ready*.
-    num="${1:?pr-ready needs a PR number}"; shift
+    # PR is now ready or closed*.
+    num="${1:?$op needs a PR number}"
     if [ "$be" = "github" ]; then
-      gh pr ready "$num"
-    else
+      gh pr "${op#pr-}" "$num"
+    elif [ "$op" = "pr-ready" ]; then
       bb pr update "$num" --ready
+    else
+      bb pr close "$num"
     fi
-    ;;
-
-  pr-close)
-    # CLOSE (GitHub) OR DECLINE (Bitbucket) ONE PR WITHOUT MERGING IT. `bb pr
-    # close` declines. The repair arm closes the fix and revert PRs of an episode.
-    num="${1:?pr-close needs a PR number}"
-    cli=gh; [ "$be" = github ] || cli=bb
-    "$cli" pr close "$num"
     ;;
 
   pr-list)
