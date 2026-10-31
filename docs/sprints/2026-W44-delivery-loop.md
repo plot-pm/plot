@@ -26,6 +26,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [x] [a-dead-desk-gets-a-fixer] A dead desk reads unreadable; a merged PR asks no one (#2906) <!-- pr: #2915, branch: feature/a-dead-desk-reads-unreadable -->
 - [ ] [a-red-default-branch-is-repaired] A red main is re-run, repaired or reverted within 60 minutes (#2904) <!-- pr: #2910, branch: feature/a-red-main-is-reverted -->
 - [x] [the-release-waits-for-one-approval] The release waits for one approval by a person (#2907) <!-- pr: #2911, branch: feature/fleetd-prepares-the-release -->
+- [ ] [the-bundle-gate-refuses-the-repair] The bundle gate accepts a staged bundle equal to the default branch, so a desk can repair a bundle conflict (#2970) <!-- pr: #2971 -->
 
 ### Should Have
 
