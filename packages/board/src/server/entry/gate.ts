@@ -77,9 +77,10 @@ export interface Gate {
  * `git commit` in it. `ask` reads the repository root and its
  * `packages/board/build.mjs`; a repository with no `build.mjs` builds no
  * bundle, so the gate allows. Otherwise it reads the staged paths and, only
- * when one of them is in the declared set, the merge base against
- * `origin/main` and whether the merge base held each such path. All of it
- * goes to {@link bundleCommitRefusal}.
+ * when one of them is in the declared set, the merge base the commit will
+ * have against `origin/main` (over every `MERGE_HEAD` during a merge) and the
+ * (mode, sha) it holds at each such path. All of it goes to
+ * {@link bundleCommitRefusal}, which compares it with the index.
  */
 const bundleCommitGate: Gate = {
   name: 'bundle-commit',
@@ -100,23 +101,35 @@ const bundleCommitGate: Gate = {
     const generated = shippedPathsOf(readFileSync(buildFile, 'utf8'));
     if (generated.length === 0) return null;
 
-    const staged = await refs.stagedPaths();
+    const staged = await refs.stagedEntries();
     if (!staged.ok) return null;
     const touched = bundleCommitPaths({ generated, staged: staged.value });
     if (touched.length === 0) return null;
 
-    const mergeBaseResult = await refs.mergeBase('HEAD', 'origin/main');
-    const mergeBase = mergeBaseResult.ok ? mergeBaseResult.value : null;
-
-    const existedAtMergeBase: Record<string, boolean> = {};
-    if (mergeBase !== null) {
-      for (const path of touched) {
-        const existed = refs.fileExistsSync(mergeBase, path);
-        existedAtMergeBase[path] = existed.ok && existed.value;
-      }
+    // The base the commit will have: against a merge in progress, the merge
+    // base of `origin/main`, `HEAD` and every `MERGE_HEAD`. Every failed read
+    // reaches the rule as `null` and refuses there.
+    const parents = await refs.mergeParents();
+    const heads: string[] = [];
+    let readable = parents.ok;
+    for (const head of parents.ok ? parents.value : []) {
+      const resolved = await refs.resolve(head);
+      if (resolved.ok) heads.push(resolved.value);
+      else readable = false;
     }
+    const mergeBaseResult = readable ? await refs.mergeBase('origin/main', 'HEAD', ...heads) : null;
+    const mergeBase = mergeBaseResult?.ok ? mergeBaseResult.value : null;
+    const entries = mergeBase === null ? null : await refs.entriesAt(mergeBase, touched);
+    const mainTip = await refs.resolve('origin/main');
 
-    return bundleCommitRefusal({ generated, staged: staged.value, mergeBase, existedAtMergeBase });
+    return bundleCommitRefusal({
+      generated,
+      staged: staged.value,
+      mergeBase,
+      atMergeBase: entries?.ok ? entries.value : null,
+      mainTip: mainTip.ok ? mainTip.value : null,
+      merging: heads.length > 0,
+    });
   },
   onError: 'allow',
 };

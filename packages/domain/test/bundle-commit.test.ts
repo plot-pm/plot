@@ -11,13 +11,27 @@ import {
 /** A path the generated set names, so a staged-add test refuses for real. */
 const GENERATED_PATH = 'skills/plot/scripts/board/board-server.mjs';
 
-const MERGE_BASE = 'abc123';
+const BASE = 'b'.repeat(40);
+const MAIN = 'a'.repeat(40);
+const SAME = '1'.repeat(40);
+const OTHER = '2'.repeat(40);
 
+/** A staged entry holding `sha` in the index at mode 100644. */
+const entry = (status: 'added' | 'modified' | 'renamed' | 'deleted', path: string, sha = SAME, mode = '100644') => ({
+  status,
+  path,
+  indexMode: mode,
+  indexSha: sha,
+});
+
+/** A merge base that holds `SAME` at the generated path; nothing is staged. */
 const EMPTY: BundleCommitReadings = {
   generated: [GENERATED_PATH],
   staged: [],
-  mergeBase: MERGE_BASE,
-  existedAtMergeBase: {},
+  mergeBase: BASE,
+  atMergeBase: { [GENERATED_PATH]: { mode: '100644', sha: SAME } },
+  mainTip: BASE,
+  merging: false,
 };
 
 describe('bundleCommitRefusal', () => {
@@ -25,66 +39,63 @@ describe('bundleCommitRefusal', () => {
     expect(bundleCommitRefusal(EMPTY)).toBeNull();
   });
 
-  it('refuses a staged add of a generated path, with a git rm repair', () => {
-    const refusal = bundleCommitRefusal({
-      ...EMPTY,
-      staged: [{ status: 'added', path: GENERATED_PATH }],
-    });
-    expect(refusal).not.toBeNull();
-    expect(refusal).toContain(`git rm --cached ${GENERATED_PATH}`);
-    expect(refusal).toContain(GENERATED_PATH);
+  it('allows a staged copy equal to the merge base in mode and sha', () => {
+    expect(bundleCommitRefusal({ ...EMPTY, staged: [entry('modified', GENERATED_PATH, SAME)] })).toBeNull();
   });
 
-  it('refuses a staged modify of a generated path already in the merge base, with a restore repair', () => {
+  it('refuses a staged copy that differs from the merge base, restoring from its sha', () => {
+    const refusal = bundleCommitRefusal({ ...EMPTY, staged: [entry('modified', GENERATED_PATH, OTHER)] });
+    expect(refusal).toContain(`git restore --staged --worktree --source="${BASE}" -- ${GENERATED_PATH}`);
+  });
+
+  it('refuses a mode-only difference', () => {
     const refusal = bundleCommitRefusal({
       ...EMPTY,
-      staged: [{ status: 'modified', path: GENERATED_PATH }],
-      existedAtMergeBase: { [GENERATED_PATH]: true },
+      staged: [entry('modified', GENERATED_PATH, SAME, '100755')],
     });
-    expect(refusal).toContain(`git restore --staged --worktree --source="${MERGE_BASE}" -- ${GENERATED_PATH}`);
+    expect(refusal).toContain('git restore');
+  });
+
+  it('refuses a path the merge base does not hold, with a git rm repair', () => {
+    const refusal = bundleCommitRefusal({
+      ...EMPTY,
+      atMergeBase: { [GENERATED_PATH]: null },
+      staged: [entry('added', GENERATED_PATH)],
+    });
+    expect(refusal).toContain(`git rm --cached ${GENERATED_PATH}`);
+    expect(refusal).not.toContain('git restore');
   });
 
   it('allows a staged delete of a generated path', () => {
-    // StagedPath carries no 'deleted' status — a delete never reaches this
-    // rule's input at all, which this test pins by construction: there is no
-    // value of `status` that represents one.
-    const refusal = bundleCommitRefusal({
-      ...EMPTY,
-      staged: [],
-    });
-    expect(refusal).toBeNull();
+    expect(bundleCommitRefusal({ ...EMPTY, staged: [entry('deleted', GENERATED_PATH, '0'.repeat(40), '000000')] })).toBeNull();
   });
 
-  it('refuses a staged rename landing a generated path, naming only the new path', () => {
-    const refusal = bundleCommitRefusal({
-      ...EMPTY,
-      staged: [{ status: 'renamed', path: GENERATED_PATH }],
-    });
-    expect(refusal).not.toBeNull();
+  it('refuses a staged rename landing a differing generated path, naming the new path', () => {
+    const refusal = bundleCommitRefusal({ ...EMPTY, staged: [entry('renamed', GENERATED_PATH, OTHER)] });
     expect(refusal).toContain(GENERATED_PATH);
   });
 
-  it('allows a staged bundles.generated.ts even though it names the set', () => {
-    const refusal = bundleCommitRefusal({
-      ...EMPTY,
-      staged: [{ status: 'modified', path: 'packages/board/src/contract/bundles.generated.ts' }],
-    });
-    expect(refusal).toBeNull();
+  it('allows a staged bundles.generated.ts and a staged .gitattributes', () => {
+    expect(
+      bundleCommitRefusal({
+        ...EMPTY,
+        staged: [
+          entry('modified', 'packages/board/src/contract/bundles.generated.ts', OTHER),
+          entry('modified', '.gitattributes', OTHER),
+        ],
+      }),
+    ).toBeNull();
   });
 
-  it('allows a staged .gitattributes', () => {
+  it.each([
+    ['the merge base is unreadable', { mergeBase: null }],
+    ['the merge base entries are unreadable', { atMergeBase: null }],
+    ['the path was not read', { atMergeBase: {} }],
+  ] as const)('refuses with no repair line when %s', (_name, broken) => {
     const refusal = bundleCommitRefusal({
       ...EMPTY,
-      staged: [{ status: 'modified', path: '.gitattributes' }],
-    });
-    expect(refusal).toBeNull();
-  });
-
-  it('refuses with no repair command when no merge base could be read', () => {
-    const refusal = bundleCommitRefusal({
-      ...EMPTY,
-      staged: [{ status: 'added', path: GENERATED_PATH }],
-      mergeBase: null,
+      ...broken,
+      staged: [entry('modified', GENERATED_PATH, SAME)],
     });
     expect(refusal).not.toBeNull();
     expect(refusal).toContain(GENERATED_PATH);
@@ -92,13 +103,17 @@ describe('bundleCommitRefusal', () => {
     expect(refusal).not.toContain('git restore');
   });
 
+  it('adds the merge-first line on a branch behind origin/main with no merge in progress', () => {
+    const behind = { ...EMPTY, mainTip: MAIN, staged: [entry('modified', GENERATED_PATH, OTHER)] };
+    expect(bundleCommitRefusal(behind)).toContain('git merge origin/main');
+    expect(bundleCommitRefusal({ ...behind, merging: true })).not.toContain('git merge origin/main');
+    expect(bundleCommitRefusal({ ...behind, mainTip: BASE })).not.toContain('git merge origin/main');
+  });
+
   it('allows a staged bundle when the generated set is empty, as in a repository with no build.mjs', () => {
-    const refusal = bundleCommitRefusal({
-      ...EMPTY,
-      generated: [],
-      staged: [{ status: 'modified', path: GENERATED_PATH }],
-    });
-    expect(refusal).toBeNull();
+    expect(
+      bundleCommitRefusal({ ...EMPTY, generated: [], staged: [entry('modified', GENERATED_PATH, OTHER)] }),
+    ).toBeNull();
   });
 
   it('refuses a new bundle the generated set declares, with a git rm repair', () => {
@@ -106,31 +121,33 @@ describe('bundleCommitRefusal', () => {
     const refusal = bundleCommitRefusal({
       ...EMPTY,
       generated: [GENERATED_PATH, born],
-      staged: [{ status: 'added', path: born }],
+      atMergeBase: { [born]: null },
+      staged: [entry('added', born)],
     });
     expect(refusal).toContain(`git rm --cached ${born}`);
   });
 
   it('allows a staged path that touches no generated set at all', () => {
-    const refusal = bundleCommitRefusal({
-      ...EMPTY,
-      staged: [{ status: 'added', path: 'packages/domain/src/rules/bundle-commit.ts' }],
-    });
-    expect(refusal).toBeNull();
+    expect(
+      bundleCommitRefusal({ ...EMPTY, staged: [entry('added', 'packages/domain/src/rules/bundle-commit.ts')] }),
+    ).toBeNull();
   });
 });
 
 describe('bundleCommitTouches', () => {
-  it('skips a staged .gitattributes beside a real touch, naming only the latter', () => {
+  it('skips a staged .gitattributes and an equal copy beside a differing one', () => {
+    const second = 'skills/plot/scripts/board/plot-ask.mjs';
     const touches = bundleCommitTouches({
       ...EMPTY,
+      generated: [GENERATED_PATH, second],
+      atMergeBase: { [GENERATED_PATH]: { mode: '100644', sha: SAME }, [second]: { mode: '100644', sha: SAME } },
       staged: [
-        { status: 'modified', path: '.gitattributes' },
-        { status: 'added', path: GENERATED_PATH },
+        entry('modified', '.gitattributes'),
+        entry('modified', GENERATED_PATH, SAME),
+        entry('modified', second, OTHER),
       ],
     });
-    expect(touches).toHaveLength(1);
-    expect(touches[0]!.path).toBe(GENERATED_PATH);
+    expect(touches.map((touch) => touch.path)).toEqual([second]);
   });
 });
 
@@ -141,9 +158,9 @@ describe('bundleCommitPaths', () => {
       bundleCommitPaths({
         generated: [second, GENERATED_PATH],
         staged: [
-          { status: 'modified', path: GENERATED_PATH },
-          { status: 'modified', path: 'skills/plot/scripts/board/README.md' },
-          { status: 'added', path: second },
+          entry('modified', GENERATED_PATH),
+          entry('modified', 'skills/plot/scripts/board/README.md'),
+          entry('added', second),
         ],
       }),
     ).toEqual([GENERATED_PATH, second]);
@@ -154,8 +171,8 @@ describe('bundleCommitPaths', () => {
       bundleCommitPaths({
         generated: ['packages/board/src/contract/bundles.generated.ts', '.gitattributes'],
         staged: [
-          { status: 'modified', path: 'packages/board/src/contract/bundles.generated.ts' },
-          { status: 'modified', path: '.gitattributes' },
+          entry('modified', 'packages/board/src/contract/bundles.generated.ts'),
+          entry('modified', '.gitattributes'),
         ],
       }),
     ).toEqual([]);
