@@ -68,6 +68,11 @@ describe('chainedStagesOf', () => {
     ]);
     expect(chainedStagesOf('bash -c "git mv a.md b.md && git commit -m x"').moves).toEqual([{ dest: 'b.md', dir: null }]);
   });
+
+  it('reads a wrapped git mv with no destination as no move', () => {
+    expect(chainedStagesOf('bash -c "git mv -k && git commit -m x"').moves).toEqual([]);
+  });
+
   it('reads a bare path after git add', () => {
     expect(chainedStagesOf('git add .plot/briefs/feature-x.md && git commit -m x')).toEqual({
       adds: [{ spec: '.plot/briefs/feature-x.md', dir: null }],
@@ -109,6 +114,10 @@ describe('chainedStagesOf', () => {
 
   it('reads a -C-placed git mv with its own directory', () => {
     expect(chainedStagesOf('git -C sub mv old.md new.md && git commit').moves).toEqual([{ dest: 'new.md', dir: 'sub' }]);
+  });
+
+  it('reads a git mv as unplaced when its -C value is not known from the text', () => {
+    expect(chainedStagesOf('git -C $dir mv old.md new.md && git commit').moves).toEqual([{ dest: 'new.md', dir: 'unplaced' }]);
   });
 
   it('splits on newlines, so a git mv on its own line before the commit is read', () => {

@@ -27,4 +27,16 @@ describe('chainedAddsOf', () => {
     expect(chainedAddsOf('bash -c "git add -A && git commit -m x"')).toEqual([{ spec: null, dir: null }]);
     expect(chainedAddsOf("sh -c 'git add docs/a.md; git commit -m x'")).toEqual([{ spec: 'docs/a.md', dir: null }]);
   });
+
+  it('skips a non-tree flag in a wrapped add read by substring', () => {
+    expect(chainedAddsOf('bash -c "git add -f a.md && git commit -m x"')).toEqual([{ spec: 'a.md', dir: null }]);
+  });
+
+  it('reads a -C-placed git add with its own directory', () => {
+    expect(chainedAddsOf('git -C sub add a.md && git commit')).toEqual([{ spec: 'a.md', dir: 'sub' }]);
+  });
+
+  it('reads a git add as unplaced when its -C value is not known from the text', () => {
+    expect(chainedAddsOf('git -C $dir add a.md && git commit')).toEqual([{ spec: 'a.md', dir: 'unplaced' }]);
+  });
 });

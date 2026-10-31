@@ -58,7 +58,6 @@ export const chainedAddsOf = (command: string): readonly ChainedAdd[] => {
   for (const call of gitCallsWhere(command, (sub) => sub === 'add')) {
     const dir = call.placed ? call.dir : 'unplaced';
     for (const token of call.args) {
-      if (token === '') continue;
       if (TREE_FLAGS.includes(token)) adds.push({ spec: null, dir });
       else if (!token.startsWith('-')) adds.push({ spec: token, dir });
     }
