@@ -86,6 +86,8 @@ import { readAutoReview } from '../../shared/auto-review.js';
 import { releaseTick } from '../../shared/release-tick.js';
 import { repairStartWorldOf } from '../../shared/repair-start-world.js';
 import { repairStartTick } from '../../shared/repair-start.js';
+import { repairRevertTick } from '../../shared/revert-start.js';
+import { revertWorldOf } from '../../shared/revert-start-world.js';
 import { releasePortsFor } from '../../shared/release-world.js';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { runDeskRelay } from '../../shared/desk-relay.js';
@@ -3104,6 +3106,33 @@ export const run = async (
         if (outcome !== 'none') write(`plot-fleetd: repair ${outcome}\n`);
       } catch (e) {
         warn(`plot-fleetd: repair start failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
+    // THE REVERT ARM takes the half of the repair arc the repair-start arm
+    // leaves: the last green re-run, the revert PR, and closing the episode's
+    // PRs. Gated as the repair-start arm is.
+    if (args.startAgents && !args.once) {
+      try {
+        const outcome = await repairRevertTick(
+          revertWorldOf({
+            repoRoot,
+            scriptsDir,
+            build: ci,
+            slot: <T,>(call: () => Promise<T>): Promise<T> =>
+              ci.system() === 'github-actions' ? withHostSlot(prState, call) : call(),
+            notify: async (message) => {
+              await (await notifier()).notify(message);
+            },
+            worktreeRoot: readConfig(boardOpts, 'Worktree root', ''),
+            checksWaitMs: checksWaitMsOf(await readConfigAsync(boardOpts, 'Checks wait', '3600')),
+            mainRepairBoundMs: mainRepairBoundMsOf(await readConfigAsync(boardOpts, 'Main repair bound', '3600')),
+            checks: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', '')),
+          }),
+          warn,
+        );
+        if (outcome !== 'none') write(`plot-fleetd: revert ${outcome}\n`);
+      } catch (e) {
+        warn(`plot-fleetd: revert tick failed: ${e instanceof Error ? e.message : String(e)}\n`);
       }
     }
     await relayBeat(slot, warn);
