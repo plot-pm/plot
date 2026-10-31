@@ -88,7 +88,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { agentsFs, planStoreRef, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -2827,7 +2827,14 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     let scanned: ScanResult | null = null;
     if (!owned) {
       scanned = await scanOnce(
-        { repoRoot: opts.repoRoot, scripts: scriptsFor(opts), refs: refsFor(opts), backend: () => resolveBackend(entry, hostFor(opts)) },
+        { repoRoot: opts.repoRoot, scripts: scriptsFor(opts), refs: refsFor(opts), backend: () => resolveBackend(entry, hostFor(opts)),
+          walk: {
+            host: hostFor(opts),
+            plans: (ref, planDir) => planStoreRef(refsFor(opts), { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, ref, planDir),
+            trees: treesFor(opts),
+            agents: agentsFs({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+            processes: processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+          } },
         entry,
         {
           record: false,

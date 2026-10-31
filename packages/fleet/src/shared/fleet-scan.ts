@@ -3,7 +3,16 @@ import path from 'node:path';
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import { listingBackoff, listingSpend, PR_READ_BEAT_MS, type LimitBasis } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
+import type { Agents } from '@plot-pm/domain/ports/agents';
+import type { Host } from '@plot-pm/domain/ports/host';
+import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
+import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { Trees } from '@plot-pm/domain/ports/trees';
+import { readBranchReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
+import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
+import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
+import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
@@ -125,6 +134,18 @@ export interface ScanWorld {
   refs: Refs;
   /** The configured git host's name, e.g. `github`. */
   backend: () => Promise<string>;
+  /** The ports the in-process plan walk reads through. */
+  walk: WalkPorts;
+}
+
+/** The ports the plan walk reads through, beside `refs` and `scripts`. */
+export interface WalkPorts {
+  host: Host;
+  /** Builds the plan store over a ref and the plan directory. */
+  plans: (ref: string, planDir: string) => PlanStore;
+  trees: Trees;
+  agents: Agents;
+  processes: Processes;
 }
 
 /** The pulse and the five facts read beside it. */
@@ -143,12 +164,9 @@ export interface ScanResult {
 
 /** How a scan runs. */
 export interface ScanOptions {
-  /**
-   * Whether the scan script records its own bridge. `false` sets
-   * `PLOT_SCAN_RECORD=0`: the caller is not the fleet's writer.
-   */
+  /** Retained for callers; the in-process walk writes no bridge of its own. */
   record: boolean;
-  /** Every raw stdout line, before the terminal one is parsed. */
+  /** Retained for callers; the in-process walk streams no lines. */
   onLine?: (line: string) => void;
 }
 
@@ -598,6 +616,99 @@ const readBitbucketListing = async (
 };
 
 /**
+ * Bounds a promise by a wall-clock budget.
+ *
+ * Nothing kills an in-process read, so the bound rejects and abandons it: the
+ * abandoned reads finish on their own and write nothing.
+ *
+ * @param work - the promise to bound.
+ * @param budgetMs - the budget in ms.
+ * @returns the promise's value.
+ * @throws where the budget runs out first, or `work` rejects.
+ */
+export const withinBudget = <T>(work: Promise<T>, budgetMs: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`fleet scan timed out after ${budgetMs} ms`)), budgetMs);
+    work.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error: unknown) => { clearTimeout(timer); reject(error); },
+    );
+  });
+
+const shortSha = async (refs: Refs, ref: string): Promise<string> => {
+  const sha = await refs.resolve(ref);
+  return sha.ok && sha.value !== '' ? sha.value.slice(0, 7) : 'unknown';
+};
+
+/**
+ * Runs the plan walk's four stages in this process and builds the pulse.
+ *
+ * Fetches `origin` first, pruning, as the shell scan did; a failed fetch is
+ * carried in the reading as `fetch_failed` and does not stop the walk. Every
+ * read is cold: no stage's answer is kept between beats.
+ *
+ * @param world - what the walk reads through.
+ * @returns the pulse.
+ * @throws where a stage fails or the assembled document is not a pulse.
+ */
+export const walkOnce = async (world: ScanWorld): Promise<FleetReading> => {
+  const { scripts, refs, walk } = world;
+  const cfg = async (key: string, fallback: string): Promise<string> => {
+    const answer = await scripts.config(key, fallback);
+    return answer.ok && answer.value.trim() !== '' ? answer.value.trim() : fallback;
+  };
+  const planDir = await cfg('Plan directory', 'docs/plans/');
+  const activeDir = await cfg('Active index', 'docs/plans/active/');
+  const deliveredDir = await cfg('Delivered index', 'docs/plans/delivered/');
+  const prefixes = (await cfg('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/'))
+    .split(',').map((p) => p.trim().replace(/\/$/, '')).filter((p) => p !== '');
+  const configured = await scripts.config('Main branch', '');
+  let mainBranch = configured.ok ? configured.value.trim() : '';
+  if (mainBranch === '') {
+    const found = await refs.defaultBranch();
+    mainBranch = found.ok && found.value !== '' ? found.value : 'main';
+  }
+
+  // `--prune` and the heads refspec ride after `origin`, where git reads them as
+  // the shell scan's command did: the prune then covers the whole mirror.
+  const fetched = await walk.trees.fetch(world.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
+  const readRef = await shortSha(refs, `origin/${mainBranch}`);
+  const localHead = await shortSha(refs, 'HEAD');
+
+  const estate = await readEstate(refs, walk.plans(`origin/${mainBranch}`, planDir), {
+    mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
+  });
+  const branches = estate.ok
+    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir })
+    : estate;
+  const desks = branches.ok
+    ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
+    : branches;
+  const assembled = assemblePlanWalk(
+    { estate, branches: branches as never, desks: desks as never },
+    { slug: '', offer: false },
+  );
+  if (!assembled.ok) {
+    const stage = !estate.ok ? 'estate' : !branches.ok ? 'branches' : !desks.ok ? 'desks' : 'assembly';
+    throw new Error(`fleet scan: the ${stage} stage failed`);
+  }
+  const document = fleetReading(assembled.value, {
+    main: mainBranch,
+    readRef,
+    localHead,
+    fetchFailed: !fetched.ok,
+    fetchError: fetched.ok ? '' : 'git fetch failed',
+    planDir,
+    host: 'ok',
+    mergeDetect: 'unaskable',
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+  const reading = FleetReadingSchema.safeParse(document);
+  if (!reading.success) throw new Error('fleet scan: the walk produced a document that is not a pulse');
+  return reading.data;
+};
+
+/**
  * Runs the fleet scan once and reads the facts that travel with its pulse.
  *
  * Spends the PR listing only where `listingSpend` permits and no listing
@@ -633,11 +744,8 @@ const readBitbucketListing = async (
 export const scanOnce = async (
   world: ScanWorld,
   state: ScanState,
-  options: ScanOptions,
+  _options: ScanOptions,
 ): Promise<ScanResult> => {
-  let parsed: FleetReading | null = null;
-  let learned = '';
-  let listed = '';
   const now = Date.now();
   const due = state.listingAt === null || now >= state.listingAt + state.listingIntervalMs;
   const backoff = listingBackoff({ backoffUntil: state.backoffUntil, backoffMs: state.backoffMs, now });
@@ -712,56 +820,17 @@ export const scanOnce = async (
     }
   }
 
-  let ended = false;
+  // THE WALK RUNS IN THIS PROCESS. A failure or an exhausted budget throws, so
+  // `writeScan` never runs for the beat and the bridge keeps its last good write.
+  // The back-off below is settled either way: it concerns the listing read above,
+  // not the walk.
+  let parsed: FleetReading;
   try {
-    await world.scripts.stream(FLEET_SCAN, ['--stream'],
-      (line) => {
-        options.onLine?.(line);
-        let msg: { kind?: unknown; reading?: unknown };
-        try {
-          msg = JSON.parse(line) as typeof msg;
-        } catch {
-          return;
-        }
-        if (msg.kind !== 'reading') return;
-        const reading = FleetReadingSchema.safeParse(msg.reading);
-        if (reading.success) parsed = reading.data;
-      },
-      {
-        timeoutMs: FLEET_SCAN_BUDGET_MS,
-        env: {
-          PLOT_TERMINAL_CACHE: state.terminal,
-          PLOT_PR_LISTING: hostRead !== null ? hostRead.rendered : (reusing ? state.listing : ''),
-          ...(options.record ? {} : { PLOT_SCAN_RECORD: '0' }),
-        },
-        onErrorLine: (line) => {
-          if (line.startsWith('terminal:')) learned += `${line.slice('terminal:'.length).trim()}\n`;
-          if (line.startsWith('listing:')) listed += `${line.slice('listing:'.length).trim()}\n`;
-          if (line.startsWith('spend:')) {
-            const spent = Number.parseInt(line.slice('spend:'.length).trim(), 10);
-            if (Number.isInteger(spent) && spent >= 0) state.calls += spent;
-          }
-        },
-      });
-    ended = true;
+    parsed = await withinBudget(walkOnce(world), FLEET_SCAN_BUDGET_MS);
   } finally {
-    // A scan that ended with its reading replaces the terminal map; any other
-    // merges what it streamed. Any other adopts its listing only where the
-    // listing ends with `.list-arrived`.
-    const whole = ended && parsed !== null;
-    state.terminal = whole ? learned : mergeTerminal(state.terminal, learned);
-    const adopted = hostRead === null && !reusing && listed !== '' && (whole || listingEnded(listed));
-    if (adopted) {
-      state.listing = listed;
-      state.listingAt = Date.now();
-      state.listingBranches = listedBranchCount(listed) ?? state.listingBranches;
-    }
-
     // A SPEND ATTEMPT THAT DID NOT ADOPT THROUGH THE HOST REFUSED. Both
-    // backends now read their listing host-side and know their own verdict
-    // from `hostRead`/`listingRefused` before the scan subprocess even
-    // starts. A reused or backed-off pass spent nothing and neither opens nor
-    // clears the back-off.
+    // backends read their listing host-side. A reused or backed-off pass spent
+    // nothing and neither opens nor clears the back-off.
     if (spend) {
       if (listingRefused) {
         state.backoffUntil = now + backoff.onRefusalMs;
@@ -772,7 +841,6 @@ export const scanOnce = async (
       }
     }
   }
-  if (parsed === null) throw new Error('fleet scan ended without a terminal pulse line');
   const reading: FleetReading = parsed;
   const { ages, tipAt } = await branchAges(world.refs);
   return {
