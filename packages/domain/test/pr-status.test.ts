@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractHostNotices, prStatus, prStatusLevel } from '../src/rules/pr-status.js';
+import { extractHostNotices, prStaleness, prStatus, prStatusLevel } from '../src/rules/pr-status.js';
 
 /**
  * THE PROPERTY THIS FILE EXISTS FOR: the PR footer's level, cause and backoff
@@ -367,5 +367,62 @@ describe('prStatus — the composed decision', () => {
     expect(status.level).toBe('error');
     expect(status.kind).toBeNull();
     expect(status.cause).toBeNull();
+  });
+});
+
+/**
+ * Issue #2843: fleetd stretches the PR read cadence by the account's spend, so
+ * the next read lands minutes after the last one while the ordinary interval
+ * stays 60 s. A read on schedule is not stale; a read past its schedule is.
+ */
+describe('prStatus — a scheduled read decides staleness', () => {
+  const at = (ageSeconds: number, overdueSeconds: number | null, error: string | null = null) =>
+    prStatus({ error, ageSeconds, nextInSeconds: null, spenders: null, intervalSeconds: INTERVAL_S, overdueSeconds });
+
+  it('info: a stretched read still ahead of its schedule, though the age passes twice the interval', () => {
+    const status = at(245, 0);
+    expect(status.level).toBe('info');
+    expect(status.stale).toBeNull();
+  });
+
+  it('info: a read due inside the grace of one interval', () => {
+    expect(at(450, INTERVAL_S).level).toBe('info');
+  });
+
+  it('warning: a read overdue past the grace of one interval', () => {
+    const status = at(500, INTERVAL_S + 1);
+    expect(status.level).toBe('warning');
+    expect(status.stale).toBe('overdue');
+    expect(status.kind).toBeNull();
+  });
+
+  it('falls back to twice the interval where no schedule is known', () => {
+    const status = at(121, null);
+    expect(status.level).toBe('warning');
+    expect(status.stale).toBe('aged');
+    expect(at(119, null).stale).toBeNull();
+  });
+
+  it('a refusal stays a warning whatever the schedule says', () => {
+    const status = at(30, 0, QUOTA_ERROR);
+    expect(status.level).toBe('warning');
+    expect(status.kind).toBe('quota');
+    expect(status.stale).toBeNull();
+  });
+
+  it('no data stays an error whatever the schedule says', () => {
+    const status = prStatus({ error: null, ageSeconds: null, nextInSeconds: null, spenders: null, intervalSeconds: INTERVAL_S, overdueSeconds: 0 });
+    expect(status.level).toBe('error');
+  });
+});
+
+describe('prStaleness — a non-positive interval judges nothing', () => {
+  it('returns null for an interval of zero, however old the data is', () => {
+    expect(prStaleness(10_000, 0, null)).toBeNull();
+    expect(prStaleness(10_000, 0, 10_000)).toBeNull();
+  });
+
+  it('returns null for a negative interval', () => {
+    expect(prStaleness(10_000, -5, null)).toBeNull();
   });
 });

@@ -4470,6 +4470,15 @@ export const FleetShape = z.object({
    */
   prNextInSeconds: z.number().nullable().default(null),
   /**
+   * Seconds the next scheduled PR read is past due, 0 while it is still ahead.
+   *
+   * Null where no reader has scheduled the next read, or where the schedule is
+   * a host backoff: the client then measures the data's age against
+   * `prIntervalMs`. A reader stretches its cadence by the account's spend, so
+   * this, not the age, says whether a read is late.
+   */
+  prOverdueSeconds: z.number().nullable().default(null),
+  /**
    * Seconds until the server rescans git — the companion to `ageSeconds`, and
    * for the same reason `prNextInSeconds` exists.
    *

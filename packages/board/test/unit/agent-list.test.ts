@@ -2686,6 +2686,22 @@ describe('prStatusEntry — the refresh interval decides a stale cache with no r
     } as Fleet);
     expect(entry?.text).toContain('PR data stale');
   });
+
+  // Issue #2843, measured 2026-10-28: age 245 s with the next read 134 s out.
+  it('is silent while a stretched read is still on schedule', () => {
+    expect(prStatusEntry({
+      prError: null, prNextInSeconds: 134, prAgeSeconds: 245, prIntervalMs: 60_000, prOverdueSeconds: 0,
+    } as Fleet)).toBeNull();
+  });
+
+  it('warns once the scheduled read is overdue past one interval', () => {
+    const entry = prStatusEntry({
+      prError: null, prNextInSeconds: 0, prAgeSeconds: 600, prIntervalMs: 60_000, prOverdueSeconds: 180,
+    } as Fleet);
+    expect(entry?.tone).toBe('amber');
+    expect(entry?.text).toContain('PR data stale');
+    expect(entry?.text).toContain('the scheduled refresh is 3 min overdue');
+  });
 });
 
 describe('scanHostNote — the scan says when it could not ask', () => {
