@@ -91,7 +91,7 @@ import {
 import { issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
-import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
+import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
@@ -472,6 +472,8 @@ export interface CacheEntry {
    * discarded, this is a scan that succeeded and was KEPT. See `pulseShrink`.
    */
   shrink: PulseShrink | null;
+  /** Why an owned bridge is old: its age and the fleet's last failed attempt; `null` otherwise. */
+  scanNote: string | null;
   /**
    * The branch-URL prefix for this repo's origin, read ONCE per scan rather than
    * per row: `git remote get-url origin` is a process spawn, and a fleet of
@@ -2351,7 +2353,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
 const fleetOwnsPrs = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<boolean> => {
   const bridge = await fleetStateFor(opts).read();
   if (!bridge.ok || bridge.value === null) return false;
-  return fleetOwnsScan({ supervisor: entry.supervisor, bridgeAt: bridge.value.at, now: Date.now() });
+  return fleetOwnsScan({ supervisor: entry.supervisor, bridgeAt: bridge.value.at, lastAttemptStartedAt: bridge.value.attempt?.startedAt ?? null, now: Date.now() });
 };
 
 /** The bundle a board starts as its machine's PR reader, relative to the scripts directory. */
@@ -2815,8 +2817,12 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     const owned = bridged !== null && fleetOwnsScan({
       supervisor: entry.supervisor,
       bridgeAt: bridged.at,
+      lastAttemptStartedAt: bridged.attempt?.startedAt ?? null,
       now: Date.now(),
     });
+    entry.scanNote = owned && bridged !== null
+      ? ownedBridgeNote({ bridgeAt: bridged.at, attempt: bridged.attempt ?? null, now: Date.now() })
+      : null;
     const skipDisplay = owned && sameBridge;
     let scanned: ScanResult | null = null;
     if (!owned) {
@@ -2964,7 +2970,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
 export function freshCacheEntry(): CacheEntry {
   return {
     calls: 0,
-    pulse: null, ages: new Map(), tipAt: new Map(), at: null, fetchedAt: null, error: null, shrink: null, branchUrlBase: '',
+    pulse: null, ages: new Map(), tipAt: new Map(), at: null, fetchedAt: null, error: null, scanNote: null, shrink: null, branchUrlBase: '',
     // Empty until the first SUCCESSFUL scan. A restart therefore remembers no
     // section, so every row is unplaced until one completes — which is the
     // honest answer rather than a section invented from a pulse this process
@@ -7737,6 +7743,7 @@ export async function buildFleet(
     // partial state is *rows exist and more are coming*, and no rows exist yet.
     complete: entry.pulseComplete,
     error: entry.error,
+    scanNote: entry.scanNote,
     shrink: entry.shrink,
     rows: placedRows,
     // THE SLICES, derived once from the same pulse the rows came from — beside

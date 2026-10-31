@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { bridgeIsFresh, fleetHoldsBridge, fleetOwnsScan, OWNED_BRIDGE_MAX_AGE_MS } from '../src/rules/scan-owner.js';
+import { bridgeIsFresh, fleetHoldsBridge, fleetOwnsScan, OWNED_ATTEMPT_MAX_AGE_MS, OWNED_BRIDGE_MAX_AGE_MS, ownedBridgeNote } from '../src/rules/scan-owner.js';
 
 const UP = { asked: true, exitCode: 0, summarised: true };
 const DOWN = { asked: true, exitCode: 1, summarised: true, install: 'not-installed' };
@@ -64,5 +64,46 @@ describe('fleetHoldsBridge', () => {
   });
   it('is false with no bridge', () => {
     expect(fleetHoldsBridge({ bridgeAt: null, carriesTimerFacts: false, now: NOW })).toBe(false);
+  });
+});
+
+describe('fleetOwnsScan with a scan attempt', () => {
+  it('is true for a live fleet whose last scan started 100 s ago and whose bridge is 200 s old', () => {
+    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 200_000, lastAttemptStartedAt: NOW - 100_000, now: NOW })).toBe(true);
+  });
+  it('is false for a live fleet that started no scan within the attempt bound', () => {
+    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 400_000, lastAttemptStartedAt: NOW - OWNED_ATTEMPT_MAX_AGE_MS - 1, now: NOW })).toBe(false);
+    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 400_000, lastAttemptStartedAt: NOW - OWNED_ATTEMPT_MAX_AGE_MS, now: NOW })).toBe(true);
+  });
+  it('is false for a stopped fleet however recent its attempt', () => {
+    expect(fleetOwnsScan({ supervisor: DOWN, bridgeAt: NOW - 200_000, lastAttemptStartedAt: NOW - 1_000, now: NOW })).toBe(false);
+  });
+  it('is false for an attempt from the future, and with no bridge at all', () => {
+    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 200_000, lastAttemptStartedAt: NOW + 1, now: NOW })).toBe(false);
+    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: null, lastAttemptStartedAt: NOW - 1_000, now: NOW })).toBe(false);
+  });
+});
+
+describe('ownedBridgeNote', () => {
+  it('is null while the bridge is fresh', () => {
+    expect(ownedBridgeNote({ bridgeAt: NOW - 5_000, attempt: null, now: NOW })).toBeNull();
+  });
+  it('names the bridge age and the last failure for a stale owned bridge', () => {
+    const note = ownedBridgeNote({
+      bridgeAt: NOW - 200_000,
+      attempt: { startedAt: NOW - 100_000, outcome: 'failed', error: 'scan exceeded 90 s' },
+      now: NOW,
+    });
+    expect(note).toContain('200 s ago');
+    expect(note).toContain('scan exceeded 90 s');
+  });
+  it('says no reason was recorded for a failed attempt that carries none', () => {
+    const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: { startedAt: NOW - 100_000, outcome: 'failed', error: null }, now: NOW });
+    expect(note).toContain('no reason recorded');
+  });
+  it('names only the age when the last attempt did not fail', () => {
+    const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: { startedAt: NOW - 50_000, outcome: 'running', error: null }, now: NOW });
+    expect(note).toContain('200 s ago');
+    expect(note).not.toContain('failed');
   });
 });

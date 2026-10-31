@@ -10,7 +10,7 @@ import {
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 
-import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
+import type { FleetState, ScanAttempt } from '@plot-pm/domain/ports/fleet-state';
 
 import { processStartedAt } from './board-run.js';
 import { prGateOpen, refreshPrs, resolveBackend, type PrState, type PrWorld } from './pr-refresh.js';
@@ -116,6 +116,19 @@ export const startFleetClock = (
 };
 
 /**
+ * Re-writes the last good bridge with only its `attempt` changed.
+ *
+ * A bridge that is missing or expired has no pulse to carry, so nothing is
+ * written; the board scans in that state as it always has. A failed read or
+ * write costs the record, never the scan.
+ */
+const recordAttempt = async (fleetState: FleetState, attempt: ScanAttempt): Promise<void> => {
+  const current = await fleetState.read();
+  if (!current.ok || current.value === null) return;
+  await fleetState.write({ ...current.value, attempt });
+};
+
+/**
  * Builds the scan the fleet's clock runs: one scan that records nothing of its own, then the bridge.
  *
  * The bridge is written only after `scanOnce` returns. A scan that throws or
@@ -144,12 +157,16 @@ export const fleetScan = (
   after?: (pulse: FleetReading) => Promise<void>,
 ): (() => Promise<void>) => async () => {
   let landed: FleetReading | null = null;
+  const startedAt = now();
+  await recordAttempt(fleetState, { startedAt, endedAt: null, outcome: 'running', error: null });
   try {
     const result = await scanOnce(world, state, { record: false });
-    if (await writeScan(fleetState, result, now(), prError())) landed = result.reading;
+    if (await writeScan(fleetState, result, now(), prError(), startedAt)) landed = result.reading;
     else warn('plot-fleetd: bridge write refused\n');
   } catch (e) {
-    warn(`plot-fleetd: scan failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    const reason = e instanceof Error ? e.message : String(e);
+    warn(`plot-fleetd: scan failed: ${reason}\n`);
+    await recordAttempt(fleetState, { startedAt, endedAt: now(), outcome: 'failed', error: reason });
   }
   if (landed !== null && after) await after(landed);
 };

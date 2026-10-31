@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { FleetReadingSchema } from '../../entities/fleet.js';
-import type { BridgedPulse, FleetState } from '../../ports/fleet-state.js';
+import type { BridgedPulse, FleetState, ScanAttempt } from '../../ports/fleet-state.js';
 
 /**
  * How old a bridged pulse may be before it is discarded unread.
@@ -52,6 +52,16 @@ const isAge = (v: unknown): v is number | null => v === null || typeof v === 'nu
 const isNumber = (v: unknown): v is number => typeof v === 'number';
 const isString = (v: unknown): v is string => typeof v === 'string';
 
+/** Reads the optional scan-attempt record; a malformed one is absent. */
+const parseAttempt = (raw: unknown): { attempt?: ScanAttempt } => {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const a = raw as Record<string, unknown>;
+  if (typeof a.startedAt !== 'number' || !Number.isFinite(a.startedAt)) return {};
+  if (a.endedAt !== null && typeof a.endedAt !== 'number') return {};
+  if (a.outcome !== 'running' && a.outcome !== 'ok' && a.outcome !== 'failed') return {};
+  return { attempt: { startedAt: a.startedAt, endedAt: a.endedAt, outcome: a.outcome, error: typeof a.error === 'string' ? a.error : null } };
+};
+
 /**
  * Parses a bridge file's text. Returns `null` for a foreign version, an
  * unusable timestamp, an age outside `[0, BRIDGE_MAX_AGE_MS]`, or a pulse that
@@ -76,6 +86,7 @@ const parseBridge = (raw: string, nowMs: number): BridgedPulse | null => {
       approvedAt: toMap(parsed.approvedAt, isNumber),
       ideaPlans: toMap(parsed.ideaPlans, isString),
       prError: typeof parsed.prError === 'string' ? parsed.prError : null,
+      ...parseAttempt(parsed.attempt),
     };
   } catch {
     return null;
@@ -136,6 +147,7 @@ export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
           approvedAt: toEntries(data.approvedAt),
           ideaPlans: toEntries(data.ideaPlans),
           prError: data.prError,
+          attempt: data.attempt,
         });
         // The temp name carries the pid: two processes writing at once must
         // not collide on the SAME temp file, which would produce exactly the

@@ -164,6 +164,35 @@ describe('the board while a fleet runs', () => {
   });
 });
 
+describe('the board while a live fleet is mid-scan on a stale bridge', () => {
+  it('spawns no scan and shows the bridge age and the fleet\'s last failure', async () => {
+    const { dir, opts, spawned } = fixture(true);
+    const now = Date.now();
+    await fleetStateFile({ repoRoot: dir }).write({
+      ...bridged(now - 200_000),
+      attempt: { startedAt: now - 100_000, endedAt: now - 10_000, outcome: 'failed', error: 'scan exceeded 90 s' },
+    });
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    expect(spawned()).toEqual([]);
+    expect(entry.scanNote).toContain('200 s ago');
+    expect(entry.scanNote).toContain('scan exceeded 90 s');
+  });
+
+  it('scans itself once the fleet has started no attempt within the bound', async () => {
+    const { dir, opts, spawned } = fixture(true);
+    const now = Date.now();
+    await fleetStateFile({ repoRoot: dir }).write({
+      ...bridged(now - 200_000),
+      attempt: { startedAt: now - 190_000, endedAt: now - 150_000, outcome: 'failed', error: 'scan exceeded 90 s' },
+    });
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    expect(spawned()).toHaveLength(1);
+    expect(entry.scanNote).toBeNull();
+  });
+});
+
 describe('the board alone', () => {
   it('scans for display, records nothing, and leaves last-pulse.json unchanged', async () => {
     const { dir, opts, spawned } = fixture(false);
