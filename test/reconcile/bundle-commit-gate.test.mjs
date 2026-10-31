@@ -143,3 +143,162 @@ test('bundle-commit gate: a deleted bundle is not refused', () => {
   const r = run(dir);
   assert.equal(r.status, 0, `a removal is never this defect: ${r.stderr}`);
 });
+
+// ---------------------------------------------------------------------------
+// The gate allows exactly when CI reads the path clean.
+//
+// Each state below is built in a temporary repository. The gate answers on the
+// index before the commit; then the commit is made with plain git (no hook is
+// installed in the fixture) and `scripts/check-no-bundle-diff.sh <root> HEAD <B>`
+// reads the result, with B resolved by this test from git directly.
+// ---------------------------------------------------------------------------
+const checkScript = path.join(here, '..', '..', 'scripts', 'check-no-bundle-diff.sh');
+const BUNDLE = 'skills/plot/scripts/board/board-server.mjs';
+
+const commitBundle = (sh, dir, body, message) => {
+  writeFileSync(path.join(dir, BUNDLE), body);
+  sh(`git add -A && git commit -qm "${message}"`);
+};
+
+// `git merge-base origin/main HEAD [MERGE_HEAD]`, resolved without the gate.
+const baseOf = (sh) => {
+  const merging = (() => {
+    try {
+      return sh('git rev-parse -q --verify MERGE_HEAD').toString().trim();
+    } catch {
+      return '';
+    }
+  })();
+  return sh(`git merge-base origin/main HEAD ${merging}`).toString().trim();
+};
+
+// Runs the gate on the staged state, commits it regardless, and asks CI's
+// script. Returns whether each side was clean.
+const verdicts = (dir, sh) => {
+  const base = baseOf(sh);
+  const gateAllows = run(dir).status === 0;
+  sh('git commit -qm candidate');
+  const ci = spawnSync('bash', [checkScript, dir, 'HEAD', base], { encoding: 'utf8' });
+  return { gateAllows, ciClean: ci.status === 0, base };
+};
+
+// main moves on by one commit holding `body` for the bundle; `origin/main`
+// follows. Built with plumbing and a private index, so the working tree and
+// the staged state under test stay as they are.
+const advanceMain = (sh, dir, body) => {
+  writeFileSync(path.join(dir, '.git', 'advance-body'), body);
+  const index = path.join(dir, '.git', 'advance-index');
+  const env = `GIT_INDEX_FILE="${index}"`;
+  const blob = sh(`git hash-object -w .git/advance-body`).toString().trim();
+  sh(`${env} git read-tree origin/main`);
+  sh(`${env} git update-index --add --cacheinfo 100644,${blob},${BUNDLE}`);
+  const tree = sh(`${env} git write-tree`).toString().trim();
+  const commit = sh(`git commit-tree ${tree} -p origin/main -m "main moves"`).toString().trim();
+  sh(`git update-ref refs/remotes/origin/main ${commit}`);
+};
+
+// A feature branch carrying its own older copy of the bundle, with main ahead
+// by a newer one, and a merge of origin/main in progress that conflicts.
+const conflictedMerge = () => {
+  const { dir, sh } = repo();
+  sh('git checkout -q -b feature');
+  commitBundle(sh, dir, 'branch copy\n', 'branch carries a bundle');
+  advanceMain(sh, dir, 'main copy\n');
+  try {
+    sh('git merge --no-commit --no-ff origin/main');
+  } catch {
+    // the bundle conflicts, which is the state under test
+  }
+  return { dir, sh };
+};
+
+test('bundle-commit gate and CI agree: the #2965 replay takes main\'s copy during a conflicted merge', () => {
+  const { dir, sh } = conflictedMerge();
+  sh(`git checkout origin/main -- ${BUNDLE}`);
+  const { gateAllows, ciClean } = verdicts(dir, sh);
+  assert.equal(gateAllows, true, 'main\'s copy equals the merge base the merge commit will have');
+  assert.equal(ciClean, true);
+});
+
+test('bundle-commit gate and CI agree: a plain commit restoring the branch base is allowed', () => {
+  const { dir, sh } = repo();
+  sh('git checkout -q -b feature');
+  commitBundle(sh, dir, 'branch copy\n', 'branch carries a bundle');
+  sh(`git restore --staged --worktree --source="$(git merge-base origin/main HEAD)" -- ${BUNDLE}`);
+  const { gateAllows, ciClean } = verdicts(dir, sh);
+  assert.equal(gateAllows, true);
+  assert.equal(ciClean, true);
+});
+
+test('bundle-commit gate and CI agree: a plain commit of a newer origin/main copy is refused', () => {
+  const { dir, sh } = repo();
+  sh('git checkout -q -b feature');
+  commitBundle(sh, dir, 'branch copy\n', 'branch carries a bundle');
+  advanceMain(sh, dir, 'main copy\n');
+  sh(`git restore --staged --worktree --source=origin/main -- ${BUNDLE}`);
+  const refused = run(dir);
+  assert.match(refused.stderr, /git merge origin\/main/, 'a branch behind origin/main is told to merge first');
+  const { gateAllows, ciClean } = verdicts(dir, sh);
+  assert.equal(gateAllows, false);
+  assert.equal(ciClean, false);
+});
+
+test('bundle-commit gate and CI agree: a mode-only change is refused', () => {
+  const { dir, sh } = repo();
+  sh(`git update-index --chmod=+x ${BUNDLE}`);
+  const { gateAllows, ciClean } = verdicts(dir, sh);
+  assert.equal(gateAllows, false);
+  assert.equal(ciClean, false);
+});
+
+test('bundle-commit gate: a fetch during a merge does not change the answer', () => {
+  const { dir, sh } = conflictedMerge();
+  sh(`git checkout origin/main -- ${BUNDLE}`);
+  assert.equal(run(dir).status, 0);
+  advanceMain(sh, dir, 'main moved again\n');
+  assert.equal(run(dir).status, 0, 'origin/main moved after the merge began; the merge base did not');
+});
+
+test('bundle-commit gate: the printed repair names a sha, so a moved origin/main leaves it valid', () => {
+  const { dir, sh } = repo();
+  sh('git checkout -q -b feature');
+  commitBundle(sh, dir, 'branch copy\n', 'branch carries a bundle');
+  writeFileSync(path.join(dir, BUNDLE), 'rebuilt again\n');
+  sh('git add -A');
+  const refused = run(dir);
+  assert.equal(refused.status, 2);
+  const match = refused.stderr.match(/git restore --staged --worktree --source="([a-f0-9]{40})" -- (\S+)/);
+  assert.ok(match, `the repair names the resolved sha: ${refused.stderr}`);
+  advanceMain(sh, dir, 'main moved\n');
+  sh(`git restore --staged --worktree --source="${match[1]}" -- ${match[2]}`);
+  assert.equal(run(dir).status, 0);
+});
+
+test('bundle-commit gate: the printed repair clears the gate when the merge base differs from HEAD', () => {
+  const { dir, sh } = repo();
+  sh('git checkout -q -b feature');
+  commitBundle(sh, dir, 'branch copy\n', 'branch carries a bundle');
+  writeFileSync(path.join(dir, BUNDLE), 'rebuilt again\n');
+  sh('git add -A');
+  const refused = run(dir);
+  assert.equal(refused.status, 2);
+  const match = refused.stderr.match(/git restore --staged --worktree --source="([a-f0-9]{40})" -- (\S+)/);
+  assert.ok(match);
+  sh(`git restore --staged --worktree --source="${match[1]}" -- ${match[2]}`);
+  assert.notEqual(sh('git rev-parse HEAD').toString().trim(), match[1], 'the base is not HEAD');
+  assert.equal(run(dir).status, 0, 'a repair the gate refuses again is the original defect');
+});
+
+test('bundle-commit gate: an unreadable reading refuses and prints no repair line', () => {
+  const noMain = repo({ files: { [BUNDLE]: 'rebuilt locally\n' } });
+  noMain.sh('git update-ref -d refs/remotes/origin/main');
+  const garbled = conflictedMerge();
+  garbled.sh(`git checkout origin/main -- ${BUNDLE}`);
+  writeFileSync(path.join(garbled.dir, '.git', 'MERGE_HEAD'), 'not-a-commit\n');
+  for (const { dir } of [noMain, garbled]) {
+    const r = run(dir);
+    assert.equal(r.status, 2, `must refuse (stderr: ${r.stderr})`);
+    assert.match(r.stderr, /board-server\.mjs/);
+    assert.doesNotMatch(r.stderr, /git restore|git rm/);
+  }
+});

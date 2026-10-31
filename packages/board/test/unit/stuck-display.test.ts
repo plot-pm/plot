@@ -104,7 +104,7 @@ describe('stuckEvidence — the evidence travels WITH the state', () => {
     const lines = stuckEvidence(stuck({
       state: 'artifact-conflict', conflicts: [ARTIFACT],
     }));
-    expect(lines.join(' ')).toMatch(/git checkout .*merge-base.* -- /);
+    expect(lines.join(' ')).toMatch(/git restore .*merge-base.* -- /);
     expect(lines.join(' ')).not.toMatch(/repair|rebuild|resolve/i);
   });
 

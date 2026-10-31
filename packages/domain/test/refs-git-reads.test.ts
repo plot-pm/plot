@@ -759,6 +759,7 @@ describe('stagedPathsOf', () => {
 
 describe('stagedEntriesOf', () => {
   const sha = (c: string) => c.repeat(40);
+  const INDEX_SHA = sha('b');
   const line = (head: string, index: string, status: string, ...paths: string[]) =>
     [`:${head} ${index} ${sha('a')} ${sha('b')} ${status}`, ...paths].join('\t');
 
@@ -770,27 +771,27 @@ describe('stagedEntriesOf', () => {
       '',
     ].join('\n');
     expect(stagedEntriesOf(stdout)).toEqual([
-      { status: 'added', path: 'docs/plans/active/x.md', headMode: '000000', indexMode: '120000' },
-      { status: 'modified', path: 'kept.md', headMode: '100644', indexMode: '100644' },
-      { status: 'deleted', path: 'gone.md', headMode: '100644', indexMode: '000000' },
+      { status: 'added', path: 'docs/plans/active/x.md', headMode: '000000', indexMode: '120000', indexSha: INDEX_SHA },
+      { status: 'modified', path: 'kept.md', headMode: '100644', indexMode: '100644', indexSha: INDEX_SHA },
+      { status: 'deleted', path: 'gone.md', headMode: '100644', indexMode: '000000', indexSha: INDEX_SHA },
     ]);
   });
 
   it('reads a type change as a modification', () => {
     expect(stagedEntriesOf(line('100644', '120000', 'T', 'p.md'))).toEqual([
-      { status: 'modified', path: 'p.md', headMode: '100644', indexMode: '120000' },
+      { status: 'modified', path: 'p.md', headMode: '100644', indexMode: '120000', indexSha: INDEX_SHA },
     ]);
   });
 
   it('reads a rename by its new path and names the path it left', () => {
     expect(stagedEntriesOf(line('120000', '120000', 'R100', 'old.md', 'new.md'))).toEqual([
-      { status: 'renamed', path: 'new.md', from: 'old.md', headMode: '120000', indexMode: '120000' },
+      { status: 'renamed', path: 'new.md', from: 'old.md', headMode: '120000', indexMode: '120000', indexSha: INDEX_SHA },
     ]);
   });
 
   it('reads a copy as an addition of its new path', () => {
     expect(stagedEntriesOf(line('100644', '100644', 'C75', 'src.md', 'copy.md'))).toEqual([
-      { status: 'added', path: 'copy.md', headMode: '100644', indexMode: '100644' },
+      { status: 'added', path: 'copy.md', headMode: '100644', indexMode: '100644', indexSha: INDEX_SHA },
     ]);
   });
 
@@ -830,8 +831,8 @@ describe('refsGit: stagedEntries reads deletions and modes', () => {
   it('answers a staged deletion and a staged symlink with their modes', async () => {
     const answer = await refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') }).stagedEntries();
     expect(answer.ok && answer.value).toEqual([
-      { status: 'deleted', path: 'gone.txt', headMode: '100644', indexMode: '000000' },
-      { status: 'added', path: 'link.txt', headMode: '000000', indexMode: '120000' },
+      { status: 'deleted', path: 'gone.txt', headMode: '100644', indexMode: '000000', indexSha: expect.stringMatching(/^[0-9a-f]{40}$/) },
+      { status: 'added', path: 'link.txt', headMode: '000000', indexMode: '120000', indexSha: expect.stringMatching(/^[0-9a-f]{40}$/) },
     ]);
   });
 });
@@ -960,5 +961,51 @@ describe('refsGit: linkedWorktree', () => {
 
   it('fails outside a repository', async () => {
     expect(await linked(dir)).toBeNull();
+  });
+});
+
+describe('refsGit: entriesAt and the N-revision mergeBase', () => {
+  const out = (cwd: string, args: readonly string[]): string =>
+    execFileSync('git', [...args], { cwd, encoding: 'utf8' }).trim();
+  let dir = '';
+  let base = '';
+  let tip = '';
+  const make = () => refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') });
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-entries-at-'));
+    git(dir, ['init', '--quiet', '--initial-branch=main']);
+    git(dir, ['config', 'user.email', 'test@example.com']);
+    git(dir, ['config', 'user.name', 'Test']);
+    fs.mkdirSync(path.join(dir, 'a'));
+    fs.writeFileSync(path.join(dir, 'a/file.txt'), 'one\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '--quiet', '-m', 'base']);
+    base = out(dir, ['rev-parse', 'HEAD']);
+    git(dir, ['checkout', '--quiet', '-b', 'side']);
+    fs.writeFileSync(path.join(dir, 'a/file.txt'), 'two\n');
+    git(dir, ['commit', '--quiet', '-am', 'side']);
+    tip = out(dir, ['rev-parse', 'HEAD']);
+    git(dir, ['checkout', '--quiet', 'main']);
+  });
+  afterAll(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('answers each path with its mode and sha, and a path the revision lacks with null', async () => {
+    const answer = await make().entriesAt(base, ['a/file.txt', 'a/absent.txt']);
+    expect(answer.ok && answer.value).toEqual({
+      'a/file.txt': { mode: '100644', sha: out(dir, ['rev-parse', `${base}:a/file.txt`]) },
+      'a/absent.txt': null,
+    });
+  });
+
+  it('fails, rather than answering null, when the revision does not resolve', async () => {
+    expect((await make().entriesAt('no-such-revision', ['a/file.txt'])).ok).toBe(false);
+  });
+
+  it('answers the merge base of a revision and a merge of two others', async () => {
+    const answer = await make().mergeBase('main', 'side', base);
+    expect(answer.ok && answer.value).toBe(base);
+    expect(tip).not.toBe(base);
   });
 });

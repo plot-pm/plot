@@ -8,19 +8,23 @@
 # `-merge` tells git not to blend the two versions. It keeps one side whole and
 # reports the conflict, WITHOUT writing conflict markers into the file. The
 # artifact therefore stays valid, buildable JavaScript through a conflict, and
-# the resolution is to RESTORE FROM THE MERGE BASE, never to commit a rebuild:
+# the resolution is to RESTORE FROM THE MERGE BASE THE COMMIT WILL HAVE, never to commit a rebuild:
 # `main` builds and pushes its own bundles after every merge, so a PR's diff
 # must carry none of them (`scripts/check-no-bundle-diff.sh`), and a commit
 # staging one is refused at commit time too.
 #
-#     git checkout "$(git merge-base HEAD origin/main)" -- <each conflicting generated path>
+#     git restore --staged --worktree --source="$(git merge-base origin/main HEAD MERGE_HEAD)" -- <each conflicting generated path>
+#
+# During a merge, `MERGE_HEAD` makes that base `origin/main`; outside a merge,
+# drop `MERGE_HEAD`. a `git merge-base` over `HEAD` and `origin/main` alone names the base from
+# before the merge, and the commit gate refuses what it restores.
 #
 # `pnpm build:board` is still useful to TEST the result locally — its output
 # must not be staged or pushed. If a gate refuses a staged generated path, the
 # refusal prints this exact restore command with the paths filled in.
 #
 # Which side a conflict marker names cannot matter: the merge base's version is
-# what both branches already agree on, and `main` rebuilds every bundle from
+# what the gate and CI compare against, and `main` rebuilds every bundle from
 # source again after the merge lands regardless of which side was kept. Do not
 # phrase the resolution as "take ours": under `git merge` ours is the branch
 # being merged into, under `git rebase` it is the upstream, and this repo

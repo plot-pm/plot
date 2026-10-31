@@ -62,6 +62,16 @@ export interface StagedEntry {
   headMode: string;
   /** The six-digit mode in the index, `000000` for a deletion. */
   indexMode: string;
+  /** The object name the index holds at the path, all zeros for a deletion. */
+  indexSha: string;
+}
+
+/** The mode and object name a revision holds at one path. */
+export interface TreeEntry {
+  /** The six-digit git mode. */
+  mode: string;
+  /** The object name. */
+  sha: string;
 }
 
 /** A branch and the commit its tip points at. */
@@ -214,10 +224,31 @@ export interface Refs {
    *
    * @param a - the first revision.
    * @param b - the second revision.
+   * @param more - further revisions. `git merge-base A B C` answers the best
+   *   common ancestor of `A` and a merge of `B` and `C`, which is the base a
+   *   merge commit of `B` and `C` will have against `A`.
    * @returns the merge base's full sha; a failed result where the revisions
    *   share no history or either cannot be resolved.
    */
-  mergeBase(a: string, b: string): Promise<PortResult<string>>;
+  mergeBase(a: string, b: string, ...more: readonly string[]): Promise<PortResult<string>>;
+
+  /**
+   * The mode and object name each path holds at a revision, in ONE read.
+   *
+   * A path the revision does not hold answers `null`, and that is a resolved
+   * answer: a failed read fails the whole result instead, so a caller never
+   * reads an unreadable revision as "holds nothing".
+   *
+   * @param ref - the revision to read.
+   * @param paths - the paths, relative to the repository root.
+   * @returns each requested path with its entry, or `null` where the revision
+   *   does not hold it as a blob; a failed result where the revision cannot
+   *   be read.
+   */
+  entriesAt(
+    ref: string,
+    paths: readonly string[],
+  ): Promise<PortResult<Readonly<Record<string, TreeEntry | null>>>>;
 
   /**
    * Lists the files a branch changed against the default branch.

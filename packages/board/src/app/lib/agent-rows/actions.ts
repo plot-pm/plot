@@ -89,8 +89,8 @@ export function changedFilesLabel(count: number): string {
  * else's uncommitted judgement is not a mechanical act. It is reported in words
  * and that is the entire treatment.
  *
- * **`artifact-conflict` offers nothing here either.** The row names the merge-base
- * restore command as evidence (see {@link stuckEvidence}), and running it is a
+ * **`artifact-conflict` offers nothing here either.** The row names the restore
+ * command from the merge base the commit will have as evidence (see {@link stuckEvidence}), and running it is a
  * line a person runs once — not a button this row offers, and not an automatic
  * write: `bug/the-artifact-repair-is-retired` removed the one write this system
  * used to perform by itself.
