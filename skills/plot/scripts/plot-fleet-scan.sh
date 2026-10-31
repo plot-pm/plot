@@ -2779,11 +2779,22 @@ PLAN_MODES=$(git ls-tree -r "origin/$MAIN" \
 
 # The mode of $1 in the ref, from the batch. Empty when the path is not there,
 # which is what a failed per-path `ls-tree` also produced.
-ref_mode_of() { # $1=path → mode digits, or ""
-  printf '%s\n' "$PLAN_MODES" | awk -v p="$1" '
-    { path = $0; sub(/^[^\t]*\t/, "", path) }
-    path == p { print $1; exit }'
+# A lookup table in plain variables, for bash 3.2. A path is keyed by its
+# alphanumerics; paths that share a key share a value, so a read confirms the
+# whole path. A pattern with a leading `*` over the whole text is quadratic.
+kv_put() { # $1=prefix $2=path $3=value
+  local _k=$1${2//[^A-Za-z0-9]/_}
+  printf -v "$_k" '%s' "${!_k:-}${!_k:+$'\n'}$2"$'\t'"$3"
 }
+kv_get_into() { # $1=prefix $2=path → $kv_reply, "" when absent
+  local _k=$1${2//[^A-Za-z0-9]/_} _e
+  _e=$'\n'${!_k:-}$'\n'; kv_reply=""
+  case "$_e" in *$'\n'"$2"$'\t'*) _e=${_e#*$'\n'"$2"$'\t'}; kv_reply=${_e%%$'\n'*} ;; esac
+}
+while IFS=$'\t' read -r _pm_meta _pm_path; do
+  [ -n "$_pm_path" ] && kv_put _PM_ "$_pm_path" "${_pm_meta%% *}"
+done <<< "$PLAN_MODES"
+ref_mode_of() { kv_get_into _PM_ "$1"; printf '%s' "$kv_reply"; } # $1=path → mode, or ""
 
 # EVERY PLAN BLOB, WRITTEN IN ONE PROCESS.
 #
@@ -2880,8 +2891,8 @@ ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
   # blobs in 559 ms, in a single process. Reading every plan therefore costs
   # about what reading one did, and 68 `show` spawns were ~31 s of the scan on
   # their own: over the whole 30 s budget for that one call site.
-  if [ -n "$REF_TMP" ] && [ -f "$REF_TMP/$(basename "$p")" ]; then
-    printf '%s' "$REF_TMP/$(basename "$p")"
+  if [ -n "$REF_TMP" ] && [ -f "$REF_TMP/${p##*/}" ]; then
+    printf '%s' "$REF_TMP/${p##*/}"
     return 0
   fi
   content=$(git show "origin/$MAIN:$p" </dev/null 2>/dev/null) || return 1
@@ -2889,7 +2900,7 @@ ref_plan_file() { # $1=path in ref → temp file path, or "" when unreadable
   [ -n "$REF_TMP" ] || return 1
   # Named after the RESOLVED path so the basename the report prints is the
   # plan's own filename, matching what the worktree enumeration produced.
-  out="$REF_TMP/$(basename "$p")"
+  out="$REF_TMP/${p##*/}"
   printf '%s\n' "$content" > "$out" 2>/dev/null || return 1
   printf '%s' "$out"
 }
@@ -3712,16 +3723,14 @@ if [ ${#plans[@]} -gt 0 ] && [ -n "$MERGE_SUBJECTS" ]; then
   # front, and a recreated branch carrying new work must not be settled by the
   # first attempt's subject.
   SUBJECT_PLAN_SECTIONS=""
+  while IFS=$'\t' read -r _sp_k _sp_v; do [ -n "$_sp_v" ] && kv_put _SA_ "$_sp_k" "$_sp_v"; done <<< "$SUBJECT_ADDING"
   for _sp_i in "${!plans[@]}"; do
     _sp_plan="${plans[$_sp_i]}"
-    _sp_base=$(basename "$(readlink "$_sp_plan" 2>/dev/null || echo "$_sp_plan")")
+    # Ref mode names the blob after the resolved link: its basename is the key.
+    if [ "$PLAN_SOURCE" = "ref" ]; then _sp_base=${plan_reads[$_sp_i]##*/}
+    else _sp_base=$(basename "$(readlink "$_sp_plan" 2>/dev/null || echo "$_sp_plan")"); fi
     _sp_path="$PLAN_DIR$_sp_base"
-    _sp_added=""
-    case "$SUBJECT_ADDING" in
-      *$'\n'"$_sp_path"$'\t'*)
-        _sp_added=$(printf '%s' "$SUBJECT_ADDING" \
-          | awk -F'\t' -v p="$_sp_path" '$1 == p { print $2; exit }') ;;
-    esac
+    kv_get_into _SA_ "$_sp_path"; _sp_added=$kv_reply
     # KEYED ON THE FILE THAT WAS PARSED, which is what `plan_meta_files` holds
     # — `$plan_reads[i]`, the same key the row loop uses at pass 1a. In ref mode
     # that is a materialized blob under a temp path and not `$PLAN_DIR` at all,
