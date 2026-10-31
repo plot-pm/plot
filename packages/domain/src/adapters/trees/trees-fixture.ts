@@ -117,6 +117,8 @@ export interface TreesFixture {
   deleteRefusedFor?: readonly string[];
   /** Branches where `deleteRemoteBranch` refuses — a stale lease or a plain git refusal alike. */
   deleteRemoteRefusedFor?: readonly string[];
+  /** The paths where git holds an index lock. */
+  locked?: readonly string[];
   /**
    * What `unpushedCommits` answers, keyed by path. A path absent from the
    * table reads `failed`, the direction the git adapter fails in.
@@ -229,6 +231,8 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     dirtyPathsWithStatus: async (path) => answered(fixture.dirtyWithStatus?.[path] ?? []),
     changedUnder: async (path, pathspecs) =>
       answered((fixture.changed?.[path] ?? []).filter((file) => pathspecs.some((spec) => file.startsWith(spec)))),
+
+    locked: async (path) => answered((fixture.locked ?? []).includes(path)),
 
     quietSeconds: async (path) => answered<number | null>(fixture.quiet?.[path] ?? null),
 
