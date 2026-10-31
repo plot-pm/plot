@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2970
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-31, Jan Wloka, plan-PR #2971 merged
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-bundle-gate-refuses-the-repair`
+- **Delivered:** 2026-10-31
 
 ## Changelog
 
