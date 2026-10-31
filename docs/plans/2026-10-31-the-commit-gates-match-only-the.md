@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-31, Jan Wloka, plan-PR #2984 merged
 - **Started:** 2026-10-31, Jan Wloka, `feature/replay-aware-commit-gates`
+- **Started:** 2026-10-31, Jan Wloka, `feature/the-commit-gates-match-only-the`
 
 ## Changelog
 
