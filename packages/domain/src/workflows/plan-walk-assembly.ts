@@ -370,6 +370,8 @@ export interface FleetReadingHeader {
   fetchFailed: boolean;
   /** The fetch's message; `''` where it succeeded. */
   fetchError: string;
+  /** The plan directory; a plan's `file` is printed relative to it. */
+  planDir: string;
   /** The host word the summary carries. */
   host: string;
   /** The merge-detection word the summary carries. */
@@ -429,7 +431,7 @@ export const fleetReading = (assembly: Assembly, header: FleetReadingHeader): Re
   fetch_error: header.fetchError,
   plan_source: 'ref',
   plans: assembly.plans.map((plan) => ({
-    file: plan.file,
+    file: plan.file.startsWith(header.planDir) ? plan.file.slice(header.planDir.length) : plan.file,
     phase: plan.phase,
     ...(plan.tracer ? { tracer: true } : {}),
     unreadBranchItems: plan.unreadBranchItems,

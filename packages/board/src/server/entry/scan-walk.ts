@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { agentsFs } from '@plot-pm/domain/adapters/agents/agents-fs';
@@ -52,7 +53,9 @@ const unaskedHost = (host: Host): Host =>
   new Proxy(host, {
     get: (target, name, receiver) =>
       typeof name === 'string' && !FREE_HOST_QUESTIONS.has(name)
-        ? () => Promise.resolve({ ok: false as const, why: 'unaskable' as const, reason: 'offline' })
+        ? name === 'lastRefusal'
+          ? () => ({ kind: 'failed' as const, said: 'not logged in: the scan ran offline' })
+          : () => Promise.resolve({ ok: false as const, why: 'unaskable' as const, reason: 'offline' })
         : Reflect.get(target, name, receiver),
   });
 
@@ -64,7 +67,9 @@ const main = async (): Promise<number> => {
   const prefixes = prefixList.split('|').filter((p) => p !== '');
   const offer = mode === 'next' || mode === 'list-eligible' || mode === 'why-nothing';
   const root = process.env.PLOT_REPO_ROOT ?? process.cwd();
-  const context = shellContext(root);
+  // The helper scripts live beside the board directory this bundle ships in, which
+  // is not `<root>/skills/plot/scripts` in a project that only installs Plot.
+  const context = { ...shellContext(root), scriptDir: dirname(dirname(realpathSync(process.argv[1] ?? ''))) };
   const refs = refsGit(context);
   const store = planStoreRef(refs, context, `origin/${mainBranch}`);
   const estate = await readEstate(refs, store, { mainBranch, planDir, activeDir, deliveredDir, prefixes });
@@ -88,7 +93,8 @@ const main = async (): Promise<number> => {
     { slug, offer },
   );
   if (!assembled.ok) {
-    process.stderr.write('plot-scan-walk: a stage of the walk failed\n');
+    const failedStage = !estate.ok ? 'estate' : !branches.ok ? 'branches' : !desks.ok ? 'desks' : 'assembly';
+    process.stderr.write(`plot-scan-walk: the ${failedStage} stage failed\n`);
     return 2;
   }
   const assembly = assembled.value;
@@ -108,8 +114,9 @@ const main = async (): Promise<number> => {
     localHead,
     fetchFailed: fetchFailed === '1',
     fetchError,
-    host: offline === '1' ? 'offline' : 'ok',
-    mergeDetect: 'ok',
+    planDir,
+    host: offline === '1' ? 'unasked' : 'ok',
+    mergeDetect: 'unaskable',
     nowSeconds: Math.floor(Date.now() / 1000),
   });
   process.stdout.write(`${JSON.stringify(document)}\n`);
