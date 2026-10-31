@@ -49,6 +49,8 @@ export const buildActions = (context: ShellContext): BuildPort => {
     runsForSha: (branch, sha): Promise<PortResult<readonly WorkflowShaRun[]>> =>
       reads.runsForSha(branch, sha),
 
+    rerunFailed: (branch, sha): Promise<PortResult<null>> => reads.rerunFailed(branch, sha),
+
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 
     lastRefusal: (): string | null => reads.lastRefusal(),

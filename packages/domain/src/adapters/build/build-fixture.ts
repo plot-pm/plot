@@ -31,6 +31,8 @@ export interface BuildFixture {
   workflowRuns?: Readonly<Record<string, Readonly<Record<string, readonly WorkflowShaRun[]>>>>;
   /** Counts the `runsForSha` calls the port receives, for tests asserting zero. */
   onRunsForSha?: (branch: string, sha: string) => void;
+  /** Receives each `rerunFailed` call, so a test asserts the write happened and how often. */
+  onRerunFailed?: (branch: string, sha: string) => void;
   /**
    * The limit readings `limit` reports.
    *
@@ -82,6 +84,11 @@ export const buildFixture = (fixture: BuildFixture = {}): BuildPort => {
       fixture.onRunsForSha?.(branch, sha);
       if (broken) return failed();
       return answered(fixture.workflowRuns?.[branch]?.[sha] ?? []);
+    },
+
+    rerunFailed: async (branch, sha): Promise<PortResult<null>> => {
+      fixture.onRerunFailed?.(branch, sha);
+      return broken ? failed() : answered(null);
     },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {

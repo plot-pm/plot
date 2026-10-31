@@ -870,15 +870,11 @@ pr_list_failed() { # $1=stderr text
       # NO REPAIR NAMED, AND THAT IS THE ANSWER. A burst refusal clears in
       # seconds and nothing is broken, so `$cli auth login` here would send a
       # reader to fix a login that is already fine. The decision is the wait.
-      echo "plot-host: pr-list: host refused a burst — ${err:-the host refused the request and said nothing}" >&2
-      echo "  Nothing is wrong and nothing needs fixing: this limit bounds calls at" >&2
-      echo "  once, not per hour. Retry shortly, with fewer at a time." >&2
+      printf '%s\n' "plot-host: pr-list: host refused a burst — ${err:-the host refused the request and said nothing}" "  Nothing is wrong and nothing needs fixing: this limit bounds calls at" "  once, not per hour. Retry shortly, with fewer at a time." >&2
       exit 6
       ;;
     throttled)
-      echo "plot-host: pr-list: host throttled — ${err:-the host refused the request and said nothing}" >&2
-      echo "  The window's quota is spent. Wait for the reset the message names," >&2
-      echo "  or run against an account with quota left. No login will help." >&2
+      printf '%s\n' "plot-host: pr-list: host throttled — ${err:-the host refused the request and said nothing}" "  The window's quota is spent. Wait for the reset the message names," "  or run against an account with quota left. No login will help." >&2
       exit 5
       ;;
     timeout)
@@ -886,9 +882,7 @@ pr_list_failed() { # $1=stderr text
       # 504 means the server took too long, not that the credential is bad, so
       # `host_repair`'s `gh auth login` would send a reader to fix a login
       # that was never broken. The decision is to ask again, not to log in.
-      echo "plot-host: pr-list: host timed out — ${err:-the host took too long and said nothing}" >&2
-      echo "  Nothing is wrong with the login: the server took too long to answer." >&2
-      echo "  The next refresh asks again." >&2
+      printf '%s\n' "plot-host: pr-list: host timed out — ${err:-the host took too long and said nothing}" "  Nothing is wrong with the login: the server took too long to answer." "  The next refresh asks again." >&2
       exit 3
       ;;
   esac
@@ -1910,10 +1904,7 @@ jenkins_instance() {
 # only a person can fix, and deliberately NOT exit 4: a `CI: jenkins` repository
 # CAN be asked about builds, it just has not said where.
 jenkins_no_instance() {
-  echo "plot-host: CI is jenkins but no Jenkins instance is configured" >&2
-  echo "  Add a 'Jenkins instance' key to the ## Plot Config section of CLAUDE.md," >&2
-  echo "  naming the instance \`jen\` knows, or set JENKINS_INSTANCE." >&2
-  echo "  Or drop the 'CI: jenkins' key to read build status from the git host." >&2
+  printf '%s\n' "plot-host: CI is jenkins but no Jenkins instance is configured" "  Add a 'Jenkins instance' key to the ## Plot Config section of CLAUDE.md," "  naming the instance \`jen\` knows, or set JENKINS_INSTANCE." "  Or drop the 'CI: jenkins' key to read build status from the git host." >&2
   exit 3
 }
 
@@ -2259,13 +2250,9 @@ bb_state_row() {
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
   local ci_word="${2:-}"
   if [ -z "$ci_word" ] || [ "$ci_word" = none ]; then
-    echo "plot-host: $1 — this repository declares no CI system, so there is nothing to ask" >&2
-    echo "  Add a 'CI' key to the ## Plot Config section of CLAUDE.md naming the" >&2
-    echo "  system that builds this repository — \`github-actions\` or \`jenkins\`." >&2
+    printf '%s\n' "plot-host: $1 — this repository declares no CI system, so there is nothing to ask" "  Add a 'CI' key to the ## Plot Config section of CLAUDE.md naming the" "  system that builds this repository — \`github-actions\` or \`jenkins\`." >&2
   else
-    echo "plot-host: $1 — no connector for CI system '$ci_word'" >&2
-    echo "  Plot answers this op for \`github-actions\` and \`jenkins\`. An unknown" >&2
-    echo "  system cannot be asked, which is not the same as having no runs." >&2
+    printf '%s\n' "plot-host: $1 — no connector for CI system '$ci_word'" "  Plot answers this op for \`github-actions\` and \`jenkins\`. An unknown" "  system cannot be asked, which is not the same as having no runs." >&2
   fi
   exit 4
 }
@@ -3122,10 +3109,7 @@ jira_require_config() {
   [ -n "$(tracker_base_url)" ] || die3 "Tracker is jira but no base URL is configured (write 'Tracker: jira https://your.atlassian.net' or set PLOT_JIRA_BASE_URL)"
   jira_load_env_file
   if [ -z "${JIRA_EMAIL:-}" ] || [ -z "${JIRA_API_TOKEN:-}" ]; then
-    echo "plot-host: Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment — an unauthenticated Jira must not read as an empty inbox" >&2
-    echo "  Create a token at https://id.atlassian.com/manage-profile/security/api-tokens" >&2
-    echo "  then export JIRA_EMAIL=<your account email> and JIRA_API_TOKEN=<the token>," >&2
-    echo "  or put both in this repository's .env (which .gitignore already excludes)." >&2
+    printf '%s\n' "plot-host: Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment — an unauthenticated Jira must not read as an empty inbox" "  Create a token at https://id.atlassian.com/manage-profile/security/api-tokens" "  then export JIRA_EMAIL=<your account email> and JIRA_API_TOKEN=<the token>," "  or put both in this repository's .env (which .gitignore already excludes)." >&2
     exit 3
   fi
 }
@@ -5046,9 +5030,7 @@ case "$op" in
         # `CI: github-actions` on a Bitbucket remote has declared something
         # `gh` cannot reach — an unaskable configuration, not an empty history.
         if [ "$be" != "github" ]; then
-          echo "plot-host: runs — CI is github-actions but the git host is '$be'" >&2
-          echo "  \`gh run list\` reads the runs of the repository its remote names," >&2
-          echo "  so there is no GitHub repository here to ask about." >&2
+          printf '%s\n' "plot-host: runs — CI is github-actions but the git host is '$be'" "  \`gh run list\` reads the runs of the repository its remote names," "  so there is no GitHub repository here to ask about." >&2
           exit 4
         fi
         gh run list --branch "$branch" --limit "$limit" \
@@ -5163,9 +5145,7 @@ case "$op" in
       # SAME SECOND CONDITION AS `runs`: `gh run list` reads the repository its
       # remote names, so `CI: github-actions` on a non-GitHub remote names runs
       # that cannot be reached from here.
-      echo "plot-host: $op — CI is github-actions but the git host is '$be'" >&2
-      echo "  \`gh run list\` reads the runs of the repository its remote names," >&2
-      echo "  so there is no GitHub repository here to ask about." >&2
+      printf '%s\n' "plot-host: $op — CI is github-actions but the git host is '$be'" "  \`gh run list\` reads the runs of the repository its remote names," "  so there is no GitHub repository here to ask about." >&2
       exit 4
     fi
     # From here the CI system is `github-actions` and the git host is GitHub;
@@ -5217,6 +5197,16 @@ case "$op" in
     _gh_jobs=$(gh run view "$_gh_db_id" --json jobs 2>/dev/null) || { echo "plot-host: run-for-sha — gh run view failed" >&2; exit 4; }
     jq -n -c --slurpfile match <(printf '%s' "$_gh_match") --slurpfile run <(printf '%s' "$_gh_jobs") \
       '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, startedAt, completedAt, steps: [(.steps // [])[].conclusion]}]}' || exit 4
+    ;;
+
+  rerun-failed)
+    # Re-runs the failed jobs of every concluded-red run for ONE sha. Exit 4
+    # is *cannot be asked*: any CI but GitHub Actions on GitHub, and a failing `gh`.
+    branch="${1:?$op needs a branch}"; sha="${2:?$op needs a sha}"
+    [ "$(ci_scheme)" = github-actions ] && [ "$be" = github ] || exit 4
+    _ids=$(gh run list --branch "$branch" --limit 50 --json headSha,conclusion,databaseId \
+      --jq ".[] | select(.headSha == \"$sha\" and .conclusion == \"failure\") | .databaseId" 2>/dev/null) || exit 4
+    for _id in $_ids; do gh run rerun "$_id" --failed >/dev/null 2>&1 || exit 4; done
     ;;
 
   issue-list)

@@ -8,10 +8,13 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { Detached } from '@plot-pm/domain/ports/detached';
 import { readReviewStarts } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import { runLogFixture } from '@plot-pm/domain/adapters';
+import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
+import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 import { removeTree } from '../rm-tree.mjs';
 import {
   AUTO_REVIEW_KEY,
   autoReview,
+  readRepairReview,
   reviewTick,
   runAutoReviewPass,
   type ReviewPassReading,
@@ -96,6 +99,85 @@ describe('reviewTick', () => {
     const out = reviewTick([{ ...row, head: 'feature/y' }], readings(NOW), start());
     expect(out[0]!.step).toMatchObject({ step: 'none', why: 'out-of-scope' });
     expect(starts).toBe(0);
+  });
+});
+
+describe('the fix PR of a red default branch', () => {
+  const GREEN = 'g'.repeat(40);
+  const RED = 'r'.repeat(40);
+  const FIX = `bug/main-repair-${GREEN.slice(0, 12)}`;
+  const fixRow: PrIndexRow = { ...row, number: 9, head: FIX };
+  const redMain: DefaultBranchReading = {
+    v: DEFAULT_BRANCH_VERSION,
+    branch: 'main',
+    headSha: RED,
+    head: 'red',
+    settled: { sha: RED, state: 'red' },
+    failingRuns: [],
+    headSince: new Date(NOW).toISOString(),
+    askedAt: new Date(NOW).toISOString(),
+    at: new Date(NOW).toISOString(),
+  };
+  const record = (over: Partial<RepairRecord> = {}): RepairRecord => ({
+    v: REPAIR_RECORD_VERSION,
+    branch: 'main',
+    state: 'repairing',
+    lastGreenSha: GREEN,
+    firstRedSha: RED,
+    redSince: new Date(NOW).toISOString(),
+    candidates: [],
+    rerun: 'asked',
+    preRevertRerun: 'none',
+    attempt: { branch: FIX },
+    at: new Date(NOW).toISOString(),
+    ...over,
+  });
+  const ports = (file: RepairRecord | null) => ({
+    repair: {
+      read: async () => ({ ok: true as const, value: file }),
+      write: async () => ({ ok: true as const, value: undefined }),
+    },
+    refs: { firstParentLine: async () => ({ ok: true as const, value: [RED] }) },
+  });
+  const tick = async (rows: readonly PrIndexRow[], file: RepairRecord | null, now = NOW, pidAlive = true) => {
+    const repairMerge = await readRepairReview(rows, redMain, ports(file));
+    return reviewTick(
+      rows,
+      { ...readings(now), defaultBranch: redMain, ...(repairMerge === undefined ? {} : { repairMerge }) },
+      { ...start(), pidAlive: () => pidAlive },
+    );
+  };
+
+  it('reviews the fix PR the record names once its CI is green', async () => {
+    const out = await tick([fixRow], record({ repairPr: 9 }));
+    expect(out[0]!.started).toMatchObject({ started: true });
+    expect(starts).toBe(1);
+  });
+
+  it('starts nothing on a second pass after the review of the same head finished', async () => {
+    await tick([fixRow], record({ repairPr: 9 }));
+    const reviewed = { ...fixRow, plotReview: 'success' as const, plotReviewSha: HEAD };
+    const out = await tick([reviewed], record({ repairPr: 9 }), NOW + 60 * 60_000, false);
+    expect(out[0]!.started).toBeUndefined();
+    expect(starts).toBe(1);
+  });
+
+  it('starts no review before the fix PR is green', async () => {
+    const pending = { ...fixRow, ciChecks: 'pending' as const };
+    const out = await tick([pending], record({ repairPr: 9 }));
+    expect(out[0]!.step).toEqual({ step: 'none', why: 'ci-not-green' });
+    expect(starts).toBe(0);
+  });
+
+  it('starts nothing on a machine whose record names no fix PR', async () => {
+    const out = await tick([fixRow], record({ attempt: { branch: FIX, outcome: 'lost' } }));
+    expect(out[0]!.step).toMatchObject({ step: 'none', why: 'out-of-scope' });
+    expect(starts).toBe(0);
+  });
+
+  it('reads no record on a default branch that is not settled red', async () => {
+    const green: DefaultBranchReading = { ...redMain, head: 'green', settled: { sha: RED, state: 'green' } };
+    expect(await readRepairReview([fixRow], green, ports(record({ repairPr: 9 })))).toBeUndefined();
   });
 });
 

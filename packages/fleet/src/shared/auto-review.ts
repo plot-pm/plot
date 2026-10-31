@@ -8,7 +8,7 @@ import {
   type SlicePrNextReadings,
   type SlicePrStep,
 } from '@plot-pm/domain';
-import { defaultBranchFile, prIndexFile } from '@plot-pm/domain/adapters';
+import { defaultBranchFile, prIndexFile, repairRecordFile } from '@plot-pm/domain/adapters';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import {
   liveReviewRuns,
@@ -19,6 +19,10 @@ import {
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { Detached } from '@plot-pm/domain/ports/detached';
+import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
+import { repairRoleOf, type RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
+import { readRepair } from '@plot-pm/domain/workflows/merge';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
 import { commonGitDir } from './agent-log.js';
@@ -164,8 +168,37 @@ export interface ReviewPassReading {
 }
 
 /**
+ * Reads the repair record for the review pass, so the guard admits the fix PR
+ * or revert PR the record names.
+ *
+ * Reads nothing on a default branch that is not settled red, and walks the
+ * first-parent line only where the record names an open row. The red commit's
+ * runs are not asked: the guard does not read them.
+ *
+ * @param rows - the open rows.
+ * @param defaultBranch - the pass's default-branch reading.
+ * @param ports - the repair record's file and the first-parent walk.
+ * @returns the reading, or `undefined` where the record names no open row.
+ */
+export const readRepairReview = async (
+  rows: readonly PrIndexRow[],
+  defaultBranch: DefaultBranchReading | null,
+  ports: { repair: RepairRecordStore; refs: Pick<Refs, 'firstParentLine'> },
+): Promise<RepairMergeReading | undefined> => {
+  const settled = defaultBranch?.settled;
+  if (defaultBranch === null || settled === undefined || settled.state !== 'red') return undefined;
+  const read = await ports.repair.read();
+  if (!read.ok || read.value === null) return undefined;
+  const record = read.value;
+  const named = rows.find((row) => repairRoleOf(record, row.number) !== null);
+  if (named === undefined) return undefined;
+  return readRepair(ports, defaultBranch.branch, settled, named.number);
+};
+
+/**
  * Reads what one review pass acts on: the PR index's open rows, the default
- * branch reading and the active sprint's scope on `origin/<default>`.
+ * branch reading, the active sprint's scope on `origin/<default>`, and the
+ * repair record through {@link readRepairReview}.
  *
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
@@ -182,9 +215,11 @@ export const readReviewPass = async (opts: ActOptions, now: number): Promise<Rev
   const defaultBranch: DefaultBranchReading | null = reading.ok ? reading.value : null;
   const branch = defaultBranch?.branch ?? 'main';
   const scope = await sprintScopeRef(refsOf(opts), scriptsOf(opts), `origin/${branch}`);
+  const repairMerge = await readRepairReview(rows, defaultBranch, { repair: repairRecordFile(opts.repoRoot), refs: refsOf(opts) });
   return {
     rows,
     readings: {
+      ...(repairMerge === undefined ? {} : { repairMerge }),
       newestMerged: null,
       scope,
       verdict: { read: 'absent' },
