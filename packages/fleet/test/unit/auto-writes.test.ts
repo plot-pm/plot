@@ -17,6 +17,9 @@ vi.mock('../../src/shared/auto-fixer.js', () => ({
 vi.mock('../../src/shared/auto-review.js', () => ({
   runAutoReviewPass: () => { calls.push('review'); },
 }));
+vi.mock('../../src/shared/auto-ticket.js', () => ({
+  runAutoTicketPass: () => { calls.push('ticket'); },
+}));
 vi.mock('../../src/shared/auto-merge.js', () => ({
   runAutoMergePass: () => { calls.push('merge'); },
 }));
@@ -37,13 +40,13 @@ describe('fleetAutoWrites', () => {
   it('dispatches, delivers, starts fixers, starts reviews, then merges, on one pulse', async () => {
     calls.length = 0;
     await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {})(PULSE);
-    expect(calls).toEqual(['dispatch', 'deliver', 'fixer', 'review', 'merge']);
+    expect(calls).toEqual(['dispatch', 'deliver', 'fixer', 'review', 'ticket', 'merge']);
   });
 
   it('starts no agent, no fixer and no review once a stop is requested, and still delivers and merges', async () => {
     calls.length = 0;
     await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null, () => true)(PULSE);
-    expect(calls).toEqual(['deliver', 'merge']);
+    expect(calls).toEqual(['deliver', 'ticket', 'merge']);
   });
 
   it('reads the stop request after the pass starts, not when it is built', async () => {
@@ -52,7 +55,7 @@ describe('fleetAutoWrites', () => {
     const pass = fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null, () => stop);
     stop = true;
     await pass(PULSE);
-    expect(calls).toEqual(['deliver', 'merge']);
+    expect(calls).toEqual(['deliver', 'ticket', 'merge']);
   });
 
   it('contains a throw and reports it', async () => {

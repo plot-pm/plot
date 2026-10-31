@@ -5,6 +5,7 @@ import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './re
 import type { DeskDeadAnswer } from './desk-dead.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { SprintScope } from './sprint-scope.js';
+import type { TicketReading } from './ticket.js';
 
 /** A sibling plan's record, which that plan types when it builds its arm. */
 export type SiblingReading = { read: 'unread' } | { read: 'record' };
@@ -78,7 +79,7 @@ export interface SlicePrNextReadings {
    */
   readonly correctionsSpentExhausted?: boolean;
   readonly fixer?: FixerReading;
-  readonly ticket?: SiblingReading;
+  readonly ticket?: TicketReading;
   readonly repair?: SiblingReading;
   /**
    * The repair record, its episode and the red commit's re-asked runs, read once
@@ -107,6 +108,7 @@ export type HoldReason =
   | 'conflicting'
   | 'merger-app-missing'
   | 'default-branch-unsettled'
+  | 'ticket-pending'
   | 'unread'
   | (string & {});
 
@@ -201,20 +203,20 @@ export const fixerInFlightArm = (readings: SlicePrNextReadings): SlicePrStep => 
 };
 
 /**
- * Arm 5 (#2903). A HIGH on the current head starts the fixer.
+ * Arm 5 (#2903). A HIGH on the current head starts the fixer, and once the
+ * attempts are spent goes to a ticket.
  *
  * A HIGH is `row.plotReview === 'failure'` bound to the row's `headSha` — a
- * failure recorded against an older push does not count, because the index
- * never revises a `plotReview` already written for a since-moved head (D2 in
- * the plan: there is no "desk alive" branch to build here at all, since
- * `agent-loop.ts` seals the desk and releases the branch on green CI before
- * any review can exist). `fixerInFlightArm` already holds a running fixer
- * before this arm runs, so a fixer is "not in flight" by construction by the
- * time this arm answers.
+ * failure recorded against an older push does not count. `fixerInFlightArm`
+ * already holds a running fixer before this arm runs. With attempts spent the
+ * ticket record decides: no ticket, or a ticket not yet carrying this head's
+ * findings, answers `ticket`; a `pending` record holds; a ticket carrying this
+ * head answers `write-status` with `success`. A head whose `plotReview` is
+ * already `success` is no HIGH and answers `none` here.
  *
  * @param readings - the PR's readings.
  * @returns an `unread` hold while the fixer or ticket record is unread, a
- *   `fixer` step on a fresh HIGH with budget left, or `none`.
+ *   `ticket-pending` hold, a `fixer`, `ticket` or `write-status` step, or `none`.
  */
 export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
   const { row, fixer, ticket } = readings;
@@ -223,8 +225,17 @@ export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (fixer.read === 'unread') return hold('unread');
   if (row === null || row.headSha === undefined || row.plotReview === undefined) return none('not-asked');
   if (row.plotReview !== 'failure' || row.plotReviewSha !== row.headSha) return none('no-high');
-  if (fixer.exhausted) return none('high-attempts-spent');
-  return { step: 'fixer', head: row.headSha, evidence: 'high' };
+  if (!fixer.exhausted) return { step: 'fixer', head: row.headSha, evidence: 'high' };
+  if (ticket === undefined) return none('ticket-not-built');
+  if (ticket.ticket === 'pending') return hold('ticket-pending');
+  if (ticket.ticket === 'none' || !ticket.coversHead) return { step: 'ticket', head: row.headSha };
+  return {
+    step: 'write-status',
+    head: row.headSha,
+    state: 'success',
+    description: `ticketed ${ticket.id}`,
+    why: 'ticket-accepted',
+  };
 };
 
 /**

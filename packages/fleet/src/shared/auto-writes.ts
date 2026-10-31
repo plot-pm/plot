@@ -4,6 +4,7 @@ import type { FleetReading, HeldSlice } from '@plot-pm/domain';
 import { runAutoMergePass } from './auto-merge.js';
 import { runAutoFixerPass } from './auto-fixer.js';
 import { runAutoReviewPass } from './auto-review.js';
+import { runAutoTicketPass } from './auto-ticket.js';
 import { runAutoDeliverPass } from './auto-deliver.js';
 import { runAutoVerifyPass, verifyingCount } from './auto-verify.js';
 import { runAutoDesignPass } from './auto-design.js';
@@ -55,6 +56,8 @@ export const fleetAutoWrites = (
   const fixerLogged = new Set<string>();
   // THE REVIEW START REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const reviewLogged = new Set<string>();
+  // THE TICKET REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
+  const ticketLogged = new Set<string>();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -76,6 +79,8 @@ export const fleetAutoWrites = (
       // A REVIEW IS AN AGENT RUN, so a stop skips its start too. It goes
       // before the merge, because a merge needs `plot/review` success.
       if (!stopped()) await runAutoReviewPass(opts, reviewLogged);
+      // A TICKET STARTS NO AGENT: it is a tracker write and a status, so a stop does not skip it.
+      await runAutoTicketPass(opts, ticketLogged);
       // ONE MERGE PER PASS, after delivery has read the merges already landed.
       // Under `--once` the scan clock does not run, so this never does either.
       await runAutoMergePass(opts, mergeRefused);
