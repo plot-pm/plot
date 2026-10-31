@@ -89,7 +89,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Assembly
 
-- `feature/the-walk-assembles-the-reading` — the assembly stage composes the existing rules into rows and the `FleetReading`, behind `PLOT_SCAN_WALK=shell|domain`, and records which readings each caller mode consumes <!-- waits: feature/the-walk-reads-the-desks --> <!-- builds: planWalk assembly and the walk switch -->
+- `feature/the-walk-assembles-the-reading` — the assembly stage composes the existing rules into rows and the `FleetReading`, behind `PLOT_SCAN_WALK=shell|domain`, and records which readings each caller mode consumes <!-- waits: feature/the-walk-reads-the-desks --> <!-- builds: planWalk assembly and the walk switch --> → #2991
 
 ### In-process
 
