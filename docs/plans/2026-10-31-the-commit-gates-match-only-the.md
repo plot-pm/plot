@@ -103,7 +103,7 @@ Decided 2026-10-31 after panel round 1 (`.plot/panels/the-commit-gates-match-onl
 
 ### The commit rule
 
-- `feature/the-commit-gates-match-only-the` — `commitDirs` and `makesCommit` on `writeDirsWhere`, the substring floor in the four `wants`, the per-root loop with the unplaced stderr line, `-C`-aware chained adds and mvs, `takesModifiedOf` scoped to the committing call, today's whole-line reading of `-a`/`--all` and chained adds and mvs for a floor-only line, the replay and merge rows again through the `--continue` forms, and one launcher test per gate <!-- builds: commitDirs and makesCommit beside gitWriteDirs -->
+- `feature/the-commit-gates-match-only-the` — `commitDirs` and `makesCommit` on `writeDirsWhere`, the substring floor in the four `wants`, the per-root loop with the unplaced stderr line, `-C`-aware chained adds and mvs, `takesModifiedOf` scoped to the committing call, today's whole-line reading of `-a`/`--all` and chained adds and mvs for a floor-only line, the replay and merge rows again through the `--continue` forms, and one launcher test per gate <!-- builds: commitDirs and makesCommit beside gitWriteDirs --> → #2990
 
 ## Notes
 
