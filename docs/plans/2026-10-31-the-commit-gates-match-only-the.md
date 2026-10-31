@@ -98,7 +98,7 @@ Decided 2026-10-31 after panel round 1 (`.plot/panels/the-commit-gates-match-onl
 
 ### Replay-aware gates
 
-- `feature/replay-aware-commit-gates` — the `state` gate clears a transition that `REBASE_HEAD` or `CHERRY_PICK_HEAD` replays, and the `phase` gate drops staged paths equal to their `MERGE_HEAD` version when `MERGE_HEAD` is contained in `origin/<main>`, with replay and merge-in-progress rows for `phase` (held branch, implementation branch), `state` and `brief-name`, each driven through `git commit` <!-- builds: a picked-commit reading on the refs port, a merge-side carve-out in the phase gate -->
+- `feature/replay-aware-commit-gates` — the `state` gate clears a transition that `REBASE_HEAD` or `CHERRY_PICK_HEAD` replays, and the `phase` gate drops staged paths equal to their `MERGE_HEAD` version when `MERGE_HEAD` is contained in `origin/<main>`, with replay and merge-in-progress rows for `phase` (held branch, implementation branch), `state` and `brief-name`, each driven through `git commit` <!-- builds: a picked-commit reading on the refs port, a merge-side carve-out in the phase gate --> → #2986
 
 ### The commit rule
 
