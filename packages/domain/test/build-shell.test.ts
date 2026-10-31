@@ -231,6 +231,25 @@ describe('a CI connector reads the run for one commit', () => {
   });
 });
 
+describe('a CI connector re-runs the failed jobs of one commit', () => {
+  it('passes the branch and the sha through and answers null on exit 0', async () => {
+    const answer = await buildActions(
+      hostThat('[ "$*" = "rerun-failed feature/x abc" ] || exit 1; exit 0'),
+    ).rerunFailed('feature/x', 'abc');
+    expect(answer).toEqual({ ok: true, value: null });
+  });
+
+  it('reads exit 4 as unaskable — this system cannot re-run', async () => {
+    const answer = await buildActions(hostThat('exit 4')).rerunFailed('feature/x', 'abc');
+    expect(answer).toEqual({ ok: false, why: 'unaskable' });
+  });
+
+  it('keeps a broken call apart from one that cannot be asked', async () => {
+    const answer = await buildActions(hostThat('exit 1')).rerunFailed('feature/x', 'abc');
+    expect(answer).toEqual({ ok: false, why: 'failed' });
+  });
+});
+
 describe('a CI connector answers for its OWN limit', () => {
   it('asks ci-limit, never the git host’s limit', async () => {
     // THE SEPARATION THIS PORT EXISTS FOR. A connector reading the git host's
