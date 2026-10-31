@@ -17,12 +17,14 @@ import type { PortResult } from '../port-result.js';
  *   the outcome names the evidence and the pid, or the refusal.
  * `fixer-end` — fleetd found a fixer's process gone, removed its worktree and
  *   cleared its in-flight mark.
+ * `review-start` — fleetd started `plot-review` on a slice PR's head, or
+ *   refused the start; the outcome names the refusal.
  */
 // plot-state: classification — one action the delivery loop took on a slice,
 // or a notification it sent about one. A step never transitions into another:
 // a slice's next line may name any step, in any order, because the loop acts
 // on whatever the pulse shows it this tick.
-export const RunLogStepSchema = z.enum(['dispatch', 'correction', 'fresh-agent', 'deliver', 'notified', 'release-review', 'release-notified', 'fixer-start', 'fixer-end']);
+export const RunLogStepSchema = z.enum(['dispatch', 'correction', 'fresh-agent', 'deliver', 'notified', 'release-review', 'release-notified', 'fixer-start', 'fixer-end', 'review-start']);
 export type RunLogStep = z.infer<typeof RunLogStepSchema>;
 
 /**
