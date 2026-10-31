@@ -701,6 +701,28 @@ export interface Refs {
   contains(ancestor: string, descendant: string): Promise<PortResult<Containment>>;
 
   /**
+   * Whether each of many commits is an ancestor of another, in one read.
+   *
+   * {@link Refs.contains} for a list: the answers are the same three values and
+   * the same evidence, and the cost is one read per DISTINCT descendant rather
+   * than one process per pair.
+   *
+   * **A refused repository answers `unknown` for every pair, never `no`.** A
+   * shallow repository lacks the history an ancestry walk needs, and a
+   * non-empty `refs/replace` rewrites the graph the walk reads; in either, a
+   * `no` would be a claim about commits git cannot see. A commit this checkout
+   * does not hold answers `unknown` for its own pairs alone.
+   *
+   * @param pairs - the ancestry questions; each `ancestor` and `descendant`
+   *   is a revision git accepts.
+   * @returns one answer per pair, in the order given; a failed result where
+   *   git could not be asked at all.
+   */
+  containsMany(
+    pairs: ReadonlyArray<{ ancestor: string; descendant: string }>,
+  ): Promise<PortResult<readonly Containment[]>>;
+
+  /**
    * A commit and its first-parent ancestors, newest first.
    *
    * Evidence, not a verdict: the caller decides what the line means. A local

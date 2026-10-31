@@ -149,7 +149,7 @@ export interface RefsFixture {
    */
   ancestry?: Readonly<Record<string, Containment>>;
   /** The operations that fail on this estate, by port member name. */
-  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'commitSubjects')[];
+  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'containsMany' | 'commitSubjects')[];
   /**
    * The branches whose `remoteHead` call fails, answering `unknown`.
    *
@@ -462,6 +462,13 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       failing.has('contains')
         ? failed<Containment>()
         : answered<Containment>(ancestry[`${ancestor} ${descendant}`] ?? 'unknown'),
+
+    containsMany: async (pairs) =>
+      failing.has('containsMany')
+        ? failed<readonly Containment[]>()
+        : answered<readonly Containment[]>(
+            pairs.map((p) => ancestry[`${p.ancestor} ${p.descendant}`] ?? 'unknown'),
+          ),
 
     remoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> =>
       unknownRemoteHead.has(branch)
