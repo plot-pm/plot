@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3006
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3008 merged
 - **Started:** 2026-11-01, Jan Wloka, `bug/a-stopped-process-leaves-no-plan-stage-directory`
 - **Started:** 2026-11-01, Jan Wloka, `bug/the-continuation-tests-remove-desks-after-the-last-write`
+- **Delivered:** 2026-11-01
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
