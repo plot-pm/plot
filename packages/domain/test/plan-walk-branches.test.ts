@@ -301,6 +301,14 @@ describe('readBranchReadings — a listing the caller holds replaces the host li
     expect(readings.every((r) => r.hostReach === 'ok' && r.prListComplete)).toBe(true);
   });
 
+  it('reads a branch with an empty name as none, since no listing key can name it', async () => {
+    const { host } = counting();
+    const listing = readCarriedPrStates(`${LISTING}\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n`)!;
+    const answer = await readBranchReadings(world(), host, estateOf(line('')), { ...INPUT, prs: { kind: 'listed', listing } });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(answer.value.branches.map((b) => b.readings.pr)).toEqual(['none']);
+  });
+
   it('reads a branch absent from an incomplete listing as unreadable, not none', async () => {
     const { host, calls } = counting();
     const listing = readCarriedPrStates(`${LISTING}\n.list-arrived\t1\t-\t-\n`)!;
