@@ -328,9 +328,11 @@ export interface Host {
    * @param since - narrows to PRs the host has seen change since this stamp,
    *   the host's own rendering, passed through byte-for-byte; every PR when
    *   omitted.
+   * @param rich - asks for each PR's `checks` and `draft` as well; a PR then
+   *   reports `checks: 'unknown'` only where the host could not say.
    * @returns the PRs, newest first.
    */
-  prList(state: string, limit?: number, since?: string): Promise<PortResult<readonly Pr[]>>;
+  prList(state: string, limit?: number, since?: string, rich?: boolean): Promise<PortResult<readonly Pr[]>>;
 
   /**
    * What is this connector's limit, and how well does it know it?

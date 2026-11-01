@@ -446,7 +446,7 @@ export const hostShell = (context: ShellContext): Host => {
       return record(run, (stdout) => asText(stdout));
     },
 
-    prList: (state, limit, since) =>
+    prList: (state, limit, since, rich) =>
       ask(
         [
           'pr-list',
@@ -454,6 +454,7 @@ export const hostShell = (context: ShellContext): Host => {
           state,
           ...(limit === undefined ? [] : ['--limit', String(limit)]),
           ...(since === undefined ? [] : ['--since', since]),
+          ...(rich === true ? ['--rich'] : []),
         ],
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
       ),
