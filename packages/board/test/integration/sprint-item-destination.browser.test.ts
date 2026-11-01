@@ -90,12 +90,13 @@ describe('a sprint member with no card renders as text, not a button', () => {
     const row = unknownRow(page);
     await expect.poll(() => row.count(), { timeout: 10_000 }).toBe(1);
     expect(await row.getByRole('button', { name: UNKNOWN_SLUG }).count()).toBe(0);
+    expect(await row.getByRole('link', { name: UNKNOWN_SLUG }).count()).toBe(0);
     expect(await row.locator('[title="Plan not found in board"]').count()).toBe(1);
-    // The known sibling, in the same modal, gets a button — proof the test
+    // The known sibling, in the same modal, gets a link — proof the test
     // reaches real `sprintItemDestination` output rather than a modal that
     // renders every member as text.
     const known = sprintModal(page).locator('li', { hasText: KNOWN_SLUG });
-    expect(await known.getByRole('button', { name: KNOWN_SLUG }).count()).toBe(1);
+    expect(await known.getByRole('link', { name: KNOWN_SLUG }).count()).toBe(1);
   };
 
   it('on the Planning tab, fresh: a story badge opens the story, whose sprint link opens the sprint', async () => {
