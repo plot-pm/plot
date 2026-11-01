@@ -105,7 +105,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### CLI modes
 
-- `feature/the-scan-modes-run-the-walk` — `--json`, `--next`, `--list-eligible`, `--why-nothing`, `--slice-names`, `--loose` and `<slug>` run through one node entry, `--offline --next` keeps its host ask, `Refs.pulse()` calls the walk, and `plot-fleetctl.sh` recognises the new scan process <!-- waits: feature/the-walk-caches-by-oid -->
+- `feature/the-scan-modes-run-the-walk` — `--json`, `--next`, `--list-eligible`, `--why-nothing`, `--slice-names`, `--loose` and `<slug>` run through one node entry, `--offline --next` keeps its host ask, `Refs.pulse()` calls the walk, and `plot-fleetctl.sh` recognises the new scan process <!-- waits: feature/the-walk-caches-by-oid --> → #3001
 
 ### Pulse log
 
