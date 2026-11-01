@@ -410,8 +410,8 @@ if [ "$loose" = 1 ] && [ "$do_fetch" = 1 ]; then
   [ -n "$loose_backend" ] && [ "$loose_backend" != "none" ] && loose_verifiable=1
 fi
 
-# THE DOMAIN WALK, behind `PLOT_SCAN_WALK=domain`. `shell` (the default) is this
-# script. `domain` hands the five machine modes (`--json`, `--next`,
+# THE DOMAIN WALK is the default; `PLOT_SCAN_WALK=shell` keeps this script's own
+# walk until the removal slice deletes it. A bare `<slug>` answers as `--json` scoped to that plan. The domain walk hands the five machine modes (`--json`, `--next`,
 # `--list-eligible`, `--why-nothing`, `--slice-names`) to `plot-scan-walk.mjs`,
 # which runs the estate, branch, desk and assembly stages and decides with the
 # domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here.
@@ -421,7 +421,7 @@ fi
 # the scan's EXIT trap must remove its temp registry.
 READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
-[ "${PLOT_SCAN_WALK:-shell}$loose$stream$log_pulse" != domain000 ] || [ "$slice_names$why_nothing$next_only$as_json" = 0000 ] || [ "$READ_REF" = unknown ] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
+[ "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain000 ] || [ "$slice_names$why_nothing$next_only$as_json$slug" = 0000 ] || [ "$READ_REF" = unknown ] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
   "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"; exit $?; }
 
 # ---------------------------------------------------------------------------
