@@ -62,7 +62,21 @@ describe('sprintMemberRefusals', () => {
   });
 
   it('refuses a field that names another sprint', () => {
-    expect(run(null, WITH(A), 'bugfix')).toHaveLength(1);
+    const r = run(null, WITH(A), 'bugfix');
+    expect(r).toHaveLength(1);
+    expect(sprintMemberRefusalText(r)).toContain("the plan's field reads 'bugfix'");
+  });
+
+  it('ignores a sprint file with no State line', () => {
+    expect(run(null, `# Sprint: Delivery loop\n\n### Should Have\n\n${A}\n`, '')).toEqual([]);
+  });
+
+  it('rules an empty sprint where no dated sprint file lists the slug', () => {
+    const after = WITH(A);
+    const changed = [{ file: SPRINT_FILE, before: null, after }];
+    expect(sprintMemberRefusals(changed, [], [{ file: PLAN_FILE, content: plan('') }])).toEqual([]);
+    expect(sprintMemberRefusals(changed, [], [{ file: PLAN_FILE, content: plan('delivery-loop') }]))
+      .toMatchObject([{ slug: 'a', field: 'delivery-loop' }]);
   });
 
   it('checks a tier move', () => {
@@ -99,5 +113,10 @@ describe('planSprintField', () => {
     expect(planSprintField(plan('<!-- optional -->'))).toBe('');
     expect(planSprintField(plan('  delivery-loop '))).toBe('delivery-loop');
     expect(planSprintField(plan(null))).toBe('');
+  });
+
+  it('answers empty for a last Status block with no Sprint line, and for a plan with no Status block', () => {
+    expect(planSprintField('# Plan\n\n## Status\n\n- **State:** Approved\n')).toBe('');
+    expect(planSprintField('# Plan\n\n## Design\n\n- **Sprint:** delivery-loop\n')).toBe('');
   });
 });
