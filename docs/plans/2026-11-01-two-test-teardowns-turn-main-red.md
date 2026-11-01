@@ -101,7 +101,7 @@ Mutation check for the Plan stage slice: revert `parseBlobs` to a raw `mkdtempSy
 
 ### Continuation desks
 
-- `bug/the-continuation-tests-remove-desks-after-the-last-write` — `packages/fleet/test/unit/continuation.test.ts` only: the fleetd caller case injects a fake `spawn`; the pid-start-time case waits for the reporter's `WorkerMonitor` line and removes its desks with `removeTree`; every `afterEach` removes all recorded directories before it throws; the new reporter case. No production change and no changeset.
+- `bug/the-continuation-tests-remove-desks-after-the-last-write` — `packages/fleet/test/unit/continuation.test.ts` only: the fleetd caller case injects a fake `spawn`; the pid-start-time case waits for the reporter's `WorkerMonitor` line and removes its desks with `removeTree`; every `afterEach` removes all recorded directories before it throws; the new reporter case. No production change and no changeset. → #3014
 
 ## Notes
 
