@@ -27,7 +27,7 @@ import { agentPanel } from './agent-panel.js';
 import { workerLog } from './worker-log.js';
 import { serverInfo } from './server-info.js';
 import { exitWhenIdle, exitWithParent } from './lifetime.js';
-import { removeStageDirsOnExit } from './stage-dirs.js';
+import { removeStageDirsOnSignal } from '@plot-pm/domain/adapters/stage-dirs';
 import {
   approveAvailability,
   approveStatus,
@@ -1052,7 +1052,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 exitWithParent();
 
 // A build interrupted by a signal or an exit leaves no stage directory behind.
-removeStageDirsOnExit();
+removeStageDirsOnSignal();
 
 /**
  * The second half of the same gate: a launcher that is ALIVE but hung leaves

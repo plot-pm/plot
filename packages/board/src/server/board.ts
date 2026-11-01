@@ -82,7 +82,7 @@ import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/proce
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
-import { makeStageDir, removeStageDir } from './stage-dirs.js';
+import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 import {
   readConfig as readConfigReader,
   readConfigAsync as readConfigAsyncReader,

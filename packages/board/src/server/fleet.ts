@@ -89,6 +89,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
+import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 import { agentsFs, planStoreRef, planStoreShell, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
@@ -1611,7 +1612,7 @@ export async function planMetasAtDefault(
     ? { ok: true as const, value: new Map<string, string>() }
     : await refs.readBlobs(plans.map((blob) => blob.sha));
   if (!blobs.ok) return null;
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-default-plans-'));
+  const scratch = makeStageDir('plot-default-plans-');
   let draft: { dir: string | null; files: string[] } = { dir: null, files: [] };
   try {
     draft = await draftPlanFiles(opts, planDir, entry);
@@ -1647,8 +1648,8 @@ export async function planMetasAtDefault(
     planMetaCaches.set(cacheKey(opts), { key, metas });
     return metas;
   } finally {
-    fs.rmSync(scratch, { recursive: true, force: true });
-    if (draft.dir) fs.rmSync(draft.dir, { recursive: true, force: true });
+    removeStageDir(scratch);
+    if (draft.dir) removeStageDir(draft.dir);
   }
 }
 
@@ -1717,7 +1718,7 @@ async function planMetasFromWorkingTree(
     }
     return metas;
   } finally {
-    if (scratch.dir) fs.rmSync(scratch.dir, { recursive: true, force: true });
+    if (scratch.dir) removeStageDir(scratch.dir);
   }
 }
 
@@ -1789,7 +1790,7 @@ async function draftPlanFiles(
     const raw = await run('git', ['show', `origin/${branch}:${path.posix.join(planDir, file)}`], opts.repoRoot)
       .catch(() => '');
     if (!raw) continue;
-    dir ??= fs.mkdtempSync(path.join(os.tmpdir(), 'plot-draft-plans-'));
+    dir ??= makeStageDir('plot-draft-plans-');
     const target = path.join(dir, `${files.length}-${path.basename(file)}`);
     fs.writeFileSync(target, raw);
     files.push(target);
