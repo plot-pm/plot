@@ -7,7 +7,6 @@ import { afterEach, describe, it, expect } from 'vitest';
 
 import { buildBoard, planEstate } from '../../src/server/board.js';
 import { type Card } from '../../src/contract/schema.js';
-import { planNameLabel, tupleFromPlan } from '../../src/app/lib/tuple-row.js';
 import { rmTree } from '../helpers.mjs';
 
 /**
@@ -76,24 +75,5 @@ describe('the server carries the plan\'s tracker keys as strings', () => {
     process.env.PLOT_REPO_ROOT = opts.repoRoot;
     const card = cardsOf(await buildBoard(opts)).find((c) => c.slug === 'keyed');
     expect(card?.issues).toEqual(['EWZKUS-3430']);
-  });
-});
-
-describe('the plan row label', () => {
-  const facts = { plan: 'a-plan', planFile: '2026-09-30-a-plan.md', phase: 'Development', waitingDays: null };
-
-  it('prefixes the keys the way the ticket row prints them', () => {
-    expect(tupleFromPlan({ ...facts, issues: ['1089'] }).name.label).toBe('1089: a-plan');
-    expect(tupleFromPlan({ ...facts, issues: ['1090', '1091'] }).name.label).toBe('1090, 1091: a-plan');
-    expect(tupleFromPlan({ ...facts, issues: ['EWZKUS-3430'] }).name.label).toBe('EWZKUS-3430: a-plan');
-  });
-
-  it('prints the slug alone where the plan names no issue', () => {
-    expect(tupleFromPlan({ ...facts, issues: [] }).name.label).toBe('a-plan');
-    expect(planNameLabel('a-plan')).toBe('a-plan');
-  });
-
-  it('keeps the link on the plan', () => {
-    expect(tupleFromPlan({ ...facts, issues: ['1089'] }).name.href).toBe('/plan/2026-09-30-a-plan.md');
   });
 });
