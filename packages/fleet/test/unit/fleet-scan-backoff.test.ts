@@ -6,6 +6,7 @@ import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
+import { emptyWalk, withWalkRefs } from './walk-fake.js';
 import { freshScanState, scanOnce, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
 
 /**
@@ -38,6 +39,7 @@ const refsFake = {
   listBranches: async () => ok([]),
   remoteUrl: async () => ok(''),
 } as unknown as Refs;
+const refsFakeW = withWalkRefs(refsFake as unknown as Partial<Refs>);
 
 /**
  * A `pr-list` answer whose stderr claims the page whole, carrying one OPEN
@@ -63,8 +65,9 @@ const worldOf = (
     config: async () => ok('docs/plans/'),
     planMeta: async () => ok(''),
   } as unknown as Scripts,
-  refs: refsFake,
+  refs: refsFakeW,
   backend: async () => backend,
+  walk: emptyWalk(),
 });
 
 const OPTIONS: ScanOptions = { record: false };
@@ -137,11 +140,12 @@ describe('scanOnce backs off a refused listing', () => {
       seen.push(options?.env);
       onLine(JSON.stringify({ kind: 'reading', reading: readingWith('ok') }));
     };
+    const carried = state.listing;
     const result = await scanOnce(worldOf('bitbucket', recording), state, OPTIONS);
     expect(result.reading.summary.host).toBe('ok');
     // A back-off held means not due — no host spend attempted and the carried
-    // listing is handed to the shell untouched.
-    expect(seen[0]?.PLOT_PR_LISTING).toBe(state.listing);
+    // listing stays untouched.
+    expect(state.listing).toBe(carried);
   });
 
   it('does not open a back-off on a reused (not due) pass that spent nothing', async () => {
@@ -159,17 +163,11 @@ describe('scanOnce backs off a refused listing', () => {
 describe('scanOnce when the very first listing is refused', () => {
   it('reports the refusal as a back-off with nothing to carry, on Bitbucket same as GitHub', async () => {
     const state = freshScanState();
-    const seen: Array<Record<string, string> | undefined> = [];
-    const recording: Scripts['stream'] = async (_s, _a, onLine, options) => {
-      seen.push(options?.env);
-      onLine(JSON.stringify({ kind: 'reading', reading: readingWith('failed') }));
-    };
-    await scanOnce(worldOf('bitbucket', recording, refusedBitbucketListing), state, OPTIONS);
+    await scanOnce(worldOf('bitbucket', async () => undefined as never, refusedBitbucketListing), state, OPTIONS);
 
     // With no prior listing and a refused host read, state.listing stays empty
-    // and the back-off opens — the shell is handed PLOT_PR_LISTING=''.
+    // and the back-off opens.
     expect(state.listing).toBe('');
-    expect(seen[0]?.PLOT_PR_LISTING).toBe('');
     expect(state.backoffUntil).not.toBeNull();
   });
 });

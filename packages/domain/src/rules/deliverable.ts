@@ -305,9 +305,10 @@ export interface PlanBranches extends PlanFile {
  * live pulse refuses a fully merged plan whenever a scan is running.
  *
  * An older FINISHED pulse may stand in because a merged branch cannot unmerge:
- * a pulse that reported every slice `complete` stays true. The one way it goes
- * stale is a plan that gained a slice since — the pulse never reported that
- * branch — which is what the branch check below refuses.
+ * a pulse that reported every slice `complete` stays true. The one way a
+ * finished pulse goes stale, the live one included, is a plan that gained a
+ * slice since — the pulse never reported that branch — which is what the
+ * branch check below refuses.
  *
  * Deferred branches are exempt, matching {@link allSlicesMerged}'s own rule
  * that a shelved branch is not outstanding work.
@@ -320,9 +321,9 @@ export interface PlanBranches extends PlanFile {
  *   cache, where `live` is `null`, which is why `live` is tested as well.
  * @param lastComplete The pulse of the last scan that FINISHED, or `null` when
  *   none has since this process started.
- * @returns `live` where it exists and its scan finished; else `lastComplete`
- *   where it exists and its entry for this plan names every non-deferred
- *   branch the plan names now; else `null`, which {@link allSlicesMerged} and
+ * @returns `live` where it exists and its scan finished, else `lastComplete`,
+ *   where that pulse's entry for this plan names every non-deferred branch
+ *   the plan names now; else `null`, which {@link allSlicesMerged} and
  *   {@link allSlicesConfirmed} read as `'unknown'`. The answer is the pulse, so
  *   a caller passes `complete: true` alongside it.
  */
@@ -336,13 +337,15 @@ export const deliveryPulse = (
   // complete over a null pulse: the flag starts true so a cold start and a
   // bridged pulse behave as they always did. Reading the flag alone would
   // return null here and never consult `lastComplete`.
-  if (live && liveComplete) return live;
-  if (!lastComplete) return null;
-  // THE CHECK THAT MAKES AN OLDER PULSE SAFE. Without it a slice added since
-  // that scan — a branch the pulse never reported and therefore never judged —
-  // reads as done, because the rule beyond this one walks the PULSE's slices
-  // and a branch absent from them is a branch it never refuses.
-  const plan = lastComplete.plans.find((p) => p.file === basename(meta.file));
+  const chosen = live && liveComplete ? live : lastComplete;
+  if (!chosen) return null;
+  // THE CHECK THAT MAKES A FINISHED PULSE SAFE, the live one included: a
+  // bridged pulse can be one beat or up to its maximum age older than the plan
+  // file. Without it a slice added since that scan — a branch the pulse never
+  // reported and therefore never judged — reads as done, because the rule
+  // beyond this one walks the PULSE's slices and a branch absent from them is
+  // a branch it never refuses.
+  const plan = chosen.plans.find((p) => p.file === basename(meta.file));
   if (!plan) return null;
   const reported = new Set(
     plan.slices.flatMap((s) => s.branches.map((b) => b.branch)),
@@ -356,5 +359,5 @@ export const deliveryPulse = (
       if (!reported.has(branch.branch)) return null;
     }
   }
-  return lastComplete;
+  return chosen;
 };

@@ -9,39 +9,24 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { fleetScan, startFleetClock } from '../../src/shared/fleet-clock.js';
-import { freshScanState, REFRESH_MS } from '../../src/shared/fleet-scan.js';
+import { freshScanState, REFRESH_MS, type ScanWorld } from '../../src/shared/fleet-scan.js';
+import { emptyWalk, withWalkRefs } from './walk-fake.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
-
-const READING: FleetReading = {
-  main: 'main',
-  head: 'abc1234',
-  plans: [{ file: '2026-10-09-a-plan.md', phase: 'approved', slices: [] }],
-  summary: {
-    plans: 1, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0,
-    waiting: 0, prereq_missing: 0, host: 'unknown' as const,
-  },
-};
 
 const ok = <T>(value: T) => ({ ok: true as const, value });
 
-const refsFake = {
+const refsFake = withWalkRefs({
   branchDates: async () => ok([{ branch: 'feature/a', committedAt: Date.now() / 1000 - 600 }]),
-  branchTips: async () => ok([{ branch: 'idea/a-plan' }]),
-  listBlobs: async () => ok([{ path: 'docs/plans/2026-10-09-a-plan.md' }]),
   remoteUrl: async () => ok('git@github.com:plot-pm/plot.git'),
-} as unknown as Refs;
+} as unknown as Partial<Refs>);
 
-const scriptsFake = (stream: Scripts['stream']): Scripts => ({
-  stream,
+const scriptsFake = (): Scripts => ({
+  stream: async () => { throw new Error('plot-fleet-scan.sh must not run'); },
   hostSaid: async () => ({ answer: 'unaskable', stdout: '' }),
   config: async () => ok('docs/plans/'),
   planMeta: async () => ok(JSON.stringify({ file: '2026-10-09-a-plan.md', approved_raw: '2026-10-08' })),
 } as unknown as Scripts);
 
-const emitting: Scripts['stream'] = async (_s, _a, onLine) => {
-  onLine(JSON.stringify({ kind: 'reading', reading: READING }));
-  return undefined as never;
-};
 
 let repo: string;
 beforeEach(() => {
@@ -51,74 +36,73 @@ afterEach(() => {
   rmTree(repo);
 });
 
-const worldOver = (scripts: Scripts) => ({ repoRoot: repo, scripts, refs: refsFake, backend: async () => 'github' });
+const worldOver = (refs: Refs = refsFake): ScanWorld => ({
+  repoRoot: repo,
+  scripts: scriptsFake(),
+  refs,
+  backend: async () => 'github',
+  walk: emptyWalk(),
+});
+
+/** Refs whose branch tips cannot be read, so the estate stage — and the beat — fails. */
+const brokenRefs = withWalkRefs({ branchTips: async () => ({ ok: false as const }) } as unknown as Partial<Refs>);
+
+const scan = (state: ReturnType<typeof fleetStateFile>, opts: { refs?: Refs; now?: () => number; warn?: (l: string) => void; prError?: () => string | null; after?: (pulse: FleetReading) => Promise<void> } = {}) =>
+  fleetScan(worldOver(opts.refs), state, freshScanState(), opts.now ?? (() => Date.now()), opts.warn ?? (() => {}), opts.prError ?? (() => null), opts.after);
 
 describe('the fleet writes the whole bridge', () => {
-  it('carries all six fields, with ages, approvals and the URL base non-empty', async () => {
+  it('carries the pulse, the branch ages and the URL base, non-empty', async () => {
     const state = fleetStateFile({ repoRoot: repo });
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => null)();
+    await scan(state)();
     const read = await state.read();
     expect(read.ok && read.value).toBeTruthy();
     if (!read.ok || read.value === null) return;
     expect(read.value.pulse.head).toBe('abc1234');
     expect(read.value.ages.get('feature/a')).toBeGreaterThanOrEqual(9);
     expect(read.value.branchUrlBase).toContain('github.com/plot-pm/plot');
-    expect(read.value.approvedAt.get('2026-10-09-a-plan.md')).toBe(Date.parse('2026-10-08T00:00:00Z'));
-    expect(read.value.ideaPlans.get('idea/a-plan')).toBe('2026-10-09-a-plan.md');
     expect(read.value.at).toBeGreaterThan(0);
   });
 
-  it('keeps the previous pulse and records the failed attempt when a scan ends without a pulse', async () => {
+  it('keeps the previous pulse and records the failed attempt when the walk throws', async () => {
     const state = fleetStateFile({ repoRoot: repo });
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => null)();
+    await scan(state)();
     const first = await state.read();
     const warned: string[] = [];
-    const silent: Scripts['stream'] = async () => undefined as never;
-    await fleetScan(worldOver(scriptsFake(silent)), state, freshScanState(), () => Date.now() + 5, (l) => warned.push(l), () => null)();
-    const throwing: Scripts['stream'] = async () => { throw new Error('killed at budget'); };
     const startedAt = Date.now() + 9;
-    await fleetScan(worldOver(scriptsFake(throwing)), state, freshScanState(), () => startedAt, (l) => warned.push(l), () => null)();
+    await scan(state, { refs: brokenRefs, now: () => startedAt, warn: (l) => warned.push(l) })();
     const after = await state.read();
     expect(first.ok && after.ok && first.value !== null && after.value !== null).toBe(true);
     if (!first.ok || !after.ok || first.value === null || after.value === null) return;
     expect(after.value.at).toBe(first.value.at);
     expect(after.value.pulse).toEqual(first.value.pulse);
-    expect(after.value.attempt).toEqual({ startedAt, endedAt: startedAt, outcome: 'failed', error: 'killed at budget' });
-    expect(warned).toHaveLength(2);
+    expect(after.value.attempt).toEqual({ startedAt, endedAt: startedAt, outcome: 'failed', error: 'fleet scan: the estate stage failed' });
+    expect(warned).toHaveLength(1);
   });
 
   it('records a started attempt on the last good bridge before the scan returns', async () => {
     const state = fleetStateFile({ repoRoot: repo });
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => null)();
+    await scan(state)();
     const startedAt = Date.now();
     let during: unknown;
-    const watching: Scripts['stream'] = async (s, a, onLine, o) => {
-      const read = await state.read();
-      during = read.ok ? read.value?.attempt : undefined;
-      return emitting(s, a, onLine, o);
-    };
-    await fleetScan(worldOver(scriptsFake(watching)), state, freshScanState(), () => startedAt, () => {}, () => null)();
+    const watching = withWalkRefs({
+      ...refsFake,
+      resolve: async () => {
+        const read = await state.read();
+        during = read.ok ? read.value?.attempt : undefined;
+        return ok('abc1234def5678');
+      },
+    } as unknown as Partial<Refs>);
+    await scan(state, { refs: watching, now: () => startedAt })();
     expect(during).toEqual({ startedAt, endedAt: null, outcome: 'running', error: null });
     const done = await state.read();
     expect(done.ok && done.value?.attempt).toEqual({ startedAt, endedAt: startedAt, outcome: 'ok', error: null });
-  });
-
-  it('asks the scan to record nothing of its own', async () => {
-    const seen: Array<Record<string, string> | undefined> = [];
-    const spy: Scripts['stream'] = async (s, a, onLine, o) => {
-      seen.push(o?.env);
-      return emitting(s, a, onLine, o);
-    };
-    await fleetScan(worldOver(scriptsFake(spy)), fleetStateFile({ repoRoot: repo }), freshScanState(), () => Date.now(), () => {}, () => null)();
-    // the fleet is the one writer: the script is told not to record
-    expect(seen[0]?.PLOT_SCAN_RECORD).toBe('0');
   });
 });
 
 describe('the fleet bridges its PR reader\'s last failure', () => {
   it('writes the sentence a failing PR reader holds beside the pulse', async () => {
     const state = fleetStateFile({ repoRoot: repo });
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => 'gh: HTTP 502')();
+    await scan(state, { prError: () => 'gh: HTTP 502' })();
     const read = await state.read();
     expect(read.ok && read.value?.prError).toBe('gh: HTTP 502');
   });
@@ -126,10 +110,10 @@ describe('the fleet bridges its PR reader\'s last failure', () => {
   it('writes null once the PR reader holds no failure', async () => {
     const state = fleetStateFile({ repoRoot: repo });
     let held: string | null = 'gh: HTTP 502';
-    const scan = fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => held);
-    await scan();
+    const again = scan(state, { prError: () => held });
+    await again();
     held = null;
-    await scan();
+    await again();
     const read = await state.read();
     expect(read.ok && read.value !== null && read.value.prError).toBeNull();
   });
@@ -139,21 +123,19 @@ describe('the automatic writes run on the scan the fleet just wrote', () => {
   it('hands the pass the pulse the scan wrote, after the bridge write', async () => {
     const state = fleetStateFile({ repoRoot: repo });
     const seen: Array<{ head: string; bridged: boolean }> = [];
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => null, async (pulse) => {
-      const read = await state.read();
-      seen.push({ head: pulse.head, bridged: read.ok && read.value !== null });
+    await scan(state, {
+      after: async (pulse) => {
+        const read = await state.read();
+        seen.push({ head: pulse.head, bridged: read.ok && read.value !== null });
+      },
     })();
     expect(seen).toEqual([{ head: 'abc1234', bridged: true }]);
   });
 
-  it('never runs the pass when the scan ended without a pulse or threw', async () => {
+  it('never runs the pass when the scan threw', async () => {
     const state = fleetStateFile({ repoRoot: repo });
     let passes = 0;
-    const after = async () => { passes += 1; };
-    const silent: Scripts['stream'] = async () => undefined as never;
-    const throwing: Scripts['stream'] = async () => { throw new Error('killed at budget'); };
-    await fleetScan(worldOver(scriptsFake(silent)), state, freshScanState(), () => Date.now(), () => {}, () => null, after)();
-    await fleetScan(worldOver(scriptsFake(throwing)), state, freshScanState(), () => Date.now(), () => {}, () => null, after)();
+    await scan(state, { refs: brokenRefs, after: async () => { passes += 1; } })();
     expect(passes).toBe(0);
   });
 

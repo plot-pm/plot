@@ -851,5 +851,13 @@ export const FleetReadingSchema = z.object({
    * silently, so "no answer" and "it worked" must read the same way.
    */
   fetch_failed: z.boolean().optional(),
+  /**
+   * Where the scan read its plans: `ref` from `origin/<main>`, `worktree`
+   * from the checkout where `origin/<main>` did not resolve. Absent means
+   * `ref`.
+   */
+  // plot-state: reading — where ONE scan read its plans; the next scan reads
+  //                       it again.
+  plan_source: z.enum(['ref', 'worktree']).optional(),
 });
 export type FleetReading = z.infer<typeof FleetReadingSchema>;

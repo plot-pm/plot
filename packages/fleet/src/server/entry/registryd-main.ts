@@ -2813,6 +2813,14 @@ export const run = async (
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
               return answer.ok ? answer.value : 'github';
             },
+            walk: {
+              host: hostShell({ repoRoot, scriptDir: scriptsDir }),
+              plans: (ref, planDir) => planStoreRef(refsGit({ repoRoot, scriptDir: scriptsDir }), { repoRoot, scriptDir: scriptsDir }, ref, planDir),
+              worktree: planStoreShell({ repoRoot, scriptDir: scriptsDir }),
+              trees: treesGit({ repoRoot, scriptDir: scriptsDir }),
+              agents: agentsFs({ repoRoot, scriptDir: scriptsDir }),
+              processes: processesShell({ repoRoot, scriptDir: scriptsDir }),
+            },
           },
           fleetStateFile({ repoRoot }),
           scanState,

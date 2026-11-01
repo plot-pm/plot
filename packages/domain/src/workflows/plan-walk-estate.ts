@@ -27,6 +27,12 @@ export interface Estate {
   indexes: readonly EstateIndexLink[];
   /** Default-branch symlinks whose target the snapshot does not hold. */
   dangling: readonly string[];
+  /**
+   * Where the plans were read: `worktree` where the default branch did not
+   * resolve and the plans came from the checkout, with `mainSha` `''`.
+   * Absent means `ref`.
+   */
+  source?: 'ref' | 'worktree';
 }
 
 /**
@@ -40,22 +46,32 @@ export interface Estate {
  * tree not listing, a symlink or plan blob not reading, or the parser
  * rejecting a file each answer `failed`, never an empty estate: an empty
  * answer is indistinguishable from a repository with no plans, and the board
- * would drop every plan when one fetch glitched. The shell scan falls back to
- * the working tree on the same condition; this stage does not, so a cache
- * built on its result can never hold a tree-less reading.
+ * would drop every plan when one fetch glitched.
+ *
+ * A DEFAULT BRANCH THAT DOES NOT RESOLVE READS THE CHECKOUT where `worktree`
+ * is given, as `plot-fleet-scan.sh` does for a repository with no remote or
+ * with refs never fetched: every `*.md` file directly in the plan directory,
+ * parsed through `worktree.readPlans`, with `source` `worktree`, `mainSha`
+ * `''`, no branch plans and no index links. A plan directory that cannot be
+ * listed or a parser failure still answers `failed`.
  *
  * @param refs - the ref reader.
  * @param plans - the plan store, read through `readPlansAt`.
  * @param input - the configuration the stage needs.
+ * @param worktree - the plan store over the checkout, read where the default
+ *   branch does not resolve. Absent, that case answers `failed`.
  * @returns the estate, or a failure when any part of the snapshot is unreadable.
  */
 export const readEstate = async (
   refs: Refs,
   plans: PlanStore,
   input: EstateInput,
+  worktree?: PlanStore,
 ): Promise<PortResult<Estate>> => {
   const mainSha = await refs.resolve(`origin/${input.mainBranch}`);
-  if (!mainSha.ok) return failed<Estate>();
+  if (!mainSha.ok || mainSha.value === '') {
+    return worktree === undefined ? failed<Estate>() : readWorktreeEstate(worktree, input.planDir);
+  }
   const main = await refs.listBlobs(mainSha.value, input.planDir);
   if (!main.ok) return failed<Estate>();
 
@@ -90,9 +106,34 @@ export const readEstate = async (
   );
   if (!records.ok) return records as PortResult<never>;
   return answered({
+    source: 'ref',
     mainSha: mainSha.value,
     plans: found.plans.map((blob, at) => ({ blob, record: records.value[at]! })),
     indexes: found.indexes,
     dangling: found.dangling,
+  });
+};
+
+/**
+ * Reads the plans directly in the checkout's plan directory.
+ *
+ * @param worktree - the plan store over the checkout.
+ * @param planDir - the plan directory, such as `docs/plans/`.
+ * @returns the estate with `source` `worktree`, or a failure where the
+ *   directory cannot be listed or a plan cannot be parsed.
+ */
+const readWorktreeEstate = async (worktree: PlanStore, planDir: string): Promise<PortResult<Estate>> => {
+  const dir = planDir.endsWith('/') ? planDir : `${planDir}/`;
+  const names = await worktree.listDir(dir);
+  if (!names.ok) return failed<Estate>();
+  const files = names.value.filter((name) => name.endsWith('.md')).map((name) => `${dir}${name}`);
+  const records = await worktree.readPlans(files);
+  if (!records.ok) return records as PortResult<never>;
+  return answered({
+    source: 'worktree',
+    mainSha: '',
+    plans: records.value.map((record) => ({ blob: { sha: '', path: record.file, source: 'main' }, record })),
+    indexes: [],
+    dangling: [],
   });
 };

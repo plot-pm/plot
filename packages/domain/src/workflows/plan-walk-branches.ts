@@ -11,6 +11,7 @@ import {
   type WaitsReading,
 } from '../rules/branch-state.js';
 import { realCommits } from '../rules/empty-claim.js';
+import { encodeListingKey, type CarriedPrStates } from '../rules/scan-listing.js';
 import { mergedBySubject } from '../rules/merge-subject.js';
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
@@ -43,7 +44,19 @@ export interface BranchStageInput {
   mainBranch: string;
   /** The plan directory, such as `docs/plans/`. */
   planDir: string;
+  /**
+   * The PR listing the caller already holds. Where present, the stage calls
+   * no `Host.prList`: `listed` answers each branch from `states`, and
+   * `unread` reads every PR as `unreadable`, with `hostReach` `failed`, or `unasked` where `said` names a host that could not be asked. Where
+   * absent, the stage asks the host for its list.
+   */
+  prs?: BranchStagePrs;
 }
+
+/** A PR listing handed to the branch stage instead of a host call. */
+export type BranchStagePrs =
+  | { kind: 'listed'; listing: CarriedPrStates }
+  | { kind: 'unread'; said?: string };
 
 /** One branch of one plan, with every reading the branch rule takes. */
 export interface BranchReading {
@@ -74,6 +87,8 @@ export interface BranchStageReadings {
   backend: string;
   /** The `origin` URL, or `''` where it could not be read. */
   origin: string;
+  /** How far the PR list reached; every branch's `hostReach` carries the same word. */
+  hostReach: HostReach;
   /** The merge commits the subject lookup walked, newest first. */
   merges: ReadonlyArray<{ sha: string; subject: string }>;
   /** Each plan file to the commit that first added it, for the plans that have one. */
@@ -108,8 +123,8 @@ const rank = (pr: Pr): number => (pr.state === 'OPEN' ? 0 : pr.mergedAt !== null
  * `mergeSubjectFound` is true only where `refTip` is `null`.
  *
  * AN UNREADABLE SNAPSHOT FAILS THE BEAT. The branch tips, the merge walk, the
- * plan additions, an ancestry batch, a commit range or a changed-path list
- * that cannot be read each answer `failed`: a partial reading would show an
+ * plan additions, an ancestry batch or a commit range that cannot be read each
+ * answer `failed`: a partial reading would show an
  * unreadable branch as `open`. A host that cannot be asked is not a snapshot
  * failure; it is spelled in `hostReach` and `pr`, as the rule expects.
  *
@@ -117,7 +132,18 @@ const rank = (pr: Pr): number => (pr.state === 'OPEN' ? 0 : pr.mergedAt !== null
  * named commits' containment in the default branch go to {@link Refs.containsMany}
  * in one call. An `unknown` answer proves nothing.
  *
- * `conflicts` has no port operation yet and is not read here.
+ * A changed-path list git cannot make reads as no changed paths: it is
+ * evidence for a reader and decides no state.
+ *
+ * A WORKTREE ESTATE HAS NO DEFAULT-BRANCH REF. The stage then walks no merges,
+ * reads no plan additions, asks no ancestry and counts no commits ahead:
+ * `mainTip` is `null` and every named commit reads `unknown`.
+ *
+ * A PR LISTING THE CALLER HOLDS REPLACES THE HOST CALL. With `input.prs`
+ * the stage calls no `Host.prList`; see {@link BranchStageInput.prs}.
+ *
+ * Conflicts are read after assembly, by {@link readBranchConflicts}: which
+ * branches are asked depends on their assembled state.
  *
  * @param refs - the ref reader.
  * @param host - the git host.
@@ -143,33 +169,61 @@ export const readBranchReadings = async (
   const originAnswer = await refs.remoteUrl('origin');
   const origin = originAnswer.ok ? originAnswer.value : '';
 
-  const list = await host.prList('all', PR_LIST_LIMIT);
   let hostReach: HostReach = 'ok';
   let prListComplete = false;
-  const prByBranch = new Map<string, Pr>();
-  if (list.ok) {
-    prListComplete = list.value.length > 0 && list.value.length < PR_LIST_LIMIT;
-    for (const pr of list.value) {
-      const held = prByBranch.get(pr.head);
-      if (held === undefined || rank(pr) < rank(held)) prByBranch.set(pr.head, pr);
-    }
+  let listed = false;
+  let heldPr: (branch: string) => PrReading | undefined = () => undefined;
+  if (backend === 'none') {
+    // A repository with no git host has no pull requests to ask about: the
+    // question is never put, as `plot-fleet-scan.sh` reads a `none` backend.
+    // Asked before `prs`, which a caller hands in for every backend.
+    hostReach = 'unasked';
+  } else if (input.prs?.kind === 'listed') {
+    const { states, complete } = input.prs.listing;
+    listed = true;
+    prListComplete = complete;
+    heldPr = (branch) => {
+      const key = encodeListingKey(branch);
+      const state = key === null ? undefined : states.get(key);
+      if (state === undefined) return undefined;
+      return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : 'unreadable';
+    };
+  } else if (input.prs?.kind === 'unread') {
+    // What the host said when the caller's own read was refused: a host that
+    // could not be asked at all is `unasked`, as `plot-fleet-scan.sh` read it.
+    hostReach = reachOfRefusal('failed', input.prs.said ?? '');
   } else {
-    const refusal = host.lastRefusal();
-    hostReach = reachOfRefusal(refusal?.kind ?? null, refusal?.said ?? '');
-  }
-  const prFor = (branch: string): PrReading => {
-    const held = prByBranch.get(branch);
-    if (held !== undefined) {
+    const list = await host.prList('all', PR_LIST_LIMIT);
+    const prByBranch = new Map<string, Pr>();
+    if (list.ok) {
+      listed = true;
+      prListComplete = list.value.length > 0 && list.value.length < PR_LIST_LIMIT;
+      for (const pr of list.value) {
+        const held = prByBranch.get(pr.head);
+        if (held === undefined || rank(pr) < rank(held)) prByBranch.set(pr.head, pr);
+      }
+    } else {
+      const refusal = host.lastRefusal();
+      hostReach = reachOfRefusal(refusal?.kind ?? null, refusal?.said ?? '');
+    }
+    heldPr = (branch) => {
+      const held = prByBranch.get(branch);
+      if (held === undefined) return undefined;
       if (held.state === 'OPEN') return 'OPEN';
       if (held.mergedAt !== null) return 'MERGED';
       return held.state === 'CLOSED' || held.state === 'MERGED' ? 'CLOSED' : 'unreadable';
-    }
-    return list.ok && prListComplete ? 'none' : 'unreadable';
-  };
+    };
+  }
+  const prFor = (branch: string): PrReading =>
+    heldPr(branch) ?? (listed && prListComplete ? 'none' : 'unreadable');
 
-  const merges = await refs.mergeSubjects(mainRef, MERGE_WALK);
+  // A worktree estate has no default-branch ref: no merge walk, no plan
+  // additions, no ancestry and no commits ahead, as `plot-fleet-scan.sh` reads
+  // `origin/<main>` when it does not resolve.
+  const noMain = estate.source === 'worktree';
+  const merges = noMain ? answered<ReadonlyArray<{ sha: string; subject: string }>>([]) : await refs.mergeSubjects(mainRef, MERGE_WALK);
   if (!merges.ok) return failed<BranchStageReadings>();
-  const additions = await refs.planAdditions(mainRef, input.planDir);
+  const additions = noMain ? answered<ReadonlyMap<string, string>>(new Map()) : await refs.planAdditions(mainRef, input.planDir);
   if (!additions.ok) return failed<BranchStageReadings>();
 
   const live = estate.plans.filter((p) => !SKIPPED_PHASES.has(p.record.phase));
@@ -205,7 +259,7 @@ export const readBranchReadings = async (
               pairs.push({ ancestor: hit.sha, descendant: added });
             }
           }
-          for (const commit of line.commits ?? []) {
+          for (const commit of noMain ? [] : line.commits ?? []) {
             entry.commitAt.push({ commit, at: pairs.length });
             pairs.push({ ancestor: commit, descendant: mainTip });
           }
@@ -224,7 +278,9 @@ export const readBranchReadings = async (
       for (const line of slice.branches) {
         const entry = wanted[at++]!;
         const refTip = tipOf.get(line.branch) ?? null;
-        const landed = entry.commitAt.map(({ commit, at: i }) => ({ commit, contained: contained.value[i]! }));
+        const landed = noMain && refTip === null
+          ? (line.commits ?? []).map((commit) => ({ commit, contained: 'unknown' as const }))
+          : entry.commitAt.map(({ commit, at: i }) => ({ commit, contained: contained.value[i]! }));
         // A merge proves the branch only when it is NOT an ancestor of the
         // commit that added the plan: a merge that predates the plan belongs to
         // an earlier use of the name.
@@ -234,15 +290,17 @@ export const readBranchReadings = async (
         let commitsAhead = 0;
         let realCommitsAhead = 0;
         let changedPaths: readonly string[] = [];
-        if (refTip !== null) {
+        if (refTip !== null && !noMain) {
           const range = await refs.commitSubjects(`${mainRef}..origin/${line.branch}`);
           if (!range.ok) return failed<BranchStageReadings>();
           commitsAhead = range.value.length;
           realCommitsAhead = realCommits(range.value);
           if (commitsAhead > 0) {
+            // Evidence only: a diff git cannot make, such as a branch with no
+            // merge base, reads as no changed paths, as `plot-fleet-scan.sh`'s
+            // `changed_paths_of` reads it.
             const files = await refs.changedFiles(`origin/${line.branch}`, input.mainBranch);
-            if (!files.ok) return failed<BranchStageReadings>();
-            changedPaths = files.value.slice(0, CHANGED_PATHS_CAP);
+            changedPaths = files.ok ? files.value.slice(0, CHANGED_PATHS_CAP) : [];
           }
         }
         const waits: WaitsReading[] = line.waitsOn.map((name) => ({
@@ -256,7 +314,7 @@ export const readBranchReadings = async (
           readings: {
             deferredByPlan: line.deferred,
             refTip,
-            mainTip,
+            mainTip: noMain ? null : mainTip,
             mergeSubjectFound: refTip === null && (proven || commitsLanded),
             hostReach,
             pr: prFor(line.branch),
@@ -281,8 +339,56 @@ export const readBranchReadings = async (
     mainSha: mainTip,
     backend,
     origin,
+    hostReach,
     merges: merges.value,
     added: addedByPlan,
     branches,
   });
+};
+
+/** One assembled branch as {@link readBranchConflicts} reads it. */
+export interface ConflictCandidate {
+  /** The branch as the plan names it. */
+  branch: string;
+  /** The branch's assembled state. */
+  state: string;
+  /** Whether the remote holds a ref for the branch. */
+  refHeld: boolean;
+  /** Paths the branch changed against the default branch. */
+  changedPaths: readonly string[];
+}
+
+/** The states whose branches carry unlanded work of their own. */
+const CONFLICT_STATES: ReadonlySet<string> = new Set(['wip', 'claimed']);
+
+/**
+ * Reads which paths each branch with unlanded changes would conflict on when
+ * merged into the default branch.
+ *
+ * Asks {@link Refs.conflictPaths} once per distinct branch, one at a time, whose state is
+ * `wip` or `claimed`, whose remote ref exists and whose changed paths are not
+ * empty. A branch outside that set, or one whose merge git cannot compute, is
+ * absent from the answer: its conflicts are not known.
+ *
+ * @param refs - the ref reader.
+ * @param mainBranch - the default branch's name, such as `main`.
+ * @param candidates - the assembled branches.
+ * @returns each asked branch to its conflicting paths; empty where it merges cleanly.
+ */
+export const readBranchConflicts = async (
+  refs: Refs,
+  mainBranch: string,
+  candidates: readonly ConflictCandidate[],
+): Promise<ReadonlyMap<string, readonly string[]>> => {
+  const asked = [...new Set(
+    candidates
+      .filter((c) => CONFLICT_STATES.has(c.state) && c.refHeld && c.changedPaths.length > 0)
+      .map((c) => c.branch),
+  )];
+  const known = new Map<string, readonly string[]>();
+  for (const branch of asked) {
+    const answer = await refs.conflictPaths(`origin/${mainBranch}`, `origin/${branch}`);
+    if (answer.ok) known.set(branch, answer.value);
+  }
+  return known;
 };

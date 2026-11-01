@@ -8,7 +8,8 @@ import type { Host } from '../src/ports/host.js';
 import type { Refs } from '../src/ports/refs.js';
 import type { PlanRecordBranch } from '../src/ports/plan-store.js';
 import { branchState } from '../src/rules/branch-state.js';
-import { readBranchReadings, type BranchStageInput } from '../src/workflows/plan-walk-branches.js';
+import { readCarriedPrStates } from '../src/rules/scan-listing.js';
+import { readBranchConflicts, readBranchReadings, type BranchStageInput } from '../src/workflows/plan-walk-branches.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
 
 const INPUT: BranchStageInput = { mainBranch: 'main', planDir: 'docs/plans/' };
@@ -172,7 +173,9 @@ describe('readBranchReadings — an unreadable snapshot fails the beat', () => {
     });
   }
 
-  it('fails when the changed paths of a branch with commits ahead cannot be read', async () => {
+  it('reads no changed paths, and does not fail, where git cannot diff a branch with commits ahead', async () => {
+    // `git diff main...branch` fails for a branch with no merge base; the shell's
+    // `changed_paths_of` read that as no paths and kept the beat.
     const base = refsFixture({
       shas: { 'origin/main': 'm1' },
       tips: { 'feature/here': 't1' },
@@ -180,7 +183,9 @@ describe('readBranchReadings — an unreadable snapshot fails the beat', () => {
       additions: { [PLAN]: 'add1' },
     });
     const refs: Refs = { ...base, changedFiles: async () => failed() };
-    expect((await readBranchReadings(refs, host, estateOf(line('feature/here')), INPUT)).ok).toBe(false);
+    const answer = await readBranchReadings(refs, host, estateOf(line('feature/here')), INPUT);
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(answer.value.branches[0]).toMatchObject({ changedPaths: [], readings: { commitsAhead: 1 } });
   });
 
   it('does not fail when the host list cannot be read: the silence is spelled in hostReach and pr', async () => {
@@ -260,5 +265,164 @@ describe('readBranchReadings — how a host list is read', () => {
   it('reads a merged-state PR with no mergedAt as closed', async () => {
     const host = hostFixture({ backend: 'github', prs: [pr('feature/z', 'MERGED', null)] });
     expect((await read(world(), host, line('feature/z'))).branches[0]!.readings.pr).toBe('CLOSED');
+  });
+});
+
+describe('readBranchReadings — a listing the caller holds replaces the host list', () => {
+  const counting = () => {
+    const calls = { prList: 0 };
+    const host: Host = {
+      ...hostFixture({ backend: 'github' }),
+      prList: async () => {
+        calls.prList += 1;
+        return failed();
+      },
+    };
+    return { host, calls };
+  };
+  const LISTING = [
+    'feature_open\tOPEN\tpassing\tfalse',
+    'feature_gone\tMERGED\t-\t-',
+    'feature_shut\tCLOSED\t-\t-',
+    'feature_odd\tWEIRD\t-\t-',
+    'feature_snake__case\tMERGED\t-\t-',
+    '.branches\t5\t-\t-',
+  ].join('\n');
+  const lines = ['feature/open', 'feature/gone', 'feature/shut', 'feature/odd', 'feature/snake_case', 'feature/absent'].map((b) => line(b));
+
+  const readWith = async (host: Host, prs: BranchStageInput['prs']) => {
+    const answer = await readBranchReadings(world(), host, estateOf(...lines), { ...INPUT, prs });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return answer.value.branches.map((b) => b.readings);
+  };
+
+  it('answers every branch from a complete listing and never asks the host', async () => {
+    const { host, calls } = counting();
+    const listing = readCarriedPrStates(`${LISTING}\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n`)!;
+    const readings = await readWith(host, { kind: 'listed', listing });
+    expect(calls.prList).toBe(0);
+    expect(readings.map((r) => r.pr)).toEqual(['OPEN', 'MERGED', 'CLOSED', 'unreadable', 'MERGED', 'none']);
+    expect(readings.every((r) => r.hostReach === 'ok' && r.prListComplete)).toBe(true);
+  });
+
+  it('reads a branch with an empty name as none, since no listing key can name it', async () => {
+    const { host } = counting();
+    const listing = readCarriedPrStates(`${LISTING}\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n`)!;
+    const answer = await readBranchReadings(world(), host, estateOf(line('')), { ...INPUT, prs: { kind: 'listed', listing } });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(answer.value.branches.map((b) => b.readings.pr)).toEqual(['none']);
+  });
+
+  it('reads a repository with no git host as unasked, without asking the host', async () => {
+    const { host, calls } = counting();
+    const none: Host = { ...host, ...hostFixture({ backend: 'none' }), prList: host.prList };
+    const answer = await readBranchReadings(world(), none, estateOf(line('feature/x')), INPUT);
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(calls.prList).toBe(0);
+    expect(answer.value.hostReach).toBe('unasked');
+    expect(answer.value.branches[0]?.readings.hostReach).toBe('unasked');
+  });
+
+  it('reads an unread listing as unasked where the host said it has no identity, failed otherwise', async () => {
+    const { host } = counting();
+    const reach = async (said: string) => {
+      const answer = await readBranchReadings(world(), host, estateOf(line('feature/x')), { ...INPUT, prs: { kind: 'unread', said } });
+      if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+      return answer.value.hostReach;
+    };
+    expect(await reach('gh: To use GitHub CLI, run: gh auth login')).toBe('unasked');
+    expect(await reach('HTTP 503')).toBe('failed');
+    expect(await reach('')).toBe('failed');
+  });
+
+  it('reads a branch absent from an incomplete listing as unreadable, not none', async () => {
+    const { host, calls } = counting();
+    const listing = readCarriedPrStates(`${LISTING}\n.list-arrived\t1\t-\t-\n`)!;
+    const readings = await readWith(host, { kind: 'listed', listing });
+    expect(calls.prList).toBe(0);
+    expect(readings.at(-1)).toMatchObject({ pr: 'unreadable', prListComplete: false, hostReach: 'ok' });
+  });
+
+  it('reads every PR as unreadable with a failed reach where no listing is held, and never asks the host', async () => {
+    const { host, calls } = counting();
+    const readings = await readWith(host, { kind: 'unread' });
+    expect(calls.prList).toBe(0);
+    expect(readings.every((r) => r.pr === 'unreadable' && r.hostReach === 'failed')).toBe(true);
+  });
+
+  it('asks the host where no listing is handed in', async () => {
+    const { host, calls } = counting();
+    await readWith(host, undefined);
+    expect(calls.prList).toBe(1);
+  });
+});
+
+describe('readBranchReadings — the stage carries its host reach', () => {
+  it('names ok for a listing, failed for no listing, and the refusal for a refused host', async () => {
+    const stage = async (host: Host, prs: BranchStageInput['prs']) => {
+      const answer = await readBranchReadings(world(), host, estateOf(line('feature/here')), { ...INPUT, prs });
+      if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+      return answer.value.hostReach;
+    };
+    const base = hostFixture({ backend: 'github' });
+    expect(await stage(base, { kind: 'listed', listing: { states: new Map(), complete: true } })).toBe('ok');
+    expect(await stage(base, { kind: 'unread' })).toBe('failed');
+    expect(await stage({ ...base, prList: async () => failed(), lastRefusal: () => ({ kind: 'throttled', said: '' }) as never }, undefined)).toBe('throttled');
+  });
+});
+
+describe('readBranchConflicts — which branches are asked', () => {
+  const candidate = (branch: string, state: string, refHeld = true, changedPaths: string[] = ['src/x.ts']) =>
+    ({ branch, state, refHeld, changedPaths });
+
+  it('asks each wip or claimed branch with a ref and changed paths once, and leaves an unanswered one unknown', async () => {
+    const asked: string[] = [];
+    const refs: Refs = {
+      ...world(),
+      conflictPaths: async (base: string, branch: string) => {
+        asked.push(`${base} ${branch}`);
+        if (branch === 'origin/feature/broken') return failed();
+        return { ok: true as const, value: branch === 'origin/feature/clash' ? ['src/x.ts'] : [] };
+      },
+    };
+    const known = await readBranchConflicts(refs, 'main', [
+      candidate('feature/clash', 'wip'),
+      candidate('feature/clash', 'wip'),
+      candidate('feature/clean', 'claimed'),
+      candidate('feature/broken', 'wip'),
+      candidate('feature/open', 'open'),
+      candidate('feature/merged', 'merged'),
+      candidate('feature/gone', 'wip', false),
+      candidate('feature/claim', 'claimed', true, []),
+    ]);
+    expect(asked).toEqual(['origin/main origin/feature/clash', 'origin/main origin/feature/clean', 'origin/main origin/feature/broken']);
+    expect([...known]).toEqual([['feature/clash', ['src/x.ts']], ['feature/clean', []]]);
+  });
+});
+
+describe('readBranchReadings — a worktree estate has no default-branch ref', () => {
+  it('asks no merge walk, additions, ancestry or commit range, and reads mainTip null', async () => {
+    const asked: string[] = [];
+    const tracked = (name: string) => async () => {
+      asked.push(name);
+      return failed<never>();
+    };
+    const refs: Refs = {
+      ...world(),
+      mergeSubjects: tracked('mergeSubjects'),
+      planAdditions: tracked('planAdditions'),
+      commitSubjects: tracked('commitSubjects'),
+      changedFiles: tracked('changedFiles'),
+    };
+    const estate: Estate = { ...estateOf(line('feature/here'), line('feature/gone', { commits: ['abc1234'] }), line('feature/bare')), mainSha: '', source: 'worktree' };
+    const answer = await readBranchReadings(refs, hostFixture({ backend: 'none' }), estate, INPUT);
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(asked).toEqual([]);
+    const [here, gone, bare] = answer.value.branches;
+    expect(bare!.landed).toEqual([]);
+    expect(here!.readings).toMatchObject({ refTip: 't1', mainTip: null, commitsAhead: 0, mergeSubjectFound: false });
+    expect(gone!.landed).toEqual([{ commit: 'abc1234', contained: 'unknown' }]);
+    expect(branchState(here!.readings)).toBe('unknown');
+    expect(branchState(gone!.readings)).toBe('open');
   });
 });

@@ -398,6 +398,8 @@ describe('/api/fleet names the ref it read', () => {
       fs.writeFileSync(bridgeFile, JSON.stringify(planted), 'utf8');
 
       failing = makeFetchFailedScan();
+      // The scan runs in process now: an unreachable remote makes its own fetch fail.
+      execFileSync('git', ['remote', 'set-url', 'origin', path.join(restarted.tmp, 'no-such-remote.git')], { cwd: restarted.repo, stdio: 'ignore' });
       const server = await startServer(restarted.repo, { PLOT_SCRIPTS_DIR: failing.dir });
       try {
         // The FIRST request is what triggers `ensureCache`, which seeds from

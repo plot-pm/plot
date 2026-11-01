@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { scriptsShell } from '@plot-pm/domain/adapters';
 
@@ -13,6 +13,8 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import {
+  FLEET_SCAN,
+  FLEET_SCAN_BUDGET_MS,
   freshScanState,
   LISTING_REFRESH_MS,
   listedRowCount,
@@ -20,7 +22,9 @@ import {
   scanOnce,
   type ScanOptions,
   type ScanWorld,
+  withinBudget,
 } from '../../src/shared/fleet-scan.js';
+import { emptyWalk, withWalkRefs } from './walk-fake.js';
 import { removeTree } from '../rm-tree.mjs';
 
 const READING: FleetReading = {
@@ -42,169 +46,93 @@ const refsFake = {
   listBranches: async () => ok([]),
   remoteUrl: async () => ok(''),
 } as unknown as Refs;
+const refsFakeW = withWalkRefs(refsFake as unknown as Partial<Refs>);
 
 const worldWith = (stream: Scripts['stream']): ScanWorld => ({
   repoRoot: '/repo',
   scripts: {
     stream,
     hostSaid: async () => ({ answer: 'unaskable', stdout: '' }),
-    config: async () => ok('docs/plans/'),
+    config: async (key: string) => ok(key === 'Main branch' ? '' : 'docs/plans/'),
     planMeta: async () => ok(''),
   } as unknown as Scripts,
-  refs: refsFake,
+  refs: refsFakeW,
   backend: async () => 'github',
+  walk: emptyWalk(),
 });
 
 const OPTIONS: ScanOptions = { record: false };
 
-const A = 'feature/a\tMERGED\tplanOid\tmainOid';
-const B = 'feature/b\tCLOSED\tplanOid\tmainOid';
-const PRIOR_LISTING = '.branches\t1\t-\t-\nfeature_z\tOPEN\tgreen\tfalse\n.list-arrived\t1\t-\t-\n';
-
-const killedAfter = (lines: string[]): Scripts['stream'] => async (_s, _a, _onLine, options) => {
-  for (const line of lines) options?.onErrorLine?.(line);
-  throw new Error('fleet scan timed out');
+const noShell: Scripts['stream'] = async (script) => {
+  throw new Error(`the scan spawned ${script}`);
 };
 
-describe('scanOnce carries streamed terminal:/listing: lines forward on a kill', () => {
-  it('adopts a killed scan\'s listing that ends with .list-arrived', async () => {
-    const state = freshScanState();
-    const killed = killedAfter([
-      `terminal: ${A}`,
-      'listing: .branches\t3\t-\t-',
-      'listing: feature_a\tOPEN\tgreen\tfalse',
-      'listing: .list-complete\t1\t-\t-',
-      'listing: .list-arrived\t1\t-\t-',
-    ]);
-    await expect(scanOnce(worldWith(killed), state, OPTIONS)).rejects.toThrow();
-    expect(state.terminal).toBe(`${A}\n`);
-    expect(state.listing).toBe('.branches\t3\t-\t-\nfeature_a\tOPEN\tgreen\tfalse\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n');
-    expect(state.listingAt).not.toBeNull();
-    expect(state.listingBranches).toBe(3);
+/** Scripts whose every method fails when its script argument or argument list names the fleet scan. */
+const scriptsRefusingTheScan = (scripts: Scripts): Scripts =>
+  new Proxy(scripts, {
+    get: (target, name, receiver) => {
+      const member = Reflect.get(target, name, receiver) as unknown;
+      if (typeof member !== 'function') return member;
+      return (...args: unknown[]) => {
+        if (args.some((arg) => arg === FLEET_SCAN || (Array.isArray(arg) && arg.includes(FLEET_SCAN)))) {
+          throw new Error(`the scan called ${FLEET_SCAN} through ${String(name)}`);
+        }
+        return (member as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
   });
 
-  it('keeps the prior listing when a kill cuts the listing rows short', async () => {
+describe('scanOnce walks the plan in process', () => {
+  it('never touches plot-fleet-scan.sh, and returns the walk\'s pulse', async () => {
     const state = freshScanState();
-    state.listing = PRIOR_LISTING;
-    state.listingAt = 1;
-    state.listingBranches = 1;
-    // The script's listing order: notes, rows, then `.list-arrived` last.
-    const killed = killedAfter([
-      'listing: .branches\t3\t-\t-',
-      'listing: feature_a\tOPEN\tgreen\tfalse',
-    ]);
-    await expect(scanOnce(worldWith(killed), state, OPTIONS)).rejects.toThrow();
-    expect(state.listing).toBe(PRIOR_LISTING);
-    expect(state.listingAt).toBe(1);
-    expect(state.listingBranches).toBe(1);
+    const world = { ...worldWith(noShell), scripts: scriptsRefusingTheScan(worldWith(noShell).scripts) };
+    const result = await scanOnce(world, state, OPTIONS);
+    expect(result.reading.main).toBe('main');
+    expect(result.reading.plans).toEqual([]);
   });
 
-  it('refuses a cut listing whose markers arrived before its rows', async () => {
-    const state = freshScanState();
-    const killed = killedAfter([
-      'listing: .list-arrived\t1\t-\t-',
-      'listing: .list-complete\t1\t-\t-',
-      'listing: .branches\t3\t-\t-',
-      'listing: feature_a\tOPEN\tgreen\tfalse',
-    ]);
-    await expect(scanOnce(worldWith(killed), state, OPTIONS)).rejects.toThrow();
-    expect(state.listing).toBe('');
-    expect(state.listingAt).toBeNull();
+  it('throws when a stage fails, so the bridge is never written for the beat', async () => {
+    const world = { ...worldWith(noShell), refs: withWalkRefs({ branchTips: async () => ({ ok: false as const, why: 'failed' as const }) } as unknown as Partial<Refs>) };
+    await expect(scanOnce(world, freshScanState(), OPTIONS)).rejects.toThrow('the estate stage failed');
   });
 
-  it('merges a killed scan\'s terminal rows into a warm cache by branch name', async () => {
-    const state = freshScanState();
-    state.terminal = `feature/a\tCLOSED\toldPlan\toldMain\n${B}\n`;
-    const killed = killedAfter([`terminal: ${A}`, 'terminal: feature/c\tMERGED\tplanOid\tmainOid']);
-    await expect(scanOnce(worldWith(killed), state, OPTIONS)).rejects.toThrow();
-    expect(state.terminal).toBe(`${A}\n${B}\nfeature/c\tMERGED\tplanOid\tmainOid\n`);
-  });
-
-  it('leaves a prior cache untouched when a kill streamed no terminal:/listing: lines at all', async () => {
-    const state = freshScanState();
-    state.terminal = `${A}\n`;
-    await expect(scanOnce(worldWith(killedAfter([])), state, OPTIONS)).rejects.toThrow();
-    expect(state.terminal).toBe(`${A}\n`);
-  });
-
-  it('seeds the next scan env with the warm cache a killed scan left behind', async () => {
-    const state = freshScanState();
-    await expect(scanOnce(worldWith(killedAfter([`terminal: ${A}`])), state, OPTIONS)).rejects.toThrow();
-    const seenEnv: Array<Record<string, string> | undefined> = [];
-    const second: Scripts['stream'] = async (_s, _a, onLine, options) => {
-      seenEnv.push(options?.env);
-      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
+  it('settles the listing back-off even when the walk throws', async () => {
+    const world = {
+      ...worldWith(noShell),
+      backend: async () => 'bitbucket',
+      refs: withWalkRefs({ listBranches: async () => ok([]), branchTips: async () => ({ ok: false as const, why: 'failed' as const }) } as unknown as Partial<Refs>),
     };
-    await scanOnce(worldWith(second), state, OPTIONS);
-    expect(seenEnv[0]?.PLOT_TERMINAL_CACHE).toBe(`${A}\n`);
-  });
-
-  it('throws when the stream ends without a reading, and merges rather than replaces the terminal map', async () => {
     const state = freshScanState();
-    state.terminal = `${B}\n`;
-    const noReading: Scripts['stream'] = async (_s, _a, _onLine, options) => {
-      options?.onErrorLine?.(`terminal: ${A}`);
-    };
-    await expect(scanOnce(worldWith(noReading), state, OPTIONS))
-      .rejects.toThrow('fleet scan ended without a terminal pulse line');
-    expect(state.terminal).toBe(`${B}\n${A}\n`);
-  });
-
-  it('replaces state.terminal with the full re-reported map on a clean run, even when empty', async () => {
-    const state = freshScanState();
-    state.terminal = 'stale\tMERGED\toldPlan\toldMain\n';
-    const cleanWithNoTerminalBranches: Scripts['stream'] = async (_s, _a, onLine) => {
-      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
-    };
-    await scanOnce(worldWith(cleanWithNoTerminalBranches), state, OPTIONS);
-    expect(state.terminal).toBe('');
-  });
-
-  it('adopts a clean run\'s listing as reported', async () => {
-    const state = freshScanState();
-    const clean: Scripts['stream'] = async (_s, _a, onLine, options) => {
-      options?.onErrorLine?.('listing: .branches\t2\t-\t-');
-      options?.onErrorLine?.('listing: .list-arrived\t1\t-\t-');
-      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
-    };
-    await scanOnce(worldWith(clean), state, OPTIONS);
-    expect(state.listing).toBe('.branches\t2\t-\t-\n.list-arrived\t1\t-\t-\n');
-    expect(state.listingBranches).toBe(2);
+    await expect(scanOnce(world, state, OPTIONS)).rejects.toThrow();
+    expect(state.backoffUntil).not.toBeNull();
   });
 });
 
-describe('scanOnce counts the shell\'s own host calls from its spend: line', () => {
-  // #2815: the shell's `pr-list` and `pr-state` calls reach the scan's tally
-  // only through this line; `fleetlisting.test.mjs` proves the shell prints it
-  // under `--stream`. A Bitbucket world whose listing read is refused (this
-  // world's `hostSaid` answers `unaskable`) — the two listing calls
-  // (`readBitbucketListing`'s open and rest) are the fixed cost of a due
-  // Bitbucket pass on a fresh state, on top of whatever the shell reports.
-  const LISTING_CALLS = 2;
-  const shellOnly = (stream: Scripts['stream']): ScanWorld => ({ ...worldWith(stream), backend: async () => 'bitbucket' });
-  const streaming = (errorLines: string[]): Scripts['stream'] => async (_s, args, onLine, options) => {
-    expect(args).toEqual(['--stream']);
-    for (const line of errorLines) options?.onErrorLine?.(line);
-    onLine(JSON.stringify({ kind: 'reading', reading: READING }));
-  };
-
-  it('adds the reported spend to the calls the scan already counted', async () => {
-    const state = freshScanState();
-    state.calls = 2;
-    await scanOnce(shellOnly(streaming(['spend: 3'])), state, OPTIONS);
-    expect(state.calls).toBe(5 + LISTING_CALLS);
+describe('withinBudget', () => {
+  it('rejects once the budget runs out, leaving the hung work abandoned', async () => {
+    const never = new Promise<string>(() => {});
+    await expect(withinBudget(never, 20)).rejects.toThrow('timed out after 20 ms');
   });
 
-  it('counts nothing for the shell when no spend line arrives', async () => {
-    const state = freshScanState();
-    await scanOnce(shellOnly(streaming([])), state, OPTIONS);
-    expect(state.calls).toBe(LISTING_CALLS);
+  it('returns the value of work that finishes inside the budget', async () => {
+    await expect(withinBudget(Promise.resolve('done'), 1_000)).resolves.toBe('done');
   });
 
-  it('ignores a spend line that is not a whole count', async () => {
-    const state = freshScanState();
-    await scanOnce(shellOnly(streaming(['spend: -1', 'spend: many'])), state, OPTIONS);
-    expect(state.calls).toBe(LISTING_CALLS);
+  it('a hung walk ends scanOnce with a failure and leaves the next beat free to run', async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = { ...worldWith(noShell), refs: withWalkRefs({ resolve: () => new Promise(() => {}) } as unknown as Partial<Refs>) };
+      const state = freshScanState();
+      const outcome = scanOnce(hung, state, OPTIONS).then(() => 'resolved', (e: Error) => e.message);
+      await vi.advanceTimersByTimeAsync(FLEET_SCAN_BUDGET_MS + 1);
+      expect(await outcome).toContain('timed out');
+      // The failed beat did not touch the carried state, and a later beat runs.
+      expect(state.terminal).toBe('');
+      const next = await scanOnce(worldWith(noShell), freshScanState(), OPTIONS);
+      expect(next.reading.main).toBe('main');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -282,20 +210,19 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
 
   it('asks with --limit, records a whole full read, then folds a --since delta over it', async () => {
     const state = freshScanState();
-    const seen: Array<Record<string, string> | undefined> = [];
 
     ghAnswers(
       [ghRow(1, 'OPEN', 'feature/a', '2026-10-26T10:00:00Z')],
       [ghRow(1, 'OPEN', 'feature/a', '2026-10-26T10:00:00Z'), ghRow(2, 'MERGED', 'feature/b_x', '2026-10-25T09:00:00Z')],
       [],
     );
-    await scanOnce(worldOnRealHost(recording(seen)), state, OPTIONS);
+    await scanOnce(worldOnRealHost(noShell), state, OPTIONS);
 
     const first = ghCalls();
     expect(first).toHaveLength(2);
     for (const call of first) expect(call).toContain('--limit 3000');
     expect(first.join('\n')).not.toContain('updated:>');
-    const full = seen[0]?.PLOT_PR_LISTING ?? '';
+    const full = state.listing;
     expect(full.split('\n').filter((line) => line !== '').sort()).toEqual([
       '.branches\t2\t-\t-',
       '.list-arrived\t1\t-\t-',
@@ -304,7 +231,6 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
       'feature_b__x\tMERGED\t-\t-',
     ]);
     expect(full.endsWith('.list-arrived\t1\t-\t-\n')).toBe(true);
-    expect(state.listing).toBe(full);
     expect(state.listingAt).not.toBeNull();
     const fullReadAt = state.listingHeld?.fullReadAt ?? null;
     expect(fullReadAt).not.toBeNull();
@@ -316,7 +242,7 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
       [],
       [ghRow(3, 'MERGED', 'feature/c', '2026-10-26T11:00:00Z')],
     );
-    await scanOnce(worldOnRealHost(recording(seen)), state, OPTIONS);
+    await scanOnce(worldOnRealHost(noShell), state, OPTIONS);
 
     const second = ghCalls();
     expect(second).toHaveLength(2);
@@ -325,7 +251,7 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
     expect(second[1]).toContain('pr list --state all');
     expect(second[1]).toContain('--limit 3000');
     expect(second[1]).toContain('updated:>2026-10-26T09:59:00Z');
-    const delta = seen[1]?.PLOT_PR_LISTING ?? '';
+    const delta = state.listing;
     expect(delta.split('\n').filter((line) => line !== '').sort()).toEqual([
       '.branches\t3\t-\t-',
       '.list-arrived\t1\t-\t-',
@@ -334,25 +260,22 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
       'feature_b__x\tMERGED\t-\t-',
       'feature_c\tMERGED\t-\t-',
     ]);
-    expect(state.listing).toBe(delta);
     expect(state.listingHeld?.fullReadAt).toBe(fullReadAt);
   });
 
-  it('hands the shell no listing, and does not throw, where a row carries no head', async () => {
+  it('adopts no listing, and does not throw, where a row carries no head', async () => {
     const state = freshScanState();
-    const seen: Array<Record<string, string> | undefined> = [];
     const noHead = { ...ghRow(1, 'OPEN', 'feature/a', '2026-10-26T10:00:00Z'), headRefName: null };
     ghAnswers([noHead], [noHead], []);
-    await scanOnce(worldOnRealHost(recording(seen)), state, OPTIONS);
-    expect(seen[0]?.PLOT_PR_LISTING).toBe('');
+    await scanOnce(worldOnRealHost(noShell), state, OPTIONS);
+    expect(state.listing).toBe('');
     expect(state.listingHeld).toBeNull();
   });
 
-  it('falls back to handing the shell an empty PLOT_PR_LISTING, as today, when the full read also fails', async () => {
+  it('keeps an empty listing when the host cannot be asked', async () => {
     const state = freshScanState();
-    const seen: Array<Record<string, string> | undefined> = [];
-    await scanOnce(worldWith(recording(seen)), state, OPTIONS);
-    expect(seen[0]?.PLOT_PR_LISTING).toBe('');
+    await scanOnce(worldWith(noShell), state, OPTIONS);
+    expect(state.listing).toBe('');
   });
 });
 
@@ -364,10 +287,7 @@ describe('the listing base is LISTING_REFRESH_MS', () => {
 
   it('decides a due listing against the 60 s base, not the 5 s beat', async () => {
     const state = freshScanState();
-    const clean: Scripts['stream'] = async (_s, _a, onLine) => {
-      onLine(JSON.stringify({ kind: 'reading', reading: READING }));
-    };
-    await scanOnce(worldWith(clean), state, OPTIONS);
+    await scanOnce(worldWith(noShell), state, OPTIONS);
     // The stub's spend-rate is unaskable, so the interval is the unstretched base.
     expect(state.listingIntervalMs).toBe(LISTING_REFRESH_MS * scanListingCost('github', 0, null));
   });

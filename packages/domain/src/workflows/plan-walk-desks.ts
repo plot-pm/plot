@@ -27,6 +27,11 @@ export interface DeskReading {
    * decides from it here.
    */
   quietSeconds: number | null;
+  /**
+   * The uncommitted paths {@link Trees.dirtyPaths} lists, or `'unknown'` where
+   * they could not be read.
+   */
+  dirty: readonly string[] | 'unknown';
 }
 
 /** What the desk stage reads: one entry per branch that has a worktree. */
@@ -51,7 +56,8 @@ export interface DeskStageReadings {
  * process reading or a quiet-time reading that cannot be read answers `failed`:
  * an empty answer would read as "no desk" and free the branch. An unpushed
  * count that git cannot make is not a snapshot failure; it is spelled
- * `'unknown'`, as the reap rule expects.
+ * `'unknown'`, as the reap rule expects. Dirty paths that cannot be read are
+ * spelled `'unknown'` too.
  *
  * @param trees - the worktree reader.
  * @param agents - the desk reader.
@@ -83,12 +89,13 @@ export const readDeskReadings = async (
 
   const read = await Promise.all(
     [...wanted].map(async ([branch, { worktree, hasPr }]): Promise<DeskReading | null> => {
-      const [desk, process, locked, unpushed, quiet] = await Promise.all([
+      const [desk, process, locked, unpushed, quiet, dirty] = await Promise.all([
         agents.desk(worktree),
         processes.workerState(worktree, hasPr),
         trees.locked(worktree),
         trees.unpushedCommits(worktree, []),
         trees.quietSeconds(worktree),
+        trees.dirtyPaths(worktree),
       ]);
       if (!desk.ok || !process.ok || !locked.ok || !quiet.ok) return null;
       return {
@@ -99,6 +106,7 @@ export const readDeskReadings = async (
         locked: locked.value,
         unpushed: unpushed.ok ? unpushed.value : 'unknown',
         quietSeconds: quiet.value,
+        dirty: dirty.ok ? dirty.value : 'unknown',
       };
     }),
   );

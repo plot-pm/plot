@@ -44,6 +44,14 @@ export interface RefsFixture {
   shas?: Readonly<Record<string, string>>;
   /** Branch name to the files it changed. */
   changedFiles?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * `<base> <branch>` to the paths their merge would conflict on — for
+   * {@link Refs.conflictPaths}. A pair absent here merges cleanly; a pair
+   * named in {@link unknownConflicts} cannot be computed.
+   */
+  conflicts?: Readonly<Record<string, readonly string[]>>;
+  /** The `<base> <branch>` pairs whose {@link Refs.conflictPaths} call fails. */
+  unknownConflicts?: readonly string[];
   /** The working tree's changed paths. */
   workingChanges?: readonly string[];
   /** The paths staged against `HEAD`, each with its status — for {@link Refs.stagedPaths}. */
@@ -313,6 +321,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     },
 
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),
+
+    conflictPaths: async (base, branch) =>
+      (fixture.unknownConflicts ?? []).includes(`${base} ${branch}`)
+        ? failed<readonly string[]>()
+        : answered(fixture.conflicts?.[`${base} ${branch}`] ?? []),
 
     workingChanges: async () => answered(fixture.workingChanges ?? []),
 

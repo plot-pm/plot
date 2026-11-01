@@ -91,6 +91,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-restart-command.mjs',
   'skills/plot/scripts/board/plot-review-bypass.mjs',
   'skills/plot/scripts/board/plot-review.mjs',
+  'skills/plot/scripts/board/plot-scan-walk.mjs',
   'skills/plot/scripts/board/plot-slice-chain.mjs',
   'skills/plot/scripts/board/plot-slice-claims.mjs',
   'skills/plot/scripts/board/plot-slice-pr.mjs',

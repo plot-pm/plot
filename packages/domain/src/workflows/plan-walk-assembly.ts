@@ -389,10 +389,18 @@ export interface FleetReadingHeader {
   mergeDetect: string;
   /** The wall clock in epoch seconds, for `changed_at`. */
   nowSeconds: number;
+  /** Where the estate read its plans; absent means `ref`. */
+  planSource?: 'ref' | 'worktree';
 }
 
-const branchRow = (b: AssembledBranch, nowSeconds: number): Record<string, unknown> => {
+const branchRow = (
+  b: AssembledBranch,
+  nowSeconds: number,
+  conflicts: ReadonlyMap<string, readonly string[]>,
+): Record<string, unknown> => {
   const desk = b.desk;
+  const dirty = desk === null || desk.dirty === 'unknown' ? [] : desk.dirty;
+  const conflicting = conflicts.get(b.branch);
   const quiet = desk?.quietSeconds ?? null;
   const unpushed = desk === null || desk.unpushed === 'unknown' ? 0 : desk.unpushed.length;
   const row: Record<string, unknown> = { branch: b.branch, state: b.state, own_state: b.ownState, deferred: b.deferred };
@@ -402,7 +410,7 @@ const branchRow = (b: AssembledBranch, nowSeconds: number): Record<string, unkno
     deferred_reason: b.deferredReason,
     waits_on: b.waitsOn,
     claimed: b.claimed,
-    local_dirty: false,
+    local_dirty: dirty.length > 0,
     local_locked: desk?.locked ?? false,
     local_worktree: desk?.worktree ?? '',
     held: desk !== null && b.state !== 'merged',
@@ -414,33 +422,41 @@ const branchRow = (b: AssembledBranch, nowSeconds: number): Record<string, unkno
     worker_pid: desk?.process.pid ?? '',
     worker_exit: desk?.process.exitCode ?? '',
     worker_activity: desk !== null && desk.process.state === 'running' ? desk.process.activity : '',
-    worker_dirty_paths: [],
-    conflicts_known: false,
-    conflicts: [],
-    changed_paths: [],
+    worker_dirty_paths: desk !== null && desk.process.state === 'stalled' ? dirty : [],
+    conflicts_known: conflicting !== undefined,
+    conflicts: conflicting ?? [],
+    changed_paths: conflicting === undefined ? [] : b.changedPaths,
   };
 };
 
 /**
  * The document `plot-fleet-scan.sh --json` prints.
  *
- * Fields with no stage reading carry the value the scan writes where it
- * cannot tell: `local_dirty` `false`, `worker_dirty_paths` `[]`,
- * `conflicts_known` `false`. The summary's `host` is the branch stage's reach
- * word, which never reads `partial`.
+ * `local_dirty` is whether the desk holds dirty paths; `worker_dirty_paths`
+ * lists them for a `stalled` worker only, and is `[]` otherwise. A branch in
+ * `conflicts` carries `conflicts_known` `true`, its conflicting paths and its
+ * changed paths; any other branch carries `false`, `[]` and `[]`. The
+ * summary's `host` is the branch stage's reach word, which never reads
+ * `partial`.
  *
  * @param assembly - the assembly.
  * @param header - the checkout's facts.
+ * @param conflicts - each branch whose conflicts were read, from
+ *   `readBranchConflicts`, to its conflicting paths.
  * @returns the document.
  */
-export const fleetReading = (assembly: Assembly, header: FleetReadingHeader): Record<string, unknown> => ({
+export const fleetReading = (
+  assembly: Assembly,
+  header: FleetReadingHeader,
+  conflicts: ReadonlyMap<string, readonly string[]> = new Map(),
+): Record<string, unknown> => ({
   main: header.main,
   read_ref: header.readRef,
   local_head: header.localHead,
   head: header.localHead,
   fetch_failed: header.fetchFailed,
   fetch_error: header.fetchError,
-  plan_source: 'ref',
+  plan_source: header.planSource ?? 'ref',
   plans: assembly.plans.map((plan) => ({
     file: plan.file.startsWith(header.planDir) ? plan.file.slice(header.planDir.length) : plan.file,
     phase: plan.phase,
@@ -449,7 +465,7 @@ export const fleetReading = (assembly: Assembly, header: FleetReadingHeader): Re
     [WAVES_KEY]: plan.slices.map((slice) => ({
       name: slice.name,
       verdict: slice.verdict,
-      branches: slice.branches.map((b) => branchRow(b, header.nowSeconds)),
+      branches: slice.branches.map((b) => branchRow(b, header.nowSeconds, conflicts)),
     })),
   })),
   summary: {

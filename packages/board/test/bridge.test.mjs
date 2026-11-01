@@ -99,8 +99,11 @@ function makeNoFleetScripts() {
 }
 
 /**
- * A scripts dir whose `plot-fleet-scan.sh` always fails, every other helper
- * symlinked from the real one.
+ * A scripts dir whose `plot-fleet-scan.sh` and plan parser always fail, every
+ * other helper symlinked from the real one. The board's scan walks in process
+ * and parses every plan through `plot-plan-meta.sh`, so a parser that cannot
+ * run is a scan that cannot succeed, whether it reads `origin/<main>` or the
+ * checkout.
  *
  * This is how "the file answered" is separated from "a fast rescan answered".
  * Both mechanisms are wanted and both are asserted — but a server whose scan
@@ -110,13 +113,18 @@ function makeNoFleetScripts() {
 function makeBrokenScan() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-brokenscan-'));
   for (const name of fs.readdirSync(SCRIPTS_DIR)) {
-    if (name === 'plot-fleet-scan.sh' || name === 'plot-fleetctl.sh') continue;
+    if (name === 'plot-fleet-scan.sh' || name === 'plot-fleetctl.sh' || name === 'plot-plan-meta.sh') continue;
     fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
   }
   writeNoFleet(dir);
   fs.writeFileSync(
     path.join(dir, 'plot-fleet-scan.sh'),
     '#!/usr/bin/env bash\necho "scan is broken on purpose" >&2\nexit 3\n',
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(dir, 'plot-plan-meta.sh'),
+    '#!/usr/bin/env bash\necho "plan parser is broken on purpose" >&2\nexit 3\n',
     { mode: 0o755 },
   );
   return { dir, cleanup: () => rmTree(dir) };
@@ -318,7 +326,7 @@ describe('bridge: the last good pulse outlives the process', () => {
     // `error` + `ready: true` is exactly the pair AgentList already renders as
     // "Last scan failed: … — showing the last successful pulse below." No new
     // field, no second vocabulary for "these numbers are old".
-    assert.match(afterRestart.error ?? '', /scan is broken on purpose|exit|3/i);
+    assert.match(afterRestart.error ?? '', /estate stage|scan/i);
   });
 
   it('does not overwrite the file when a scan FAILS', async () => {
@@ -418,6 +426,39 @@ describe('bridge: a real scan wins immediately over the file', () => {
     // do it — and the restart suite above is the "file" half.
     assert.equal(fleet.ready, true);
     assert.equal(fleet.error, null);
+  });
+});
+
+describe('bridge: a repository with no origin still gets a pulse', () => {
+  let fixture, nofleet, server, fleet;
+
+  before(async () => {
+    fixture = makeRepo();
+    // No `origin`: `origin/main` does not resolve and the fetch fails. The scan
+    // reads the plans from the checkout, as `plot-fleet-scan.sh` did.
+    execFileSync('git', ['remote', 'remove', 'origin'], { cwd: fixture.repo, stdio: 'ignore' });
+    nofleet = makeNoFleetScripts();
+    server = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: nofleet.dir });
+    const deadline = Date.now() + WAIT_MS;
+    while (Date.now() < deadline) {
+      fleet = await fetchFleet(server.port);
+      if (fleet.error || fleet.rows.some((r) => r.branch === 'feature/board-bridges-its-restart')) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  });
+
+  after(() => {
+    server?.kill();
+    nofleet?.cleanup();
+    fixture?.cleanup();
+  });
+
+  it('serves the checkout\'s plans with no scan error', () => {
+    assert.equal(fleet.error, null, `the scan must not fail for a repository with no origin: ${fleet.error}`);
+    assert.ok(
+      fleet.rows.some((r) => r.branch === 'feature/board-bridges-its-restart'),
+      'the plan in the checkout should be served',
+    );
   });
 });
 

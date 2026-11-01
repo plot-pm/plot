@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  encodeListingKey, foldScanListing, parseScanListingRows, renderScanListing, scanListingWindowFor,
+  encodeListingKey, foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingRow,
 } from '../src/rules/scan-listing.js';
 
@@ -270,5 +270,28 @@ describe('renderScanListing', () => {
     const headless = { state: 'OPEN', updatedAt: '2026-10-26T10:00:00Z' } as unknown as ScanListingRow;
     expect(renderScanListing([headless], true)).toBeNull();
     expect(encodeListingKey(undefined)).toBeNull();
+  });
+});
+
+describe('readCarriedPrStates', () => {
+  it('reads back what renderScanListing wrote, keyed by the encoded branch', () => {
+    const rendered = renderScanListing([row({ head: 'feature/a_b', state: 'MERGED' }), row({ head: 'bug/c' })], true)!;
+    const read = readCarriedPrStates(rendered);
+    expect(read?.complete).toBe(true);
+    expect([...read!.states]).toEqual([['feature_a__b', 'MERGED'], ['bug_c', 'OPEN']]);
+  });
+
+  it('reads an arrived listing that is not whole as incomplete', () => {
+    expect(readCarriedPrStates(renderScanListing([row()], false)!)?.complete).toBe(false);
+  });
+
+  it('refuses an empty listing and one with no .list-arrived line', () => {
+    expect(readCarriedPrStates('')).toBeNull();
+    expect(readCarriedPrStates('feature_b1\tOPEN\t-\t-\n.list-complete\t1\t-\t-\n')).toBeNull();
+  });
+
+  it('skips dotted notes and lines with no state, and lets a later line win', () => {
+    const read = readCarriedPrStates('.branches\t2\t-\t-\nfeature_x\t\t-\t-\nfeature_y\tOPEN\t-\t-\nfeature_y\tMERGED\t-\t-\n.list-arrived\t1\t-\t-\n');
+    expect([...read!.states]).toEqual([['feature_y', 'MERGED']]);
   });
 });

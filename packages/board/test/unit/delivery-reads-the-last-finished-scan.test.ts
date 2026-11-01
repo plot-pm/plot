@@ -1,24 +1,14 @@
-// A delivery is judged against the last scan that FINISHED, not against the one
-// in progress.
+// A delivery is judged against the last scan that FINISHED.
 //
-// Measured 2026-09-30 (#1113): #1109 merged at 18:12Z, `/api/fleet` reported its
-// branch `state: merged`, `verdict: complete`, `complete: true`, and `POST
-// /api/deliver` answered 409 `scan-incomplete` on 20 of 20 calls, one a minute.
-// A scan takes 18 to 37 s on a 5 s cadence, so the live pulse is a fragment for
-// most of every minute and a request at a random moment is refused with that
-// probability.
-//
-// **THE SCAN IS PAUSED MID-STREAM, NEVER SIMULATED BY SETTING A FLAG.** A test
-// that assigns `entry.pulseComplete = false` skips `publishPartial` — the
-// function that overwrites `entry.pulse` with a composed fragment — and so
-// cannot catch a `lastComplete` written in the wrong place. Here a fake scan
-// emits one plan line, sleeps, and only then emits its terminal line; the
-// assertions are taken during that sleep, through the real `refresh`.
-//
-// **THE CARD IS ASSERTED AS WELL AS THE ROUTE.** The same defect shows on the
-// plan card as a Deliver control that flickers, and a fix applied only to
-// `deliverability` leaves it. `status === 'deliverable'` is the one word the
-// card's affordance, its column bump and its reported status all derive from.
+// Measured 2026-09-30 (#1113): `POST /api/deliver` answered 409 `scan-incomplete`
+// on 20 of 20 calls for a plan whose branch had merged, because the live pulse
+// was a streamed fragment for most of every minute. The scan now walks in
+// process and hands the board one whole reading, so no fragment exists; what
+// stays worth asserting is that the whole reading judges a plan whose branch
+// merged `deliverable`. A plan file can still gain a slice after the last
+// finished reading, which the bridge carries for up to its maximum age, so a
+// plan whose new branch no reading names is still refused.
+// The fleet's bridge supplies the reading here, as it does when a fleet runs.
 import { afterEach, describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -28,7 +18,7 @@ import { rmTree } from '../helpers.mjs';
 import { buildBoard } from '../../src/server/board.js';
 import { deliverability } from '../../src/server/deliver.js';
 import {
-  buildFleet, lastCompletePulseFor, pulseFor, pulseCompleteFor, stopFleetRefresh,
+  lastCompletePulseFor, stopFleetRefresh,
 } from '../../src/server/fleet.js';
 
 /** The real helpers, for the parse `deliverability` makes of a plan FILE. */
@@ -107,7 +97,7 @@ const FINISHED = {
  * @param secondRun what the scan does from its second run on: `pause` emits one
  *   plan line and sleeps past the assertions, `fail` emits one and exits 1.
  */
-function fixture(secondRun: 'pause' | 'fail') {
+function fixture() {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-lastcomplete-'));
   temps.push(parent);
   const repoRoot = path.join(parent, 'repo');
@@ -122,30 +112,18 @@ function fixture(secondRun: 'pause' | 'fail') {
     // plan is the one that gained a slice after the last finished scan.
     planFile('A plan that gained a slice', ['feature/two', 'feature/three']), 'utf8');
 
-  const first = [...FINISHED.plans.map(planLine), pulseLine(FINISHED)]
-    .map((l) => `printf '%s\\n' ${JSON.stringify(l)}`).join('\n');
-  // One plan line, then either a sleep that outlasts the assertions or a
-  // failure. Neither reaches a terminal line, so `pulseComplete` stays false.
-  const rest = `printf '%s\\n' ${JSON.stringify(planLine(FINISHED.plans[0]))}\n`
-    + (secondRun === 'pause' ? 'sleep 30\n' : 'exit 1\n');
-
-  const scan = path.join(scripts, 'plot-fleet-scan.sh');
-  fs.writeFileSync(scan, [
-    '#!/usr/bin/env bash',
-    `n=$(cat "${path.join(scripts, 'runs')}" 2>/dev/null || echo 0)`,
-    `echo $((n + 1)) > "${path.join(scripts, 'runs')}"`,
-    'if [ "$n" = "0" ]; then',
-    first,
-    '  exit 0',
-    'fi',
-    rest,
-  ].join('\n') + '\n');
-  fs.chmodSync(scan, 0o755);
+  fs.mkdirSync(path.join(repoRoot, '.plot/state'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, '.plot/state/last-pulse.json'), JSON.stringify({
+    version: 1, at: Date.now(), pulse: FINISHED, ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
+  }));
+  const ctl = path.join(scripts, 'plot-fleetctl.sh');
+  fs.writeFileSync(ctl, '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n');
+  fs.chmodSync(ctl, 0o755);
 
   // The real helpers, linked rather than copied so they resolve their own
   // siblings exactly as they do in the checkout.
   for (const helper of fs.readdirSync(REAL_SCRIPTS)) {
-    if (helper === 'plot-fleet-scan.sh') continue;
+    if (helper === 'plot-fleetctl.sh') continue;
     fs.symlinkSync(path.join(REAL_SCRIPTS, helper), path.join(scripts, helper));
   }
 
@@ -185,22 +163,13 @@ describe('a delivery is judged against the last scan that finished', () => {
     // second pauses before its terminal line. The assertions are taken in that
     // pause, where `entry.pulse` is a composed fragment and `pulseComplete` is
     // false — exactly the state that refused 20 of 20 calls.
-    const opts = fixture('pause');
+    const opts = fixture();
 
     // Wait for the FIRST scan to FINISH, read as `lastComplete` filling.
     // `buildFleet().complete` cannot be the signal: it is true on a cold cache,
     // over a null pulse, so a poll on it returns before the scan has run.
     await until(() => lastCompletePulseFor(opts), Boolean, 'the first scan to finish');
     expect(lastCompletePulseFor(opts)).not.toBeNull();
-
-    // Then wait for the pause: the live pulse is a fragment again.
-    await until(() => pulseCompleteFor(opts), (c) => c === false, 'the next scan to publish a fragment');
-    expect(pulseCompleteFor(opts)).toBe(false);
-    // The live pulse is a REAL composition by `publishPartial`, not a flag a
-    // test set: the fragment that arrived is merged onto the previous answer, so
-    // `entry.pulse` is a DIFFERENT OBJECT from the finished one and is marked
-    // incomplete. That object identity is the whole state this file tests in.
-    expect(pulseFor(opts)).not.toBe(lastCompletePulseFor(opts));
     // ...and the last finished answer still names every plan that scan reported.
     expect(lastCompletePulseFor(opts)?.plans.map((p) => p.file).sort())
       .toEqual([MERGED_FILE, GAINED_FILE].sort());
@@ -214,25 +183,23 @@ describe('a delivery is judged against the last scan that finished', () => {
     // The case a naive rule fails. `feature/three` is named by the plan file and
     // by no pulse, so the last finished scan judged it never — and reading its
     // absence as landed is what the branch check refuses.
-    const opts = fixture('pause');
+    const opts = fixture();
 
     await until(() => lastCompletePulseFor(opts), Boolean, 'the first scan to finish');
-    await until(() => pulseCompleteFor(opts), (c) => c === false, 'the next scan to publish a fragment');
 
     expect((await deliverability(opts, GAINED_SLUG)).verdict).toBe('scan-incomplete');
-    // Asserted TOGETHER with the plan beside it, in the same paused state: a
-    // rule that refused both, or permitted both, would pass one test alone.
+    // Asserted TOGETHER with the plan beside it: a rule that refused both, or
+    // permitted both, would pass one test alone.
     expect((await deliverability(opts, MERGED_SLUG)).verdict).toBe('deliverable');
   }, 60_000);
 
-  it('shows the card as deliverable during the paused scan', async () => {
+  it('shows the card as deliverable from the whole reading', async () => {
     // The card's half of the same defect — a Deliver control that reads *not
     // deliverable yet* on every pulse. `status` is the one word the affordance,
     // the column bump and the reported status all derive from.
-    const opts = fixture('pause');
+    const opts = fixture();
 
     await until(() => lastCompletePulseFor(opts), Boolean, 'the first scan to finish');
-    await until(() => pulseCompleteFor(opts), (c) => c === false, 'the next scan to publish a fragment');
 
     // Cards live in columns; this reads every one the render placed.
     const cards = (await buildBoard(opts)).columns.flatMap((col) => col.cards);
@@ -241,28 +208,5 @@ describe('a delivery is judged against the last scan that finished', () => {
     expect(card?.status).toBe('deliverable');
     // The plan that gained a slice is NOT offered, in the same render.
     expect(cards.find((c) => c.slug === GAINED_SLUG)?.status).not.toBe('deliverable');
-  }, 60_000);
-
-  it('leaves the last finished pulse unchanged when a scan fails mid-stream', async () => {
-    // The guard on *set only on success*. A scan that dies after publishing a
-    // fragment must not replace the answer a finished scan left — and a
-    // `lastComplete` written in `publishPartial` would do exactly that, while
-    // passing every case above.
-    const opts = fixture('fail');
-
-    await until(() => lastCompletePulseFor(opts), Boolean, 'the first scan to finish');
-    const landed = lastCompletePulseFor(opts);
-    expect(landed?.plans.map((p) => p.file)).toEqual([MERGED_FILE, GAINED_FILE]);
-
-    // Wait for the failure to be reported.
-    await until(() => buildFleet(opts), (f) => f.error !== null, 'the failed scan to be reported');
-    // The failed scan's fragment is on `pulse`...
-    expect(pulseCompleteFor(opts)).toBe(false);
-    // ...and the last finished answer is the SAME OBJECT it was. Compared by
-    // identity, because an equal-looking replacement written by the wrong
-    // writer is the defect this asserts against.
-    expect(lastCompletePulseFor(opts)).toBe(landed);
-    // So a delivery is still judged, rather than refused because a scan failed.
-    expect((await deliverability(opts, MERGED_SLUG)).verdict).toBe('deliverable');
   }, 60_000);
 });
