@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3029 merged
+- **Started:** 2026-11-01, Jan Wloka, `bug/fleetd-s-fixer-runs-bounded`
 
 ## Changelog
 
