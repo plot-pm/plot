@@ -6,6 +6,7 @@
 
 - **State:** Draft
 - **Type:** feature
+- **Sprint:** delivery-loop
 - **Issue:** #3010
 - **Review:** pr
 - **Impl:** own branches
