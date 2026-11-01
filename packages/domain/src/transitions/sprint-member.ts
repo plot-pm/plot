@@ -1,4 +1,4 @@
-import { memberLineIndex, sprintsListing, type SprintFile } from '../rules/sprint-membership.js';
+import { sprintsListing, type SprintFile } from '../rules/sprint-membership.js';
 import { annotateSprintItem } from '../rules/sprint-annotation.js';
 import { tickSprintItem } from '../rules/sprint-tick.js';
 
@@ -75,19 +75,6 @@ const MUST_SHOULD_COULD: ReadonlyArray<readonly [RegExp, SprintMemberTier]> = [
 const DEFERRED_HEADING = /^### Deferred\b/;
 const STATE_FIELD = /^- \*\*State:\*\* (.+)$/m;
 
-/** The tier a line sits under, or null when it sits under no MoSCoW heading at all. */
-const tierOfLine = (lines: readonly string[], index: number): SprintMemberTier | 'deferred' | null => {
-  for (let i = index; i >= 0; i -= 1) {
-    const line = lines[i]!;
-    if (!ANY_HEADING.test(line)) continue;
-    const found = MUST_SHOULD_COULD.find(([re]) => re.test(line));
-    if (found) return found[1];
-    if (DEFERRED_HEADING.test(line)) return 'deferred';
-    return null;
-  }
-  return null;
-};
-
 const sprintState = (sprintText: string): string => sprintText.match(STATE_FIELD)?.[1].trim() ?? '';
 
 /** Whether a sprint logs Scope Changes: a Planning sprint has no commitment yet. */
@@ -125,13 +112,12 @@ const STATUS_HEADING = /^##[ \t]*[Ss]tatus[ \t]*$/;
 const ANY_STATUS_SUB_HEADING = /^##[ \t]/;
 const SPRINT_FIELD_LINE = /^([ \t]*[-*][ \t]*\*\*Sprint:\*\*)[ \t]*(.*)$/;
 const TYPE_FIELD_LINE = /^[ \t]*[-*][ \t]*\*\*Type:\*\*/;
-const TEMPLATE_PLACEHOLDER = '<!-- optional, filled when plan is added to a sprint -->';
-const BARE_PLACEHOLDER = '<!-- optional -->';
+const PLACEHOLDER_PREFIX = '<!-- optional';
 
 /** Whether a `Sprint:` field's current value is an HTML comment carrying a record of its own. */
 const isUnexpectedComment = (value: string): boolean => {
   const trimmed = value.trim();
-  return trimmed.startsWith('<!--') && trimmed !== BARE_PLACEHOLDER && trimmed !== TEMPLATE_PLACEHOLDER;
+  return trimmed.startsWith('<!--') && !trimmed.startsWith(PLACEHOLDER_PREFIX);
 };
 
 /** The plan's title, from its first `# ` heading. */
@@ -201,11 +187,14 @@ const withSprintField = (planText: string, value: string): FieldWrite => {
     return { ok: true, text: next.join('\n') };
   }
 
-  // No `Sprint:` line exists: insert one after `Type:`, or after the heading.
+  // No `Sprint:` line exists: insert one after `Type:`, or after the section's last non-blank line.
   let insertAfter = start;
   for (let i = start + 1; i < end; i += 1) {
-    insertAfter = i;
-    if (TYPE_FIELD_LINE.test(lines[i]!)) break;
+    if (TYPE_FIELD_LINE.test(lines[i]!)) {
+      insertAfter = i;
+      break;
+    }
+    if (lines[i]!.trim() !== '') insertAfter = i;
   }
   const next = [...lines];
   next.splice(insertAfter + 1, 0, `- **Sprint:** ${value}`);
@@ -277,6 +266,40 @@ const otherOpenListing = (
   return listing.length > 0 ? { sprint: listing[0]!.sprint, file: listing[0]!.file } : null;
 };
 
+/** Where a plan's member line sits in a sprint file. */
+interface MemberLine {
+  readonly index: number;
+  readonly tier: SprintMemberTier | 'deferred';
+  readonly struck: boolean;
+}
+
+/**
+ * Finds a plan's member line under Must, Should, Could or Deferred, struck or
+ * not — the shared `memberLineIndex` rule leaves Deferred out, so this scans for itself.
+ */
+const findMemberLine = (sprintText: string, slug: string): MemberLine | null => {
+  const lines = sprintText.split('\n');
+  let tier: SprintMemberTier | 'deferred' | null = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (ANY_HEADING.test(line)) {
+      tier = DEFERRED_HEADING.test(line) ? 'deferred' : (MUST_SHOULD_COULD.find(([re]) => re.test(line))?.[1] ?? null);
+      continue;
+    }
+    if (tier === null) continue;
+    const m = line.match(MEMBER_SLUG_LINE);
+    if (m && m[3] === slug) return { index: i, tier, struck: m[2] !== undefined };
+  }
+  return null;
+};
+
+const MEMBER_SLUG_LINE = /^- \[( |x)\] (~~)?\[([a-z0-9][a-z0-9-]*)\]/;
+/** The line with a struck `~~[slug]~~` reference restored to `[slug]`. */
+const unstruck = (line: string): string => line.replace(/^(- \[( |x)\] )~~(\[[a-z0-9][a-z0-9-]*\])~~/, '$1$3');
+
+const tierHeadingPattern = (tier: SprintMemberTier): RegExp =>
+  new RegExp(`^${TIER_HEADING[tier].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+
 /** What every verb needs beyond the sprint and plan text. */
 export interface SprintMemberContext {
   /** The sprint's slug, as its filename names it. */
@@ -332,35 +355,28 @@ export const addSprintMember = (
   }
 
   const lines = sprintText.split('\n');
-  const existingIndex = memberLineIndex(sprintText, ctx.slug);
-  const currentTier = existingIndex === -1 ? null : tierOfLine(lines, existingIndex);
+  const found = findMemberLine(sprintText, ctx.slug);
 
   let nextLines = [...lines];
   let changed = false;
   let logLine: string | null = null;
 
-  if (existingIndex !== -1 && currentTier === tier) {
+  if (found !== null && !found.struck && found.tier === tier) {
     // Already in place — the member line needs no edit.
-  } else if (existingIndex !== -1) {
-    const oldLine = lines[existingIndex]!;
-    nextLines = withoutLine(nextLines, existingIndex);
-    const insertAt = tierInsertionPoint(nextLines, new RegExp(`^${TIER_HEADING[tier].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`));
-    const movedLine = oldLine.replace(MEMBER_LINE_PREFIX_KEEP, '$1');
-    nextLines.splice(insertAt + 1, 0, movedLine);
-    changed = true;
-    if (currentTier && currentTier !== 'deferred') {
-      logLine = `${ctx.date}: Reprioritized [${ctx.slug}] ${TIER_LABEL[currentTier]} → ${TIER_LABEL[tier]}${reasonSuffix(ctx.reason)}`;
-    } else {
-      logLine = `${ctx.date}: Added [${ctx.slug}] to ${TIER_LABEL[tier]}${reasonSuffix(ctx.reason)}`;
-    }
   } else {
-    const insertAt = tierInsertionPoint(nextLines, new RegExp(`^${TIER_HEADING[tier].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`));
+    // A struck or deferred line comes back live; a live line in another tier moves unchanged.
+    const memberLine = found === null ? memberLineFor(ctx.slug, planText) : unstruck(lines[found.index]!);
+    if (found !== null) nextLines = withoutLine(nextLines, found.index);
+    const insertAt = tierInsertionPoint(nextLines, tierHeadingPattern(tier));
     if (insertAt === -1) {
       return refuse('sprint-not-found', ctx.slug, ctx.sprint, `sprint '${ctx.sprint}' has no '${TIER_HEADING[tier]}' section.`);
     }
-    nextLines.splice(insertAt + 1, 0, memberLineFor(ctx.slug, planText));
+    nextLines.splice(insertAt + 1, 0, memberLine);
     changed = true;
-    logLine = `${ctx.date}: Added [${ctx.slug}] to ${TIER_LABEL[tier]}${reasonSuffix(ctx.reason)}`;
+    const reprioritized = found !== null && !found.struck && found.tier !== 'deferred';
+    logLine = reprioritized
+      ? `${ctx.date}: Reprioritized [${ctx.slug}] ${TIER_LABEL[found.tier as SprintMemberTier]} → ${TIER_LABEL[tier]}${reasonSuffix(ctx.reason)}`
+      : `${ctx.date}: Added [${ctx.slug}] to ${TIER_LABEL[tier]}${reasonSuffix(ctx.reason)}`;
   }
 
   let nextSprintText = nextLines.join('\n');
@@ -385,9 +401,6 @@ export const addSprintMember = (
   return { outcome: 'write', planText: field.text, sprintText: nextSprintText };
 };
 
-/** Keeps the checkbox and the `[slug]` reference, dropping any strike-through. */
-const MEMBER_LINE_PREFIX_KEEP = /^(- \[( |x)\] (?:~~)?\[[a-z0-9][a-z0-9-]*\]~~?)(.*)$/;
-
 const reasonSuffix = (reason?: string): string => (reason && reason.trim() !== '' ? ` — ${reason.trim()}` : '');
 
 /**
@@ -396,7 +409,7 @@ const reasonSuffix = (reason?: string): string => (reason && reason.trim() !== '
  *
  * Writes a dated `Deferred` line when the sprint is Committed or Active. A
  * re-run with the same arguments is a no-op once the line already sits under
- * `### Deferred`.
+ * `### Deferred`. A struck line is not a live member and refuses `not-a-member`.
  *
  * @param sprintText - the sprint file's content.
  * @param planText - the plan file's content.
@@ -416,26 +429,22 @@ export const deferSprintMember = (
   }
 
   const lines = sprintText.split('\n');
-  const existingIndex = memberLineIndex(sprintText, ctx.slug);
-  if (existingIndex === -1) {
-    return refuse('not-a-member', ctx.slug, ctx.sprint, `'${ctx.slug}' is not on a Must, Should or Could line of '${ctx.sprint}'.`);
+  const found = findMemberLine(sprintText, ctx.slug);
+  if (found === null || found.struck) {
+    return refuse('not-a-member', ctx.slug, ctx.sprint, `'${ctx.slug}' is not on a live Must, Should or Could line of '${ctx.sprint}'.`);
   }
-  const foundTier = tierOfLine(lines, existingIndex);
-  if (foundTier === 'deferred' || foundTier === null) return { outcome: 'noop' };
-  const currentTier = foundTier;
+  if (found.tier === 'deferred') return { outcome: 'noop' };
 
-  const oldLine = lines[existingIndex]!;
-  const movedLine = oldLine.replace(MEMBER_LINE_PREFIX_KEEP, '$1');
-  let nextLines = withoutLine(lines, existingIndex);
+  const nextLines = withoutLine(lines, found.index);
   const insertAt = tierInsertionPoint(nextLines, DEFERRED_HEADING);
   if (insertAt === -1) {
     return refuse('sprint-not-found', ctx.slug, ctx.sprint, `sprint '${ctx.sprint}' has no '### Deferred' section.`);
   }
-  nextLines.splice(insertAt + 1, 0, movedLine);
+  nextLines.splice(insertAt + 1, 0, lines[found.index]!);
 
   let nextSprintText = nextLines.join('\n');
   if (logsScopeChanges(state)) {
-    const logLine = `${ctx.date}: Deferred [${ctx.slug}] from ${TIER_LABEL[currentTier]}${reasonSuffix(ctx.reason)}`;
+    const logLine = `${ctx.date}: Deferred [${ctx.slug}] from ${TIER_LABEL[found.tier]}${reasonSuffix(ctx.reason)}`;
     nextSprintText = withScopeChangeLine(nextSprintText, logLine);
   }
 
@@ -453,8 +462,8 @@ export const deferSprintMember = (
  * Clears the plan's `Sprint:` field unless another open sprint still lists
  * it, in which case the field is set to that sprint's slug.
  *
- * A re-run with the same arguments is a no-op once the plan carries no
- * live (unstruck) member line in this sprint.
+ * A re-run is a no-op once the member line is struck. In a Planning sprint
+ * the line is gone after the first run, so a re-run refuses `not-a-member`.
  *
  * @param sprintText - the sprint file's content.
  * @param planText - the plan file's content.
@@ -474,27 +483,26 @@ export const removeSprintMember = (
   }
 
   const lines = sprintText.split('\n');
-  const existingIndex = memberLineIndex(sprintText, ctx.slug);
-  if (existingIndex === -1) {
-    return refuse('not-a-member', ctx.slug, ctx.sprint, `'${ctx.slug}' is not on a Must, Should or Could line of '${ctx.sprint}'.`);
+  const found = findMemberLine(sprintText, ctx.slug);
+  if (found === null) {
+    return refuse('not-a-member', ctx.slug, ctx.sprint, `'${ctx.slug}' is not on a Must, Should, Could or Deferred line of '${ctx.sprint}'.`);
   }
-  const currentTier = tierOfLine(lines, existingIndex);
+  if (found.struck) return { outcome: 'noop' };
 
   let nextLines: string[];
   if (state === 'Planning') {
-    nextLines = withoutLine(lines, existingIndex);
+    nextLines = withoutLine(lines, found.index);
   } else {
-    const oldLine = lines[existingIndex]!;
     nextLines = [...lines];
-    nextLines[existingIndex] = oldLine.replace(
+    nextLines[found.index] = lines[found.index]!.replace(
       /^(- \[( |x)\] )\[([a-z0-9][a-z0-9-]*)\]/,
       '$1~~[$3]~~',
     );
   }
 
   let nextSprintText = nextLines.join('\n');
-  if (logsScopeChanges(state) && currentTier && currentTier !== 'deferred') {
-    const logLine = `${ctx.date}: Removed [${ctx.slug}] from ${TIER_LABEL[currentTier]}${reasonSuffix(ctx.reason)}`;
+  if (logsScopeChanges(state) && found.tier !== 'deferred') {
+    const logLine = `${ctx.date}: Removed [${ctx.slug}] from ${TIER_LABEL[found.tier]}${reasonSuffix(ctx.reason)}`;
     nextSprintText = withScopeChangeLine(nextSprintText, logLine);
   }
 
