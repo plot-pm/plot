@@ -159,7 +159,7 @@ Domain rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`, board
 
 ### Plan source
 
-- `bug/an-issue-reads-its-plan-from-main` — `planMetasAtDefault` in `packages/board/src/server/fleet.ts` (replaces the body of `planMetasOf`, `:1583-1619`; caches by oid; corrects the comment at `:1549-1551`); `ticketPlansOf` and `ticketLaneData` read it, and `referencedIssues` in `fleet.ts` goes; `packages/board/src/server/idea.ts:401` calls the same helper; `TicketLaneReading.plans` in `packages/domain/src/rules/ticket-lane.ts` and `TicketLanesReading.plans` in `rules/ticket-lanes.ts`; `packages/board/src/server/discovery-lanes.ts` passes the map. Tests: `packages/domain/test/ticket-lane.test.ts`, `ticket-lanes.test.ts`, `packages/board/test/unit/fleet.test.ts`, `offline-issue-rows-into.test.ts`, `idea-route.test.ts`.
+- `bug/an-issue-reads-its-plan-from-main` — `planMetasAtDefault` in `packages/board/src/server/fleet.ts` (replaces the body of `planMetasOf`, `:1583-1619`; caches by oid; corrects the comment at `:1549-1551`); `ticketPlansOf` and `ticketLaneData` read it, and `referencedIssues` in `fleet.ts` goes; `packages/board/src/server/idea.ts:401` calls the same helper; `TicketLaneReading.plans` in `packages/domain/src/rules/ticket-lane.ts` and `TicketLanesReading.plans` in `rules/ticket-lanes.ts`; `packages/board/src/server/discovery-lanes.ts` passes the map. Tests: `packages/domain/test/ticket-lane.test.ts`, `ticket-lanes.test.ts`, `packages/board/test/unit/fleet.test.ts`, `offline-issue-rows-into.test.ts`, `idea-route.test.ts`. → #3003
 
 ### Plan comment
 
