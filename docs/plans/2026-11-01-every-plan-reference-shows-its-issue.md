@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #2994 merged
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-plan-reference-is-decided-once`
+- **Started:** 2026-11-01, Jan Wloka, `feature/the-rows-name-a-plan-one-way`
 
 ## Changelog
 
