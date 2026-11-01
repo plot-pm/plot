@@ -8,24 +8,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { makeStageDir, removeLiveStageDirs, removeStageDir } from '../../src/server/stage-dirs.js';
-import { rmTree } from '../helpers.mjs';
+import { makeStageDir, removeLiveStageDirs, removeStageDir } from '../src/adapters/stage-dirs.js';
 
-const MODULE = fileURLToPath(new URL('../../src/server/stage-dirs.ts', import.meta.url));
+const MODULE = fileURLToPath(new URL('../src/adapters/stage-dirs.ts', import.meta.url));
 
 const made: string[] = [];
 afterEach(() => {
-  for (const dir of made.splice(0)) rmTree(dir);
+  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 /**
  * Start a node process that installs the exit handlers, makes one stage
  * directory under `tmp`, prints its path, and then runs `then`.
  */
-const child = (tmp: string, then: string) => {
+const child = (tmp: string, then: string, install: 'removeStageDirsOnSignal' | 'removeStageDirsOnExit' = 'removeStageDirsOnSignal') => {
   const source = [
     `const m = await import(${JSON.stringify(MODULE)});`,
-    'm.removeStageDirsOnExit();',
+    `m.${install}();`,
     "process.stdout.write(m.makeStageDir('plot-stage-probe-') + '\\n');",
     then,
   ].join('\n');
@@ -107,5 +106,32 @@ describe('stage directories', () => {
     const ended = await exited(proc);
     assert.equal(ended.code, 0);
     assert.deepEqual(fs.readdirSync(tmp), []);
+  });
+
+  it('the exit-only installer leaves SIGTERM to the process: its own handler runs and the process ends by its own code', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-stage-own-'));
+    made.push(tmp);
+    const proc = child(
+      tmp,
+      "process.on('SIGTERM', () => { process.stdout.write('handled\\n'); setTimeout(() => process.exit(0), 100); });\n" +
+        "process.stdout.write('ready\\n'); setInterval(() => {}, 1000);",
+      'removeStageDirsOnExit',
+    );
+    let out = '';
+    proc.stdout!.on('data', (chunk) => { out += String(chunk); });
+    try {
+      const dir = await firstLine(proc);
+      const started = Date.now();
+      while (!out.includes('ready') && Date.now() - started < 10_000) await new Promise((r) => setTimeout(r, 20));
+      assert.ok(out.includes('ready'), `the child never reported ready; stdout: ${out}`);
+      proc.kill('SIGTERM');
+      const ended = await exited(proc);
+      assert.ok(out.includes('handled'), 'the process own SIGTERM handler did not run');
+      assert.deepEqual({ code: ended.code, signal: ended.signal }, { code: 0, signal: null });
+      assert.equal(fs.existsSync(dir), false, `${dir} survived the exit`);
+    } finally {
+      proc.kill('SIGKILL');
+      await exited(proc);
+    }
   });
 });

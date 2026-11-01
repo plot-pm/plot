@@ -1,4 +1,4 @@
-// The temp directories a board build stages plan text into, and their removal
+// The temp directories a plan read stages plan text into, and their removal
 // when the process ends in the middle of a build.
 //
 // A build removes its own stage directory in a `finally`. A signal ends the
@@ -55,14 +55,25 @@ export const removeLiveStageDirs = (): readonly string[] => {
 };
 
 /**
- * Remove live stage directories when the process exits or receives SIGTERM,
- * SIGINT or SIGHUP. A signal is raised again after the removal, with the
- * listener gone, so the process still ends by that signal.
+ * Remove live stage directories when the process exits. Installs one `exit`
+ * listener and no signal listener, for a process that owns its SIGTERM
+ * handling: a registry that re-raised the signal there would end the process
+ * before its own graceful stop.
  */
 export const removeStageDirsOnExit = (): void => {
   process.on('exit', () => {
     removeLiveStageDirs();
   });
+};
+
+/**
+ * Remove live stage directories when the process exits or receives SIGTERM,
+ * SIGINT or SIGHUP. A signal is raised again after the removal, with the
+ * listener gone, so the process still ends by that signal. For a process with
+ * no other handler for these signals.
+ */
+export const removeStageDirsOnSignal = (): void => {
+  removeStageDirsOnExit();
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
     process.once(signal, () => {
       removeLiveStageDirs();

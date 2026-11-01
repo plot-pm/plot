@@ -38,6 +38,7 @@ import {
   writeProbeShell,
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
+import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
@@ -3486,6 +3487,9 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   // unit keeps both paths; what it must not do is grow without one.
   truncateInherited(1);
   truncateInherited(2);
+  // Exit-only: `stopOnSignals` owns SIGTERM, and a re-raising installer would
+  // end the process before its graceful stop.
+  removeStageDirsOnExit();
   const logs = logDir(process.env.PLOT_REPO_ROOT ?? process.cwd());
   const writers = writersFor(process.argv.slice(2), logs);
   void settleOnce(

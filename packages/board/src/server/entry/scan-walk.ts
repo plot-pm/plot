@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { removeStageDirsOnSignal } from '@plot-pm/domain/adapters/stage-dirs';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { agentsFs } from '@plot-pm/domain/adapters/agents/agents-fs';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
@@ -137,6 +138,9 @@ const main = async (): Promise<number> => {
 };
 
 if (import.meta.url === pathToFileURL(realpathSync(process.argv[1] ?? '')).href) {
+  // No other SIGTERM handler here: without this the default action skips the
+  // `finally` that removes a parse's stage directory.
+  removeStageDirsOnSignal();
   main().then(
     (code) => endEntry(code),
     (error: unknown) => {
