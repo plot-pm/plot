@@ -125,13 +125,17 @@ const STATUS_HEADING = /^##[ \t]*[Ss]tatus[ \t]*$/;
 const ANY_STATUS_SUB_HEADING = /^##[ \t]/;
 const SPRINT_FIELD_LINE = /^([ \t]*[-*][ \t]*\*\*Sprint:\*\*)[ \t]*(.*)$/;
 const TYPE_FIELD_LINE = /^[ \t]*[-*][ \t]*\*\*Type:\*\*/;
-const TEMPLATE_PLACEHOLDER = '<!-- optional, filled when plan is added to a sprint -->';
-const BARE_PLACEHOLDER = '<!-- optional -->';
+/**
+ * Matches a template placeholder: a comment whose first word is `optional`,
+ * as in `<!-- optional -->` and every `<!-- optional, filled when … -->` form
+ * the plan templates write.
+ */
+const PLACEHOLDER = /^<!--[ \t]*optional\b/;
 
 /** Whether a `Sprint:` field's current value is an HTML comment carrying a record of its own. */
 const isUnexpectedComment = (value: string): boolean => {
   const trimmed = value.trim();
-  return trimmed.startsWith('<!--') && trimmed !== BARE_PLACEHOLDER && trimmed !== TEMPLATE_PLACEHOLDER;
+  return trimmed.startsWith('<!--') && !PLACEHOLDER.test(trimmed);
 };
 
 /** The plan's title, from its first `# ` heading. */

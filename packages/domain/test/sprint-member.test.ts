@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   addSprintMember, deferSprintMember, removeSprintMember, type SprintFile, type SprintMemberContext,
@@ -97,6 +98,7 @@ describe('addSprintMember', () => {
       ['empty value', `- **State:** Draft\n- **Type:** feature\n- **Sprint:**`],
       ['bare placeholder', `- **State:** Draft\n- **Type:** feature\n- **Sprint:** <!-- optional -->`],
       ['template placeholder', `- **State:** Draft\n- **Type:** feature\n- **Sprint:** <!-- optional, filled when plan is added to a sprint -->`],
+      ['shipped template placeholder', `- **State:** Draft\n- **Type:** feature\n- **Sprint:** <!-- optional, filled when plan is added to a sprint — a time-boxed selection of planned work -->`],
       ['already set to this sprint', `- **State:** Draft\n- **Type:** feature\n- **Sprint:** example`],
     ];
 
@@ -119,6 +121,24 @@ describe('addSprintMember', () => {
       const result = addSprintMember(sprintText, planText, 'must', ctx());
       expect(result).toMatchObject({ outcome: 'refused', reason: 'field-record', slug: 'a', sprint: 'example' });
     });
+  });
+
+  describe('a plan created from a template file', () => {
+    const templates: Array<[string, string]> = [
+      ['the shipped template', '../../../skills/plot/templates/plan.md'],
+      ['the repo template', '../../../.plot/templates/plan.md'],
+    ];
+
+    for (const [label, path] of templates) {
+      it(`writes the Sprint field over ${label}'s placeholder`, () => {
+        const planText = readFileSync(new URL(path, import.meta.url), 'utf8');
+        expect(planText).toMatch(/^- \*\*Sprint:\*\* <!--/m);
+        const result = addSprintMember(SPRINT('<!-- nothing yet -->'), planText, 'must', ctx());
+        if (result.outcome !== 'write') throw new Error(`expected write, got ${JSON.stringify(result)}`);
+        expect(result.planText).toMatch(/^- \*\*Sprint:\*\* example$/m);
+        expect(result.sprintText).toContain('- 2026-11-01: Added [a] to Must');
+      });
+    }
   });
 
   it('writes only the first ## Status, leaving a quoted block in prose unchanged', () => {
