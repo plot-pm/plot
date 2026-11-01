@@ -623,6 +623,7 @@ export * from './rules/sprint-item-destination.js';
 export * from './rules/release-branch.js';
 export * from './rules/release-prepare.js';
 export * from './rules/sprint-scope.js';
+export * from './rules/sprint-membership.js';
 export * from './rules/desk-dead.js';
 export * from './rules/review-run.js';
 export * from './rules/slice-pr-next.js';
