@@ -113,9 +113,13 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 - `feature/the-pulse-log-runs-the-walk` — `--log-pulse` runs the walk and keeps its bridge write and its pulse line in each reported plan's `## Notes` <!-- waits: feature/the-scan-modes-run-the-walk --> → #3004
 
+### Last modes
+
+- `feature/the-last-scan-modes-run-the-walk` — `--stream` emits one `{"kind":"plan",...}` line per plan as the walk resolves it, as the board's fleetless fallback reads it (`fleet.ts:2855`); `--loose` reaches the branch-readings stage as an input; and plain `--log-pulse` runs the walk by default with the per-plan wave report, the `summary:` footer and the `Pulse complete.` line that `/plot-pulse` reads <!-- waits: feature/the-pulse-log-runs-the-walk -->
+
 ### Removal
 
-- `feature/the-scan-script-is-a-launcher` — remove the shell walk, retire by name the corpus pairs that compare the domain with itself, and shrink `plot-fleet-scan.sh` to a launcher <!-- waits: feature/the-pulse-log-runs-the-walk -->
+- `feature/the-scan-script-is-a-launcher` — remove the shell walk, retire by name the corpus pairs that compare the domain with itself, and shrink `plot-fleet-scan.sh` to a launcher <!-- waits: feature/the-last-scan-modes-run-the-walk -->
 
 ## Done when
 
@@ -150,6 +154,11 @@ Comparisons run with `--offline`, no host token, no `PLOT_PR_LISTING` and no `PL
   - The slice records how many beats in one hour of fleetd changed any reading.
 - **CLI modes:** each mode's normalised output equals the shell walk's on the pinned clone, and `node --test test/reconcile/fleetctl.test.mjs` passes with the new process argv.
 - **Pulse log:** a test of `--log-pulse` reads `last-pulse.json` and the plan's `## Notes` line after one run.
+- **Last modes:**
+  - `--stream` prints its first plan line before the walk has read every plan, and its lines equal the shell walk's per-plan lines on the pinned clone.
+  - `--loose` output equals the shell walk's on the pinned clone.
+  - Plain `--log-pulse` runs the walk, and its wave report, `summary:` footer and `Pulse complete.` line equal the shell's.
+  - `test/reconcile/scan-walk-domain.test.mjs` no longer asserts that `--loose` stays on the shell walk.
 - **Removal:**
   - `scripts/check-shell-lines.sh --per-file` reports at most 25 lines for `plot-fleet-scan.sh`.
   - Each retired corpus pair is named in the commit.
