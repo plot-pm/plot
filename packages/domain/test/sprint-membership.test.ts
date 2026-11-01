@@ -187,6 +187,24 @@ describe('sprintOfPlan — tiebreaks among open sprints', () => {
     };
     expect(sprintOfPlan('a', [fileA, fileB])).toEqual({ sprint: 'bbb', file: fileB.file });
   });
+
+  it('is order-independent: the file name sorting last still wins when listed first', () => {
+    const fileA: SprintFile = {
+      file: 'docs/sprints/2026-W41-aaa.md',
+      content: SPRINT(`### Must Have
+
+- [ ] [a] Do the thing
+`),
+    };
+    const fileB: SprintFile = {
+      file: 'docs/sprints/2026-W41-bbb.md',
+      content: SPRINT(`### Must Have
+
+- [ ] [a] Do the thing
+`),
+    };
+    expect(sprintOfPlan('a', [fileB, fileA])).toEqual({ sprint: 'bbb', file: fileB.file });
+  });
 });
 
 describe('sprintOfPlan — only Closed sprints list it', () => {
@@ -250,6 +268,16 @@ describe('sprintsListing', () => {
       content: SPRINT('### Must Have\n\n<!-- add items here -->\n'),
     };
     expect(sprintsListing('a', [sprint])).toEqual([]);
+  });
+
+  it('reads an empty state and start when a sprint file has no ## Status fields', () => {
+    const sprint: SprintFile = {
+      file: 'docs/sprints/2026-W41-sprint.md',
+      content: `# Sprint: No Status\n\n### Must Have\n\n- [ ] [a] Do the thing\n`,
+    };
+    expect(sprintsListing('a', [sprint])).toEqual([
+      { sprint: 'sprint', file: sprint.file, state: '', start: '' },
+    ]);
   });
 });
 
