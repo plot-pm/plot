@@ -10,6 +10,7 @@ import {
   pushesDefaultBranch,
   roleDeniesCommand,
   roleDeniesPath,
+  roleOwnBranch,
 } from '../src/rules/role-gate.js';
 
 describe('callsCommitStatus', () => {
@@ -209,5 +210,82 @@ describe('gateInsideTree', () => {
     const refusal = gateInsideTreeRefusal('/w/fix/skills/plot/scripts/board/plot-gate.mjs');
     expect(refusal).toContain('/w/fix/skills/plot/scripts/board/plot-gate.mjs');
     expect(refusal).toContain('PLOT_ROLE_GATE');
+  });
+});
+
+describe('roleDeniesCommand on pushes', () => {
+  const FIXER = 'fix/pr-head';
+  const REPAIR = 'bug/main-repair-0123456789ab';
+  const denied = (command: string, own: string, current = 'HEAD') =>
+    roleDeniesCommand(command, 'main', current, own) !== null;
+
+  it.each([
+    ['fixer', FIXER],
+    ['main-repair', REPAIR],
+  ])('refuses a forced push for the %s role', (_role, own) => {
+    for (const flag of ['--force', '-f', '--force-with-lease', '--force-with-lease=x:abc', '--force-if-includes']) {
+      expect(denied(`git push ${flag} origin HEAD:${own}`, own)).toBe(true);
+    }
+    expect(denied(`git push origin +HEAD:${own}`, own)).toBe(true);
+    expect(denied(`git push origin +HEAD:b`, own)).toBe(true);
+  });
+
+  it.each([
+    ['fixer', FIXER],
+    ['main-repair', REPAIR],
+  ])('refuses a push to another branch for the %s role', (_role, own) => {
+    expect(denied('git push origin HEAD:other', own)).toBe(true);
+    expect(denied('git push origin other', own)).toBe(true);
+    expect(denied('git push origin HEAD:refs/heads/other', own)).toBe(true);
+  });
+
+  it('refuses a bare push from a checkout of another branch', () => {
+    expect(denied('git push', FIXER, 'feature/x')).toBe(true);
+    expect(denied('git push origin HEAD', FIXER, 'feature/x')).toBe(true);
+  });
+
+  it.each([
+    ['fixer', FIXER],
+    ['main-repair', REPAIR],
+  ])('refuses a branch deletion for the %s role', (_role, own) => {
+    expect(denied('git push --delete origin b', own)).toBe(true);
+    expect(denied('git push -d origin b', own)).toBe(true);
+    expect(denied('git push origin :b', own)).toBe(true);
+    expect(denied(`git push origin :${own}`, own)).toBe(true);
+  });
+
+  it.each([
+    ['fixer', FIXER],
+    ['main-repair', REPAIR],
+  ])('allows the own push for the %s role', (_role, own) => {
+    expect(denied(`git push origin HEAD:${own}`, own)).toBe(false);
+    expect(denied(`git push origin HEAD:refs/heads/${own}`, own)).toBe(false);
+    expect(denied(`git push origin ${own}`, own)).toBe(false);
+  });
+
+  it('judges a chained command call by call', () => {
+    expect(denied(`git fetch && git push origin HEAD:${FIXER}`, FIXER)).toBe(false);
+    expect(denied(`git push origin HEAD:${FIXER} && git push -f origin HEAD:${FIXER}`, FIXER)).toBe(true);
+  });
+
+  it('applies no push rule where the role names no own branch', () => {
+    expect(denied('git push origin HEAD:other', '')).toBe(false);
+  });
+
+  it('does not read the raw string: a quoted flag in a message is no push', () => {
+    expect(denied(`git commit -m "never git push --force"`, FIXER)).toBe(false);
+  });
+});
+
+describe('roleOwnBranch', () => {
+  it('returns the branch the environment names', () => {
+    expect(roleOwnBranch('fix/pr-head', 'other')).toBe('fix/pr-head');
+  });
+  it('falls back to a checked-out main-repair branch', () => {
+    expect(roleOwnBranch('', 'bug/main-repair-0123456789ab')).toBe('bug/main-repair-0123456789ab');
+  });
+  it('names no branch otherwise', () => {
+    expect(roleOwnBranch('', 'feature/x')).toBe('');
+    expect(roleOwnBranch('', 'bug/main-repair-xyz')).toBe('');
   });
 });

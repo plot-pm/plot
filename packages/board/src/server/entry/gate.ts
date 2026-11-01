@@ -26,7 +26,7 @@ import {
   treeStrandingResetDirs,
 } from '@plot-pm/domain/rules/main-checkout-write';
 import { SPAWN_CONTRACT, spawnContractReading } from '@plot-pm/domain/rules/spawn-contract';
-import { gateInsideTree, gateInsideTreeRefusal, roleDeniesCommand, roleDeniesPath } from '@plot-pm/domain/rules/role-gate';
+import { gateInsideTree, gateInsideTreeRefusal, roleDeniesCommand, roleDeniesPath, roleOwnBranch } from '@plot-pm/domain/rules/role-gate';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -971,7 +971,7 @@ export const roleDenyGateOf = (readings: RoleDenyReadings): Gate & { readonly as
       readings.defaultBranch(cwd),
       readings.currentBranch(cwd, scriptDir),
     ]);
-    return roleDeniesCommand(command, defaultBranch, currentBranch);
+    return roleDeniesCommand(command, defaultBranch, currentBranch, roleOwnBranch(process.env.PLOT_ROLE_BRANCH ?? '', currentBranch));
   },
   askPath: async (path) => {
     if (path === '') return null;

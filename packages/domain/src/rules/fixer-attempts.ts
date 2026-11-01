@@ -3,6 +3,9 @@ import type { FixerAttemptsRecord } from '../entities/fixer-attempts.js';
 /** How many fixer attempts a PR may spend before the HIGH goes to a ticket instead. */
 export const FIXER_ATTEMPTS_BUDGET = 2;
 
+/** How many seconds one fixer run may take before the process runner ends it. */
+export const FIXER_BOUND_SECONDS = 3600;
+
 /**
  * How many attempts a PR has spent, for the budget check.
  *

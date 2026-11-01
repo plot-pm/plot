@@ -13,7 +13,7 @@ import { removeTree as rmTree } from '../rm-tree.mjs';
 vi.mock('../../src/shared/auto-dispatch.js', () => ({
   maybeAutoDispatch: (_o: unknown, _p: unknown, _c: unknown, _a: unknown, own: Set<string>) => own,
 }));
-vi.mock('../../src/shared/machine-reading.js', () => ({ readMachine: async () => undefined }));
+vi.mock('../../src/shared/machine-reading.js', () => ({ readMachine: async () => ({ headroom: 'clear' }) }));
 vi.mock('../../src/shared/fleet-settings-store.js', () => ({
   readFleetSettings: async () => ({ autoDispatch: false, parallelAgents: 2, machineOverride: false }),
 }));

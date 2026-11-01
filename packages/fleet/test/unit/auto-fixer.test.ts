@@ -62,6 +62,7 @@ const baseReadings: FixerTickReadings = {
   defaultBranch: null,
   config: { autoReview: false, reviewBoundMs: 3_600_000, startBudget: 3, checksWaitMs: 3_600_000 },
   now: NOW,
+  slot: { held: [], headroom: 'clear', machineOverride: false },
 };
 
 interface WorldOptions {
@@ -72,6 +73,8 @@ interface WorldOptions {
   freshRows?: number;
   /** The attempts record the store starts with; the store keeps what the tick writes. */
   attempts?: FixerAttemptsRecord | 'none' | 'unreadable';
+  /** The record one PR starts with, taking precedence over `attempts`. */
+  attemptsByPr?: Record<number, FixerAttemptsRecord | 'none' | 'unreadable'>;
   appendOk?: boolean;
   appendCalls?: { pr: number; headSha: string }[];
   markOk?: boolean;
@@ -92,6 +95,10 @@ interface WorldOptions {
   removeCalls?: string[];
   /** Every call that changed something, in order. */
   order?: string[];
+  /** The agent settings file path the main checkout holds; `null` for an absent file. */
+  agentSettings?: string | null;
+  /** Every request and fragment the agent run received. */
+  runRequests?: { fragment: string; boundSeconds: number; env: Record<string, string> }[];
 }
 
 const STARTER_PID = 4100;
@@ -99,7 +106,8 @@ const STARTER_PID = 4100;
 type Started = NonNullable<WorldOptions['agentRunStarts']>[number];
 
 const world = (opts: WorldOptions = {}): FixerTickWorld => {
-  let record: FixerAttemptsRecord | 'none' | 'unreadable' = opts.attempts ?? 'none';
+  const records = new Map<number, FixerAttemptsRecord | 'none' | 'unreadable'>();
+  const recordOf = (pr: number): FixerAttemptsRecord | 'none' | 'unreadable' => records.get(pr) ?? opts.attemptsByPr?.[pr] ?? opts.attempts ?? 'none';
   return {
     trees: () => ({
       forBranch: async () =>
@@ -143,16 +151,21 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
             : { ok: true, value: { state: opts.workerState } as never },
     }),
     attempts: () => ({
-      read: async () => (record === 'unreadable' ? { ok: false, why: 'failed' } : { ok: true, value: record }),
+      read: async (pr) => {
+        const record = recordOf(pr);
+        return record === 'unreadable' ? { ok: false, why: 'failed' } : { ok: true, value: record };
+      },
       append: async (pr, attempt) => {
+        const record = recordOf(pr);
         opts.appendCalls?.push({ pr, headSha: attempt.headSha });
         opts.order?.push('append');
         if (opts.appendOk === false || record === 'unreadable') return { ok: false, why: 'failed' };
         const attempts: FixerAttempt[] = record === 'none' ? [] : record.attempts;
-        record = { v: 1, pr, attempts: [...attempts, attempt] };
+        records.set(pr, { v: 1, pr, attempts: [...attempts, attempt] });
         return { ok: true, value: undefined };
       },
       markInFlight: async (pr, index, mark) => {
+        const record = recordOf(pr);
         opts.markCalls?.push({ pr, index, mark });
         opts.order?.push(mark === null ? 'clear' : 'mark');
         if (opts.markOk === false || record === 'none' || record === 'unreadable') return { ok: false, why: 'failed' };
@@ -160,7 +173,7 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
         if (target === undefined) return { ok: false, why: 'failed' };
         const kept: FixerAttempt = { headSha: target.headSha, finding: target.finding };
         const changed: FixerAttempt = mark === null ? kept : { ...kept, inFlight: mark };
-        record = { ...record, attempts: record.attempts.map((a, at) => (at === index ? changed : a)) };
+        records.set(pr, { ...record, attempts: record.attempts.map((a, at) => (at === index ? changed : a)) });
         return { ok: true, value: undefined };
       },
     }),
@@ -169,14 +182,16 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
     }),
     readEndingFile: () => (opts.endingText === undefined ? null : opts.endingText),
     readRoleFile: () => (opts.roleText === undefined ? FIXER_MD : opts.roleText),
+    agentSettingsFile: () => (opts.agentSettings === undefined ? '/main/.plot/agent-settings.json' : opts.agentSettings),
     readVerdictFile: (file) => {
       opts.verdictFiles?.push(file);
       return opts.verdictText === undefined ? FINDINGS : opts.verdictText;
     },
     pidCheck: opts.pidCheck ?? (() => 'alive'),
     starterPid: STARTER_PID,
-    agentRun: () => ({
+    agentRun: (_opts, fragment) => ({
       run: (request) => {
+        opts.runRequests?.push({ fragment, boundSeconds: request.boundSeconds, env: request.env ?? {} });
         const outcome = opts.agentRunOutcome ?? 'starts';
         opts.order?.push('launch');
         if (outcome === 'rejects') return Promise.reject(new Error('spawn failed'));

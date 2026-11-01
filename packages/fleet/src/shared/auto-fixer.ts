@@ -15,7 +15,9 @@ import type { PidCheck } from '@plot-pm/domain/rules/role-run-alive';
 import { fixerPrompt, endedFixerAttempts, type FixerEvidence } from '@plot-pm/domain/rules/fixer-start';
 import type { FixerAttemptsRecord, FixerFinding, FixerInFlight } from '@plot-pm/domain/entities/fixer-attempts';
 import type { FixerAttemptsStore } from '@plot-pm/domain/ports/fixer-attempts';
-import { fixerInFlight, fixerAttemptsExhausted } from '@plot-pm/domain/rules/fixer-attempts';
+import { fixerInFlight, fixerAttemptsExhausted, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import { fixerAdmission, fixerRanToBound, runningFixers } from '@plot-pm/domain/rules/fixer-concurrency';
+import type { SlotRefusalInput } from '@plot-pm/domain/rules/fleet-run';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
@@ -55,6 +57,8 @@ export interface FixerTickWorld {
   readonly readEndingFile: (worktree: string) => string | null;
   /** Reads a role's definition file from the main checkout; real `fs` by default. */
   readonly readRoleFile: (main: string, role: string) => string | null;
+  /** The path of the agent settings file in the main checkout, or `null` where it is absent. */
+  readonly agentSettingsFile: (main: string) => string | null;
   /** Reads a review verdict file; real `fs` by default, `null` for a file that cannot be read. */
   readonly readVerdictFile: (file: string) => string | null;
   /** Asks the process table about one pid; `kill -0` by default. */
@@ -66,7 +70,10 @@ export interface FixerTickWorld {
 }
 
 /** The readings one tick hands {@link fixerTick} besides the PR's own. */
-export type FixerTickReadings = Omit<SlicePrNextReadings, 'row' | 'desk' | 'correctionsSpentExhausted' | 'fixer'>;
+export type FixerTickReadings = Omit<SlicePrNextReadings, 'row' | 'desk' | 'correctionsSpentExhausted' | 'fixer'> & {
+  /** The queue and machine readings a start takes its slot from; `null` reads as `queue-unread`. */
+  readonly slot: SlotRefusalInput | null;
+};
 
 /** Why a fixer start was refused, beyond a `PortResult`'s own `'failed'`/`'unaskable'`. */
 export type FixerStartRefusal =
@@ -83,7 +90,11 @@ export type FixerStartRefusal =
   | 'worktree-leftover'
   | 'worktree-failed'
   | 'append-failed'
-  | 'command-exited-unstarted';
+  | 'command-exited-unstarted'
+  | 'fixer-busy'
+  | 'queue-unread'
+  | 'no-free-agent'
+  | 'starved';
 
 /** What one fixer start answered: a launched process and its pid, or why none started. */
 export type FixerStartOutcome = { started: true; pid: number } | { started: false; why: FixerStartRefusal | string };
@@ -218,7 +229,8 @@ const fixerLine = (row: PrIndexRow, head: string, step: 'fixer-start' | 'fixer-e
  *
  * Removes the fixer's worktree through {@link Trees.removeOnly} where its run
  * directory exists, clears each ended attempt's in-flight mark, and logs one
- * `fixer-end` line: `moved`, or `failed:` with what did not land.
+ * `fixer-end` line: `moved`, or `failed:` with what did not land. An attempt
+ * that ran for at least {@link FIXER_BOUND_SECONDS} adds `bound` as a cause.
  *
  * @param world - the fixer tick's world.
  * @param opts - the repository and scripts directory.
@@ -243,6 +255,11 @@ const settleEnded = async (
     if (!(await store.markInFlight(row.number, index, null)).ok) problems.push('mark-not-cleared');
   }
   const head = record.attempts[ended[ended.length - 1] ?? 0]?.headSha ?? '';
+  const boundHit = ended.some((index) => {
+    const startedAt = record.attempts[index]?.inFlight?.startedAt;
+    return startedAt !== undefined && fixerRanToBound(startedAt, now);
+  });
+  if (boundHit) problems.push(`bound: the run reached ${FIXER_BOUND_SECONDS}s`);
   const outcome = problems.length === 0 ? 'moved' : `failed: ${[...new Set(problems)].join(', ')}`;
   await runLogOf(opts).append(fixerLine(row, head, 'fixer-end', outcome, now));
 };
@@ -268,6 +285,17 @@ const logStart = async (
   await runLogOf(opts).append(fixerLine(row, head, 'fixer-start', outcome, now));
 };
 
+/** How many fixers run on pull requests other than `pr`; an unreadable record counts as one. */
+const runningElsewhere = async (world: FixerTickWorld, opts: ActOptions, rows: readonly PrIndexRow[], pr: number): Promise<number> => {
+  let running = 0;
+  for (const other of rows) {
+    if (other.number === pr) continue;
+    const record = await readAttempts(world, opts, other.number);
+    running += runningFixers(record, endedFixerAttempts(record, world.pidCheck));
+  }
+  return running;
+};
+
 /**
  * One tick of the fixer arm over the open rows.
  *
@@ -277,7 +305,9 @@ const logStart = async (
  * worktree (if any is on this machine), its worker state (translated into a
  * {@link DeskDeadAnswer}), whether its one fresh session is already spent on
  * `corrections-spent`, and the attempts record, and asks {@link slicePrNext}.
- * A `fixer` step goes to {@link startFixer}. Each start, refusal and end is
+ * A `fixer` step goes to {@link startFixer} once `fixerAdmission` finds no other
+ * fixer running and a free machine slot; otherwise it holds with that reason
+ * and starts on a later pass. Each start, refusal and end is
  * written to the run log; a refusal is written once per PR, head and reason.
  *
  * @param rows - the open rows.
@@ -319,7 +349,15 @@ export const fixerTick = async (
       continue;
     }
     const index = attempts === 'none' ? 0 : attempts.attempts.length;
-    const started = await startFixer(world, opts, row, step, index, readings.now);
+    const admission = fixerAdmission({
+      running: await runningElsewhere(world, opts, rows, row.number),
+      held: readings.slot?.held ?? null,
+      headroom: readings.slot?.headroom ?? 'unmeasured',
+      machineOverride: readings.slot?.machineOverride ?? false,
+    });
+    const started: FixerStartOutcome = admission.admit
+      ? await startFixer(world, opts, row, step, index, readings.now, logged)
+      : { started: false, why: admission.why };
     await logStart(opts, row, step.head, started, logged, readings.now);
     results.push({ pr: row.number, step, started });
   }
@@ -372,6 +410,7 @@ const startFixer = async (
   step: { readonly head: string; readonly evidence: 'high' | 'ci-red' },
   index: number,
   now: number,
+  logged: Set<string>,
 ): Promise<FixerStartOutcome> => {
   const main = mainCheckout(opts.repoRoot);
   const text = world.readRoleFile(main, 'fixer');
@@ -380,9 +419,15 @@ const startFixer = async (
   if (json.read !== 'json') return { started: false, why: 'role-files-failed' };
   const agentsFile = fixerAgentsJsonPath(opts.repoRoot, row.number);
   const ref: RoleAgentRef = { name: 'fixer', agentsFile, settingsFile: path.join(main, '.claude', 'settings', 'fixer.json') };
-  const command = roleCommand(ref, maxTurnsOf(text));
-  if (command.read !== 'command') return { started: false, why: 'role-command-refused' };
-
+  const role = roleCommand(ref, maxTurnsOf(text));
+  if (role.read !== 'command') return { started: false, why: 'role-command-refused' };
+  // A SECOND `--settings` MERGES WITH THE ROLE'S OWN (measured on 2.1.316): the agent settings disable the operator's plugins.
+  const agentSettings = world.agentSettingsFile(main);
+  if (agentSettings === null && !logged.has('agent-settings-absent')) {
+    logged.add('agent-settings-absent');
+    console.error('plot-fleetd: .plot/agent-settings.json is absent; the fixer starts with its own settings only');
+  }
+  const command = { command: agentSettings === null ? role.command : `${role.command} --settings '${agentSettings.replace(/'/g, `'\\''`)}'` };
   let evidence: FixerEvidence;
   if (step.evidence === 'high') {
     const findings = world.readVerdictFile(reviewVerdictPath(opts.repoRoot, row.number, step.head));
@@ -492,10 +537,10 @@ const launchFixer = async (
         effort: '',
         maxTurns: 0,
         maxSpendUsd: 0,
-        boundSeconds: 0,
+        boundSeconds: FIXER_BOUND_SECONDS,
         contextWindow: 0,
         capabilities: [],
-        env: { PLOT_ROLE_GATE: path.join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs') },
+        env: { PLOT_ROLE_GATE: path.join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs'), PLOT_ROLE_BRANCH: row.head },
         logFile,
         onStarted: (pid) => {
           settled = true;
@@ -554,6 +599,7 @@ export const readFixerPass = async (opts: ActOptions, now: number): Promise<Fixe
       defaultBranch,
       config: { autoReview: false, reviewBoundMs: 0, startBudget: 0, checksWaitMs: 0 },
       now,
+      slot: null,
     },
   };
 };
@@ -566,6 +612,7 @@ export const readFixerPass = async (opts: ActOptions, now: number): Promise<Fixe
  * @param now - epoch milliseconds.
  * @param world - the ports the tick acts through.
  * @param read - reads the rows and readings; {@link readFixerPass} by default.
+ * @param slot - the queue and machine readings a start takes its slot from, replacing the reading's own; `null` reads as `queue-unread`.
  * @returns the tick's results, or `null` where nothing was read to act on.
  */
 export const runAutoFixerPass = async (
@@ -574,10 +621,11 @@ export const runAutoFixerPass = async (
   now: number = Date.now(),
   world: FixerTickWorld = defaultFixerTickWorld,
   read: (opts: ActOptions, now: number) => Promise<FixerPassReading | null> = readFixerPass,
+  slot?: SlotRefusalInput | null,
 ): Promise<FixerTickResult[] | null> => {
   const reading = await read(opts, now);
   if (reading === null) return null;
-  return fixerTick(reading.rows, reading.readings, opts, world, logged);
+  return fixerTick(reading.rows, slot === undefined ? reading.readings : { ...reading.readings, slot }, opts, world, logged);
 };
 
 /** Reads a file, or `null` where it cannot be read. */
@@ -610,6 +658,10 @@ const defaultFixerTickWorld: FixerTickWorld = {
   readEndingFile: readOrNull,
   readRoleFile: (main, role) => readOrNull(path.join(main, '.claude', 'agents', `${role}.md`)),
   readVerdictFile: readOrNull,
+  agentSettingsFile: (main) => {
+    const file = path.join(main, '.plot', 'agent-settings.json');
+    return fs.existsSync(file) ? file : null;
+  },
   pidCheck: killZero,
   starterPid: process.pid,
   agentRun: (opts, fragment) =>
