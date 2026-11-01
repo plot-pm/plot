@@ -1,3 +1,5 @@
+import { memberLineIndex } from './sprint-membership.js';
+
 /**
  * A sprint file's content, with the item line naming `slug` annotated with
  * the plan's PR number and first branch.
@@ -6,10 +8,10 @@
  * this writes; `/plot-approve` is the only writer. The comment carries
  * no `status:` field.
  *
- * The item line is found by the literal substring `[<slug>]`, never by a
- * sprint file's name: a sprint's filename carries an ISO week prefix in
- * whatever case the week was produced, and the `Sprint:` field a plan carries
- * is only the slug.
+ * The item line is found by {@link memberLineIndex}, never by a sprint file's
+ * name or a bare substring search: a plan slug can also appear on a
+ * `### Deferred` or `### Scope Changes` line, which is never the member line
+ * meant here.
  *
  * The comment's closing `-->` is split off before any field is touched, and
  * every field is written only in the part before it — a value pattern that
@@ -30,14 +32,14 @@ export const annotateSprintItem = (
   pr: number,
   branch: string,
 ): { content: string; outcome: 'updated' | 'already' | 'missing' } => {
-  const needle = `[${slug}]`;
+  const index = memberLineIndex(content, slug);
+  if (index === -1) return { content, outcome: 'missing' };
+
   const lines = content.split('\n');
-  let found = false;
   let changed = false;
 
-  const next = lines.map((line) => {
-    if (!line.includes(needle)) return line;
-    found = true;
+  const next = lines.map((line, i) => {
+    if (i !== index) return line;
 
     const commentOpen = line.indexOf('<!--');
     if (commentOpen === -1) {
@@ -71,7 +73,6 @@ export const annotateSprintItem = (
     return rebuilt;
   });
 
-  if (!found) return { content, outcome: 'missing' };
   if (!changed) return { content, outcome: 'already' };
   return { content: next.join('\n'), outcome: 'updated' };
 };

@@ -27,6 +27,7 @@ import {
 } from '@plot-pm/domain/rules/plan-pr';
 import { approvalArm } from '@plot-pm/domain/rules/approval-arm';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
+import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-membership';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
 import {
@@ -676,7 +677,7 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
     holds = String(cleared.removed);
   }
 
-  const annotated = await annotateSprint(ctx.planStore, root, request, read.value.sprint, branches[0] ?? '');
+  const annotated = await annotateSprint(ctx.planStore, root, request, branches[0] ?? '');
   return { phase, record, holds, sprint: annotated.outcome, sprintFile: annotated.file };
 };
 
@@ -742,33 +743,42 @@ const applySpikeWrites = async (
 
 /**
  * Annotates the sprint item that names the plan. The outcome is `none` where
- * the plan is in no sprint; `file` names the sprint file relative to `root`
- * where the outcome is `updated`, and is empty otherwise.
+ * no sprint file lists the plan; `file` names the sprint file relative to
+ * `root` where the outcome is `updated`, and is empty otherwise.
+ *
+ * Which sprint file is decided by {@link sprintOfPlan} — never by scanning
+ * the directory for the first file containing `[slug]`, which can land on a
+ * Closed sprint's `### Deferred` line while the plan belongs to a different,
+ * open sprint.
  */
 const annotateSprint = async (
   planStore: PlanStore,
   root: string,
   request: WriteRequest,
-  sprint: string,
   branch: string,
 ): Promise<{ outcome: string; file: string }> => {
-  if (sprint === '') return { outcome: 'none', file: '' };
   const dir = path.join(root, request.dirs.sprintDir.replace(/^\//, ''));
   const listed = await planStore.listDir(dir);
-  const needle = `[${request.slug}]`;
-  for (const name of (listed.ok ? listed.value : []).filter((n) => n.endsWith('.md')).sort()) {
+  const names = (listed.ok ? listed.value : []).filter((n) => n.endsWith('.md'));
+
+  const sprints: SprintFile[] = [];
+  for (const name of names) {
     const file = path.join(dir, name);
     const read = await planStore.readText(file);
-    if (!read.ok || read.value === null || !read.value.includes(needle)) continue;
-    const annotated = annotateSprintItem(read.value, request.slug, request.prNumber, branch);
-    if (annotated.outcome === 'updated') {
-      const written = await planStore.writeText(file, annotated.content);
-      if (!written.ok) throw new Refused(`could not write ${file}.\n  The sprint item is unannotated. Re-run this — it is idempotent.`);
-      return { outcome: annotated.outcome, file: path.relative(root, file) };
-    }
-    return { outcome: annotated.outcome, file: '' };
+    if (read.ok && read.value !== null) sprints.push({ file, content: read.value });
   }
-  return { outcome: 'missing', file: '' };
+
+  const membership = sprintOfPlan(request.slug, sprints);
+  if (membership === null) return { outcome: 'none', file: '' };
+
+  const found = sprints.find((s) => s.file === membership.file)!;
+  const annotated = annotateSprintItem(found.content, request.slug, request.prNumber, branch);
+  if (annotated.outcome === 'updated') {
+    const written = await planStore.writeText(found.file, annotated.content);
+    if (!written.ok) throw new Refused(`could not write ${found.file}.\n  The sprint item is unannotated. Re-run this — it is idempotent.`);
+    return { outcome: annotated.outcome, file: path.relative(root, found.file) };
+  }
+  return { outcome: annotated.outcome, file: '' };
 };
 
 /**

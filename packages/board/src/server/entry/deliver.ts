@@ -19,6 +19,7 @@ import {
 import { releasePr, releaseTag } from '@plot-pm/domain/rules/release-tag';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
+import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-membership';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { parsePlanSiblingLine, releaseIssueDecisions, releaseIssueSummary, trackerReportOf, unfinishedIssuesOf, type ReleaseSkipReason } from '@plot-pm/domain/rules/issue-status';
@@ -356,12 +357,12 @@ export const bookDelivery = async (
   }
 
   // Tick the sprint item.
-  const sprint = await tickSprint(ports.planStore, wt, sprintDir, slug, booking.sprint);
+  const ticked = await tickSprint(ports.planStore, wt, sprintDir, slug);
 
-  for (const p of [rel, activeDir, deliveredDir, ...(sprint === 'updated' ? [sprintDir] : [])]) {
+  for (const p of [rel, activeDir, deliveredDir, ...(ticked.file !== '' ? [ticked.file] : [])]) {
     await ports.trees.stage(wt, [p]);
   }
-  return { phase, record, index, sprint };
+  return { phase, record, index, sprint: ticked.outcome };
 };
 
 /**
@@ -571,32 +572,41 @@ const isSymlinkTo = (p: string): boolean => {
   }
 };
 
-/** Ticks a plan's sprint item by searching the sprint directory for the line naming it. */
+/**
+ * Ticks a plan's sprint item. Which sprint file is decided by
+ * {@link sprintOfPlan} — never by scanning the directory for the first file
+ * containing `[slug]`, which can land on a Closed sprint's `### Deferred`
+ * line while the plan belongs to a different, open sprint.
+ *
+ * @returns the outcome, and the sprint file ticked (relative to `root`),
+ *   non-empty only when the outcome is `'updated'`.
+ */
 const tickSprint = async (
   planStore: PlanStore,
   root: string,
   sprintDir: string,
   slug: string,
-  sprint: string,
-): Promise<string> => {
-  // Matches the shell's own first guard: a plan that names no sprint owes no
-  // tick, and the directory is never even looked at.
-  if (sprint === '') return 'none';
+): Promise<{ outcome: string; file: string }> => {
   const dir = path.join(root, sprintDir);
   const listed = await planStore.listDir(dir);
-  const files = (listed.ok ? listed.value : []).filter((n) => n.endsWith('.md'));
-  for (const name of files) {
+  const names = (listed.ok ? listed.value : []).filter((n) => n.endsWith('.md'));
+
+  const sprints: SprintFile[] = [];
+  for (const name of names) {
     const file = path.join(dir, name);
     const read = await planStore.readText(file);
-    const content = read.ok ? read.value : null;
-    if (content === null || !content.includes(`[${slug}]`)) continue;
-    const result = tickSprintItem(content, slug);
-    if (!result.changed) return 'already';
-    const written = await planStore.writeText(file, result.content);
-    if (!written.ok) throw new Refused(`could not write ${file}.\n  The sprint item is unticked. Re-run this — it is idempotent.`);
-    return 'updated';
+    if (read.ok && read.value !== null) sprints.push({ file, content: read.value });
   }
-  return 'missing';
+
+  const membership = sprintOfPlan(slug, sprints);
+  if (membership === null) return { outcome: 'none', file: '' };
+
+  const found = sprints.find((s) => s.file === membership.file)!;
+  const result = tickSprintItem(found.content, slug);
+  if (!result.changed) return { outcome: 'already', file: '' };
+  const written = await planStore.writeText(found.file, result.content);
+  if (!written.ok) throw new Refused(`could not write ${found.file}.\n  The sprint item is unticked. Re-run this — it is idempotent.`);
+  return { outcome: 'updated', file: path.relative(root, found.file) };
 };
 
 /** `git config user.name`, falling back to `'plot'`. */

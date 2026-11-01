@@ -48,6 +48,20 @@ const treesStub = (): Trees => ({
   hasStagedChanges: async () => answered(false),
 } as unknown as Trees);
 
+/** A `Trees` stub for the `Impl: same branch` path: the plan's branch is local, and every write succeeds. */
+const sameBranchTreesStub = (staged: string[][]): Trees => ({
+  originHead: async () => answered('main'),
+  hasRef: async (_root, ref) => answered(ref === `refs/heads/feature/${SLUG}`),
+  fetch: async () => answered(undefined),
+  hasStagedChanges: async () => answered(true),
+  stage: async (_root, paths) => {
+    staged.push([...paths]);
+    return answered(undefined);
+  },
+  commitStaged: async () => answered(undefined),
+  currentBranch: async () => answered(`feature/${SLUG}`),
+} as unknown as Trees);
+
 /** A fixture `Context` whose plan-PR lookup resolves on the FIRST ask (`idea/<slug>`), so `Refs` is never read. */
 const ctxFor = (statuses: CommitStatusWrite[], calls: string[][]): Context => ({
   repoRoot: '/repo',
@@ -168,6 +182,53 @@ describe('approve perform — plan-PR merge ordering', () => {
     ).rejects.toThrow(Refused);
 
     expect(calls.filter((args) => args[0] === 'pr-merge')).toEqual([['pr-merge', '42', '--match-head', HEAD, '--delete-branch']]);
+  });
+});
+
+describe('approve perform — sprint annotation by sprintOfPlan, not by directory scan', () => {
+  const SPRINT_FILE = 'docs/sprints/2026-10-20-w43.md';
+  // `applyLocalWrites` and `annotateSprint` run on `ctx.repoRoot` directly for
+  // the `Impl: same branch` path, with no booking worktree — so they build
+  // absolute targets (`path.join(root, rel)`) the fixture must hold under.
+  const ABS_PLAN = '/repo/docs/plans/active/a-plan.md';
+  const ABS_SPRINT = `/repo/${SPRINT_FILE}`;
+  const PLAN_TEXT = '# P\n\n## Status\n\n- **State:** Approved\n- **Approved:** 2026-10-01 by jw\n';
+
+  /** The `Impl: same branch` path: no merge, so `applyLocalWrites` runs on `ctx.repoRoot` directly and reaches `annotateSprint`. */
+  const ctxSameBranch = (files: Record<string, string>, staged: string[][]): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostFixture({
+      prs: [{
+        number: 42, repo: '', head: `feature/${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+        draft: false, mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [],
+        url: '', author: '', headSha: HEAD,
+      }],
+      commitStatuses: [],
+    }),
+    planStore: planStoreFixture({
+      files: Object.assign(files, { [FILE]: PLAN_TEXT, [ABS_PLAN]: PLAN_TEXT }),
+      plans: [FILE, ABS_PLAN].map((file) => planRecord({
+        file, phase: 'approved', review: 'pr', impl: 'same-branch', branches: [`feature/${SLUG}`], sprint: '',
+        approvedRaw: '2026-10-01 by jw',
+      })),
+    }),
+    refs: refsFixture(),
+    scripts: scriptsStub([]),
+    trees: sameBranchTreesStub(staged),
+  });
+
+  it('annotates the sprint item although the plan carries no Sprint: field', async () => {
+    const staged: string[][] = [];
+    const files: Record<string, string> = {
+      [ABS_SPRINT]: ['### Must Have', '', `- [ ] [${SLUG}] the plan`, ''].join('\n'),
+    };
+    const ctx = ctxSameBranch(files, staged);
+
+    await perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {});
+
+    expect(files[ABS_SPRINT]).toContain(`pr: #42`);
+    expect(staged.flat()).toContain(SPRINT_FILE);
   });
 });
 

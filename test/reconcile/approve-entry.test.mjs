@@ -378,7 +378,7 @@ test('approve entry: a same-branch approval commits the sprint file it annotated
   const body = PLAN().replace('**Sprint:**', '**Sprint:** s1').replace('**Impl:** own branches', '**Impl:** same branch');
   const { repo } = makeRepo(body, { number: 42, state: 'OPEN', draft: false });
   fs.mkdirSync(path.join(repo, 'docs', 'sprints'), { recursive: true });
-  fs.writeFileSync(path.join(repo, 'docs', 'sprints', 's1.md'), '# s1\n\n- [ ] [approve-me] the plan\n');
+  fs.writeFileSync(path.join(repo, 'docs', 'sprints', 's1.md'), '# s1\n\n### Must Have\n\n- [ ] [approve-me] the plan\n');
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'sprint');
   fs.writeFileSync(path.join(repo, 'docs', 'sprints', 's1.md.4242.tmp'), 'left by a killed write\n');
