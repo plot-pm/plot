@@ -55,13 +55,23 @@ const normalizedIssueKey = (n: string | number): string => String(n).replace(/^#
  * Tracker keys, normalised for display: stringified, `#`-stripped, blanks
  * dropped, duplicates dropped with the first occurrence kept.
  *
+ * `issues` is typed as required because a schema-validated payload always
+ * carries it — `CardSchema.issues` and its siblings all default to `[]`. The
+ * client's `/api/board` fetch skips that validation (`App.tsx` casts the
+ * response rather than parsing it), so an older server's card — one with no
+ * `issues` key at all — reaches here as `undefined` at runtime despite the
+ * type. Falling back to `[]` is what keeps that card's plan reference
+ * rendering its slug alone instead of throwing `e is not iterable` out of the
+ * `useMemo` that builds the index, per the browser test named for exactly
+ * this case.
+ *
  * @param issues - the keys as a source stated them.
  * @returns the keys in their original order, deduplicated.
  */
 const normalizedIssues = (issues: readonly (string | number)[]): string[] => {
   const seen = new Set<string>();
   const result: string[] = [];
-  for (const raw of issues) {
+  for (const raw of issues ?? []) {
     const key = normalizedIssueKey(raw);
     if (key === '' || seen.has(key)) continue;
     seen.add(key);
@@ -209,4 +219,32 @@ export const planReference = (ref: PlanRef, index: PlanIndex): PlanReferenceAnsw
     href,
     exists: href !== null,
   };
+};
+
+/** What `planRefOfRow` reads of one fleet row. */
+export interface PlanRefRow {
+  kind: string;
+  branch: string;
+  plan: string;
+  planFile: string;
+}
+
+/**
+ * The plan reference a fleet row makes, or `null` where the row names none.
+ *
+ * A row that already carries `plan` or `planFile` names its reference
+ * directly. A `kind: 'plan'` row — the one row the server emits for an
+ * `idea/<slug>` branch — can read `plan: ''` and `planFile: ''` until the
+ * fleet scan has read the plan on that branch; its branch name, after the
+ * first `/`, is the slug the index can still resolve through a draft card,
+ * so the row shows that plan's prefix and link rather than falling back to
+ * the branch's git-host page.
+ *
+ * @param row - the fleet row naming (or not yet naming) a plan.
+ * @returns the row's plan reference, or `null` where the row names no plan.
+ */
+export const planRefOfRow = (row: PlanRefRow): PlanRef | null => {
+  if (row.plan !== '' || row.planFile !== '') return { file: row.planFile, slug: row.plan };
+  if (row.kind === 'plan') return { slug: row.branch.slice(row.branch.indexOf('/') + 1) };
+  return null;
 };
