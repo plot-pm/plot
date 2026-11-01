@@ -414,11 +414,12 @@ describe('readBranchReadings — a worktree estate has no default-branch ref', (
       commitSubjects: tracked('commitSubjects'),
       changedFiles: tracked('changedFiles'),
     };
-    const estate: Estate = { ...estateOf(line('feature/here'), line('feature/gone', { commits: ['abc1234'] })), mainSha: '', source: 'worktree' };
+    const estate: Estate = { ...estateOf(line('feature/here'), line('feature/gone', { commits: ['abc1234'] }), line('feature/bare')), mainSha: '', source: 'worktree' };
     const answer = await readBranchReadings(refs, hostFixture({ backend: 'none' }), estate, INPUT);
     if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
     expect(asked).toEqual([]);
-    const [here, gone] = answer.value.branches;
+    const [here, gone, bare] = answer.value.branches;
+    expect(bare!.landed).toEqual([]);
     expect(here!.readings).toMatchObject({ refTip: 't1', mainTip: null, commitsAhead: 0, mergeSubjectFound: false });
     expect(gone!.landed).toEqual([{ commit: 'abc1234', contained: 'unknown' }]);
     expect(branchState(here!.readings)).toBe('unknown');
