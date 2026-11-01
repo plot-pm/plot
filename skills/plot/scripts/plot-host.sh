@@ -5489,8 +5489,7 @@ case "$op" in
                   {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
                   status:$actual,statusCategory:(if $actual == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login]}
                  + (if .updatedAt then {updatedAt:.updatedAt} else {} end) + (if .issueType.name? then {type:.issueType.name} else {} end)
-                 + (if $actual == "closed" then {closedAt:(.closedAt // "")} else {} end)
-                 + (if .labels then {labels:[.labels[].name]} else {} end)' <<<"$out"
+                 + (if $actual == "closed" then {closedAt:(.closedAt // "")} else {} end) + (if .labels then {labels:[.labels[].name]} else {} end)' <<<"$out"
       else
         # NO empty-list fallback. `host_miss_or_fail` exists for a lookup whose
         # subject is absent — one PR that does not exist. A LIST has no absent
