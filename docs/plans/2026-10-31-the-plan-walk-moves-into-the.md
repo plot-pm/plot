@@ -17,6 +17,7 @@
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-walk-assembles-the-reading`
 - **Started:** 2026-11-01, Jan Wloka, `feature/scan-once-walks-in-process`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-walk-caches-by-oid`
+- **Started:** 2026-11-01, Jan Wloka, `feature/the-scan-modes-run-the-walk`
 
 ## Changelog
 
