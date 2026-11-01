@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3018 merged
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-board-request-counts-its-processes`
+- **Started:** 2026-11-01, Jan Wloka, `feature/the-board-holds-its-config`
 
 ## Changelog
 
