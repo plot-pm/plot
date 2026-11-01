@@ -113,7 +113,7 @@ Rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`. Every row as
 
 ### Late signal
 
-- `bug/a-stop-that-lands-with-the-child-s-exit-still-stops` — `packages/domain/src/adapters/bounded-run/bounded-run-process.ts`: one process-wide listener per ending signal, a live-run count, no listener removal in `finish()`, the three-way decision in the Approach; the contract line in `packages/domain/src/ports/bounded-run.ts`; the `--late-signal` mode and the own-listener mode in `test/fixtures/bounded-run-group-standin.mjs`; `packages/domain/test/bounded-run-late-signal.test.ts`; a changeset for `plot`. The PR body lists each `boundedRunProcess` caller's host and whether it has its own listener.
+- `bug/a-stop-that-lands-with-the-child-s-exit-still-stops` — `packages/domain/src/adapters/bounded-run/bounded-run-process.ts`: one process-wide listener per ending signal, a live-run count, no listener removal in `finish()`, the three-way decision in the Approach; the contract line in `packages/domain/src/ports/bounded-run.ts`; the `--late-signal` mode and the own-listener mode in `test/fixtures/bounded-run-group-standin.mjs`; `packages/domain/test/bounded-run-late-signal.test.ts`; a changeset for `plot`. The PR body lists each `boundedRunProcess` caller's host and whether it has its own listener. → #3023
 
 ### Group-stop wait
 
