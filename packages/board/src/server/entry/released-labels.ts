@@ -20,6 +20,7 @@ import { planMetasAtDefault } from '../fleet.js';
  * ```
  * plot-released-labels.mjs          # dry run: both sets, with reasons, and the call count
  * plot-released-labels.mjs --yes    # write
+ * plot-released-labels.mjs --section <1|0>   # the reconcile sweep's report section
  * ```
  *
  * Dry-run output, tab-separated: `write\t<issue>` and `skip\t<issue>\t<reason>`
@@ -52,11 +53,15 @@ export interface Deps {
   /** Every plan's phase and issues, or null where the plans cannot be read. */
   plans: () => Promise<readonly LabelPlan[] | null>;
   env: Record<string, string | undefined>;
+  /** The command the `--section` report prints for the write run. */
+  self?: string;
   write: (s: string) => void;
   warn: (s: string) => void;
 }
 
-const USAGE = 'usage: plot-released-labels.mjs [--yes]';
+const USAGE = 'usage: plot-released-labels.mjs [--yes | --section <1|0>]';
+
+const SECTION_HEADING = '== Closed issues of Released plans without plan:released ==';
 
 /**
  * Runs the backfill.
@@ -66,10 +71,16 @@ const USAGE = 'usage: plot-released-labels.mjs [--yes]';
  * @returns the process exit code.
  */
 export const run = async (argv: readonly string[], deps: Deps): Promise<number> => {
-  const unknown = argv.find((arg) => arg !== '--yes');
-  if (unknown !== undefined) {
-    deps.warn(`plot-released-labels: unknown argument '${unknown}'\n${USAGE}\n`);
+  const sectionAt = argv.indexOf('--section');
+  const section = sectionAt >= 0 && argv.length === 2 && (argv[1] === '1' || argv[1] === '0');
+  const unknown = section ? undefined : argv.find((arg) => arg !== '--yes');
+  if (unknown !== undefined || (sectionAt >= 0 && !section)) {
+    deps.warn(`plot-released-labels: unknown argument '${unknown ?? argv.join(' ')}'\n${USAGE}\n`);
     return EXIT.usage;
+  }
+  if (section && argv[1] === '0') {
+    deps.write(`${SECTION_HEADING}\n  (not checked: offline)\n\n`);
+    return EXIT.ok;
   }
   const yes = argv.includes('--yes');
   if (yes && deps.env.PLOT_UNATTENDED === '1') {
@@ -93,6 +104,11 @@ export const run = async (argv: readonly string[], deps: Deps): Promise<number> 
     labels: issue.labels ?? [],
   }));
   const { write, skip } = releasedLabelTargets(plans, rows);
+  if (section) {
+    const line = write.length > 0 ? `  ${write.length} issue(s) — run: node ${deps.self ?? 'plot-released-labels.mjs'} --yes` : '  (none)';
+    deps.write(`${SECTION_HEADING}\n${line}\n\n`);
+    return EXIT.ok;
+  }
   for (const issue of write) deps.write(`write\t${issue}\n`);
   for (const { issue, reason } of skip) deps.write(`skip\t${issue}\t${reason}\n`);
   deps.write(`summary: write=${write.length} skip=${skip.length} calls=${write.length * CALLS_PER_WRITE}\n`);
@@ -142,6 +158,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
       tracker,
       plans,
       env: process.env,
+      self: fileURLToPath(import.meta.url),
       write: (s) => process.stdout.write(s),
       warn: (s) => process.stderr.write(s),
     }),
