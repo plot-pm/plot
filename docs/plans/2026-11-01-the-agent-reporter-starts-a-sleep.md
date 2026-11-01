@@ -134,7 +134,7 @@ Slice 1 rows run in `pnpm --filter @plot-pm/fleet exec vitest run test/unit/cont
 
 ### Reporter wait
 
-- `bug/the-agent-reporter-waits-without-a-poll` — `packages/fleet/src/shared/continuation.ts`: the `sh -c` string as one exported arrow function, the held-descriptor wait, the 1 s fallback, the rewritten comment block; the `.gitignore` line for `.plot-worker.reporter.fifo`; the stale-FIFO removal before the spawn; the slice 1 rows in `packages/fleet/test/unit/continuation.test.ts`; a changeset for `plot`. <!-- builds: the reporter's process-free wait on the agent in continuation.ts -->
+- `bug/the-agent-reporter-waits-without-a-poll` — `packages/fleet/src/shared/continuation.ts`: the `sh -c` string as one exported arrow function, the held-descriptor wait, the 1 s fallback, the rewritten comment block; the `.gitignore` line for `.plot-worker.reporter.fifo`; the stale-FIFO removal before the spawn; the slice 1 rows in `packages/fleet/test/unit/continuation.test.ts`; a changeset for `plot`. <!-- builds: the reporter's process-free wait on the agent in continuation.ts --> → #3027
 
 ### AgentMonitor read
 
