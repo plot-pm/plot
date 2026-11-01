@@ -37,7 +37,6 @@ import { git, sandboxWith, type Sandbox } from './sandbox.js';
  */
 
 const PARSER = join('skills', 'plot', 'scripts', 'plot-plan-meta.sh');
-const FULL = (n: number): string => n.toString(16).padStart(40, '0');
 
 const planFile = (slug: string, body: string): string =>
   `# ${slug}\n\n## Status\n\n- **State:** Approved\n- **Type:** feature\n- **Impl:** own branches\n\n## Branches\n\n### Heading\n\n${body}\n`;
