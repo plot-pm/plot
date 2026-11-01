@@ -118,7 +118,7 @@ Rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`. Every row as
 
 ### Group-stop wait
 
-- `bug/the-group-stop-test-tells-a-slow-stop-from-a-survivor` <!-- waits: bug/a-stop-that-lands-with-the-child-s-exit-still-stops --> — `packages/domain/test/bounded-run-group-stop.test.ts` and its stand-in fixture only: the `exit`-event wait with the `setImmediate` yield, `GROUP_STOP_BOUND_MS` and `LATE_EXIT_GRACE_MS`, `TEST_TIMEOUT_MS` per the Constraints, the verdict helper and its message, `readyOf` with the early-exit reject for all four ready-waits, bounded sibling `exit` waits, the teardown by group and by recorded pid, the `pgrep` stub arms. No production change and no changeset.
+- `bug/the-group-stop-test-tells-a-slow-stop-from-a-survivor` <!-- waits: bug/a-stop-that-lands-with-the-child-s-exit-still-stops --> — `packages/domain/test/bounded-run-group-stop.test.ts` and its stand-in fixture only: the `exit`-event wait with the `setImmediate` yield, `GROUP_STOP_BOUND_MS` and `LATE_EXIT_GRACE_MS`, `TEST_TIMEOUT_MS` per the Constraints, the verdict helper and its message, `readyOf` with the early-exit reject for all four ready-waits, bounded sibling `exit` waits, the teardown by group and by recorded pid, the `pgrep` stub arms. No production change and no changeset. → #3026
 
 ## Notes
 
