@@ -328,8 +328,9 @@ export interface Host {
    * @param since - narrows to PRs the host has seen change since this stamp,
    *   the host's own rendering, passed through byte-for-byte; every PR when
    *   omitted.
-   * @param rich - asks for each PR's `checks` and `draft` as well; a PR then
-   *   reports `checks: 'unknown'` only where the host could not say.
+   * @param rich - asks for each OPEN PR's `checks` and `draft` as well; a merged
+   *   or closed PR reports `checks: 'unknown'`, since its checks cannot change
+   *   and the rollup costs the host time in proportion to the rows it covers.
    * @returns the PRs, newest first.
    */
   prList(state: string, limit?: number, since?: string, rich?: boolean): Promise<PortResult<readonly Pr[]>>;

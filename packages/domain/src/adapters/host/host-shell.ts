@@ -454,7 +454,7 @@ export const hostShell = (context: ShellContext): Host => {
           state,
           ...(limit === undefined ? [] : ['--limit', String(limit)]),
           ...(since === undefined ? [] : ['--since', since]),
-          ...(rich === true ? ['--rich'] : []),
+          ...(rich === true ? ['--rich-open'] : []),
         ],
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
       ),
