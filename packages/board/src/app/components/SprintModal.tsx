@@ -1,14 +1,15 @@
 import { useEffect } from 'react';
-import { sprintItemDestination } from '@plot-pm/domain';
+import { planReference, type PlanIndex } from '@plot-pm/domain';
 import type { SprintCard, SprintMember } from '../../contract/schema.js';
+import { PlanReference } from './PlanReference.js';
 
 export interface SprintModalProps {
   sprint: SprintCard;
   onClose: () => void;
-  /** Navigate to a plan in the Planning tab. */
-  onOpenPlan?: (slug: string) => void;
-  /** Every card slug the board currently has — see `sprintItemDestination`. */
-  cardSlugs: ReadonlySet<string>;
+  /** Open a plan by file; `true` when it opened in place, `false` to let the anchor navigate. */
+  onOpenPlan?: (file: string) => boolean;
+  /** The board's plan index; a member whose slug it does not resolve renders as text. */
+  planIndex: PlanIndex;
 }
 
 /**
@@ -42,7 +43,7 @@ function groupByTier(members: SprintMember[]): Record<Tier, SprintMember[]> {
 /**
  * Sprint overlay — shows sprint details with MoSCoW-grouped members.
  */
-export function SprintModal({ sprint, onClose, onOpenPlan, cardSlugs }: SprintModalProps) {
+export function SprintModal({ sprint, onClose, onOpenPlan, planIndex }: SprintModalProps) {
   // Escape closes the modal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -158,10 +159,11 @@ export function SprintModal({ sprint, onClose, onOpenPlan, cardSlugs }: SprintMo
                 </h4>
                 <ul className="space-y-1">
                   {members.map((m, i) => {
-                    const destination = sprintItemDestination(
-                      { slug: m.slug, known: m.known },
-                      cardSlugs,
-                    );
+                    // A member the board marked unknown, or whose slug the index
+                    // does not resolve, is text: no href, so no link.
+                    const resolved = m.slug === '' ? null : planReference({ slug: m.slug }, planIndex);
+                    const answer = resolved && m.known ? resolved : resolved && { ...resolved, href: null, exists: false };
+                    const memberClass = m.checked ? 'text-slate-500 line-through dark:text-slate-400' : 'text-cyan-600 dark:text-cyan-400';
                     return (
                     <li
                       // A BARE MEMBER HAS NO SLUG, so every one of them would
@@ -190,18 +192,10 @@ export function SprintModal({ sprint, onClose, onOpenPlan, cardSlugs }: SprintMo
                         bare item, an unknown member, or a slug with no card all
                         render as text rather than a button that leads nowhere.
                       */}
-                      {onOpenPlan && destination !== null ? (
-                        <button
-                          type="button"
-                          onClick={() => onOpenPlan(destination)}
-                          className={`min-w-0 truncate text-left hover:underline ${
-                            m.checked
-                              ? 'text-slate-500 line-through dark:text-slate-400'
-                              : 'text-cyan-600 dark:text-cyan-400'
-                          }`}
-                        >
-                          {m.slug}
-                        </button>
+                      {answer ? (
+                        <span className={`flex min-w-0 text-left ${memberClass}`}>
+                          <PlanReference answer={answer} file={planIndex.get(m.slug)?.file} onOpenPlan={onOpenPlan} />
+                        </span>
                       ) : (
                         <span
                           className={`min-w-0 truncate ${
@@ -210,7 +204,7 @@ export function SprintModal({ sprint, onClose, onOpenPlan, cardSlugs }: SprintMo
                               : 'text-slate-700 dark:text-slate-200'
                           }`}
                         >
-                          {m.slug === '' ? m.text : m.slug}
+                          {m.text}
                         </span>
                       )}
                       {/* Delivered badge */}

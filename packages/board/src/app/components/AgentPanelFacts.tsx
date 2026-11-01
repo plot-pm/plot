@@ -335,7 +335,7 @@ export interface AgentPanelFactsProps {
    * which is the "an affordance that cannot navigate must not look like one"
    * fallback rather than a dead button.
    */
-  onOpenPlan?: (planFile: string) => void;
+  onOpenPlan?: (planFile: string) => boolean;
   /**
    * Scroll to and highlight this branch's fleet row — the BRANCH fact's
    * destination. Optional for the same reason as `onOpenPlan`.

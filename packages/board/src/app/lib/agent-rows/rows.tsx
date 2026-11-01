@@ -1072,7 +1072,7 @@ export function SliceRow({
   soleRow?: AgentRow;
   continueWith?: DispatchInfo;
   restartWith?: DispatchInfo;
-  onOpenPlan?: (planFile: string) => boolean | void;
+  onOpenPlan?: (planFile: string) => boolean;
   onRevealBranch?: (branch: string) => void;
   /**
    * Whether a PLAN ROW heads this slice's group — set by the caller, which is the
@@ -2335,7 +2335,7 @@ export function Row({
               canRestart={restartWith}
               // BRANCH and PLAN in the panel become destinations. `onOpenPlan`
               // returns whether it opened a card; the panel discards that.
-              onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+              onOpenPlan={onOpenPlan}
               onRevealBranch={onRevealBranch}
             />
           )}
@@ -2742,7 +2742,7 @@ export function RegistryRow({
           onClose={() => setLogOpen(false)}
           canContinue={continueWith}
           canRestart={restartWith}
-          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+          onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
       )}

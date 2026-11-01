@@ -164,9 +164,10 @@ describe('story overlay: opening a story from the board', () => {
 
       const section = dialog.locator('div', { hasText: 'Plans in this story' }).last();
       // Both real plans, with their live phases — from the cards, in phase order.
-      await expect.poll(() => section.getByText('Net the strawberry bed').count())
+      // A plan reference shows its slug and carries the title in its tooltip.
+      await expect.poll(() => section.locator('[data-plan-ref][title*="Net the strawberry bed"]').count())
         .toBeGreaterThan(0);
-      await expect.poll(() => section.getByText('Write a compost-turning guide').count())
+      await expect.poll(() => section.locator('[data-plan-ref][title*="Write a compost-turning guide"]').count())
         .toBeGreaterThan(0);
       // `Net the strawberry bed` is approved with no Started record, which is
       // DEVELOPMENT — work waiting for an agent. It read `Design` while the
@@ -299,7 +300,7 @@ describe('story overlay: opening a story from the board', () => {
       // The way back is the same click in reverse, and it stacks no further
       // than the way out did.
       await page.getByRole('dialog')
-        .getByRole('button', { name: 'Write a compost-turning guide' }).click();
+        .locator('[data-plan-ref][title*="Write a compost-turning guide"]').click();
       await page.getByRole('dialog').getByRole('heading', { name: 'Plan', exact: true })
         .waitFor({ timeout: 5_000 });
       expect(await page.getByRole('dialog').count()).toBe(1);
