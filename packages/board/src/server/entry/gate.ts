@@ -449,6 +449,114 @@ const stateGate: Gate = {
 };
 
 /**
+ * Refuses a commit that adds or moves a sprint member line onto an open sprint
+ * while the plan's `- **Sprint:**` field disagrees with `sprintOfPlan` over the
+ * tree the commit leaves.
+ *
+ * Reads what `stateGate` reads: `effectivePaths` decides which paths the commit
+ * carries and whether each takes the staged text or the working copy. `HEAD` is
+ * the base. A plan whose field a commit sets to a sprint that does not list it
+ * is reported on stderr and never refused. A failed config read throws, which
+ * `onError: 'allow'` reports as UNVERIFIED.
+ */
+const sprintMemberGate: Gate = {
+  name: 'sprint-member',
+  wants: (command) => command.includes('git commit') || makesCommit(command),
+  ask: async (command) => {
+    const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+    const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
+    const { chainedAddsOf } = await import('@plot-pm/domain/rules/chained-add');
+    const { commitCallsOf } = await import('@plot-pm/domain/rules/main-checkout-write');
+    const { effectivePaths } = await import('@plot-pm/domain/rules/state-transition');
+    const { sprintMemberRefusalText } = await import('@plot-pm/domain/rules/sprint-member-gate');
+    const { checkSprintMembers } = await import('./sprint-member-check.js');
+
+    const cwd = process.cwd();
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const roots = await commitRootsFor(command, cwd, scriptDir, 'sprint-member');
+    const calls = commitCallsOf(command);
+    const at = (dir: string | null | 'unplaced') => (dir === null || dir === 'unplaced' ? cwd : resolve(cwd, dir));
+    const rootByDir = new Map<string | null | 'unplaced', string | null>();
+    const resolveDir = async (dir: string | null | 'unplaced') => {
+      if (rootByDir.has(dir)) return;
+      const read = await refsGit({ repoRoot: at(dir), scriptDir }).repoRoot();
+      rootByDir.set(dir, read.ok ? read.value : null);
+    };
+    for (const add of chainedAddsOf(command)) await resolveDir(add.dir);
+    for (const call of calls) await resolveDir(call.placed ? call.dir : 'unplaced');
+
+    const texts: string[] = [];
+    for (const root of roots) {
+      const refs = refsGit({ repoRoot: root, scriptDir });
+      const scripts = scriptsShell({ repoRoot: root, scriptDir });
+      const planDirRead = await scripts.config('Plan directory', 'docs/plans/');
+      const sprintDirRead = await scripts.config('Sprint directory', 'docs/sprints/');
+      if (!planDirRead.ok || !sprintDirRead.ok) throw new Error('the Plan directory or Sprint directory config read failed');
+      const planDir = planDirRead.value.trim().replace(/\/+$/, '');
+      const sprintDir = sprintDirRead.value.trim().replace(/\/+$/, '');
+
+      const staged = await refs.stagedEntries();
+      const workingChanges = await refs.workingChanges();
+      const showPrefix = await refs.showPrefix();
+      if (!staged.ok) continue;
+      const own = calls.find((call) => call.placed && rootByDir.get(call.dir) === root);
+      const carried = effectivePaths(
+        {
+          staged: staged.value.map((entry) => entry.path),
+          workingChanges: workingChanges.ok ? workingChanges.value : [],
+          showPrefix: showPrefix.ok ? showPrefix.value : '',
+        },
+        command,
+        own === undefined ? null : own.args,
+        (dir) => rootByDir.get(dir) === root,
+      );
+
+      // What the commit leaves, per carried path; `null` is a deletion.
+      const left = new Map<string, string | null>();
+      for (const { path, carries } of carried) {
+        if (!path.startsWith(`${planDir}/`) && !path.startsWith(`${sprintDir}/`)) continue;
+        if (carries === 'working') {
+          try {
+            left.set(path, readFileSync(join(root, path), 'utf8'));
+          } catch {
+            left.set(path, null);
+          }
+        } else {
+          const index = await refs.showFile(':0', path);
+          left.set(path, index.ok ? index.value : null);
+        }
+      }
+      if (left.size === 0) continue;
+
+      const headText = async (path: string) => {
+        const text = await refs.showFile('HEAD', path);
+        return text.ok ? text.value : null;
+      };
+      const listed = async (dir: string) => {
+        const base = dir.replace(/\/+$/, '');
+        const blobs = await refs.listBlobs('HEAD', base);
+        const names = new Set((blobs.ok ? blobs.value : []).map((blob) => blob.path));
+        for (const [path, text] of left) if (text !== null && path.startsWith(`${base}/`)) names.add(path);
+        return [...names].filter((p) => p.endsWith('.md') && !p.slice(base.length + 1).includes('/'));
+      };
+      const answer = await checkSprintMembers(
+        { list: listed, before: headText, after: async (path) => (left.has(path) ? left.get(path)! : headText(path)) },
+        [...left.keys()],
+        planDir,
+        sprintDir,
+      );
+      for (const notice of answer.notices) {
+        process.stderr.write(`sprint-member: plan '${notice.slug}' names sprint '${notice.field}', which does not list it yet (not refused).\n`);
+      }
+      const text = sprintMemberRefusalText(answer.refusals);
+      if (text !== null) texts.push(text);
+    }
+    return texts.length === 0 ? null : texts.join('\n');
+  },
+  onError: 'allow',
+};
+
+/**
  * The plan's spike branch where it records `Spike approved:`, else `''`.
  *
  * Parses the plan text in a private scratch directory; an unparseable plan
@@ -994,6 +1102,7 @@ export const GATES: readonly Gate[] = [
   bundleCommitGate,
   briefNameGate,
   stateGate,
+  sprintMemberGate,
   controllerGate,
   phaseGate,
   mainCheckoutGate,

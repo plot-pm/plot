@@ -1051,6 +1051,14 @@ jobs:
       - name: Build the board bundles
         run: pnpm run build:board
 
+      # A PR ADDS NO SPRINT MEMBER LINE THAT DISAGREES WITH ITS PLAN. Runs only
+      # on `pull_request`: a bypassed commit-time hook must not turn `main` red
+      # and hold the merge queue through `default-branch-red`. It reads the
+      # bundle built one step above.
+      - name: A sprint member names its sprint
+        if: github.event_name == 'pull_request'
+        run: ./scripts/check-sprint-members.sh
+
       # THE GATE TESTS RUN ON EVERY CHANGE. They are an `always` entry of
       # `Local checks` (`** = node --test test/reconcile/*gate*.test.mjs`),
       # and `helper-contracts` now runs only the contract tests a change
