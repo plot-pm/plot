@@ -128,7 +128,7 @@ plot_monitor_subject() {
     printf 'gone'; return 0
   fi
 
-  { read -r pid < "$pid_file"; } 2>/dev/null
+  read -r pid < "$pid_file" 2>/dev/null
 
   # A file that exists but holds no digits is a half-written pid, which is the
   # startup window caught mid-`printf`. Not gone — UNLESS the wrapper has
