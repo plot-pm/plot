@@ -7,6 +7,7 @@ import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { localCapability } from './controllers/caller.js';
+import { planMetasAtDefault } from './fleet.js';
 
 /**
  * Turning an issue into a plan — the row's one action, and the board's FOURTH
@@ -385,13 +386,17 @@ export function ideaStatus(opts: BuildBoardOptions, number: number): IdeaStatus 
 }
 
 /**
- * The issue numbers every plan in the repo references — the SAME question
- * `fleet.ts`'s `referencedIssues` answers, asked here for a different purpose.
+ * The issue numbers every plan at `origin/<default>` — plus every open draft
+ * plan — references, read through the same {@link planMetasAtDefault} every
+ * other plan-naming caller reads.
  *
- * There it filters a list on a timer; here it is a PRECONDITION on a write. A
- * second click on a row the board has not yet refreshed away would otherwise
- * start a second `/plot-idea` for an issue that already has a plan, and two
- * plans answering one signal is worse than the row that prompted them.
+ * There `ticketPlansOf` filters a list on a timer; here it is a PRECONDITION
+ * on a write. A second click on a row the board has not yet refreshed away
+ * would otherwise start a second `/plot-idea` for an issue that already has a
+ * plan — including one still in Draft or Design, not yet merged to the
+ * default branch, which `planMetasAtDefault`'s draft-plan read now also
+ * covers — and two plans answering one signal is worse than the row that
+ * prompted them.
  *
  * Null on any failure, and the caller then REFUSES rather than proceeding. That
  * is the opposite of `refreshIssues`'s choice, deliberately: reporting an
@@ -401,31 +406,11 @@ export function ideaStatus(opts: BuildBoardOptions, number: number): IdeaStatus 
 export async function referencedIssues(
   opts: BuildBoardOptions,
 ): Promise<Set<number> | null> {
-  const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
-  const dir = path.join(opts.repoRoot, planDir);
-  let files: string[];
-  try {
-    files = fs.readdirSync(dir)
-      .filter((f) => f.endsWith('.md'))
-      .map((f) => path.join(dir, f))
-      .filter((f) => {
-        try { return fs.statSync(f).isFile(); } catch { return false; }
-      });
-  } catch {
-    return null;
-  }
-  if (files.length === 0) return new Set();
-  const answer = await scriptsFor(opts).planMeta(files, { maxBuffer: 32 * 1024 * 1024 });
-  if (!answer.ok) return null;
+  const metas = await planMetasAtDefault(opts);
+  if (metas === null) return null;
   const referenced = new Set<number>();
-  for (const line of answer.value.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const meta = JSON.parse(line) as { issues?: number[] };
-      for (const n of meta.issues ?? []) referenced.add(n);
-    } catch {
-      /* one unparseable record is not a reason to discard the rest */
-    }
+  for (const meta of metas) {
+    for (const n of meta.issues ?? []) referenced.add(typeof n === 'string' ? Number(n) : n);
   }
   return referenced;
 }

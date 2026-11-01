@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Issue } from '../src/entities/issue.js';
 import { DONE_LANE_LIMIT, doneTickets, ticketLane, type TicketLaneReading } from '../src/rules/ticket-lane.js';
+import type { TicketPlan } from '../src/rules/ticket-phase.js';
+
+const APPROVED_PLAN: TicketPlan = { state: 'approved', total: 0, merged: null };
 
 const NOW = Date.parse('2026-10-13T00:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -20,7 +23,7 @@ const issueWith = (over: Partial<Issue> = {}): Issue => ({
 
 const reading = (over: Partial<TicketLaneReading> = {}): TicketLaneReading => ({
   categoryStated: true,
-  namedByPlan: false,
+  plans: [],
   ...over,
 });
 
@@ -52,12 +55,12 @@ describe('ticketLane', () => {
 
   it('reads Open for no stated category, open, not named by a plan', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
-    expect(ticketLane(issue, reading({ categoryStated: false, namedByPlan: false }), NOW)).toBe('open');
+    expect(ticketLane(issue, reading({ categoryStated: false, plans: [] }), NOW)).toBe('open');
   });
 
   it('reads In progress for no stated category, open, named by a plan', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
-    expect(ticketLane(issue, reading({ categoryStated: false, namedByPlan: true }), NOW)).toBe('in-progress');
+    expect(ticketLane(issue, reading({ categoryStated: false, plans: [APPROVED_PLAN] }), NOW)).toBe('in-progress');
   });
 
   it('reads Done for no stated category, closed within 14 days', () => {
@@ -73,14 +76,61 @@ describe('ticketLane', () => {
   it('reads In progress for an open GitHub issue named by a plan although its derived category is To Do', () => {
     // GitHub/Bitbucket derive `statusCategory` from the state asked for, so an
     // open issue's derived category reads "To Do" — categoryStated must be
-    // false for this source, and namedByPlan must win instead.
+    // false for this source, and the named plan must win instead.
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
-    expect(ticketLane(issue, reading({ categoryStated: false, namedByPlan: true }), NOW)).toBe('in-progress');
+    expect(ticketLane(issue, reading({ categoryStated: false, plans: [APPROVED_PLAN] }), NOW)).toBe('in-progress');
   });
 
   it('reads hidden for a closedAt the tracker could not parse as a date', () => {
     const issue = issueWith({ statusCategory: 'Done', closedAt: 'not-a-date' });
     expect(ticketLane(issue, reading(), NOW)).toBe('hidden');
+  });
+
+  it('reads Open for an open issue named only by a Draft plan', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    const plans: TicketPlan[] = [{ state: 'draft', total: 0, merged: null }];
+    expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
+  });
+
+  it('reads Done for an open issue named by a Delivered plan', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    const plans: TicketPlan[] = [{ state: 'delivered', total: 1, merged: 1 }];
+    expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('done');
+  });
+
+  it('reads Open for an open issue named only by a Released plan — released does not place', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    const plans: TicketPlan[] = [{ state: 'released', total: 1, merged: 1 }];
+    expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
+  });
+
+  it('reads Open for an open issue named only by a Rejected or Superseded plan', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    const plans: TicketPlan[] = [{ state: 'rejected', total: 0, merged: null }, { state: 'superseded', total: 0, merged: null }];
+    expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
+  });
+
+  it('lets the least advanced named plan decide: Draft and Approved together read Open', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    const plans: TicketPlan[] = [
+      { state: 'approved', total: 1, merged: 0 },
+      { state: 'draft', total: 0, merged: null },
+    ];
+    expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
+  });
+
+  it('keeps the first plan when a later one is more advanced: Draft then Approved reads Open', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    const plans: TicketPlan[] = [
+      { state: 'draft', total: 0, merged: null },
+      { state: 'approved', total: 1, merged: 0 },
+    ];
+    expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
+  });
+
+  it('reads Open for an unreadable plan set, leaving the group decision to the caller', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    expect(ticketLane(issue, reading({ categoryStated: false, plans: null }), NOW)).toBe('open');
   });
 });
 

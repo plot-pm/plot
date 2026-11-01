@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { doneTickets, DONE_LANE_LIMIT } from '../src/rules/ticket-lane.js';
+import type { TicketPlan } from '../src/rules/ticket-phase.js';
 import {
   ticketLanes,
   typeOf,
@@ -7,6 +8,8 @@ import {
   type TicketLanesReading,
   type TicketSourceRow,
 } from '../src/rules/ticket-lanes.js';
+
+const APPROVED_PLAN: TicketPlan = { state: 'approved', total: 0, merged: null };
 
 const NOW = Date.parse('2026-10-14T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -23,7 +26,7 @@ const closedRow = (number: string, days: number): TicketSourceRow =>
 
 const reading = (over: Partial<TicketLanesReading> = {}): TicketLanesReading => ({
   categoryStated: false,
-  named: new Set(),
+  plans: new Map(),
   kept: null,
   ...over,
 });
@@ -102,7 +105,7 @@ describe('ticketLanes type and owner', () => {
 describe('ticketLanes', () => {
   it('lanes open rows by plan naming and a recent closed row as Done', () => {
     const result = ticketLanes(
-      [row('1'), row('2')], [closedRow('3', 3)], null, reading({ named: new Set(['2']) }), false, NOW,
+      [row('1'), row('2')], [closedRow('3', 3)], null, reading({ plans: new Map([['2', [APPROVED_PLAN]]]) }), false, NOW,
     );
     expect(result.plansUnreadable).toBe(false);
     expect(ids(result.lanes?.open)).toEqual(['1']);
@@ -170,13 +173,19 @@ describe('ticketLanes', () => {
 
   it('answers the kept lanes with plansUnreadable where the plans could not be read', () => {
     const kept: TicketLaneGroups = { open: [], 'in-progress': [], done: [], moreCount: 7 };
-    const result = ticketLanes([row('1')], [], null, reading({ named: null, kept }), false, NOW);
+    const result = ticketLanes([row('1')], [], null, reading({ plans: null, kept }), false, NOW);
     expect(result).toEqual({ lanes: kept, plansUnreadable: true });
   });
 
   it('answers null lanes where the plans could not be read and nothing is kept', () => {
-    expect(ticketLanes([row('1')], [], null, reading({ named: null }), false, NOW))
+    expect(ticketLanes([row('1')], [], null, reading({ plans: null }), false, NOW))
       .toEqual({ lanes: null, plansUnreadable: true });
+  });
+
+  it('keeps a released plan\'s issue named — it lanes Open rather than dropping out of every lane', () => {
+    const released: TicketPlan = { state: 'released', total: 1, merged: 1 };
+    const result = ticketLanes([row('1')], [], null, reading({ plans: new Map([['1', [released]]]) }), false, NOW);
+    expect(ids(result.lanes?.open)).toEqual(['1']);
   });
 });
 

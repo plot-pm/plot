@@ -438,6 +438,23 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
     expect(numbers(entry.issues)).toEqual(['3']);
   });
 
+  it('an Approved plan read from origin/main shows its merged slice count from the pulse', async () => {
+    const dir = fixture({});
+    fs.writeFileSync(path.join(dir, 'docs', 'plans', 'a.md'), '# plan\n\nIssue: #1\nState: approved\nBranch: b/one\nBranch: b/two\nBranch: b/three\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'plan a');
+    git(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+    // The working tree no longer holds the plan, so only origin/main can answer.
+    fs.rmSync(path.join(dir, 'docs', 'plans', 'a.md'));
+    const entry = entryFor([]);
+    const wave = (states: [string, string][]) => ({ branches: states.map(([branch, state]) => ({ branch, state })) });
+    entry.pulse = { plans: [{ file: 'a.md', slices: [wave([['b/one', 'merged'], ['b/two', 'merged'], ['b/three', 'open']])] }] } as never;
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.waiting?.tickets.find((t) => t.number === '1')?.status).toBe('in progress 2/3');
+  });
+
   it('the real plan parser\'s output shows an Approved plan\'s merged slice count', async () => {
     const dir = fixture({});
     fs.writeFileSync(path.join(dir, 'plot-plan-meta.sh'), `#!/usr/bin/env bash\nexec bash ${JSON.stringify(path.join(REAL_SCRIPTS, 'plot-plan-meta.sh'))} "$@"\n`);

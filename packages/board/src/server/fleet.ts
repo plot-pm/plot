@@ -38,7 +38,8 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
@@ -1536,55 +1537,157 @@ export async function refreshRuns(
 }
 
 /**
- * Every issue number any plan in the repo references, from the `Issue:` field.
+ * Every plan's parsed metadata, read from `origin/<default>` rather than the
+ * local checkout, plus the open draft plans — the single source `ticketPlansOf`,
+ * `ticketLaneData` and `idea.ts`'s `referencedIssues` all call.
  *
- * READS EVERY PLAN FILE, deliberately, and not `pulse.plans`. The pulse carries
- * active plans plus every delivered, unreleased one — the release scope, which
- * is the right set for BRANCHES and the wrong one for REFERENCES. A released
- * plan is still the decision that was made about its issue, and reading the
- * pulse would drop it from this set and put the issue back on the board once
- * its release ships, under a heading that says nobody has decided about it. The reference is what makes the row disappear, so it has
- * to outlive the branch.
+ * A LOCAL CHECKOUT GOES STALE THE MOMENT A PLAN MERGES. Reading the working
+ * tree answered "which plans name this issue" from whatever the worktree last
+ * fetched, which can sit behind `origin/<default>` by any number of commits —
+ * measured 2026-11-01: a plan 10 commits ahead of the checkout read as
+ * unplanned. Resolving the default branch and listing/reading its tree answers
+ * from the ref the Delivery tab already trusts.
  *
- * Affordable because it is ONE parser invocation over the whole directory:
- * measured at 132 ms for 59 plans here, on the 60 s PR timer. (The scan's
- * ~57 ms-per-plan figure prices one invocation per file, which is why it filters
- * before parsing; batched, the per-file cost is a fraction of that.)
+ * ONE LISTING, ONE BATCHED READ. `refs.listBlobs` is one `git ls-tree`;
+ * `refs.readBlobs` is one `git cat-file --batch` over every blob the listing
+ * named — the same pair `readPlansFromRef` (`board.ts:716`) uses, and the same
+ * byte-length framing its own comment documents. `plot-plan-meta.sh` takes file
+ * paths, not blobs, so every blob plus every open draft plan (`draftPlanFiles`)
+ * is staged to one scratch directory before the single `planMeta` call.
  *
- * A failure returns null rather than an empty set: empty would mean "no plan
- * references anything", which would surface every issue in the tracker as
- * unplanned. Null lets the caller decline to answer instead.
- */
-async function referencedIssues(
-  opts: BuildBoardOptions,
-  entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
-): Promise<Set<string> | null> {
-  const metas = await planMetasOf(opts, entry);
-  if (metas === null) return null;
-  const referenced = new Set<string>();
-  // `PlanMetaSchema` defaults an absent `issues` to [] — an older parser, whose
-  // plans cannot reference issues at all, so [] is the true answer.
-  for (const meta of metas) for (const n of meta.issues) referenced.add(issueKey(n));
-  return referenced;
-}
-
-/**
- * Every plan's parsed metadata: the plan directory plus the open draft plans,
- * in one parser invocation.
+ * CACHED ON CONTENT, NEVER ON A REF NAME OR A CLOCK. Measured 2026-11-01 on
+ * this machine: the working-tree parse this replaces took 598-673 ms for 623
+ * plans, not the 132 ms a stale comment here once claimed for 59 — that figure
+ * was never re-measured against this repo's current plan count. `ls-tree` +
+ * `cat-file --batch` cost 63 ms for 623 blobs (7.5 MB); parsing the staged
+ * blobs costs ~780 ms, slower than the stale figure, which is why a repeat read
+ * at the same content MUST be a cache hit rather than a re-parse. The key is
+ * the resolved `origin/<default>` oid plus the tip oid of every draft branch
+ * read, computed with one `resolve` and one `branchTips` call — never a ref
+ * name, which would hide a fast-forward, and never a TTL, which would serve a
+ * stale answer inside its own window.
  *
- * Each line goes through `PlanMetaSchema`, the one reader of the parser's
- * output, which also reads the parser's `waves` key as `slices`.
+ * NO REMOTE, NO FETCH YET: falls back to the working tree's plan directory —
+ * `plan-walk-estate.ts:71-73`'s existing rule for the same situation, reused
+ * rather than reinvented.
+ *
+ * NULL ON ANY FAILURE, NEVER AN EMPTY LIST. An unresolved ref, a listing or
+ * blob-read or parse failure all answer null: an empty array would mean "no
+ * plan references anything", which would surface every tracked issue as
+ * unplanned. Every existing caller's null branch is unchanged.
+ *
+ * KEEPS Released, Rejected and Superseded plans. The pulse drops Released
+ * plans for a reason that does not apply here — the pulse holds release scope,
+ * this helper holds every decision ever made about an issue — so this helper
+ * reads no pulse at all.
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
  * @returns one record per plan, or null when the plans cannot be read or a
  *   line fails the schema — which is not a claim that nothing is planned.
  */
-async function planMetasOf(
+export async function planMetasAtDefault(
   opts: BuildBoardOptions,
   entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
 ): Promise<PlanMeta[] | null> {
+  const refs = refsFor(opts);
   const planDir = await planDirectory(scriptsFor(opts));
+  const defaultBranch = await defaultBranchOf(opts, refs);
+  const resolved = await refs.resolve(`origin/${defaultBranch}`);
+  if (!resolved.ok || resolved.value === '') {
+    return planMetasFromWorkingTree(opts, planDir, entry);
+  }
+  const draftTips = await draftBranchTips(refs, entry);
+  if (draftTips === null) return null;
+  const key = `${resolved.value}\0${draftTips.map((t) => `${t.branch}@${t.sha}`).sort().join('\0')}`;
+  const cached = planMetaCaches.get(cacheKey(opts));
+  if (cached && cached.key === key) return cached.metas;
+  const listing = await refs.listBlobs(resolved.value, planDir);
+  if (!listing.ok) return null;
+  const plans = listing.value.filter(
+    (blob) => (blob.mode === '100644' || blob.mode === '100755') && blob.path.endsWith('.md'),
+  );
+  const blobs = plans.length === 0
+    ? { ok: true as const, value: new Map<string, string>() }
+    : await refs.readBlobs(plans.map((blob) => blob.sha));
+  if (!blobs.ok) return null;
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-default-plans-'));
+  let draft: { dir: string | null; files: string[] } = { dir: null, files: [] };
+  try {
+    draft = await draftPlanFiles(opts, planDir, entry);
+    const files: string[] = [];
+    for (const plan of plans) {
+      const content = blobs.value.get(plan.sha);
+      if (content === undefined) continue;
+      // One subdirectory per blob keeps the real basename: `plot-plan-meta.sh`
+      // reports the path it was given, and `ticketPlansOf` matches that
+      // basename against the pulse's `file`.
+      const sub = path.join(scratch, String(files.length));
+      fs.mkdirSync(sub);
+      const target = path.join(sub, path.basename(plan.path));
+      fs.writeFileSync(target, content);
+      files.push(target);
+    }
+    files.push(...draft.files);
+    if (files.length === 0) {
+      planMetaCaches.set(cacheKey(opts), { key, metas: [] });
+      return [];
+    }
+    const metas: PlanMeta[] = [];
+    try {
+      const answer = await scriptsFor(opts).planMeta(files, { maxBuffer: 64 * 1024 * 1024 });
+      if (!answer.ok) return null;
+      for (const line of answer.value.split('\n')) {
+        if (!line.trim()) continue;
+        metas.push(PlanMetaSchema.parse(JSON.parse(line)));
+      }
+    } catch {
+      return null;
+    }
+    planMetaCaches.set(cacheKey(opts), { key, metas });
+    return metas;
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+    if (draft.dir) fs.rmSync(draft.dir, { recursive: true, force: true });
+  }
+}
+
+/** One cached parse per repository, keyed on content rather than on a ref name or a clock — see {@link planMetasAtDefault}. */
+const planMetaCaches = new Map<string, { key: string; metas: PlanMeta[] }>();
+
+/**
+ * The tip oid of every open draft-plan branch `planMetasAtDefault` would read,
+ * for its cache key — one `branchTips` call over the exact branch names rather
+ * than a `resolve` per branch.
+ *
+ * @param refs - the repo's ref reader.
+ * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
+ * @returns the branch/sha pairs, or null where the tips could not be read.
+ */
+async function draftBranchTips(
+  refs: Refs,
+  entry: Pick<CacheEntry, 'ideaPlans' | 'prs'> | undefined,
+): Promise<{ branch: string; sha: string }[] | null> {
+  if (!entry?.prs) return [];
+  const branches = [...entry.ideaPlans.keys()].filter((branch) => entry.prs?.has(branch));
+  if (branches.length === 0) return [];
+  const tips = await refs.branchTips(branches.map((branch) => `refs/remotes/origin/${branch}`));
+  if (!tips.ok) return null;
+  return tips.value.map((tip) => ({ branch: tip.branch, sha: tip.sha }));
+}
+
+/**
+ * The working-tree fallback for {@link planMetasAtDefault}, used only where
+ * `origin/<default>` cannot be resolved — no remote, never fetched. The same
+ * working-tree read the function this replaced always made, kept for exactly
+ * that one situation rather than reinvented; see `plan-walk-estate.ts:71-73`
+ * for the analogous rule in the domain's estate walk.
+ */
+async function planMetasFromWorkingTree(
+  opts: BuildBoardOptions,
+  planDir: string,
+  entry: Pick<CacheEntry, 'ideaPlans' | 'prs'> | undefined,
+): Promise<PlanMeta[] | null> {
   const dir = path.join(opts.repoRoot, planDir);
   let files: string[];
   try {
@@ -1635,7 +1738,7 @@ async function ticketPlansOf(
   opts: BuildBoardOptions,
   entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'pulse' | 'lastComplete'>,
 ): Promise<Map<string, TicketPlan[]> | null> {
-  const metas = await planMetasOf(opts, entry);
+  const metas = await planMetasAtDefault(opts, entry);
   if (metas === null) return null;
   const byIssue = new Map<string, TicketPlan[]>();
   for (const meta of metas) {
@@ -1700,8 +1803,8 @@ export interface TicketLaneData {
   readonly open: readonly IssueIndexRow[];
   /** The closed rows of the last {@link ISSUE_INDEX_CLOSED_DAYS} days, unfiltered. */
   readonly closed: readonly IssueIndexRow[];
-  /** The issue keys the plans name, or null where the plans directory could not be read. */
-  readonly referenced: Set<string> | null;
+  /** The plans naming each issue key, or null where the plans could not be read. */
+  readonly plans: ReadonlyMap<string, readonly TicketPlan[]> | null;
   /** Whether the connector's `statusCategory` is stated rather than derived — true only for Jira. */
   readonly categoryStated: boolean;
   /** How this repository's issue source writes assignees, or null where it cannot be determined. */
@@ -1725,7 +1828,7 @@ export interface TicketLaneData {
 export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLaneData | null> {
   const entry = ensureCache(opts);
   if (entry.issueSets === null) return null;
-  const referenced = await referencedIssues(opts, entry);
+  const plans = await ticketPlansOf(opts, entry);
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
@@ -1737,7 +1840,7 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
     directory: await people(opts),
     open: entry.issueSets.rows ?? [],
     closed: entry.issueSets.closed?.rows ?? [],
-    referenced,
+    plans,
     categoryStated: entry.issueConnector === 'jira',
   };
 }
