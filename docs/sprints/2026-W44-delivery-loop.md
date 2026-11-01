@@ -32,6 +32,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 
 - [ ] [the-plan-walk-moves-into-the] The plan walk moves into the domain and `plot-fleet-scan.sh` becomes a launcher (#2980)
 - [ ] [the-commit-gates-match-only-the] The commit gates read every commit form, and a replay or merge in progress passes (#2974)
+- [ ] [every-plan-reference-shows-its-issue] Every plan reference on the board shows its issue prefix and opens the plan (#2993)
 
 ### Could Have
 
@@ -53,3 +54,4 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 
 - 2026-10-31: Added [the-plan-walk-moves-into-the] the follow-up to the fleet scan timeouts of #2978 (#2980)
 - 2026-10-31: Added [the-commit-gates-match-only-the] the commit gates miss `git -C` and `--continue` commits (#2974)
+- 2026-11-01: Added [every-plan-reference-shows-its-issue] the board shows one plan with and without its issue prefix and link (#2993)
