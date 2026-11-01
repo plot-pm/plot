@@ -55,13 +55,23 @@ const normalizedIssueKey = (n: string | number): string => String(n).replace(/^#
  * Tracker keys, normalised for display: stringified, `#`-stripped, blanks
  * dropped, duplicates dropped with the first occurrence kept.
  *
+ * `issues` is typed as required because a schema-validated payload always
+ * carries it — `CardSchema.issues` and its siblings all default to `[]`. The
+ * client's `/api/board` fetch skips that validation (`App.tsx` casts the
+ * response rather than parsing it), so an older server's card — one with no
+ * `issues` key at all — reaches here as `undefined` at runtime despite the
+ * type. Falling back to `[]` is what keeps that card's plan reference
+ * rendering its slug alone instead of throwing `e is not iterable` out of the
+ * `useMemo` that builds the index, per the browser test named for exactly
+ * this case.
+ *
  * @param issues - the keys as a source stated them.
  * @returns the keys in their original order, deduplicated.
  */
 const normalizedIssues = (issues: readonly (string | number)[]): string[] => {
   const seen = new Set<string>();
   const result: string[] = [];
-  for (const raw of issues) {
+  for (const raw of issues ?? []) {
     const key = normalizedIssueKey(raw);
     if (key === '' || seen.has(key)) continue;
     seen.add(key);
