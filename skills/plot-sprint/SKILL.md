@@ -91,6 +91,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | False-positive check (close step 2b) | Mid | `plot-plan-meta.sh` to read phase; a checked box over an undelivered plan needs resolution, while a `rejected`/`superseded` phase is a withdrawal that is reported and never held |
 | Release state (close step 2c) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
 | Propose plans from the goal (create step 4) | **Frontier** | Reading a goal against each plan's title, story and changelog is semantic, not lexical: the measured case — goal *"the board tells the truth"*, plan *"none printed before the first fetch"* — shares no word and is the same subject, and word overlap ranks it last. **Fallback below Frontier:** list everything grouped by story and say that is what happened; a fallback that does not announce itself is read as a ranking |
+| Scope changes and carry-over (`plot-sprint-member.mjs`) | Small | The writer's rule decides; the step chooses a tier and a reason, then runs the command. A refusal ends the action |
 
 Every other sprint operation is structural (Small or Mid). The proposal step is
 the one exception, and it is the one place in this skill where a smaller model
@@ -336,22 +337,25 @@ the release command fails on its own terms.
 
 #### 6. Update Plan Files
 
-For each plan-backed item (`[slug]`) added in step 4, update the referenced plan file to record sprint membership:
+For each plan-backed item (`[slug]`) added in step 4, record sprint membership through the writer. `--no-commit` stages the plan and sprint paths and commits nothing, so step 7 commits every plan in one skeleton commit:
 
-- Resolve the plan file via `docs/plans/active/<slug>.md`
-- Add `- **Sprint:** <sprint-slug>` to its `## Status` section (after the Phase line)
+```bash
+node ../plot/scripts/board/plot-sprint-member.mjs add <sprint-slug> <slug> --tier must|should|could --no-commit
+```
 
-This enables sprint awareness in `/plot-approve` and `/plot-deliver`.
+The writer sets the plan's `- **Sprint:** <sprint-slug>` field. It refuses a plan that another sprint already lists (`listed-elsewhere`) and a plan whose `Sprint:` field holds a record comment (`field-record`). A refusal ends that item — do not hand-edit the field. Sprint awareness in `/plot-approve` and `/plot-deliver` reads this field.
 
 #### 7. Commit Skeleton to Main
 
 Commit the initial sprint skeleton directly to main:
 
 ```bash
-git add docs/sprints/${WEEK_PREFIX}-<slug>.md docs/plans/
+git add docs/sprints/${WEEK_PREFIX}-<slug>.md
 git commit -m "sprint: create <slug>"
 git push
 ```
+
+The plan paths are already staged by step 6.
 
 Refinement (fleshing out items, readiness assessments, deferrals) happens optionally on a `sprint/<slug>` branch with a draft PR — see "Refine via PR (optional)" below.
 
@@ -652,7 +656,7 @@ After false positives are resolved, continue with the regular Must-Have complete
 
 If must-haves are incomplete, present three options:
 1. Close anyway (must-haves stay unchecked in place)
-2. Move incomplete must-haves to Deferred — move each unchecked `- [ ]` line from `### Must Have` to `### Deferred`, preserving the original text
+2. Move incomplete must-haves to Deferred — for each unchecked `- [ ]` line in `### Must Have`, run `node ../plot/scripts/board/plot-sprint-member.mjs defer <sprint-slug> <slug>`
 3. Hold off (don't close yet)
 
 #### 2c. Report the Release State
@@ -742,7 +746,7 @@ Print:
 - Retrospective: captured / skipped
 - Suggested next actions:
   1. Review the retrospective action items
-  2. Carry deferred items to the next sprint: `/plot-sprint <new-slug>: <goal>`
+  2. Carry deferred items to the next sprint: `/plot-sprint <new-slug>: <goal>`, or for one plan `node ../plot/scripts/board/plot-sprint-member.mjs add <next-slug> <slug> --tier <tier>`
   3. If all planned work is delivered: `/plot-release` to cut a release — and
      if this sprint declared a `Release:`, that command reads it as a gate
      rather than as a suggestion
@@ -775,10 +779,11 @@ Check before adding, rather than asserting it:
 git ls-remote --heads origin "<branch>"   # non-empty → dispatched
 ```
 
-Then:
-- Add the new `- [ ]` item to the appropriate MoSCoW tier
-- Log: `- YYYY-MM-DD: Added [slug] to Must/Should/Could — <reason>`
-- If plan-backed (`[slug]`), update the plan's Sprint field
+Then run the writer. It adds the `- [ ]` item to the tier, sets the plan's Sprint field and logs `- YYYY-MM-DD: Added [slug] to Must/Should/Could — <reason>`, all in one commit:
+
+```bash
+node ../plot/scripts/board/plot-sprint-member.mjs add <sprint-slug> <slug> --tier must|should|could --reason "<reason>"
+```
 
 **A dispatched plan still has to earn its tier.** Being started is what makes it
 *eligible* for the sprint; whether it serves the sprint's goal is the separate
@@ -786,14 +791,13 @@ judgement that decides Must vs Should vs Could — or that it does not belong at
 all. Work can be in flight and still be outside this sprint's subject.
 
 **Removing or deferring items:**
-- Move the item to the `### Deferred` section (do not delete — preserve history)
-- Log: `- YYYY-MM-DD: Deferred [slug] from Must — <reason>`
+- Run `node ../plot/scripts/board/plot-sprint-member.mjs defer <sprint-slug> <slug> --reason "<reason>"`. The item moves to `### Deferred` (history is kept) and the writer logs `- YYYY-MM-DD: Deferred [slug] from Must — <reason>`.
+- Run `node ../plot/scripts/board/plot-sprint-member.mjs remove <sprint-slug> <slug> --reason "<reason>"` to take a plan out of the sprint.
 
 **Changing MoSCoW tier:**
-- Move the item between tier sections (e.g., Must → Should)
-- Log: `- YYYY-MM-DD: Reprioritized [slug] Must → Should — <reason>`
+- Run `add <sprint-slug> <slug> --tier <new-tier>` again with the new tier. The writer moves the item and logs the change.
 
-Commit scope changes directly to main with message: `sprint: scope change <slug>`.
+Each writer call commits the member line, the plan's Sprint field and the log line together. Do not edit those three by hand. A refusal (`sprint-closed`, `listed-elsewhere`, `not-a-member`, `field-record`, `staged-elsewhere`) ends the action.
 
 ---
 
