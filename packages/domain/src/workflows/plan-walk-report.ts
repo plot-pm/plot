@@ -5,6 +5,9 @@ import type { AssembledBranch, AssembledPlan, Assembly, FleetReadingHeader } fro
  * per plan, the notes that qualify the reading, the delta, and the footer.
  */
 
+/** The summary key the shell's `summary:` line spells for the slice count. */
+const SLICE_COUNT_KEY = 'waves';
+
 /** What the banner and the notes need beyond the {@link FleetReadingHeader}. */
 export interface ReportContext {
   /** How many commits `origin/<main>` holds that the checkout lacks; `null` where git could not count. */
@@ -141,7 +144,7 @@ export const reportFooter = (assembly: Assembly, header: FleetReadingHeader, con
   const s = assembly.summary;
   const done = 'Pulse complete. This report is derived — nothing was changed.\n';
   if (s.plans === 0) {
-    return `${done}summary: plans=0 waves=0 branches=0 claimed=0 claimable=0 eligible=0 blocked=0 deferred=0 waiting=0 prereq_missing=0 main=${header.main}\n`;
+    return `${done}summary: plans=0 ${SLICE_COUNT_KEY}=0 branches=0 claimed=0 claimable=0 eligible=0 blocked=0 deferred=0 waiting=0 prereq_missing=0 main=${header.main}\n`;
   }
-  return `${done}summary: plans=${s.plans} waves=${s.sliceCount} branches=${s.branches} claimed=${s.claimed} claimable=${s.eligible} eligible=${s.eligible} blocked=${s.blocked} deferred=${s.deferred} waiting=${s.waiting} prereq_missing=${s.prereqMissing} merge_detect=${header.mergeDetect} subject_predates_plan=${context.subjectPredatesPlan} host=${header.host} main=${header.main}\n`;
+  return `${done}summary: plans=${s.plans} ${SLICE_COUNT_KEY}=${s.sliceCount} branches=${s.branches} claimed=${s.claimed} claimable=${s.eligible} eligible=${s.eligible} blocked=${s.blocked} deferred=${s.deferred} waiting=${s.waiting} prereq_missing=${s.prereqMissing} merge_detect=${header.mergeDetect} subject_predates_plan=${context.subjectPredatesPlan} host=${header.host} main=${header.main}\n`;
 };
