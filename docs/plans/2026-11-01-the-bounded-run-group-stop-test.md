@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3019 merged
 - **Started:** 2026-11-01, Jan Wloka, `bug/a-stop-that-lands-with-the-child-s-exit-still-stops`
+- **Started:** 2026-11-01, Jan Wloka, `bug/the-group-stop-test-tells-a-slow-stop-from-a-survivor`
 
 ## Changelog
 
