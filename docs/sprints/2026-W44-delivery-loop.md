@@ -35,6 +35,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [ ] [every-plan-reference-shows-its-issue] Every plan reference on the board shows its issue prefix and opens the plan (#2993)
 - [ ] [an-issue-shows-its-plan-s] An issue shows its plan's state on every surface: lanes read the default branch, released issues carry their label, finding tickets close when settled, one plan comment, a slice row reads its head's checks (#2997) <!-- pr: #2998 -->
 - [ ] [a-plan-that-joins-a-sprint] A plan that joins a sprint names the sprint: one membership rule, one writer, a gate on added member lines, and a repair of this sprint (#2999) <!-- pr: #3000 -->
+- [ ] [two-test-teardowns-turn-main-red] Two test teardowns turn main red: a stopped process leaves no plan stage directory, and the continuation tests remove desks after the last write (#3006) <!-- pr: #3008 -->
 
 ### Could Have
 
@@ -59,3 +60,4 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - 2026-11-01: Added [every-plan-reference-shows-its-issue] the board shows one plan with and without its issue prefix and link (#2993)
 - 2026-11-01: Added [an-issue-shows-its-plan-s] an issue's lane, label and finding ticket lag behind its plan's state (#2997)
 - 2026-11-01: Added [a-plan-that-joins-a-sprint] three plans joined this sprint with an empty Sprint field, and approve and deliver skip such a plan's sprint line (#2999)
+- 2026-11-01: Added [two-test-teardowns-turn-main-red] two teardown leaks failed 8 of 48 main CI runs on 2026-11-01, and a red main refuses every merge (#3006)
