@@ -72,14 +72,14 @@ const SECTION_HEADING = '== Closed issues of Released plans without plan:release
  */
 export const run = async (argv: readonly string[], deps: Deps): Promise<number> => {
   const sectionAt = argv.indexOf('--section');
-  const section = sectionAt >= 0 && argv.length === 2 && (argv[1] === '1' || argv[1] === '0');
+  const section = sectionAt === 0 && argv.length === 2 && (argv[1] === '1' || argv[1] === '0');
   const unknown = section ? undefined : argv.find((arg) => arg !== '--yes');
   if (unknown !== undefined || (sectionAt >= 0 && !section)) {
     deps.warn(`plot-released-labels: unknown argument '${unknown ?? argv.join(' ')}'\n${USAGE}\n`);
     return EXIT.usage;
   }
   if (section && argv[1] === '0') {
-    deps.write(`${SECTION_HEADING}\n  (not checked: offline)\n\n`);
+    deps.write(`\n${SECTION_HEADING}\n  (not checked: offline)\n\n`);
     return EXIT.ok;
   }
   const yes = argv.includes('--yes');
@@ -106,7 +106,7 @@ export const run = async (argv: readonly string[], deps: Deps): Promise<number> 
   const { write, skip } = releasedLabelTargets(plans, rows);
   if (section) {
     const line = write.length > 0 ? `  ${write.length} issue(s) — run: node ${deps.self ?? 'plot-released-labels.mjs'} --yes` : '  (none)';
-    deps.write(`${SECTION_HEADING}\n${line}\n\n`);
+    deps.write(`\n${SECTION_HEADING}\n${line}\n\n`);
     return EXIT.ok;
   }
   for (const issue of write) deps.write(`write\t${issue}\n`);
