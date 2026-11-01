@@ -1,4 +1,4 @@
-import { FleetReadingSchema } from '../../entities/fleet.js';
+import { FleetReadingSchema, type FleetReading } from '../../entities/fleet.js';
 import { compareVersions } from '../../entities/version.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { RemoteTipReading } from '../../rules/checks-verdict.js';
@@ -21,7 +21,6 @@ import type {
   TreeEntry,
 } from '../../ports/refs.js';
 import {
-  asJson,
   asLines,
   asText,
   runBytes,
@@ -31,10 +30,17 @@ import {
   runScriptSync,
   resultOf,
 } from '../run-script.js';
-import { scriptPath, type ShellContext } from '../scripts.js';
-
-/** The scan is 18 s against a large estate; the default two minutes would clip it. */
-const PULSE_TIMEOUT_MS = 600_000;
+import { agentsFs } from '../agents/agents-fs.js';
+import { hostShell } from '../host/host-shell.js';
+import { planStoreRef } from '../plan-store/plan-store-ref.js';
+import { processesShell } from '../processes/processes-shell.js';
+import { scriptsShell } from '../scripts/scripts-shell.js';
+import { treesGit } from '../trees/trees-git.js';
+import { type ShellContext } from '../scripts.js';
+import { readBranchConflicts, readBranchReadings } from '../../workflows/plan-walk-branches.js';
+import { readDeskReadings } from '../../workflows/plan-walk-desks.js';
+import { readEstate } from '../../workflows/plan-walk-estate.js';
+import { assemblePlanWalk, fleetReading } from '../../workflows/plan-walk-assembly.js';
 
 /**
  * Sixty-four megabytes, for the batch read.
@@ -130,17 +136,17 @@ const oidsOf = (
 };
 
 /**
- * Reads git refs directly, and the fleet's pulse through `plot-fleet-scan.sh`.
+ * Reads git refs directly, and the fleet's pulse through the in-process plan walk.
  *
  * Git is called without a wrapper script because there is none to wrap: the
  * ref questions are single `git` invocations, and a shell script around one
  * `git rev-parse` would add a process without adding an implementation.
  *
- * The pulse is the exception and goes through the scan, which already derives
- * every plan's slice verdicts in one pass.
+ * The pulse is the exception: it runs the plan walk's four stages in process,
+ * which derive every plan's slice verdicts in one pass.
  *
  * @param context - where the scripts and the repository are.
- * @returns a `Refs` backed by git and the fleet scan.
+ * @returns a `Refs` backed by git and the plan walk.
  */
 /**
  * Each file's first adding commit, from a newest-first
@@ -354,8 +360,79 @@ export const stagedEntriesOf = (stdout: string): readonly StagedEntry[] =>
     }
   });
 
+/**
+ * Walks the plans in process and returns the fleet's pulse.
+ *
+ * Runs the estate, branch, desk and assembly stages that `plot-scan-walk.mjs`
+ * runs, after one `git fetch --prune` of the default branch and the branch
+ * heads. A failed fetch is carried in the reading as `fetch_failed`.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param refs - the ref reader the stages read through.
+ * @returns the pulse.
+ * @throws where a stage fails or the assembled document is not a pulse.
+ */
+const walkPulse = async (context: ShellContext, refs: Refs) => {
+  const scripts = scriptsShell(context);
+  const cfg = async (key: string, fallback: string): Promise<string> => {
+    const answer = await scripts.config(key, fallback);
+    return answer.ok && answer.value.trim() !== '' ? answer.value.trim() : fallback;
+  };
+  const planDir = await cfg('Plan directory', 'docs/plans/');
+  const activeDir = await cfg('Active index', 'docs/plans/active/');
+  const deliveredDir = await cfg('Delivered index', 'docs/plans/delivered/');
+  const prefixes = (await cfg('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/'))
+    .split(',').map((p) => p.trim().replace(/\/$/, '')).filter((p) => p !== '');
+  const configured = await scripts.config('Main branch', '');
+  let mainBranch = configured.ok ? configured.value.trim() : '';
+  if (mainBranch === '') {
+    const found = await refs.defaultBranch();
+    mainBranch = found.ok && found.value !== '' ? found.value : 'main';
+  }
+  const trees = treesGit(context);
+  const fetched = await trees.fetch(context.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
+  const short = async (ref: string): Promise<string> => {
+    const sha = await runScript('git', ['rev-parse', '--short', ref], asText, { cwd: context.repoRoot });
+    return sha.ok && sha.value.trim() !== '' ? sha.value.trim() : 'unknown';
+  };
+  const readRef = await short(`origin/${mainBranch}`);
+  const localHead = await short('HEAD');
+  const estate = await readEstate(refs, planStoreRef(refs, context, `origin/${mainBranch}`), {
+    mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
+  });
+  const host = hostShell(context);
+  const branches = estate.ok ? await readBranchReadings(refs, host, estate.value, { mainBranch, planDir }) : estate;
+  const desks = branches.ok
+    ? await readDeskReadings(trees, agentsFs(context), processesShell(context), branches.value)
+    : branches;
+  const assembled = assemblePlanWalk({ estate, branches: branches as never, desks: desks as never }, { slug: '', offer: false });
+  if (!assembled.ok) {
+    const stage = !estate.ok ? 'estate' : !branches.ok ? 'branches' : !desks.ok ? 'desks' : 'assembly';
+    throw new Error(`pulse: the ${stage} stage failed`);
+  }
+  const conflicts = await readBranchConflicts(
+    refs,
+    mainBranch,
+    assembled.value.plans.flatMap((plan) => plan.slices.flatMap((slice) => slice.branches)),
+  );
+  const reading = FleetReadingSchema.safeParse(
+    fleetReading(assembled.value, {
+      main: mainBranch,
+      readRef,
+      localHead,
+      fetchFailed: !fetched.ok,
+      fetchError: fetched.ok ? '' : 'git fetch failed',
+      planDir,
+      host: branches.ok ? branches.value.hostReach : 'failed',
+      mergeDetect: 'unaskable',
+      nowSeconds: Math.floor(Date.now() / 1000),
+    }, conflicts),
+  );
+  if (!reading.success) throw new Error('pulse: the walk produced a document that is not a pulse');
+  return reading.data;
+};
+
 export const refsGit = (context: ShellContext): Refs => {
-  const scan = scriptPath(context, 'plot-fleet-scan.sh');
   const inRepo = { cwd: context.repoRoot };
 
   const defaultBranch = (): Promise<PortResult<string>> =>
@@ -366,7 +443,7 @@ export const refsGit = (context: ShellContext): Refs => {
       inRepo,
     );
 
-  return {
+  const self: Refs = {
     defaultBranch,
 
     listBranches: (remote) =>
@@ -581,13 +658,12 @@ export const refsGit = (context: ShellContext): Refs => {
     },
 
     pulse: async () => {
-      const run = await runProcess('bash', [scan, '--json'], {
-        ...inRepo,
-        timeoutMs: PULSE_TIMEOUT_MS,
-      });
-      return resultOf(run, (stdout) => FleetReadingSchema.parse(asJson(stdout)));
+      try {
+        return answered(await walkPulse(context, self));
+      } catch {
+        return failed<FleetReading>();
+      }
     },
-
 
     listBlobs: (ref, dir) =>
       runScript(
@@ -934,4 +1010,5 @@ export const refsGit = (context: ShellContext): Refs => {
     fetchRemoteHead: async () => unaskable<RemoteHeadAnswer>(),
     remoteSha: async () => unaskable<RemoteShaReading>(),
   };
+  return self;
 };

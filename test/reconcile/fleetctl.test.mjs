@@ -3026,6 +3026,16 @@ test('processes: a scan is attributed by its cwd and its resolved installation',
   assert.ok(r.block.includes(row('board', 833, { serves: 'cannot determine (owner op)', installed: 'cannot determine' })), r.out);
 });
 
+test('processes: a domain walk process is a scan', () => {
+  const { status } = procSandbox('procs-walk');
+  const r = status({
+    ps: [[840, 40, 501, 'node /r/skills/plot/scripts/board/plot-scan-walk.mjs 00001 taken main']],
+    cwd: { 840: '/c' },
+    users: { 501: 'op' },
+  });
+  assert.ok(r.block.includes('  scans       1 in flight, 0 orphaned\n'), r.out);
+});
+
 test('processes: one scan is one scan, and a scan whose parent exited is orphaned', () => {
   const { root, status } = procSandbox('procs-orphans');
   const r = status({

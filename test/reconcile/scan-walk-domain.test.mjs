@@ -117,6 +117,21 @@ test('scan-walk: a slug scopes the json document to that plan', () => {
   assert.deepEqual(normalise(JSON.parse(domain.stdout)), normalise(JSON.parse(shell.stdout)));
 });
 
+test('scan-walk: a bare slug answers the json document scoped to that plan', () => {
+  const bare = run('domain', '--offline', 'taken');
+  assert.equal(bare.status, 0, bare.stderr);
+  const scoped = run('domain', '--offline', '--json', 'taken');
+  assert.deepEqual(normalise(JSON.parse(bare.stdout)), normalise(JSON.parse(scoped.stdout)));
+  assert.ok(JSON.parse(bare.stdout).plans.length >= 1, 'the slug named a plan');
+});
+
+test('scan-walk: --loose stays on the shell walk', () => {
+  const loose = run('domain', '--offline', '--loose', '--json');
+  const shell = run('shell', '--offline', '--loose', '--json');
+  assert.equal(loose.status, shell.status, loose.stderr);
+  assert.deepEqual(normalise(JSON.parse(loose.stdout)), normalise(JSON.parse(shell.stdout)));
+});
+
 test('scan-walk: --offline --next still asks the host on the domain path', () => {
   fs.rmSync(ghLog, { force: true });
   const r = run('domain', '--offline', '--next');

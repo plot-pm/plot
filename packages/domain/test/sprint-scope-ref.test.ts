@@ -70,7 +70,12 @@ const repoWith = (
   for (const [link, target] of Object.entries(links)) fs.symlinkSync(target, path.join(dir, link));
   git(dir, ['add', '-A']);
   git(dir, ['commit', '--quiet', '--allow-empty', '-m', 'first']);
-  git(dir, ['remote', 'add', 'origin', dir]);
+  // A separate bare origin: the pulse fetches, and a repository that is its own
+  // origin would fetch its local commits back into `origin/main`.
+  const bare = `${dir}-origin.git`;
+  git(os.tmpdir(), ['init', '--quiet', '--bare', '--initial-branch=main', bare]);
+  git(dir, ['remote', 'add', 'origin', bare]);
+  git(dir, ['push', '--quiet', 'origin', 'main']);
   git(dir, ['fetch', '--quiet', 'origin']);
   return dir;
 };
@@ -90,6 +95,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (repo) fs.rmSync(repo, { recursive: true, force: true });
+  if (repo) fs.rmSync(`${repo}-origin.git`, { recursive: true, force: true });
 });
 
 const refs = () => refsGit({ repoRoot: repo, scriptDir: path.join(repo, 'scripts') });

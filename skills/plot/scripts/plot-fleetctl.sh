@@ -299,14 +299,13 @@ plot_process_candidates() {
     {
       if (!match($0, /^ *[0-9]+ +[0-9]+ +[0-9]+ /)) next
       split(substr($0, 1, RLENGTH), h, " ")
-      args = substr($0, RLENGTH + 1)
-      s = "/" args
+      s = "/" substr($0, RLENGTH + 1)
       if (s ~ /\/systemd --user$/) { print "S\t" h[1]; next }
       # Step 1: argv[0] runs to the first (^|/)(node|bash|sh) and a space.
       if (!match(s, /\/(node|bash|sh) /)) next
       interp = substr(s, RSTART + 1, RLENGTH - 2)
-      argv0 = substr(args, 1, RSTART + RLENGTH - 3)
-      rest = substr(args, RSTART + RLENGTH - 1)
+      argv0 = substr(s, 2, RSTART + RLENGTH - 3)
+      rest = substr(s, RSTART + RLENGTH)
       # Steps 2 and 3: the leading options, then the first token holding a `/`.
       pos = 1; n = length(rest); start = 0; bad = 0
       while (pos <= n) {
@@ -326,7 +325,7 @@ plot_process_candidates() {
       if (bad || !start) next
       p = substr(rest, start)
       # Step 4: the path names the kind.
-      kind = ""; e = 0
+      kind = ""
       if (interp == "node") {
         b = art_end(p, "/board/board-server.mjs", 0)
         r = art_end(p, "/board/plot-fleetd.mjs", 0)
@@ -334,6 +333,7 @@ plot_process_candidates() {
         if (!r || (r2 && r2 < r)) r = r2
         if (b && (!r || b < r)) { kind = "board"; e = b }
         else if (r) { kind = "supervisor"; e = r }
+        else if ((e = art_end(p, "/board/plot-scan-walk.mjs", 0))) kind = "scan"
       } else if ((e = art_end(p, "plot-fleet-scan.sh", 1))) kind = "scan"
       if (kind == "") next
       print "C\t" h[1] "\t" h[2] "\t" h[3] "\t" kind "\t" (index(argv0, " ") ? argv0 : "-") "\t" substr(p, 1, e)
