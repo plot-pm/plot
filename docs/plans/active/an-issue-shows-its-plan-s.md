@@ -1,0 +1,1 @@
+../2026-11-01-an-issue-shows-its-plan-s.md
