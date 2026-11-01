@@ -164,7 +164,7 @@ Domain rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`, board
 
 ### Plan comment
 
-- `bug/the-plan-comment-has-one-writer` — `packages/domain/src/adapters/tracker/tracker-plan-state.ts` (`withIssueLock`, the read-back at `:192-193`), `skills/plot/scripts/plot-host.sh:700` (`gh_marker_comment_id`), `packages/fleet/src/shared/auto-progress.ts` (the phase read inside the lock), and `packages/domain/src/rules/plan-issue-comment.ts` if the progress-line re-check finds a defect. Tests: `packages/domain/test/tracker-plan-state.test.ts`, `test/reconcile/host.test.mjs`, `packages/fleet/test/unit/auto-progress.test.ts`. The PR body answers each MEDIUM finding of #2935 and #2924.
+- `bug/the-plan-comment-has-one-writer` — `packages/domain/src/adapters/tracker/tracker-plan-state.ts` (`withIssueLock`, the read-back at `:192-193`), `skills/plot/scripts/plot-host.sh:700` (`gh_marker_comment_id`), `packages/fleet/src/shared/auto-progress.ts` (the phase read inside the lock), and `packages/domain/src/rules/plan-issue-comment.ts` if the progress-line re-check finds a defect. Tests: `packages/domain/test/tracker-plan-state.test.ts`, `test/reconcile/host.test.mjs`, `packages/fleet/test/unit/auto-progress.test.ts`. The PR body answers each MEDIUM finding of #2935 and #2924. → #3007
 
 ### Released labels
 
