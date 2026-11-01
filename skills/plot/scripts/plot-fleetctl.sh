@@ -299,14 +299,13 @@ plot_process_candidates() {
     {
       if (!match($0, /^ *[0-9]+ +[0-9]+ +[0-9]+ /)) next
       split(substr($0, 1, RLENGTH), h, " ")
-      args = substr($0, RLENGTH + 1)
-      s = "/" args
+      s = "/" substr($0, RLENGTH + 1)
       if (s ~ /\/systemd --user$/) { print "S\t" h[1]; next }
       # Step 1: argv[0] runs to the first (^|/)(node|bash|sh) and a space.
       if (!match(s, /\/(node|bash|sh) /)) next
       interp = substr(s, RSTART + 1, RLENGTH - 2)
-      argv0 = substr(args, 1, RSTART + RLENGTH - 3)
-      rest = substr(args, RSTART + RLENGTH - 1)
+      argv0 = substr(s, 2, RSTART + RLENGTH - 3)
+      rest = substr(s, RSTART + RLENGTH)
       # Steps 2 and 3: the leading options, then the first token holding a `/`.
       pos = 1; n = length(rest); start = 0; bad = 0
       while (pos <= n) {
