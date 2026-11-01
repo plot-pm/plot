@@ -1,7 +1,7 @@
 // THROUGH THE NARROW PATH, not the package root, for the reason
 // `agent-settings.ts` gives: the root import bundles every entity and rule.
 import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
-import { mergedBySubject, type MergeSubject } from '@plot-pm/domain/rules/merge-subject';
+import { mergedBySubject, subjectsConform, type MergeSubject } from '@plot-pm/domain/rules/merge-subject';
 import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -329,26 +329,8 @@ export const proofOf = (readings: Readings): Proof => {
  * @param readings - the parsed readings.
  * @returns `pr-merge` where a conforming subject was found, `none` otherwise.
  */
-const detectOf = (readings: Readings): 'pr-merge' | 'none' => {
-  const forms = mergeSubjectForms(readings.backend);
-  if (forms.length === 0) return 'none';
-  // The branch placeholder matches any non-empty branch name, which is what
-  // makes this a question about the FORM. `mergedBySubject` is not reused here:
-  // it needs the branch as literal text, and there is no branch to give it.
-  for (const form of forms) {
-    const body = form
-      .replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')
-      .split('<branch>')
-      .join('.+')
-      .split('<number>')
-      .join('\\d+')
-      .split('<owner>')
-      .join('[^/]+');
-    const pattern = new RegExp(`^${body}$`);
-    if (readings.merges.some((m) => pattern.test(m.subject))) return 'pr-merge';
-  }
-  return 'none';
-};
+const detectOf = (readings: Readings): 'pr-merge' | 'none' =>
+  subjectsConform(readings.merges, mergeSubjectForms(readings.backend)) ? 'pr-merge' : 'none';
 
 /**
  * Answers the verb.

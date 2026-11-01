@@ -175,3 +175,61 @@ const patternFor = (form: string, branch: string, owner: string | null): RegExp 
   // shape no host writes, where an owner differing by case is measured.
   return new RegExp(`^${body}$`, owner === null ? '' : 'i');
 };
+
+/**
+ * How a scan detected merged branches whose refs are gone, as its summary's
+ * `merge_detect` field spells it.
+ *
+ * - `pr-merge`: the walk holds a subject in one of the host's forms.
+ * - `truncated`: as `pr-merge`, but the walk stopped at its cap.
+ * - `none`: the walk holds no subject in any of the host's forms.
+ * - `unaskable`: no refless branch was asked about, so no subject was read.
+ */
+export type MergeDetect = 'pr-merge' | 'truncated' | 'none' | 'unaskable';
+
+/**
+ * What {@link mergeDetectOf} reads.
+ */
+export interface MergeDetectInput {
+  /** The merges the walk read on the default branch. */
+  subjects: readonly Pick<MergeSubject, 'subject'>[];
+  /** The subject templates this host writes. */
+  forms: readonly string[];
+  /** Whether any plan the scan reports names a branch with no remote ref. */
+  asked: boolean;
+  /** Whether the walk stopped at its cap. */
+  truncated: boolean;
+}
+
+/**
+ * Whether any subject is in one of the forms, for any branch, owner or number.
+ *
+ * @param subjects - the merges the walk read.
+ * @param forms - the host's subject templates.
+ * @returns true where at least one subject matches one form as a whole line.
+ */
+export const subjectsConform = (subjects: readonly Pick<MergeSubject, 'subject'>[], forms: readonly string[]): boolean =>
+  forms.some((form) => {
+    const pattern = new RegExp(
+      `^${literal(form).split(literal(BRANCH)).join('.+').split(literal(NUMBER)).join('\\d+').split(literal(OWNER)).join('[^/]+')}$`,
+    );
+    return subjects.some((s) => pattern.test(s.subject));
+  });
+
+/**
+ * The `merge_detect` word for one scan.
+ *
+ * An empty walk answers `none`. A walk with merges answers `unaskable` where no
+ * refless branch was asked about; otherwise `pr-merge` where a subject
+ * conforms, `truncated` instead of `pr-merge` where the walk hit its cap, and
+ * `none` where no subject conforms.
+ *
+ * @param input - the walk, the host's forms, and whether anything was asked.
+ * @returns the word.
+ */
+export const mergeDetectOf = (input: MergeDetectInput): MergeDetect => {
+  if (input.subjects.length === 0) return 'none';
+  if (!input.asked) return 'unaskable';
+  if (!subjectsConform(input.subjects, input.forms)) return 'none';
+  return input.truncated ? 'truncated' : 'pr-merge';
+};

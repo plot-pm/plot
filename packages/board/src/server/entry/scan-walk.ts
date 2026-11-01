@@ -12,7 +12,7 @@ import { shellContext } from '@plot-pm/domain/adapters/scripts';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { logToPlan, pulseLine, recordBridge, type PulseCounts } from './pulse-log.js';
 import type { Host } from '@plot-pm/domain/ports/host';
-import { readBranchReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
+import { readBranchConflicts, readBranchReadings, stageMergeDetect, type ConflictCandidate } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import {
@@ -72,6 +72,18 @@ const unaskedHost = (host: Host): Host =>
 /** Reads the desks of one plan's branches. */
 type DeskReader = (branches: readonly BranchReading[]) => Promise<readonly DeskReading[] | null>;
 
+/** Reads which paths each assembled branch would conflict on. */
+type ConflictReader = (candidates: readonly ConflictCandidate[]) => Promise<ReadonlyMap<string, readonly string[]>>;
+
+/**
+ * The assembled branches of the given plans, as conflict candidates.
+ *
+ * @param plans - the assembled plans.
+ * @returns every branch of every slice.
+ */
+const branchesOf = (plans: readonly { slices: readonly { branches: readonly ConflictCandidate[] }[] }[]): ConflictCandidate[] =>
+  plans.flatMap((plan) => plan.slices.flatMap((slice) => slice.branches));
+
 /**
  * Runs the walk for `--stream`: each plan is assembled and printed as soon as
  * its branch and desk readings are in, in the order the report lists plans.
@@ -79,6 +91,7 @@ type DeskReader = (branches: readonly BranchReading[]) => Promise<readonly DeskR
  * @param estate - the estate stage's answer.
  * @param readBranches - starts the branch stage with the per-plan callback.
  * @param readDesks - reads one plan's desks, or answers `null` on a failed stage.
+ * @param readConflicts - reads the conflicts of a plan's branches before its line prints.
  * @param input - the slug, offer flag and `--loose` input.
  * @param header - the checkout's facts for the rows.
  * @param root - the repository root, for the bridge.
@@ -88,6 +101,7 @@ const runStream = async (
   estate: Parameters<typeof chosenPlans>[0],
   readBranches: (onPlan: (plan: string, branches: readonly BranchReading[]) => Promise<void>) => Promise<{ ok: true; value: BranchStageReadings } | { ok: false }>,
   readDesks: DeskReader,
+  readConflicts: ConflictReader,
   input: Parameters<typeof chosenPlans>[1],
   header: FleetReadingHeader,
   root: string,
@@ -96,9 +110,10 @@ const runStream = async (
   const order = chosenPlans(estate, input).map(({ record }) => record);
   const arrived = new Map<string, ReadonlyMap<string, BranchReading>>();
   const deskOf = new Map<string, DeskReading>();
+  const conflicts = new Map<string, readonly string[]>();
   let next = 0;
   let broken = false;
-  const flush = (final: boolean): void => {
+  const flush = async (final: boolean): Promise<void> => {
     while (!broken && next < order.length) {
       const record = order[next]!;
       const readings = arrived.get(record.file);
@@ -108,7 +123,10 @@ const runStream = async (
         broken = true;
         return;
       }
-      if (added.value !== null && hasBranchLines(added.value)) process.stdout.write(`${JSON.stringify({ kind: 'plan', plan: planRow(added.value, header) })}\n`);
+      if (added.value !== null && hasBranchLines(added.value)) {
+        for (const [branch, paths] of await readConflicts(branchesOf([added.value]))) conflicts.set(branch, paths);
+        process.stdout.write(`${JSON.stringify({ kind: 'plan', plan: planRow(added.value, header, conflicts) })}\n`);
+      }
       next += 1;
     }
   };
@@ -117,18 +135,22 @@ const runStream = async (
     if (desks === null) throw new Error('the desks stage failed');
     for (const desk of desks) deskOf.set(desk.branch, desk);
     arrived.set(plan, new Map(branches.map((b) => [`${b.plan}\t${b.branch}`, b] as const)));
-    flush(false);
+    await flush(false);
   });
   if (!stage.ok) {
     process.stderr.write('plot-scan-walk: the branches stage failed\n');
     return 2;
   }
-  flush(true);
+  await flush(true);
   if (broken) {
     process.stderr.write('plot-scan-walk: the assembly stage failed\n');
     return 2;
   }
-  const document = fleetReading(assembler.finish(stage.value.mainSha), header);
+  const assembly = assembler.finish(stage.value.mainSha);
+  const unread = branchesOf(assembly.plans).filter((b) => !conflicts.has(b.branch));
+  for (const [branch, paths] of await readConflicts(unread)) conflicts.set(branch, paths);
+  const chosen = new Set(order.map((record) => record.file));
+  const document = fleetReading(assembly, { ...header, mergeDetect: stageMergeDetect(stage.value, chosen) }, conflicts);
   if (process.env.PLOT_SCAN_RECORD !== '0') recordBridge(root, document, Date.now(), false);
   process.stdout.write(`${JSON.stringify({ kind: 'reading', reading: document })}\n`);
   return 0;
@@ -190,6 +212,7 @@ const main = async (): Promise<number> => {
         const read = await readDeskReadings(trees, agents, processes, subset);
         return read.ok ? read.value.desks : null;
       },
+      (candidates) => readBranchConflicts(refs, mainBranch, candidates),
       { slug, offer: false, ...(looseInput === undefined ? {} : { loose: looseInput }) },
       header,
       root,
@@ -206,7 +229,7 @@ const main = async (): Promise<number> => {
     { estate, branches: branches as never, desks: desks as never },
     { slug, offer, ...(looseInput === undefined ? {} : { loose: looseInput }) },
   );
-  if (!assembled.ok) {
+  if (!assembled.ok || !estate.ok || !branches.ok) {
     const failedStage = !estate.ok ? 'estate' : !branches.ok ? 'branches' : !desks.ok ? 'desks' : 'assembly';
     process.stderr.write(`plot-scan-walk: the ${failedStage} stage failed\n`);
     return 2;
@@ -222,7 +245,9 @@ const main = async (): Promise<number> => {
     process.stderr.write(answer.err);
     return answer.exit;
   }
-  const document = fleetReading(assembly, header);
+  const chosen = new Set(chosenPlans(estate.value, { slug, offer }).map(({ record }) => record.file));
+  const read = { ...header, mergeDetect: stageMergeDetect(branches.value, chosen) };
+  const document = fleetReading(assembly, read, await readBranchConflicts(refs, mainBranch, branchesOf(assembly.plans)));
   if (mode === 'log-pulse') {
     const summary = document.summary as Record<string, number>;
     const counts: PulseCounts = {
@@ -240,13 +265,13 @@ const main = async (): Promise<number> => {
       planSource: 'ref',
       subjectPredatesPlan: 0,
     };
-    let out = reportBanner(header, report);
+    let out = reportBanner(read, report);
     if (assembly.plans.length === 0) out += `No plans found in ${planDir}.\n`;
-    for (const plan of assembly.plans) out += planReport(plan, header, loose);
-    out += reportNotes(header, report);
+    for (const plan of assembly.plans) out += planReport(plan, read, loose);
+    out += reportNotes(read, report);
     const delta = recordBridge(root, document, Date.now());
     if (delta !== '') out += `${delta.replace(/\n+$/, '')}\n\n`;
-    process.stdout.write(out + reportFooter(assembly, header, report));
+    process.stdout.write(out + reportFooter(assembly, read, report));
     return 0;
   }
   process.stdout.write(`${JSON.stringify(document)}\n`);

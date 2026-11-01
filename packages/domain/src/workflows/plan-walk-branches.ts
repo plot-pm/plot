@@ -12,7 +12,7 @@ import {
 } from '../rules/branch-state.js';
 import { realCommits } from '../rules/empty-claim.js';
 import { encodeListingKey, type CarriedPrStates } from '../rules/scan-listing.js';
-import { mergedBySubject } from '../rules/merge-subject.js';
+import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge-subject.js';
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
 
@@ -426,3 +426,21 @@ export const readBranchConflicts = async (
   }
   return known;
 };
+
+/**
+ * The `merge_detect` word for a scan that reports the given plans.
+ *
+ * A refless branch of a reported plan is what the subject lookup asks about;
+ * the walk counts as truncated where it read as many merges as its cap.
+ *
+ * @param stage - the branch stage's readings.
+ * @param plans - the plan files the scan reports.
+ * @returns the word.
+ */
+export const stageMergeDetect = (stage: BranchStageReadings, plans: ReadonlySet<string>): MergeDetect =>
+  mergeDetectOf({
+    subjects: stage.merges,
+    forms: mergeSubjectForms(stage.backend),
+    asked: stage.branches.some((b) => plans.has(b.plan) && b.readings.refTip === null),
+    truncated: stage.merges.length >= MERGE_WALK,
+  });

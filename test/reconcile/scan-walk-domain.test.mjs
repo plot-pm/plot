@@ -6,12 +6,10 @@
 // no `PLOT_TERMINAL_CACHE`, and normalises both documents with
 // `jq -S 'walk(... del(.changed_ago_seconds) ...)'`.
 //
-// THREE FIELDS ARE MASKED, and each names a reading the domain walk does not
-// take yet: `conflicts_known`, `conflicts` and `changed_paths` (the shell
-// computes them with `git merge-tree`; no port operation answers them), and
-// `summary.merge_detect` (the domain walk reads no merge subjects). The masks
-// are stated here so that a field that starts to differ for any other reason
-// still fails.
+// TWO FIELDS ARE MASKED, `changed_ago_seconds` and `changed_at`: both read the
+// wall clock. The conflict readings and `summary.merge_detect` are compared as
+// printed, and a fixture with a conflicting branch proves the conflict
+// readings are not empty on both sides.
 //
 // `--offline --next` STILL ASKS THE HOST on the domain path, as on the shell
 // path: a stub `gh` records every call.
@@ -40,7 +38,7 @@ const tmpDir = (tag) => {
 };
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
-const MASKED = new Set(['conflicts_known', 'conflicts', 'changed_paths', 'changed_ago_seconds', 'changed_at', 'merge_detect']);
+const MASKED = new Set(['changed_ago_seconds', 'changed_at']);
 const normalise = (value) => {
   if (Array.isArray(value)) return value.map(normalise);
   if (value === null || typeof value !== 'object') return value;
@@ -211,7 +209,7 @@ test('scan-walk: --stream prints no reading line when the walk fails', () => {
   assert.ok(!r.stdout.includes('"kind":"reading"'), r.stdout);
 });
 
-const withoutMerge = (text) => text.replace(/ merge_detect=\S+ subject_predates_plan=\S+/, '');
+const withoutPredates = (text) => text.replace(/ subject_predates_plan=\S+/, '');
 const freshBridge = () => fs.rmSync(path.join(repo, '.plot', 'state', 'last-pulse.json'), { force: true });
 
 for (const extra of [[], ['--loose']]) {
@@ -223,7 +221,7 @@ for (const extra of [[], ['--loose']]) {
     assert.equal(domain.status, shell.status, domain.stderr);
     assert.match(domain.stdout, /== .* ==\n {2}\S.* — (eligible|blocked|complete)/);
     assert.match(domain.stdout, /Pulse complete\. This report is derived — nothing was changed\.\nsummary: plans=\d+ /);
-    assert.equal(withoutMerge(domain.stdout), withoutMerge(shell.stdout));
+    assert.equal(withoutPredates(domain.stdout), withoutPredates(shell.stdout));
   });
 }
 
@@ -239,6 +237,55 @@ test('scan-walk: --offline --json asks the host nothing on the domain path', () 
   const r = run('domain', '--offline', '--json');
   assert.equal(r.status, 0, r.stderr);
   assert.ok(!fs.existsSync(ghLog), 'gh was not called');
+});
+
+// NO MASK HERE: the conflict readings and `merge_detect` are compared as they
+// are printed. A branch that edits the line main also edited conflicts on it.
+const conflictRepo = () => {
+  const tmp = tmpDir('scanclash');
+  const origin = path.join(tmp, 'origin.git');
+  const dir = path.join(tmp, 'repo');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, dir);
+  for (const [k, v] of [['user.email', 'test@example.invalid'], ['user.name', 'Plot Test'], ['commit.gpgsign', 'false']]) git(dir, 'config', k, v);
+  const write = (rel, content) => {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), content);
+  };
+  write('CLAUDE.md', `# Fixture\n\n## Plot Config\n\n- **Git host:** github\n- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n- **Delivered index:** plans/delivered/\n`);
+  write('plans/2026-01-09-clash.md', `# Clash\n\n## Status\n\n- **Phase:** Approved\n- **Type:** feature\n\n## Branches\n\n### Clash\n- \`feature/clash\` — edits the shared line\n`);
+  write('shared.txt', 'base\n');
+  fs.mkdirSync(path.join(dir, 'plans', 'active'), { recursive: true });
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'plans');
+  git(dir, 'push', '-q', 'origin', 'main');
+  git(dir, 'checkout', '-qb', 'feature/clash');
+  write('shared.txt', 'branch\n');
+  git(dir, 'commit', '-qam', 'the branch edits the shared line');
+  git(dir, 'push', '-q', '-u', 'origin', 'feature/clash');
+  git(dir, 'checkout', '-q', 'main');
+  write('shared.txt', 'main\n');
+  git(dir, 'commit', '-qam', 'main edits the shared line');
+  git(dir, 'push', '-q', 'origin', 'main');
+  return dir;
+};
+
+test('scan-walk: --stream reports a conflicting branch\'s conflicts as the shell does', () => {
+  const dir = conflictRepo();
+  const stream = (walk) => spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: dir, env: { ...env(walk), PLOT_SCAN_RECORD: '0' } });
+  const lines = (stdout) => stdout.trim().split('\n').map((l) => JSON.parse(l));
+  const shell = lines(stream('shell').stdout);
+  const ran = stream('domain');
+  assert.equal(ran.status, 0, ran.stderr);
+  const domain = lines(ran.stdout);
+  const rowOf = (out) => out.find((l) => l.kind === 'plan').plan.waves.flatMap((w) => w.branches).find((b) => b.branch === 'feature/clash');
+  const pick = (row) => ({ state: row.state, conflicts_known: row.conflicts_known, conflicts: row.conflicts, changed_paths: row.changed_paths });
+  assert.deepEqual(pick(rowOf(domain)), { state: 'wip', conflicts_known: true, conflicts: ['shared.txt'], changed_paths: ['shared.txt'] });
+  assert.deepEqual(pick(rowOf(domain)), pick(rowOf(shell)));
+  const readingOf = (out) => out.find((l) => l.kind === 'reading').reading;
+  const readRow = (out) => readingOf(out).plans[0].waves.flatMap((w) => w.branches).find((b) => b.branch === 'feature/clash');
+  assert.deepEqual(pick(readRow(domain)), pick(readRow(shell)));
+  assert.equal(readingOf(domain).summary.merge_detect, readingOf(shell).summary.merge_detect);
 });
 
 after(() => {});
