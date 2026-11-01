@@ -23,6 +23,7 @@ import {
 } from '../../src/contract/schema.js';
 import { rowKind, rowsFromPulse, RELEASE_BRANCH } from '../../src/server/fleet.js';
 import type { FleetReading } from '../../src/contract/schema.js';
+import { planIndexOf } from '@plot-pm/domain';
 
 /**
  * A ROW IS A TUPLE — the shape half.
@@ -1348,5 +1349,79 @@ describe('a plan row shows its phase, whichever arm projected it', () => {
     }));
     expect(asDraft.status).toBe('Discovery');
     expect(asReady.status).toBe(asDraft.status);
+  });
+});
+
+describe('a row resolves its plan reference through the index, not its own fields alone', () => {
+  it('names an idea row that has not yet read its plan, through its branch slug — the fix planRefOfRow makes', () => {
+    // Before `planRefOfRow`: an idea/<slug> row the fleet scan has not reached
+    // yet carries `plan: ''` and `planFile: ''`, and the row named ITS BRANCH
+    // as the link text rather than the plan it is the idea branch FOR — a
+    // branch-fallback link that pointed at the git host rather than at the
+    // plan a draft card already has under the same slug.
+    const index = planIndexOf({
+      cards: [{
+        slug: 'an-adopting-repo-installs-its-gates', title: '', issues: ['9'],
+        path: 'docs/plans/2026-09-09-an-adopting-repo-installs-its-gates.md',
+      }],
+    });
+    const t = tupleFromRow(
+      row({
+        kind: 'plan', branch: 'idea/an-adopting-repo-installs-its-gates',
+        plan: '', planFile: '', phase: 'Discovery',
+      }),
+      undefined,
+      index,
+    );
+    expect(t.name).toEqual({
+      what: 'plan',
+      label: '9: an-adopting-repo-installs-its-gates',
+      href: '/plan/2026-09-09-an-adopting-repo-installs-its-gates.md',
+      internal: true,
+      file: '2026-09-09-an-adopting-repo-installs-its-gates.md',
+    });
+  });
+
+  it('answers no link for the same not-yet-scanned row with no index to resolve it', () => {
+    // No draft card and no index means the slug alone cannot be a link — the
+    // honest answer `planReference` gives, not a fabricated one.
+    const t = tupleFromRow(row({
+      kind: 'plan', branch: 'idea/no-such-plan-yet', plan: '', planFile: '', phase: 'Discovery',
+    }));
+    expect(t.name.label).toBe('no-such-plan-yet');
+    expect(t.name.href).toBe('');
+  });
+
+  it('lets the index win a plan row\'s issue prefix and title over its own facts', () => {
+    const index = planIndexOf({
+      cards: [{ slug: 'a-plan', title: 'A Plan', issues: ['42'], path: 'docs/plans/2026-08-20-a-plan.md' }],
+    });
+    const t = tupleFromPlan(
+      { plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: [], phase: 'Design', waitingDays: 3 },
+      index,
+    );
+    expect(t.name.label).toBe('42: a-plan');
+    expect(t.name.href).toBe('/plan/2026-08-20-a-plan.md');
+  });
+
+  it('resolves a slice\'s sole-plan link through the index the same way', () => {
+    const index = planIndexOf({
+      cards: [{ slug: 'lonely-plan', title: '', issues: ['7'], path: 'docs/plans/2026-07-01-lonely-plan.md' }],
+    });
+    const t = tupleFromSlice(
+      {
+        name: 'w', branches: [], solePr: null,
+        solePlan: { slug: 'lonely-plan', file: '2026-07-01-lonely-plan.md' },
+        outstanding: null, ageMinutes: null, waitingDays: null,
+      },
+      index,
+    );
+    expect(t.links.map((l) => l.label)).toContain('7: lonely-plan');
+  });
+
+  it('falls through to an empty index with no caller-supplied one, resolving only what the facts themselves name', () => {
+    const t = tupleFromPlan({ plan: 'a-plan', planFile: '2026-08-20-a-plan.md', issues: ['3'], phase: 'Design', waitingDays: null });
+    expect(t.name.label).toBe('3: a-plan');
+    expect(t.name.href).toBe('/plan/2026-08-20-a-plan.md');
   });
 });

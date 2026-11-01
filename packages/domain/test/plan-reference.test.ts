@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planIndexOf, planReference, planRoute, planRouteOfDocLink, type PlanIndex } from '../src/rules/plan-reference.js';
+import { planIndexOf, planRefOfRow, planReference, planRoute, planRouteOfDocLink, type PlanIndex } from '../src/rules/plan-reference.js';
 
 describe('planRoute', () => {
   it('routes to /plan/<basename> from a repo-relative plan path', () => {
@@ -142,5 +142,32 @@ describe('planReference', () => {
     expect(planReference({ slug: '' }, index).title).toBe('');
     expect(planReference({ file: 'no-slug.md' }, index).title).toBe('No slug');
     expect(planReference({ slug: 'draft-no-file' }, index).title).toBe('No file');
+  });
+});
+
+describe('planRefOfRow', () => {
+  it('names a row that already carries its plan directly', () => {
+    const ref = planRefOfRow({ kind: 'branch', branch: 'feature/x', plan: 'a', planFile: 'a.md' });
+    expect(ref).toEqual({ file: 'a.md', slug: 'a' });
+  });
+
+  it('reads the slug from the branch of an idea row the scan has not reached yet', () => {
+    const ref = planRefOfRow({ kind: 'plan', branch: 'idea/a', plan: '', planFile: '' });
+    expect(ref).toEqual({ slug: 'a' });
+  });
+
+  it('resolves that reference through the index once a draft card names the same slug', () => {
+    const index = planIndexOf({
+      cards: [{ slug: 'a', title: 'A', path: 'docs/plans/2026-11-01-a.md', issues: ['7'] }],
+    });
+    const ref = planRefOfRow({ kind: 'plan', branch: 'idea/a', plan: '', planFile: '' });
+    expect(ref).not.toBeNull();
+    const answer = planReference(ref!, index);
+    expect(answer.label).toBe('7: a');
+    expect(answer.href).toBe('/plan/2026-11-01-a.md');
+  });
+
+  it('answers null for a non-plan row that names no plan', () => {
+    expect(planRefOfRow({ kind: 'branch', branch: 'feature/x', plan: '', planFile: '' })).toBeNull();
   });
 });

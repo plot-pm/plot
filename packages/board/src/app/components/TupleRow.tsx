@@ -408,10 +408,9 @@ export function TupleLinkView({
   // the property `PlanLink` established and the reason only a plain primary
   // click is ever intercepted.
   const handle = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (!link.internal || !onOpenPlan) return;
+    if (!link.internal || !onOpenPlan || link.file === undefined) return;
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    const file = decodeURIComponent(link.href.replace(/^\/plan\//, ''));
-    if (!onOpenPlan(file)) return;
+    if (!onOpenPlan(link.file)) return;
     e.preventDefault();
   };
   return (

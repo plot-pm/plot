@@ -1399,6 +1399,11 @@ export function App() {
               // BOARD refreshes, which is what moves a started row.
               cardForPlanFile={cardForPlanFile}
               planFileForSlug={planFileForSlugOnBoard}
+              // The board's own Planning cards — `AgentList` builds its plan
+              // index from these plus the fleet's draft plans, so every row
+              // naming a plan resolves through the same index a card's own
+              // `PlanLink` does.
+              cards={allCards}
               dispatch={dispatchInfo}
               // The other half of what a row can DO. Until now the Delivery tab
               // was given only dispatch, so its menu could offer only `Start

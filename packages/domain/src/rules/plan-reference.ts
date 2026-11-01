@@ -210,3 +210,31 @@ export const planReference = (ref: PlanRef, index: PlanIndex): PlanReferenceAnsw
     exists: href !== null,
   };
 };
+
+/** What `planRefOfRow` reads of one fleet row. */
+export interface PlanRefRow {
+  kind: string;
+  branch: string;
+  plan: string;
+  planFile: string;
+}
+
+/**
+ * The plan reference a fleet row makes, or `null` where the row names none.
+ *
+ * A row that already carries `plan` or `planFile` names its reference
+ * directly. A `kind: 'plan'` row — the one row the server emits for an
+ * `idea/<slug>` branch — can read `plan: ''` and `planFile: ''` until the
+ * fleet scan has read the plan on that branch; its branch name, after the
+ * first `/`, is the slug the index can still resolve through a draft card,
+ * so the row shows that plan's prefix and link rather than falling back to
+ * the branch's git-host page.
+ *
+ * @param row - the fleet row naming (or not yet naming) a plan.
+ * @returns the row's plan reference, or `null` where the row names no plan.
+ */
+export const planRefOfRow = (row: PlanRefRow): PlanRef | null => {
+  if (row.plan !== '' || row.planFile !== '') return { file: row.planFile, slug: row.plan };
+  if (row.kind === 'plan') return { slug: row.branch.slice(row.branch.indexOf('/') + 1) };
+  return null;
+};

@@ -1,6 +1,7 @@
 import type { VerificationStatus } from '../../../contract/schema.js';
 import { tupleFromPlan } from '../tuple-row.js';
 import { TupleRowView } from '../../components/TupleRow.js';
+import type { PlanIndex } from '@plot-pm/domain';
 
 /**
  * A run the fleet makes ON A PLAN rather than on a branch — a plan, a sentence,
@@ -157,10 +158,12 @@ export const sectionCount = (
  * `plan` (`planFileForSlug`). `''` renders the slug with no plan link.
  */
 export const PlanLevelRowView = (
-  { row, planFile, onOpenPlan }: {
+  { row, planFile, onOpenPlan, planIndex }: {
     row: PlanLevelRow;
     planFile: string;
     onOpenPlan?: (planFile: string) => boolean;
+    /** The board's plan index — see `AgentListProps.planIndex`. */
+    planIndex?: PlanIndex;
   },
 ) => {
   return (
@@ -171,7 +174,7 @@ export const PlanLevelRowView = (
         issues: [],
         phase: planLevelStatus(row),
         waitingDays: null,
-      })}
+      }, planIndex)}
       onOpenPlan={onOpenPlan}
       rowAttr={{ 'data-plan-level-row': row.plan }}
       statusExtra={<>

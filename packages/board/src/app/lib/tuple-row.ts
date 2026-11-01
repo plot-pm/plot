@@ -16,8 +16,12 @@
 // It carries no React, so the unit suite tests it as data — which is the other
 // half of why the collapse was cheap: the hard decisions were testable without
 // a browser, and the browser only had to confirm a layout.
-import { isAgentFree, releaseStageViewOf, supervisionCauseWord } from '@plot-pm/domain';
+import { isAgentFree, planIndexOf, planRefOfRow, planReference, releaseStageViewOf, supervisionCauseWord, type PlanIndex } from '@plot-pm/domain';
+import type { PlanRef } from '@plot-pm/domain';
 import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
+
+/** The index a caller with no cards or drafts in reach passes — resolves nothing, by design. */
+const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 
 /**
  * One linked name in a row — slot 4, of which there may be several.
@@ -57,6 +61,14 @@ export interface TupleLink {
    * second parser for something the projection already knows.
    */
   internal?: boolean;
+  /**
+   * A plan link's own file — carried so the component that opens it needs no
+   * second parse of `href` to recover what `planReference` already resolved.
+   *
+   * Only a `what: 'plan'` link ever sets this; every other kind's href is a
+   * git-host or board URL with nothing to open as a modal.
+   */
+  file?: string;
 }
 
 /**
@@ -476,21 +488,34 @@ export function planPrAggregate(
 }
 
 /**
- * The plan link a row carries, or null where it names no plan.
+ * A plan reference, resolved through `index`, as the `TupleLink` the row
+ * renders — or null where the reference is itself null.
  *
- * INTERNAL, and the address is the board's own `/plan/<file>` route. `planFile`
- * "" means the plan cannot be resolved to a file — a planless branch, or an
- * idea branch whose plan lives on the branch itself — and the name then travels
- * as text with an empty `href`, by the rule at the top of this file.
+ * INTERNAL always: every address this produces is the board's own
+ * `/plan/<file>` route. `href: ''` where `planReference` resolves no file —
+ * a planless branch, or a plan neither the reference nor the index can name —
+ * and the name then travels as text, by the rule at the top of this file.
  */
-function planLink(row: AgentRow): TupleLink | null {
-  if (!row.plan) return null;
+function planTupleLink(ref: PlanRef | null, index: PlanIndex): TupleLink | null {
+  if (ref === null) return null;
+  const answer = planReference(ref, index);
   return {
     what: 'plan',
-    label: row.plan,
-    href: row.planFile ? `/plan/${encodeURIComponent(row.planFile)}` : '',
+    label: answer.label,
+    href: answer.href ?? '',
     internal: true,
+    // `href` is `/plan/<encoded basename>` or `''`; decoding its one segment
+    // recovers the basename `onOpenPlan` takes, with no second resolution.
+    file: answer.href !== null ? decodeURIComponent(answer.href.replace(/^\/plan\//, '')) : undefined,
   };
+}
+
+/**
+ * The plan link a row carries, resolved through `index` — or null where the
+ * row names no plan.
+ */
+function planLink(row: AgentRow, index: PlanIndex): TupleLink | null {
+  return planTupleLink(planRefOfRow(row), index);
 }
 
 /** The branch link a row carries. `branchUrl` is "" for a merged ref. */
@@ -563,7 +588,7 @@ export function statusWithCause(status: string, cause: AgentRow['supervisionCaus
   return `${status} · ${word}`;
 }
 
-export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow {
+export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null, index: PlanIndex = EMPTY_PLAN_INDEX): TupleRow {
   const age: TupleAge =
     // A NOT-STARTED row is aged from its plan's approval, and it says so. The
     // rule is *since last change*, and nothing has changed here — that is what
@@ -572,7 +597,7 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     row.ageMinutes === null && row.waitingDays !== null
       ? { text: tupleWaitText(row.waitingDays), label: 'waiting' }
       : { text: row.ageMinutes === null ? '' : tupleAgeText(row.ageMinutes), label: '' };
-  const plan = planLink(row);
+  const plan = planLink(row, index);
   // THE SUPERVISION CAUSE QUALIFIES WHATEVER SLOT 5 SETTLED ON, at the ONE point
   // that decides it for every kind. Applied here rather than inside `stateStatus`
   // because that function owns a PRECEDENCE — startability, then quiet kind, then
@@ -1269,16 +1294,6 @@ export interface PlanRowFacts {
 }
 
 /**
- * The plan row's name: the plan's tracker keys, then its slug —
- * `1090, 1091: <slug>` — in the form `tupleFromIssue` prints a ticket.
- *
- * @param plan - the plan's slug.
- * @param issues - the tracker keys; empty or absent returns the slug alone.
- */
-export const planNameLabel = (plan: string, issues: readonly string[] = []): string =>
-  issues.length > 0 ? `${issues.join(', ')}: ${plan}` : plan;
-
-/**
  * Project a plan into the six slots.
  *
  * **The phase belongs HERE**, and this is the object it describes. 71 branch
@@ -1290,17 +1305,15 @@ export const planNameLabel = (plan: string, issues: readonly string[] = []): str
  * commit clock has nothing to say and the approval clock is the only one
  * running — which is not a change to the plan, so it wears its label like every
  * other exception.
+ *
+ * @param index - the plan index the row's own label and link resolve against; an empty index falls back to the facts' own file and issues.
  */
-export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
+export function tupleFromPlan(facts: PlanRowFacts, index: PlanIndex = EMPTY_PLAN_INDEX): TupleRow {
   return {
     kind: 'plan',
     kindLabel: KIND_LABEL.plan,
-    name: {
-      what: 'plan',
-      label: planNameLabel(facts.plan, facts.issues),
-      href: facts.planFile ? `/plan/${encodeURIComponent(facts.planFile)}` : '',
-      internal: true,
-    },
+    // planTupleLink only answers null for a null ref; this ref is never null.
+    name: planTupleLink({ file: facts.planFile, slug: facts.plan, issues: facts.issues }, index)!,
     links: [
       ...(facts.pr ? [prLink(facts.pr)] : []),
       ...(facts.branch ? [{ what: 'branch' as const, label: facts.branch, href: facts.branchUrl ?? '' }] : []),
@@ -1323,9 +1336,9 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
  * The name a slice with no `###` heading shows — a LITERAL here, deliberately.
  *
  * The one definition lives in the contract as `UNNAMED_SLICE`, and this module
- * cannot import it: a gate asserts *"One import, and it is the contract's
- * types"*, because the projection must not reach for behaviour. That gate is
- * right, and a string is not worth bending it for.
+ * cannot import it: a gate asserts *"One import from the contract, and it is
+ * its types"*, because the projection must not reach for the contract's
+ * behaviour. That gate is right, and a string is not worth bending it for.
  *
  * This is a DISPLAY fallback. Nothing compares against it — the server decides
  * which slices are unnamed and the contract holds the value both sides test.
@@ -1471,7 +1484,7 @@ export interface SliceRowFacts {
  * punish six old plan files, and the board is not where an authoring convention
  * is enforced.
  */
-export function tupleFromSlice(facts: SliceRowFacts): TupleRow {
+export function tupleFromSlice(facts: SliceRowFacts, index: PlanIndex = EMPTY_PLAN_INDEX): TupleRow {
   return {
     kind: 'wave',
     kindLabel: KIND_LABEL.wave,
@@ -1511,12 +1524,7 @@ export function tupleFromSlice(facts: SliceRowFacts): TupleRow {
       // on — and the reason the container closes the list rather than opening
       // it, since a list that ENDS in the plan can simply stop where the
       // nesting already answers.
-      ...(facts.solePlan ? [{
-        what: 'plan' as const,
-        label: facts.solePlan.slug,
-        href: facts.solePlan.file ? `/plan/${encodeURIComponent(facts.solePlan.file)}` : '',
-        internal: true,
-      }] : []),
+      ...(facts.solePlan ? [planTupleLink({ file: facts.solePlan.file, slug: facts.solePlan.slug }, index)!] : []),
     ],
     // THE VERDICT THE SCAN ALREADY COMPUTED, and nothing derived beside it.
     // `open` was what these rows showed — the branch's `state`, which is a fact

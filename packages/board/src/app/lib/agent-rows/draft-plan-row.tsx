@@ -3,6 +3,7 @@ import { tupleFromPlan } from '../tuple-row.js';
 import { TupleRowView } from '../../components/TupleRow.js';
 import { cn } from '../utils.js';
 import { draftRoundsText } from './working-agents.js';
+import type { PlanIndex } from '@plot-pm/domain';
 
 /**
  * A Draft plan with no branch, as a WAITING ON YOU row: the plan's name, its
@@ -16,7 +17,12 @@ import { draftRoundsText } from './working-agents.js';
  * so `not interrogated` and `0 rounds` never read alike.
  */
 export const DraftPlanRowView = (
-  { draft, onOpenPlan }: { draft: DraftPlan; onOpenPlan?: (planFile: string) => boolean },
+  { draft, onOpenPlan, planIndex }: {
+    draft: DraftPlan;
+    onOpenPlan?: (planFile: string) => boolean;
+    /** The board's plan index — see `AgentListProps.planIndex`. */
+    planIndex?: PlanIndex;
+  },
 ) => {
   const recorded = draft.rounds !== undefined;
   return (
@@ -29,7 +35,7 @@ export const DraftPlanRowView = (
         issues: draft.issues ?? [],
         phase: 'Draft',
         waitingDays: null,
-      })}
+      }, planIndex)}
       onOpenPlan={onOpenPlan}
       rowAttr={{ 'data-draft-plan-row': draft.plan }}
       statusExtra={<>
