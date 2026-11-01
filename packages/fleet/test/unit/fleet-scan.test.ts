@@ -92,7 +92,7 @@ describe('scanOnce walks the plan in process', () => {
   });
 
   it('throws when a stage fails, so the bridge is never written for the beat', async () => {
-    const world = { ...worldWith(noShell), refs: withWalkRefs({ resolve: async () => ({ ok: false as const, why: 'failed' as const }) } as unknown as Partial<Refs>) };
+    const world = { ...worldWith(noShell), refs: withWalkRefs({ branchTips: async () => ({ ok: false as const, why: 'failed' as const }) } as unknown as Partial<Refs>) };
     await expect(scanOnce(world, freshScanState(), OPTIONS)).rejects.toThrow('the estate stage failed');
   });
 
@@ -100,7 +100,7 @@ describe('scanOnce walks the plan in process', () => {
     const world = {
       ...worldWith(noShell),
       backend: async () => 'bitbucket',
-      refs: withWalkRefs({ listBranches: async () => ok([]), resolve: async () => ({ ok: false as const, why: 'failed' as const }) } as unknown as Partial<Refs>),
+      refs: withWalkRefs({ listBranches: async () => ok([]), branchTips: async () => ({ ok: false as const, why: 'failed' as const }) } as unknown as Partial<Refs>),
     };
     const state = freshScanState();
     await expect(scanOnce(world, state, OPTIONS)).rejects.toThrow();

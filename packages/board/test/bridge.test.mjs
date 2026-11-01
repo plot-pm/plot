@@ -99,8 +99,11 @@ function makeNoFleetScripts() {
 }
 
 /**
- * A scripts dir whose `plot-fleet-scan.sh` always fails, every other helper
- * symlinked from the real one.
+ * A scripts dir whose `plot-fleet-scan.sh` and plan parser always fail, every
+ * other helper symlinked from the real one. The board's scan walks in process
+ * and parses every plan through `plot-plan-meta.sh`, so a parser that cannot
+ * run is a scan that cannot succeed, whether it reads `origin/<main>` or the
+ * checkout.
  *
  * This is how "the file answered" is separated from "a fast rescan answered".
  * Both mechanisms are wanted and both are asserted — but a server whose scan
@@ -110,13 +113,18 @@ function makeNoFleetScripts() {
 function makeBrokenScan() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-brokenscan-'));
   for (const name of fs.readdirSync(SCRIPTS_DIR)) {
-    if (name === 'plot-fleet-scan.sh' || name === 'plot-fleetctl.sh') continue;
+    if (name === 'plot-fleet-scan.sh' || name === 'plot-fleetctl.sh' || name === 'plot-plan-meta.sh') continue;
     fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
   }
   writeNoFleet(dir);
   fs.writeFileSync(
     path.join(dir, 'plot-fleet-scan.sh'),
     '#!/usr/bin/env bash\necho "scan is broken on purpose" >&2\nexit 3\n',
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(dir, 'plot-plan-meta.sh'),
+    '#!/usr/bin/env bash\necho "plan parser is broken on purpose" >&2\nexit 3\n',
     { mode: 0o755 },
   );
   return { dir, cleanup: () => rmTree(dir) };
@@ -141,15 +149,6 @@ function fleetdWrites(repo) {
     version: 1, at: Date.now(), pulse: JSON.parse(out),
     ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
   }), 'utf8');
-}
-
-/**
- * Make the in-process scan fail: with no `origin` the default branch does not
- * resolve and the estate stage throws. The scan no longer runs a script a test
- * can swap for a failing one, so the repository itself is what breaks.
- */
-function breakEstate(repo) {
-  execFileSync('git', ['remote', 'remove', 'origin'], { cwd: repo, stdio: 'ignore' });
 }
 
 const fetchFleet = async (port) => JSON.parse((await fetchRaw(port, '/api/fleet')).body);
@@ -254,7 +253,6 @@ describe('bridge: the last good pulse outlives the process', () => {
 
     // TWO: the same repo, a scan that CANNOT succeed. Anything this server
     // serves came off the disk.
-    breakEstate(fixture.repo);
     second = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: broken.dir });
     // The VERY FIRST request, kept separately: this is the window the whole
     // branch exists to close. A board that only recovered once its own scan
@@ -431,6 +429,39 @@ describe('bridge: a real scan wins immediately over the file', () => {
   });
 });
 
+describe('bridge: a repository with no origin still gets a pulse', () => {
+  let fixture, nofleet, server, fleet;
+
+  before(async () => {
+    fixture = makeRepo();
+    // No `origin`: `origin/main` does not resolve and the fetch fails. The scan
+    // reads the plans from the checkout, as `plot-fleet-scan.sh` did.
+    execFileSync('git', ['remote', 'remove', 'origin'], { cwd: fixture.repo, stdio: 'ignore' });
+    nofleet = makeNoFleetScripts();
+    server = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: nofleet.dir });
+    const deadline = Date.now() + WAIT_MS;
+    while (Date.now() < deadline) {
+      fleet = await fetchFleet(server.port);
+      if (fleet.error || fleet.rows.some((r) => r.branch === 'feature/board-bridges-its-restart')) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  });
+
+  after(() => {
+    server?.kill();
+    nofleet?.cleanup();
+    fixture?.cleanup();
+  });
+
+  it('serves the checkout\'s plans with no scan error', () => {
+    assert.equal(fleet.error, null, `the scan must not fail for a repository with no origin: ${fleet.error}`);
+    assert.ok(
+      fleet.rows.some((r) => r.branch === 'feature/board-bridges-its-restart'),
+      'the plan in the checkout should be served',
+    );
+  });
+});
+
 describe('bridge: a stale-enough file is not served', () => {
   let fixture, broken, server, fleet;
 
@@ -446,7 +477,6 @@ describe('bridge: a stale-enough file is not served', () => {
       branch: 'feature/ancient',
     });
 
-    breakEstate(fixture.repo);
     server = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: broken.dir });
     // Give the failing scan a moment to land its error, so this is not merely
     // "the server had not looked yet".

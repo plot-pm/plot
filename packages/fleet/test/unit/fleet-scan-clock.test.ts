@@ -44,8 +44,8 @@ const worldOver = (refs: Refs = refsFake): ScanWorld => ({
   walk: emptyWalk(),
 });
 
-/** Refs whose default-branch resolve fails, so the estate stage — and the beat — fails. */
-const brokenRefs = withWalkRefs({ resolve: async () => ({ ok: false as const }) } as unknown as Partial<Refs>);
+/** Refs whose branch tips cannot be read, so the estate stage — and the beat — fails. */
+const brokenRefs = withWalkRefs({ branchTips: async () => ({ ok: false as const }) } as unknown as Partial<Refs>);
 
 const scan = (state: ReturnType<typeof fleetStateFile>, opts: { refs?: Refs; now?: () => number; warn?: (l: string) => void; prError?: () => string | null; after?: (pulse: FleetReading) => Promise<void> } = {}) =>
   fleetScan(worldOver(opts.refs), state, freshScanState(), opts.now ?? (() => Date.now()), opts.warn ?? (() => {}), opts.prError ?? (() => null), opts.after);

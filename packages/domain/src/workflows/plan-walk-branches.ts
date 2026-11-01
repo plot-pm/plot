@@ -123,14 +123,21 @@ const rank = (pr: Pr): number => (pr.state === 'OPEN' ? 0 : pr.mergedAt !== null
  * `mergeSubjectFound` is true only where `refTip` is `null`.
  *
  * AN UNREADABLE SNAPSHOT FAILS THE BEAT. The branch tips, the merge walk, the
- * plan additions, an ancestry batch, a commit range or a changed-path list
- * that cannot be read each answer `failed`: a partial reading would show an
+ * plan additions, an ancestry batch or a commit range that cannot be read each
+ * answer `failed`: a partial reading would show an
  * unreadable branch as `open`. A host that cannot be asked is not a snapshot
  * failure; it is spelled in `hostReach` and `pr`, as the rule expects.
  *
  * ANCESTRY IS BATCHED. The age rule's merge-versus-addition pairs and the
  * named commits' containment in the default branch go to {@link Refs.containsMany}
  * in one call. An `unknown` answer proves nothing.
+ *
+ * A changed-path list git cannot make reads as no changed paths: it is
+ * evidence for a reader and decides no state.
+ *
+ * A WORKTREE ESTATE HAS NO DEFAULT-BRANCH REF. The stage then walks no merges,
+ * reads no plan additions, asks no ancestry and counts no commits ahead:
+ * `mainTip` is `null` and every named commit reads `unknown`.
  *
  * A PR LISTING THE CALLER HOLDS REPLACES THE HOST CALL. With `input.prs`
  * the stage calls no `Host.prList`; see {@link BranchStageInput.prs}.
@@ -210,9 +217,13 @@ export const readBranchReadings = async (
   const prFor = (branch: string): PrReading =>
     heldPr(branch) ?? (listed && prListComplete ? 'none' : 'unreadable');
 
-  const merges = await refs.mergeSubjects(mainRef, MERGE_WALK);
+  // A worktree estate has no default-branch ref: no merge walk, no plan
+  // additions, no ancestry and no commits ahead, as `plot-fleet-scan.sh` reads
+  // `origin/<main>` when it does not resolve.
+  const noMain = estate.source === 'worktree';
+  const merges = noMain ? answered<ReadonlyArray<{ sha: string; subject: string }>>([]) : await refs.mergeSubjects(mainRef, MERGE_WALK);
   if (!merges.ok) return failed<BranchStageReadings>();
-  const additions = await refs.planAdditions(mainRef, input.planDir);
+  const additions = noMain ? answered<ReadonlyMap<string, string>>(new Map()) : await refs.planAdditions(mainRef, input.planDir);
   if (!additions.ok) return failed<BranchStageReadings>();
 
   const live = estate.plans.filter((p) => !SKIPPED_PHASES.has(p.record.phase));
@@ -248,7 +259,7 @@ export const readBranchReadings = async (
               pairs.push({ ancestor: hit.sha, descendant: added });
             }
           }
-          for (const commit of line.commits ?? []) {
+          for (const commit of noMain ? [] : line.commits ?? []) {
             entry.commitAt.push({ commit, at: pairs.length });
             pairs.push({ ancestor: commit, descendant: mainTip });
           }
@@ -267,7 +278,9 @@ export const readBranchReadings = async (
       for (const line of slice.branches) {
         const entry = wanted[at++]!;
         const refTip = tipOf.get(line.branch) ?? null;
-        const landed = entry.commitAt.map(({ commit, at: i }) => ({ commit, contained: contained.value[i]! }));
+        const landed = noMain && refTip === null
+          ? (line.commits ?? []).map((commit) => ({ commit, contained: 'unknown' as const }))
+          : entry.commitAt.map(({ commit, at: i }) => ({ commit, contained: contained.value[i]! }));
         // A merge proves the branch only when it is NOT an ancestor of the
         // commit that added the plan: a merge that predates the plan belongs to
         // an earlier use of the name.
@@ -277,15 +290,17 @@ export const readBranchReadings = async (
         let commitsAhead = 0;
         let realCommitsAhead = 0;
         let changedPaths: readonly string[] = [];
-        if (refTip !== null) {
+        if (refTip !== null && !noMain) {
           const range = await refs.commitSubjects(`${mainRef}..origin/${line.branch}`);
           if (!range.ok) return failed<BranchStageReadings>();
           commitsAhead = range.value.length;
           realCommitsAhead = realCommits(range.value);
           if (commitsAhead > 0) {
+            // Evidence only: a diff git cannot make, such as a branch with no
+            // merge base, reads as no changed paths, as `plot-fleet-scan.sh`'s
+            // `changed_paths_of` reads it.
             const files = await refs.changedFiles(`origin/${line.branch}`, input.mainBranch);
-            if (!files.ok) return failed<BranchStageReadings>();
-            changedPaths = files.value.slice(0, CHANGED_PATHS_CAP);
+            changedPaths = files.ok ? files.value.slice(0, CHANGED_PATHS_CAP) : [];
           }
         }
         const waits: WaitsReading[] = line.waitsOn.map((name) => ({
@@ -299,7 +314,7 @@ export const readBranchReadings = async (
           readings: {
             deferredByPlan: line.deferred,
             refTip,
-            mainTip,
+            mainTip: noMain ? null : mainTip,
             mergeSubjectFound: refTip === null && (proven || commitsLanded),
             hostReach,
             pr: prFor(line.branch),

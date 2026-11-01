@@ -143,6 +143,8 @@ export interface WalkPorts {
   host: Host;
   /** Builds the plan store over a ref and the plan directory. */
   plans: (ref: string, planDir: string) => PlanStore;
+  /** The plan store over the checkout, read where `origin/<main>` does not resolve. */
+  worktree: PlanStore;
   trees: Trees;
   agents: Agents;
   processes: Processes;
@@ -689,7 +691,7 @@ export const walkOnce = async (world: ScanWorld, listing: string, listingSaid = 
   const prs: BranchStagePrs = carried === null ? { kind: 'unread', said: listingSaid } : { kind: 'listed', listing: carried };
   const estate = await readEstate(refs, walk.plans(`origin/${mainBranch}`, planDir), {
     mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
-  });
+  }, walk.worktree);
   const branches = estate.ok
     ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs })
     : estate;
@@ -719,6 +721,7 @@ export const walkOnce = async (world: ScanWorld, listing: string, listingSaid = 
     host: branches.ok ? branches.value.hostReach : 'failed',
     mergeDetect: 'unaskable',
     nowSeconds: Math.floor(Date.now() / 1000),
+    planSource: estate.ok && estate.value.source === 'worktree' ? 'worktree' : 'ref',
   }, conflicts);
   const reading = FleetReadingSchema.safeParse(document);
   if (!reading.success) throw new Error('fleet scan: the walk produced a document that is not a pulse');

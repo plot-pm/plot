@@ -619,6 +619,9 @@ describe('deliveryPulse chooses the pulse a delivery is judged against', () => {
     // unmeasured. Null here, `unknown` there, `scan-incomplete` at the route.
     const gained = planBranches([['feature/a', false], ['feature/new', false]]);
     expect(deliveryPulse(gained, null, false, LANDED)).toBeNull();
+    // A finished LIVE pulse goes stale the same way: a bridged pulse can be
+    // older than the plan file it is judged against.
+    expect(deliveryPulse(gained, LANDED, true, null)).toBeNull();
   });
 
   it('does not let a DEFERRED branch absent from that pulse force a refusal', () => {

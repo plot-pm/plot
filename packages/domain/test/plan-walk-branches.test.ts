@@ -173,7 +173,9 @@ describe('readBranchReadings — an unreadable snapshot fails the beat', () => {
     });
   }
 
-  it('fails when the changed paths of a branch with commits ahead cannot be read', async () => {
+  it('reads no changed paths, and does not fail, where git cannot diff a branch with commits ahead', async () => {
+    // `git diff main...branch` fails for a branch with no merge base; the shell's
+    // `changed_paths_of` read that as no paths and kept the beat.
     const base = refsFixture({
       shas: { 'origin/main': 'm1' },
       tips: { 'feature/here': 't1' },
@@ -181,7 +183,9 @@ describe('readBranchReadings — an unreadable snapshot fails the beat', () => {
       additions: { [PLAN]: 'add1' },
     });
     const refs: Refs = { ...base, changedFiles: async () => failed() };
-    expect((await readBranchReadings(refs, host, estateOf(line('feature/here')), INPUT)).ok).toBe(false);
+    const answer = await readBranchReadings(refs, host, estateOf(line('feature/here')), INPUT);
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(answer.value.branches[0]).toMatchObject({ changedPaths: [], readings: { commitsAhead: 1 } });
   });
 
   it('does not fail when the host list cannot be read: the silence is spelled in hostReach and pr', async () => {
@@ -393,5 +397,31 @@ describe('readBranchConflicts — which branches are asked', () => {
     ]);
     expect(asked).toEqual(['origin/main origin/feature/clash', 'origin/main origin/feature/clean', 'origin/main origin/feature/broken']);
     expect([...known]).toEqual([['feature/clash', ['src/x.ts']], ['feature/clean', []]]);
+  });
+});
+
+describe('readBranchReadings — a worktree estate has no default-branch ref', () => {
+  it('asks no merge walk, additions, ancestry or commit range, and reads mainTip null', async () => {
+    const asked: string[] = [];
+    const tracked = (name: string) => async () => {
+      asked.push(name);
+      return failed<never>();
+    };
+    const refs: Refs = {
+      ...world(),
+      mergeSubjects: tracked('mergeSubjects'),
+      planAdditions: tracked('planAdditions'),
+      commitSubjects: tracked('commitSubjects'),
+      changedFiles: tracked('changedFiles'),
+    };
+    const estate: Estate = { ...estateOf(line('feature/here'), line('feature/gone', { commits: ['abc1234'] })), mainSha: '', source: 'worktree' };
+    const answer = await readBranchReadings(refs, hostFixture({ backend: 'none' }), estate, INPUT);
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(asked).toEqual([]);
+    const [here, gone] = answer.value.branches;
+    expect(here!.readings).toMatchObject({ refTip: 't1', mainTip: null, commitsAhead: 0, mergeSubjectFound: false });
+    expect(gone!.landed).toEqual([{ commit: 'abc1234', contained: 'unknown' }]);
+    expect(branchState(here!.readings)).toBe('unknown');
+    expect(branchState(gone!.readings)).toBe('open');
   });
 });

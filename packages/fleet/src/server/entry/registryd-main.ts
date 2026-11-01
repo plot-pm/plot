@@ -2816,6 +2816,7 @@ export const run = async (
             walk: {
               host: hostShell({ repoRoot, scriptDir: scriptsDir }),
               plans: (ref, planDir) => planStoreRef(refsGit({ repoRoot, scriptDir: scriptsDir }), { repoRoot, scriptDir: scriptsDir }, ref, planDir),
+              worktree: planStoreShell({ repoRoot, scriptDir: scriptsDir }),
               trees: treesGit({ repoRoot, scriptDir: scriptsDir }),
               agents: agentsFs({ repoRoot, scriptDir: scriptsDir }),
               processes: processesShell({ repoRoot, scriptDir: scriptsDir }),

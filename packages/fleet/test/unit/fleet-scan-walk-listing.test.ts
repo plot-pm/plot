@@ -126,3 +126,31 @@ describe('a repository with no git host', () => {
     expect(result.reading.summary.host).toBe('unknown');
   });
 });
+
+describe('a repository whose origin/<main> does not resolve', () => {
+  it('reads its plans from the checkout and says so, rather than failing the beat', async () => {
+    const { host } = countingHost();
+    const read: string[][] = [];
+    const checkout = {
+      listDir: async () => ok(['2026-10-01-a-plan.md', 'active', 'notes.txt']),
+      readPlans: async (files: readonly string[]) => {
+        read.push([...files]);
+        return ok([planRecord({
+          file: PLAN,
+          phase: 'approved',
+          slices: [{ name: 'only', branches: [{ branch: 'feature/gone', deferred: false, deferredReason: '', claimed: '', waitsOn: [] }] }],
+        })]);
+      },
+    } as unknown as PlanStore;
+    const base = oneBranchWorld(host, githubListing([]));
+    const world: ScanWorld = {
+      ...base,
+      refs: { ...base.refs, resolve: async () => ({ ok: false as const }) } as never,
+      walk: { ...base.walk, worktree: checkout, trees: { ...base.walk.trees, fetch: async () => ({ ok: false as const }) } as never },
+    };
+    const result = await scanOnce(world, freshScanState(), OPTIONS);
+    expect(read).toEqual([[PLAN]]);
+    expect(result.reading).toMatchObject({ plan_source: 'worktree', read_ref: 'unknown', fetch_failed: true });
+    expect(branchOf(result.reading)?.branch).toBe('feature/gone');
+  });
+});

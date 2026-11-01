@@ -5,8 +5,9 @@
 // was a streamed fragment for most of every minute. The scan now walks in
 // process and hands the board one whole reading, so no fragment exists; what
 // stays worth asserting is that the whole reading judges a plan whose branch
-// merged `deliverable`. The fragment cases (a plan that gained a slice since a
-// partial scan) cannot arise any more.
+// merged `deliverable`. A plan file can still gain a slice after the last
+// finished reading, which the bridge carries for up to its maximum age, so a
+// plan whose new branch no reading names is still refused.
 // The fleet's bridge supplies the reading here, as it does when a fleet runs.
 import { afterEach, describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -178,6 +179,20 @@ describe('a delivery is judged against the last scan that finished', () => {
     expect((await deliverability(opts, MERGED_SLUG)).verdict).toBe('deliverable');
   }, 60_000);
 
+  it('answers scan-incomplete for a plan that gained a slice since that scan', async () => {
+    // The case a naive rule fails. `feature/three` is named by the plan file and
+    // by no pulse, so the last finished scan judged it never — and reading its
+    // absence as landed is what the branch check refuses.
+    const opts = fixture();
+
+    await until(() => lastCompletePulseFor(opts), Boolean, 'the first scan to finish');
+
+    expect((await deliverability(opts, GAINED_SLUG)).verdict).toBe('scan-incomplete');
+    // Asserted TOGETHER with the plan beside it: a rule that refused both, or
+    // permitted both, would pass one test alone.
+    expect((await deliverability(opts, MERGED_SLUG)).verdict).toBe('deliverable');
+  }, 60_000);
+
   it('shows the card as deliverable from the whole reading', async () => {
     // The card's half of the same defect — a Deliver control that reads *not
     // deliverable yet* on every pulse. `status` is the one word the affordance,
@@ -191,5 +206,7 @@ describe('a delivery is judged against the last scan that finished', () => {
     const card = cards.find((c) => c.slug === MERGED_SLUG);
     expect(card).toBeDefined();
     expect(card?.status).toBe('deliverable');
+    // The plan that gained a slice is NOT offered, in the same render.
+    expect(cards.find((c) => c.slug === GAINED_SLUG)?.status).not.toBe('deliverable');
   }, 60_000);
 });

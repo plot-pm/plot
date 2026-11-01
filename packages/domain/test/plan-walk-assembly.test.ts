@@ -362,3 +362,12 @@ describe('fleetReading — dirty worktrees, conflicts and changed paths', () => 
     expect(c).toMatchObject({ local_dirty: false, worker_dirty_paths: [] });
   });
 });
+
+describe('fleetReading — where the plans were read', () => {
+  it('prints plan_source ref by default and worktree where the header says so', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }]]));
+    const value = assembled(estate, branchesOf(['p.md', 'feature/a', open()]));
+    expect((fleetReading(value, header) as any).plan_source).toBe('ref');
+    expect((fleetReading(value, { ...header, planSource: 'worktree' }) as any).plan_source).toBe('worktree');
+  });
+});

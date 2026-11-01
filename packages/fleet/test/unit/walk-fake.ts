@@ -41,6 +41,7 @@ export const emptyWalk = (extra: Partial<WalkPorts> = {}): WalkPorts => ({
     lastRefusal: () => ({ kind: 'failed', said: '' }),
   } as unknown as WalkPorts['host'],
   plans: () => ({ readPlansAt: async () => ok([]) }) as unknown as ReturnType<WalkPorts['plans']>,
+  worktree: { listDir: async () => ok([]), readPlans: async () => ok([]) } as unknown as WalkPorts['worktree'],
   trees: { list: async () => ok([]), fetch: async () => ok(undefined) } as unknown as WalkPorts['trees'],
   agents: {} as unknown as WalkPorts['agents'],
   processes: {} as unknown as WalkPorts['processes'],

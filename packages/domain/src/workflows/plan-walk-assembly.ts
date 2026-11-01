@@ -389,6 +389,8 @@ export interface FleetReadingHeader {
   mergeDetect: string;
   /** The wall clock in epoch seconds, for `changed_at`. */
   nowSeconds: number;
+  /** Where the estate read its plans; absent means `ref`. */
+  planSource?: 'ref' | 'worktree';
 }
 
 const branchRow = (
@@ -454,7 +456,7 @@ export const fleetReading = (
   head: header.localHead,
   fetch_failed: header.fetchFailed,
   fetch_error: header.fetchError,
-  plan_source: 'ref',
+  plan_source: header.planSource ?? 'ref',
   plans: assembly.plans.map((plan) => ({
     file: plan.file.startsWith(header.planDir) ? plan.file.slice(header.planDir.length) : plan.file,
     phase: plan.phase,
