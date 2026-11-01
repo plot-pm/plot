@@ -9,6 +9,7 @@ import { processesShell } from '@plot-pm/domain/adapters/processes/processes-she
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { shellContext } from '@plot-pm/domain/adapters/scripts';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
+import { logToPlan, pulseLine, recordBridge, type PulseCounts } from './pulse-log.js';
 import type { Host } from '@plot-pm/domain/ports/host';
 import { readBranchReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
@@ -32,7 +33,7 @@ import {
  *   <prefixes, "|"-separated> <offline 0|1> <readRef> <localHead> <fetchFailed 0|1> <fetchError>
  * ```
  *
- * `flags` is the scan's `slice_names why_nothing list_all next_only as_json` bits in that order; they select `slice-names`, `why-nothing`, `list-eligible`, `next` or `json`.
+ * `flags` is the scan's `slice_names why_nothing list_all next_only as_json log_pulse` bits in that order; they select `slice-names`, `why-nothing`, `list-eligible`, `next`, `json` or `log-pulse`. `log-pulse` appends one pulse line to each plan under `planDir`, writes the bridge under `<root>/.plot/state/` unless the fleet holds it, and prints the delta.
  * The offer modes (`next`, `list-eligible`, `why-nothing`) read no desks;
  * `slice-names` reads the estate alone. With `offline` set and the mode not an
  * offer, the host answers `unaskable` for every question that costs a request.
@@ -62,8 +63,9 @@ const unaskedHost = (host: Host): Host =>
 const main = async (): Promise<number> => {
   const [flags = '00000', slug = '', mainBranch = 'main', planDir = '', activeDir = '', deliveredDir = '', prefixList = '', offline = '0', readRef = 'unknown', localHead = 'unknown', fetchFailed = '0', fetchError = ''] =
     process.argv.slice(2);
-  const [sliceNames, whyNothing, listAll, nextOnly] = flags;
-  const mode = sliceNames === '1' ? 'slice-names' : whyNothing === '1' ? 'why-nothing' : listAll === '1' ? 'list-eligible' : nextOnly === '1' ? 'next' : 'json';
+  const [sliceNames, whyNothing, listAll, nextOnly, asJson, logPulse] = flags;
+  void asJson;
+  const mode = logPulse === '1' ? 'log-pulse' : sliceNames === '1' ? 'slice-names' : whyNothing === '1' ? 'why-nothing' : listAll === '1' ? 'list-eligible' : nextOnly === '1' ? 'next' : 'json';
   const prefixes = prefixList.split('|').filter((p) => p !== '');
   const offer = mode === 'next' || mode === 'list-eligible' || mode === 'why-nothing';
   const root = process.env.PLOT_REPO_ROOT ?? process.cwd();
@@ -119,6 +121,17 @@ const main = async (): Promise<number> => {
     mergeDetect: 'unaskable',
     nowSeconds: Math.floor(Date.now() / 1000),
   });
+  if (mode === 'log-pulse') {
+    const summary = document.summary as Record<string, number>;
+    const counts: PulseCounts = {
+      waves: summary.waves ?? 0, eligible: summary.eligible ?? 0, claimed: summary.claimed ?? 0, blocked: summary.blocked ?? 0,
+      deferred: summary.deferred ?? 0, waiting: summary.waiting ?? 0, prereq_missing: summary.prereq_missing ?? 0,
+    };
+    const line = pulseLine(new Date().toISOString().slice(0, 16) + 'Z', counts);
+    for (const plan of document.plans as { file: string }[]) logToPlan(`${planDir}${plan.file}`, line);
+    process.stdout.write(recordBridge(root, document, Date.now()));
+    return 0;
+  }
   process.stdout.write(`${JSON.stringify(document)}\n`);
   return 0;
 };

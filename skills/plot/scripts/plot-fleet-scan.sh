@@ -414,14 +414,14 @@ fi
 # walk until the removal slice deletes it. A bare `<slug>` answers as `--json` scoped to that plan. The domain walk hands the five machine modes (`--json`, `--next`,
 # `--list-eligible`, `--why-nothing`, `--slice-names`) to `plot-scan-walk.mjs`,
 # which runs the estate, branch, desk and assembly stages and decides with the
-# domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here.
+# domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here, the last when `PLOT_LOG_PULSE_WALK` is set (to `domain`).
 # `--offline` still asks the host on the offer modes, as above. A scan whose
 # `origin/<main>` does not resolve stays here: the estate stage has no
 # working-tree fallback and the shell does. The node call is not `exec`ed:
 # the scan's EXIT trap must remove its temp registry.
 READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
-[[ "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain000 || "$slice_names$why_nothing$next_only$as_json$slug" = 0000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json" "$slug" "$MAIN" \
+[[ "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain00[0${PLOT_LOG_PULSE_WALK:+1}] || "$slice_names$why_nothing$next_only$as_json$slug$log_pulse" = 00000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json$log_pulse" "$slug" "$MAIN" \
   "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"; exit $?; }
 
 # ---------------------------------------------------------------------------
@@ -5126,23 +5126,13 @@ fi
 # --log-pulse: append ONE line per plan, clean pulses included. Without a
 # record of quiet pulses an idle fleet and a dead fleet are indistinguishable.
 # This is a LOG, not state: deleting it changes no behaviour, because the next
-# pulse re-derives everything from git.
+# pulse re-derives everything from git. `plot-delta.mjs --log` writes the line
+# through each plan's resolved symlink with `logToPlan` (`pulse-log.ts`), the
+# same function the domain walk's `--log-pulse` calls.
 if [ "$log_pulse" = 1 ]; then
   stamp=$(date -u +%Y-%m-%dT%H:%MZ)
   line="<!-- pulse: $stamp — waves=$n_waves eligible=$n_eligible claimed=$n_claimed blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing -->"
-  for pf in ${plan_files[@]+"${plan_files[@]}"}; do
-    real=$(cd "$(dirname "$pf")" && readlink "$(basename "$pf")" 2>/dev/null || true)
-    target=$([ -n "$real" ] && echo "$(dirname "$pf")/$real" || echo "$pf")
-    [ -f "$target" ] || continue
-    if grep -q '^## Notes' "$target" 2>/dev/null; then
-      awk -v ln="$line" '
-        /^## Notes/ && !done { print; print ""; print ln; done=1; next }
-        { print }
-      ' "$target" > "$target.tmp" && mv "$target.tmp" "$target"
-    else
-      printf '\n## Notes\n\n%s\n' "$line" >> "$target"
-    fi
-  done
+  node "$script_dir/board/plot-delta.mjs" --log "$line" ${plan_files[@]+"${plan_files[@]}"}
 fi
 
 # THE PULSE RECORDS ITSELF — `.plot/state/last-pulse.json`, the bridge.
