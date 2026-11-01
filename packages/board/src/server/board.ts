@@ -1013,7 +1013,7 @@ const prefixedBranches = async (
  * configured key still outranks both, so an adopting project that says so is
  * unaffected either way.
  */
-const defaultBranchOf = async (opts: BuildBoardOptions, refs: Refs): Promise<string> => {
+export const defaultBranchOf = async (opts: BuildBoardOptions, refs: Refs): Promise<string> => {
   const configured = await readConfigAsync(opts, 'Main branch', '');
   if (configured) return configured;
   // `main` where the port cannot answer, which is the same fallback the script

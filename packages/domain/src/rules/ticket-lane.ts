@@ -1,4 +1,5 @@
 import type { Issue } from '../entities/issue.js';
+import type { TicketPlan } from './ticket-phase.js';
 
 /** Where a ticket renders on the Discovery tab; `hidden` until the archived toggle is on. */
 export type TicketLane = 'open' | 'in-progress' | 'done' | 'hidden';
@@ -7,7 +8,7 @@ export type TicketLane = 'open' | 'in-progress' | 'done' | 'hidden';
  * What else `ticketLane` needs beside the issue itself.
  *
  * Both fields answer questions no `Issue` carries on its own: whether its
- * `statusCategory` is trustworthy, and whether a plan already claims it.
+ * `statusCategory` is trustworthy, and which plans already claim it.
  */
 export interface TicketLaneReading {
   /**
@@ -18,26 +19,60 @@ export interface TicketLaneReading {
    */
   categoryStated: boolean;
   /**
-   * Whether a plan names this ticket, from `referencedIssues`. `null` when the
-   * plans directory could not be read — distinct from `false`, and it wins
-   * over every other reading.
+   * The plans naming this ticket, from `planMetasAtDefault`. `null` when the
+   * plans could not be read — distinct from `[]`, and it wins over every
+   * other reading.
    */
-  namedByPlan: boolean | null;
+  plans: readonly TicketPlan[] | null;
 }
 
 /** How long a closed ticket stays visible in Done before the archived toggle is required. */
 const DONE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
+ * The lane a plan's state places an open, uncategorized ticket in, by
+ * {@link ticketPhase}'s own order — draft/design are not yet building, approved
+ * is building, delivered is done. `released`, `rejected` and `superseded` are
+ * absent on purpose: none of them is a live claim on the ticket, so a plan in
+ * one of those states is not a candidate for the "least advanced plan wins"
+ * choice below, the same way `ticketPhase`'s own `PLACED` table skips them.
+ */
+const LANE_BY_STATE: Readonly<Record<string, { lane: TicketLane; rank: number }>> = {
+  draft: { lane: 'open', rank: 0 },
+  design: { lane: 'open', rank: 1 },
+  approved: { lane: 'in-progress', rank: 2 },
+  delivered: { lane: 'done', rank: 3 },
+};
+
+/**
+ * The lane an open, uncategorized ticket's named plans place it in.
+ *
+ * The LEAST ADVANCED placed plan decides, by {@link LANE_BY_STATE}'s rank —
+ * mirroring `ticketPhase`'s own "least advanced plan wins" order rather than
+ * inventing a second one. A plan in `released`, `rejected` or `superseded`
+ * does not place (no live claim), so an issue named ONLY by such plans reads
+ * exactly as an issue no live plan names: `open`.
+ */
+const laneByPlans = (plans: readonly TicketPlan[]): TicketLane => {
+  let best: { lane: TicketLane; rank: number } | null = null;
+  for (const plan of plans) {
+    const placed = LANE_BY_STATE[plan.state];
+    if (placed === undefined) continue;
+    if (best === null || placed.rank < best.rank) best = placed;
+  }
+  return best?.lane ?? 'open';
+};
+
+/**
  * Which lane a ticket renders in.
  *
- * `reading.namedByPlan === null` is not read here: the caller shows "plans
- * could not be read" for the whole group and keeps its last good lanes, which
- * is a decision about the GROUP rather than one ticket, so it is made above
- * this function rather than inside it.
+ * `reading.plans === null` is not read here: the caller shows "plans could
+ * not be read" for the whole group and keeps its last good lanes, which is a
+ * decision about the GROUP rather than one ticket, so it is made above this
+ * function rather than inside it.
  *
  * @param issue - the ticket, as the tracker answered it.
- * @param reading - whether its category is trustworthy, and whether a plan names it.
+ * @param reading - whether its category is trustworthy, and which plans name it.
  * @param now - the current time in epoch milliseconds.
  * @returns the lane the ticket renders in.
  */
@@ -49,7 +84,7 @@ export const ticketLane = (issue: Issue, reading: TicketLaneReading, now: number
   if (category === 'To Do') return 'open';
 
   if (issue.closedAt !== null) return doneOrHidden(issue.closedAt, now);
-  return reading.namedByPlan === true ? 'in-progress' : 'open';
+  return laneByPlans(reading.plans ?? []);
 };
 
 const doneOrHidden = (closedAt: string | null, now: number): TicketLane => {

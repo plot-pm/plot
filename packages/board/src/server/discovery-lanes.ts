@@ -4,10 +4,10 @@ import { ticketLaneData, keptClosedRows, ensureCache } from './fleet.js';
 
 /**
  * The last ticket lanes `discoveryLanes` computed successfully, by repo root and toggle state —
- * read back when `referencedIssues` answers null (the plans directory could not
+ * read back when `ticketLaneData`'s `plans` answers null (the plans could not
  * be read), per the plan's "plans could not be read, keeps its last good
  * lanes" (plan.md:138), mirroring `refreshIssues`'s own kept-rows-on-failure
- * shape at `fleet.ts:1729-1732`. Never written from a `null`-`referenced` pass,
+ * shape at `fleet.ts:1729-1732`. Never written from a `null`-`plans` pass,
  * so a second consecutive read failure still serves the last SUCCESSFUL one
  * rather than null.
  */
@@ -23,9 +23,9 @@ const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
  * the open-ended Done tail are included; the cache read always happens, since
  * the first reading has to come from somewhere.
  *
- * `data.referenced === null` (the plans directory could not be read) is a
- * GROUP-level failure, not a per-ticket one — `ticketLane`'s own doc comment
- * forbids passing `namedByPlan: null` to it. So this function never does: it
+ * `data.plans === null` (the plans could not be read) is a GROUP-level
+ * failure, not a per-ticket one — `ticketLane`'s own doc comment forbids
+ * passing a null `plans` reading to it. So this function never does: it
  * reports `plansUnreadable: true` and serves {@link lastGoodTicketLanes} instead
  * of recomputing with a degraded reading.
  *
@@ -69,7 +69,7 @@ export const discoveryLanes = async (
       archived ? keptClosedRows(opts) : null,
       {
         categoryStated: data.categoryStated,
-        named: data.referenced,
+        plans: data.plans,
         kept: lastGoodTicketLanes.get(keptKey) ?? null,
         source: data.ticketSource,
         directory: data.directory,

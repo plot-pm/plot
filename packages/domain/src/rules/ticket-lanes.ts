@@ -1,6 +1,7 @@
 import { declaresSpelling, resolvePerson, samePerson, type PersonDirectory } from '../entities/person.js';
 import { accountNamesReader, comparableLogin, type Reader, type TicketSource } from './ownership.js';
 import { doneTickets, ticketLane, type TicketLane } from './ticket-lane.js';
+import type { TicketPlan } from './ticket-phase.js';
 
 /** One ticket as the Discovery tab's lane groups carry it. */
 export interface TicketLaneRow {
@@ -53,8 +54,8 @@ export interface TicketSourceRow {
 export interface TicketLanesReading {
   /** Whether the tracker states a status category rather than deriving one. */
   readonly categoryStated: boolean;
-  /** The issue numbers a plan names, or `null` where the plans could not be read. */
-  readonly named: ReadonlySet<string> | null;
+  /** The plans naming each issue number, by issue number, or `null` where the plans could not be read. */
+  readonly plans: ReadonlyMap<string, readonly TicketPlan[]> | null;
   /** The lanes the last successful pass produced, or `null` where none exists. */
   readonly kept: TicketLaneGroups | null;
   /** How the source writes assignees; absent or `null` where unknown, which reads an assignee as written. */
@@ -148,13 +149,13 @@ const rowOf = (reading: Pick<TicketLanesReading, 'source' | 'directory'>) => (ro
 
 const laneOf = (
   row: TicketLaneRow,
-  reading: { categoryStated: boolean; named: ReadonlySet<string> },
+  reading: { categoryStated: boolean; plans: ReadonlyMap<string, readonly TicketPlan[]> },
   toggle: boolean,
   now: number,
 ): TicketLane => {
   const lane = ticketLane(
     { ...row, type: row.type ?? undefined, assignees: [] },
-    { categoryStated: reading.categoryStated, namedByPlan: reading.named.has(row.id) },
+    { categoryStated: reading.categoryStated, plans: reading.plans.get(row.id) ?? [] },
     now,
   );
   return lane === 'hidden' && toggle ? 'done' : lane;
@@ -170,13 +171,13 @@ const laneOf = (
  * `toggle` off, `toggleRows` is ignored. A number present in `rows` is not read
  * again from a closed list.
  *
- * Where `reading.named` is `null` the plans could not be read, and the answer
+ * Where `reading.plans` is `null` the plans could not be read, and the answer
  * is `reading.kept` with `plansUnreadable` true; no row is laned.
  *
  * @param rows - the open rows of the issue index.
  * @param closedRows - the closed rows of the issue index's 14-day window.
  * @param toggleRows - every closed row the toggle read, or `null` where it has read none.
- * @param reading - the category reading, the plan-named numbers, and the kept lanes.
+ * @param reading - the category reading, the plans naming each issue, and the kept lanes.
  * @param toggle - whether the Show archived toggle is on.
  * @param now - the current time in epoch milliseconds.
  * @returns the lanes, with the count the Done cap hides, and whether they are the kept ones.
@@ -189,14 +190,14 @@ export const ticketLanes = (
   toggle: boolean,
   now: number,
 ): TicketLanesResult => {
-  const { named } = reading;
-  if (named === null) return { lanes: reading.kept, plansUnreadable: true };
+  const { plans } = reading;
+  if (plans === null) return { lanes: reading.kept, plansUnreadable: true };
   const closed = toggle && toggleRows !== null ? toggleRows : closedRows;
   const seen = new Set<string>();
   const laned = [...rows, ...closed]
     .filter((row) => !seen.has(row.number) && seen.add(row.number))
     .map(rowOf(reading))
-    .map((row) => ({ row, lane: laneOf(row, { categoryStated: reading.categoryStated, named }, toggle, now) }));
+    .map((row) => ({ row, lane: laneOf(row, { categoryStated: reading.categoryStated, plans }, toggle, now) }));
   const inLane = (lane: TicketLane): TicketLaneRow[] => laned.filter((t) => t.lane === lane).map((t) => t.row);
   const done = doneTickets(inLane('done'), toggle);
   return {
