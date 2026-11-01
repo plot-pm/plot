@@ -20,6 +20,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-walk-caches-by-oid`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-scan-modes-run-the-walk`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-pulse-log-runs-the-walk`
+- **Started:** 2026-11-01, Jan Wloka, `feature/the-scan-script-is-a-launcher`
 
 ## Changelog
 
