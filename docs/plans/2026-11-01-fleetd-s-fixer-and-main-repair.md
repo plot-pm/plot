@@ -135,7 +135,7 @@ Slice 1 rows run in `pnpm --filter @plot-pm/domain exec vitest run` and `pnpm --
 
 ### Fixer bounds
 
-- `bug/fleetd-s-fixer-runs-bounded` — `auto-fixer.ts`: `FIXER_BOUND_SECONDS` as `boundSeconds`, one fixer in flight, a machine headroom slot (with `auto-writes.ts`); `rules/role-gate.ts`: refuse forced pushes, pushes to another branch and branch deletions for the fixer and main-repair roles; the agent settings on the role session; the master-agent sentence in CLAUDE.md and the regenerated `AGENTS.md`; the slice 1 rows; a changeset for `plot`. <!-- builds: a run-time bound, a concurrency cap and a push gate for fleetd's role agents -->
+- `bug/fleetd-s-fixer-runs-bounded` — `auto-fixer.ts`: `FIXER_BOUND_SECONDS` as `boundSeconds`, one fixer in flight, a machine headroom slot (with `auto-writes.ts`); `rules/role-gate.ts`: refuse forced pushes, pushes to another branch and branch deletions for the fixer and main-repair roles; the agent settings on the role session; the master-agent sentence in CLAUDE.md and the regenerated `AGENTS.md`; the slice 1 rows; a changeset for `plot`. <!-- builds: a run-time bound, a concurrency cap and a push gate for fleetd's role agents --> → #3031
 
 ### Role command
 
