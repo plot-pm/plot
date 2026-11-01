@@ -121,11 +121,13 @@ describe('the board reads the default-branch reading from its estate', () => {
     expect((answer.value as { defaultBranch?: unknown }).defaultBranch).toBeUndefined();
   });
 
-  it('`GET /api/board` asks through boardQueryFor with the estate the server chose', () => {
+  it('`GET /api/board` asks through boardAnswer and boardQueryFor with the estate the server chose', () => {
     // `index.ts` binds a port on import, so the route is asserted on its
     // source, as `exit-when-idle.test.ts` asserts the idle guard.
     const src = fs.readFileSync(path.join(HERE, '../../src/server/index.ts'), 'utf8');
-    expect(src).toMatch(/boardState\(boardQueryFor\(opts, estate\)\)/);
+    const controller = fs.readFileSync(path.join(HERE, '../../src/server/controllers/board-answer.ts'), 'utf8');
+    expect(src).toMatch(/boardAnswer\(opts, estate, HOST,/);
     expect(src).toMatch(/const estate = estateFromEnv\(opts\);/);
+    expect(controller).toMatch(/boardState\(boardQueryFor\(opts, estate\)\)/);
   });
 });
