@@ -11,6 +11,7 @@ import {
   type WaitsReading,
 } from '../rules/branch-state.js';
 import { realCommits } from '../rules/empty-claim.js';
+import { encodeListingKey, type CarriedPrStates } from '../rules/scan-listing.js';
 import { mergedBySubject } from '../rules/merge-subject.js';
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
@@ -43,7 +44,19 @@ export interface BranchStageInput {
   mainBranch: string;
   /** The plan directory, such as `docs/plans/`. */
   planDir: string;
+  /**
+   * The PR listing the caller already holds. Where present, the stage calls
+   * no `Host.prList`: `listed` answers each branch from `states`, and
+   * `unread` reads every PR as `unreadable` with `hostReach` `failed`. Where
+   * absent, the stage asks the host for its list.
+   */
+  prs?: BranchStagePrs;
 }
+
+/** A PR listing handed to the branch stage instead of a host call. */
+export type BranchStagePrs =
+  | { kind: 'listed'; listing: CarriedPrStates }
+  | { kind: 'unread' };
 
 /** One branch of one plan, with every reading the branch rule takes. */
 export interface BranchReading {
@@ -117,6 +130,9 @@ const rank = (pr: Pr): number => (pr.state === 'OPEN' ? 0 : pr.mergedAt !== null
  * named commits' containment in the default branch go to {@link Refs.containsMany}
  * in one call. An `unknown` answer proves nothing.
  *
+ * A PR LISTING THE CALLER HOLDS REPLACES THE HOST CALL. With `input.prs`
+ * the stage calls no `Host.prList`; see {@link BranchStageInput.prs}.
+ *
  * `conflicts` has no port operation yet and is not read here.
  *
  * @param refs - the ref reader.
@@ -143,29 +159,46 @@ export const readBranchReadings = async (
   const originAnswer = await refs.remoteUrl('origin');
   const origin = originAnswer.ok ? originAnswer.value : '';
 
-  const list = await host.prList('all', PR_LIST_LIMIT);
   let hostReach: HostReach = 'ok';
   let prListComplete = false;
-  const prByBranch = new Map<string, Pr>();
-  if (list.ok) {
-    prListComplete = list.value.length > 0 && list.value.length < PR_LIST_LIMIT;
-    for (const pr of list.value) {
-      const held = prByBranch.get(pr.head);
-      if (held === undefined || rank(pr) < rank(held)) prByBranch.set(pr.head, pr);
-    }
+  let listed = false;
+  let heldPr: (branch: string) => PrReading | undefined = () => undefined;
+  if (input.prs?.kind === 'listed') {
+    const { states, complete } = input.prs.listing;
+    listed = true;
+    prListComplete = complete;
+    heldPr = (branch) => {
+      const key = encodeListingKey(branch);
+      const state = key === null ? undefined : states.get(key);
+      if (state === undefined) return undefined;
+      return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : 'unreadable';
+    };
+  } else if (input.prs?.kind === 'unread') {
+    hostReach = 'failed';
   } else {
-    const refusal = host.lastRefusal();
-    hostReach = reachOfRefusal(refusal?.kind ?? null, refusal?.said ?? '');
-  }
-  const prFor = (branch: string): PrReading => {
-    const held = prByBranch.get(branch);
-    if (held !== undefined) {
+    const list = await host.prList('all', PR_LIST_LIMIT);
+    const prByBranch = new Map<string, Pr>();
+    if (list.ok) {
+      listed = true;
+      prListComplete = list.value.length > 0 && list.value.length < PR_LIST_LIMIT;
+      for (const pr of list.value) {
+        const held = prByBranch.get(pr.head);
+        if (held === undefined || rank(pr) < rank(held)) prByBranch.set(pr.head, pr);
+      }
+    } else {
+      const refusal = host.lastRefusal();
+      hostReach = reachOfRefusal(refusal?.kind ?? null, refusal?.said ?? '');
+    }
+    heldPr = (branch) => {
+      const held = prByBranch.get(branch);
+      if (held === undefined) return undefined;
       if (held.state === 'OPEN') return 'OPEN';
       if (held.mergedAt !== null) return 'MERGED';
       return held.state === 'CLOSED' || held.state === 'MERGED' ? 'CLOSED' : 'unreadable';
-    }
-    return list.ok && prListComplete ? 'none' : 'unreadable';
-  };
+    };
+  }
+  const prFor = (branch: string): PrReading =>
+    heldPr(branch) ?? (listed && prListComplete ? 'none' : 'unreadable');
 
   const merges = await refs.mergeSubjects(mainRef, MERGE_WALK);
   if (!merges.ok) return failed<BranchStageReadings>();

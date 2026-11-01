@@ -9,7 +9,7 @@ import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import { readBranchReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
+import { readBranchReadings, type BranchStagePrs } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
@@ -17,7 +17,7 @@ import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
 import {
-  foldScanListing, parseScanListingRows, renderScanListing, scanListingWindowFor,
+  foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
@@ -647,11 +647,16 @@ const shortSha = async (refs: Refs, ref: string): Promise<string> => {
  * carried in the reading as `fetch_failed` and does not stop the walk. Every
  * read is cold: no stage's answer is kept between beats.
  *
+ * Reads PR states from `listing` and never calls `Host.prList`. A listing that
+ * {@link readCarriedPrStates} refuses, the empty one included, reads every PR
+ * as `unreadable` with `hostReach` `failed`.
+ *
  * @param world - what the walk reads through.
+ * @param listing - the rendered PR listing the scan carries, or `''` where none is held.
  * @returns the pulse.
  * @throws where a stage fails or the assembled document is not a pulse.
  */
-export const walkOnce = async (world: ScanWorld): Promise<FleetReading> => {
+export const walkOnce = async (world: ScanWorld, listing: string): Promise<FleetReading> => {
   const { scripts, refs, walk } = world;
   const cfg = async (key: string, fallback: string): Promise<string> => {
     const answer = await scripts.config(key, fallback);
@@ -675,11 +680,13 @@ export const walkOnce = async (world: ScanWorld): Promise<FleetReading> => {
   const readRef = await shortSha(refs, `origin/${mainBranch}`);
   const localHead = await shortSha(refs, 'HEAD');
 
+  const carried = readCarriedPrStates(listing);
+  const prs: BranchStagePrs = carried === null ? { kind: 'unread' } : { kind: 'listed', listing: carried };
   const estate = await readEstate(refs, walk.plans(`origin/${mainBranch}`, planDir), {
     mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   });
   const branches = estate.ok
-    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir })
+    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs })
     : estate;
   const desks = branches.ok
     ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
@@ -822,11 +829,13 @@ export const scanOnce = async (
 
   // THE WALK RUNS IN THIS PROCESS. A failure or an exhausted budget throws, so
   // `writeScan` never runs for the beat and the bridge keeps its last good write.
+  // The walk reads PR states from `state.listing` and asks the host nothing, so
+  // the listing read above is the beat's only host spend and the back-off holds.
   // The back-off below is settled either way: it concerns the listing read above,
   // not the walk.
   let parsed: FleetReading;
   try {
-    parsed = await withinBudget(walkOnce(world), FLEET_SCAN_BUDGET_MS);
+    parsed = await withinBudget(walkOnce(world, state.listing), FLEET_SCAN_BUDGET_MS);
   } finally {
     // A SPEND ATTEMPT THAT DID NOT ADOPT THROUGH THE HOST REFUSED. Both
     // backends read their listing host-side. A reused or backed-off pass spent

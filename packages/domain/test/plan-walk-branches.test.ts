@@ -8,6 +8,7 @@ import type { Host } from '../src/ports/host.js';
 import type { Refs } from '../src/ports/refs.js';
 import type { PlanRecordBranch } from '../src/ports/plan-store.js';
 import { branchState } from '../src/rules/branch-state.js';
+import { readCarriedPrStates } from '../src/rules/scan-listing.js';
 import { readBranchReadings, type BranchStageInput } from '../src/workflows/plan-walk-branches.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
 
@@ -260,5 +261,64 @@ describe('readBranchReadings — how a host list is read', () => {
   it('reads a merged-state PR with no mergedAt as closed', async () => {
     const host = hostFixture({ backend: 'github', prs: [pr('feature/z', 'MERGED', null)] });
     expect((await read(world(), host, line('feature/z'))).branches[0]!.readings.pr).toBe('CLOSED');
+  });
+});
+
+describe('readBranchReadings — a listing the caller holds replaces the host list', () => {
+  const counting = () => {
+    const calls = { prList: 0 };
+    const host: Host = {
+      ...hostFixture({ backend: 'github' }),
+      prList: async () => {
+        calls.prList += 1;
+        return failed();
+      },
+    };
+    return { host, calls };
+  };
+  const LISTING = [
+    'feature_open\tOPEN\tpassing\tfalse',
+    'feature_gone\tMERGED\t-\t-',
+    'feature_shut\tCLOSED\t-\t-',
+    'feature_odd\tWEIRD\t-\t-',
+    'feature_snake__case\tMERGED\t-\t-',
+    '.branches\t5\t-\t-',
+  ].join('\n');
+  const lines = ['feature/open', 'feature/gone', 'feature/shut', 'feature/odd', 'feature/snake_case', 'feature/absent'].map((b) => line(b));
+
+  const readWith = async (host: Host, prs: BranchStageInput['prs']) => {
+    const answer = await readBranchReadings(world(), host, estateOf(...lines), { ...INPUT, prs });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return answer.value.branches.map((b) => b.readings);
+  };
+
+  it('answers every branch from a complete listing and never asks the host', async () => {
+    const { host, calls } = counting();
+    const listing = readCarriedPrStates(`${LISTING}\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n`)!;
+    const readings = await readWith(host, { kind: 'listed', listing });
+    expect(calls.prList).toBe(0);
+    expect(readings.map((r) => r.pr)).toEqual(['OPEN', 'MERGED', 'CLOSED', 'unreadable', 'MERGED', 'none']);
+    expect(readings.every((r) => r.hostReach === 'ok' && r.prListComplete)).toBe(true);
+  });
+
+  it('reads a branch absent from an incomplete listing as unreadable, not none', async () => {
+    const { host, calls } = counting();
+    const listing = readCarriedPrStates(`${LISTING}\n.list-arrived\t1\t-\t-\n`)!;
+    const readings = await readWith(host, { kind: 'listed', listing });
+    expect(calls.prList).toBe(0);
+    expect(readings.at(-1)).toMatchObject({ pr: 'unreadable', prListComplete: false, hostReach: 'ok' });
+  });
+
+  it('reads every PR as unreadable with a failed reach where no listing is held, and never asks the host', async () => {
+    const { host, calls } = counting();
+    const readings = await readWith(host, { kind: 'unread' });
+    expect(calls.prList).toBe(0);
+    expect(readings.every((r) => r.pr === 'unreadable' && r.hostReach === 'failed')).toBe(true);
+  });
+
+  it('asks the host where no listing is handed in', async () => {
+    const { host, calls } = counting();
+    await readWith(host, undefined);
+    expect(calls.prList).toBe(1);
   });
 });

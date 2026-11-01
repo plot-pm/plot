@@ -152,6 +152,39 @@ export const renderScanListing = (rows: readonly ScanListingRow[], complete: boo
   return lines.join('');
 };
 
+/** A rendered listing read back: each branch key's PR state, and whether the listing is whole. */
+export interface CarriedPrStates {
+  /** The PR state word per branch, keyed by {@link encodeListingKey}. */
+  states: ReadonlyMap<string, string>;
+  /** Whether the listing carried `.list-complete`. */
+  complete: boolean;
+}
+
+/**
+ * Reads a listing that {@link renderScanListing} wrote back into PR states,
+ * as `plot-fleet-scan.sh`'s `carried_listing` reads it.
+ *
+ * Skips every dotted key and every line with an empty state. Where two lines
+ * name one key, the later line wins.
+ *
+ * @param listing - the rendered listing, one `key<TAB>state<TAB>checks<TAB>draft` line per branch.
+ * @returns the states and completeness, or null where the listing is empty or
+ *   carries no `.list-arrived` line.
+ */
+export const readCarriedPrStates = (listing: string): CarriedPrStates | null => {
+  const states = new Map<string, string>();
+  let arrived = false;
+  let complete = false;
+  for (const line of listing.split('\n')) {
+    const [key = '', state = ''] = line.split('\t');
+    if (key === '') continue;
+    if (key === '.list-arrived') arrived = true;
+    else if (key === '.list-complete') complete = true;
+    else if (!key.startsWith('.') && state !== '') states.set(key, state);
+  }
+  return arrived ? { states, complete } : null;
+};
+
 /** One host answer to one `pr-list` call, read for the fold below. */
 export interface ScanListingAnswer {
   /** Whether the call succeeded, and whether it claimed its page whole. */
