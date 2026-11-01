@@ -414,17 +414,15 @@ fi
 # walk until the removal slice deletes it. A bare `<slug>` answers as `--json` scoped to that plan. The domain walk hands the five machine modes (`--json`, `--next`,
 # `--list-eligible`, `--why-nothing`, `--slice-names`) to `plot-scan-walk.mjs`,
 # which runs the estate, branch, desk and assembly stages and decides with the
-# domain's rules. Prose, `--loose` and `--stream` stay here; `--log-pulse` goes only
-# under `PLOT_LOG_PULSE_WALK=domain`, as it prints no wave report.
+# domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here, the last unless `PLOT_LOG_PULSE_WALK=domain`.
 # `--offline` still asks the host on the offer modes, as above. A scan whose
 # `origin/<main>` does not resolve stays here: the estate stage has no
 # working-tree fallback and the shell does. The node call is not `exec`ed:
 # the scan's EXIT trap must remove its temp registry.
 READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
-lp_shell=$log_pulse; [ "${PLOT_LOG_PULSE_WALK:-}" = domain ] && lp_shell=0
-[[ "${PLOT_SCAN_WALK:-domain}$loose$stream$lp_shell" != domain000 || "$slice_names$why_nothing$next_only$as_json$slug$log_pulse" = 00000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json$log_pulse" "$slug" "$MAIN" \
-  "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR" "$(git rev-parse --show-toplevel 2>/dev/null)"; exit $?; }
+[[ ( "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain000 && "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse${PLOT_LOG_PULSE_WALK:-}" != domain001domain ) || "$slice_names$why_nothing$next_only$as_json$slug$log_pulse" = 00000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json$log_pulse" "$slug" "$MAIN" \
+  "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"; exit $?; }
 
 # ---------------------------------------------------------------------------
 # Merged-and-deleted branches: the evidence that survives the ref
