@@ -1,0 +1,61 @@
+# Testability juror — a-plan-that-joins-a-sprint (#3000, issue #2999)
+
+Position: amend
+
+The motivation is true and measured: at `1be47ec3c` (the parent of the fix `a9d743627`), 3 of the 15 members of `2026-W44-delivery-loop.md` named no sprint, and the two commits that added them (`b1df72cf1`, `fc06f0678`) changed only the sprint file. Through the testability lens, the plan cannot be built or proven as written: `### Approach` is an empty comment, `## Slices` holds one placeholder line, and there is no test table. The three required behaviours from #2999 are provable, and this estate already has the right fixtures. These are a pure domain rule, the `state-gate.test.mjs` contract harness, and four real commits that make the old and the new code disagree. But the gate as the Changelog states it ("refuses a sprint file whose member plan names no sprint or a different one") fails on 11 of the 25 sprint files on `origin/main` today, and behaviour 3 has no stated rule that a test could assert. The plan needs amendments, not rejection.
+
+## Findings
+
+1. **high — No Approach, slices or test table, so no behaviour has a test that could fail.** Evidence: plan file `### Approach` (only the template comment), `## Slices` (`feature/a-plan-that-joins-a-sprint — <description>`). Checked: read the plan at `.worktrees/plot-idea-issue-2999/docs/plans/2026-11-01-a-plan-that-joins-a-sprint.md`. The plan names no rule, no entry point, no test file and no fixture. A reader cannot say which assertion proves behaviours 1, 2 or 3.
+
+2. **high — The gate as written refuses 11 of the 25 existing sprint files (77 member rows).** Evidence: a read-only measurement over `git archive origin/main docs/sprints docs/plans` (script `scratchpad/juror-testability-3000/measure.mjs`). Of 446 member rows, 353 agree, 17 have an empty `Sprint:`, 23 have no `Sprint:` line, 37 name another sprint, and 16 name no plan. The disagreeing files are W34 (2), W35 (2), W36 (3), W38, W39 `plot-works-in-the-repos-that-adopt-it` (21 rows), W42 and W43 `follow-ups-2-28-3`. All 11 are `Closed`. The one `Active` sprint (W44) has 0 disagreements. So a gate scoped to sprints that are not `Closed`, or to members a commit ADDS, has zero false refusals today. A whole-estate gate refuses on day one. The brief's "40-plus sprints" is also wrong: there are 25.
+
+3. **high — Behaviour 3 (remove or defer) has no rule, so no test can be written for it.** Evidence: issue #2999 "Required behaviour" 3; the plan's third Open Question is unanswered. Evidence that a rule is needed: `packages/domain/src/entities/plan.ts:212` says "a plan has at most one" sprint, and 37 rows name another sprint because a plan was carried into a later sprint (for example, 13 W39 Must Haves now name `a-refusal-names-what-it-cannot-see` or `a-declared-agent-costs-what-it-costs`). The close flow moves unfinished Musts to `### Deferred` and carries them forward (`skills/plot-sprint/SKILL.md:655`, `:745`). So "a plan in two sprints" is the normal case after a carry-over, and the plan does not name it.
+
+4. **medium — Two readers already disagree on whether a struck item is a member, and the plan does not choose.** Evidence: `packages/domain/src/entities/sprint.ts:95` `MEMBER_LINE` accepts `~~[slug]` (a struck item is a member). `plot-reconcile-scan.sh` member regex (around line 1745, `^-\ \[(\ |x)\]\ \[`) does not match `~~[` (a struck item is not a member). `packages/domain/src/rules/sprint-scope.ts` `STRUCK_SLUG` reads a struck item as out of scope. 5 struck items exist across 4 sprint files. The gate's tests must fix one answer. A unit test with a struck member whose plan names no sprint makes the two readings disagree.
+
+5. **medium — A commit-time gate on any staged sprint-file change would refuse delivery commits.** Evidence: `d1c9e7eeb plot: deliver a-red-default-branch-is-repaired` changes `docs/sprints/2026-W44-delivery-loop.md` (it ticks the item). `plot-sprint-state.sh` writes the `State:` line of a sprint file on close. If the gate reads every member of a staged sprint file, a delivery or a close of a sprint that already holds drift is refused. The gate must refuse only what the commit introduces (a member added, or a plan's `Sprint:` changed). A contract test with pre-existing drift plus a tick commit proves that the gate lets it pass.
+
+6. **medium — The factual claim "only the creation flow writes the field" is half right.** Evidence: `skills/plot-sprint/SKILL.md:781` (Scope Change, "If plan-backed (`[slug]`), update the plan's Sprint field") is a second prose instruction, in addition to `:337-342` (step 6; the plan cites `336-342`, the heading is at 337). The finding stands — both are prose and no script writes either — but the Motivation should say that the scope-change flow already asks for the write and was not followed. No script writes a sprint member line or a Scope Changes line: `plot-sprint-state.sh` (182 lines) writes only `State:` through `plot-sprint-transition.mjs`.
+
+7. **medium — The reverse direction is out of scope but not named, and this plan is an example of it.** Evidence: the plan's own `- **Sprint:** delivery-loop`, while `2026-W44-delivery-loop.md` does not list `a-plan-that-joins-a-sprint` (grep count 0). The measurement finds 58 plans whose `Sprint:` names a sprint that does not list them (`scratchpad/juror-testability-3000/reverse.mjs`). Behaviour 1 says one command writes both halves. The plan's own creation wrote one half. The Changelog must say whether a plan-only commit that sets or changes `Sprint:` is in the gate's scope. If it is not, a test must assert that it passes, so that the scope is explicit.
+
+8. **low — Slug canonicalisation is a case that a test must cover.** Evidence: `docs/plans/2026-08-29-the-board-shows-stories.md:9` reads `- **Sprint:** 2026-W36-the-board-shows-the-strategic-layer` (the file name, not the slug). The reconcile scan compares the raw field with the stripped slug and reports a mismatch. The gate's rule needs one stated canonical form and a unit test for the prefixed form.
+
+9. **low — No mutation tooling exists, so "the gate can be mutation-tested" must be a named manual step.** Evidence: `git grep -i stryker origin/main` finds nothing. The estate's practice is a manual mutation in a test comment (`test/reconcile/budget-rotation.test.mjs:251-254`). A gate whose decision is a pure domain rule can be mutated by hand: replace the refusal with `allow` and run the replay contract test. The plan must name that step in its test table.
+
+10. **low — The proof fixtures already exist, and the plan does not use them.** Evidence: `test/reconcile/state-gate.test.mjs` (fixture repo, hook JSON on stdin, exit code and stderr asserted), `test/reconcile/replay-state-gate.test.mjs`, `packages/board/src/server/entry/gate.ts:300` (`stateGate`, the shape a second gate in the same `plot-gate.mjs` bundle follows), and `packages/domain/test/sprint-line.test.ts`. Four real commits form a disagreement fixture: `b1df72cf1` and `fc06f0678` must be refused, while `ab0ab107b` (it adds `the-bundle-gate-refuses-the-repair`, whose plan already named the sprint) and `d1c9e7eeb` (a delivery tick) must pass. The current code lets all four pass. The new code refuses exactly two.
+
+## Amendments I require
+
+A1. Fill `### Approach` with the shape this estate already uses for a gate. Use one pure domain rule in `packages/domain/src/rules/` (arrow functions, TSDoc without history), for example `sprintMembershipRefusal(before: string | null, after: string, plans: (slug) => string | null, sprintSlug) → refusal | null`. Reach it through `plot-gate.mjs` as a second gate beside `state`, and through a `scripts/check-sprint-membership.sh` launcher in CI. Use no new decision in shell, because `check-shell-lines.sh` ratchets shell lines.
+
+A2. State the gate's scope as "what this commit introduces": a member line added to a sprint whose `State:` is not `Closed`, or a plan's `Sprint:` line changed while a non-closed sprint lists it. State that a tick, a close and a commit to a closed sprint are not refused.
+
+A3. Answer Open Question 3 with a rule a test can assert (my recommendation is under Open questions). Name a struck item (`~~[slug]~~`) explicitly, and say which of the two existing readers the gate agrees with.
+
+A4. Add a test table that names, for each behaviour, one domain unit test and one contract test, with the fixture that makes the old and new code disagree. At minimum include these rows:
+- R1 writer: a unit test asserts that `joinSprint(sprintText, planText, {slug, tier, date, reason})` returns both texts with the member line, the Scope Changes line and `- **Sprint:** <slug>`. A contract test runs the command in a fixture repo and asserts that `git show --stat HEAD` lists both files in one commit. The test also asserts that the resulting commit passes the new gate.
+- R1 writer refusals: the command refuses a slug with no plan, and it refuses a plan that already names a different non-closed sprint. Each refusal names the slug and the sprint.
+- R2 gate: replay `b1df72cf1` and `fc06f0678` against their parents. Each is refused, and stderr names the plan and `- **Sprint:** delivery-loop`. `ab0ab107b` and `d1c9e7eeb` pass.
+- R2 gate: unit rows for an empty field, no line, another sprint, the prefixed form `2026-W36-…`, a struck member, a Deferred member, a member with no plan (it passes, as reconcile section 9 does), and pre-existing drift in a tick commit (it passes).
+- R2 estate: the CI check over `origin/main` today reports 0 refusals. That is a measured row, not a hope, after A2 limits the scope.
+- R3 remove or defer: unit rows for the rule chosen in A3.
+
+A5. Add a named manual mutation step to the test table. Replace the rule's refusal with `null` and confirm that the two replay rows fail, then restore. Record the result in the PR body, in the way `budget-rotation.test.mjs:251` records one.
+
+A6. Split into slices with dependencies: slice 1 is the domain rule, its unit tests and the CI check. Slice 2 is the commit-time gate entry and its contract tests (depends on 1). Slice 3 is the writer bundle, the `/plot-sprint` add, remove and defer flows calling it, and the edits to `SKILL.md:337-342` and `:781` (depends on 1). Each slice is one branch.
+
+A7. Correct Motivation finding 6 (the scope-change flow at `SKILL.md:781` already asks for the write), and state the reverse direction (finding 7) as out of scope or in scope, with a test either way.
+
+## Optional
+
+- Fill this plan's own Status half-truth: either add `a-plan-that-joins-a-sprint` to W44 through the writer when it exists, or leave `Sprint:` empty until then.
+- Reconcile sections 10 and 11 could read the same domain rule later, which would make the scan and the gate one implementation. A corpus test is the alternative if the shell keeps its own copy. That is not needed for this plan.
+- A one-off backfill of the 11 closed sprints is not needed. Reconcile already reports them, and A2 keeps the gate away from them.
+
+## Open questions
+
+- **Writer: a new action on `plot-sprint-state.sh`, a domain rule behind a bundle, or a board controller endpoint?** A domain rule behind a bundle (`plot-sprint-join.mjs` or similar), callable with no board, in the way `plot-approve.mjs` and `plot-needs-design.mjs` are. `plot-sprint-state.sh` owns the `State:` write, and adding membership to it mixes two writes and adds shell lines against the ratchet. A board endpoint can be added later over the same rule. Only a pure rule gives a unit test with no fixture repo.
+- **Gate: at commit time, in CI, or both?** Both, over one rule. The commit-time gate stops the master agent's hand edit (the measured failure), and the CI check catches a commit made with no hook. With the A2 scope, both refuse 0 of today's files, and both are proven by the same replay fixture.
+- **Does a plan in Deferred keep the sprint's name?** Yes, while no later sprint lists it: `itemsFrom` and the reconcile scan already count a Deferred line as a member, so clearing the field would create the drift the gate refuses. When a later sprint takes the plan, the writer sets the new sprint's name, and the older sprint is exempt because it is `Closed` (A2). A struck item (`~~[slug]~~`) is a removal: the writer clears the field unless another non-closed sprint lists the plan.

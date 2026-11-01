@@ -1,0 +1,1 @@
+../2026-11-01-a-plan-that-joins-a-sprint.md
