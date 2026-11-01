@@ -332,10 +332,9 @@ plot_process_candidates() {
         r = art_end(p, "/board/plot-fleetd.mjs", 0)
         r2 = art_end(p, "/board/plot-registryd.mjs", 0)
         if (!r || (r2 && r2 < r)) r = r2
-        w = art_end(p, "/board/plot-scan-walk.mjs", 0)
         if (b && (!r || b < r)) { kind = "board"; e = b }
         else if (r) { kind = "supervisor"; e = r }
-        else if (w) { kind = "scan"; e = w }
+        else if ((e = art_end(p, "/board/plot-scan-walk.mjs", 0))) kind = "scan"
       } else if ((e = art_end(p, "plot-fleet-scan.sh", 1))) kind = "scan"
       if (kind == "") next
       print "C\t" h[1] "\t" h[2] "\t" h[3] "\t" kind "\t" (index(argv0, " ") ? argv0 : "-") "\t" substr(p, 1, e)
