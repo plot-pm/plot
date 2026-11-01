@@ -9,7 +9,7 @@ import { planStoreShell } from '../src/adapters/plan-store/plan-store-shell.js';
 import { planStoreFixture, planRecord } from '../src/adapters/plan-store/plan-store-fixture.js';
 import { refsFixture } from '../src/adapters/refs/refs-fixture.js';
 import { shellContext } from '../src/adapters/scripts.js';
-import { failed, isAnswered } from '../src/port-result.js';
+import { answered, failed, isAnswered } from '../src/port-result.js';
 import type { Refs, TreeBlob } from '../src/ports/refs.js';
 import { estatePlans } from '../src/rules/plan-walk-estate.js';
 import { readEstate, type EstateInput } from '../src/workflows/plan-walk-estate.js';
@@ -162,6 +162,19 @@ describe('readEstate — one snapshot, parsed by object name', () => {
     expect(isAnswered(empty) && empty.value.plans).toEqual([]);
     const unlistable = { ...planStoreFixture(), listDir: async () => failed<readonly string[]>() };
     expect((await readEstate(refs, store, INPUT, unlistable)).ok).toBe(false);
+  });
+
+  it('adds the trailing slash to the plan directory and fails where the checkout\'s plans cannot be read', async () => {
+    const refs = world({ shas: {} });
+    const store = planStoreRef(refs, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
+    const listed: string[] = [];
+    const unreadable = {
+      ...planStoreFixture(),
+      listDir: async (dir: string) => (listed.push(dir), answered<readonly string[]>(['a.md'])),
+      readPlans: async () => failed<never>(),
+    };
+    expect((await readEstate(refs, store, { ...INPUT, planDir: 'docs/plans' }, unreadable as never)).ok).toBe(false);
+    expect(listed).toEqual(['docs/plans/']);
   });
 
   it('reads origin/main and not the checkout where the default branch resolves', async () => {
