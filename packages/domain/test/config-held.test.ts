@@ -87,14 +87,19 @@ describe('scriptsConfigCached', () => {
   it('sees a same-size rewrite within the same mtime tick', async () => {
     const dir = repoDir();
     const claude = path.join(dir, 'CLAUDE.md');
-    // One fixed Date applied to both writes, so mtimeMs is bit-for-bit equal
-    // rather than merely close -- utimesSync truncates sub-millisecond
-    // precision, so two Date.now()-based timestamps can differ by a fraction
-    // of a millisecond and accidentally distinguish the stamp regardless of
-    // whether ino is part of it.
+    // Two independently-created files, hard-linked to the target path in
+    // turn: linking guarantees ino differs (two files can never share an
+    // inode), where rmSync + writeFileSync on one path would rely on the
+    // filesystem not recycling the freed inode immediately -- a coincidence
+    // this test saw fail under Linux's inode allocator in CI.
     const when = new Date('2026-01-01T00:00:00.000Z');
-    fs.writeFileSync(claude, '# aaaa');
-    fs.utimesSync(claude, when, when);
+    const first = path.join(dir, 'first.md');
+    const second = path.join(dir, 'second.md');
+    fs.writeFileSync(first, '# aaaa');
+    fs.writeFileSync(second, '# bbbb');
+    fs.utimesSync(first, when, when);
+    fs.utimesSync(second, when, when);
+    fs.linkSync(first, claude);
     const { scripts, calls } = countingScripts(() => answered('value'));
     const cached = scriptsConfigCached(scripts, dir);
 
@@ -102,8 +107,7 @@ describe('scriptsConfigCached', () => {
     // Same byte length, same mtime, different ino: a new inode is the only
     // ingredient left to distinguish the rewrite from the file it replaced.
     fs.rmSync(claude);
-    fs.writeFileSync(claude, '# bbbb');
-    fs.utimesSync(claude, when, when);
+    fs.linkSync(second, claude);
     await cached.config('Key', 'fallback');
 
     expect(calls.count).toBe(2);

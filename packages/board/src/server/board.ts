@@ -300,11 +300,17 @@ export const treesFor = (opts: BuildBoardOptions): Trees =>
 /**
  * The config reader for these options — the caller's, or this repository's.
  *
+ * An injected {@link BuildBoardOptions.planStore} keeps its OWN `config` —
+ * a fixture that stubs `planStore` to control config reads must still be
+ * heard, so only the real `planStoreShell` has its `config` replaced by the
+ * shared cached reader.
+ *
  * @param opts - where to read, and optionally what to read through.
  * @returns the injected store, or one backed by `plot-config.sh`.
  */
 export const planStoreFor = (opts: BuildBoardOptions): PlanStore => {
-  const store = opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  if (opts.planStore) return opts.planStore;
+  const store = planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   return {
     ...store,
     config: (key, fallback) => configFor(opts).config(key, fallback),
