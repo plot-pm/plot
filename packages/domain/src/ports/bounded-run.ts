@@ -23,6 +23,14 @@ import type { PortResult } from '../port-result.js';
  * very thing being bounded. The descendants are read through `Processes`
  * BEFORE the root dies: once it is gone they have reparented to pid 1 and a
  * read taken then finds none of them (`_kill_tree`, `plot-worker-loop.sh:2054`).
+ *
+ * **A RUN NEVER SWALLOWS AN ENDING SIGNAL SENT TO ITS CALLER.** A SIGTERM,
+ * SIGINT or SIGHUP that reaches the caller in the same event-loop turn as the
+ * run's child ending still ends the caller — the adapter installs one
+ * listener per signal for the whole process, on the first run, and never
+ * removes it; removing the last listener for a signal stops Node's signal
+ * watcher, and a signal already queued at the OS level is dropped rather than
+ * delivered to a handler that is no longer there.
  */
 export interface BoundedRun {
   /**

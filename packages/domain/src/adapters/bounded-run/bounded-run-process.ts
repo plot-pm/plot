@@ -73,13 +73,47 @@ export const killTreeSync = (pid: number): void => {
 const ENDING_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'] as const;
 
 /**
- * Exits the caller with the conventional code for `signal`. The `'exit'`
- * listener of every live run then kills that run's tree.
+ * How many runs are live right now, module-wide. The signal listener below
+ * reads this count rather than a per-run flag, because the listener itself is
+ * installed once for the whole process and outlives any single run.
+ */
+let liveRuns = 0;
+
+/**
+ * Handles an ending signal for the whole process. Installed once per signal,
+ * on the first run, and never removed — removing the last listener for a
+ * signal stops Node's signal watcher, and a signal already queued at that
+ * instant is dropped rather than delivered.
+ *
+ * With a live run, kills every run's tree exactly as before (the `'exit'`
+ * listener each run installed does that) and exits. With no live run, a
+ * caller that installed its own listener for this signal gets to act alone —
+ * this handler returns. With no live run and no other listener, this handler
+ * still exits with the signal's conventional code, so the process ends the
+ * way it would have with no adapter installed at all.
  *
  * @param signal - the signal received.
  */
 const exitOnSignal = (signal: (typeof ENDING_SIGNALS)[number]): void => {
-  process.exit(128 + constants.signals[signal]);
+  if (liveRuns > 0 || process.listenerCount(signal) <= 1) {
+    process.exit(128 + constants.signals[signal]);
+  }
+};
+
+/** Whether this process already carries the one persistent listener per ending signal. */
+let listenersInstalled = false;
+
+/**
+ * Installs the one persistent listener per ending signal, the first time any run starts.
+ *
+ * The listener goes FIRST in the list: Node removes a `once` listener before it
+ * runs, so a handler that ran after a caller's `once` listener would count that
+ * listener as already gone and exit over it.
+ */
+const ensureListeners = (): void => {
+  if (listenersInstalled) return;
+  listenersInstalled = true;
+  for (const signal of ENDING_SIGNALS) process.prependListener(signal, exitOnSignal);
 };
 
 /**
@@ -134,14 +168,20 @@ export const boundedRunProcess = (processes: Processes): BoundedRun => ({
       process.once('exit', onCallerExit);
       // A SIGNAL ENDS THE CALLER THROUGH `process.exit`, so the `'exit'`
       // listener above kills the tree on SIGTERM, SIGINT and SIGHUP too.
-      for (const signal of ENDING_SIGNALS) process.on(signal, exitOnSignal);
+      // The signal listener itself is process-wide and installed once — see
+      // `ensureListeners`.
+      ensureListeners();
+      liveRuns += 1;
 
       const finish = (result: PortResult<BoundedRunResult>): void => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         process.removeListener('exit', onCallerExit);
-        for (const signal of ENDING_SIGNALS) process.removeListener(signal, exitOnSignal);
+        // NO SIGNAL LISTENER REMOVAL HERE. Only the live-run count drops —
+        // removing the process-wide listener would stop Node's signal
+        // watcher and drop a signal already queued at the OS level.
+        liveRuns -= 1;
         try {
           closeSync(out);
         } catch {
