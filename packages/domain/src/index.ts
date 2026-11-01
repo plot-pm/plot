@@ -84,6 +84,7 @@ export * from './rules/create-from-issue.js';
 export * from './rules/story-lane.js';
 export * from './rules/card-controls.js';
 export * from './rules/plan-link-click.js';
+export * from './rules/plan-reference.js';
 export * from './rules/pulse.js';
 export * from './rules/verdict.js';
 export * from './rules/restart-offer.js';
