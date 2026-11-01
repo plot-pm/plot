@@ -110,7 +110,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Pulse log
 
-- `feature/the-pulse-log-runs-the-walk` — `--log-pulse` runs the walk and keeps its bridge write and its pulse line in each reported plan's `## Notes` <!-- waits: feature/the-scan-modes-run-the-walk -->
+- `feature/the-pulse-log-runs-the-walk` — `--log-pulse` runs the walk and keeps its bridge write and its pulse line in each reported plan's `## Notes` <!-- waits: feature/the-scan-modes-run-the-walk --> → #3004
 
 ### Removal
 
