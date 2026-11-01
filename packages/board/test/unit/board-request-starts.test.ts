@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { gateContractFile } from '@plot-pm/domain/adapters';
+import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -98,6 +100,26 @@ const scriptsWithSilentHost = (): string => {
   return dir;
 };
 
+/**
+ * A gate reader that reads no plugin registry: an empty registry directory and
+ * a fixture gate that answers `1`. Each call builds a fresh adapter, as
+ * `gateContractFor` does when the board is handed none, so the warm request
+ * starts the gate exactly as production does on any machine.
+ */
+const fixtureGate = (): { dir: string; reader: GateContractReader } => {
+  const dir = tmp('plot-board-starts-gate-');
+  const gatePath = path.join(dir, 'plot-gate.mjs');
+  fs.writeFileSync(gatePath, 'console.log(1);\n');
+  const options = { pluginRoot: tmp('plot-board-starts-plugins-'), repoGatePath: gatePath };
+  return {
+    dir,
+    reader: {
+      resolve: (repoRoot) => gateContractFile(options).resolve(repoRoot),
+      spawnContract: (gate) => gateContractFile(options).spawnContract(gate),
+    },
+  };
+};
+
 /** A git estate: three Delivered plans on main and one draft plan on its own branch. */
 const estateRepo = (): string => {
   const home = tmp('plot-board-starts-home-');
@@ -138,15 +160,15 @@ afterEach(() => {
 
 /**
  * One start without the machine it ran on: the scripts directory, the repo and
- * the gate bundle's install path become placeholders. `/private` is the
- * resolved form macOS gives a temp directory.
+ * the fixture gate's directory become placeholders. `/private` is the resolved
+ * form macOS gives a temp directory.
  */
 const normalise = (line: string, roots: Record<string, string>): string => {
   let out = line;
   for (const [name, value] of Object.entries(roots)) {
     out = out.split(`/private${value}`).join(`<${name}>`).split(value).join(`<${name}>`);
   }
-  return out.replace(/node \S*\/plot-gate\.mjs/, 'node <gate>/plot-gate.mjs');
+  return out;
 };
 
 /**
@@ -200,7 +222,8 @@ const WARM_STARTS: readonly string[] = [
 describe('a warm /api/board request', () => {
   it('starts exactly the processes listed', async () => {
     const repoRoot = estateRepo();
-    const opts = { repoRoot, scriptsDir: scriptsWithSilentHost() };
+    const gate = fixtureGate();
+    const opts = { repoRoot, scriptsDir: scriptsWithSilentHost(), gateContract: gate.reader };
     const estate = realEstate(opts);
     // Pinned, so the 5 s and 60 s holds in `serverInfo` do not expire between
     // the two calls.
@@ -233,7 +256,7 @@ describe('a warm /api/board request', () => {
     expect(warm.length, `warm call is not warmer than cold:\n${cold.join('\n')}`).toBeLessThan(cold.length);
     // Sorted: concurrent reads start in an order the scheduler chooses, and the
     // claim is which starts happen, each as often as listed.
-    const seen = warm.map((l) => normalise(l, { scripts: opts.scriptsDir, repo: opts.repoRoot })).sort();
+    const seen = warm.map((l) => normalise(l, { scripts: opts.scriptsDir, repo: opts.repoRoot, gate: gate.dir })).sort();
     expect(seen, `warm request starts:\n${seen.join('\n')}`).toEqual([...WARM_STARTS].sort());
   });
 
