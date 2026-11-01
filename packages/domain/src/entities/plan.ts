@@ -209,7 +209,7 @@ export interface Plan {
   review: string;
   /** The story it belongs to, or `''` — a plan has at most one. */
   story: string;
-  /** The sprint it is a member of, or `''` — a plan has at most one. */
+  /** The sprint its `Sprint:` field names (the sprint `sprintOfPlan` answers), or `''` — a plan has at most one. */
   sprint: string;
   /** Its slices, in the order the file declares them. */
   slices: readonly Slice[];

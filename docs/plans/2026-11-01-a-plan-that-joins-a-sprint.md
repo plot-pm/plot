@@ -12,6 +12,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/sprint-membership-is-one-rule`
 - **Started:** 2026-11-01, Jan Wloka, `feature/approve-and-deliver-find-the-sprint-by-rule`
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-plan-joins-a-sprint-through-one-command`
+- **Started:** 2026-11-01, Jan Wloka, `feature/a-sprint-member-names-its-sprint`
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
@@ -131,11 +132,11 @@ Replayed over every non-merge commit on `origin/main` from 2026-10-01 to 68fde7a
 
 ### Writer
 
-- `feature/a-plan-joins-a-sprint-through-one-command` — `packages/domain/src/transitions/sprint-member.ts` and its test `packages/domain/test/sprint-member.test.ts`; the entry `packages/board/src/server/entry/sprint-member.ts` with its unit test; the bundle wiring in `packages/board/build.mjs` and `packages/board/src/contract/bundles.generated.ts`; a row for `board/plot-sprint-member.mjs` in `skills/plot/scripts/README.md`; `skills/plot-sprint/SKILL.md` step 6, Scope Change, close and carry-over call the writer, with its Model Guidance table; the comments at `packages/board/src/contract/schema.ts:2620-2625`, `packages/board/src/app/lib/filters.ts:124-130` and `packages/domain/src/entities/plan.ts:212`; the comment at `skills/plot/scripts/plot-reconcile-scan.sh:1688-1690` ("a script writing one would be inventing it") reworded with no added line; a changeset that bumps `plot-sprint`. <!-- waits: feature/sprint-membership-is-one-rule --> <!-- builds: plot-sprint-member.mjs add, defer and remove -->
+- `feature/a-plan-joins-a-sprint-through-one-command` — `packages/domain/src/transitions/sprint-member.ts` and its test `packages/domain/test/sprint-member.test.ts`; the entry `packages/board/src/server/entry/sprint-member.ts` with its unit test; the bundle wiring in `packages/board/build.mjs` and `packages/board/src/contract/bundles.generated.ts`; a row for `board/plot-sprint-member.mjs` in `skills/plot/scripts/README.md`; `skills/plot-sprint/SKILL.md` step 6, Scope Change, close and carry-over call the writer, with its Model Guidance table; the comments at `packages/board/src/contract/schema.ts:2620-2625`, `packages/board/src/app/lib/filters.ts:124-130` and `packages/domain/src/entities/plan.ts:212`; the comment at `skills/plot/scripts/plot-reconcile-scan.sh:1688-1690` ("a script writing one would be inventing it") reworded with no added line; a changeset that bumps `plot-sprint`. <!-- waits: feature/sprint-membership-is-one-rule --> <!-- builds: plot-sprint-member.mjs add, defer and remove --> → #3013
 
 ### Gate
 
-- `feature/a-sprint-member-names-its-sprint` — `packages/domain/src/rules/sprint-member-gate.ts` and `packages/domain/test/sprint-member-gate.test.ts`; the `sprint-member` row in `GATES` (`packages/board/src/server/entry/gate.ts`); the `check` verb of `plot-sprint-member.mjs`; `scripts/check-sprint-members.sh` and its PR-only step in `.github/workflows/ci.yml`; the contract test `test/reconcile/sprint-member-gate.test.mjs`, which replays the four real commits through the hook. The gate waits on the writer so that its refusal names a command that exists. <!-- waits: feature/sprint-membership-is-one-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: sprint-member gate -->
+- `feature/a-sprint-member-names-its-sprint` — `packages/domain/src/rules/sprint-member-gate.ts` and `packages/domain/test/sprint-member-gate.test.ts`; the `sprint-member` row in `GATES` (`packages/board/src/server/entry/gate.ts`); the `check` verb of `plot-sprint-member.mjs`; `scripts/check-sprint-members.sh` and its PR-only step in `.github/workflows/ci.yml`; the contract test `test/reconcile/sprint-member-gate.test.mjs`, which replays the four real commits through the hook. The gate waits on the writer so that its refusal names a command that exists. <!-- waits: feature/sprint-membership-is-one-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: sprint-member gate --> → #3021
 
 ### Repair
 

@@ -448,7 +448,7 @@ export function BranchMenu({
   onTaken?: () => void;
   continueWith?: DispatchInfo;
   restartWith?: DispatchInfo;
-  onOpenPlan?: (planFile: string) => boolean | void;
+  onOpenPlan?: (planFile: string) => boolean;
   onRevealBranch?: (branch: string) => void;
 }) {
   const [logOpen, setLogOpen] = useState(false);
@@ -474,7 +474,7 @@ export function BranchMenu({
           onClose={() => setLogOpen(false)}
           canContinue={continueWith}
           canRestart={restartWith}
-          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+          onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
       )}

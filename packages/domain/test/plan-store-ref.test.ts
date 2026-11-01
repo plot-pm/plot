@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { spawn } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { planStoreRef } from '../src/adapters/plan-store/plan-store-ref.js';
 import { refsFixture } from '../src/adapters/refs/refs-fixture.js';
 import { shellContext } from '../src/adapters/scripts.js';
@@ -171,4 +176,48 @@ describe('planStoreRef — readPlansAt reads by object name and passes the confi
     );
     expect(records.ok).toBe(false);
   });
+});
+
+describe('planStoreRef — a SIGTERM during the parse leaves no stage directory', () => {
+  it('removes plot-plan-store-ref-* when the process is killed while the parser runs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-ref-term-'));
+    const tmp = join(root, 'tmp');
+    const scripts = join(root, 'scripts');
+    const ready = join(root, 'ready');
+    mkdirSync(tmp);
+    mkdirSync(scripts);
+    // A parser that reports it started and then waits: the process is killed mid-parse.
+    writeFileSync(join(scripts, 'plot-plan-meta.sh'), `#!/bin/bash\ntouch ${JSON.stringify(ready)}\nsleep 30\n`);
+    chmodSync(join(scripts, 'plot-plan-meta.sh'), 0o755);
+    const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
+    const source = [
+      `const { removeStageDirsOnSignal } = await import(${JSON.stringify(here('../src/adapters/stage-dirs.ts'))});`,
+      `const { planStoreRef } = await import(${JSON.stringify(here('../src/adapters/plan-store/plan-store-ref.ts'))});`,
+      `const { refsFixture } = await import(${JSON.stringify(here('../src/adapters/refs/refs-fixture.ts'))});`,
+      'removeStageDirsOnSignal();',
+      "const refs = refsFixture({ shas: { 'origin/main': 'deadbeef' }, trees: { 'origin/main': [{ mode: '100644', sha: 's', path: 'docs/plans/a.md' }] }, blobs: { s: '# A\\n' } });",
+      `const store = planStoreRef(refs, { repoRoot: ${JSON.stringify(root)}, scriptDir: ${JSON.stringify(scripts)} }, 'origin/main', 'docs/plans');`,
+      "await store.readPlans(['docs/plans/a.md']);",
+    ].join('\n');
+    const proc = spawn(process.execPath, ['--experimental-strip-types', '--import', here('./fixtures/ts-strip-loader.mjs'), '--input-type=module', '-e', source], {
+      env: { ...process.env, TMPDIR: tmp },
+      stdio: 'ignore',
+    });
+    const ended = new Promise<{ signal: NodeJS.Signals | null }>((resolve) => proc.once('exit', (_c, signal) => resolve({ signal })));
+    try {
+      const started = Date.now();
+      while (!existsSync(ready) && Date.now() - started < 20_000) await new Promise((r) => setTimeout(r, 20));
+      expect(existsSync(ready), 'the parser never started').toBe(true);
+      expect(readdirSync(tmp).some((n) => n.startsWith('plot-plan-store-ref-')), 'no stage directory while the parser runs').toBe(true);
+      proc.kill('SIGTERM');
+      const timer = setTimeout(() => proc.kill('SIGKILL'), 15_000);
+      const result = await ended;
+      clearTimeout(timer);
+      expect(result.signal).toBe('SIGTERM');
+      expect(readdirSync(tmp), 'the stage directory survived the SIGTERM').toEqual([]);
+    } finally {
+      proc.kill('SIGKILL');
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 40_000);
 });

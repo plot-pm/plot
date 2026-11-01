@@ -1,11 +1,11 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import type { PlanBlobRef, PlanRecord, PlanStore } from '../../ports/plan-store.js';
 import type { Refs } from '../../ports/refs.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { asJsonLines, runProcess, resultOf } from '../run-script.js';
+import { makeStageDir, removeStageDir } from '../stage-dirs.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { planOf, planStoreShell, prefixArgs, statusField, type RawPlan } from './plan-store-shell.js';
 
@@ -110,7 +110,7 @@ export const planStoreRef = (
     // Staged to a scratch directory, numbered so two plans sharing a basename
     // (one under `active/`, one under `delivered/`) cannot collide, the way
     // `board.ts` stages ref-read plans before its own one parser spawn.
-    const stageDir = mkdtempSync(join(tmpdir(), 'plot-plan-store-ref-'));
+    const stageDir = makeStageDir('plot-plan-store-ref-');
     try {
       const staged: { stagedPath: string; file: string }[] = [];
       const rejectedByStagedPath = new Map<string, string>();
@@ -147,7 +147,7 @@ export const planStoreRef = (
       });
       return records.length === staged.length ? answered(records) : failed<readonly PlanRecord[]>();
     } finally {
-      rmSync(stageDir, { recursive: true, force: true });
+      removeStageDir(stageDir);
     }
   };
 

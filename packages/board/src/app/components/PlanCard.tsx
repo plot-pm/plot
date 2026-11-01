@@ -2,8 +2,8 @@ import type { MouseEvent } from 'react';
 import type { Card, DispatchInfo, StoryCard } from '../../contract/schema.js';
 import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
-import { planHref, storyHref } from '../lib/plan.js';
-import { checksVerdict } from '@plot-pm/domain';
+import { checksVerdict, planReference, planRoute, type PlanIndex } from '@plot-pm/domain';
+import { storyHref } from '../lib/plan.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { SPIKE_CARD_TEXT } from '@plot-pm/domain/rules/spike-confirm';
 import { ApproveButton } from './ApproveButton.js';
@@ -11,6 +11,9 @@ import { InterrogateButton } from './InterrogateButton.js';
 
 // Colour only ever REPEATS what the column header already says in symbol and
 // word — it must not be the sole carrier of the human/agent distinction.
+/** The card carries its own file, slug and issues, so its reference needs no index. */
+const NO_INDEX: PlanIndex = new Map();
+
 const PHASE_ACCENT: Record<string, string> = {
   neutral: 'border-l-slate-300',
   Discovery: 'border-l-sky-400',
@@ -340,7 +343,11 @@ export function PlanCard({
   onOpenStory,
   highlighted = false,
 }: PlanCardProps) {
-  const href = planHref(card);
+  const href = planRoute(card.path);
+  // The heading prints the plan's tracker keys before its title; the rule
+  // decides the prefix, this only renders it.
+  const { issues } = planReference({ file: card.path, slug: card.slug, issues: card.issues }, NO_INDEX);
+  const issuePrefix = issues.length > 0 ? `${issues.join(', ')}: ` : '';
   // The story's own page, or "" — a story with no file gets no link, the same
   // rule plan rows follow for `planFile: ''`.
   const storyPage = story ? storyHref(story) : '';
@@ -369,8 +376,8 @@ export function PlanCard({
         highlighted && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-950',
       )}
     >
-      <div className="text-sm font-medium leading-snug text-slate-900 dark:text-slate-100">
-        {card.title}
+      <div data-plan-ref className="text-sm font-medium leading-snug text-slate-900 dark:text-slate-100">
+        {issuePrefix}{card.title}
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {card.typeLabel ? (

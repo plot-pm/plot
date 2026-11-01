@@ -57,6 +57,7 @@ import {
   approverOf,
   sprintGoal,
   type Detached,
+  planRouteOfDocLink,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
@@ -82,7 +83,7 @@ import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/proce
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
-import { makeStageDir, removeStageDir } from './stage-dirs.js';
+import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 import {
   readConfig as readConfigReader,
   readConfigAsync as readConfigAsyncReader,
@@ -3169,35 +3170,11 @@ export interface RenderPlanOptions {
  * the shell is a second place for the front-matter strip or the titlebar to
  * drift. `fallbackTitle` is used only when the document has no `# ` heading.
  */
-/**
- * Transform relative plan/story links to absolute board routes.
- *
- * Story files contain links like `[plan](../../plans/2026-08-16-slug.md)` —
- * these break when rendered at `/story/...` because:
- * 1. The relative path doesn't resolve correctly in the browser
- * 2. The filename may include a date prefix that doesn't match the actual file
- *
- * This extracts the slug from the filename and rewrites to `/plan/<slug>.md`.
- */
-function rewritePlanLinks(href: string): string {
-  // Match relative paths to plans (with optional date prefix in filename)
-  const planMatch = href.match(/(?:\.\.\/)*plans\/(?:\d{4}-\d{2}-\d{2}-)?([^/]+\.md)$/);
-  if (planMatch) {
-    return `/plan/${planMatch[1]}`;
-  }
-  // Match relative paths to stories
-  const storyMatch = href.match(/(?:\.\.\/)*stories\/([^/]+)\/STORY-[^/]+\.md$/);
-  if (storyMatch) {
-    return `/story/${storyMatch[1]}`;
-  }
-  return href;
-}
-
 function renderMarkdownPage(md: string, fallbackTitle: string, embed: boolean): string {
   let body = marked.parse(stripFrontMatter(md), { async: false }) as string;
   // Post-process HTML to rewrite relative plan/story links to absolute routes
   body = body.replace(/href="([^"]+)"/g, (match, href) => {
-    const rewritten = rewritePlanLinks(href);
+    const rewritten = planRouteOfDocLink(href);
     return rewritten !== href ? `href="${rewritten}"` : match;
   });
   const heading = md.match(/^#\s+(.+)$/m);

@@ -1,5 +1,6 @@
 import { useState, type MouseEvent } from 'react';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
+import { planIndexOf, planReference, type PlanIndex } from '@plot-pm/domain';
 import {
   type AgentRow,
   type WaitingOn,
@@ -26,6 +27,9 @@ import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../compone
 import { cn } from '../utils.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
 import { type BriefNote, briefGapNote, briefNote, needsBrief, waitingTone } from './row-identity.js';
+
+/** An index with no entries — a plan reference still links from its own file. */
+const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 // THE DOMAIN'S OWN DISCRIMINATOR, not a re-read of the field. `identity ===
 // 'manifest'` is a rule with a test beside it in
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
@@ -191,6 +195,19 @@ export interface AgentListProps {
    */
   planFileForSlug?: (slug: string) => string;
   /**
+   * The board's own Planning cards — the source `AgentList` builds its
+   * `planIndex` from, alongside the fleet's draft plans. Absent before the
+   * board's first payload.
+   */
+  cards?: readonly Card[];
+  /**
+   * The board's plan index — every card and draft plan, keyed by file basename
+   * and by slug — built once by the caller and threaded to every row builder
+   * that names a plan. Absent before the board's first payload, which resolves
+   * nothing: a reference still links from its own file (`planReference`).
+   */
+  planIndex?: PlanIndex;
+  /**
    * Whether this server will act on Start work, and why not. Absent where the
    * board has not said — no button renders at all, rather than one whose
    * outcome is unknown. Same rule `PlanCard` follows.
@@ -350,15 +367,21 @@ export interface AgentListProps {
  * A real anchor, so cmd/ctrl/shift/middle-click open natively and only a plain
  * primary click is intercepted. `onOpenPlan` returns false where the board has
  * no matching card, and the navigation then proceeds — the honest fallback.
+ *
+ * The href comes from `planReference`, the same resolution every other plan
+ * site in this module uses — a reference carrying its own `planFile` links
+ * from it at once, with no wait on `planIndex`.
  */
 export function PlanLink({
   plan,
   planFile,
   onOpenPlan,
+  planIndex = EMPTY_PLAN_INDEX,
 }: {
   plan: string;
   planFile: string;
   onOpenPlan?: AgentListProps['onOpenPlan'];
+  planIndex?: PlanIndex;
 }) {
   const handle = (e: MouseEvent<HTMLAnchorElement>) => {
     if (!onOpenPlan) return;
@@ -366,12 +389,12 @@ export function PlanLink({
     if (!onOpenPlan(planFile)) return;
     e.preventDefault();
   };
-  if (!planFile) return <>{plan}</>;
+  const answer = planReference({ file: planFile || undefined, slug: plan || undefined }, planIndex);
+  if (!answer.href) return <>{plan}</>;
   return (
     <a
-      href={`/plan/${encodeURIComponent(planFile)}`}
+      href={answer.href}
       onClick={handle}
-      target={onOpenPlan ? undefined : '_blank'}
       rel="noreferrer"
       className="text-blue-600 hover:underline dark:text-blue-400"
     >
@@ -489,6 +512,7 @@ export function PlanRow({
   soleSlice,
   dispatch,
   onStarting,
+  planIndex,
 }: {
   group: PlanGroup;
   /**
@@ -580,6 +604,8 @@ export function PlanRow({
   pulse?: number;
   /** A Start-work click became outstanding (true) or settled (false). */
   onStarting?: (active: boolean) => void;
+  /** The board's plan index — see `AgentListProps.planIndex`. */
+  planIndex?: PlanIndex;
 }) {
   const waiting = planWaitingDays(group);
   // THE SECTION'S OWN SLICES, then how many are ELSEWHERE. `sliceSummaryFor` counts
@@ -662,7 +688,7 @@ export function PlanRow({
           // group that does not say how much it hides. The plan's OWN row is
           // not one of the things it heads, so it is excluded from the count.
           rowCount: group.rows.filter((r) => r.kind !== 'plan').length,
-        });
+        }, planIndex);
         // The BRANCH clock overrides the approval one where the caller has it and
         // the approval clock is absent — see `ageMinutes`. Unlabelled, because
         // *since last change* is the rule and this is a change.
@@ -971,6 +997,7 @@ export function SliceRow({
   planHeaded = false,
   slices,
   onExpandSection,
+  planIndex,
 }: {
   group: SliceGroup;
   /** The plan this slice slices — for the row's test hook, not for a link. */
@@ -1045,7 +1072,7 @@ export function SliceRow({
   soleRow?: AgentRow;
   continueWith?: DispatchInfo;
   restartWith?: DispatchInfo;
-  onOpenPlan?: (planFile: string) => boolean | void;
+  onOpenPlan?: (planFile: string) => boolean;
   onRevealBranch?: (branch: string) => void;
   /**
    * Whether a PLAN ROW heads this slice's group — set by the caller, which is the
@@ -1057,6 +1084,8 @@ export function SliceRow({
    * that name and wrapped to double height.
    */
   planHeaded?: boolean;
+  /** The board's plan index — see `AgentListProps.planIndex`. */
+  planIndex?: PlanIndex;
 }) {
   const foldable = expanded !== null;
   // The slice's own age is the freshest of its branches — a slice has no tip, so
@@ -1230,7 +1259,7 @@ export function SliceRow({
         ).length,
         ageMinutes: ages.length ? Math.min(...ages) : null,
         waitingDays,
-      })}
+      }, planIndex)}
       rowAttr={{
         'data-slice-row': group.wave || UNNAMED_SLICE,
         // A SPIKE says so as an attribute too, so a test asserts the KIND of slice
@@ -1683,6 +1712,7 @@ export function Row({
   showSprintSlug = false,
   onRevealBranch,
   highlighted = false,
+  planIndex,
 }: {
   row: AgentRow;
   /**
@@ -1786,6 +1816,8 @@ export function Row({
    * it renders. The section knows which question it is asking; the row does not.
    */
   section?: WaitingGroup;
+  /** The board's plan index — see `AgentListProps.planIndex`. */
+  planIndex?: PlanIndex;
 }) {
   // What the note still has to say once slot 5 carries the PR's own condition —
   // see `noteWithoutPr`. IN THE MACHINE SECTION THE SENTENCE IS THE PROCESS'S.
@@ -1897,7 +1929,7 @@ export function Row({
   // reason: a PR carries a condition of its own, reported by the host, that no
   // verdict computed from ordering can express.
   const sliceStatesIt = inSliceGroup && row.pr === null;
-  const base = tupleFromRow(row, agent);
+  const base = tupleFromRow(row, agent, planIndex);
   // THE AGE GOES WITH THE STATUS, and for one reason rather than two: inside a
   // slice's fold, the SLICE is the subject and the branch is its content.
   //
@@ -2303,7 +2335,7 @@ export function Row({
               canRestart={restartWith}
               // BRANCH and PLAN in the panel become destinations. `onOpenPlan`
               // returns whether it opened a card; the panel discards that.
-              onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+              onOpenPlan={onOpenPlan}
               onRevealBranch={onRevealBranch}
             />
           )}
@@ -2380,6 +2412,7 @@ export function RegistryRow({
   active = false,
   onRevealBranch,
   highlighted = false,
+  planIndex,
 }: {
   /** The agent registry entry — the source of truth for a WORKING row. */
   agent: AgentEntry;
@@ -2422,6 +2455,8 @@ export function RegistryRow({
   onRevealBranch?: AgentListProps['onRevealBranch'];
   /** This row is the branch just revealed from an agent panel. */
   highlighted?: boolean;
+  /** The board's plan index — see `AgentListProps.planIndex`. */
+  planIndex?: PlanIndex;
 }) {
   const [logOpen, setLogOpen] = useState(false);
 
@@ -2508,7 +2543,7 @@ export function RegistryRow({
   // UNJOINED shape states only the registry's facts — worktree then branch, and
   // now the SLICE where one was found.
   const base = row
-    ? tupleFromRow({ ...row, kind: 'agent' }, agent)
+    ? tupleFromRow({ ...row, kind: 'agent' }, agent, planIndex)
     : {
         kind: 'agent' as const,
         kindLabel: KIND_LABEL.agent,
@@ -2707,7 +2742,7 @@ export function RegistryRow({
           onClose={() => setLogOpen(false)}
           canContinue={continueWith}
           canRestart={restartWith}
-          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+          onOpenPlan={onOpenPlan}
           onRevealBranch={onRevealBranch}
         />
       )}

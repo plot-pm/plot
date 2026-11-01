@@ -4,12 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3006
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3008 merged
 - **Started:** 2026-11-01, Jan Wloka, `bug/a-stopped-process-leaves-no-plan-stage-directory`
+- **Started:** 2026-11-01, Jan Wloka, `bug/the-continuation-tests-remove-desks-after-the-last-write`
+- **Delivered:** 2026-11-01
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
@@ -100,7 +102,7 @@ Mutation check for the Plan stage slice: revert `parseBlobs` to a raw `mkdtempSy
 
 ### Continuation desks
 
-- `bug/the-continuation-tests-remove-desks-after-the-last-write` — `packages/fleet/test/unit/continuation.test.ts` only: the fleetd caller case injects a fake `spawn`; the pid-start-time case waits for the reporter's `WorkerMonitor` line and removes its desks with `removeTree`; every `afterEach` removes all recorded directories before it throws; the new reporter case. No production change and no changeset.
+- `bug/the-continuation-tests-remove-desks-after-the-last-write` — `packages/fleet/test/unit/continuation.test.ts` only: the fleetd caller case injects a fake `spawn`; the pid-start-time case waits for the reporter's `WorkerMonitor` line and removes its desks with `removeTree`; every `afterEach` removes all recorded directories before it throws; the new reporter case. No production change and no changeset. → #3014
 
 ## Notes
 

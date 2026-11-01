@@ -85,7 +85,7 @@ import {
   writeMineOnly,
   writeMineStrict,
 } from '../lib/agent-rows/mine-filter.js';
-import { mineMode } from '@plot-pm/domain';
+import { mineMode, planIndexOf } from '@plot-pm/domain';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, planGroupShape, sliceGroupsFor, slicesElsewhere, sliceKeyOf, headSliceNames } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
@@ -336,6 +336,7 @@ export function AgentList({
   onOpenPlan,
   cardForPlanFile,
   planFileForSlug,
+  cards,
   dispatch,
   approve,
   reslice,
@@ -355,6 +356,14 @@ export function AgentList({
   checkoutClean,
   spawnContract,
 }: AgentListProps) {
+  // THE BOARD'S PLAN INDEX — every card and draft plan, keyed by file
+  // basename and by slug, built once here and threaded to every row builder
+  // that names a plan. `cards` is the board's own Planning cards; drafts come
+  // from the fleet payload `AgentList` already reads.
+  const planIndex = useMemo(
+    () => planIndexOf({ cards: cards ?? [], drafts: fleet?.draftPlans ?? [] }),
+    [cards, fleet?.draftPlans],
+  );
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
   const stale = staleSeconds !== null;
@@ -1589,6 +1598,7 @@ export function AgentList({
                         active={row ? active.has(rowKey(row)) : false}
                         onRevealBranch={onRevealBranch}
                         highlighted={agent.branch !== '' && agent.branch === highlightBranch}
+                        planIndex={planIndex}
                       />
                     ))}
                     {/* THE FLEET'S OWN RUNNING VERIFY RUNS — a plan, a sentence,
@@ -1600,6 +1610,7 @@ export function AgentList({
                         row={row}
                         planFile={planFileOf(row.plan)}
                         onOpenPlan={onOpenPlan}
+                        planIndex={planIndex}
                       />
                     ))}
                   </>
@@ -1798,6 +1809,7 @@ export function AgentList({
                           // …and the slice row's *Start work* rides here too,
                           // dispatching that one slice.
                           onStarting={onStarting}
+                          planIndex={planIndex}
                         />
                         {/* The branches, folded. Removed from the tree rather
                             than hidden with CSS, the same as the section fold:
@@ -1899,6 +1911,7 @@ export function AgentList({
                                     onStarting={onStarting}
                                     slices={slices}
                                     onExpandSection={expandSection}
+                                    planIndex={planIndex}
                                   />
                                   {/* The branches of a MULTI-branch slice, folded
                                       and indented again — the same `ml-6` and the
@@ -1944,6 +1957,7 @@ export function AgentList({
                                           onRevealBranch={onRevealBranch}
                                           highlighted={r.branch === highlightBranch}
                                           showSprintSlug={showSprintSlug}
+                                          planIndex={planIndex}
                                         />
                                       ))}
                                     </ul>
@@ -1976,6 +1990,7 @@ export function AgentList({
                                 onRevealBranch={onRevealBranch}
                                 highlighted={r.branch === highlightBranch}
                                 showSprintSlug={showSprintSlug}
+                                planIndex={planIndex}
                               />
                             ))}
                           </ul>
@@ -2134,6 +2149,7 @@ export function AgentList({
                         // …and the slice row's *Start work* rides here too,
                         // dispatching that one slice.
                         onStarting={onStarting}
+                        planIndex={planIndex}
                       />
                     )}
                     {headed && !planHeads && (
@@ -2163,6 +2179,7 @@ export function AgentList({
                           plan={group.plan}
                           planFile={group.planFile}
                           onOpenPlan={onOpenPlan}
+                          planIndex={planIndex}
                         />
                         <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-600">
                           ({group.rows.length})
@@ -2301,6 +2318,7 @@ export function AgentList({
                               planHeaded={planHeads}
                               slices={slices}
                               onExpandSection={expandSection}
+                              planIndex={planIndex}
                             />
                             {many && sliceOpen && (
                               <ul
@@ -2329,6 +2347,7 @@ export function AgentList({
                                     onRevealBranch={onRevealBranch}
                                     highlighted={r.branch === highlightBranch}
                                     showSprintSlug={showSprintSlug}
+                                    planIndex={planIndex}
                                   />
                                 ))}
                               </ul>
@@ -2384,6 +2403,7 @@ export function AgentList({
                             planHeaded={planHeads}
                             slices={slices}
                             onExpandSection={expandSection}
+                            planIndex={planIndex}
                           />
                         ) : (
                         <Row
@@ -2453,6 +2473,7 @@ export function AgentList({
                           onRevealBranch={onRevealBranch}
                           highlighted={r.branch === highlightBranch}
                           showSprintSlug={showSprintSlug}
+                          planIndex={planIndex}
                         />
                         )
                       )}
@@ -2556,7 +2577,7 @@ export function AgentList({
                 />
               ))}
               {drafts.map((draft) => (
-                <DraftPlanRowView key={`draft-${draft.plan}`} draft={draft} onOpenPlan={onOpenPlan} />
+                <DraftPlanRowView key={`draft-${draft.plan}`} draft={draft} onOpenPlan={onOpenPlan} planIndex={planIndex} />
               ))}
               {/* THE FLEET'S OWN FAILED VERIFY RUNS — a plan, a sentence, no
                   branch, the same non-branch shape a draft plan takes. Rendered
@@ -2568,6 +2589,7 @@ export function AgentList({
                   row={row}
                   planFile={planFileOf(row.plan)}
                   onOpenPlan={onOpenPlan}
+                  planIndex={planIndex}
                 />
               ))}
               {/* THE BROKEN AGENTS — `stalled` and `unknown` — as problem reports.
@@ -2594,6 +2616,7 @@ export function AgentList({
                   active={row ? active.has(rowKey(row)) : false}
                   onRevealBranch={onRevealBranch}
                   highlighted={agent.branch !== '' && agent.branch === highlightBranch}
+                  planIndex={planIndex}
                 />
               ))}
               {/* A RELEASED FREE DESK'S NOTE — the entry `broken` above would
@@ -2619,6 +2642,7 @@ export function AgentList({
                   active={row ? active.has(rowKey(row)) : false}
                   onRevealBranch={onRevealBranch}
                   highlighted={agent.branch !== '' && agent.branch === highlightBranch}
+                  planIndex={planIndex}
                 />
               ))}
               {/* AN OUTAGE IS NOT AN ANSWER. A failed issue lookup says so, in

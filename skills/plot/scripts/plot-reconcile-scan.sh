@@ -1686,8 +1686,8 @@ echo
 # that is section 9.
 #
 # NOTHING HERE IS BACKFILLED AUTOMATICALLY. The `Sprint:` field is a claim about
-# intent, and a script writing one would be inventing it; the `backfill:` line
-# is copy-paste text a person runs.
+# intent, written by `plot-sprint-member.mjs add`; the `backfill:` line is
+# copy-paste text a person runs.
 #
 # NONE OF THE THREE GATES, and that is deliberate: /plot-deliver's
 # delivery-landed gate and the /plot hygiene line both read `attention=` from

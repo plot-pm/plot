@@ -501,6 +501,21 @@ export type {
 } from './transitions/sprint.js';
 
 export {
+  addSprintMember,
+  deferSprintMember,
+  removeSprintMember,
+} from './transitions/sprint-member.js';
+export type {
+  SprintMemberTier,
+  SprintMemberRefusalReason,
+  SprintMemberRefusal,
+  SprintMemberNoop,
+  SprintMemberWrite,
+  SprintMemberResult,
+  SprintMemberContext,
+} from './transitions/sprint-member.js';
+
+export {
   observeReleaseState,
   releaseStateObservable,
   RELEASE_LIFECYCLE,

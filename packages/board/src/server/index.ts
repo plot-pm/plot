@@ -4,44 +4,41 @@ import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
-import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, storyTopicInput, startBundleFor, type BuildBoardOptions } from './board.js';
-import { issuesClosedReading, planRefAgeSeconds, ticketLaneData } from './fleet.js';
-import { discoveryLanes } from './discovery-lanes.js';
-import { extractTopics } from './topics.js';
-import { boardState, fleetState } from './controllers/fleet-state.js';
-import { boardQueryFor, estateFromEnv } from './estate.js';
+import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, startBundleFor, type BuildBoardOptions } from './board.js';
+import { issuesClosedReading } from './fleet.js';
+import { fleetState } from './controllers/fleet-state.js';
+import { boardAnswer } from './controllers/board-answer.js';
+import { estateFromEnv } from './estate.js';
 import { bindNext, type BindListen } from './bind-chain.js';
 // THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
 // sdk` start from this process, so only `board-server.mjs` carries the SDK.
 import './sdk-runner.js';
 import { buildAttention } from './attention.js';
-import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
+import { dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
 import { agentLogDir, isUnderAgentLogDir, migrateAgentLogs, primeWorktreeRoot } from './agent-log.js';
-import { continueAvailability, handleContinue } from './continue.js';
-import { handleRestart, restartAvailability } from './restart.js';
+import { handleContinue } from './continue.js';
+import { handleRestart } from './restart.js';
 import { handleClaim } from './claim.js';
 import { handleFleetSettings } from './fleet-settings.js';
 import { handleTransition } from './transition.js';
 import { refuseIfGated } from './write-gate.js';
 import { agentPanel } from './agent-panel.js';
 import { workerLog } from './worker-log.js';
-import { serverInfo } from './server-info.js';
 import { exitWhenIdle, exitWithParent } from './lifetime.js';
-import { removeStageDirsOnExit } from './stage-dirs.js';
+import { removeStageDirsOnSignal } from '@plot-pm/domain/adapters/stage-dirs';
 import {
-  approveAvailability,
   approveStatus,
   handleApprove,
 } from './approve.js';
 import { handleRelease, releaseStatus } from './release.js';
 import { handleNeedsDesign } from './needs-design.js';
-import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
-import { handleStory, storyAvailability, storyStatus } from './story.js';
-import { handleInterrogate, interrogateAvailability, interrogateStatus } from './interrogate.js';
-import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
-import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
-import { handleImplement, implementAvailability, implementStatus } from './implement.js';
-import { dropAvailability, handleDrop } from './drop.js';
+import { handleIdea, ideaStatus } from './idea.js';
+import { handleStory, storyStatus } from './story.js';
+import { handleInterrogate, interrogateStatus } from './interrogate.js';
+import { handleReslice, resliceStatus } from './reslice.js';
+import { handleDeliver, deliverStatus } from './deliver.js';
+import { handleImplement, implementStatus } from './implement.js';
+import { handleDrop } from './drop.js';
 import { handleReleaseClaim } from './release-claim.js';
 import { startEventHub } from './channel-events.js';
 import { logDir, processLog, truncateInherited } from '@plot-pm/fleet/shared/process-log';
@@ -461,71 +458,7 @@ async function handleRequest(
 
   if (url.pathname === '/api/board') {
     try {
-      // Whether Start work will act is a fact about this SERVER's binding, not
-      // about any plan, so it is attached here — where the binding is known —
-      // rather than threaded through the plan walker. `server` rides along for
-      // the same reason and needs the same fact: how to start this board again
-      // and where it listens, carried on the last successful poll so the page
-      // still holds it once nothing is answering.
-      // PARSE, CALL, ENRICH, SERIALISE — and the estate reading is all in the
-      // call. `boardState` is the controller: it answers *what is on the
-      // board*, and it does so with no `host`, no port and no request, which
-      // is what lets the master agent ask the same question.
-      //
-      // WHAT STAYS HERE IS WHAT ONLY THIS CALLER KNOWS. `server` is transport
-      // knowledge — which port did this process bind, and how would you start
-      // it again — and the capability flags below are the same kind of fact
-      // wearing a lifecycle name: every one of them answers *did this request
-      // come from this machine?*, which is meaningless to a caller that never
-      // made a request. A controller returning them would have to invent a
-      // binding for the master agent, so they enrich rather than descend.
-      //
-      // They stay TEN separate fields rather than one. Today every flag gives
-      // the same answer; one flag serving several capabilities is precisely
-      // how they diverge when a later change makes only one of them local.
-      const built = await boardState(boardQueryFor(opts, estate));
-      // The SAME cache `discoveryLanes` reads from, asked once here and once
-      // there: a raw read, before `ticketLanes` groups it into Open/In
-      // progress/Done, because the topic cloud wants every tracker row's
-      // `number`/`title` and does not care which lane it fell in. Null where
-      // `discoveryLanes` would also find no cache — `boardState`'s topics
-      // (stories only, no tickets) stand in, same as its `tickets: null`.
-      const ticketData = await ticketLaneData(opts);
-      const board = {
-        ...built,
-        // The fleet's own cache, not `built.planSource`: the ref and its age
-        // come from the same read, but `boardState` has no reason to depend on
-        // `fleet.ts`'s cache for a field it never otherwise needs.
-        planRefAgeSeconds: planRefAgeSeconds(opts),
-        dispatch: dispatchAvailability(HOST),
-        server: await serverInfo(opts, boundPort),
-        approve: approveAvailability(HOST),
-        continue: continueAvailability(HOST),
-        restart: restartAvailability(HOST),
-        idea: ideaAvailability(HOST),
-        interrogate: interrogateAvailability(HOST, opts),
-        reslice: resliceAvailability(HOST),
-        deliver: deliverAvailability(HOST),
-        implement: implementAvailability(HOST),
-        drop: dropAvailability(HOST),
-        story: storyAvailability(HOST),
-        // D7's Discovery lanes. `archived` reflects the TAB'S own toggle, read
-        // off this request's query string — not `?released=1`, which Planning
-        // owns. Computed here rather than inside `boardState`: the cache
-        // `ticketLaneData` reads lives in `fleet.ts`, and `boardState` has no
-        // dependency on it today.
-        ...(await discoveryLanes(opts, built, url.searchParams.get('archived') === '1')),
-        // Recomputed with tickets folded in, for the same reason `tickets`
-        // itself is: `boardState`'s own `topics` (above, spread first) saw
-        // stories alone. A topic found only in ticket titles — no story, no
-        // plan — still needs a chip, which `boardState` cannot supply.
-        ...(ticketData && {
-          topics: extractTopics(
-            built.stories.map((s) => storyTopicInput(s)),
-            [...ticketData.open, ...ticketData.closed].map((t) => ({ number: t.number, title: t.title })),
-          ),
-        }),
-      };
+      const board = await boardAnswer(opts, estate, HOST, boundPort, url.searchParams.get('archived') === '1');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
     } catch (err) {
@@ -1052,7 +985,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 exitWithParent();
 
 // A build interrupted by a signal or an exit leaves no stage directory behind.
-removeStageDirsOnExit();
+removeStageDirsOnSignal();
 
 /**
  * The second half of the same gate: a launcher that is ALIVE but hung leaves

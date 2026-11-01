@@ -105,7 +105,7 @@ export interface WorkerLogModalProps {
    * Optional: a panel rendered somewhere without the board's navigation leaves
    * PLAN as plain text rather than a dead button.
    */
-  onOpenPlan?: (planFile: string) => void;
+  onOpenPlan?: (planFile: string) => boolean;
   /**
    * Reveal this branch's fleet row — the panel's BRANCH fact's destination.
    *

@@ -3395,7 +3395,6 @@ describe("a row's actions all live in its menu", () => {
   const ROW_NAVIGATION = [
     'data-branch',
     'data-pr-link',
-    'href={`/plan/',
     // THE TUPLE'S ONE ANCHOR, and it is the same allowance stated once instead
     // of per component. `TupleLinkView` renders every linked name on every kind
     // — a PR's number, a plan's slug, a branch's name — through ONE `<a>` whose
