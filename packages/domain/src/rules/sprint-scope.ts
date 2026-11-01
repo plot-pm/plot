@@ -34,7 +34,7 @@ const STRUCK_SLUG = /^- \[( |x)\] ~~\[([a-z0-9][a-z0-9-]*)\]/;
  * @param content - the whole sprint file.
  * @returns each struck slug, deduplicated.
  */
-const struckSlugs = (content: string): ReadonlySet<string> =>
+export const struckSlugs = (content: string): ReadonlySet<string> =>
   new Set(
     content
       .split('\n')
