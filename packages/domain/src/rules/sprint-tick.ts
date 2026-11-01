@@ -1,3 +1,5 @@
+import { memberLineIndex } from './sprint-membership.js';
+
 /**
  * Ticks a sprint item's checkbox: `[ ]` → `[x]` on the line naming `[<slug>]`.
  *
@@ -7,9 +9,9 @@
  * line is touched — a sprint item carries prose after its slug reference, and
  * this changes only the three characters that are the box.
  *
- * Finds the line BY CONTENT, matching `[<slug>]` literally, never by line
- * number or position — the caller does not know which line in which file
- * names a given plan until it has searched for exactly this.
+ * Finds the line with {@link memberLineIndex}, which is tier-aware: a slug
+ * can also appear on a `### Deferred` or log line, which is never the member
+ * line a delivery should tick.
  *
  * @concept sprint-tick
  */
@@ -31,14 +33,13 @@ export interface TickResult {
  *   where no line names the slug, or the line already reads `[x]`.
  */
 export const tickSprintItem = (content: string, slug: string): TickResult => {
-  const needle = `[${slug}]`;
+  const index = memberLineIndex(content, slug);
+  if (index === -1) return { changed: false, content };
+
   const lines = content.split('\n');
-  let changed = false;
-  const out = lines.map((line) => {
-    if (changed || !line.includes(needle)) return line;
-    if (!line.includes('[ ]')) return line;
-    changed = true;
-    return line.replace('[ ]', '[x]');
-  });
-  return { changed, content: changed ? out.join('\n') : content };
+  const line = lines[index]!;
+  if (!line.includes('[ ]')) return { changed: false, content };
+
+  lines[index] = line.replace('[ ]', '[x]');
+  return { changed: true, content: lines.join('\n') };
 };
