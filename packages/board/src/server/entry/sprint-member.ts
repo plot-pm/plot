@@ -42,11 +42,11 @@ class NamedRefusal extends Error {
  * caller's own checkout — this writer never resolves a branch or a PR, the
  * way `entry/needs-design.ts`'s `caller-checkout` target does.
  *
- * Stages exactly the plan file and the sprint file and commits them with a
- * pathspec commit, `git commit -m <subject> -- <plan> <sprint>`, so any other
- * staged path stays out. `--no-commit` stages the two paths without
- * committing, for `/plot-sprint` creation to batch several plans into one
- * skeleton commit.
+ * Stages exactly the plan file and the sprint file and commits the index. The
+ * `Trees` port has no pathspec commit, so a commit run refuses
+ * `staged-elsewhere` before it writes when the index already holds other
+ * staged paths. `--no-commit` stages the two paths without committing, for
+ * `/plot-sprint` creation to batch several plans into one skeleton commit.
  *
  * A person makes this move. The entry refuses under `PLOT_UNATTENDED=1`
  * before it reads anything, and no flag lifts that refusal — sprint scope is
@@ -147,7 +147,7 @@ const findPlanFile = async (planStore: PlanStore, dirs: Dirs, slug: string): Pro
   const held = await planStore.readText(active);
   if (held.ok && held.value !== null) return active;
   const listed = await planStore.listDir(dirs.planDir);
-  const hit = (listed.ok ? listed.value : []).filter((name) => name.endsWith(`${slug}.md`)).sort()[0];
+  const hit = (listed.ok ? listed.value : []).filter((name) => name === `${slug}.md` || (/^\d{4}-\d{2}-\d{2}-/.test(name) && name.slice(11) === `${slug}.md`)).sort()[0];
   return hit === undefined ? '' : `${dirs.planDir}${hit}`;
 };
 
@@ -246,10 +246,10 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   }
   const planFile = realPlanPath(ctx.repoRoot, planLink) ?? planLink;
   const planRead = await ctx.planStore.readText(planFile);
-  const planText = planRead.ok && planRead.value !== null ? planRead.value : '';
   if (!planRead.ok || planRead.value === null) {
     throw new NamedRefusal('plan-not-found', `${planFile} could not be read. Nothing was written.`);
   }
+  const planText = planRead.value;
 
   const sprintFiles = await readSprintFiles(ctx.planStore, dirs.sprintDir);
   const target = sprintFileFor(args.sprint, sprintFiles);
@@ -299,16 +299,19 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   // writer refuses — never a commit of only half the change.
   const planWritten = await ctx.planStore.writeText(planFile, result.planText);
   if (!planWritten.ok) {
-    throw new Refused(`could not write ${planFile}. Nothing was written. Check the file's permissions, then re-run this.`);
+    throw new NamedRefusal('write-failed', `could not write ${planFile}. Nothing was written. Check the file's permissions, then re-run this.`);
   }
   const sprintWritten = await ctx.planStore.writeText(target.file, result.sprintText);
   if (!sprintWritten.ok) {
     const restored = await ctx.planStore.writeText(planFile, planText);
     const restoredNote = restored.ok ? 'the plan has been restored' : 'the plan could NOT be restored — check it by hand';
-    throw new Refused(`could not write ${target.file}. ${restoredNote}. Re-run once the sprint file is writable.`);
+    throw new NamedRefusal('write-failed', `could not write ${target.file}. ${restoredNote}. Re-run once the sprint file is writable.`);
   }
 
-  await ctx.trees.stage(ctx.repoRoot, [planFile, target.file]);
+  const staged = await ctx.trees.stage(ctx.repoRoot, [planFile, target.file]);
+  if (!staged.ok) {
+    throw new NamedRefusal('stage-failed', `both files are written but could not be staged. See what git refused: git -C ${ctx.repoRoot} status. Stage them by hand, or restore them with git checkout.`);
+  }
   write(`wrote: '${args.slug}' ${args.verb} in '${args.sprint}'\n`);
 
   if (!args.commit) {
@@ -320,7 +323,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   const message = `plot: ${args.verb} ${args.slug} ${preposition} ${args.sprint}`;
   const committed = await ctx.trees.commitStaged(ctx.repoRoot, message);
   if (!committed.ok) {
-    throw new Refused(`could not commit the ${args.verb}.\n  See what git refused: git -C ${ctx.repoRoot} status. The files are staged; re-run after fixing it, or commit by hand.`);
+    throw new NamedRefusal('commit-failed', `could not commit the ${args.verb}.\n  See what git refused: git -C ${ctx.repoRoot} status. The files are staged; re-run after fixing it, or commit by hand.`);
   }
   write('summary: outcome=write commit=done\n');
   return 0;

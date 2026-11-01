@@ -797,7 +797,7 @@ all. Work can be in flight and still be outside this sprint's subject.
 **Changing MoSCoW tier:**
 - Run `add <sprint-slug> <slug> --tier <new-tier>` again with the new tier. The writer moves the item and logs the change.
 
-Each writer call commits the member line, the plan's Sprint field and the log line together. Do not edit those three by hand. A refusal (`sprint-closed`, `listed-elsewhere`, `not-a-member`, `field-record`, `staged-elsewhere`) ends the action.
+Each writer call commits the member line, the plan's Sprint field and the log line together. Do not edit those three by hand. A refusal (`sprint-closed`, `listed-elsewhere`, `not-a-member`, `field-record`, `staged-elsewhere`, `write-failed`, `stage-failed`, `commit-failed`) ends the action.
 
 ---
 

@@ -185,12 +185,23 @@ describe('plot-sprint-member entry', () => {
   });
 
   it('restores the plan when the sprint write fails', async () => {
-    chmodSync(path.join(root, SPRINT_REL), 0o444);
+    // Renaming over the sprint file needs write access to its directory.
+    chmodSync(path.join(root, 'docs/sprints'), 0o555);
     const { code, err } = await invoke('add', 'delivery-loop', 'a-plan', '--tier', 'must', '--no-commit');
-    chmodSync(path.join(root, SPRINT_REL), 0o644);
-    // A root user can write a 0444 file; the assertion then has nothing to prove.
+    chmodSync(path.join(root, 'docs/sprints'), 0o755);
+    // A root user can write into a 0555 directory; the assertion then has nothing to prove.
     if (code === 0) return;
+    expect(err).toMatch(/^write-failed\t/);
     expect(err).toContain('restored');
     expect(read(PLAN_REL)).toBe(PLAN);
+    expect(read(SPRINT_REL)).toBe(SPRINT_ACTIVE);
+  });
+
+  it('finds a plan by its exact slug, not by a longer slug that ends the same way', async () => {
+    writeFileSync(path.join(root, 'docs/plans/2026-11-01-not-a-plan.md'), PLAN.replace('A plan', 'Not'));
+    rmSync(path.join(root, PLAN_REL));
+    const { code, err } = await invoke('add', 'delivery-loop', 'a-plan', '--tier', 'must');
+    expect(code).toBe(1);
+    expect(err).toMatch(/^plan-not-found\t/);
   });
 });
