@@ -132,7 +132,7 @@ Decided 2026-11-01 by the operator after panel round 1 (`.plot/panels/every-plan
 
 ### Fleet index
 
-- `feature/the-fleet-payload-indexes-its-plans` — `/api/fleet` carries `plans: Record<slug, { file, issues }>`, an optional field in `contract/schema.ts`, built in `server/fleet.ts` from the metas `planMetasOf` already returns to `referencedIssues` and `ticketPlansOf`. The Delivery tab passes it to `planIndexOf` as `fleetPlans`. A contract test asserts that every fleet row's and slice's plan has an index entry. <!-- waits: feature/the-panels-name-a-plan-one-way, feature/the-scan-script-is-a-launcher --> <!-- builds: a plan index on the fleet payload -->
+- `feature/the-fleet-payload-indexes-its-plans` — `/api/fleet` carries `plans: Record<slug, { file, issues }>`, an optional field in `contract/schema.ts`, built in `server/fleet.ts` from the metas `planMetasOf` already returns to `referencedIssues` and `ticketPlansOf`. The Delivery tab passes it to `planIndexOf` as `fleetPlans`. A contract test asserts that every fleet row's and slice's plan has an index entry. <!-- waits: feature/the-panels-name-a-plan-one-way, feature/the-scan-script-is-a-launcher, bug/an-issue-reads-its-plan-from-main --> <!-- builds: a plan index on the fleet payload -->
 
 ## Done when
 
@@ -182,6 +182,8 @@ Review: plot-review on 941c0e4aa found HIGH 1, MEDIUM 1 and LOW 3. This amendmen
 Created from tracker issue #2993 (https://github.com/plot-pm/plot/issues/2993). The issue says `PlanLink` without `onOpenPlan` opens "a GitHub file in a new tab". That is false: it opens the board's own `/plan/<file>` route in a new tab (`rows.tsx:372-374`). This plan corrects the claim and removes the new-tab mode.
 
 A related, already-released plan, `2026-10-17-a-planned-issue-shows-its-plan.md`, writes `plan:*` labels and a link comment on the tracker issue. It does not render a plan reference on the board. The two plans are complementary. The domain already has a `planLink` in `ports/tracker.ts` and `rules/plan-issue-comment.ts` for that tracker comment; the Rows slice deletes only the board's `planLink` at `lib/tuple-row.ts:486`.
+
+Order with `an-issue-shows-its-plan-s` (#2997): its slice `bug/an-issue-reads-its-plan-from-main` changes `planMetasOf` (`server/fleet.ts`) to read the plan directory at `origin/<default>`. The Fleet index slice builds its plan index from the same function, so it waits on that slice.
 
 Known limit: the `title` tooltip appears on mouse hover only. A keyboard user who focuses a truncated reference does not see the full slug; a screen reader announces it through the accessible name.
 
