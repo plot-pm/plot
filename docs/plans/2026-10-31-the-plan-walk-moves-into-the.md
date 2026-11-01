@@ -116,7 +116,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Last modes
 
-- `feature/the-last-scan-modes-run-the-walk` — `--stream` emits one `{"kind":"plan",...}` line per plan as the walk resolves it, as the board's fleetless fallback reads it (`fleet.ts:2855`); `--loose` reaches the branch-readings stage as an input; and plain `--log-pulse` runs the walk by default with the per-plan wave report, the `summary:` footer and the `Pulse complete.` line that `/plot-pulse` reads <!-- waits: feature/the-pulse-log-runs-the-walk -->
+- `feature/the-last-scan-modes-run-the-walk` — `--stream` emits one `{"kind":"plan",...}` line per plan as the walk resolves it, as the board's fleetless fallback reads it (`fleet.ts:2855`); `--loose` reaches the branch-readings stage as an input; and plain `--log-pulse` runs the walk by default with the per-plan wave report, the `summary:` footer and the `Pulse complete.` line that `/plot-pulse` reads <!-- waits: feature/the-pulse-log-runs-the-walk --> → #3022
 
 ### Removal
 
