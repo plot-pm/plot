@@ -66,17 +66,18 @@ const SERVER = path.resolve(here, '../../src/server');
  *
  * | route | call |
  * |---|---|
- * | `/api/board` | `await boardState({ opts, estate })`, then `await serverInfo(...)` |
+ * | `/api/board` | `await boardAnswer(opts, estate, host, port, archived)` |
  * | `/api/fleet` | `await fleetState({ opts, estate })` |
  *
- * `serverInfo` is listed separately because the handler calls it directly rather
- * than through the controller — it answers a fact about this SERVER's binding,
- * which a controller has no business inventing.
+ * `boardAnswer` is the controller the handler calls; it calls `boardState`,
+ * `serverInfo` and the availability flags. `boardState`, `fleetState` and
+ * `serverInfo` stay listed so the walk still starts at each of them.
  *
  * Their resolution is asserted below. An entry point that no longer exists would
  * shrink the walk to nothing and take the gate with it, silently.
  */
 const ENTRIES: readonly EntryPoint[] = [
+  { file: path.join(SERVER, 'controllers/board-answer.ts'), fn: 'boardAnswer' },
   { file: path.join(SERVER, 'controllers/fleet-state.ts'), fn: 'boardState' },
   { file: path.join(SERVER, 'controllers/fleet-state.ts'), fn: 'fleetState' },
   { file: path.join(SERVER, 'server-info.ts'), fn: 'serverInfo' },

@@ -207,18 +207,18 @@ describe('the four refusals', () => {
     await boardRunsSettled();
   });
 
-  it('answers the binding off localhost, and names the key when it is absent', () => {
+  it('answers the binding off localhost, and names the key when it is absent', async () => {
     const configured = repo(`- **${INTERROGATE_COMMAND_KEY}:** true`);
     const bare = repo();
     const opts = (repoRoot: string) => ({ repoRoot, scriptsDir: SCRIPTS });
 
-    assert.deepEqual(interrogateAvailability('localhost', opts(configured)), { available: true, reason: '' });
+    assert.deepEqual(await interrogateAvailability('localhost', opts(configured)), { available: true, reason: '' });
 
-    const absent = interrogateAvailability('localhost', opts(bare));
+    const absent = await interrogateAvailability('localhost', opts(bare));
     assert.equal(absent.available, false);
     assert.match(absent.reason, /Interrogate command/);
 
-    const remote = interrogateAvailability('0.0.0.0', opts(configured));
+    const remote = await interrogateAvailability('0.0.0.0', opts(configured));
     assert.equal(remote.available, false);
     assert.ok(remote.reason.length > 0, 'the binding refusal carries a sentence');
   });
