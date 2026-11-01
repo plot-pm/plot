@@ -326,7 +326,7 @@ plot_process_candidates() {
       if (bad || !start) next
       p = substr(rest, start)
       # Step 4: the path names the kind.
-      kind = ""; e = 0
+      kind = ""
       if (interp == "node") {
         b = art_end(p, "/board/board-server.mjs", 0)
         r = art_end(p, "/board/plot-fleetd.mjs", 0)
