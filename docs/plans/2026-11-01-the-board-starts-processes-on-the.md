@@ -72,6 +72,7 @@ Decided 2026-11-01 after panel round 1 (`.plot/panels/2026-11-01-the-board-start
 - [x] **The count runs in-process with a `node:child_process` mock at a controller** (testability juror). The PATH-shim precedent in `plan-read-shape.test.mjs` also counts the refresh loop, and `stopFleetRefresh` clears the warm caches the count needs.
 - [x] **The count lands first as a ratchet** (testability and seams jurors), so each slice carries its own proof.
 - [x] **Order after the ratchet: config first.** Config gives the most per request by start count: about 24 script starts at about five processes each. The board waits on starts, not on CPU, so this slice relieves the operator first, and it touches no code the walk or #2993 slices edit. The git-read slice can run beside it. The plan-parse slice saves the most CPU (one 0.52 s parse and 626 staged files per request) and waits on the git-read slice, which builds the board's `WalkCache`.
+- [x] **Config does not wait on the ratchet.** Changed 2026-11-01 by the operator: the board answered no request for over 90 s, so the held config dispatches beside the ratchet instead of after it. Each slice records the start list it finds: the one that lands second rebases and lowers the ratchet count in its own diff.
 
 ### Open Questions
 
@@ -87,7 +88,7 @@ Decided 2026-11-01 after panel round 1 (`.plot/panels/2026-11-01-the-board-start
 
 ### Held config
 
-- `feature/the-board-holds-its-config` — the stamp-checked decorator in `packages/domain/src/adapters/scripts/` over `Scripts.config`; `packages/fleet/src/shared/config-reader.ts` builds its reader with it; `BuildBoardOptions.config` in `board.ts`, read by `readConfig`, `readConfigAsync`, `scriptsFor`, `planStoreFor` and `server-info.ts` (`cachedCi` and `cachedPeople` go); the ratchet list loses its config lines. Tests: `packages/domain/test/config-held.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- waits: feature/a-board-request-counts-its-processes --> <!-- builds: one held config reading per config stamp -->
+- `feature/the-board-holds-its-config` — the stamp-checked decorator in `packages/domain/src/adapters/scripts/` over `Scripts.config`; `packages/fleet/src/shared/config-reader.ts` builds its reader with it; `BuildBoardOptions.config` in `board.ts`, read by `readConfig`, `readConfigAsync`, `scriptsFor`, `planStoreFor` and `server-info.ts` (`cachedCi` and `cachedPeople` go); the ratchet list loses its config lines. Tests: `packages/domain/test/config-held.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- builds: one held config reading per config stamp -->
 
 ### Held git reads
 
