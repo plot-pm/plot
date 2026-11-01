@@ -94,7 +94,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### In-process
 
-- `feature/scan-once-walks-in-process` — `scanOnce` calls the walk in-process for fleetd and the board fallback, with one beat budget, async git calls and the scan-attempt record, and no cache <!-- waits: feature/the-walk-assembles-the-reading -->
+- `feature/scan-once-walks-in-process` — `scanOnce` calls the walk in-process for fleetd and the board fallback, with one beat budget, async git calls and the scan-attempt record, and no cache <!-- waits: feature/the-walk-assembles-the-reading --> → #2992
 
 ### Cache
 
