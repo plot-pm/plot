@@ -677,27 +677,15 @@ host_err() { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; }
 
 # THE ONE MARKER LOOKUP, shared by `pr-comment` and `issue-comment` — GitHub's
 # REST comments endpoint is `issues/$num/comments` for both, since a PR is an
-# issue under the hood. Prints the id of the comment holding `$2` (a
-# substring), scoped to the comment's `.user.login` (the REST field; `gh pr
-# list --json` answers `.author.login` instead, but this is the REST path) —
-# so a PR participant who pastes the same marker into their own comment is
-# never mistaken for this script's own prior post. Prints empty on no match.
-#
-# SCOPED TO THE LOGIN `gh api user` ANSWERS for the token this call writes
-# with (`host.ts:358`), asked once per lookup. Not `budget_account`: it reads
-# `hosts.yml` or `PLOT_BUDGET_ACCOUNT`, and neither names the author when
-# `GH_TOKEN` is set or the account is a grouping name, so every lookup missed
-# and posted a new comment.
-#
-# NO LOGIN, NO SCOPE. When `gh api user` fails or answers no valid login (an
-# App installation token gets 403 there), the match falls back to the marker
-# alone, as it was before #2661. A comment with no `user` field cannot be
-# attributed and also matches on the marker alone.
+# issue under the hood. Prints the id of the oldest comment holding `$2` (a
+# substring), whatever its author, or nothing. The marker alone decides: a
+# lookup scoped to the writer's login posted a second comment whenever another
+# account (a person's machine, fleetd's token) wrote the same marked comment.
 #
 # A FAILED LISTING EXITS 3 THROUGH `gh_fail`, same as a failed edit. `set -o
 # pipefail` (above) makes the pipeline's exit code `gh api`'s own, so a lookup
 # that cannot be read never falls through to "no marker found, post new".
-gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" --arg who "$(gh api user -q .login 2>/dev/null | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$')" '[.[][] | select($who == "" or (.user.login // "") == "" or .user.login == $who) | select(.body | contains($m))][0].id // empty'; }
+gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" '[.[][] | select(.body | contains($m))][0].id // empty'; }
 
 # EDITS THE COMMENT `$1` HOLDS, OR POSTS `$4` TO `$3` ON `$2` (`issue` or
 # `pr`) — shared by `issue-comment` and `pr-comment`, whose tails differed

@@ -111,12 +111,12 @@ test('pr-comment: a marker held by an earlier comment edits that comment and pos
   assert.doesNotMatch(callLog(box), /^gh pr comment/m);
 });
 
-test('pr-comment: a marker held only by another author’s comment does not match — posts instead of editing', async () => {
+test('pr-comment: a marker held only by another author’s comment matches — edits instead of posting', async () => {
   const box = sandbox(listing([{ id: 12, body: 'old <!-- m -->', user: { login: 'a-pr-participant' } }]));
   const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
   assert.equal(got.code, 0, got.err);
-  assert.match(callLog(box), /^gh pr comment 7 --body new <!-- m -->$/m);
-  assert.doesNotMatch(callLog(box), /PATCH/);
+  assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
+  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
 });
 
 test('pr-comment: a marker comment with no user field edits that comment while the login is known', async () => {
