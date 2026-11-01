@@ -1,6 +1,6 @@
 // `composeContinuation` — what it writes for a marker-driven reply versus a
 // fresh start that never had a question to answer.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -12,6 +12,47 @@ import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import { answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
+import { removeTree } from '../rm-tree.mjs';
+
+/**
+ * Removes every recorded directory, then rethrows the first failure.
+ *
+ * @param dirs directories a test recorded; the caller empties its own list.
+ * @param remove the removal to run on each; `removeTree` unless a test injects a failing one.
+ * @throws the first error `remove` raised, after every directory had its attempt.
+ */
+const removeAll = (dirs: readonly string[], remove: (dir: string) => void = removeTree): void => {
+  const failures: unknown[] = [];
+  for (const dir of dirs) {
+    try {
+      remove(dir);
+    } catch (err) {
+      failures.push(err);
+    }
+  }
+  if (failures.length > 0) throw failures[0];
+};
+
+/**
+ * Waits until a desk holds its WorkerMonitor line, the reporter's last write.
+ *
+ * @param desk the desk the reporter appends to.
+ * @param boundMs how long to wait before failing.
+ * @returns the lines the reporter wrote.
+ * @throws when no line appears within `boundMs`, naming the desk and the bound.
+ */
+const monitorLines = async (desk: string, boundMs = 10_000): Promise<string[]> => {
+  const file = join(desk, '.plot-worker.monitor.worker.jsonl');
+  const deadline = Date.now() + boundMs;
+  for (;;) {
+    if (existsSync(file)) {
+      const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l !== '');
+      if (lines.length > 0) return lines;
+    }
+    if (Date.now() >= deadline) throw new Error(`no WorkerMonitor line in ${file} within ${boundMs} ms`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+};
 
 const base = {
   branch: 'infra/x',
@@ -71,7 +112,7 @@ describe('continueOnDesk refuses an unattended caller before any read', () => {
 describe('continueOnDesk accepts a fleetd caller', () => {
   const desks: string[] = [];
   afterEach(() => {
-    for (const desk of desks.splice(0)) rmSync(desk, { recursive: true, force: true });
+    removeAll(desks.splice(0));
   });
 
   it('proceeds past the refusal "unattended" would hit', async () => {
@@ -85,6 +126,14 @@ describe('continueOnDesk accepts a fleetd caller', () => {
       'utf8',
     );
 
+    let spawned = 0;
+    const fakeSpawn = (() => {
+      spawned += 1;
+      const child = new EventEmitter();
+      queueMicrotask(() => child.emit('exit', 0));
+      return child;
+    }) as typeof SpawnFn;
+
     const result = await continueOnDesk({
       opts: { repoRoot, scriptsDir: '/s' },
       branch: 'feature/x',
@@ -95,16 +144,20 @@ describe('continueOnDesk accepts a fleetd caller', () => {
       answer: 'the answer',
       fresh: true,
       readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+      spawn: fakeSpawn,
     });
 
     expect(result.kind).toBe('started');
+    expect(spawned).toBe(1);
+    // `continueOnDesk` writes the continue prompt and the log itself; only a spawned process writes these.
+    expect(readdirSync(worktree).filter((f) => /^\.plot-worker\.(pid|exit|monitor)/.test(f))).toEqual([]);
   });
 });
 
 describe('continueOnDesk clears the main-checkout-writer marker for the spawn', () => {
   const desks: string[] = [];
   afterEach(() => {
-    for (const desk of desks.splice(0)) rmSync(desk, { recursive: true, force: true });
+    removeAll(desks.splice(0));
   });
 
   it('spawns with no PLOT_MAIN_CHECKOUT_WRITER=1 even though the parent process carries it', async () => {
@@ -158,6 +211,7 @@ describe('continueOnDesk clears the main-checkout-writer marker for the spawn', 
 describe('continueOnDesk records the spawned pid\'s own start time', () => {
   const desks: string[] = [];
   const workers: number[] = [];
+  const reporters: string[] = [];
   const isAlive = (pid: number): boolean => {
     try {
       process.kill(pid, 0);
@@ -171,7 +225,14 @@ describe('continueOnDesk records the spawned pid\'s own start time', () => {
       if (isAlive(pid)) process.kill(pid, 'SIGKILL');
       for (let i = 0; i < 100 && isAlive(pid); i += 1) await new Promise((r) => setTimeout(r, 50));
     }
-    for (const desk of desks.splice(0)) rmSync(desk, { recursive: true, force: true });
+    // THE LAST WRITER IS THE REPORTER, not the agent whose death was awaited above.
+    const reported = reporters.splice(0);
+    const all = desks.splice(0);
+    try {
+      for (const desk of reported) await monitorLines(desk);
+    } finally {
+      removeAll(all);
+    }
   });
 
   it('writes .plot-worker.pid.startedAt beside .plot-worker.pid, parseable by Date', async () => {
@@ -200,6 +261,7 @@ describe('continueOnDesk records the spawned pid\'s own start time', () => {
     expect(result.kind).toBe('started');
     const pid = Number(readFileSync(join(worktree, '.plot-worker.pid'), 'utf8'));
     workers.push(pid);
+    reporters.push(worktree);
     const startedAt = readFileSync(join(worktree, '.plot-worker.pid.startedAt'), 'utf8');
     expect(startedAt).toMatch(/^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{2}:\d{2}:\d{2} \d{4}$/);
     // The sidecar names this pid's own start: the one `ps` reports for it now.
@@ -207,6 +269,41 @@ describe('continueOnDesk records the spawned pid\'s own start time', () => {
       execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim(),
     );
     expect(Math.abs(Date.parse(startedAt) - live)).toBeLessThan(1000);
+  });
+
+  it('the reporter writes its WorkerMonitor line after continueOnDesk has returned', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'plot-continue-reporter-'));
+    desks.push(worktree);
+    const repoRoot = mkdtempSync(join(tmpdir(), 'plot-continue-reporter-repo-'));
+    desks.push(repoRoot);
+    writeFileSync(
+      join(worktree, ENDING_FILENAME),
+      JSON.stringify({ reason: 'holding-work', actor: 'agent', branch: 'feature/x', detail: '', refusedAssignment: '' }),
+      'utf8',
+    );
+
+    const result = await continueOnDesk({
+      opts: { repoRoot, scriptsDir: '/s' },
+      branch: 'feature/x',
+      worktree,
+      main: '',
+      previousPid: '',
+      caller: 'person',
+      answer: 'the answer',
+      fresh: true,
+      readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'while [ ! -f go ]; do sleep 0.05; done' : fallback),
+    });
+
+    expect(result.kind).toBe('started');
+    workers.push(Number(readFileSync(join(worktree, '.plot-worker.pid'), 'utf8')));
+    reporters.push(worktree);
+    // THE NEGATIVE FIRST: the agent still waits for `go`, so the reporter has written nothing.
+    expect(existsSync(join(worktree, '.plot-worker.monitor.worker.jsonl'))).toBe(false);
+
+    writeFileSync(join(worktree, 'go'), '');
+    const lines = await monitorLines(worktree);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] as string)).toMatchObject({ monitor: 'WorkerMonitor', finding: 'clear' });
   });
 });
 
@@ -216,9 +313,7 @@ describe('continueOnDesk — the question key and the answer record', () => {
   const manifestDirs: string[] = [];
 
   afterEach(() => {
-    for (const desk of desks.splice(0)) rmSync(desk, { recursive: true, force: true });
-    for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
-    for (const dir of manifestDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+    removeAll([...desks.splice(0), ...homes.splice(0), ...manifestDirs.splice(0)]);
   });
 
   const fakeSpawn = (() => {
@@ -365,6 +460,26 @@ describe('continueOnDesk — the question key and the answer record', () => {
       expect(['alice', 'bob']).toContain(row?.author);
     } finally {
       delete process.env[ANSWER_RECORD_HOME_ENV];
+    }
+  });
+});
+
+describe('removeAll — a failed removal does not leak its siblings', () => {
+  it('removes the second directory and throws the first error', () => {
+    const first = mkdtempSync(join(tmpdir(), 'plot-continue-removeall-a-'));
+    const second = mkdtempSync(join(tmpdir(), 'plot-continue-removeall-b-'));
+    const boom = new Error('first removal failed');
+    try {
+      expect(() =>
+        removeAll([first, second], (dir) => {
+          if (dir === first) throw boom;
+          removeTree(dir);
+        }),
+      ).toThrow(boom);
+      expect(existsSync(second)).toBe(false);
+    } finally {
+      removeTree(first);
+      removeTree(second);
     }
   });
 });
