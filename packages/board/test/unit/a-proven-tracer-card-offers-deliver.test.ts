@@ -59,15 +59,17 @@ const fixture = () => {
     main: 'main', head: 'abc1234', read_ref: 'abc1234', local_head: 'abc1234', plans,
     summary: { plans: 2, waves: 2, branches: 2, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   };
-  const lines = [
-    ...plans.map((plan) => JSON.stringify({ kind: 'plan', plan })),
-    JSON.stringify({ kind: 'reading', reading }),
-  ].map((l) => `printf '%s\\n' ${JSON.stringify(l)}`).join('\n');
-  const scan = path.join(scripts, 'plot-fleet-scan.sh');
-  fs.writeFileSync(scan, `#!/usr/bin/env bash\n${lines}\nexit 0\n`);
-  fs.chmodSync(scan, 0o755);
+  // The scan runs in process, so a stub script cannot supply the pulse: the fleet
+  // owns the scan (supervisor up, fresh bridge) and the board reads its pulse.
+  fs.mkdirSync(path.join(repoRoot, '.plot/state'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, '.plot/state/last-pulse.json'), JSON.stringify({
+    version: 1, at: Date.now(), pulse: reading, ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
+  }));
+  const ctl = path.join(scripts, 'plot-fleetctl.sh');
+  fs.writeFileSync(ctl, '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n');
+  fs.chmodSync(ctl, 0o755);
   for (const helper of fs.readdirSync(REAL_SCRIPTS)) {
-    if (helper === 'plot-fleet-scan.sh') continue;
+    if (helper === 'plot-fleetctl.sh') continue;
     fs.symlinkSync(path.join(REAL_SCRIPTS, helper), path.join(scripts, helper));
   }
   execFileSync('git', ['init', '--quiet'], { cwd: repoRoot });

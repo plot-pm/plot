@@ -205,123 +205,11 @@ describe('a row renders from plan facts before any git fact exists', () => {
   });
 });
 
-describe('the board renders plans as they arrive', () => {
-  it('serves rows from the plans that have landed while the scan is still running', async () => {
-    // The defect in one sentence: the board asked every 5 s for something that
-    // took 18 s, so it rendered nothing for the whole scan. Here the scan
-    // pauses between plans, and the board is asked mid-flight.
-    const scripts = fakeScan([
-      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
-      planLine(plan('b.md', [slice('One', 'eligible', [['feature/b', 'claimed']])])),
-      pulseLine({
-        ...HEAD,
-        plans: [
-          plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])]),
-          plan('b.md', [slice('One', 'eligible', [['feature/b', 'claimed']])]),
-        ],
-        summary: { plans: 2, waves: 2, branches: 2, claimed: 1, eligible: 1, blocked: 0, deferred: 0 },
-      }),
-    ], { delayMs: 300 });
-    const opts = { repoRoot: scripts, scriptsDir: scripts };
-
-    // The FIRST plan, seen before the second has been written.
-    const mid = await until(() => buildFleet(opts), (f) => f.rows.length > 0);
-    expect(mid.rows.length).toBeGreaterThan(0);
-    // ...and the answer says it is not the whole answer.
-    expect(mid.complete).toBe(false);
-
-    const done = await until(() => buildFleet(opts), (f) => f.complete);
-    expect(done.complete).toBe(true);
-    expect(done.summary.plans).toBe(2);
-    await landed(scripts);
-  });
-
-  it('marks the totals not-yet-arrived while partial, and stops marking them when done', async () => {
-    // `complete` is a THIRD state `ready` cannot express: rows exist AND more
-    // are coming. The UI hangs "so far" on it, so it has to be false for
-    // exactly as long as that is true.
-    const scripts = fakeScan([
-      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
-      pulseLine({
-        ...HEAD,
-        plans: [plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])],
-        summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
-      }),
-    ], { delayMs: 300 });
-    const opts = { repoRoot: scripts, scriptsDir: scripts };
-
-    const mid = await until(() => buildFleet(opts), (f) => f.rows.length > 0);
-    expect(mid.complete).toBe(false);
-    // The summary a partial answer states is RECOUNTED from what arrived, never
-    // carried over: 1 plan, because one plan has arrived.
-    expect(mid.summary.plans).toBe(1);
-
-    const done = await until(() => buildFleet(opts), (f) => f.complete);
-    expect(done.complete).toBe(true);
-    await landed(scripts);
-  });
-});
-
-describe('a scan that fails midway keeps what arrived', () => {
-  it('keeps the plans it emitted and says the rest is unknown', async () => {
-    // Discarding a partial result throws away facts that were correctly
-    // measured. The scan below emits two good plans and then dies.
-    const scripts = fakeScan([
-      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
-      planLine(plan('b.md', [slice('One', 'eligible', [['feature/b', 'claimed']])])),
-    ], { exitCode: 1 });
-    const opts = { repoRoot: scripts, scriptsDir: scripts };
-
-    const f = await until(() => buildFleet(opts), (x) => x.error !== null);
-    // The failure is REPORTED...
-    expect(f.error).not.toBeNull();
-    // ...the two plans that arrived are KEPT...
-    expect(f.summary.plans).toBe(2);
-    expect(f.rows.length).toBeGreaterThan(0);
-    // ...and the answer does not claim to be whole. A failed scan that had
-    // written nothing would report `complete: true` over an empty fleet, which
-    // is the shape "keeps what arrived" exists to prevent.
-    expect(f.complete).toBe(false);
-  });
-
-  it('treats a clean exit with no terminal line as a failure, not an empty fleet', async () => {
-    // A scan that exits 0 without its `pulse` line described nothing it can be
-    // held to. Reading that as "the fleet is empty" is how a monitoring view
-    // becomes untrustworthy — and a closed pipe cannot mean completion,
-    // because a killed scan closes it too.
-    const scripts = fakeScan([
-      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
-    ], { exitCode: 0 });
-    const opts = { repoRoot: scripts, scriptsDir: scripts };
-
-    const f = await until(() => buildFleet(opts), (x) => x.error !== null);
-    expect(f.error).toMatch(/terminal pulse line/);
-    expect(f.summary.plans).toBe(1);
-    expect(f.complete).toBe(false);
-  });
-
-  it('drops a line it cannot parse without losing the plans around it', async () => {
-    // One bad line costs one line. Throwing would cost the whole partial
-    // answer, including the plans that were correct.
-    const scripts = fakeScan([
-      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
-      'this is not json',
-      JSON.stringify({ kind: 'nonsense' }),
-      pulseLine({
-        ...HEAD,
-        plans: [plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])],
-        summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
-      }),
-    ]);
-    const opts = { repoRoot: scripts, scriptsDir: scripts };
-
-    const f = await until(() => buildFleet(opts), (x) => x.complete && x.rows.length > 0);
-    expect(f.complete).toBe(true);
-    expect(f.error).toBeNull();
-    expect(f.summary.plans).toBe(1);
-    await landed(scripts);
-  });
-});
+// The "plans arrive while the scan runs" and "a scan that fails midway keeps what
+// arrived" cases are gone with the stream: `scanOnce` walks the plan in process
+// and hands the board one whole reading, so no partial answer exists to render.
+// `mergePlan`, `partialSummary` and `runStreaming` below stay as the helpers
+// they are until a later change removes them.
 
 describe('a completed scan renders identically to a batch one', () => {
   // THE assertion that proves this change is about WHEN rows appear and not
@@ -348,7 +236,13 @@ describe('a completed scan renders identically to a batch one', () => {
   };
 
   it('produces the same rows and the same summary as the whole document', async () => {
-    const scripts = fakeScan([...plans.map(planLine), pulseLine(whole)]);
+    // The fleet owns the scan here: supervisor up, a fresh bridge carrying the reading.
+    const scripts = fakeScan([]);
+    fs.mkdirSync(path.join(scripts, '.plot/state'), { recursive: true });
+    fs.writeFileSync(path.join(scripts, '.plot/state/last-pulse.json'), JSON.stringify({
+      version: 1, at: Date.now(), pulse: whole, ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
+    }));
+    fs.writeFileSync(path.join(scripts, 'plot-fleetctl.sh'), '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n', { mode: 0o755 });
     const opts = { repoRoot: scripts, scriptsDir: scripts };
     const streamed = await until(() => buildFleet(opts), (f) => f.complete && f.rows.length > 0);
 
@@ -362,7 +256,6 @@ describe('a completed scan renders identically to a batch one', () => {
     );
     // The payload validates as a Fleet — the contract is unchanged by streaming.
     expect(() => FleetSchema.parse(streamed)).not.toThrow();
-    await landed(scripts);
   });
 
   it('recounts a partial summary to describe what arrived, not what the scan will find', () => {

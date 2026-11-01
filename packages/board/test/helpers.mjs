@@ -820,3 +820,29 @@ export async function countSliceRows(page) {
   await expandAgentFolds(page);
   return page.locator(SLICE_ROW).count();
 }
+
+/**
+ * Makes the fleet own the scan, with `pulse` as its last write.
+ *
+ * The scan walks the repository in process, so a stub `plot-fleet-scan.sh`
+ * can no longer supply a pulse. A board reads the bridge instead when the
+ * supervisor reads `up` and the bridge is fresh (`fleetOwnsScan`), which is
+ * the state this plants: a `plot-fleetctl.sh` in `scriptsDir` that reports the
+ * supervisor up, and `.plot/state/last-pulse.json` in `repo` holding `pulse`.
+ * Replaces any `plot-fleetctl.sh` already in `scriptsDir`.
+ *
+ * @param {string} scriptsDir - a scripts directory this test owns.
+ * @param {string} repo - the repository the board serves.
+ * @param {object} pulse - the reading the fleet last wrote.
+ */
+export function ownTheScan(scriptsDir, repo, pulse) {
+  const ctl = path.join(scriptsDir, 'plot-fleetctl.sh');
+  fs.rmSync(ctl, { force: true });
+  fs.writeFileSync(ctl, '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n', { mode: 0o755 });
+  const file = path.join(repo, '.plot/state/last-pulse.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1, at: Date.now(), pulse,
+    ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
+  }), 'utf8');
+}

@@ -7,7 +7,7 @@
 // reaches the payload and an unreadable one silently does not — and, the
 // load-bearing one, that none of this leaked into the pulse.
 //
-// A stub `plot-fleet-scan.sh` supplies the pulse, so the worktrees the server
+// A planted bridge and a supervisor reading `up` supply the pulse, so the worktrees the server
 // believes in are the temp directories this file made. `HOME` is redirected the
 // same way, so the transcript the server reads is one this test wrote rather
 // than the developer's own.
@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { startServer, makeRepo, request, rmTree, SCRIPTS_DIR } from './helpers.mjs';
+import { startServer, makeRepo, request, rmTree, SCRIPTS_DIR, ownTheScan } from './helpers.mjs';
 
 const PLAN = `# The agent panel
 ## Status
@@ -47,7 +47,7 @@ function stubScan(pulse) {
     `#!/usr/bin/env bash\ncat ${JSON.stringify(json)}\n`,
     { mode: 0o755 },
   );
-  return { dir, cleanup: () => rmTree(dir) };
+  return { dir, own: (repo) => ownTheScan(dir, repo, pulse), cleanup: () => rmTree(dir) };
 }
 
 /** The pulse shape `plot-fleet-scan.sh --json` really emits. */
@@ -162,6 +162,7 @@ describe('GET /api/agent-panel: the run, assembled on demand', () => {
     wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wt-panel-'));
     home = fakeHome(wt, assistantLine());
     stub = stubScan(pulse([branch('feature/the-agent-panel', wt)]));
+    stub.own(tmp);
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir, HOME: home });
     await settle(server.port);
   });
@@ -231,6 +232,7 @@ describe('an unreadable transcript omits its fields silently', () => {
     // shape "the format changed under the board" takes.
     home = fakeHome(wt, `${JSON.stringify({ type: 'assistant', model: 'claude-opus-5' })}\n`);
     stub = stubScan(pulse([branch('feature/no-transcript', wt)]));
+    stub.own(tmp);
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir, HOME: home });
     await settle(server.port);
   });
@@ -283,6 +285,7 @@ describe('a worker that has exited shows no fabricated uptime', () => {
         branch('feature/nopid', wt, { worker: 'none', worker_pid: '' }),
       ]),
     );
+    stub.own(tmp);
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir, HOME: home });
     await settle(server.port);
   });
@@ -320,6 +323,7 @@ describe('the pulse carries no panel', () => {
     home = fakeHome(wt, assistantLine({ message: { model: SECRET_MODEL, usage: {} } }));
     fs.writeFileSync(path.join(wt, '.plot-worker.log'), 'SENTINEL-LOG\n');
     stub = stubScan(pulse([branch('feature/quiet', wt)]));
+    stub.own(tmp);
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir, HOME: home });
     await settle(server.port);
   });
