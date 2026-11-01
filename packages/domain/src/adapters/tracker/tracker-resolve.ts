@@ -7,7 +7,7 @@ import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
 import { trackerGithub } from './tracker-github.js';
-import { githubPlanStateWrite } from './tracker-plan-state.js';
+import { githubIssueLabel, githubPlanStateWrite } from './tracker-plan-state.js';
 import { trackerJira } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
 import { TRACKER_LISTERS } from './tracker-listers.js';
@@ -122,6 +122,7 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     // THE ONE WRITE THIS CONNECTOR MAKES, and one-way: the label and the plan
     // comment on the git host's own issue. `plot-host.sh` answers exit 4, so
     // `unaskable`, where the host cannot take it.
+    issueLabel: githubIssueLabel(context, {}, reads.refuse),
     planStateWrite: githubPlanStateWrite(context, {}, reads.refuse),
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
     lastRefusal: (): string | null => reads.lastRefusal(),

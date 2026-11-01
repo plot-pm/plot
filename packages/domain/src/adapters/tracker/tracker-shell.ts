@@ -21,6 +21,7 @@ interface RawIssue {
   assignees?: string[];
   type?: string;
   updatedAt?: string;
+  labels?: string[];
   nextPageToken?: string;
 }
 
@@ -71,6 +72,7 @@ export const issueOf = (raw: RawIssue): Issue => ({
   assignees: raw.assignees ?? [],
   ...(raw.type === undefined || raw.type === '' ? {} : { type: raw.type }),
   ...(raw.updatedAt === undefined || raw.updatedAt === '' ? {} : { updatedAt: raw.updatedAt }),
+  ...(raw.labels === undefined ? {} : { labels: raw.labels }),
 });
 
 /**

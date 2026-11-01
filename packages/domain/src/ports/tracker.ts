@@ -164,6 +164,16 @@ export interface IssueOpenOutcome {
 }
 
 /**
+ * What came of an issue-label write.
+ *
+ * `labelled` where the add and the removals reached the issue. `no-target`
+ * where the tracker was reached and takes no such write, or the identifier
+ * names no issue. A write that broke is a `PortResult` failure and is not a
+ * member here.
+ */
+export type IssueLabelOutcome = 'labelled' | 'no-target';
+
+/**
  * What came of a comment write: the comment exists on the issue it was addressed to.
  *
  * A write that broke is a `PortResult` failure and is not a member here.
@@ -461,6 +471,29 @@ export interface Tracker {
    *   `lastRefusal`.
    */
   issueComment(id: string, body: string): Promise<PortResult<IssueCommentOutcome>>;
+
+  /**
+   * Adds one label to an issue and removes the listed ones it carries, and
+   * nothing else.
+   *
+   * THE FIFTH WRITE ON THIS PORT, and only for the one-off backfill that gives a
+   * closed issue the `plan:released` label a release write missed. It creates
+   * the label where the repository lacks it, and removes only the listed labels
+   * the issue actually carries. It posts no comment and closes nothing.
+   * Level-triggered: adding a label the issue holds is a no-op.
+   *
+   * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `labelled`, for the
+   * reason `statusWrite` does. A Jira tracker takes a status and nothing else,
+   * so it answers `no-target`.
+   *
+   * @param id - the issue's identifier, as the plan's `Issue:` line states it.
+   * @param add - the label to add, verbatim.
+   * @param remove - the labels to remove where the issue carries them.
+   * @returns `labelled`; `no-target` where the tracker takes no such write;
+   *   `unaskable` where no tracker was declared; `failed` otherwise, with the
+   *   reason in `lastRefusal`.
+   */
+  issueLabel(id: string, add: string, remove: readonly string[]): Promise<PortResult<IssueLabelOutcome>>;
 
   /**
    * Reflects a plan's phase, progress and open HIGH tickets on an issue, and

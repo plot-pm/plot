@@ -8,6 +8,7 @@ import {
   type IssueOpen,
   type IssueOpenOutcome,
   type IssueRead,
+  type IssueLabelOutcome,
   type PlanStateOutcome,
   type StatusOutcome,
   type StatusWrite,
@@ -294,6 +295,11 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     // A STATUS AND NOTHING ELSE. A Jira issue takes no `plan:*` label, no plan
     // comment and no close from Plot, so the tracker was reached and holds
     // nowhere to put this.
+    issueLabel: async (): Promise<PortResult<IssueLabelOutcome>> => {
+      reads.refuse(null);
+      return answered<IssueLabelOutcome>('no-target');
+    },
+
     planStateWrite: async (): Promise<PortResult<PlanStateOutcome>> => {
       reads.refuse(null);
       return answered<PlanStateOutcome>('no-target');

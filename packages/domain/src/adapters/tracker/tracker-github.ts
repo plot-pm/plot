@@ -16,7 +16,7 @@ import type {
 } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { githubPlanStateWrite } from './tracker-plan-state.js';
+import { githubIssueLabel, githubPlanStateWrite } from './tracker-plan-state.js';
 import { issueOpenOf, trackerReads } from './tracker-shell.js';
 
 /** The scheme `plot-host.sh` knows this connector's read arm by. */
@@ -211,6 +211,7 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     issueOpen: githubIssueOpen(context, reads.refuse),
 
     issueComment: githubIssueComment(context, reads.refuse),
+    issueLabel: githubIssueLabel(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
     planStateWrite: githubPlanStateWrite(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),

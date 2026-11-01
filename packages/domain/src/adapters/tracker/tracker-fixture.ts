@@ -6,6 +6,7 @@ import {
   VERSION_NOT_FOUND,
   type ClosedIssues,
   type IssueCommentOutcome,
+  type IssueLabelOutcome,
   type IssueOpen,
   type IssueOpenOutcome,
   type IssueRead,
@@ -78,6 +79,10 @@ export interface TrackerFixture {
   planStateOutcome?: PlanStateOutcome;
   /** Whether a plan-state write fails outright. */
   planStateWriteFails?: boolean;
+  /** Where every `issueLabel` is recorded, in call order, before it can refuse. */
+  labelWrites?: { id: string; add: string; remove: readonly string[] }[];
+  /** Whether an issue-label write fails outright. */
+  issueLabelFails?: boolean;
   /** Whether an issue-open write fails outright. */
   issueOpenFails?: boolean;
   /** Whether a status write fails outright. */
@@ -117,6 +122,7 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
   const opened = fixture.opened ?? [];
   const commented = fixture.commented ?? [];
   const planStates = fixture.planStates ?? [];
+  const labelWrites = fixture.labelWrites ?? [];
   return {
     config: (): TrackerConfig => ({
       scheme: fixture.scheme ?? 'fixture',
@@ -207,6 +213,13 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       opened.push(write);
       if (fixture.issueOpenFails === true) return failed();
       return answered<IssueOpenOutcome>({ outcome: 'opened', id: String(opened.length) });
+    },
+
+    issueLabel: async (id, add, remove): Promise<PortResult<IssueLabelOutcome>> => {
+      // RECORDED BEFORE IT REFUSES, like `planStateWrite`.
+      labelWrites.push({ id, add, remove });
+      if (fixture.issueLabelFails === true) return failed();
+      return answered('labelled');
     },
 
     planStateWrite: async (write): Promise<PortResult<PlanStateOutcome>> => {
