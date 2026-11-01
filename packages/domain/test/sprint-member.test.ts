@@ -197,6 +197,58 @@ Here is a quoted block:
     expect(result.sprintText).toMatch(/pr: #123/);
   });
 
+  describe('the branch an Approved plan annotates with', () => {
+    const APPROVED_WITH_PROSE_BULLETS = `${PLAN(`- **State:** Approved
+- **Type:** feature
+- **Approved:** 2026-11-01, Jan Wloka, plan-PR #123 merged`)}
+
+## Approach
+
+- \`/plot-approve\` annotates the member line.
+- \`plot-review-status.sh\` reads the annotation.
+
+## Slices
+
+### Writer
+
+- \`feature/does-a-thing\` — does the thing.
+- \`feature/does-another-thing\` — does the other thing.
+`;
+
+    it('takes the first slice branch, not a backticked bullet before `## Slices`', () => {
+      const result = addSprintMember(SPRINT('<!-- nothing yet -->'), APPROVED_WITH_PROSE_BULLETS, 'must', ctx());
+      if (result.outcome !== 'write') throw new Error(`expected write, got ${result.outcome}`);
+      expect(result.sprintText).toContain('<!-- pr: #123, branch: feature/does-a-thing -->');
+      expect(result.sprintText).not.toContain('branch: /plot-approve');
+    });
+
+    it('takes the caller-supplied parser branch over its own reading', () => {
+      const result = addSprintMember(SPRINT('<!-- nothing yet -->'), APPROVED_WITH_PROSE_BULLETS, 'must', ctx({ firstBranch: 'feature/does-another-thing' }));
+      if (result.outcome !== 'write') throw new Error(`expected write, got ${result.outcome}`);
+      expect(result.sprintText).toContain('<!-- pr: #123, branch: feature/does-another-thing -->');
+    });
+
+    it('reads an older plan\'s `## Branches` section', () => {
+      const older = APPROVED_WITH_PROSE_BULLETS.replace('## Slices', '## Branches');
+      const result = addSprintMember(SPRINT('<!-- nothing yet -->'), older, 'must', ctx());
+      if (result.outcome !== 'write') throw new Error(`expected write, got ${result.outcome}`);
+      expect(result.sprintText).toContain('branch: feature/does-a-thing -->');
+    });
+
+    it('keeps a correct existing `branch:` annotation when a move re-annotates', () => {
+      const sprintText = SPRINT('<!-- nothing yet -->').replace(
+        '### Must Have\n\n<!-- add items here -->',
+        '### Must Have\n\n- [ ] [a] A plan that does something <!-- pr: #123, branch: feature/does-a-thing -->',
+      );
+      const planText = APPROVED_WITH_PROSE_BULLETS.replace('- **Type:** feature', '- **Type:** feature\n- **Sprint:** example');
+      const result = addSprintMember(sprintText, planText, 'should', ctx());
+      if (result.outcome !== 'write') throw new Error(`expected write, got ${result.outcome}`);
+      const shouldSection = result.sprintText.split('### Should Have')[1]!.split('### Could Have')[0]!;
+      expect(shouldSection).toContain('<!-- pr: #123, branch: feature/does-a-thing -->');
+      expect(result.sprintText).not.toContain('/plot-approve');
+    });
+  });
+
   it('moves a plan from Must to Should, logging a Reprioritized line', () => {
     const sprintText = SPRINT('<!-- nothing yet -->').replace(
       '### Must Have\n\n<!-- add items here -->',

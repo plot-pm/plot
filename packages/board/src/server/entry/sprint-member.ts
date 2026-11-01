@@ -250,6 +250,9 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
     throw new NamedRefusal('plan-not-found', `${planFile} could not be read. Nothing was written.`);
   }
   const planText = planRead.value;
+  // The branch `/plot-approve` annotates with: the parser's first branch.
+  const parsed = await ctx.planStore.readPlan(planFile);
+  const firstBranch = parsed.ok ? (parsed.value.branches[0] ?? '') : undefined;
 
   const sprintFiles = await readSprintFiles(ctx.planStore, dirs.sprintDir);
   const target = sprintFileFor(args.sprint, sprintFiles);
@@ -264,6 +267,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
     otherSprints,
     date: localDate(),
     reason: args.reason,
+    ...(firstBranch !== undefined ? { firstBranch } : {}),
   };
 
   let result: SprintMemberResult;

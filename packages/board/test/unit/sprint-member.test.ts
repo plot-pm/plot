@@ -117,6 +117,30 @@ describe('plot-sprint-member entry', () => {
     expect(read(PLAN_REL)).toContain('- **Sprint:** delivery-loop');
   });
 
+  it('annotates an Approved plan with the branch the plan parser reads first, as /plot-approve does', async () => {
+    const approved = PLAN.replace('- **Type:** feature', '- **Type:** feature\n- **Approved:** 2026-11-01, Jan Wloka, plan-PR #123 merged')
+      .replace('## Changelog', [
+        '## Approach',
+        '',
+        '- `/plot-approve` annotates the member line.',
+        '',
+        '## Slices',
+        '',
+        '### Writer',
+        '',
+        '- `ROW_TRACKS` is a constant this slice reads.',
+        '- `feature/zeta` — writes the member line.',
+        '- `feature/alpha` — reads it.',
+        '',
+        '## Changelog',
+      ].join('\n'));
+    writeFileSync(path.join(root, PLAN_REL), approved);
+    git('commit', '-q', '-am', 'approved plan');
+    const { code } = await invoke('add', 'delivery-loop', 'a-plan', '--tier', 'must');
+    expect(code).toBe(0);
+    expect(read(SPRINT_REL)).toContain('<!-- pr: #123, branch: feature/alpha -->');
+  });
+
   it('a re-run is a no-op: exit 0, no new commit', async () => {
     await invoke('add', 'delivery-loop', 'a-plan', '--tier', 'must');
     const head = git('rev-parse', 'HEAD');

@@ -1,6 +1,7 @@
 import { sprintsListing, type SprintFile } from '../rules/sprint-membership.js';
 import { annotateSprintItem } from '../rules/sprint-annotation.js';
 import { tickSprintItem } from '../rules/sprint-tick.js';
+import { branchClaims } from '../rules/cross-repo-reference.js';
 
 /**
  * `add`, `defer` and `remove` write a sprint's member line, the plan's
@@ -142,9 +143,14 @@ const planApprovedPr = (planText: string): number | null => {
   return match ? Number(match[1]) : null;
 };
 
-/** The first branch named by the plan's `## Slices` section, or `''`. */
+/**
+ * The lowest-sorting branch the plan's `## Slices`, `## Branches` or
+ * `## Waves` section claims, or `''`. Reads through {@link branchClaims}, so a
+ * backticked bullet outside those sections is never a branch; sorts as the plan
+ * parser sorts `branches`, whose first entry `/plot-approve` annotates with.
+ */
 const planFirstBranch = (planText: string): string =>
-  planText.match(/^- `([^`]+)`/m)?.[1] ?? '';
+  branchClaims(planText).map((claim) => claim.branch).sort()[0] ?? '';
 
 /** Result of writing (or refusing to write) the plan's `Sprint:` field. */
 type FieldWrite = { ok: true; text: string } | { ok: false; current: string };
@@ -211,14 +217,16 @@ const isDeliveredOrLater = (state: string): boolean => ['Delivered', 'Released']
 /**
  * Applies the annotation and tick a plan's own state owes its member line,
  * the same inputs `/plot-approve` and `/plot-deliver` use.
+ *
+ * @param branch - the branch the annotation names.
  */
-const withOwedAnnotation = (sprintText: string, slug: string, planText: string): string => {
+const withOwedAnnotation = (sprintText: string, slug: string, planText: string, branch: string): string => {
   const state = planState(planText);
   let text = sprintText;
   if (isApprovedOrLater(state)) {
     const pr = planApprovedPr(planText);
     if (pr !== null) {
-      text = annotateSprintItem(text, slug, pr, planFirstBranch(planText)).content;
+      text = annotateSprintItem(text, slug, pr, branch).content;
     }
   }
   if (isDeliveredOrLater(state)) {
@@ -312,6 +320,12 @@ export interface SprintMemberContext {
   date: string;
   /** Freeform note appended to a logged line, or `''` to omit it. */
   reason?: string;
+  /**
+   * The plan's first branch as the plan parser reads it (`PlanRecord.branches[0]`),
+   * the value `/plot-approve` annotates with. Absent: the first branch
+   * {@link branchClaims} reads from the plan's slice sections.
+   */
+  firstBranch?: string;
 }
 
 /**
@@ -383,7 +397,7 @@ export const addSprintMember = (
   if (changed && logLine && logsScopeChanges(state)) {
     nextSprintText = withScopeChangeLine(nextSprintText, logLine);
   }
-  nextSprintText = withOwedAnnotation(nextSprintText, ctx.slug, planText);
+  nextSprintText = withOwedAnnotation(nextSprintText, ctx.slug, planText, ctx.firstBranch ?? planFirstBranch(planText));
 
   const field = withSprintField(planText, ctx.sprint);
   if (!field.ok) {
