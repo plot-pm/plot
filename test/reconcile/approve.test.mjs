@@ -517,7 +517,7 @@ test('approve: a missing .plot/hold is not a failure', () => {
 test('approve: updates the sprint annotation the sprint view reads', () => {
   makeRepo(PLAN({ sprint: 'w33-ship-it' }), {
     'docs/sprints/2026-W33-ship-it.md':
-      '# Sprint\n\n## Must\n\n- [ ] [approve-me] the plan <!-- pr: none, status: draft, branch: none -->\n',
+      '# Sprint\n\n### Must Have\n\n- [ ] [approve-me] the plan <!-- pr: none, status: draft, branch: none -->\n',
   });
   const { out } = run(['approve-me']);
   assert.match(out, /summary: .*sprint=updated/);
