@@ -87,17 +87,23 @@ describe('scriptsConfigCached', () => {
   it('sees a same-size rewrite within the same mtime tick', async () => {
     const dir = repoDir();
     const claude = path.join(dir, 'CLAUDE.md');
+    // One fixed Date applied to both writes, so mtimeMs is bit-for-bit equal
+    // rather than merely close -- utimesSync truncates sub-millisecond
+    // precision, so two Date.now()-based timestamps can differ by a fraction
+    // of a millisecond and accidentally distinguish the stamp regardless of
+    // whether ino is part of it.
+    const when = new Date('2026-01-01T00:00:00.000Z');
     fs.writeFileSync(claude, '# aaaa');
+    fs.utimesSync(claude, when, when);
     const { scripts, calls } = countingScripts(() => answered('value'));
     const cached = scriptsConfigCached(scripts, dir);
 
     await cached.config('Key', 'fallback');
-    // Same byte length, pinned mtime, different ino: a new inode is the only
+    // Same byte length, same mtime, different ino: a new inode is the only
     // ingredient left to distinguish the rewrite from the file it replaced.
-    const stat = fs.statSync(claude);
     fs.rmSync(claude);
     fs.writeFileSync(claude, '# bbbb');
-    fs.utimesSync(claude, stat.atime, stat.mtime);
+    fs.utimesSync(claude, when, when);
     await cached.config('Key', 'fallback');
 
     expect(calls.count).toBe(2);
@@ -119,12 +125,15 @@ describe('scriptsConfigCached', () => {
   it('never shares an answer between two repositories with equal mtimes and sizes', async () => {
     const dirA = repoDir();
     const dirB = repoDir();
-    const when = new Date('2026-01-01T00:00:00Z');
-    for (const dir of [dirA, dirB]) {
-      const claude = path.join(dir, 'CLAUDE.md');
-      fs.writeFileSync(claude, '# same');
-      fs.utimesSync(claude, when, when);
-    }
+    // A hard link, not two independent writes: two files on one filesystem
+    // never share an inode by coincidence, so an independent write in each
+    // directory would pass this test even with repoRoot dropped from the
+    // stamp. Linking makes mtimeMs, size AND ino identical, leaving repoRoot
+    // as the one ingredient that can still tell the two repositories apart.
+    const claudeA = path.join(dirA, 'CLAUDE.md');
+    fs.writeFileSync(claudeA, '# same');
+    fs.utimesSync(claudeA, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'));
+    fs.linkSync(claudeA, path.join(dirB, 'CLAUDE.md'));
     const { scripts, calls } = countingScripts(() => answered('value'));
     const cachedA = scriptsConfigCached(scripts, dirA);
     const cachedB = scriptsConfigCached(scripts, dirB);

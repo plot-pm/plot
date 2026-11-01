@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { gateContractFile } from '@plot-pm/domain/adapters';
+import { gateContractFile, hostFixture, treesFixture } from '@plot-pm/domain/adapters';
+import { answered, failed, type PortResult, type Scripts } from '@plot-pm/domain';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,6 +46,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 import { boardAnswer } from '../../src/server/controllers/board-answer.js';
 import { mockEstate, realEstate } from '../../src/server/estate.js';
 import { pauseFleetRefresh, pulseFor, stopFleetRefresh } from '../../src/server/fleet.js';
+import { serverInfo } from '../../src/server/server-info.js';
 import { removeTree } from '../rm-tree.mjs';
 
 /**
@@ -248,5 +250,79 @@ describe('a warm /api/board request', () => {
     const opts = { repoRoot: estateRepo(), scriptsDir: scriptsWithSilentHost() };
     const answer = await boardAnswer(opts, mockEstate(), 'localhost', 7777, false);
     expect(answer.interrogate).toHaveProperty('available');
+  });
+});
+
+/** A `Scripts` whose config/configSync answer is scripted and counted, everything else unused. */
+const scriptedConfig = (answer: () => PortResult<string>): { scripts: Scripts; calls: { count: number } } => {
+  const calls = { count: 0 };
+  const unused = (): never => {
+    throw new Error('not used by serverInfo');
+  };
+  const scripts = {
+    planMeta: unused,
+    planMetaSync: unused,
+    config: async (..._args: unknown[]) => {
+      calls.count += 1;
+      return answer();
+    },
+    configSync: unused,
+    agentSettings: unused,
+    host: unused,
+    hostSaid: unused,
+    awaited: unused,
+    start: unused,
+    stream: unused,
+    sourced: unused,
+    pathOf: unused,
+  } as unknown as Scripts;
+  return { scripts, calls };
+};
+
+describe('serverInfo reads CI and People through the config cache, not a process-lifetime hold', () => {
+  it('shows a CLAUDE.md edit on the very next call', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-starts-ci-'));
+    made.push(repoRoot);
+    const claude = path.join(repoRoot, 'CLAUDE.md');
+    fs.writeFileSync(claude, '# P\n\n## Plot Config\n\n- **CI:** jenkins\n');
+    const opts = {
+      repoRoot,
+      scriptsDir: scriptsWithSilentHost(),
+      trees: treesFixture({}),
+      hostAdapter: hostFixture({}),
+    };
+
+    const first = await serverInfo(opts, 7777);
+    expect(first.ci).toBe('Jenkins');
+
+    const stat = fs.statSync(claude);
+    fs.writeFileSync(claude, '# P\n\n## Plot Config\n\n- **CI:** github-actions\n');
+    fs.utimesSync(claude, new Date(stat.atimeMs + 1000), new Date(stat.mtimeMs + 1000));
+
+    const second = await serverInfo(opts, 7777);
+    expect(second.ci).toBe('GitHub Actions');
+  });
+
+  it('re-asks People after a failed read instead of holding the failure', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-starts-people-'));
+    made.push(repoRoot);
+    let succeed = false;
+    const { scripts } = scriptedConfig(() =>
+      succeed ? answered('jwloka = Jan Wloka') : failed(),
+    );
+    const opts = {
+      repoRoot,
+      scriptsDir: scriptsWithSilentHost(),
+      trees: treesFixture({}),
+      hostAdapter: hostFixture({}),
+      config: scripts,
+    };
+
+    const first = await serverInfo(opts, 7777);
+    expect(first.people).toEqual({});
+
+    succeed = true;
+    const second = await serverInfo(opts, 7777);
+    expect(second.people).toEqual({ jwloka: 'jwloka', 'jan wloka': 'jwloka' });
   });
 });
