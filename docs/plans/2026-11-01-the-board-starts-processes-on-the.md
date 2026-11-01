@@ -89,7 +89,7 @@ Decided 2026-11-01 after panel round 1 (`.plot/panels/2026-11-01-the-board-start
 
 ### Held config
 
-- `feature/the-board-holds-its-config` — the stamp-checked decorator in `packages/domain/src/adapters/scripts/` over `Scripts.config`; `packages/fleet/src/shared/config-reader.ts` builds its reader with it; `BuildBoardOptions.config` in `board.ts`, read by `readConfig`, `readConfigAsync`, `scriptsFor`, `planStoreFor` and `server-info.ts` (`cachedCi` and `cachedPeople` go); the ratchet list loses its config lines. Tests: `packages/domain/test/config-held.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- builds: one held config reading per config stamp -->
+- `feature/the-board-holds-its-config` — the stamp-checked decorator in `packages/domain/src/adapters/scripts/` over `Scripts.config`; `packages/fleet/src/shared/config-reader.ts` builds its reader with it; `BuildBoardOptions.config` in `board.ts`, read by `readConfig`, `readConfigAsync`, `scriptsFor`, `planStoreFor` and `server-info.ts` (`cachedCi` and `cachedPeople` go); the ratchet list loses its config lines. Tests: `packages/domain/test/config-held.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- builds: one held config reading per config stamp --> → #3030
 
 ### Held git reads
 

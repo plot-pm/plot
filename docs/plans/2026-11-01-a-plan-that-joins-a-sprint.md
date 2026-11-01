@@ -136,7 +136,7 @@ Replayed over every non-merge commit on `origin/main` from 2026-10-01 to 68fde7a
 
 ### Gate
 
-- `feature/a-sprint-member-names-its-sprint` — `packages/domain/src/rules/sprint-member-gate.ts` and `packages/domain/test/sprint-member-gate.test.ts`; the `sprint-member` row in `GATES` (`packages/board/src/server/entry/gate.ts`); the `check` verb of `plot-sprint-member.mjs`; `scripts/check-sprint-members.sh` and its PR-only step in `.github/workflows/ci.yml`; the contract test `test/reconcile/sprint-member-gate.test.mjs`, which replays the four real commits through the hook. The gate waits on the writer so that its refusal names a command that exists. <!-- waits: feature/sprint-membership-is-one-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: sprint-member gate -->
+- `feature/a-sprint-member-names-its-sprint` — `packages/domain/src/rules/sprint-member-gate.ts` and `packages/domain/test/sprint-member-gate.test.ts`; the `sprint-member` row in `GATES` (`packages/board/src/server/entry/gate.ts`); the `check` verb of `plot-sprint-member.mjs`; `scripts/check-sprint-members.sh` and its PR-only step in `.github/workflows/ci.yml`; the contract test `test/reconcile/sprint-member-gate.test.mjs`, which replays the four real commits through the hook. The gate waits on the writer so that its refusal names a command that exists. <!-- waits: feature/sprint-membership-is-one-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: sprint-member gate --> → #3021
 
 ### Repair
 

@@ -1,12 +1,13 @@
 // `composeContinuation` — what it writes for a marker-driven reply versus a
 // fresh start that never had a question to answer.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
-import { execFileSync, type spawn as SpawnFn } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess, type spawn as SpawnFn } from 'node:child_process';
 import { describe, expect, it, afterEach } from 'vitest';
-import { composeContinuation, continueOnDesk } from '../../src/shared/continuation.js';
+import { composeContinuation, continueOnDesk, reporterShell } from '../../src/shared/continuation.js';
 import { markerReading } from '../../src/shared/worker-question.js';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
@@ -481,5 +482,287 @@ describe('removeAll — a failed removal does not leak its siblings', () => {
       removeTree(first);
       removeTree(second);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reporterShell — the reporter waits on a held descriptor and starts nothing.
+//
+// Each test spawns the script alone, with a PATH of logging shims for every
+// external the reporter could call. The agent blocks on a FIFO the test holds
+// (`read` is a builtin), so the shim log holds only what the script itself
+// starts.
+// ---------------------------------------------------------------------------
+
+const SCRIPT_DIR = fileURLToPath(new URL('../../../../skills/plot/scripts', import.meta.url));
+const SHIMMED = ['sleep', 'cat', 'tr', 'date', 'kill', 'mkfifo', 'rm', 'ps', 'dirname'];
+const sleepMs = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+const realPath = (name: string): string => execFileSync('/usr/bin/which', [name], { encoding: 'utf8' }).trim();
+
+interface Rig {
+  root: string;
+  wt: string;
+  log: string;
+  hold: string;
+  holdFd: number;
+  exitFile: string;
+  pidFile: string;
+  finding: string;
+  fifo: string;
+  pgid: number;
+  agent: () => number;
+  release: () => void;
+  start: (cmd: string, extra?: Record<string, string>) => Promise<void>;
+  lines: () => string[];
+  findings: () => string[];
+  waitFor: (ok: () => boolean, ms?: number) => Promise<boolean>;
+  dispose: () => void;
+}
+
+const reporterRig = (delay?: { name: string; seconds: number }): Rig => {
+  const root = mkdtempSync(join(tmpdir(), 'plot-reporter-'));
+  const wt = join(root, 'wt');
+  const shims = join(root, 'shims');
+  mkdirSync(wt);
+  mkdirSync(shims);
+  const log = join(root, 'shim.log');
+  writeFileSync(log, '');
+  for (const name of SHIMMED) {
+    if (name === 'kill') continue; // a shell builtin, so a shim is never reached
+    const real = realPath(name);
+    const pause = delay?.name === name ? `${realPath('sleep')} ${delay.seconds}; ` : '';
+    writeFileSync(join(shims, name), `#!/bin/sh\necho ${name} >> '${log}'\n${pause}exec ${real} "$@"\n`, { mode: 0o755 });
+  }
+  const hold = join(root, 'hold.fifo');
+  execFileSync('/usr/bin/mkfifo', [hold]);
+  const holdFd = openSync(hold, 'r+');
+  const rig: Rig = {
+    root,
+    wt,
+    log,
+    hold,
+    holdFd,
+    exitFile: join(wt, '.plot-worker.exit'),
+    pidFile: join(wt, '.plot-worker.pid'),
+    finding: join(wt, '.plot-worker.monitor.worker.jsonl'),
+    fifo: join(wt, '.plot-worker.reporter.fifo'),
+    pgid: 0,
+    agent: () => Number(readFileSync(rig.pidFile, 'utf8')),
+    release: () => {
+      try {
+        writeSync(holdFd, 'go\n');
+      } catch {
+        /* closed */
+      }
+    },
+    lines: () => readFileSync(log, 'utf8').split('\n').filter(Boolean),
+    findings: () => (existsSync(rig.finding) ? readFileSync(rig.finding, 'utf8').split('\n').filter(Boolean) : []),
+    waitFor: async (ok, ms = 10_000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (ok()) return true;
+        await sleepMs(20);
+      }
+      return ok();
+    },
+    start: async (cmd, extra = {}) => {
+      const child: ChildProcess = spawn('sh', ['-c', reporterShell(cmd)], {
+        cwd: wt,
+        detached: true,
+        stdio: 'ignore',
+        env: {
+          ...process.env,
+          PATH: `${shims}:${process.env.PATH ?? ''}`,
+          PLOT_BRANCH: 'bug/x',
+          PLOT_WORKTREE: wt,
+          PLOT_EXIT_FILE: rig.exitFile,
+          PLOT_PID_FILE: rig.pidFile,
+          PLOT_MANIFEST_FILE: '',
+          PLOT_SCRIPT_DIR: SCRIPT_DIR,
+          HOLD: hold,
+          ...extra,
+        },
+      });
+      rig.pgid = child.pid ?? 0;
+      await new Promise((r) => child.once('exit', r)); // waits on its own pid
+      await rig.waitFor(() => existsSync(rig.pidFile) && readFileSync(rig.pidFile, 'utf8') !== '');
+    },
+    dispose: () => {
+      rig.release();
+      try {
+        process.kill(-rig.pgid, 'SIGKILL'); // a blocked reporter must not outlive the test
+      } catch {
+        /* the group is already gone */
+      }
+      try {
+        closeSync(holdFd);
+      } catch {
+        /* closed */
+      }
+      removeTree(root);
+    },
+  };
+  return rig;
+};
+
+const groupAlive = (pgid: number): boolean => {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const aliveByPid = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+describe('reporterShell — the reporter waits on a held descriptor', () => {
+  const rigs: Rig[] = [];
+  const track = (r: Rig): Rig => (rigs.push(r), r);
+  afterEach(() => {
+    while (rigs.length > 0) rigs.pop()?.dispose();
+  });
+
+  const WAIT = 'read x < "$HOLD"';
+
+  it('starts nothing while the agent runs, and the same tail after a 1 s and a 3 s agent', async () => {
+    const tails: string[][] = [];
+    for (const seconds of [1, 3]) {
+      const rig = track(reporterRig());
+      await rig.start(WAIT);
+      const baseline = rig.lines().length;
+      await sleepMs(seconds * 1000);
+      expect(rig.lines().length).toBe(baseline);
+      rig.release();
+      expect(await rig.waitFor(() => rig.findings().length === 1)).toBe(true);
+      await rig.waitFor(() => !groupAlive(rig.pgid));
+      tails.push(rig.lines().slice(baseline));
+    }
+    expect(tails[0]).toEqual(tails[1]);
+    expect(tails[0]?.length).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('holds no sleep and no absolute path between the open and the tail', () => {
+    const script = reporterShell(WAIT);
+    const open = script.indexOf('{ exec 3>&-;');
+    const tail = script.indexOf('[ -f "$PLOT_EXIT_FILE" ] || printf', open);
+    expect(open).toBeGreaterThan(-1);
+    expect(tail).toBeGreaterThan(open);
+    const between = script.slice(open, tail);
+    expect(between).not.toMatch(/sleep/);
+    expect(between).not.toMatch(/\s\/[a-z]/);
+  });
+
+  it('reports a natural exit once', async () => {
+    const rig = track(reporterRig());
+    await rig.start(`${WAIT}; exit 0`);
+    rig.release();
+    expect(await rig.waitFor(() => rig.findings().length === 1)).toBe(true);
+    expect(readFileSync(rig.exitFile, 'utf8')).toBe('0');
+    expect(rig.findings()[0]).toContain('"finding":"clear"');
+  });
+
+  it('reports a failing exit once', async () => {
+    const rig = track(reporterRig());
+    await rig.start(`${WAIT}; exit 3`);
+    rig.release();
+    expect(await rig.waitFor(() => rig.findings().length === 1)).toBe(true);
+    expect(readFileSync(rig.exitFile, 'utf8')).toBe('3');
+    expect(rig.findings()[0]).toContain('"finding":"gone"');
+  });
+
+  it('has the exit file written when kill -0 on the recorded pid first fails', async () => {
+    const rig = track(reporterRig({ name: 'cat', seconds: 1 }));
+    await rig.start(`${WAIT}; exit 3`);
+    const pid = rig.agent();
+    rig.release();
+    expect(await rig.waitFor(() => !aliveByPid(pid))).toBe(true);
+    expect(readFileSync(rig.exitFile, 'utf8')).toBe('3');
+  });
+
+  it('reports a SIGKILL while the command lives (20 runs)', async () => {
+    for (let i = 0; i < 20; i += 1) {
+      const rig = track(reporterRig());
+      const cmdPid = join(rig.root, 'cmd.pid');
+      await rig.start(`sh -c 'echo $$ > "${cmdPid}"; read x < "$HOLD"'`);
+      await rig.waitFor(() => existsSync(cmdPid) && readFileSync(cmdPid, 'utf8').trim() !== '');
+      const cmd = Number(readFileSync(cmdPid, 'utf8'));
+      process.kill(rig.agent(), 'SIGKILL');
+      expect(await rig.waitFor(() => rig.findings().length === 1, 5_000)).toBe(true);
+      expect(aliveByPid(cmd)).toBe(true);
+      expect(readFileSync(rig.exitFile, 'utf8')).toBe('137');
+      expect(rig.findings()[0]).toContain('"finding":"gone"');
+      rig.release();
+      await rig.waitFor(() => !groupAlive(rig.pgid));
+      expect(groupAlive(rig.pgid)).toBe(false);
+      expect(existsSync(rig.fifo)).toBe(false);
+      rigs.pop()?.dispose();
+    }
+  }, 120_000);
+
+  it('does not let a command\'s descendant delay the finding', async () => {
+    const rig = track(reporterRig());
+    const gc = join(rig.root, 'gc.pid');
+    await rig.start(`sh -c 'sleep 30 & echo $! > "${gc}"'`);
+    expect(await rig.waitFor(() => rig.findings().length === 1, 5_000)).toBe(true);
+    const grandchild = Number(readFileSync(gc, 'utf8'));
+    expect(aliveByPid(grandchild)).toBe(true);
+    process.kill(grandchild, 'SIGKILL');
+  });
+
+  it('reports an agent that ends before the reporter opens its read end', async () => {
+    const rig = track(reporterRig({ name: 'mkfifo', seconds: 0 }));
+    await rig.start(':');
+    expect(await rig.waitFor(() => rig.findings().length === 1, 5_000)).toBe(true);
+    expect(await rig.waitFor(() => !groupAlive(rig.pgid), 5_000)).toBe(true);
+    expect(existsSync(rig.fifo)).toBe(false);
+  });
+
+  it('survives a group SIGTERM and reports 143 (20 runs)', async () => {
+    for (let i = 0; i < 20; i += 1) {
+      const rig = track(reporterRig());
+      const ready = join(rig.root, 'ready');
+      await rig.start(`: > "${ready}"; ${WAIT}`);
+      await rig.waitFor(() => existsSync(ready));
+      process.kill(-rig.pgid, 'SIGTERM');
+      expect(await rig.waitFor(() => rig.findings().length === 1, 5_000)).toBe(true);
+      expect(readFileSync(rig.exitFile, 'utf8')).toBe('143');
+      expect(rig.findings()[0]).toContain('"finding":"gone"');
+      await rig.waitFor(() => !groupAlive(rig.pgid));
+      expect(existsSync(rig.fifo)).toBe(false);
+      rigs.pop()?.dispose();
+    }
+  }, 120_000);
+
+  it('falls back to a poll when the FIFO cannot be made', async () => {
+    const rig = track(reporterRig());
+    mkdirSync(rig.fifo); // a directory at the path: mkfifo refuses
+    const runs = join(rig.root, 'runs');
+    await rig.start(`echo x >> "${runs}"; sh -c 'echo $$ > "${rig.root}/cmd.pid"; read x < "$HOLD"'`);
+    await rig.waitFor(() => existsSync(join(rig.root, 'cmd.pid')));
+    expect(readFileSync(runs, 'utf8').split('\n').filter(Boolean)).toHaveLength(1);
+    process.kill(rig.agent(), 'SIGKILL');
+    expect(await rig.waitFor(() => rig.findings().length === 1, 10_000)).toBe(true);
+    expect(readFileSync(rig.exitFile, 'utf8')).toBe('137');
+    expect(existsSync(rig.fifo)).toBe(true); // the directory is not ours to remove
+    rig.release();
+  }, 30_000);
+
+  it('still reports when the script dir is missing', async () => {
+    const rig = track(reporterRig());
+    await rig.start(`${WAIT}; exit 3`, { PLOT_SCRIPT_DIR: '/nonexistent' });
+    rig.release();
+    expect(await rig.waitFor(() => rig.findings().length === 1)).toBe(true);
+    expect(readFileSync(rig.exitFile, 'utf8')).toBe('3');
+    await rig.waitFor(() => !groupAlive(rig.pgid));
+    expect(existsSync(rig.fifo)).toBe(false);
   });
 });
