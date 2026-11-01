@@ -414,14 +414,14 @@ fi
 # walk until the removal slice deletes it. A bare `<slug>` answers as `--json` scoped to that plan. The domain walk hands the five machine modes (`--json`, `--next`,
 # `--list-eligible`, `--why-nothing`, `--slice-names`) to `plot-scan-walk.mjs`,
 # which runs the estate, branch, desk and assembly stages and decides with the
-# domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here, the last unless `PLOT_LOG_PULSE_WALK=domain`.
+# domain's rules. Prose, `--loose`, `--stream` and `--log-pulse` stay here, the last when `PLOT_LOG_PULSE_WALK` is set (to `domain`).
 # `--offline` still asks the host on the offer modes, as above. A scan whose
 # `origin/<main>` does not resolve stays here: the estate stage has no
 # working-tree fallback and the shell does. The node call is not `exec`ed:
 # the scan's EXIT trap must remove its temp registry.
 READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
-[[ "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain00[0${PLOT_LOG_PULSE_WALK/#domain/1}] || "$slice_names$why_nothing$next_only$as_json$slug$log_pulse" = 00000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json$log_pulse" "$slug" "$MAIN" \
+[[ "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain00[0${PLOT_LOG_PULSE_WALK:+1}] || "$slice_names$why_nothing$next_only$as_json$slug$log_pulse" = 00000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json$log_pulse" "$slug" "$MAIN" \
   "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"; exit $?; }
 
 # ---------------------------------------------------------------------------
