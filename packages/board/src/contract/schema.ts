@@ -2620,9 +2620,10 @@ export const AgentRowSchema = z.object({
    * MEMBERSHIP IS THE SPRINT FILE'S, not the plan's `Sprint:` field. A sprint
    * lists its plans as `- [ ] [slug]` lines (see {@link SprintMemberSchema}), and
    * that list is complete by construction — a person edits it when they commit.
-   * The plan's own `Sprint:` field is a back-reference, allowed to be stale: on
-   * this estate 19 plans are listed and only 5 carry the field, so joining on the
-   * field would show a third of the commitment and silently hide the rest.
+   * The plan's own `Sprint:` field names the one sprint `sprintOfPlan` answers,
+   * and `plot-sprint-member.mjs` writes it with the member line. Plans listed
+   * before that writer existed may still lack it: 19 were listed and 5 carried
+   * the field, so this join stays on the member list.
    *
    * SET WHERE THE ROW IS CREATED, in the server, by joining the row's plan slug
    * to that member list — never derived in the renderer from `planFile`. `kind`

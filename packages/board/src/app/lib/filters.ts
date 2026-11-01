@@ -125,7 +125,7 @@ export function withSprintCounts(
  * any plan became an option. Measured 2026-08-26, hours after W35 closed: the
  * filter offered three sprints — all Closed — while the Delivery tab header
  * correctly read *No active sprint*. Two views of one fact, disagreeing, because
- * a plan's `Sprint:` field is HISTORY and does not clear when its sprint ends.
+ * a plan's `Sprint:` field records its last sprint and does not clear when that sprint ends.
  * 133 plans carry one; three sprints have ever existed; none is active. The
  * filter looked like three sprints were running.
  *
