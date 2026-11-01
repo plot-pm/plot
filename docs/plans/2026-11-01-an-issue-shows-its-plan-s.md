@@ -6,7 +6,7 @@
 
 - **State:** Draft
 - **Type:** feature
-- **Sprint:**
+- **Sprint:** delivery-loop
 - **Issue:** #2997
 - **Story:**
 - **Review:** pr
