@@ -17,6 +17,7 @@
 export { shellContext, scriptPath, planParserPath, type ShellContext } from './scripts.js';
 
 export { scriptsShell } from './scripts/scripts-shell.js';
+export { scriptsConfigCached } from './scripts/config-cache.js';
 
 export { planStoreShell } from './plan-store/plan-store-shell.js';
 export { planStoreRef } from './plan-store/plan-store-ref.js';
