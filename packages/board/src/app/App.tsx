@@ -9,7 +9,7 @@ import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
 import { planLinkClick } from '@plot-pm/domain/rules/plan-link-click';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import type { DiscoveryShow, MineMode } from '@plot-pm/domain';
-import { mineDisabledReason, mineMode, mineStrictControl, comparableLogin } from '@plot-pm/domain';
+import { mineDisabledReason, mineMode, mineStrictControl, comparableLogin, planIndexOf, planRoute } from '@plot-pm/domain';
 import { MineStrictToggle } from './components/MineStrictToggle.js';
 import { sanitizeSelection } from '@plot-pm/domain/rules/sprint-selection';
 import { StoriesTab } from './components/StoriesTab.js';
@@ -949,7 +949,7 @@ export function App() {
     if (card) {
       setOpenPlan(card);
     } else {
-      location.assign(`/plan/${encodeURIComponent(file)}`);
+      location.assign(planRoute(file));
     }
   }, [pendingPlan, board, cardForPlanFile]);
 
@@ -962,7 +962,7 @@ export function App() {
     const file = pendingPlan;
     const id = setTimeout(() => {
       setPendingPlan('');
-      location.assign(`/plan/${encodeURIComponent(file)}`);
+      location.assign(planRoute(file));
     }, PENDING_PLAN_TIMEOUT_MS);
     return () => clearTimeout(id);
   }, [pendingPlan]);
@@ -977,7 +977,7 @@ export function App() {
     if (!pendingPlan || !boardUnreachable) return;
     const file = pendingPlan;
     setPendingPlan('');
-    location.assign(`/plan/${encodeURIComponent(file)}`);
+    location.assign(planRoute(file));
   }, [pendingPlan, boardUnreachable]);
 
   /**
@@ -1139,6 +1139,7 @@ export function App() {
   // sprint, only 5 carry the back-reference, 14 empty/placeholder. Joining on
   // card.sprint showed 5 of 19.
   const allCards = board ? board.columns.flatMap((c) => c.cards) : [];
+  const planIndex = planIndexOf({ cards: allCards });
   const sprintChoices = sprintFilterOptions(board);
   const membership = useMemo(
     () => sprintMembershipLookup(board?.sprints ?? []),
@@ -1529,7 +1530,7 @@ export function App() {
               planAgeSeconds={(planningBoard ?? board).planRefAgeSeconds ?? null}
               planSourceFrozen={boardUnreachable}
               onStarting={onStarting}
-              onOpenPlan={setOpenPlan}
+              onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
               highlight={validHighlight}
               showReleased={showReleased}
@@ -1543,7 +1544,7 @@ export function App() {
               planAgeSeconds={(planningBoard ?? board).planRefAgeSeconds ?? null}
               planSourceFrozen={boardUnreachable}
               onStarting={onStarting}
-              onOpenPlan={setOpenPlan}
+              onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
               highlight={validHighlight}
               showReleased={showReleased}
@@ -1589,19 +1590,16 @@ export function App() {
         <SprintModal
           sprint={openSprint}
           onClose={() => setOpenSprint(null)}
-          cardSlugs={new Set(allCards.map((c) => c.slug))}
-          onOpenPlan={(slug) => {
-            // `sprintItemDestination` (inside `SprintModal`) only ever hands
-            // back a slug that is both known and has a card, so the lookup
-            // here cannot miss. `planFileFromFleet`'s board-less fallback
-            // does not apply: the board already carries every plan the fleet
-            // could name — ref, working tree and branches alike — and a
-            // slug it does not have gets no button to click in the first
-            // place.
-            const card = allCards.find((c) => c.slug === slug) ?? null;
-            if (!card) return;
+          planIndex={planIndex}
+          onOpenPlan={(file) => {
+            // `SprintModal` links only a member whose slug the index resolves
+            // to a file; a file with no card gets no navigation here, so its
+            // anchor falls through to the plan page.
+            const card = cardForPlanFile(file);
+            if (!card) return false;
             setOpenSprint(null);
             setOpenPlan(card);
+            return true;
           }}
         />
       )}

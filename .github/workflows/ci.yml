@@ -1666,6 +1666,12 @@ jobs:
       - name: Plan headings say Slices
         run: ./scripts/check-plan-headings.sh
 
+      # A PLAN'S ROUTE IS BUILT IN ONE PLACE. `planRoute` in the domain's
+      # plan-reference rule is the only code that spells `/plan/<basename>`.
+      # Measured at 251b2abfc: 10 sites built it by hand.
+      - name: Plan routes are built by the rule
+        run: ./scripts/check-plan-routes.sh
+
       # A DESK MARKER IS NEVER COMMITTED. `PLOT-BLOCKED*` and
       # `PLOT-CORRECTION.md` speak to one person about one desk; on main, a
       # `PLOT-BLOCKED*` file makes every desk cut from main read as waiting on

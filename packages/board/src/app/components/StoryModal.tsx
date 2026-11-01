@@ -1,27 +1,9 @@
 import { useState } from 'react';
 import type { Card, StoryCard } from '../../contract/schema.js';
-import { planHref, storyHref } from '../lib/plan.js';
+import { planIndexOf, planReference, planRoute, planRouteOfDocLink } from '@plot-pm/domain';
+import { storyHref } from '../lib/plan.js';
+import { PlanReference } from './PlanReference.js';
 import { DocModal } from './DocModal.js';
-
-/**
- * Rewrite relative plan/story links to absolute board routes.
- *
- * Story content may contain links like `[plan](../../plans/2026-08-16-slug.md)`.
- * This extracts the slug and rewrites to `/plan/<slug>.md`.
- */
-function rewritePlanLink(href: string): string {
-  // Match relative paths to plans (with optional date prefix in filename)
-  const planMatch = href.match(/(?:\.\.\/)*plans\/(?:\d{4}-\d{2}-\d{2}-)?([^/]+\.md)$/);
-  if (planMatch) {
-    return `/plan/${planMatch[1]}`;
-  }
-  // Match relative paths to stories
-  const storyMatch = href.match(/(?:\.\.\/)*stories\/([^/]+)\/STORY-[^/]+\.md$/);
-  if (storyMatch) {
-    return `/story/${storyMatch[1]}`;
-  }
-  return href;
-}
 
 /**
  * Convert basic markdown to HTML for display.
@@ -37,7 +19,7 @@ function renderMarkdown(text: string): string {
     .replace(/>/g, '&gt;')
     // Handle markdown links [text](url) — rewrite plan/story links to board routes
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, href) => {
-      const rewrittenHref = rewritePlanLink(href);
+      const rewrittenHref = planRouteOfDocLink(href);
       return `<a href="${rewrittenHref}" class="text-cyan-600 hover:underline dark:text-cyan-400">${linkText}</a>`;
     })
     // Then apply markdown formatting
@@ -117,6 +99,15 @@ function designDocHref(story: StoryCard, docName: string): string {
 
 export function StoryModal({ story, cards, phases, onClose, onShowInBoard, onOpenSprint }: StoryModalProps) {
   const plans = plansInStory(cards, story.slug, phases);
+  const planIndex = planIndexOf({ cards });
+  // An in-overlay navigation, not a route change: a card found by file always
+  // opens, so there is no fall-through to the browser here.
+  const openPlanInOverlay = (file: string): boolean => {
+    const found = cards.find((c) => c.path === file);
+    if (!found) return false;
+    setViewingPlan(found);
+    return true;
+  };
   const [designExpanded, setDesignExpanded] = useState(false);
   // In-overlay navigation: null = story view, Card = plan view, string = design doc
   const [viewingPlan, setViewingPlan] = useState<Card | null>(null);
@@ -152,7 +143,7 @@ export function StoryModal({ story, cards, phases, onClose, onShowInBoard, onOpe
       <DocModal
         label="Plan"
         ariaLabel={`Plan: ${viewingPlan.title}`}
-        href={planHref(viewingPlan)}
+        href={planRoute(viewingPlan.path)}
         frameTitle={`Plan: ${viewingPlan.slug}`}
         onShowInBoard={onShowInBoard && (() => onShowInBoard(story))}
         onClose={onClose}
@@ -302,13 +293,11 @@ export function StoryModal({ story, cards, phases, onClose, onShowInBoard, onOpe
                 <span className="w-24 shrink-0 text-slate-500 dark:text-slate-400">
                   {card.phase}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setViewingPlan(card)}
-                  className="min-w-0 truncate text-left text-cyan-600 hover:underline dark:text-cyan-400"
-                >
-                  {card.title}
-                </button>
+                <PlanReference
+                  answer={planReference({ file: card.path, slug: card.slug }, planIndex)}
+                  file={card.path}
+                  onOpenPlan={openPlanInOverlay}
+                />
               </li>
             ))}
           </ul>

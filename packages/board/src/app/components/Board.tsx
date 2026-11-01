@@ -132,8 +132,8 @@ export interface BoardViewProps {
   pulse: number;
   /** A Start work click became outstanding (true) or settled (false). */
   onStarting: (active: boolean) => void;
-  /** Open a plan in the in-board modal. */
-  onOpenPlan: (card: Card) => void;
+  /** Open a plan by file in the in-board modal; `false` where the board holds no card for it. */
+  onOpenPlan: (file: string) => boolean;
   /**
    * Open a story in the in-board overlay — what a card's story badge does.
    *
@@ -291,7 +291,7 @@ export function BoardView({
                     interrogate={board.interrogate}
                     pulse={pulse}
                     onStarting={onStarting}
-                    onOpen={onOpenPlan}
+                    onOpen={(opened) => { onOpenPlan(opened.path); }}
                     story={card.story ? storyBySlug.get(card.story) : undefined}
                     onOpenStory={onOpenStory}
                     highlighted={card.slug === highlight}

@@ -1,5 +1,6 @@
 import type { Card, StoryCard } from '../../contract/schema.js';
-import { planHref, storyHref } from '../lib/plan.js';
+import { planReference, planRoute } from '@plot-pm/domain';
+import { storyHref } from '../lib/plan.js';
 import { DocModal } from './DocModal.js';
 
 export interface PlanModalProps {
@@ -38,12 +39,15 @@ export function PlanModal({ card, story, onClose, onShowInBoard, onOpenStory }: 
   // than inside the href helper alone.
   const canOpenStory = Boolean(onOpenStory && story && storyHref(story));
 
+  const { label, issues } = planReference({ file: card.path, slug: card.slug, issues: card.issues }, new Map());
+  const issuePrefix = issues.length > 0 ? `${issues.join(', ')}: ` : '';
+
   return (
     <DocModal
       label="Plan"
-      ariaLabel={`Plan: ${card.title}`}
-      href={planHref(card)}
-      frameTitle={`Plan: ${card.slug}`}
+      ariaLabel={`Plan: ${issuePrefix}${card.title}`}
+      href={planRoute(card.path)}
+      frameTitle={`Plan: ${label}`}
       onShowInBoard={onShowInBoard && (() => onShowInBoard(card))}
       onClose={onClose}
     >
