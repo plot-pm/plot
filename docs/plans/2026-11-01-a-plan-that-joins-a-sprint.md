@@ -9,6 +9,7 @@
 - **Sprint:** delivery-loop
 - **Issue:** #2999
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3000 merged
+- **Started:** 2026-11-01, Jan Wloka, `feature/sprint-membership-is-one-rule`
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
