@@ -653,7 +653,7 @@ describe('reporterShell — the reporter waits on a held descriptor', () => {
   it('holds no sleep and no absolute path between the open and the tail', () => {
     const script = reporterShell(WAIT);
     const open = script.indexOf('{ exec 3>&-;');
-    const tail = script.indexOf('[ -f "$PLOT_EXIT_FILE" ] || printf');
+    const tail = script.indexOf('[ -f "$PLOT_EXIT_FILE" ] || printf', open);
     expect(open).toBeGreaterThan(-1);
     expect(tail).toBeGreaterThan(open);
     const between = script.slice(open, tail);
@@ -729,7 +729,9 @@ describe('reporterShell — the reporter waits on a held descriptor', () => {
   it('survives a group SIGTERM and reports 143 (20 runs)', async () => {
     for (let i = 0; i < 20; i += 1) {
       const rig = track(reporterRig());
-      await rig.start(WAIT);
+      const ready = join(rig.root, 'ready');
+      await rig.start(`: > "${ready}"; ${WAIT}`);
+      await rig.waitFor(() => existsSync(ready));
       process.kill(-rig.pgid, 'SIGTERM');
       expect(await rig.waitFor(() => rig.findings().length === 1, 5_000)).toBe(true);
       expect(readFileSync(rig.exitFile, 'utf8')).toBe('143');
