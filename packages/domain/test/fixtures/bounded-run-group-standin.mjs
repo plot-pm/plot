@@ -24,6 +24,11 @@
 //                          drops to zero) while the STAND-IN process stays
 //                          alive — reports RUN_FINISHED once it has, then
 //                          waits to be signalled, same as the default mode.
+//   --cleanup-listener <markerFile>
+//                           registers a `once` listener per ending signal
+//                           before the run starts, shaped as `onStop`'s: it
+//                           writes <markerFile> synchronously, then exits 9
+//                           only after an asynchronous wait.
 //   --second-run <outFile2> starts a SECOND boundedRun alongside the first,
 //                           ends its own child, waits for both READY lines,
 //                           then reports both as `READY a b c d`.
@@ -39,6 +44,7 @@ const [, , outFile, ...rest] = process.argv;
 const flags = new Set(rest.filter((a) => a.startsWith('--')));
 const boundSeconds = flags.has('--bound-seconds') ? Number(rest[rest.indexOf('--bound-seconds') + 1]) : 0;
 const secondOutFile = flags.has('--second-run') ? rest[rest.indexOf('--second-run') + 1] : undefined;
+const markerFile = flags.has('--cleanup-listener') ? rest[rest.indexOf('--cleanup-listener') + 1] : undefined;
 
 const { processesShell } = await import('../../src/adapters/processes/processes-shell.ts');
 const { boundedRunProcess } = await import('../../src/adapters/bounded-run/bounded-run-process.ts');
@@ -56,6 +62,18 @@ if (flags.has('--own-listener')) {
     await new Promise((r) => setTimeout(r, 10));
     process.exit(7);
   });
+}
+
+if (markerFile) {
+  // THE SHAPE OF `onStop` (`worker-loop.ts`): a `once` listener per ending
+  // signal whose synchronous part cleans up, and whose exit waits on an
+  // asynchronous step. Registered BEFORE the run, as the worker loop does.
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+    process.once(signal, () => {
+      fs.writeFileSync(markerFile, `cleaned ${signal}\n`);
+      void new Promise((r) => setTimeout(r, 2000)).finally(() => process.exit(9));
+    });
+  }
 }
 
 /** Waits for the stand-in prompt's `PROMPT_CHILD <pid> <pid>` line in `file`. */

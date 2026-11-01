@@ -85,18 +85,21 @@ let liveRuns = 0;
  * signal stops Node's signal watcher, and a signal already queued at that
  * instant is dropped rather than delivered.
  *
- * With a live run, kills every run's tree exactly as before (the `'exit'`
- * listener each run installed does that) and exits. With no live run, a
- * caller that installed its own listener for this signal gets to act alone —
- * this handler returns. With no live run and no other listener, this handler
- * still exits with the signal's conventional code, so the process ends the
- * way it would have with no adapter installed at all.
+ * Decides when the signal arrives and exits on the next tick, after every
+ * other listener for the signal has run its synchronous part:
+ *
+ * - with a live run, exits with `128 + signal number`; the `'exit'` listener
+ *   each run installed kills that run's tree;
+ * - with no live run and another listener for the signal, returns and lets
+ *   that listener act alone;
+ * - with no live run and no other listener, exits with `128 + signal number`,
+ *   so the process ends as it would with no adapter installed.
  *
  * @param signal - the signal received.
  */
 const exitOnSignal = (signal: (typeof ENDING_SIGNALS)[number]): void => {
   if (liveRuns > 0 || process.listenerCount(signal) <= 1) {
-    process.exit(128 + constants.signals[signal]);
+    process.nextTick(() => process.exit(128 + constants.signals[signal]));
   }
 };
 
@@ -106,9 +109,11 @@ let listenersInstalled = false;
 /**
  * Installs the one persistent listener per ending signal, the first time any run starts.
  *
- * The listener goes FIRST in the list: Node removes a `once` listener before it
- * runs, so a handler that ran after a caller's `once` listener would count that
- * listener as already gone and exit over it.
+ * The listener goes FIRST in the list, so it counts the other listeners before
+ * any of them runs: Node removes a `once` listener before calling it, and a
+ * count taken after a caller's `once` listener would miss that listener. The
+ * exit itself waits for the next tick, so a caller's listener (`onStop`'s
+ * `cleanupNow`) still runs before the process ends.
  */
 const ensureListeners = (): void => {
   if (listenersInstalled) return;

@@ -214,4 +214,27 @@ describe('a signal that reaches boundedRun\'s caller in the same turn as its chi
     const result = await exited;
     expect(result, 'a stand-in with no run and no listener of its own survived SIGTERM').toEqual({ code: 143, signal: null });
   }, TEST_TIMEOUT_MS);
+
+  it('a caller\'s own cleanup listener runs before a stop during a run ends the process', async () => {
+    const outFile = freshOutFile();
+    const marker = path.join(scratch, 'cleaned.marker');
+    const wrapper = spawnStandin([outFile, '--cleanup-listener', marker]);
+    wrappers.push(wrapper);
+
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+      wrapper.once('exit', (code, signal) => resolve({ code, signal })),
+    );
+    const ready = await readyOf(wrapper);
+    process.kill(wrapper.pid!, 'SIGTERM');
+
+    const result = await exited;
+    expect(result, 'a live run must still end the caller with 143, before the listener\'s asynchronous exit 9').toEqual({
+      code: 143,
+      signal: null,
+    });
+    expect(fs.existsSync(marker), 'boundedRun exited before the caller\'s own cleanup listener ran').toBe(true);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('cleaned SIGTERM\n');
+    expect(await waitForExit(ready.promptPid), 'the run\'s prompt survived').toBe(true);
+    expect(await waitForExit(ready.grandchildPid), 'the run\'s grandchild survived').toBe(true);
+  }, TEST_TIMEOUT_MS);
 });
