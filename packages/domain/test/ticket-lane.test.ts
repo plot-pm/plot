@@ -118,6 +118,20 @@ describe('ticketLane', () => {
     ];
     expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
   });
+
+  it('keeps the first plan when a later one is more advanced: Draft then Approved reads Open', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    const plans: TicketPlan[] = [
+      { state: 'draft', total: 0, merged: null },
+      { state: 'approved', total: 1, merged: 0 },
+    ];
+    expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
+  });
+
+  it('reads Open for an unreadable plan set, leaving the group decision to the caller', () => {
+    const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
+    expect(ticketLane(issue, reading({ categoryStated: false, plans: null }), NOW)).toBe('open');
+  });
 });
 
 describe('doneTickets', () => {
