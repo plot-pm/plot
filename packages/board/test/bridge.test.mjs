@@ -143,6 +143,15 @@ function fleetdWrites(repo) {
   }), 'utf8');
 }
 
+/**
+ * Make the in-process scan fail: with no `origin` the default branch does not
+ * resolve and the estate stage throws. The scan no longer runs a script a test
+ * can swap for a failing one, so the repository itself is what breaks.
+ */
+function breakEstate(repo) {
+  execFileSync('git', ['remote', 'remove', 'origin'], { cwd: repo, stdio: 'ignore' });
+}
+
 const fetchFleet = async (port) => JSON.parse((await fetchRaw(port, '/api/fleet')).body);
 
 /**
@@ -245,6 +254,7 @@ describe('bridge: the last good pulse outlives the process', () => {
 
     // TWO: the same repo, a scan that CANNOT succeed. Anything this server
     // serves came off the disk.
+    breakEstate(fixture.repo);
     second = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: broken.dir });
     // The VERY FIRST request, kept separately: this is the window the whole
     // branch exists to close. A board that only recovered once its own scan
@@ -318,7 +328,7 @@ describe('bridge: the last good pulse outlives the process', () => {
     // `error` + `ready: true` is exactly the pair AgentList already renders as
     // "Last scan failed: … — showing the last successful pulse below." No new
     // field, no second vocabulary for "these numbers are old".
-    assert.match(afterRestart.error ?? '', /scan is broken on purpose|exit|3/i);
+    assert.match(afterRestart.error ?? '', /estate stage|scan/i);
   });
 
   it('does not overwrite the file when a scan FAILS', async () => {
@@ -436,6 +446,7 @@ describe('bridge: a stale-enough file is not served', () => {
       branch: 'feature/ancient',
     });
 
+    breakEstate(fixture.repo);
     server = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: broken.dir });
     // Give the failing scan a moment to land its error, so this is not merely
     // "the server had not looked yet".

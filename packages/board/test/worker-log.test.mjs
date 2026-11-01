@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { startServer, makeRepo, request, rmTree, SCRIPTS_DIR } from './helpers.mjs';
+import { startServer, makeRepo, request, rmTree, SCRIPTS_DIR, ownTheScan } from './helpers.mjs';
 
 const PLAN = `# Serve the log
 ## Status
@@ -56,7 +56,7 @@ function stubScan(pulse) {
     `#!/usr/bin/env bash\ncat ${JSON.stringify(json)}\n`,
     { mode: 0o755 },
   );
-  return { dir, cleanup: () => rmTree(dir) };
+  return { dir, own: (repo) => ownTheScan(dir, repo, pulse), cleanup: () => rmTree(dir) };
 }
 
 /** The pulse shape `plot-fleet-scan.sh --json` really emits. */
@@ -160,6 +160,7 @@ describe('GET /api/worker-log: derived server-side, bounded, three answers', () 
         branch('feature/elsewhere', '', { worker: 'elsewhere' }),
       ]),
     );
+    stub.own(tmp);
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
     await settle(server.port);
   });
@@ -255,6 +256,7 @@ describe('GET /api/worker-log: the bound, and saying so', () => {
       `FIRSTLINE\n${'x'.repeat(TAIL_BYTES * 2)}\nLASTLINE\n`,
     );
     stub = stubScan(pulse([branch('feature/big', wt)]));
+    stub.own(tmp);
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
     await settle(server.port);
   });
@@ -294,6 +296,7 @@ describe('the pulse carries no log', () => {
     wt = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wt-quiet-'));
     fs.writeFileSync(path.join(wt, '.plot-worker.log'), `${SECRET}\n`);
     stub = stubScan(pulse([branch('feature/quiet', wt)]));
+    stub.own(tmp);
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
     await settle(server.port);
   });

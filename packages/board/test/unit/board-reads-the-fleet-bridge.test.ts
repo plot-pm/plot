@@ -11,6 +11,17 @@ import { READER_STATE_VERSION } from '@plot-pm/domain';
 import type { Detached } from '@plot-pm/domain';
 
 const fold = vi.hoisted(() => ({ calls: 0 }));
+const scans = vi.hoisted(() => ({ calls: 0 }));
+vi.mock('@plot-pm/fleet/shared/fleet-scan', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@plot-pm/fleet/shared/fleet-scan')>();
+  return {
+    ...real,
+    scanOnce: (...args: Parameters<typeof real.scanOnce>) => {
+      scans.calls += 1;
+      return real.scanOnce(...args);
+    },
+  };
+});
 vi.mock('@plot-pm/domain', async (importOriginal) => {
   const real = await importOriginal<typeof import('@plot-pm/domain')>();
   return {
@@ -60,12 +71,6 @@ const autoWrites = (dir: string): string[] => {
 const fixture = (supervisorUp: boolean) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bridge-read-'));
   temps.push(dir);
-  const scans = path.join(dir, 'scans.log');
-  const scan = JSON.stringify({ kind: 'reading', reading: PULSE });
-  fs.writeFileSync(
-    path.join(dir, 'plot-fleet-scan.sh'),
-    `#!/usr/bin/env bash\necho "$PLOT_SCAN_RECORD" >> ${JSON.stringify(scans)}\nprintf '%s\\n' ${JSON.stringify(scan)}\n`,
-  );
   fs.writeFileSync(
     path.join(dir, 'plot-fleetctl.sh'),
     `#!/usr/bin/env bash\necho x >> ${JSON.stringify(path.join(dir, 'ctl.log'))}\necho 'summary: install=installed'\nexit ${supervisorUp ? 0 : 1}\n`,
@@ -111,13 +116,15 @@ const fixture = (supervisorUp: boolean) => {
   };
   const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
   const prListed = (): number => (fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter(Boolean).length : 0);
-  const spawned = (): string[] => (fs.existsSync(scans) ? fs.readFileSync(scans, 'utf8').split('\n').filter(Boolean) : []);
+  // The scan runs in process; its calls are counted at `scanOnce`.
+  const spawned = (): string[] => Array.from({ length: scans.calls }, () => '0');
   const supervisorReads = (): number => (fs.existsSync(path.join(dir, 'ctl.log')) ? fs.readFileSync(path.join(dir, 'ctl.log'), 'utf8').split('\n').filter(Boolean).length : 0);
   return { dir, opts, spawned, prListed, supervisorReads, detachedCalls };
 };
 
 beforeEach(() => {
   fold.calls = 0;
+  scans.calls = 0;
 });
 afterEach(() => {
   stopFleetRefresh();
