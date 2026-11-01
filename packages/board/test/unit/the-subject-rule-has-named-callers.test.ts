@@ -113,12 +113,13 @@ describe('the subject rule has named callers', () => {
     ]);
   });
 
-  it('names `mergeSubjects` only in the refs port, its adapters and the queue world', () => {
+  it('names `mergeSubjects` only in the refs port, its adapters, the walk cache and the queue world', () => {
     expect(callersOf('mergeSubjects')).toEqual([
       'packages/domain/src/adapters/refs/refs-fixture.ts',
       'packages/domain/src/adapters/refs/refs-git.ts',
       'packages/domain/src/ports/refs.ts',
       'packages/domain/src/workflows/plan-walk-branches.ts',
+      'packages/domain/src/workflows/plan-walk-cache.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });

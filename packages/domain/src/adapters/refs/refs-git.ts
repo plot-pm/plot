@@ -423,7 +423,8 @@ export const refsGit = (context: ShellContext): Refs => {
       if (!main.ok) return main as PortResult<readonly string[]>;
       return runScript(
         'git',
-        ['diff', '--name-only', `origin/${main.value}...${branch}`],
+        // A full object id names the base itself; a branch name is read off `origin`.
+        ['diff', '--name-only', `${/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(main.value) ? main.value : `origin/${main.value}`}...${branch}`],
         asLines,
         inRepo,
       );

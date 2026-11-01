@@ -14,7 +14,7 @@
  * tell which of these it holds, which is the entire substitution the ports
  * exist for.
  */
-export { shellContext, scriptPath, type ShellContext } from './scripts.js';
+export { shellContext, scriptPath, planParserPath, type ShellContext } from './scripts.js';
 
 export { scriptsShell } from './scripts/scripts-shell.js';
 
