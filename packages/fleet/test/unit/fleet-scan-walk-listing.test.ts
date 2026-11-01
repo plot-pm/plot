@@ -111,3 +111,18 @@ describe('the in-process walk reads the carried listing', () => {
     expect(branchOf(result.reading)?.state).toBe('unknown');
   });
 });
+
+describe('a repository with no git host', () => {
+  it('reads its PRs as never asked: a ref-less branch stays open and the host is not reported failed', async () => {
+    const { host, calls } = countingHost();
+    const seen: string[][] = [];
+    const none = { ...host, backend: async () => ok('none') } as unknown as Host;
+    const world = { ...oneBranchWorld(none, githubListing(seen)), backend: async () => 'none' };
+    const result = await scanOnce(world, freshScanState(), OPTIONS);
+    expect(calls.prList).toBe(0);
+    expect(seen.filter((args) => args[0] === 'pr-list')).toEqual([]);
+    expect(branchOf(result.reading)?.state).toBe('open');
+    // The walk hands the pulse `unasked`, the shell's word; the pulse schema reads that word as `unknown`.
+    expect(result.reading.summary.host).toBe('unknown');
+  });
+});

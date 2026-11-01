@@ -166,7 +166,12 @@ export const readBranchReadings = async (
   let prListComplete = false;
   let listed = false;
   let heldPr: (branch: string) => PrReading | undefined = () => undefined;
-  if (input.prs?.kind === 'listed') {
+  if (backend === 'none') {
+    // A repository with no git host has no pull requests to ask about: the
+    // question is never put, as `plot-fleet-scan.sh` reads a `none` backend.
+    // Asked before `prs`, which a caller hands in for every backend.
+    hostReach = 'unasked';
+  } else if (input.prs?.kind === 'listed') {
     const { states, complete } = input.prs.listing;
     listed = true;
     prListComplete = complete;
@@ -180,10 +185,6 @@ export const readBranchReadings = async (
     // What the host said when the caller's own read was refused: a host that
     // could not be asked at all is `unasked`, as `plot-fleet-scan.sh` read it.
     hostReach = reachOfRefusal('failed', input.prs.said ?? '');
-  } else if (backend === 'none') {
-    // A repository with no git host has no pull requests to ask about: the
-    // question is never put, as `plot-fleet-scan.sh` reads a `none` backend.
-    hostReach = 'unasked';
   } else {
     const list = await host.prList('all', PR_LIST_LIMIT);
     const prByBranch = new Map<string, Pr>();
