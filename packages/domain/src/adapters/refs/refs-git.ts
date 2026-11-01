@@ -37,7 +37,7 @@ import { processesShell } from '../processes/processes-shell.js';
 import { scriptsShell } from '../scripts/scripts-shell.js';
 import { treesGit } from '../trees/trees-git.js';
 import { type ShellContext } from '../scripts.js';
-import { readBranchReadings } from '../../workflows/plan-walk-branches.js';
+import { readBranchConflicts, readBranchReadings } from '../../workflows/plan-walk-branches.js';
 import { readDeskReadings } from '../../workflows/plan-walk-desks.js';
 import { readEstate } from '../../workflows/plan-walk-estate.js';
 import { assemblePlanWalk, fleetReading } from '../../workflows/plan-walk-assembly.js';
@@ -392,8 +392,8 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
   const trees = treesGit(context);
   const fetched = await trees.fetch(context.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
   const short = async (ref: string): Promise<string> => {
-    const sha = await refs.resolve(ref);
-    return sha.ok && sha.value ? sha.value.slice(0, 7) : 'unknown';
+    const sha = await runScript('git', ['rev-parse', '--short', ref], asText, { cwd: context.repoRoot });
+    return sha.ok && sha.value.trim() !== '' ? sha.value.trim() : 'unknown';
   };
   const readRef = await short(`origin/${mainBranch}`);
   const localHead = await short('HEAD');
@@ -410,6 +410,11 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
     const stage = !estate.ok ? 'estate' : !branches.ok ? 'branches' : !desks.ok ? 'desks' : 'assembly';
     throw new Error(`pulse: the ${stage} stage failed`);
   }
+  const conflicts = await readBranchConflicts(
+    refs,
+    mainBranch,
+    assembled.value.plans.flatMap((plan) => plan.slices.flatMap((slice) => slice.branches)),
+  );
   const reading = FleetReadingSchema.safeParse(
     fleetReading(assembled.value, {
       main: mainBranch,
@@ -421,7 +426,7 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
       host: branches.ok ? branches.value.hostReach : 'failed',
       mergeDetect: 'unaskable',
       nowSeconds: Math.floor(Date.now() / 1000),
-    }),
+    }, conflicts),
   );
   if (!reading.success) throw new Error('pulse: the walk produced a document that is not a pulse');
   return reading.data;

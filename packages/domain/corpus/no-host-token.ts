@@ -42,6 +42,10 @@ const HOST_ANSWER_VARIABLES: readonly string[] = ['PLOT_PR_LISTING', 'PLOT_TERMI
 
 for (const name of [...HOST_TOKEN_VARIABLES, ...HOST_ANSWER_VARIABLES]) delete process.env[name];
 
+// The corpus compares the adapters against the shell scan, so the scan runs its
+// own shell walk here, not the domain walk it defaults to.
+process.env.PLOT_SCAN_WALK = 'shell';
+
 const emptyConfig = mkdtempSync(join(tmpdir(), 'plot-corpus-gh-'));
 process.env.GH_CONFIG_DIR = emptyConfig;
 

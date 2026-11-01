@@ -169,14 +169,18 @@ export const sliceNamesOf = (estate: Estate): string[] => {
 
 /**
  * Chooses the plans a walk lists: a slug names one plan, and otherwise every
- * live plan, with the terminal ones left out of an offer.
+ * live plan, with the terminal ones left out of an offer and appended after
+ * the active ones otherwise, the order `plot-fleet-scan.sh` lists them in.
  */
 const chosen = (estate: Estate, input: AssemblyInput) => {
   if (input.slug !== '') {
     const hit = estate.plans.find(({ record }) => isPlan(record) && record.file.endsWith(`${input.slug}.md`));
     return hit === undefined ? [] : [hit];
   }
-  return estate.plans.filter(({ record }) => isPlan(record) && !(input.offer && TERMINAL_PHASES.has(record.phase)));
+  const live = estate.plans.filter(({ record }) => isPlan(record));
+  const active = live.filter(({ record }) => !TERMINAL_PHASES.has(record.phase));
+  if (input.offer) return active;
+  return [...active, ...live.filter(({ record }) => TERMINAL_PHASES.has(record.phase))];
 };
 
 /**

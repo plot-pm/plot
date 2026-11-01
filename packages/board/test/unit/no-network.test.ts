@@ -110,7 +110,9 @@ describe('the board never reaches the network to read refs', () => {
     // is the server directory, and it is swept below for a call to that method.
     const offenders = sources.filter((s) => /['"]fetch['"]/.test(s.file === 'trees-git.ts' ? withoutFetchMethod(s.code) : s.code));
     expect(offenders.map((s) => s.file)).toEqual([]);
-    const callers = sources.filter((s) => /\btrees\.fetch\(/.test(s.code));
+    // `refs-git.ts` holds the one other caller: `pulse()` IS the scan, and the
+    // scan fetches on its own timer, so its in-process walk keeps that fetch.
+    const callers = sources.filter((s) => s.file !== 'refs-git.ts' && /\btrees\.fetch\(/.test(s.code));
     expect(callers.map((s) => s.file)).toEqual([]);
   });
 
