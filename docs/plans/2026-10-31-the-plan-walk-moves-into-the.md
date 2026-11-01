@@ -99,7 +99,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Cache
 
-- `feature/the-walk-caches-by-oid` — the per-beat snapshot and the oid-keyed caches in `ScanState`, with mark-and-sweep pruning and the full-versus-incremental corpus <!-- waits: feature/scan-once-walks-in-process --> <!-- builds: beat snapshot and oid caches -->
+- `feature/the-walk-caches-by-oid` — the per-beat snapshot and the oid-keyed caches in `ScanState`, with mark-and-sweep pruning and the full-versus-incremental corpus <!-- waits: feature/scan-once-walks-in-process --> <!-- builds: beat snapshot and oid caches --> → #2995
 
 ### CLI modes
 
