@@ -47,7 +47,7 @@ export interface BranchStageInput {
   /**
    * The PR listing the caller already holds. Where present, the stage calls
    * no `Host.prList`: `listed` answers each branch from `states`, and
-   * `unread` reads every PR as `unreadable` with `hostReach` `failed`. Where
+   * `unread` reads every PR as `unreadable`, with `hostReach` `failed`, or `unasked` where `said` names a host that could not be asked. Where
    * absent, the stage asks the host for its list.
    */
   prs?: BranchStagePrs;
@@ -56,7 +56,7 @@ export interface BranchStageInput {
 /** A PR listing handed to the branch stage instead of a host call. */
 export type BranchStagePrs =
   | { kind: 'listed'; listing: CarriedPrStates }
-  | { kind: 'unread' };
+  | { kind: 'unread'; said?: string };
 
 /** One branch of one plan, with every reading the branch rule takes. */
 export interface BranchReading {
@@ -177,7 +177,13 @@ export const readBranchReadings = async (
       return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : 'unreadable';
     };
   } else if (input.prs?.kind === 'unread') {
-    hostReach = 'failed';
+    // What the host said when the caller's own read was refused: a host that
+    // could not be asked at all is `unasked`, as `plot-fleet-scan.sh` read it.
+    hostReach = reachOfRefusal('failed', input.prs.said ?? '');
+  } else if (backend === 'none') {
+    // A repository with no git host has no pull requests to ask about: the
+    // question is never put, as `plot-fleet-scan.sh` reads a `none` backend.
+    hostReach = 'unasked';
   } else {
     const list = await host.prList('all', PR_LIST_LIMIT);
     const prByBranch = new Map<string, Pr>();

@@ -476,13 +476,14 @@ export const scanPrListLimit = (env: NodeJS.ProcessEnv = process.env): number =>
 const askPrList = async (
   scripts: Scripts,
   args: readonly string[],
-  onCall: () => void,
+  onCall: (refusal?: string) => void,
 ): Promise<ScanListingAnswer> => {
   const said = await scripts.hostSaid(['pr-list', ...args]);
-  onCall();
   if (said.answer === 'failed' || said.answer === 'unaskable') {
+    onCall(said.said);
     return { verdict: 'failed', rows: [], stderr: said.said };
   }
+  onCall();
   const rows = parseScanListingRows(said.stdout);
   if (rows === null) return { verdict: 'failed', rows: [], stderr: 'pr-list printed a line that is not a PR row' };
   return {
@@ -512,7 +513,7 @@ const readGithubListing = async (
   scripts: Scripts,
   held: CarriedListing | null,
   now: number,
-  onCall: () => void,
+  onCall: (refusal?: string) => void,
 ): Promise<{ rendered: string; next: CarriedListing } | null> => {
   const limit = ['--limit', String(scanPrListLimit())];
   const attempt = async (window: ScanListingWindow, base: CarriedListing | null) => {
@@ -582,7 +583,7 @@ const readBitbucketListing = async (
   held: CarriedListing | null,
   now: number,
   window: ScanListingWindow,
-  onCall: () => void,
+  onCall: (refusal?: string) => void,
 ): Promise<{ rendered: string; next: CarriedListing; window: ScanListingWindow } | null> => {
   const full = async (): Promise<ScanListingFold> => {
     const args = branches.flatMap((branch) => ['--branch', branch]);
@@ -656,10 +657,11 @@ const shortSha = async (refs: Refs, ref: string): Promise<string> => {
  *
  * @param world - what the walk reads through.
  * @param listing - the rendered PR listing the scan carries, or `''` where none is held.
+ * @param listingSaid - what the host said when the listing read was refused, or `''`; a host that could not be asked reads `unasked` rather than `failed`.
  * @returns the pulse.
  * @throws where a stage fails or the assembled document is not a pulse.
  */
-export const walkOnce = async (world: ScanWorld, listing: string): Promise<FleetReading> => {
+export const walkOnce = async (world: ScanWorld, listing: string, listingSaid = ''): Promise<FleetReading> => {
   const { scripts, refs, walk } = world;
   const cfg = async (key: string, fallback: string): Promise<string> => {
     const answer = await scripts.config(key, fallback);
@@ -684,7 +686,7 @@ export const walkOnce = async (world: ScanWorld, listing: string): Promise<Fleet
   const localHead = await shortSha(refs, 'HEAD');
 
   const carried = readCarriedPrStates(listing);
-  const prs: BranchStagePrs = carried === null ? { kind: 'unread' } : { kind: 'listed', listing: carried };
+  const prs: BranchStagePrs = carried === null ? { kind: 'unread', said: listingSaid } : { kind: 'listed', listing: carried };
   const estate = await readEstate(refs, walk.plans(`origin/${mainBranch}`, planDir), {
     mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   });
@@ -806,10 +808,13 @@ export const scanOnce = async (
   // lines: the shell carries a handed listing and reports none back.
   let hostRead: { rendered: string; next: CarriedListing } | null = null;
   let listingRefused = false;
+  let listingSaid = '';
+  const counted = (refusal?: string): void => {
+    state.calls += 1;
+    if (refusal !== undefined) listingSaid = refusal;
+  };
   if (spend && backend === 'github') {
-    hostRead = await readGithubListing(world.scripts, state.listingHeld, now, () => {
-      state.calls += 1;
-    });
+    hostRead = await readGithubListing(world.scripts, state.listingHeld, now, counted);
     state.listingHeld = hostRead?.next ?? null;
     if (hostRead !== null) {
       state.listing = hostRead.rendered;
@@ -821,9 +826,7 @@ export const scanOnce = async (
   } else if (spend && backend === 'bitbucket') {
     const tracked = await world.refs.listBranches(true);
     const branches = tracked.ok ? tracked.value : [];
-    const read = await readBitbucketListing(world.scripts, branches, state.listingHeld, now, bitbucketWindow, () => {
-      state.calls += 1;
-    });
+    const read = await readBitbucketListing(world.scripts, branches, state.listingHeld, now, bitbucketWindow, counted);
     state.listingHeld = read?.next ?? null;
     if (read !== null) {
       hostRead = read;
@@ -843,7 +846,7 @@ export const scanOnce = async (
   // not the walk.
   let parsed: FleetReading;
   try {
-    parsed = await withinBudget(walkOnce(world, state.listing), FLEET_SCAN_BUDGET_MS);
+    parsed = await withinBudget(walkOnce(world, state.listing, listingSaid), FLEET_SCAN_BUDGET_MS);
   } finally {
     // A SPEND ATTEMPT THAT DID NOT ADOPT THROUGH THE HOST REFUSED. Both
     // backends read their listing host-side. A reused or backed-off pass spent

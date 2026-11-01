@@ -309,6 +309,28 @@ describe('readBranchReadings — a listing the caller holds replaces the host li
     expect(answer.value.branches.map((b) => b.readings.pr)).toEqual(['none']);
   });
 
+  it('reads a repository with no git host as unasked, without asking the host', async () => {
+    const { host, calls } = counting();
+    const none: Host = { ...host, ...hostFixture({ backend: 'none' }), prList: host.prList };
+    const answer = await readBranchReadings(world(), none, estateOf(line('feature/x')), INPUT);
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(calls.prList).toBe(0);
+    expect(answer.value.hostReach).toBe('unasked');
+    expect(answer.value.branches[0]?.readings.hostReach).toBe('unasked');
+  });
+
+  it('reads an unread listing as unasked where the host said it has no identity, failed otherwise', async () => {
+    const { host } = counting();
+    const reach = async (said: string) => {
+      const answer = await readBranchReadings(world(), host, estateOf(line('feature/x')), { ...INPUT, prs: { kind: 'unread', said } });
+      if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+      return answer.value.hostReach;
+    };
+    expect(await reach('gh: To use GitHub CLI, run: gh auth login')).toBe('unasked');
+    expect(await reach('HTTP 503')).toBe('failed');
+    expect(await reach('')).toBe('failed');
+  });
+
   it('reads a branch absent from an incomplete listing as unreadable, not none', async () => {
     const { host, calls } = counting();
     const listing = readCarriedPrStates(`${LISTING}\n.list-arrived\t1\t-\t-\n`)!;
