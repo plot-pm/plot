@@ -1,0 +1,1 @@
+../2026-11-01-every-plan-reference-shows-its-issue.md
