@@ -169,7 +169,7 @@ Domain rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`, board
 
 ### Released labels
 
-- `infra/released-issues-carry-their-label` — `packages/domain/src/rules/released-labels.ts`; `issueLabel` on `packages/domain/src/ports/tracker.ts` and its GitHub, fixture, Jira and none adapters; `labels` on the GitHub closed read in `plot-host.sh:5481-5484`; `packages/board/src/server/entry/released-labels.ts` built to `skills/plot/scripts/board/plot-released-labels.mjs` (built on `main`, not committed) with its row in `skills/plot/scripts/README.md`; the reconcile section in `skills/plot/scripts/plot-reconcile-scan.sh`, offset in shell lines. Tests: `packages/domain/test/released-labels.test.ts`, `packages/board/test/unit/released-labels-entry.test.ts`, `test/reconcile/reconcile-released-labels.test.mjs`.
+- `infra/released-issues-carry-their-label` — `packages/domain/src/rules/released-labels.ts`; `issueLabel` on `packages/domain/src/ports/tracker.ts` and its GitHub, fixture, Jira and none adapters; `labels` on the GitHub closed read in `plot-host.sh:5481-5484`; `packages/board/src/server/entry/released-labels.ts` built to `skills/plot/scripts/board/plot-released-labels.mjs` (built on `main`, not committed) with its row in `skills/plot/scripts/README.md`; the reconcile section in `skills/plot/scripts/plot-reconcile-scan.sh`, offset in shell lines. Tests: `packages/domain/test/released-labels.test.ts`, `packages/board/test/unit/released-labels-entry.test.ts`, `test/reconcile/reconcile-released-labels.test.mjs`. → #3012
 
 ### Added issues
 
