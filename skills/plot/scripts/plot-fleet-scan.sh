@@ -421,7 +421,7 @@ fi
 # the scan's EXIT trap must remove its temp registry.
 READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD="unknown"
-[[ "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain000 && "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse${PLOT_LOG_PULSE_WALK:-}" != domain001domain || "$slice_names$why_nothing$next_only$as_json$slug$log_pulse" = 00000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json$log_pulse" "$slug" "$MAIN" \
+[[ "${PLOT_SCAN_WALK:-domain}$loose$stream$log_pulse" != domain00[0${PLOT_LOG_PULSE_WALK/#domain/1}] || "$slice_names$why_nothing$next_only$as_json$slug$log_pulse" = 00000 || "$READ_REF" = unknown ]] || { node "$script_dir/board/plot-scan-walk.mjs" "$slice_names$why_nothing$list_all$next_only$as_json$log_pulse" "$slug" "$MAIN" \
   "$PLAN_DIR" "$ACTIVE_DIR" "$DELIVERED_DIR" "$PREFIX_RE" "$((1 - do_fetch))" "$READ_REF" "$LOCAL_HEAD" "$FETCH_FAILED" "$FETCH_ERROR"; exit $?; }
 
 # ---------------------------------------------------------------------------
