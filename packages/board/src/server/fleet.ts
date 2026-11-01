@@ -1612,13 +1612,19 @@ export async function planMetasAtDefault(
     : await refs.readBlobs(plans.map((blob) => blob.sha));
   if (!blobs.ok) return null;
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-default-plans-'));
-  const draft = await draftPlanFiles(opts, planDir, entry);
+  let draft: { dir: string | null; files: string[] } = { dir: null, files: [] };
   try {
+    draft = await draftPlanFiles(opts, planDir, entry);
     const files: string[] = [];
     for (const plan of plans) {
       const content = blobs.value.get(plan.sha);
       if (content === undefined) continue;
-      const target = path.join(scratch, `${files.length}-${path.basename(plan.path)}`);
+      // One subdirectory per blob keeps the real basename: `plot-plan-meta.sh`
+      // reports the path it was given, and `ticketPlansOf` matches that
+      // basename against the pulse's `file`.
+      const sub = path.join(scratch, String(files.length));
+      fs.mkdirSync(sub);
+      const target = path.join(sub, path.basename(plan.path));
       fs.writeFileSync(target, content);
       files.push(target);
     }
