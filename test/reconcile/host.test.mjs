@@ -11146,14 +11146,16 @@ test('host: issue-comment with a marker edits the comment holding it', () => {
   assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
 });
 
-test('host: issue-comment with a marker held only by another author’s comment posts instead of editing', () => {
+test('host: issue-comment with a marker held only by another author’s comment edits it and posts none', () => {
   const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y","user":{"login":"a-tracker-participant"}}]');
   const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'new text'], {
     env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
     stubs: gh,
   });
   assert.equal(res.code, 0, res.stderr);
-  assert.deepEqual(gh.calls().at(-1), ['issue', 'comment', '12', '--body', 'new text']);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=new text']);
+  assert.equal(gh.calls().filter((c) => c[0] === 'issue' && c[1] === 'comment').length, 0, 'no comment is posted');
+  assert.equal(gh.calls().filter((c) => c[2] === 'PATCH').length, 1, 'exactly one edit');
 });
 
 test('host: issue-comment with no login from gh api user edits another author’s comment holding the marker', () => {

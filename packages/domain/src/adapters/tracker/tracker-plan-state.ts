@@ -33,6 +33,17 @@ export const planStateLabelsToRemove = (phase: PlanStatePhase): string =>
 
 export { PLAN_STATE_MARKER };
 
+/**
+ * The phase a posted plan-state comment names on its second line.
+ *
+ * @param body - the comment body as read back.
+ * @returns the phase, or null where the line names none.
+ */
+const priorPhaseOf = (body: string): PlanStatePhase | null => {
+  const word = /^Plan (draft|approved|delivered|released)\b/.exec(body.split('\n')[1] ?? '')?.[1];
+  return PHASES.find((phase) => phase === word) ?? null;
+};
+
 /** The issue number an identifier ends in, or null where it names none. */
 const numberOf = (issue: string): string | null => /(\d+)\s*$/.exec(issue)?.[1] ?? null;
 
@@ -121,18 +132,21 @@ const LOCK_RETRY_MS = 50;
  *
  * @param dir - the `.plot/state/` directory.
  * @param issue - the issue identifier the lock is scoped to.
- * @returns a release function; always resolves, even on a timed-out wait —
- *   the write proceeds unlocked rather than silently skipping forever.
+ * @returns a release function once this call holds the lock, or `null` where
+ *   the wait timed out or `link()` failed for a reason other than contention.
+ *   A caller that gets `null` holds nothing and must not write or release.
  */
-const withIssueLock = async (dir: string, issue: string): Promise<() => Promise<void>> => {
+const withIssueLock = async (dir: string, issue: string): Promise<(() => Promise<void>) | null> => {
   await mkdir(dir, { recursive: true });
   const lockPath = join(dir, `plan-state-${issue.replace(/[^A-Za-z0-9_-]/g, '_')}.lock`);
   const marker = `${lockPath}.${process.pid}.${Math.floor(Math.random() * 1e9)}`;
   await writeFile(marker, '', 'utf8');
   const deadline = Date.now() + LOCK_WAIT_MS;
+  let held = false;
   for (;;) {
     try {
       await link(marker, lockPath);
+      held = true;
       break;
     } catch (error) {
       if ((error as { code?: string }).code !== 'EEXIST') break;
@@ -150,6 +164,7 @@ const withIssueLock = async (dir: string, issue: string): Promise<() => Promise<
     }
   }
   await unlink(marker).catch(() => {});
+  if (!held) return null;
   return async () => {
     await unlink(lockPath).catch(() => {});
   };
@@ -186,12 +201,33 @@ export const githubPlanStateWrite =
 
     const dir = await stateDirOf(context.repoRoot, env);
     const release = dir === null ? async () => {} : await withIssueLock(dir, write.issue);
+    if (release === null) {
+      refuse(`the plan-state lock for ${write.issue} is held by another writer; nothing was written`);
+      return failed();
+    }
     try {
       let effective = write;
-      if (write.sliceProgress === undefined || write.highTickets === undefined) {
+      // A progress write (approved, with a count) is the one a late pulse can
+      // outlive, so it always reads the comment: the phase is checked here,
+      // under the lock, not where the pulse was read.
+      const progressWrite = write.phase === 'approved' && write.sliceProgress !== undefined;
+      if (progressWrite || write.sliceProgress === undefined || write.highTickets === undefined) {
         const said = await run(['issue-comment-read', number, PLAN_STATE_MARKER]);
-        const prior = said.code === 0 && said.stdout.trim() !== '' ? priorPlanLinesOf(said.stdout) : null;
-        effective = filled(write, prior);
+        if (said.code === 4) {
+          refuse(null);
+          return unaskable(unaskableReasonOf(said.stderr));
+        }
+        if (said.code !== 0) {
+          refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh issue-comment-read exited ${said.code}`);
+          return failed();
+        }
+        const priorBody = said.stdout.trim() === '' ? null : said.stdout;
+        const standing = priorBody === null ? null : priorPhaseOf(priorBody);
+        if (progressWrite && (standing === 'delivered' || standing === 'released')) {
+          refuse(null);
+          return answered<PlanStateOutcome>('written');
+        }
+        effective = filled(write, priorBody === null ? null : priorPlanLinesOf(priorBody));
       }
       const body = planIssueComment(effective);
       const hash = hashOf(body);

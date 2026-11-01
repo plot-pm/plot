@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -200,6 +200,65 @@ describe('D6: the ticket record is not this machine’s to hold', () => {
       githubPlanStateWrite(host.context, state.env, state.refuse)(write('approved')),
     ]);
     expect(host.comments()).toHaveLength(1);
+  });
+});
+
+describe('gap 4: the plan comment has one careful writer', () => {
+  const stateHome = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-plan-state-written-'));
+    roots.push(dir);
+    const refusals: (string | null)[] = [];
+    return { dir, env: { PLOT_TRACKER: 'github-issues', [PLAN_STATE_WRITTEN_HOME_ENV]: dir }, refuse: (said: string | null) => refusals.push(said) };
+  };
+
+  it('fails the write and leaves a live foreign lock in place when the wait runs out', async () => {
+    const host = issueHost();
+    const state = stateHome();
+    const lock = join(state.dir, 'plan-state-_1979.lock');
+    writeFileSync(lock, '');
+    const result = await githubPlanStateWrite(host.context, state.env, state.refuse)(write('approved'));
+    expect(result).toEqual({ ok: false, why: 'failed' });
+    expect(existsSync(lock)).toBe(true);
+    expect(host.comments()).toEqual([]);
+    expect(host.labels()).toEqual([]);
+  }, 20_000);
+
+  it('fails the write on a failed read-back: no comment call, no hash recorded', async () => {
+    const host = issueHost();
+    const state = stateHome();
+    const log = join(state.dir, 'calls.log');
+    writeFileSync(
+      join(host.context.scriptDir, 'plot-host.sh'),
+      `#!/usr/bin/env bash\necho "$1" >>"${log}"\ncase "$1" in issue-comment-read) echo transport >&2; exit 1 ;; *) exit 0 ;; esac\n`,
+    );
+    const result = await githubPlanStateWrite(host.context, state.env, state.refuse)(write('delivered'));
+    expect(result).toEqual({ ok: false, why: 'failed' });
+    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual(['issue-comment-read']);
+    expect(existsSync(join(state.dir, 'plan-state-written.json'))).toBe(false);
+  });
+
+  it('keeps the comment’s progress line through a delivered write that names none', async () => {
+    const host = issueHost();
+    const state = stateHome();
+    const planStateWrite = githubPlanStateWrite(host.context, state.env, state.refuse);
+    await planStateWrite(write('approved', { sliceProgress: '1 of 2 slices merged', highTickets: [] }));
+    await planStateWrite(write('delivered'));
+    expect(host.comments()).toHaveLength(1);
+    expect(host.comments()[0]).toContain('Plan delivered');
+    expect(host.comments()[0]).toContain('1 of 2 slices merged');
+  });
+
+  it('writes no approved label or comment where the comment already says delivered', async () => {
+    const host = issueHost();
+    const state = stateHome();
+    const planStateWrite = githubPlanStateWrite(host.context, state.env, state.refuse);
+    await planStateWrite(write('delivered', { sliceProgress: '2 of 2 slices merged', highTickets: [] }));
+    const result = await planStateWrite(write('approved', { sliceProgress: '1 of 2 slices merged' }));
+    expect(isAnswered(result) && result.value).toBe('written');
+    expect(host.labels()).toEqual(['plan:delivered']);
+    expect(host.comments()).toHaveLength(1);
+    expect(host.comments()[0]).toContain('Plan delivered');
+    expect(host.comments()[0]).toContain('2 of 2 slices merged');
   });
 });
 
