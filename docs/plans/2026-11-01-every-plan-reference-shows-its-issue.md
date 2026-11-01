@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
-- **Sprint:**
+- **Sprint:** delivery-loop
 - **Issue:** #2993
 - **Story:**
 - **Review:** pr

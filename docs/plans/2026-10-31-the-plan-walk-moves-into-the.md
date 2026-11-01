@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
+- **Sprint:** delivery-loop
 - **Issue:** #2980
 - **Review:** pr
 - **Impl:** own branches
