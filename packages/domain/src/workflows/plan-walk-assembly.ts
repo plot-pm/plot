@@ -509,6 +509,30 @@ const branchRow = (
 };
 
 /**
+ * One plan as `--json` and `--stream` print it.
+ *
+ * @param plan - the assembled plan.
+ * @param header - the checkout's facts; `planDir` and `nowSeconds` are read.
+ * @param conflicts - each branch whose conflicts were read, to its conflicting paths.
+ * @returns the plan's row, its `file` relative to the plan directory.
+ */
+export const planRow = (
+  plan: AssembledPlan,
+  header: FleetReadingHeader,
+  conflicts: ReadonlyMap<string, readonly string[]> = new Map(),
+): Record<string, unknown> => ({
+  file: plan.file.startsWith(header.planDir) ? plan.file.slice(header.planDir.length) : plan.file,
+  phase: plan.phase,
+  ...(plan.tracer ? { tracer: true } : {}),
+  unreadBranchItems: plan.unreadBranchItems,
+  [WAVES_KEY]: plan.slices.map((slice) => ({
+    name: slice.name,
+    verdict: slice.verdict,
+    branches: slice.branches.map((b) => branchRow(b, header.nowSeconds, conflicts)),
+  })),
+});
+
+/**
  * The document `plot-fleet-scan.sh --json` prints.
  *
  * `local_dirty` is whether the desk holds dirty paths; `worker_dirty_paths`
@@ -536,17 +560,7 @@ export const fleetReading = (
   fetch_failed: header.fetchFailed,
   fetch_error: header.fetchError,
   plan_source: header.planSource ?? 'ref',
-  plans: assembly.plans.map((plan) => ({
-    file: plan.file.startsWith(header.planDir) ? plan.file.slice(header.planDir.length) : plan.file,
-    phase: plan.phase,
-    ...(plan.tracer ? { tracer: true } : {}),
-    unreadBranchItems: plan.unreadBranchItems,
-    [WAVES_KEY]: plan.slices.map((slice) => ({
-      name: slice.name,
-      verdict: slice.verdict,
-      branches: slice.branches.map((b) => branchRow(b, header.nowSeconds, conflicts)),
-    })),
-  })),
+  plans: assembly.plans.map((plan) => planRow(plan, header, conflicts)),
   summary: {
     plans: assembly.summary.plans,
     [WAVES_KEY]: assembly.summary.sliceCount,

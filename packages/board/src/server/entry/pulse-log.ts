@@ -65,9 +65,10 @@ export const logToPlan = (file: string, line: string): boolean => {
  * @param root - the repository root.
  * @param reading - the scan's reading document.
  * @param now - epoch ms.
+ * @param respectHold - whether a held bridge is left unwritten; `--stream` passes false and always writes.
  * @returns the delta lines for stdout, `''` where the delta could not be read.
  */
-export const recordBridge = (root: string, reading: Record<string, unknown>, now: number): string => {
+export const recordBridge = (root: string, reading: Record<string, unknown>, now: number, respectHold = true): string => {
   const file = join(root, '.plot', 'state', 'last-pulse.json');
   const previous = existsSync(file) ? readFileSync(file, 'utf8').replace(/\n/g, '') : '';
   let delta = '';
@@ -76,7 +77,7 @@ export const recordBridge = (root: string, reading: Record<string, unknown>, now
   } catch {
     delta = '';
   }
-  if (previous !== '' && held(previous, now)) return delta;
+  if (respectHold && previous !== '' && held(previous, now)) return delta;
   mkdirSync(join(root, '.plot', 'state'), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `{"version":1,"at":${now},"pulse":${JSON.stringify(reading)},"ages":[],"branchUrlBase":"","approvedAt":[],"ideaPlans":[]}`);
