@@ -4,7 +4,7 @@ import path from 'node:path';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { agentLogPath } from './agent-log.js';
-import { hostFor, readConfig, treesFor, type BuildBoardOptions } from './board.js';
+import { hostFor, readConfig, readConfigAsync, treesFor, type BuildBoardOptions } from './board.js';
 import { markBoardRun, readRunState, startBoardRun, STOPPED_RECORD } from './board-run.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './idea.js';
@@ -48,13 +48,13 @@ export const INTERROGATE_COMMAND_KEY = 'Interrogate command';
  * @param host the interface the server bound to (`HOST`), verbatim
  * @param opts the board options, for reading the config key
  */
-export const interrogateAvailability = (
+export const interrogateAvailability = async (
   host: string,
   opts: BuildBoardOptions,
-): { available: boolean; reason: string } => {
+): Promise<{ available: boolean; reason: string }> => {
   const binding = ideaAvailability(host);
   if (!binding.available) return binding;
-  if (!usableCommand(readConfig(opts, INTERROGATE_COMMAND_KEY, ''))) {
+  if (!usableCommand(await readConfigAsync(opts, INTERROGATE_COMMAND_KEY, ''))) {
     return {
       available: false,
       reason: `no \`${INTERROGATE_COMMAND_KEY}\` in Plot Config — interrogating a plan runs /plot-panel, which no script can do; add the key or run /plot-panel yourself`,

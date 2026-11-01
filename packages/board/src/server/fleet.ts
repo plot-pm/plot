@@ -3319,6 +3319,16 @@ export function lastCompletePulseFor(opts: BuildBoardOptions): FleetReading | nu
   return ensureCache(opts).lastComplete;
 }
 
+/**
+ * Stop the refresh clocks and keep the caches. A test that counts the processes
+ * one request starts calls this after a warm call: the request then reads the
+ * warm caches and the loop starts nothing of its own. `stopFleetRefresh` clears
+ * the caches, so it cannot serve that count.
+ */
+export const pauseFleetRefresh = (): void => {
+  for (const entry of caches.values()) entry.pulseClock?.stop();
+};
+
 /** Stop the refresh clocks. Tests need this; the server never calls it. */
 export function stopFleetRefresh(): void {
   // One `stop` per entry where there were two `clearInterval`s: both cadences
