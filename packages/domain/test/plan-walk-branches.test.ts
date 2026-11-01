@@ -9,7 +9,7 @@ import type { Refs } from '../src/ports/refs.js';
 import type { PlanRecordBranch } from '../src/ports/plan-store.js';
 import { branchState } from '../src/rules/branch-state.js';
 import { readCarriedPrStates } from '../src/rules/scan-listing.js';
-import { readBranchConflicts, readBranchReadings, type BranchStageInput } from '../src/workflows/plan-walk-branches.js';
+import { readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
 
 const INPUT: BranchStageInput = { mainBranch: 'main', planDir: 'docs/plans/' };
@@ -424,5 +424,59 @@ describe('readBranchReadings — a worktree estate has no default-branch ref', (
     expect(gone!.landed).toEqual([{ commit: 'abc1234', contained: 'unknown' }]);
     expect(branchState(here!.readings)).toBe('unknown');
     expect(branchState(gone!.readings)).toBe('open');
+  });
+});
+
+describe('stageMergeDetect', () => {
+  const stageOf = (refTip: string | null, merges: BranchStageReadings['merges']): BranchStageReadings =>
+    ({ backend: 'github', merges, branches: [{ plan: PLAN, branch: 'feature/x', readings: { refTip } }] }) as unknown as BranchStageReadings;
+
+  it('asks about a reported plan\'s refless branch and reads the walk', () => {
+    expect(stageMergeDetect(stageOf(null, [GITHUB_MERGE]), new Set([PLAN]))).toBe('pr-merge');
+    expect(stageMergeDetect(stageOf(null, Array.from({ length: 20000 }, () => GITHUB_MERGE)), new Set([PLAN]))).toBe('truncated');
+  });
+
+  it('answers unaskable where the refless branch belongs to no reported plan, or every branch has a ref', () => {
+    expect(stageMergeDetect(stageOf(null, [GITHUB_MERGE]), new Set())).toBe('unaskable');
+    expect(stageMergeDetect(stageOf('t1', [GITHUB_MERGE]), new Set([PLAN]))).toBe('unaskable');
+  });
+});
+
+describe('readBranchReadings — --loose reads each branch\'s PR detail', () => {
+  const pr = (head: string) =>
+    ({ number: 1, repo: '', head, base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '', draft: true, mergeable: 'unknown', review: 'none', checks: 'green', failingChecks: [], url: '', author: '' }) as never;
+  const detail = async (host: Host, prs?: BranchStageInput['prs']) => {
+    const answer = await readBranchReadings(world(), host, estateOf(line('feature/here'), line('feature/none')), { ...INPUT, loose: true, ...(prs === undefined ? {} : { prs }) });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return answer.value.branches.map((b) => b.prDetail);
+  };
+
+  it('reads a listed PR\'s state, checks and draft flag, and none for a branch with no PR', async () => {
+    expect(await detail(hostFixture({ backend: 'github', prs: [pr('feature/here')] }))).toEqual([{ state: 'OPEN', checks: 'green', draft: true }, 'none']);
+  });
+
+  it('reads no-host where the list failed, and no-cache where the caller carried the listing', async () => {
+    expect(await detail({ ...hostFixture({ backend: 'github' }), prList: async () => failed() })).toEqual(['no-host', 'no-host']);
+    expect(await detail(hostFixture({ backend: 'github' }), { kind: 'listed', listing: { states: new Map(), complete: true } })).toEqual(['no-cache', 'no-cache']);
+    expect(await detail(hostFixture({ backend: 'github' }), { kind: 'unread' })).toEqual(['no-host', 'no-host']);
+  });
+
+  it('reads no-cache for a branch absent from a list cut at its limit', async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => pr(`feature/other-${i}`));
+    expect((await detail(hostFixture({ backend: 'github', prs: full })))[1]).toBe('no-cache');
+  });
+});
+
+describe('readBranchReadings — onPlan', () => {
+  it('hands each plan its own branches once they are read', async () => {
+    const seen: string[] = [];
+    const answer = await readBranchReadings(world(), hostFixture({ backend: 'github' }), estateOf(line('feature/here'), line('feature/gone')), {
+      ...INPUT,
+      onPlan: (plan, branches) => {
+        seen.push(`${plan} ${branches.map((b) => b.branch).join(',')}`);
+      },
+    });
+    expect(isAnswered(answer)).toBe(true);
+    expect(seen).toEqual([`${PLAN} feature/here,feature/gone`]);
   });
 });

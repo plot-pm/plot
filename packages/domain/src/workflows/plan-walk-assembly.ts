@@ -5,7 +5,7 @@ import { isClaimable, sliceVerdicts, type SliceReadings } from '../rules/eligibl
 import { spikeSliceOf } from '../rules/spike.js';
 import { nextWork, type SliceOutlookReading } from '../rules/waiting.js';
 import type { PlanRecord } from '../ports/plan-store.js';
-import type { BranchStageReadings } from './plan-walk-branches.js';
+import type { BranchReading, BranchStageReadings, PrDetail } from './plan-walk-branches.js';
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
 
@@ -38,6 +38,14 @@ export interface AssemblyInput {
    * names it.
    */
   offer: boolean;
+  /**
+   * The `--loose` input. Where present, a branch in state `wip` whose PR is
+   * open, not a draft and green counts as settled for its slice, and a branch
+   * whose readiness could not be read is listed in its slice's
+   * `looseDegraded`. `verifiable` is false where no host could be asked, and
+   * every `wip` branch then counts as outstanding without a degraded note.
+   */
+  loose?: { verifiable: boolean };
 }
 
 /** One branch of one slice, with the state the rules decided for it. */
@@ -82,6 +90,8 @@ export interface AssembledSlice {
   taken: number;
   /** The branches of this slice a worker may take now. */
   free: number;
+  /** Under `--loose`, `branch(reason)` for each `wip` branch whose readiness could not be read. */
+  looseDegraded: readonly string[];
 }
 
 /** One plan with its slices. */
@@ -172,7 +182,7 @@ export const sliceNamesOf = (estate: Estate): string[] => {
  * live plan, with the terminal ones left out of an offer and appended after
  * the active ones otherwise, the order `plot-fleet-scan.sh` lists them in.
  */
-const chosen = (estate: Estate, input: AssemblyInput) => {
+export const chosenPlans = (estate: Estate, input: AssemblyInput) => {
   if (input.slug !== '') {
     const hit = estate.plans.find(({ record }) => isPlan(record) && record.file.endsWith(`${input.slug}.md`));
     return hit === undefined ? [] : [hit];
@@ -212,10 +222,64 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
   }
   const estate = stages.estate.value;
   const branchStage = stages.branches.value;
+  const assembler = planWalkAssembler(estate, input);
   const deskOf = new Map(stages.desks.value.desks.map((d) => [d.branch, d] as const));
   const readingOf = new Map(branchStage.branches.map((b) => [`${b.plan}\t${b.branch}`, b] as const));
-  const sliceNames = sliceNamesOf(estate);
+  for (const { record } of chosenPlans(estate, input)) {
+    const added = assembler.add(record, readingOf, deskOf);
+    if (!added.ok) return failed<Assembly>();
+  }
+  return answered(assembler.finish(branchStage.mainSha));
+};
 
+/** What a `wip` branch's PR row says about `--loose` readiness: ready, or not and why. */
+const looseReadiness = (detail: PrDetail | undefined): { ready: boolean; degraded: string } => {
+  if (detail === undefined || detail === 'no-host') return { ready: false, degraded: 'no-host' };
+  if (detail === 'no-cache') return { ready: false, degraded: 'no-cache' };
+  if (detail === 'none') return { ready: false, degraded: '' };
+  if (detail.state !== 'OPEN') return { ready: false, degraded: '' };
+  if (detail.checks !== 'green') {
+    const unreadable = detail.checks === 'unknown' || detail.checks === 'none' || detail.checks === '';
+    return { ready: false, degraded: unreadable ? detail.checks || 'no-cache' : '' };
+  }
+  return { ready: !detail.draft, degraded: '' };
+};
+
+/** The assembler {@link planWalkAssembler} returns: one plan at a time, then the whole. */
+export interface PlanWalkAssembler {
+  /**
+   * Assembles one plan from the branch and desk readings that name it.
+   *
+   * @param record - the plan.
+   * @param readingOf - the branch readings, keyed `<plan file>\t<branch>`.
+   * @param deskOf - the desk readings, keyed by branch.
+   * @returns the plan, `null` where the pulse lists none, or a failure where a branch of the plan has no reading.
+   */
+  add: (
+    record: PlanRecord,
+    readingOf: ReadonlyMap<string, BranchReading>,
+    deskOf: ReadonlyMap<string, DeskReading>,
+  ) => PortResult<AssembledPlan | null>;
+  /**
+   * The assembly of every plan added so far.
+   *
+   * @param mainSha - the default branch's commit the walk read at.
+   * @returns the assembly, with the plans in the order they were added.
+   */
+  finish: (mainSha: string) => Assembly;
+}
+
+/**
+ * Starts an assembly that takes one plan at a time, so a caller can hand a
+ * plan out as soon as its readings are in. {@link assemblePlanWalk} is this
+ * assembler run over every chosen plan.
+ *
+ * @param estate - the estate stage's answer.
+ * @param input - the slug, offer flag and `--loose` input.
+ * @returns the assembler.
+ */
+export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWalkAssembler => {
+  const sliceNames = sliceNamesOf(estate);
   const plans: AssembledPlan[] = [];
   const claimable: string[] = [];
   let takenInEligible = 0;
@@ -223,14 +287,14 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
     plans: 0, sliceCount: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0, waiting: 0, prereqMissing: 0,
   };
 
-  for (const { record } of chosen(estate, input)) {
-    if (LEFT_PHASES.has(record.phase)) continue;
-    if (record.phase === 'delivered' && (record.type === 'docs' || record.type === 'infra')) continue;
+  const add: PlanWalkAssembler['add'] = (record, readingOf, deskOf) => {
+    if (LEFT_PHASES.has(record.phase)) return answered(null);
+    if (record.phase === 'delivered' && (record.type === 'docs' || record.type === 'infra')) return answered(null);
     summary.plans += 1;
 
     const lines = record.slices.flatMap((slice, sliceIndex) => slice.branches.map((line) => ({ slice, sliceIndex, line })));
     const found = lines.map(({ line }) => readingOf.get(`${record.file}\t${line.branch}`));
-    if (found.some((f) => f === undefined)) return failed<Assembly>();
+    if (found.some((f) => f === undefined)) return failed<AssembledPlan | null>();
 
     const owns = found.map((f) => branchState({ ...f!.readings, waits: [] }));
     const landed = new Set(lines.filter((_, i) => owns[i] === 'merged').map(({ line }) => line.branch));
@@ -240,9 +304,17 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
       return branchState({ ...f!.readings, waits });
     });
 
+    const degraded: string[][] = record.slices.map(() => []);
     const sliceReadings: SliceReadings[] = record.slices.map((_slice, s) => {
       const own = lines.flatMap((l, i) => (l.sliceIndex === s ? [i] : []));
-      const outstanding = own.filter((i) => states[i] !== 'deferred' && states[i] !== 'merged').length;
+      const outstanding = own.filter((i) => {
+        if (states[i] === 'deferred' || states[i] === 'merged') return false;
+        if (states[i] !== 'wip' || input.loose === undefined || !input.loose.verifiable) return true;
+        const readiness = looseReadiness(found[i]!.prDetail);
+        if (readiness.ready) return false;
+        if (readiness.degraded !== '') degraded[s]!.push(`${lines[i]!.line.branch}(${readiness.degraded})`);
+        return true;
+      }).length;
       return {
         outstanding,
         phase: record.phase,
@@ -296,18 +368,21 @@ export const assemblePlanWalk = (stages: WalkStages, input: AssemblyInput): Port
       if (verdict === 'blocked') summary.blocked += 1;
       if (verdict === 'eligible') takenInEligible += taken;
       summary.eligible += free;
-      return { name: sliceRecord.name, verdict, branches, taken, free };
+      return { name: sliceRecord.name, verdict, branches, taken, free, looseDegraded: degraded[s]! };
     });
-    plans.push({
+    const assembledPlan: AssembledPlan = {
       file: record.file,
       phase: record.phase,
       tracer: planSpikes > 0,
       slices,
       unreadBranchItems: record.unreadBranchItems,
-    });
-  }
+    };
+    plans.push(assembledPlan);
+    return answered(assembledPlan);
+  };
 
-  return answered({ mainSha: branchStage.mainSha, plans, claimable, takenInEligible, sliceNames, summary });
+  const finish = (mainSha: string): Assembly => ({ mainSha, plans, claimable, takenInEligible, sliceNames, summary });
+  return { add, finish };
 };
 
 /**
@@ -434,6 +509,39 @@ const branchRow = (
 };
 
 /**
+ * Whether a plan names any branch. The scan's document and stream list a plan
+ * only when it does; its prose report and `summary.plans` count it regardless.
+ *
+ * @param plan - the assembled plan.
+ * @returns true when at least one slice holds a branch.
+ */
+export const hasBranchLines = (plan: AssembledPlan): boolean => plan.slices.some((slice) => slice.branches.length > 0);
+
+/**
+ * One plan as `--json` and `--stream` print it.
+ *
+ * @param plan - the assembled plan.
+ * @param header - the checkout's facts; `planDir` and `nowSeconds` are read.
+ * @param conflicts - each branch whose conflicts were read, to its conflicting paths.
+ * @returns the plan's row, its `file` relative to the plan directory.
+ */
+export const planRow = (
+  plan: AssembledPlan,
+  header: FleetReadingHeader,
+  conflicts: ReadonlyMap<string, readonly string[]> = new Map(),
+): Record<string, unknown> => ({
+  file: plan.file.startsWith(header.planDir) ? plan.file.slice(header.planDir.length) : plan.file,
+  phase: plan.phase,
+  ...(plan.tracer ? { tracer: true } : {}),
+  unreadBranchItems: plan.unreadBranchItems,
+  [WAVES_KEY]: plan.slices.map((slice) => ({
+    name: slice.name,
+    verdict: slice.verdict,
+    branches: slice.branches.map((b) => branchRow(b, header.nowSeconds, conflicts)),
+  })),
+});
+
+/**
  * The document `plot-fleet-scan.sh --json` prints.
  *
  * `local_dirty` is whether the desk holds dirty paths; `worker_dirty_paths`
@@ -461,17 +569,7 @@ export const fleetReading = (
   fetch_failed: header.fetchFailed,
   fetch_error: header.fetchError,
   plan_source: header.planSource ?? 'ref',
-  plans: assembly.plans.map((plan) => ({
-    file: plan.file.startsWith(header.planDir) ? plan.file.slice(header.planDir.length) : plan.file,
-    phase: plan.phase,
-    ...(plan.tracer ? { tracer: true } : {}),
-    unreadBranchItems: plan.unreadBranchItems,
-    [WAVES_KEY]: plan.slices.map((slice) => ({
-      name: slice.name,
-      verdict: slice.verdict,
-      branches: slice.branches.map((b) => branchRow(b, header.nowSeconds, conflicts)),
-    })),
-  })),
+  plans: assembly.plans.filter(hasBranchLines).map((plan) => planRow(plan, header, conflicts)),
   summary: {
     plans: assembly.summary.plans,
     [WAVES_KEY]: assembly.summary.sliceCount,

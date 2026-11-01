@@ -12,7 +12,7 @@ import {
 } from '../rules/branch-state.js';
 import { realCommits } from '../rules/empty-claim.js';
 import { encodeListingKey, type CarriedPrStates } from '../rules/scan-listing.js';
-import { mergedBySubject } from '../rules/merge-subject.js';
+import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge-subject.js';
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
 
@@ -51,7 +51,28 @@ export interface BranchStageInput {
    * absent, the stage asks the host for its list.
    */
   prs?: BranchStagePrs;
+  /**
+   * Whether the caller runs `--loose`: the stage then asks the host for the
+   * rich list and records each branch's {@link PrDetail}.
+   */
+  loose?: boolean;
+  /**
+   * Called once per live plan, in plan order, as soon as that plan's branches
+   * are read and before the next plan's are. The walk fails if the call throws.
+   */
+  onPlan?: (plan: string, branches: readonly BranchReading[]) => Promise<void> | void;
 }
+
+/**
+ * What the host's list said about one branch's PR, for the `--loose` readiness
+ * question: a row with its state, check rollup and draft flag, or the reason
+ * no row could be read.
+ */
+export type PrDetail =
+  | 'no-host'
+  | 'no-cache'
+  | 'none'
+  | { state: 'OPEN' | 'MERGED' | 'CLOSED'; checks: string; draft: boolean };
 
 /** A PR listing handed to the branch stage instead of a host call. */
 export type BranchStagePrs =
@@ -77,6 +98,8 @@ export interface BranchReading {
    * ahead.
    */
   changedPaths: readonly string[];
+  /** The PR row the list held for the branch; present only under `input.loose`. */
+  prDetail?: PrDetail;
 }
 
 /** What the branch stage reads: one entry per branch line of every live plan. */
@@ -173,6 +196,7 @@ export const readBranchReadings = async (
   let prListComplete = false;
   let listed = false;
   let heldPr: (branch: string) => PrReading | undefined = () => undefined;
+  let detailOf: (branch: string) => PrDetail = () => 'no-host';
   if (backend === 'none') {
     // A repository with no git host has no pull requests to ask about: the
     // question is never put, as `plot-fleet-scan.sh` reads a `none` backend.
@@ -188,12 +212,13 @@ export const readBranchReadings = async (
       if (state === undefined) return undefined;
       return state === 'OPEN' || state === 'MERGED' || state === 'CLOSED' ? state : 'unreadable';
     };
+    detailOf = () => 'no-cache';
   } else if (input.prs?.kind === 'unread') {
     // What the host said when the caller's own read was refused: a host that
     // could not be asked at all is `unasked`, as `plot-fleet-scan.sh` read it.
     hostReach = reachOfRefusal('failed', input.prs.said ?? '');
   } else {
-    const list = await host.prList('all', PR_LIST_LIMIT);
+    const list = await host.prList('all', PR_LIST_LIMIT, undefined, input.loose === true);
     const prByBranch = new Map<string, Pr>();
     if (list.ok) {
       listed = true;
@@ -212,6 +237,12 @@ export const readBranchReadings = async (
       if (held.state === 'OPEN') return 'OPEN';
       if (held.mergedAt !== null) return 'MERGED';
       return held.state === 'CLOSED' || held.state === 'MERGED' ? 'CLOSED' : 'unreadable';
+    };
+    detailOf = (branch) => {
+      if (!listed) return 'no-host';
+      const held = prByBranch.get(branch);
+      if (held === undefined) return prListComplete ? 'none' : 'no-cache';
+      return { state: held.state, checks: held.checks, draft: held.draft };
     };
   }
   const prFor = (branch: string): PrReading =>
@@ -274,6 +305,7 @@ export const readBranchReadings = async (
   const branches: BranchReading[] = [];
   let at = 0;
   for (const { record } of live) {
+    const planStart = branches.length;
     for (const slice of record.slices) {
       for (const line of slice.branches) {
         const entry = wanted[at++]!;
@@ -325,9 +357,11 @@ export const readBranchReadings = async (
           },
           landed,
           changedPaths,
+          ...(input.loose === true ? { prDetail: detailOf(line.branch) } : {}),
         });
       }
     }
+    if (input.onPlan !== undefined) await input.onPlan(record.file, branches.slice(planStart));
   }
 
   const addedByPlan = new Map<string, string>();
@@ -392,3 +426,21 @@ export const readBranchConflicts = async (
   }
   return known;
 };
+
+/**
+ * The `merge_detect` word for a scan that reports the given plans.
+ *
+ * A refless branch of a reported plan is what the subject lookup asks about;
+ * the walk counts as truncated where it read as many merges as its cap.
+ *
+ * @param stage - the branch stage's readings.
+ * @param plans - the plan files the scan reports.
+ * @returns the word.
+ */
+export const stageMergeDetect = (stage: BranchStageReadings, plans: ReadonlySet<string>): MergeDetect =>
+  mergeDetectOf({
+    subjects: stage.merges,
+    forms: mergeSubjectForms(stage.backend),
+    asked: stage.branches.some((b) => plans.has(b.plan) && b.readings.refTip === null),
+    truncated: stage.merges.length >= MERGE_WALK,
+  });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergedBySubject } from '../src/rules/merge-subject.js';
+import { mergeDetectOf, mergedBySubject, subjectsConform } from '../src/rules/merge-subject.js';
 
 /**
  * The two forms the host adapter holds, written out here rather than imported.
@@ -284,5 +284,37 @@ describe('mergedBySubject', () => {
         owner: 'acme',
       }),
     ).toEqual([{ sha: 'v1', branch: 'bug/flaky' }]);
+  });
+});
+
+describe('subjectsConform', () => {
+  it('reads a subject in any form as conforming, whatever branch, owner or number it names', () => {
+    expect(subjectsConform([{ subject: 'Merge pull request #3 from other/x/y' }], [PR_FROM])).toBe(true);
+    expect(subjectsConform([{ subject: 'Merged in z (pull request #9)' }], [PR_FROM, MERGED_IN])).toBe(true);
+  });
+
+  it('reads a subject with text around the form, or no form at all, as not conforming', () => {
+    expect(subjectsConform([{ subject: 'Revert "Merge pull request #3 from acme/x"' }], [PR_FROM])).toBe(false);
+    expect(subjectsConform([{ subject: 'Merge pull request #3 from acme/x' }], [])).toBe(false);
+  });
+});
+
+describe('mergeDetectOf', () => {
+  const merges = [{ subject: 'Merge pull request #3 from acme/x' }];
+  const plain = [{ subject: 'a squash' }];
+
+  it('answers none for an empty walk, asked or not', () => {
+    expect(mergeDetectOf({ subjects: [], forms: [PR_FROM], asked: true, truncated: false })).toBe('none');
+    expect(mergeDetectOf({ subjects: [], forms: [PR_FROM], asked: false, truncated: false })).toBe('none');
+  });
+
+  it('answers unaskable where merges exist and no refless branch was asked about', () => {
+    expect(mergeDetectOf({ subjects: merges, forms: [PR_FROM], asked: false, truncated: false })).toBe('unaskable');
+  });
+
+  it('answers pr-merge, truncated at the cap, or none where no subject conforms', () => {
+    expect(mergeDetectOf({ subjects: merges, forms: [PR_FROM], asked: true, truncated: false })).toBe('pr-merge');
+    expect(mergeDetectOf({ subjects: merges, forms: [PR_FROM], asked: true, truncated: true })).toBe('truncated');
+    expect(mergeDetectOf({ subjects: plain, forms: [PR_FROM], asked: true, truncated: true })).toBe('none');
   });
 });
