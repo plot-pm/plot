@@ -262,6 +262,20 @@ export interface Refs {
   changedFiles(branch: string, against?: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Lists the paths that would conflict if `branch` merged into `base`.
+   *
+   * `git merge-tree --write-tree` computes the merge in git's object database
+   * and touches no worktree or index.
+   *
+   * @param base - the revision merged into, such as `origin/main`.
+   * @param branch - the revision merged, such as `origin/feature/x`.
+   * @returns the conflicting paths, sorted and without duplicates; empty
+   *   where the merge is clean. A failed result where git cannot compute the
+   *   merge, a git older than 2.38 included.
+   */
+  conflictPaths(base: string, branch: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Lists the paths the working tree changes against HEAD: modified, staged,
    * and untracked files. A renamed file is listed by its new path.
    *

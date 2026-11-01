@@ -1065,3 +1065,41 @@ describe('refsGit: entriesAt and the N-revision mergeBase', () => {
     expect(tip).not.toBe(base);
   });
 });
+
+describe('refsGit: conflictPaths runs merge-tree in memory', () => {
+  let estate = '';
+  beforeAll(() => {
+    estate = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-conflicts-'));
+    git(estate, ['init', '--quiet', '--initial-branch=main']);
+    git(estate, ['config', 'user.email', 'test@example.com']);
+    git(estate, ['config', 'user.name', 'Test']);
+    fs.mkdirSync(path.join(estate, 'src dir'));
+    fs.writeFileSync(path.join(estate, 'src dir/a file.ts'), 'one\n');
+    fs.writeFileSync(path.join(estate, 'b.ts'), 'one\n');
+    git(estate, ['add', '-A']);
+    git(estate, ['commit', '--quiet', '-m', 'base']);
+    git(estate, ['checkout', '--quiet', '-b', 'feature/clash']);
+    fs.writeFileSync(path.join(estate, 'src dir/a file.ts'), 'branch\n');
+    git(estate, ['commit', '--quiet', '-am', 'branch edit']);
+    git(estate, ['checkout', '--quiet', '-b', 'feature/clean', 'main']);
+    fs.writeFileSync(path.join(estate, 'c.ts'), 'new\n');
+    git(estate, ['add', '-A']);
+    git(estate, ['commit', '--quiet', '-m', 'clean edit']);
+    git(estate, ['checkout', '--quiet', 'main']);
+    fs.writeFileSync(path.join(estate, 'src dir/a file.ts'), 'main\n');
+    git(estate, ['commit', '--quiet', '-am', 'main edit']);
+  });
+  afterAll(() => {
+    if (estate) fs.rmSync(estate, { recursive: true, force: true });
+  });
+  const at = () => refsGit({ repoRoot: estate, scriptDir: path.join(estate, 'scripts') });
+
+  it('lists a conflicting path once, spaces kept, and answers a clean merge with no paths', async () => {
+    expect(await at().conflictPaths('main', 'feature/clash')).toEqual({ ok: true, value: ['src dir/a file.ts'] });
+    expect(await at().conflictPaths('main', 'feature/clean')).toEqual({ ok: true, value: [] });
+  });
+
+  it('fails where git cannot compute the merge', async () => {
+    expect((await at().conflictPaths('main', 'feature/absent')).ok).toBe(false);
+  });
+});

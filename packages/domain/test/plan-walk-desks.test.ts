@@ -88,6 +88,7 @@ describe('readDeskReadings — what each desk reads', () => {
         locked: false,
         unpushed: [],
         quietSeconds: 12,
+        dirty: [],
       },
     ]);
   });
@@ -174,5 +175,15 @@ describe('readDeskReadings — an unreadable snapshot fails the beat', () => {
   it('fails when quiet time cannot be read', async () => {
     const trees = { ...world(), quietSeconds: async () => failed<number | null>() } as unknown as Trees;
     expect(await readDeskReadings(trees, desks(), processesOf(table), stage)).toEqual(failed());
+  });
+});
+
+describe('readDeskReadings — dirty paths', () => {
+  it('reads the dirty paths of a desk, and spells an unreadable list unknown without failing', async () => {
+    const [dirty] = (await read(world({ dirty: { '/w/a': ['src/x.ts', 'new.ts'] } }), desks(), processesOf(table), stageOf(['feature/a']))).desks;
+    expect(dirty!.dirty).toEqual(['src/x.ts', 'new.ts']);
+    const trees = { ...world(), dirtyPaths: async () => failed<readonly string[]>() } as unknown as Trees;
+    const [unread] = (await read(trees, desks(), processesOf(table), stageOf(['feature/a']))).desks;
+    expect(unread!.dirty).toBe('unknown');
   });
 });

@@ -9,7 +9,7 @@ import type { Refs } from '../src/ports/refs.js';
 import type { PlanRecordBranch } from '../src/ports/plan-store.js';
 import { branchState } from '../src/rules/branch-state.js';
 import { readCarriedPrStates } from '../src/rules/scan-listing.js';
-import { readBranchReadings, type BranchStageInput } from '../src/workflows/plan-walk-branches.js';
+import { readBranchConflicts, readBranchReadings, type BranchStageInput } from '../src/workflows/plan-walk-branches.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
 
 const INPUT: BranchStageInput = { mainBranch: 'main', planDir: 'docs/plans/' };
@@ -320,5 +320,48 @@ describe('readBranchReadings — a listing the caller holds replaces the host li
     const { host, calls } = counting();
     await readWith(host, undefined);
     expect(calls.prList).toBe(1);
+  });
+});
+
+describe('readBranchReadings — the stage carries its host reach', () => {
+  it('names ok for a listing, failed for no listing, and the refusal for a refused host', async () => {
+    const stage = async (host: Host, prs: BranchStageInput['prs']) => {
+      const answer = await readBranchReadings(world(), host, estateOf(line('feature/here')), { ...INPUT, prs });
+      if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+      return answer.value.hostReach;
+    };
+    const base = hostFixture({ backend: 'github' });
+    expect(await stage(base, { kind: 'listed', listing: { states: new Map(), complete: true } })).toBe('ok');
+    expect(await stage(base, { kind: 'unread' })).toBe('failed');
+    expect(await stage({ ...base, prList: async () => failed(), lastRefusal: () => ({ kind: 'throttled', said: '' }) as never }, undefined)).toBe('throttled');
+  });
+});
+
+describe('readBranchConflicts — which branches are asked', () => {
+  const candidate = (branch: string, state: string, refHeld = true, changedPaths: string[] = ['src/x.ts']) =>
+    ({ branch, state, refHeld, changedPaths });
+
+  it('asks each wip or claimed branch with a ref and changed paths once, and leaves an unanswered one unknown', async () => {
+    const asked: string[] = [];
+    const refs: Refs = {
+      ...world(),
+      conflictPaths: async (base: string, branch: string) => {
+        asked.push(`${base} ${branch}`);
+        if (branch === 'origin/feature/broken') return failed();
+        return { ok: true as const, value: branch === 'origin/feature/clash' ? ['src/x.ts'] : [] };
+      },
+    };
+    const known = await readBranchConflicts(refs, 'main', [
+      candidate('feature/clash', 'wip'),
+      candidate('feature/clash', 'wip'),
+      candidate('feature/clean', 'claimed'),
+      candidate('feature/broken', 'wip'),
+      candidate('feature/open', 'open'),
+      candidate('feature/merged', 'merged'),
+      candidate('feature/gone', 'wip', false),
+      candidate('feature/claim', 'claimed', true, []),
+    ]);
+    expect(asked).toEqual(['origin/main origin/feature/clash', 'origin/main origin/feature/clean', 'origin/main origin/feature/broken']);
+    expect([...known]).toEqual([['feature/clash', ['src/x.ts']], ['feature/clean', []]]);
   });
 });

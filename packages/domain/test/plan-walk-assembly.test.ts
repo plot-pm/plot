@@ -194,6 +194,7 @@ const deskOn = (branch: string, over: Partial<DeskReading> = {}): DeskReading =>
     locked: true,
     unpushed: ['c1', 'c2'],
     quietSeconds: 30,
+    dirty: [],
     ...over,
   }) as unknown as DeskReading;
 
@@ -318,5 +319,46 @@ describe('fleetReading', () => {
     const [bySubject, byHost] = doc.plans[0].waves[0].branches;
     expect(bySubject.evidence).toBe('subject');
     expect(byHost.evidence).toBeUndefined();
+  });
+});
+
+describe('fleetReading — dirty worktrees, conflicts and changed paths', () => {
+  const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }, { branch: 'feature/b' }, { branch: 'feature/c' }]]));
+  const withPaths = (stage: BranchStageReadings, paths: Record<string, string[]>): BranchStageReadings =>
+    ({ ...stage, branches: stage.branches.map((b) => ({ ...b, changedPaths: paths[b.branch] ?? [] })) }) as BranchStageReadings;
+  const branches = withPaths(
+    branchesOf(
+      ['p.md', 'feature/a', open({ commitsAhead: 2, realCommitsAhead: 2 })],
+      ['p.md', 'feature/b', open({ commitsAhead: 1, realCommitsAhead: 1 })],
+      ['p.md', 'feature/c', open()],
+    ),
+    { 'feature/a': ['src/a.ts', 'docs/x.md'], 'feature/b': ['src/b.ts'] },
+  );
+  const stalled = { state: 'stalled', pid: '', exitCode: '0', activity: '' } as never;
+
+  it('carries the conflicts and changed paths of a branch whose conflicts were read, and nothing for one that was not', () => {
+    const doc = fleetReading(assembled(estate, branches), header, new Map([['feature/a', ['src/a.ts']], ['feature/b', []]])) as any;
+    const [a, b, c] = doc.plans[0].waves[0].branches;
+    expect(a).toMatchObject({ conflicts_known: true, conflicts: ['src/a.ts'], changed_paths: ['src/a.ts', 'docs/x.md'] });
+    expect(b).toMatchObject({ conflicts_known: true, conflicts: [], changed_paths: ['src/b.ts'] });
+    expect(c).toMatchObject({ conflicts_known: false, conflicts: [], changed_paths: [] });
+  });
+
+  it('reads a desk with dirty paths as local_dirty, and lists them only for a stalled worker', () => {
+    const doc = fleetReading(
+      assembled(estate, branches, {
+        mainSha: 'm1',
+        desks: [
+          deskOn('feature/a', { dirty: ['src/a.ts'], process: stalled }),
+          deskOn('feature/b', { dirty: ['src/b.ts'] }),
+          deskOn('feature/c', { dirty: 'unknown', process: stalled }),
+        ],
+      }),
+      header,
+    ) as any;
+    const [a, b, c] = doc.plans[0].waves[0].branches;
+    expect(a).toMatchObject({ local_dirty: true, worker: 'stalled', worker_dirty_paths: ['src/a.ts'] });
+    expect(b).toMatchObject({ local_dirty: true, worker: 'running', worker_dirty_paths: [] });
+    expect(c).toMatchObject({ local_dirty: false, worker_dirty_paths: [] });
   });
 });

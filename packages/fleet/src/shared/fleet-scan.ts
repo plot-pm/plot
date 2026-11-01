@@ -9,7 +9,7 @@ import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Processes } from '@plot-pm/domain/ports/processes';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import { readBranchReadings, type BranchStagePrs } from '@plot-pm/domain/workflows/plan-walk-branches';
+import { readBranchConflicts, readBranchReadings, type BranchStagePrs } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
@@ -649,7 +649,10 @@ const shortSha = async (refs: Refs, ref: string): Promise<string> => {
  *
  * Reads PR states from `listing` and never calls `Host.prList`. A listing that
  * {@link readCarriedPrStates} refuses, the empty one included, reads every PR
- * as `unreadable` with `hostReach` `failed`.
+ * as `unreadable` with `hostReach` `failed`. The summary's `host` is the
+ * branch stage's `hostReach`. After assembly, reads the conflicts of each
+ * `wip` or `claimed` branch with a remote ref and changed paths, as
+ * `plot-fleet-scan.sh` did.
  *
  * @param world - what the walk reads through.
  * @param listing - the rendered PR listing the scan carries, or `''` where none is held.
@@ -699,6 +702,11 @@ export const walkOnce = async (world: ScanWorld, listing: string): Promise<Fleet
     const stage = !estate.ok ? 'estate' : !branches.ok ? 'branches' : !desks.ok ? 'desks' : 'assembly';
     throw new Error(`fleet scan: the ${stage} stage failed`);
   }
+  const conflicts = await readBranchConflicts(
+    refs,
+    mainBranch,
+    assembled.value.plans.flatMap((plan) => plan.slices.flatMap((slice) => slice.branches)),
+  );
   const document = fleetReading(assembled.value, {
     main: mainBranch,
     readRef,
@@ -706,10 +714,10 @@ export const walkOnce = async (world: ScanWorld, listing: string): Promise<Fleet
     fetchFailed: !fetched.ok,
     fetchError: fetched.ok ? '' : 'git fetch failed',
     planDir,
-    host: 'ok',
+    host: branches.ok ? branches.value.hostReach : 'failed',
     mergeDetect: 'unaskable',
     nowSeconds: Math.floor(Date.now() / 1000),
-  });
+  }, conflicts);
   const reading = FleetReadingSchema.safeParse(document);
   if (!reading.success) throw new Error('fleet scan: the walk produced a document that is not a pulse');
   return reading.data;

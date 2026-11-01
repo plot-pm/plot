@@ -87,6 +87,8 @@ export interface BranchStageReadings {
   backend: string;
   /** The `origin` URL, or `''` where it could not be read. */
   origin: string;
+  /** How far the PR list reached; every branch's `hostReach` carries the same word. */
+  hostReach: HostReach;
   /** The merge commits the subject lookup walked, newest first. */
   merges: ReadonlyArray<{ sha: string; subject: string }>;
   /** Each plan file to the commit that first added it, for the plans that have one. */
@@ -133,7 +135,8 @@ const rank = (pr: Pr): number => (pr.state === 'OPEN' ? 0 : pr.mergedAt !== null
  * A PR LISTING THE CALLER HOLDS REPLACES THE HOST CALL. With `input.prs`
  * the stage calls no `Host.prList`; see {@link BranchStageInput.prs}.
  *
- * `conflicts` has no port operation yet and is not read here.
+ * Conflicts are read after assembly, by {@link readBranchConflicts}: which
+ * branches are asked depends on their assembled state.
  *
  * @param refs - the ref reader.
  * @param host - the git host.
@@ -314,8 +317,56 @@ export const readBranchReadings = async (
     mainSha: mainTip,
     backend,
     origin,
+    hostReach,
     merges: merges.value,
     added: addedByPlan,
     branches,
   });
+};
+
+/** One assembled branch as {@link readBranchConflicts} reads it. */
+export interface ConflictCandidate {
+  /** The branch as the plan names it. */
+  branch: string;
+  /** The branch's assembled state. */
+  state: string;
+  /** Whether the remote holds a ref for the branch. */
+  refHeld: boolean;
+  /** Paths the branch changed against the default branch. */
+  changedPaths: readonly string[];
+}
+
+/** The states whose branches carry unlanded work of their own. */
+const CONFLICT_STATES: ReadonlySet<string> = new Set(['wip', 'claimed']);
+
+/**
+ * Reads which paths each branch with unlanded changes would conflict on when
+ * merged into the default branch.
+ *
+ * Asks {@link Refs.conflictPaths} once per distinct branch, one at a time, whose state is
+ * `wip` or `claimed`, whose remote ref exists and whose changed paths are not
+ * empty. A branch outside that set, or one whose merge git cannot compute, is
+ * absent from the answer: its conflicts are not known.
+ *
+ * @param refs - the ref reader.
+ * @param mainBranch - the default branch's name, such as `main`.
+ * @param candidates - the assembled branches.
+ * @returns each asked branch to its conflicting paths; empty where it merges cleanly.
+ */
+export const readBranchConflicts = async (
+  refs: Refs,
+  mainBranch: string,
+  candidates: readonly ConflictCandidate[],
+): Promise<ReadonlyMap<string, readonly string[]>> => {
+  const asked = [...new Set(
+    candidates
+      .filter((c) => CONFLICT_STATES.has(c.state) && c.refHeld && c.changedPaths.length > 0)
+      .map((c) => c.branch),
+  )];
+  const known = new Map<string, readonly string[]>();
+  for (const branch of asked) {
+    const answer = await refs.conflictPaths(`origin/${mainBranch}`, `origin/${branch}`);
+    if (answer.ok) known.set(branch, answer.value);
+  }
+  return known;
 };

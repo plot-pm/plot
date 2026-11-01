@@ -429,6 +429,25 @@ export const refsGit = (context: ShellContext): Refs => {
       );
     },
 
+    // Exit 0 is a clean merge and 1 a conflicted one; both print the merged
+    // tree's object id first, and a git older than 2.38 prints none. Each
+    // conflict line is `<mode> <oid> <stage>\t<path>`, so the path is
+    // everything after the tab, and a blank line ends the list.
+    conflictPaths: async (base, branch) => {
+      const run = await runProcess('git', ['merge-tree', '--write-tree', base, branch], inRepo);
+      const lines = run.stdout.split('\n');
+      if ((run.code !== 0 && run.code !== 1) || !/^[0-9a-f]{40,64}$/.test(lines[0] ?? '')) {
+        return failed<readonly string[]>();
+      }
+      const paths = new Set<string>();
+      for (const line of lines.slice(1)) {
+        if (line === '') break;
+        const tab = line.indexOf('\t');
+        if (tab > 0) paths.add(line.slice(tab + 1));
+      }
+      return answered([...paths].sort());
+    },
+
     workingChanges: () =>
       runScript(
         'git',
