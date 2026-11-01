@@ -6,7 +6,7 @@
 
 - **State:** Draft
 - **Type:** feature
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Sprint:** delivery-loop
 - **Issue:** #2999
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
