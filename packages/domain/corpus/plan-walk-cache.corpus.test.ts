@@ -11,7 +11,7 @@ import { refsGit } from '../src/adapters/refs/refs-git.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import { failed, isAnswered } from '../src/port-result.js';
 import type { Refs } from '../src/ports/refs.js';
-import { readBranchReadings } from '../src/workflows/plan-walk-branches.js';
+import { readBranchConflicts, readBranchReadings } from '../src/workflows/plan-walk-branches.js';
 import { readEstate } from '../src/workflows/plan-walk-estate.js';
 import {
   cachedPlans,
@@ -102,7 +102,10 @@ const walk = async (box: Sandbox, cache: WalkCache | null, options: Options = {}
   const host = hostFixture({ backend: 'github', prs: options.prs ?? [] });
   const branches = await readBranchReadings(refs, host, estate.value, { mainBranch: 'main', planDir });
   if (!isAnswered(branches)) return { said: `branches failed: ${branches.why}`, hits: 0, misses: 0 };
-  const said = JSON.stringify({ estate: estate.value, branches: branches.value }, (_k, v) => (v instanceof Map ? [...v.entries()] : v));
+  const conflicts = await readBranchConflicts(refs, 'main', branches.value.branches.map((b) => ({
+    branch: b.branch, state: 'wip', refHeld: b.readings.refTip !== null, changedPaths: b.changedPaths,
+  })));
+  const said = JSON.stringify({ estate: estate.value, branches: branches.value, conflicts }, (_k, v) => (v instanceof Map ? [...v.entries()] : v));
   if (cache !== null) cache.sweep();
   return { said, hits: cache?.stats.hits ?? 0, misses: cache?.stats.misses ?? 0 };
 };
@@ -173,6 +176,17 @@ describe('the cached walk reads what the cold walk reads', () => {
     expect(read.said).toContain('feature/a');
   }, 120_000);
 
+  it('MOVE 1b: main changes a path the branch also changes, and then takes the branch whole', async () => {
+    const clean = await both('before the conflict');
+    expect(clean.said).toContain('["feature/b",[]]');
+    onMain('main edits the branch\'s file', () => writeFileSync(join(box.root, 'src-b.txt'), 'main wrote this\n'));
+    const conflicting = await both('main conflicts with the branch');
+    expect(conflicting.said).toContain('["feature/b",["src-b.txt"]]');
+    git(box.root, 'reset', '-q', '--hard', 'origin/main~1');
+    git(box.root, 'push', '-q', '-f', 'origin', 'main');
+    await both('main rewound');
+  }, 120_000);
+
   it('MOVE 2: a ref is pruned', async () => {
     git(box.root, 'push', '-q', 'origin', '--delete', 'feature/b');
     const read = await both('ref pruned');
@@ -241,6 +255,23 @@ describe('the cached walk reads what the cold walk reads', () => {
     appendFileSync(join(box.root, PARSER), '\n# parser changed\n');
     const changed = await both('parser changed');
     expect(changed.misses).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('MOVE 9: main takes the first half of a branch, so the branch changes fewer paths', async () => {
+    const w = box.root;
+    git(w, 'checkout', '-q', '-B', 'feature/b', 'origin/feature/b');
+    writeFileSync(join(w, 'src-b2.txt'), 'second half\n');
+    git(w, 'add', '-A');
+    git(w, 'commit', '-qm', 'second half');
+    git(w, 'push', '-q', 'origin', 'feature/b');
+    git(w, 'checkout', '-q', 'main');
+    const whole = await both('branch has two commits');
+    expect(whole.said).toContain('"src-b.txt","src-b2.txt"]');
+    git(w, 'merge', '-q', '--no-ff', 'origin/feature/b~1', '-m', 'Merge pull request #8 from o/feature/b-first-half');
+    git(w, 'push', '-q', 'origin', 'main');
+    const half = await both('main took the first half');
+    expect(half.said).toContain('"src-b2.txt"]');
+    expect(half.said).not.toContain('"src-b.txt","src-b2.txt"]');
   }, 120_000);
 
   it('PRUNE: the entry count returns to the live estate once a plan is removed', async () => {

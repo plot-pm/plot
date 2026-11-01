@@ -217,6 +217,31 @@ describe('a held answer is served without asking git', () => {
   });
 });
 
+describe('main moves while a branch stays', () => {
+  it('asks again for every reading that names main, and not for one that does not', async () => {
+    const { refs, calls } = recorder();
+    const cache = freshWalkCache();
+    const asks = (list: ReturnType<typeof entries>) => async () => {
+      const w = wrap(refs, cache, list);
+      await w.mergeSubjects('origin/main', 5);
+      await w.planAdditions('origin/main', 'docs/plans/');
+      await w.commitSubjects('origin/main..origin/feature/a');
+      await w.changedFiles('origin/feature/a', 'main');
+      await w.conflictPaths('origin/main', 'origin/feature/a');
+      await w.listBlobs('origin/feature/a', 'docs/plans/');
+    };
+    await asks(entries())();
+    const before = calls.length;
+    const moved = entries().map((e) => (e.sha === MAIN ? { ...e, sha: MOVED } : e));
+    await asks(moved)();
+    // Five readings name main and are read again; the branch's own tree is held.
+    expect(calls.length - before).toBe(5);
+    const names = (n: string) => calls.filter((c) => c[0] === n).length;
+    expect(names('listBlobs')).toBe(1);
+    for (const n of ['mergeSubjects', 'planAdditions', 'commitSubjects', 'changedFiles', 'conflictPaths']) expect(names(n)).toBe(2);
+  });
+});
+
 describe('ancestry', () => {
   const pairs = (...p: Array<[number, number]>) => p.map(([a, d]) => ({ ancestor: oid(a), descendant: oid(d) }));
 
