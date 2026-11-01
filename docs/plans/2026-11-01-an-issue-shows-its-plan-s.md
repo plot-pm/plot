@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #2998 merged
 - **Started:** 2026-11-01, Jan Wloka, `bug/an-issue-reads-its-plan-from-main`
+- **Started:** 2026-11-01, Jan Wloka, `bug/the-plan-comment-has-one-writer`
 
 ## Changelog
 
