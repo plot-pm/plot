@@ -121,7 +121,7 @@ Replayed over every non-merge commit on `origin/main` from 2026-10-01 to 68fde7a
 
 ### Membership rule
 
-- `feature/sprint-membership-is-one-rule` — `packages/domain/src/rules/sprint-membership.ts` with `sprintMembers`, `sprintOfPlan`, `sprintsListing` and `memberLineIndex`, exported from the package index; `struckSlugs` exported from `rules/sprint-scope.ts`; `packages/domain/test/sprint-membership.test.ts` with the rule rows of the test table, including a fixture built from the W42 and `bugfix-2-28-1` texts at `f57425ec0^`. No caller changes. <!-- builds: sprintOfPlan domain rule -->
+- `feature/sprint-membership-is-one-rule` — `packages/domain/src/rules/sprint-membership.ts` with `sprintMembers`, `sprintOfPlan`, `sprintsListing` and `memberLineIndex`, exported from the package index; `struckSlugs` exported from `rules/sprint-scope.ts`; `packages/domain/test/sprint-membership.test.ts` with the rule rows of the test table, including a fixture built from the W42 and `bugfix-2-28-1` texts at `f57425ec0^`. No caller changes. <!-- builds: sprintOfPlan domain rule --> → #3002
 
 ### Approve and deliver
 
