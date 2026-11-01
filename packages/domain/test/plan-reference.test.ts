@@ -127,4 +127,20 @@ describe('planReference', () => {
     expect(planReference({ file: 'draft-plan.md' }, index).title).toBe('Draft title');
     expect(planReference({ slug: 'fleet-plan' }, index).issues).toEqual(['3']);
   });
+
+  it('answers an empty slug for a reference naming neither file nor slug and resolving no index entry', () => {
+    const answer = planReference({ issues: ['9'] }, planIndexOf({}));
+    expect(answer.label).toBe('9: ');
+    expect(answer.href).toBeNull();
+  });
+
+  it('does not index a card or draft under an unnamed file or slug', () => {
+    const index = planIndexOf({
+      cards: [{ slug: '', title: 'No slug', path: 'docs/plans/no-slug.md', issues: [] }],
+      drafts: [{ plan: 'draft-no-file', planFile: '', title: 'No file', issues: [] }],
+    });
+    expect(planReference({ slug: '' }, index).title).toBe('');
+    expect(planReference({ file: 'no-slug.md' }, index).title).toBe('No slug');
+    expect(planReference({ slug: 'draft-no-file' }, index).title).toBe('No file');
+  });
 });

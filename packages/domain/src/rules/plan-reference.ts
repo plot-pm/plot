@@ -80,7 +80,10 @@ const normalizedIssues = (issues: readonly (string | number)[]): string[] => {
  * @param path - a repo-relative or bare plan file path.
  * @returns the path's final segment.
  */
-const basenameOf = (path: string): string => path.split(/[/\\]/).pop() ?? '';
+const basenameOf = (path: string): string => {
+  const segments = path.split(/[/\\]/);
+  return segments[segments.length - 1];
+};
 
 /**
  * The index entry one card, draft or fleet plan contributes, keyed by its
