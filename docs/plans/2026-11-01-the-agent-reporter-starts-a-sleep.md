@@ -139,7 +139,7 @@ Slice 1 rows run in `pnpm --filter @plot-pm/fleet exec vitest run test/unit/cont
 
 ### AgentMonitor read
 
-- `bug/the-agent-monitor-reads-its-pid-with-a-builtin` — `skills/plot/scripts/plot-monitor-subject.sh`: `read -r` for the pid, `${pid_file%/*}` for the directory; the slice 2 rows in `test/reconcile/agentmonitor.test.mjs`; a changeset for `plot`. No wait: it shares no file with slice 1. <!-- builds: the AgentMonitor's one-start-per-second check in plot-monitor-subject.sh -->
+- `bug/the-agent-monitor-reads-its-pid-with-a-builtin` — `skills/plot/scripts/plot-monitor-subject.sh`: `read -r` for the pid, `${pid_file%/*}` for the directory; the slice 2 rows in `test/reconcile/agentmonitor.test.mjs`; a changeset for `plot`. No wait: it shares no file with slice 1. <!-- builds: the AgentMonitor's one-start-per-second check in plot-monitor-subject.sh --> → #3032
 
 ## Notes
 
