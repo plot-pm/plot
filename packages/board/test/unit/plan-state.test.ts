@@ -186,7 +186,7 @@ describe('the connector a run resolves', () => {
         `printf '%s\\n' "$*" >> '${marker}'`,
         'case "$1" in',
         '  backend) echo github ;;',
-        '  issue-label|issue-comment) exit 0 ;;',
+        '  issue-label|issue-comment|issue-comment-read) exit 0 ;;',
         '  *) exit 4 ;;',
         'esac',
         '',
