@@ -118,7 +118,7 @@ Decided 2026-11-01 by the operator after panel round 1 (`.plot/panels/every-plan
 
 ### Rule
 
-- `feature/a-plan-reference-is-decided-once` — `packages/domain/src/rules/plan-reference.ts` with `planIndexOf`, `planReference`, `planRoute` and `planRouteOfDocLink`, exported from the package index; `packages/board/src/app/components/PlanReference.tsx` with its own unit test; `packages/domain/test/plan-reference.test.ts` with every domain row of the test table, including the `planNameLabel` cases from `a-plan-row-names-its-ticket.test.ts:84-99` and the Windows case from `plan.test.ts:21`. No site migrates and no helper is deleted. <!-- builds: planReference domain rule and the PlanReference component -->
+- `feature/a-plan-reference-is-decided-once` — `packages/domain/src/rules/plan-reference.ts` with `planIndexOf`, `planReference`, `planRoute` and `planRouteOfDocLink`, exported from the package index; `packages/board/src/app/components/PlanReference.tsx` with its own unit test; `packages/domain/test/plan-reference.test.ts` with every domain row of the test table, including the `planNameLabel` cases from `a-plan-row-names-its-ticket.test.ts:84-99` and the Windows case from `plan.test.ts:21`. No site migrates and no helper is deleted. <!-- builds: planReference domain rule and the PlanReference component --> → #2996
 
 ### Rows
 
