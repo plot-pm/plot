@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planIndexOf, planRefOfRow, planReference, planRoute, planRouteOfDocLink, type PlanIndex } from '../src/rules/plan-reference.js';
+import { planIndexOf, planRefOfRow, planReference, planRoute, planRouteOfDocLink, type PlanIndex, type PlanIndexCard } from '../src/rules/plan-reference.js';
 
 describe('planRoute', () => {
   it('routes to /plan/<basename> from a repo-relative plan path', () => {
@@ -81,6 +81,12 @@ describe('planReference', () => {
   it('lets the index entry win over the reference\'s own issues', () => {
     const index = planIndexOf({ cards: [{ slug: 'a', title: '', path: 'a.md', issues: ['2'] }] });
     expect(planReference({ slug: 'a', issues: ['1'] }, index).label).toBe('2: a');
+  });
+
+  it('shows the slug alone for a card with no issues field, as an unvalidated client fetch sends it', () => {
+    const { issues: _dropped, ...cardWithNoIssuesField } = { slug: 'a', title: '', path: 'a.md', issues: [] };
+    const index = planIndexOf({ cards: [cardWithNoIssuesField as unknown as PlanIndexCard] });
+    expect(planReference({ slug: 'a' }, index).label).toBe('a');
   });
 
   it('resolves a draft plan with no card by its slug', () => {
