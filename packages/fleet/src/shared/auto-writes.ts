@@ -75,7 +75,13 @@ export const fleetAutoWrites = (
       await runAutoDeliverPass(opts, pulse, undefined, deliverHeldLogged, deliverCarried);
       await runAutoProgressPass(opts, pulse, progressSent);
       // A FIXER IS AN AGENT, so a stop skips its start as it skips dispatch.
-      if (!stopped()) await runAutoFixerPass(opts, fixerLogged);
+      if (!stopped()) {
+        await runAutoFixerPass(opts, fixerLogged, Date.now(), undefined, undefined, {
+          headroom: machine.headroom,
+          machineOverride: controls.machineOverride,
+          held: queueHeld(),
+        });
+      }
       // A REVIEW IS AN AGENT RUN, so a stop skips its start too. It goes
       // before the merge, because a merge needs `plot/review` success.
       if (!stopped()) await runAutoReviewPass(opts, reviewLogged);

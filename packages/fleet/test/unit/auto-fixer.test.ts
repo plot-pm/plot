@@ -5,7 +5,8 @@
 // attempt with its in-flight mark, launches the role with a prompt, and logs
 // each step. A later tick clears the mark and removes the worktree once the
 // fixer's process has ended.
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -62,6 +63,7 @@ const baseReadings: FixerTickReadings = {
   defaultBranch: null,
   config: { autoReview: false, reviewBoundMs: 3_600_000, startBudget: 3, checksWaitMs: 3_600_000 },
   now: NOW,
+  slot: { held: [], headroom: 'clear', machineOverride: false },
 };
 
 interface WorldOptions {
@@ -72,6 +74,8 @@ interface WorldOptions {
   freshRows?: number;
   /** The attempts record the store starts with; the store keeps what the tick writes. */
   attempts?: FixerAttemptsRecord | 'none' | 'unreadable';
+  /** The record one PR starts with, taking precedence over `attempts`. */
+  attemptsByPr?: Record<number, FixerAttemptsRecord | 'none' | 'unreadable'>;
   appendOk?: boolean;
   appendCalls?: { pr: number; headSha: string }[];
   markOk?: boolean;
@@ -92,6 +96,10 @@ interface WorldOptions {
   removeCalls?: string[];
   /** Every call that changed something, in order. */
   order?: string[];
+  /** The agent settings file path the main checkout holds; `null` for an absent file. */
+  agentSettings?: string | null;
+  /** Every request and fragment the agent run received. */
+  runRequests?: { fragment: string; boundSeconds: number; env: Record<string, string> }[];
 }
 
 const STARTER_PID = 4100;
@@ -99,7 +107,8 @@ const STARTER_PID = 4100;
 type Started = NonNullable<WorldOptions['agentRunStarts']>[number];
 
 const world = (opts: WorldOptions = {}): FixerTickWorld => {
-  let record: FixerAttemptsRecord | 'none' | 'unreadable' = opts.attempts ?? 'none';
+  const records = new Map<number, FixerAttemptsRecord | 'none' | 'unreadable'>();
+  const recordOf = (pr: number): FixerAttemptsRecord | 'none' | 'unreadable' => records.get(pr) ?? opts.attemptsByPr?.[pr] ?? opts.attempts ?? 'none';
   return {
     trees: () => ({
       forBranch: async () =>
@@ -143,16 +152,21 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
             : { ok: true, value: { state: opts.workerState } as never },
     }),
     attempts: () => ({
-      read: async () => (record === 'unreadable' ? { ok: false, why: 'failed' } : { ok: true, value: record }),
+      read: async (pr) => {
+        const record = recordOf(pr);
+        return record === 'unreadable' ? { ok: false, why: 'failed' } : { ok: true, value: record };
+      },
       append: async (pr, attempt) => {
+        const record = recordOf(pr);
         opts.appendCalls?.push({ pr, headSha: attempt.headSha });
         opts.order?.push('append');
         if (opts.appendOk === false || record === 'unreadable') return { ok: false, why: 'failed' };
         const attempts: FixerAttempt[] = record === 'none' ? [] : record.attempts;
-        record = { v: 1, pr, attempts: [...attempts, attempt] };
+        records.set(pr, { v: 1, pr, attempts: [...attempts, attempt] });
         return { ok: true, value: undefined };
       },
       markInFlight: async (pr, index, mark) => {
+        const record = recordOf(pr);
         opts.markCalls?.push({ pr, index, mark });
         opts.order?.push(mark === null ? 'clear' : 'mark');
         if (opts.markOk === false || record === 'none' || record === 'unreadable') return { ok: false, why: 'failed' };
@@ -160,7 +174,7 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
         if (target === undefined) return { ok: false, why: 'failed' };
         const kept: FixerAttempt = { headSha: target.headSha, finding: target.finding };
         const changed: FixerAttempt = mark === null ? kept : { ...kept, inFlight: mark };
-        record = { ...record, attempts: record.attempts.map((a, at) => (at === index ? changed : a)) };
+        records.set(pr, { ...record, attempts: record.attempts.map((a, at) => (at === index ? changed : a)) });
         return { ok: true, value: undefined };
       },
     }),
@@ -169,14 +183,16 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
     }),
     readEndingFile: () => (opts.endingText === undefined ? null : opts.endingText),
     readRoleFile: () => (opts.roleText === undefined ? FIXER_MD : opts.roleText),
+    agentSettingsFile: () => (opts.agentSettings === undefined ? '/main/.plot/agent-settings.json' : opts.agentSettings),
     readVerdictFile: (file) => {
       opts.verdictFiles?.push(file);
       return opts.verdictText === undefined ? FINDINGS : opts.verdictText;
     },
     pidCheck: opts.pidCheck ?? (() => 'alive'),
     starterPid: STARTER_PID,
-    agentRun: () => ({
+    agentRun: (_opts, fragment) => ({
       run: (request) => {
+        opts.runRequests?.push({ fragment, boundSeconds: request.boundSeconds, env: request.env ?? {} });
         const outcome = opts.agentRunOutcome ?? 'starts';
         opts.order?.push('launch');
         if (outcome === 'rejects') return Promise.reject(new Error('spawn failed'));
@@ -709,6 +725,112 @@ describe('fixerTick against a real git repository', () => {
     const [second] = await fixerTick([row], baseReadings, opts, w);
     expect(second!.started).toEqual({ started: true, pid: 9002 });
     expect(git(repoRoot, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length).toBe(2);
+  });
+});
+
+describe('fixerTick bounds the fixer', () => {
+  const secondRow: PrIndexRow = { ...highRow, number: 8, head: 'feature/y', url: 'https://host/pr/8' };
+
+  it('passes the run bound, the role branch and the role gate in the request', async () => {
+    const opts = fixture();
+    const runRequests: NonNullable<WorldOptions['runRequests']> = [];
+    await fixerTick([highRow], baseReadings, opts, world({ runRequests }));
+    expect(runRequests).toHaveLength(1);
+    expect(runRequests[0]!.boundSeconds).toBe(FIXER_BOUND_SECONDS);
+    expect(FIXER_BOUND_SECONDS).toBeGreaterThan(0);
+    expect(runRequests[0]!.env.PLOT_ROLE_BRANCH).toBe('feature/x');
+    expect(runRequests[0]!.env.PLOT_ROLE_GATE).toContain('plot-gate.mjs');
+  });
+
+  it('clears the mark of a run that reached the bound and logs the bound as the cause', async () => {
+    const opts = fixture();
+    let check: PidCheck = 'alive';
+    const w = world({ pidCheck: () => check });
+    await fixerTick([highRow], { ...baseReadings, now: NOW - FIXER_BOUND_SECONDS * 1000 }, opts, w);
+    check = 'dead';
+    await fixerTick([highRow], baseReadings, opts, w);
+    const end = opts.runLog.lines.find((l) => l.step === 'fixer-end');
+    expect(end?.outcome).toMatch(/^failed: bound/);
+    expect(JSON.stringify(opts.runLog.lines)).toContain('bound');
+  });
+
+  it('logs a run that ended inside the bound without the bound as its cause', async () => {
+    const opts = fixture();
+    let check: PidCheck = 'alive';
+    const w = world({ pidCheck: () => check });
+    await fixerTick([highRow], baseReadings, opts, w);
+    check = 'dead';
+    await fixerTick([highRow], baseReadings, opts, w);
+    expect(JSON.stringify(opts.runLog.lines.filter((l) => l.step === 'fixer-end'))).not.toContain('bound');
+  });
+
+  const bothInScope: FixerTickReadings = {
+    ...baseReadings,
+    scope: { read: 'scope', sprint: {} as never, slugs: ['x', 'y'], branches: ['feature/x', 'feature/y'] },
+  };
+
+  it('holds a second PR as fixer-busy while the first fixer runs, then starts it once the first has ended', async () => {
+    const opts = fixture();
+    let check: PidCheck = 'alive';
+    const starts: Started[] = [];
+    const w = world({ pidCheck: () => check, agentRunStarts: starts });
+    const [first, second] = await fixerTick([highRow, secondRow], bothInScope, opts, w);
+    expect(first!.started?.started).toBe(true);
+    expect(second!.started).toEqual({ started: false, why: 'fixer-busy' });
+    expect(starts).toHaveLength(1);
+
+    // The cap lifts: a cap that blocks forever fails here.
+    check = 'dead';
+    const results = await fixerTick([secondRow], bothInScope, opts, w);
+    expect(results[0]!.started?.started).toBe(true);
+    expect(starts).toHaveLength(2);
+  });
+
+  it('starts nothing without a free machine slot and names the reason once', async () => {
+    const opts = fixture();
+    const starts: Started[] = [];
+    const logged = new Set<string>();
+    const w = world({ agentRunStarts: starts });
+    const starved = { ...baseReadings, slot: { held: [], headroom: 'starved', machineOverride: false } } as const;
+    const [one] = await fixerTick([highRow], starved, opts, w, logged);
+    await fixerTick([highRow], starved, opts, w, logged);
+    expect(one!.started).toEqual({ started: false, why: 'starved' });
+    expect(starts).toHaveLength(0);
+    expect(opts.runLog.lines.filter((l) => l.outcome.includes('starved'))).toHaveLength(1);
+  });
+
+  it('starts nothing while no queue pass has been read', async () => {
+    const opts = fixture();
+    const starts: Started[] = [];
+    const [one] = await fixerTick([highRow], { ...baseReadings, slot: null }, opts, world({ agentRunStarts: starts }));
+    expect(one!.started).toEqual({ started: false, why: 'queue-unread' });
+    expect(starts).toHaveLength(0);
+  });
+
+  it('adds the agent settings beside the role settings', async () => {
+    const opts = fixture();
+    const runRequests: NonNullable<WorldOptions['runRequests']> = [];
+    await fixerTick([highRow], baseReadings, opts, world({ runRequests, agentSettings: '/main/.plot/agent-settings.json' }));
+    expect(runRequests[0]!.fragment).toContain("--settings '/main/.plot/agent-settings.json'");
+    expect(runRequests[0]!.fragment.match(/--settings/g)).toHaveLength(2);
+  });
+
+  it('starts with the role settings alone and says so once where the agent settings are absent', async () => {
+    const opts = fixture();
+    const runRequests: NonNullable<WorldOptions['runRequests']> = [];
+    const logged = new Set<string>();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const w = world({ runRequests, agentSettings: null });
+    let check: PidCheck = 'alive';
+    const w2 = { ...w, pidCheck: () => check };
+    await fixerTick([highRow], baseReadings, opts, w2, logged);
+    check = 'dead';
+    await fixerTick([highRow], baseReadings, opts, w2, logged);
+    const said = err.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('agent-settings'));
+    err.mockRestore();
+    expect(runRequests).toHaveLength(2);
+    expect(runRequests[0]!.fragment.match(/--settings/g)).toHaveLength(1);
+    expect(said).toHaveLength(1);
   });
 });
 

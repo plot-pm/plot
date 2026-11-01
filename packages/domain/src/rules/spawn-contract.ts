@@ -15,7 +15,7 @@
  * **THE BUMP RULE IS BINDING, NOT ADVISORY.** Any change — in this slice or a
  * future one — that adds, removes or renames an environment variable a gate
  * reads (`PLOT_UNATTENDED`, `PLOT_MAIN_CHECKOUT_WRITER`, `PLOT_BRIEF_ONLY`,
- * `PLOT_BRIEF_BRANCH`, `PLOT_SPAWN_CONTRACT`), or changes which spawn sets or
+ * `PLOT_BRIEF_BRANCH`, `PLOT_ROLE_BRANCH`, `PLOT_SPAWN_CONTRACT`), or changes which spawn sets or
  * clears one of them, MUST raise {@link SPAWN_CONTRACT} by one in the same
  * change. `test/reconcile/spawn-contract-gate.test.mjs` enforces this: it
  * reads the gate-read variable names and their setter files fresh from the
@@ -27,7 +27,7 @@
 import type { BoardStatus } from './default-branch.js';
 
 /** The number every unattended spawn's environment carries today. */
-export const SPAWN_CONTRACT = 1;
+export const SPAWN_CONTRACT = 2;
 
 /** The variable an unattended spawn's environment carries {@link SPAWN_CONTRACT} in. */
 export const SPAWN_CONTRACT_ENV = 'PLOT_SPAWN_CONTRACT';
@@ -277,6 +277,10 @@ export const SPAWN_CONTRACT_SHAPE: readonly SpawnContractVariableShape[] = [
       'packages/fleet/src/shared/continuation.ts',
       'skills/plot/scripts/plot-dispatch.sh',
     ],
+  },
+  {
+    name: 'PLOT_ROLE_BRANCH',
+    setters: ['packages/fleet/src/shared/auto-fixer.ts'],
   },
   {
     name: 'PLOT_UNATTENDED',
