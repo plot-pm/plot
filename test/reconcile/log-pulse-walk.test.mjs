@@ -1,4 +1,4 @@
-// Contract test for `plot-fleet-scan.sh --log-pulse` under `PLOT_LOG_PULSE_WALK=domain`:
+// Contract test for `plot-fleet-scan.sh --log-pulse` on the default domain walk:
 // the bridge, the plan's `## Notes` line and the `--held` short-circuit.
 //
 // The fleet's `writeScan` is the bridge's one writer while a fleet runs
@@ -36,7 +36,6 @@ const pulse = () => {
   const env = { ...process.env };
   delete env.PLOT_REPO_ROOT;
   delete env.PLOT_SCAN_RECORD;
-  env.PLOT_LOG_PULSE_WALK = 'domain';
   return execFileSync('bash', [scan, '--offline', '--log-pulse'], { encoding: 'utf8', cwd: repo, env });
 };
 

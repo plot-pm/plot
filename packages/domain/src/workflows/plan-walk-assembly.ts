@@ -509,6 +509,15 @@ const branchRow = (
 };
 
 /**
+ * Whether a plan names any branch. The scan's document and stream list a plan
+ * only when it does; its prose report and `summary.plans` count it regardless.
+ *
+ * @param plan - the assembled plan.
+ * @returns true when at least one slice holds a branch.
+ */
+export const hasBranchLines = (plan: AssembledPlan): boolean => plan.slices.some((slice) => slice.branches.length > 0);
+
+/**
  * One plan as `--json` and `--stream` print it.
  *
  * @param plan - the assembled plan.
@@ -560,7 +569,7 @@ export const fleetReading = (
   fetch_failed: header.fetchFailed,
   fetch_error: header.fetchError,
   plan_source: header.planSource ?? 'ref',
-  plans: assembly.plans.map((plan) => planRow(plan, header, conflicts)),
+  plans: assembly.plans.filter(hasBranchLines).map((plan) => planRow(plan, header, conflicts)),
   summary: {
     plans: assembly.summary.plans,
     [WAVES_KEY]: assembly.summary.sliceCount,

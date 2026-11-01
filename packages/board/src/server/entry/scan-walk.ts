@@ -19,6 +19,7 @@ import {
   assemblePlanWalk,
   chosenPlans,
   fleetReading,
+  hasBranchLines,
   offerAnswer,
   planRow,
   planWalkAssembler,
@@ -107,7 +108,7 @@ const runStream = async (
         broken = true;
         return;
       }
-      if (added.value !== null) process.stdout.write(`${JSON.stringify({ kind: 'plan', plan: planRow(added.value, header) })}\n`);
+      if (added.value !== null && hasBranchLines(added.value)) process.stdout.write(`${JSON.stringify({ kind: 'plan', plan: planRow(added.value, header) })}\n`);
       next += 1;
     }
   };

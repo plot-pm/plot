@@ -20,7 +20,7 @@
 // fails with that instruction.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -81,6 +81,7 @@ before(() => {
   write('plans/2026-01-05-two-slices.md', `# Two slices\n\n## Status\n\n- **Phase:** Approved\n- **Type:** feature\n\n## Branches\n\n### First\n- \`feature/first-slice\` — the first\n\n### Second\n- \`feature/second-slice\` — the second <!-- waits: First -->\n`);
   write('plans/2026-01-06-taken.md', `# Taken\n\n## Status\n\n- **Phase:** Approved\n- **Type:** bug\n\n## Branches\n\n### Taken\n- \`bug/already-claimed\` — somebody has it <!-- claimed: 2026-01-05T09:00Z, session-1 -->\n`);
   write('plans/2026-01-07-needs-first.md', `# Cross-plan wait\n\n## Status\n\n- **Phase:** Approved\n- **Type:** feature\n\n## Branches\n\n### Later\n- \`feature/later\` — waits on another plan <!-- waits: First -->\n`);
+  write('plans/2026-01-08-no-branches.md', `# No branches\n\n## Status\n\n- **Phase:** Approved\n- **Type:** feature\n\n## Branches\n`);
   fs.mkdirSync(path.join(repo, 'plans', 'active'), { recursive: true });
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'plans');
@@ -125,12 +126,106 @@ test('scan-walk: a bare slug answers the json document scoped to that plan', () 
   assert.ok(JSON.parse(bare.stdout).plans.length >= 1, 'the slug named a plan');
 });
 
-test('scan-walk: --loose stays on the shell walk', () => {
-  const loose = run('domain', '--offline', '--loose', '--json');
-  const shell = run('shell', '--offline', '--loose', '--json');
-  assert.equal(loose.status, shell.status, loose.stderr);
-  assert.deepEqual(normalise(JSON.parse(loose.stdout)), normalise(JSON.parse(shell.stdout)));
+test('scan-walk: --loose --json equals the shell', () => {
+  const { shell, domain } = both('--offline', '--loose', '--json');
+  assert.equal(domain.status, shell.status, domain.stderr);
+  assert.deepEqual(normalise(JSON.parse(domain.stdout)), normalise(JSON.parse(shell.stdout)));
 });
+
+test('scan-walk: --loose --next equals the shell', () => {
+  const { shell, domain } = both('--offline', '--loose', '--next');
+  assert.equal(domain.stdout, shell.stdout);
+  assert.equal(domain.status, shell.status);
+});
+
+const planLines = (stdout) => stdout.split('\n').filter((l) => l.startsWith('{"kind":"plan"')).map((l) => normalise(JSON.parse(l).plan));
+const readingLine = (stdout) => stdout.split('\n').filter((l) => l.startsWith('{"kind":"reading"')).map((l) => normalise(JSON.parse(l).reading));
+
+test('scan-walk: --stream prints the shell\'s plan lines and one terminal reading', () => {
+  const quiet = { PLOT_SCAN_RECORD: '0' };
+  const shell = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env('shell'), ...quiet } });
+  const domain = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env('domain'), ...quiet } });
+  assert.equal(domain.status, 0, domain.stderr);
+  assert.ok(planLines(shell.stdout).length >= 3, 'the shell streamed the fixture plans');
+  assert.deepEqual(planLines(domain.stdout), planLines(shell.stdout));
+  assert.deepEqual(readingLine(domain.stdout), readingLine(shell.stdout));
+  const kinds = domain.stdout.trim().split('\n').map((l) => JSON.parse(l).kind);
+  assert.equal(kinds.at(-1), 'reading');
+  assert.equal(kinds.filter((k) => k === 'reading').length, 1);
+});
+
+test('scan-walk: --stream writes the bridge before it prints the reading', () => {
+  const bridge = path.join(repo, '.plot', 'state', 'last-pulse.json');
+  fs.rmSync(bridge, { force: true });
+  const r = run('domain', '--offline', '--stream');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(fs.existsSync(bridge), 'the bridge exists');
+  assert.deepEqual(JSON.parse(fs.readFileSync(bridge, 'utf8')).pulse, JSON.parse(r.stdout.trim().split('\n').at(-1)).reading);
+});
+
+test('scan-walk: --stream prints the first plan before the walk has read the later plans', async () => {
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  const gateDir = tmpDir('scangate');
+  const gate = path.join(gateDir, 'release');
+  const held = path.join(gateDir, 'held');
+  const gitBin = path.join(gateDir, 'bin');
+  fs.mkdirSync(gitBin);
+  // `git log main..origin/bug/already-claimed` is the later plan's branch read; it blocks until the gate file exists.
+  fs.writeFileSync(
+    path.join(gitBin, 'git'),
+    `#!/usr/bin/env bash\ncase " $* " in *" log "*"origin/bug/already-claimed"*) : > ${JSON.stringify(held)}; for _ in $(seq 1 600); do [ -e ${JSON.stringify(gate)} ] && break; sleep 0.1; done ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    { mode: 0o755 },
+  );
+  const child = spawn('bash', [scan, '--offline', '--stream'], {
+    cwd: repo,
+    env: { ...env('domain'), PLOT_SCAN_RECORD: '0', PATH: `${gitBin}${path.delimiter}${binDir}${path.delimiter}${process.env.PATH}` },
+  });
+  let out = '';
+  let printedWhileBlocked = false;
+  const done = new Promise((resolve) => child.on('close', (code) => resolve(code)));
+  child.stdout.on('data', (chunk) => { out += chunk; });
+  // The gate opens only once a plan line is on stdout AND the later plan's read is blocked on it.
+  const poll = setInterval(() => {
+    if (fs.existsSync(gate) || !fs.existsSync(held) || !out.includes('{"kind":"plan"')) return;
+    printedWhileBlocked = !out.includes('"kind":"reading"');
+    fs.writeFileSync(gate, '');
+  }, 20);
+  const timer = setTimeout(() => child.kill('SIGKILL'), 120000);
+  const code = await done;
+  clearTimeout(timer);
+  clearInterval(poll);
+  assert.equal(code, 0);
+  assert.ok(printedWhileBlocked, 'a plan line printed while a later plan\'s branch read was still blocked');
+  const kinds = out.trim().split('\n').map((l) => JSON.parse(l).kind);
+  assert.deepEqual(kinds, ['plan', 'plan', 'plan', 'reading']);
+});
+
+test('scan-walk: --stream prints no reading line when the walk fails', () => {
+  const broken = tmpDir('scanbroken');
+  const shim = path.join(broken, 'bin');
+  fs.mkdirSync(shim);
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash\ncase " $* " in *" log "*"origin/bug/already-claimed"*) exit 128 ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
+  const r = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env('domain'), PLOT_SCAN_RECORD: '0', PATH: `${shim}${path.delimiter}${binDir}${path.delimiter}${process.env.PATH}` } });
+  assert.notEqual(r.status, 0);
+  assert.ok(!r.stdout.includes('"kind":"reading"'), r.stdout);
+});
+
+const withoutMerge = (text) => text.replace(/ merge_detect=\S+ subject_predates_plan=\S+/, '');
+const freshBridge = () => fs.rmSync(path.join(repo, '.plot', 'state', 'last-pulse.json'), { force: true });
+
+for (const extra of [[], ['--loose']]) {
+  test(`scan-walk: plain ${['--log-pulse', ...extra].join(' ')} prints the shell's wave report, footer and completion line`, () => {
+    freshBridge();
+    const shell = run('shell', '--offline', '--log-pulse', ...extra);
+    freshBridge();
+    const domain = run('domain', '--offline', '--log-pulse', ...extra);
+    assert.equal(domain.status, shell.status, domain.stderr);
+    assert.match(domain.stdout, /== .* ==\n {2}\S.* — (eligible|blocked|complete)/);
+    assert.match(domain.stdout, /Pulse complete\. This report is derived — nothing was changed\.\nsummary: plans=\d+ /);
+    assert.equal(withoutMerge(domain.stdout), withoutMerge(shell.stdout));
+  });
+}
 
 test('scan-walk: --offline --next still asks the host on the domain path', () => {
   fs.rmSync(ghLog, { force: true });
