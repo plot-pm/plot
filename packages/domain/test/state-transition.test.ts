@@ -438,11 +438,14 @@ describe('effectivePaths', () => {
   });
 
   it('carries a literal pathspec under the show-prefix, normalised and unquoted', () => {
+    // The shared walker blanks a quoted span to its bare delimiters before
+    // this reads it ({@link withoutQuotes}), so a quoted spec never survives
+    // as its own text — './x.md' joins the show-prefix as the empty string.
     expect(effectivePaths(at('sub/'), "git add ../docs/plans/w.md './x.md' && git commit -m x")).toEqual([
       { path: 'b.md', carries: 'index' },
       { path: 'docs/plans/s.md', carries: 'index' },
       { path: 'docs/plans/w.md', carries: 'working' },
-      { path: 'sub/x.md', carries: 'working' },
+      { path: 'sub', carries: 'working' },
     ]);
   });
 
@@ -450,6 +453,13 @@ describe('effectivePaths', () => {
     expect(
       effectivePaths(at('sub/'), 'git add .. && git commit -m x').filter((entry) => entry.carries === 'working'),
     ).toHaveLength(3);
+  });
+
+  it('keeps every chained add in scope when commitArgs is given and inRoot is left at its default', () => {
+    expect(effectivePaths(readings, 'git add b.md && git commit -m x', ['-m', 'x'])).toEqual([
+      { path: 'b.md', carries: 'working' },
+      { path: 'docs/plans/s.md', carries: 'index' },
+    ]);
   });
 });
 

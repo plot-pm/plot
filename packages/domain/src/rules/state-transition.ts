@@ -1,4 +1,4 @@
-import { chainedAddsOf } from './chained-add.js';
+import { chainedAddsOf, type ChainedAdd } from './chained-add.js';
 
 /** Whether a lifecycle file is a plan or a sprint. */
 export type LifecycleKind = 'plan' | 'sprint';
@@ -401,10 +401,19 @@ export const stateTransitionsOf = (
  * after it (`-am"msg"`), or `--all`. A `-a` inside a message reads as taking
  * them too, which is the conservative direction.
  *
+ * `args` scopes the read to one placed commit call's own arguments
+ * ({@link gitCallsWhere}, over {@link commitDirs}'s predicate) rather than the
+ * whole line, so `git fetch --all && git commit -m x` carries no working
+ * change; `null` keeps today's whole-line reading, for a floor-only line with
+ * no placed call to scope to.
+ *
  * @param command - the Bash command text.
+ * @param args - one committing call's own arguments, or `null` for the whole line.
  */
-export const takesModifiedOf = (command: string): boolean =>
-  /(^|\s)-am?(\s|$|["'])/.test(command) || command.includes(' --all');
+export const takesModifiedOf = (command: string, args: readonly string[] | null = null): boolean => {
+  const text = args === null ? command : args.join(' ');
+  return /(^|\s)-am?(\s|$|["'])/.test(text) || text.includes(' --all') || text.startsWith('--all');
+};
 
 /**
  * A path in its normal form: `.` segments and empty segments dropped, and a
@@ -456,21 +465,37 @@ export interface EffectivePath {
  * other staged path carries its staged text. Conservative in one direction: a
  * path read too widely only adds a reading.
  *
+ * `commitArgs` scopes both reads to one placed commit call's own arguments —
+ * `null` (a `git add` or `git mv` in another root than the commit being
+ * judged, over {@link ChainedAdd.dir}) drops that chained add from the
+ * count — so `git add -A && git -C y commit` does not count the add when `y`
+ * is another worktree. `commitArgs: null` keeps today's whole-line reading,
+ * for a floor-only line with no placed call to scope to.
+ *
  * @param readings - the index, the working changes and the show-prefix.
  * @param command - the Bash command text.
+ * @param commitArgs - one committing call's own arguments, or `null` for the whole line.
+ * @param inRoot - whether a chained add's `dir` is in the root being judged; ignored when `commitArgs` is `null`.
  * @returns each carried path once, sorted by path.
  */
-export const effectivePaths = (readings: CommitReadings, command: string): readonly EffectivePath[] => {
+export const effectivePaths = (
+  readings: CommitReadings,
+  command: string,
+  commitArgs: readonly string[] | null = null,
+  inRoot: (dir: string | null | 'unplaced') => boolean = () => true,
+): readonly EffectivePath[] => {
   const working = new Set<string>();
-  const adds = chainedAddsOf(command);
+  const adds = chainedAddsOf(command).filter((add) => commitArgs === null || inRoot(add.dir));
   const whole =
-    takesModifiedOf(command) ||
-    adds.some((spec) => spec === null || /[*?[]/.test(spec) || spec.replace(/^["']/, '').startsWith('/'));
+    takesModifiedOf(command, commitArgs) ||
+    adds.some((add) => add.spec === null || /[*?[]/.test(add.spec) || add.spec.replace(/^["']/, '').startsWith('/'));
   if (whole) {
     for (const path of readings.workingChanges) working.add(path);
   } else {
-    for (const spec of adds) {
-      const path = normalizedPath(`${readings.showPrefix}${(spec as string).replace(/^["']|["']$/g, '')}`);
+    for (const add of adds) {
+      /* v8 ignore next -- a null spec makes `whole` true on line 491, so this branch's add is always non-null here */
+      if (add.spec === null) continue;
+      const path = normalizedPath(`${readings.showPrefix}${add.spec.replace(/^["']|["']$/g, '')}`);
       if (path === '') {
         for (const change of readings.workingChanges) working.add(change);
         continue;

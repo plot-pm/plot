@@ -131,10 +131,21 @@ test('bundle-commit gate: a repository with no build.mjs allows a staged bundle'
   assert.equal(r.status, 0, `no build.mjs means no generated set (stderr: ${r.stderr})`);
 });
 
-test('bundle-commit gate: a command with no "git commit" is ignored', () => {
+test('bundle-commit gate: a command that makes no commit is ignored', () => {
   const { dir } = repo({ files: { 'skills/plot/scripts/board/board-server.mjs': 'rebuilt locally\n' } });
   const r = run(dir, 'git status');
   assert.equal(r.status, 0);
+});
+
+test('bundle-commit gate: run from outside the fixture, git -C <dir> commit is still read', () => {
+  const { dir } = repo({ files: { 'skills/plot/scripts/board/board-server.mjs': 'rebuilt locally\n' } });
+  const outside = scratch('plot-bundle-commit-gate-outside-');
+  const r = spawnSync('bash', [gate], {
+    cwd: outside,
+    input: JSON.stringify({ tool_input: { command: `git -C ${dir} commit -m x` } }),
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, `must refuse from outside the fixture (stderr: ${r.stderr})`);
 });
 
 test('bundle-commit gate: a deleted bundle is not refused', () => {

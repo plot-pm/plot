@@ -92,6 +92,23 @@ test('state gate: a hand-written plan transition is refused and names its comman
   assert.match(r.stderr, /\/plot-approve x/, 'the refusal names the command that owns the write');
 });
 
+test('state gate: run from outside the fixture, git -C <dir> commit is still read', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+  });
+  const outside = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-state-gate-outside-')));
+  const env = { ...process.env };
+  delete env.PLOT_UNATTENDED;
+  const r = spawnSync('bash', [gate], {
+    cwd: outside,
+    env,
+    input: JSON.stringify({ tool_input: { command: `git -C ${dir} commit -m x` } }),
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 2, `must refuse from outside the fixture (stderr: ${r.stderr})`);
+});
+
 test('state gate: Approved -> Delivered names /plot-deliver, not /plot-approve', () => {
   const dir = repo({
     committed: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
@@ -252,6 +269,29 @@ test('state gate: a commit that stages for itself is still read', () => {
   writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
   const r = run(dir, 'git add -A && git commit -m x');
   assert.equal(r.status, 2, `stderr: ${r.stderr}`);
+});
+
+// A wrapper hides the committing call from the walk, so only the `git commit`
+// substring floor matches it. The gate then reads the hook's working directory
+// with the whole line, as before the walk existed.
+test('state gate: a wrapped commit that takes the working copy is read at the working directory', () => {
+  for (const command of ['bash -c "git commit -am x"', 'bash -c "git add -A && git commit -m x"']) {
+    const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') } });
+    writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
+    const r = run(dir, command);
+    assert.equal(r.status, 2, `${command} must block (stderr: ${r.stderr})`);
+  }
+});
+
+test('state gate: a wrapped commit of a staged transition is read at the working directory', () => {
+  for (const command of ['timeout 60 git commit -m x', 'sudo git commit -m x']) {
+    const dir = repo({
+      committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+      files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+    });
+    const r = run(dir, command);
+    assert.equal(r.status, 2, `${command} must block (stderr: ${r.stderr})`);
+  }
 });
 
 // A quote against the flag is still `-am`: the shell hands git `-amsg`.

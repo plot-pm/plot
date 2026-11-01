@@ -170,21 +170,19 @@ const withoutLeadingKeywords = (words: readonly string[]): readonly string[] => 
 };
 
 /**
- * The directory a mutating git call in one simple command runs in.
+ * The subcommand and arguments of one simple command, with git's global
+ * options (and successive `-C` values, joined the way git joins them)
+ * skipped first — `undefined` where the words are not a `git` call. Shared by
+ * {@link writeDirOf} and {@link gitCallsWhere} so both skip options the same
+ * way.
  *
  * @param words - one simple command, split on whitespace, quotes already removed.
- * @param base - the directory an earlier `cd` moved to: `null` for the working
- *   directory, `undefined` where the text does not give it.
- * @param accepts - narrows which mutating calls count; receives the subcommand and its arguments.
- * @returns `base` joined with the path the `-C` options name, or `undefined`
- *   where the command is no mutating git call, `accepts` refuses it, or its directory cannot be read
- *   from the text. An absolute `-C` path places the call whatever came before it.
+ * @param base - the directory a `-C` is relative to; carried through to `dir`.
  */
-const writeDirOf = (
+const subAndArgsOf = (
   words: readonly string[],
   base: string | null | undefined,
-  accepts: (sub: string, args: readonly string[]) => boolean = () => true,
-): string | null | undefined => {
+): { readonly sub: string; readonly args: readonly string[]; readonly dir: string | null | undefined } | undefined => {
   const program = programWords(withoutLeadingKeywords(words));
   if (program.length === 0 || wordBasename(program[0]) !== 'git') return undefined;
   let i = 1;
@@ -200,8 +198,29 @@ const writeDirOf = (
     i += 2;
   }
   const sub = program[i];
-  if (sub === undefined || !MUTATING_GIT_SUBCOMMANDS.has(sub) || readsOnly(sub, program.slice(i + 1))) return undefined;
-  return accepts(sub, program.slice(i + 1)) ? dir : undefined;
+  if (sub === undefined) return undefined;
+  return { sub, args: program.slice(i + 1), dir };
+};
+
+/**
+ * The directory a mutating git call in one simple command runs in.
+ *
+ * @param words - one simple command, split on whitespace, quotes already removed.
+ * @param base - the directory an earlier `cd` moved to: `null` for the working
+ *   directory, `undefined` where the text does not give it.
+ * @param accepts - narrows which mutating calls count; receives the subcommand and its arguments.
+ * @returns `base` joined with the path the `-C` options name, or `undefined`
+ *   where the command is no mutating git call, `accepts` refuses it, or its directory cannot be read
+ *   from the text. An absolute `-C` path places the call whatever came before it.
+ */
+const writeDirOf = (
+  words: readonly string[],
+  base: string | null | undefined,
+  accepts: (sub: string, args: readonly string[]) => boolean = () => true,
+): string | null | undefined => {
+  const found = subAndArgsOf(words, base);
+  if (found === undefined || !MUTATING_GIT_SUBCOMMANDS.has(found.sub) || readsOnly(found.sub, found.args)) return undefined;
+  return accepts(found.sub, found.args) ? found.dir : undefined;
 };
 
 /**
@@ -247,6 +266,119 @@ const withoutHeredocBodies = (command: string): string => {
  * `&` never splits a `&&` it is part of.
  */
 const SEPARATORS = /(&&|\|\||\$\(|[;|\n`()]|&)/;
+
+/**
+ * The subcommands {@link makesCommitCall} judges by their `--continue` (or
+ * `am`'s `--resolved`/`-r`) synonym rather than by `commit` itself.
+ */
+const CONTINUABLE_SUBCOMMANDS: ReadonlySet<string> = new Set(['merge', 'rebase', 'cherry-pick', 'revert', 'am']);
+
+/**
+ * Whether a git subcommand and its arguments make a commit whose content is
+ * already in the index when a PreToolUse hook runs: `commit` (with or
+ * without `--amend`), and `merge`, `rebase`, `cherry-pick`, `revert` and `am`
+ * only when resuming with `--continue` (`am` also with `--resolved` or
+ * `-r`, git's two synonyms for `am --continue`).
+ *
+ * Never `commit`'s absence of a message (git still commits, so this reads no
+ * argument of `commit` itself), `--abort`, `--skip` or `--quit`, a `merge`
+ * with no `--continue` (`--squash` and `--no-commit` included), `pull`, or a
+ * `cherry-pick`, `revert` or `am` that names a commit or patch: each commits
+ * content that is not yet in the index when the hook runs, so no gate can
+ * judge it from the index.
+ *
+ * @param sub - the git subcommand.
+ * @param args - its arguments.
+ */
+const makesCommitCall = (sub: string, args: readonly string[]): boolean => {
+  if (sub === 'commit') return true;
+  if (!CONTINUABLE_SUBCOMMANDS.has(sub)) return false;
+  if (args.some((word) => word === '--abort' || word === '--skip' || word === '--quit')) return false;
+  if (sub === 'am') return args.some((word) => word === '--continue' || word === '--resolved' || word === '-r');
+  return args.includes('--continue');
+};
+
+/** One git call a {@link gitCallsWhere} walk found: placed in a directory, or not, with its arguments. */
+export type GitCallEntry =
+  | { readonly placed: true; readonly dir: string | null; readonly args: readonly string[] }
+  | { readonly placed: false; readonly args: readonly string[] };
+
+/**
+ * One entry per git call `accepts` keeps, in the shape {@link writeDirsWhere}
+ * uses for `cd`/`pushd`/`-C` placement, but keeping a call whose directory
+ * the text does not give as `{ placed: false }` rather than dropping it —
+ * {@link writeDirOf} collapses "not accepted" and "accepted with an
+ * unknowable directory" into the same `undefined`, so the walk reads
+ * {@link subAndArgsOf} directly: acceptance from its `sub` and `args`, and
+ * placement from its `dir`.
+ *
+ * @param command - the command line.
+ * @param accepts - the subcommand predicate.
+ */
+export const gitCallsWhere = (
+  command: string,
+  accepts: (sub: string, args: readonly string[]) => boolean,
+): readonly GitCallEntry[] => {
+  const parts = withoutQuotes(withoutComments(withoutHeredocBodies(command))).split(SEPARATORS);
+  const outer: (string | null | undefined)[] = [];
+  const entries: GitCallEntry[] = [];
+  let here: string | null | undefined = null;
+  let inBacktick = false;
+  for (const [index, part] of parts.entries()) {
+    if (index % 2 === 1) {
+      const opens = part === '(' || part === '$(' || (part === '`' && !inBacktick);
+      const closes = part === ')' || (part === '`' && inBacktick);
+      if (part === '`') inBacktick = !inBacktick;
+      if (opens) outer.push(here);
+      else if (closes && outer.length > 0) here = outer.pop();
+      continue;
+    }
+    const next = parts[index + 1];
+    const runsOn = (next === '$(' || (next === '`' && !inBacktick)) && /\S$/.test(part);
+    const words = `${part}${runsOn ? '$' : ''}`.trim().split(/\s+/).filter((word) => word !== '');
+    const found = subAndArgsOf(words, here);
+    if (found !== undefined && MUTATING_GIT_SUBCOMMANDS.has(found.sub) && !readsOnly(found.sub, found.args) && accepts(found.sub, found.args)) {
+      entries.push(found.dir === undefined ? { placed: false, args: found.args } : { placed: true, dir: found.dir, args: found.args });
+    }
+    here = cdOf(words, here);
+  }
+  return entries;
+};
+
+/**
+ * The directory of each committing call in a command — `commit` (with or
+ * without `--amend`), and `merge`, `rebase`, `cherry-pick`, `revert` and `am`
+ * only with `--continue` (`am` also with `--resolved` or `-r`) — over the
+ * same walk {@link gitWriteDirs} uses. One entry per call: `null` for the
+ * working directory, the path its `cd` and `-C` arguments name, or
+ * `'unplaced'` for a call whose directory the text does not give (a
+ * parameter, a substitution or quoted text), which {@link gitWriteDirs} would
+ * leave out.
+ *
+ * @param command - the command line.
+ * @returns one entry per committing call.
+ */
+export const commitDirs = (command: string): readonly (string | null | 'unplaced')[] =>
+  gitCallsWhere(command, makesCommitCall).map((entry) => (entry.placed ? entry.dir : 'unplaced'));
+
+/**
+ * Whether a command makes at least one commit whose content is already in
+ * the index when a PreToolUse hook runs. See {@link commitDirs}.
+ *
+ * @param command - the command line.
+ */
+export const makesCommit = (command: string): boolean => commitDirs(command).length > 0;
+
+/**
+ * Each committing call in a command, with its own arguments, over the same
+ * walk {@link commitDirs} uses. A caller scoping a reading to one placed call
+ * — {@link takesModifiedOf}, {@link effectivePaths} — needs the call's own
+ * `args`, which {@link commitDirs} drops.
+ *
+ * @param command - the command line.
+ * @returns one entry per committing call.
+ */
+export const commitCallsOf = (command: string): readonly GitCallEntry[] => gitCallsWhere(command, makesCommitCall);
 
 /**
  * The directory of each git call in a command that mutates `HEAD`, the index,

@@ -5,22 +5,38 @@ import { TREE_FLAGS, chainedAddsOf } from '../src/rules/chained-add.js';
 describe('chainedAddsOf', () => {
   it('reads every tree flag as the whole tree', () => {
     for (const flag of TREE_FLAGS) {
-      expect(chainedAddsOf(`git add ${flag} && git commit -m x`)).toEqual([null]);
+      expect(chainedAddsOf(`git add ${flag} && git commit -m x`)).toEqual([{ spec: null, dir: null }]);
     }
     expect(TREE_FLAGS).toEqual(['-A', '--all', '-a', '.', '-u', '--update']);
   });
 
   it('collects the pathspecs of every chained git add as typed, skipping other flags', () => {
     expect(chainedAddsOf('git add -f a.md "b c.md"; git add docs/*.md | git commit -m x')).toEqual([
-      'a.md',
-      '"b',
-      'c.md"',
-      'docs/*.md',
+      { spec: 'a.md', dir: null },
+      { spec: '""', dir: null },
+      { spec: 'docs/*.md', dir: null },
     ]);
   });
 
-  it('splits on newlines and reads nothing from a segment without git add', () => {
-    expect(chainedAddsOf('echo git add x\ngit commit -m y')).toEqual(['x']);
+  it('reads nothing from a line where git add is another command\'s own argument', () => {
+    expect(chainedAddsOf('echo git add x\ngit commit -m y')).toEqual([]);
     expect(chainedAddsOf('git status && git commit -m x')).toEqual([]);
+  });
+
+  it('reads a line with no committing call the walk can read by substring, at the working directory', () => {
+    expect(chainedAddsOf('bash -c "git add -A && git commit -m x"')).toEqual([{ spec: null, dir: null }]);
+    expect(chainedAddsOf("sh -c 'git add docs/a.md; git commit -m x'")).toEqual([{ spec: 'docs/a.md', dir: null }]);
+  });
+
+  it('skips a non-tree flag in a wrapped add read by substring', () => {
+    expect(chainedAddsOf('bash -c "git add -f a.md && git commit -m x"')).toEqual([{ spec: 'a.md', dir: null }]);
+  });
+
+  it('reads a -C-placed git add with its own directory', () => {
+    expect(chainedAddsOf('git -C sub add a.md && git commit')).toEqual([{ spec: 'a.md', dir: 'sub' }]);
+  });
+
+  it('reads a git add as unplaced when its -C value is not known from the text', () => {
+    expect(chainedAddsOf('git -C $dir add a.md && git commit')).toEqual([{ spec: 'a.md', dir: 'unplaced' }]);
   });
 });

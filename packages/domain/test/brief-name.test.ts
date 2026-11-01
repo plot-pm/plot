@@ -62,51 +62,85 @@ describe('briefComputedPath', () => {
 });
 
 describe('chainedStagesOf', () => {
+  it('reads a line with no committing call the walk can read by substring, at the working directory', () => {
+    expect(chainedStagesOf('bash -c "git add .plot/briefs/x.md && git commit -m x"').adds).toEqual([
+      { spec: '.plot/briefs/x.md', dir: null },
+    ]);
+    expect(chainedStagesOf('bash -c "git mv a.md b.md && git commit -m x"').moves).toEqual([{ dest: 'b.md', dir: null }]);
+  });
+
+  it('reads a wrapped git mv with no destination as no move', () => {
+    expect(chainedStagesOf('bash -c "git mv -k && git commit -m x"').moves).toEqual([]);
+  });
+
   it('reads a bare path after git add', () => {
-    expect(chainedStagesOf('git add .plot/briefs/feature-x.md && git commit -m x', '')).toEqual({
-      adds: ['.plot/briefs/feature-x.md'],
+    expect(chainedStagesOf('git add .plot/briefs/feature-x.md && git commit -m x')).toEqual({
+      adds: [{ spec: '.plot/briefs/feature-x.md', dir: null }],
       moves: [],
     });
   });
 
   it('reads -A, --all and . as the whole tree, and skips other flags', () => {
-    expect(chainedStagesOf('git add -A && git commit', '').adds).toEqual([null]);
-    expect(chainedStagesOf('git add --all; git commit', '').adds).toEqual([null]);
-    expect(chainedStagesOf('git add . | git commit', '').adds).toEqual([null]);
-    expect(chainedStagesOf('git add -f a b && git commit', '').adds).toEqual(['a', 'b']);
+    expect(chainedStagesOf('git add -A && git commit').adds).toEqual([{ spec: null, dir: null }]);
+    expect(chainedStagesOf('git add --all; git commit').adds).toEqual([{ spec: null, dir: null }]);
+    expect(chainedStagesOf('git add . | git commit').adds).toEqual([{ spec: null, dir: null }]);
+    expect(chainedStagesOf('git add -f a b && git commit').adds).toEqual([
+      { spec: 'a', dir: null },
+      { spec: 'b', dir: null },
+    ]);
   });
 
   it('reads -u and --update as the whole tree, the flag set the state gate shares', () => {
-    expect(chainedStagesOf('git add -u && git commit', '').adds).toEqual([null]);
-    expect(chainedStagesOf('git add --update; git commit', '').adds).toEqual([null]);
+    expect(chainedStagesOf('git add -u && git commit').adds).toEqual([{ spec: null, dir: null }]);
+    expect(chainedStagesOf('git add --update; git commit').adds).toEqual([{ spec: null, dir: null }]);
   });
 
-  it('reads a segment holding both git add and git mv as an add only', () => {
-    expect(chainedStagesOf('git add a git mv b c && git commit', '')).toEqual({ adds: ['a', 'git', 'mv', 'b', 'c'], moves: [] });
+  it('reads a git add whose text also holds git mv as an add only, no separator between them', () => {
+    expect(chainedStagesOf('git add a git mv b c && git commit')).toEqual({
+      adds: [
+        { spec: 'a', dir: null },
+        { spec: 'git', dir: null },
+        { spec: 'mv', dir: null },
+        { spec: 'b', dir: null },
+        { spec: 'c', dir: null },
+      ],
+      moves: [],
+    });
   });
 
-  it('reads the last argument of git mv as the destination, under the show-prefix', () => {
-    expect(chainedStagesOf('git mv -k old.md ./new.md && git commit', 'sub/').moves).toEqual(['sub/new.md']);
+  it('reads the last argument of git mv as the destination token', () => {
+    expect(chainedStagesOf('git mv -k old.md ./new.md && git commit').moves).toEqual([{ dest: 'new.md', dir: null }]);
+  });
+
+  it('reads a -C-placed git mv with its own directory', () => {
+    expect(chainedStagesOf('git -C sub mv old.md new.md && git commit').moves).toEqual([{ dest: 'new.md', dir: 'sub' }]);
+  });
+
+  it('reads a git mv as unplaced when its -C value is not known from the text', () => {
+    expect(chainedStagesOf('git -C $dir mv old.md new.md && git commit').moves).toEqual([{ dest: 'new.md', dir: 'unplaced' }]);
   });
 
   it('splits on newlines, so a git mv on its own line before the commit is read', () => {
     expect(
-      chainedStagesOf('git mv .plot/briefs/feature-legacy.md .plot/briefs/docs-q.md\ngit commit -m msg', '').moves,
-    ).toEqual(['.plot/briefs/docs-q.md']);
+      chainedStagesOf('git mv .plot/briefs/feature-legacy.md .plot/briefs/docs-q.md\ngit commit -m msg').moves,
+    ).toEqual([{ dest: '.plot/briefs/docs-q.md', dir: null }]);
   });
 
-  it('reads a git add and a git mv on separate lines, each as its own segment', () => {
+  it('reads a git add and a git mv on separate lines, each as its own call', () => {
     expect(
-      chainedStagesOf('git add sub/keep.txt\ngit mv .plot/briefs/a.md .plot/briefs/docs-q.md\ngit commit -m msg', ''),
-    ).toEqual({ adds: ['sub/keep.txt'], moves: ['.plot/briefs/docs-q.md'] });
+      chainedStagesOf('git add sub/keep.txt\ngit mv .plot/briefs/a.md .plot/briefs/docs-q.md\ngit commit -m msg'),
+    ).toEqual({
+      adds: [{ spec: 'sub/keep.txt', dir: null }],
+      moves: [{ dest: '.plot/briefs/docs-q.md', dir: null }],
+    });
   });
 
   it('reads neither from a command without them', () => {
-    expect(chainedStagesOf('git commit -m x', '')).toEqual({ adds: [], moves: [] });
+    expect(chainedStagesOf('git commit -m x')).toEqual({ adds: [], moves: [] });
   });
 
   it('reads a git mv with no arguments as no destination', () => {
-    expect(chainedStagesOf('git mv && git commit', '').moves).toEqual([]);
+    expect(chainedStagesOf('git mv && git commit').moves).toEqual([]);
   });
 });
 
