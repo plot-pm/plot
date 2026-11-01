@@ -126,7 +126,7 @@ Replayed over every non-merge commit on `origin/main` from 2026-10-01 to 68fde7a
 
 ### Approve and deliver
 
-- `feature/approve-and-deliver-find-the-sprint-by-rule` — `annotateSprint` (`packages/board/src/server/entry/approve.ts:747-771`) and `tickSprint` (`packages/board/src/server/entry/deliver.ts:574-599`) call `sprintOfPlan` and drop the empty-field guard; deliver stages one sprint file (`deliver.ts:361`); `annotateSprintItem` (`packages/domain/src/rules/sprint-annotation.ts`) and `tickSprintItem` (`packages/domain/src/rules/sprint-tick.ts`) edit only the line `memberLineIndex` answers; tests in `packages/domain/test/rules-sprint-annotation.test.ts`, `packages/domain/test/sprint-tick.test.ts`, `packages/board/test/unit/approve.test.ts` and `packages/board/test/unit/deliver-retry-real-repo.test.ts`. <!-- waits: feature/sprint-membership-is-one-rule --> <!-- builds: approve and deliver pick the sprint by rule -->
+- `feature/approve-and-deliver-find-the-sprint-by-rule` — `annotateSprint` (`packages/board/src/server/entry/approve.ts:747-771`) and `tickSprint` (`packages/board/src/server/entry/deliver.ts:574-599`) call `sprintOfPlan` and drop the empty-field guard; deliver stages one sprint file (`deliver.ts:361`); `annotateSprintItem` (`packages/domain/src/rules/sprint-annotation.ts`) and `tickSprintItem` (`packages/domain/src/rules/sprint-tick.ts`) edit only the line `memberLineIndex` answers; tests in `packages/domain/test/rules-sprint-annotation.test.ts`, `packages/domain/test/sprint-tick.test.ts`, `packages/board/test/unit/approve.test.ts` and `packages/board/test/unit/deliver-retry-real-repo.test.ts`. <!-- waits: feature/sprint-membership-is-one-rule --> <!-- builds: approve and deliver pick the sprint by rule --> → #3005
 
 ### Writer
 
