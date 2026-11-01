@@ -5579,7 +5579,9 @@ test('section 23 says not evaluated when the entry cannot be asked, and calls no
     assert.match(s, /note: 4 finished plan\(s\) naming an issue went unchecked/,
       `the note counts plans on every unevaluated arm:\n${s}`);
     assert.match(f.report, /open_issues=0/, 'an unevaluated section counts zero findings');
-    const calls = callsTo(marker);
+    // The released-labels section asks its own closed read from 1970 through
+    // the tracker port, not through section 23's source rule.
+    const calls = callsTo(marker).filter((c) => !c.includes('--since 1970-01-01T00:00:00Z'));
     assert.ok(!calls.some((c) => c.startsWith('issue-list')),
       `an undecided source must not fall through to the host:\n${calls.join('\n')}`);
   } finally {

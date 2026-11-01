@@ -123,7 +123,7 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
   const env: Record<string, string> = { PLOT_TRACKER: SCHEME };
   if (baseUrl !== '') env.PLOT_JIRA_BASE_URL = baseUrl;
 
-  const reads = trackerReads({ context, scheme: SCHEME, baseUrl, connector: CONNECTOR }, env);
+  const reads = trackerReads({ context, scheme: SCHEME, baseUrl, connector: CONNECTOR, labels: false }, env);
   const host = scriptPath(context, 'plot-host.sh');
   const run = { cwd: context.repoRoot, env };
   const config = scriptPath(context, 'plot-config.sh');
