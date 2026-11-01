@@ -263,6 +263,27 @@ describe('roleDeniesCommand on pushes', () => {
     expect(denied(`git push origin ${own}`, own)).toBe(false);
   });
 
+  it('refuses a push that writes beyond the named branch', () => {
+    for (const flag of ['--all', '--mirror', '--prune', '--branches']) {
+      expect(denied(`git push ${flag} origin`, FIXER)).toBe(true);
+    }
+  });
+
+  it('skips the value of a push option instead of reading it as a remote', () => {
+    expect(denied(`git push --push-option ci.skip origin HEAD:${FIXER}`, FIXER)).toBe(false);
+    expect(denied(`git push -o ci.skip origin HEAD:${FIXER}`, FIXER)).toBe(false);
+    expect(denied(`git push --repo origin HEAD:other`, FIXER)).toBe(true);
+  });
+
+  it('passes flags that neither force, delete nor take a value', () => {
+    expect(denied(`git push -u origin HEAD:${FIXER}`, FIXER)).toBe(false);
+    expect(denied(`git push --no-verify origin HEAD:${FIXER}`, FIXER)).toBe(false);
+  });
+
+  it('allows a bare push from a checkout of the own branch', () => {
+    expect(denied('git push', FIXER, FIXER)).toBe(false);
+  });
+
   it('judges a chained command call by call', () => {
     expect(denied(`git fetch && git push origin HEAD:${FIXER}`, FIXER)).toBe(false);
     expect(denied(`git push origin HEAD:${FIXER} && git push -f origin HEAD:${FIXER}`, FIXER)).toBe(true);
