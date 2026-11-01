@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3025 merged
+- **Started:** 2026-11-01, Jan Wloka, `bug/the-agent-reporter-waits-without-a-poll`
 
 ## Changelog
 
