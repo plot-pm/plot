@@ -31,3 +31,12 @@ export const shellContext = (repoRoot: string): ShellContext => ({
  */
 export const scriptPath = (context: ShellContext, name: string): string =>
   join(context.scriptDir, name);
+
+/**
+ * Resolves the plan parser's absolute path, the file whose bytes a parse cache keys on.
+ *
+ * @param context - where the scripts live.
+ * @returns the absolute path.
+ */
+export const planParserPath = (context: ShellContext): string =>
+  scriptPath(context, 'plot-plan-meta.sh');
