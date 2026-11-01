@@ -84,7 +84,7 @@ Decided 2026-11-01 after panel round 1 (`.plot/panels/2026-11-01-the-board-start
 
 ### Proof
 
-- `feature/a-board-request-counts-its-processes` — `boardAnswer` in `packages/board/src/server/controllers/` holds the `/api/board` handler body (`index.ts:478-518`); a refresh-pause seam beside `stopFleetRefresh` in `fleet.ts` that keeps the caches; `interrogateAvailability` reads `readConfigAsync` (`interrogate.ts:57`); `ENTRIES` in `packages/board/test/unit/a-read-route-spawns-nothing.test.ts` gain `boardAnswer` and the route table is corrected; the ratchet test `packages/board/test/unit/board-request-starts.test.ts` records today's warm list, with a fixture that holds Delivered plans and a draft branch. <!-- builds: a process-count ratchet for one warm /api/board request -->
+- `feature/a-board-request-counts-its-processes` — `boardAnswer` in `packages/board/src/server/controllers/` holds the `/api/board` handler body (`index.ts:478-518`); a refresh-pause seam beside `stopFleetRefresh` in `fleet.ts` that keeps the caches; `interrogateAvailability` reads `readConfigAsync` (`interrogate.ts:57`); `ENTRIES` in `packages/board/test/unit/a-read-route-spawns-nothing.test.ts` gain `boardAnswer` and the route table is corrected; the ratchet test `packages/board/test/unit/board-request-starts.test.ts` records today's warm list, with a fixture that holds Delivered plans and a draft branch. <!-- builds: a process-count ratchet for one warm /api/board request --> → #3020
 
 ### Held config
 
