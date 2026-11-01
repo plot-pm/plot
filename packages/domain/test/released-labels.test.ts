@@ -30,4 +30,13 @@ describe('releasedLabelTargets', () => {
       { issue: '9', reason: 'unread' },
     ]);
   });
+
+  it('orders non-numeric identifiers by text', () => {
+    const issues = ['PLOT-2', 'PLOT-10', 'ABC-1'].map((id) => ({ id, status: 'closed', labels: [] }));
+    expect(releasedLabelTargets([{ phase: 'released', issues: ['PLOT-2', 'PLOT-10', 'ABC-1'] }], issues).write).toEqual([
+      'ABC-1',
+      'PLOT-10',
+      'PLOT-2',
+    ]);
+  });
 });
