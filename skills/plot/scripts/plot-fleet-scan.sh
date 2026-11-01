@@ -5128,23 +5128,13 @@ fi
 # --log-pulse: append ONE line per plan, clean pulses included. Without a
 # record of quiet pulses an idle fleet and a dead fleet are indistinguishable.
 # This is a LOG, not state: deleting it changes no behaviour, because the next
-# pulse re-derives everything from git.
+# pulse re-derives everything from git. `plot-delta.mjs --log` writes the line
+# through each plan's resolved symlink with `logToPlan` (`pulse-log.ts`), the
+# same function the domain walk's `--log-pulse` calls.
 if [ "$log_pulse" = 1 ]; then
   stamp=$(date -u +%Y-%m-%dT%H:%MZ)
   line="<!-- pulse: $stamp — waves=$n_waves eligible=$n_eligible claimed=$n_claimed blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing -->"
-  for pf in ${plan_files[@]+"${plan_files[@]}"}; do
-    real=$(cd "$(dirname "$pf")" && readlink "$(basename "$pf")" 2>/dev/null || true)
-    target=$([ -n "$real" ] && echo "$(dirname "$pf")/$real" || echo "$pf")
-    [ -f "$target" ] || continue
-    if grep -q '^## Notes' "$target" 2>/dev/null; then
-      awk -v ln="$line" '
-        /^## Notes/ && !done { print; print ""; print ln; done=1; next }
-        { print }
-      ' "$target" > "$target.tmp" && mv "$target.tmp" "$target"
-    else
-      printf '\n## Notes\n\n%s\n' "$line" >> "$target"
-    fi
-  done
+  node "$script_dir/board/plot-delta.mjs" --log "$line" ${plan_files[@]+"${plan_files[@]}"}
 fi
 
 # THE PULSE RECORDS ITSELF — `.plot/state/last-pulse.json`, the bridge.
