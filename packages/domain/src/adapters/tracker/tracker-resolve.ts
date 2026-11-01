@@ -1,6 +1,6 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
-import { unaskable, type PortResult } from '../../port-result.js';
+import { answered, unaskable, type PortResult } from '../../port-result.js';
 import { issueSource, type IssueSource, type IssueSourceReading } from '../../rules/issue-source.js';
 import type { ClosedIssues, IssueCommentOutcome, IssueOpenOutcome, IssueRead, StatusOutcome, Tracker, TrackerConfig, TrackerSpender, VersionRead } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
@@ -123,6 +123,9 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     // comment on the git host's own issue. `plot-host.sh` answers exit 4, so
     // `unaskable`, where the host cannot take it.
     issueLabel: githubIssueLabel(context, {}, reads.refuse),
+    // `plot-host.sh issue-label` writes on a GitHub backend only.
+    issueLabelReach: (): PortResult<true> =>
+      gitHost === 'github' ? answered(true) : unaskable(`the ${gitHost || 'unknown'} git host takes no issue label from Plot`),
     planStateWrite: githubPlanStateWrite(context, {}, reads.refuse),
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
     lastRefusal: (): string | null => reads.lastRefusal(),

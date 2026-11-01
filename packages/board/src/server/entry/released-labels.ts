@@ -27,6 +27,11 @@ import { planMetasAtDefault } from '../fleet.js';
  * lines, then `summary: write=<n> skip=<n> calls=<n>`. The `--yes` run makes one
  * `issueLabel` call per `write` issue and nothing else: no comment, no close.
  *
+ * Where the tracker's `issueLabelReach` answers `unaskable` (a Jira tracker, a
+ * non-GitHub git host, no tracker), every mode prints `not checked: <reason>`,
+ * reads no closed issue, writes nothing and exits 0. The same holds for
+ * `--section` where the closed-issue read answers `unaskable`.
+ *
  * `--yes` refuses under `PLOT_UNATTENDED=1` (exit 2) before it reads anything.
  * The dry run only reads, so it runs unattended; the reconcile sweep relies on it.
  *
@@ -87,12 +92,22 @@ export const run = async (argv: readonly string[], deps: Deps): Promise<number> 
     deps.warn('plot-released-labels: --yes writes to the tracker and needs a person; refused under PLOT_UNATTENDED=1\n');
     return EXIT.usage;
   }
+  const reach = deps.tracker.issueLabelReach();
+  if (!reach.ok) {
+    const reason = reach.why === 'unaskable' ? (reach.reason ?? 'the tracker takes no issue label') : 'the tracker failed';
+    deps.write(section ? `\n${SECTION_HEADING}\n  (not checked: ${reason})\n\n` : `not checked: ${reason}; nothing was read or written\n`);
+    return EXIT.ok;
+  }
   const plans = await deps.plans();
   if (plans === null) {
     deps.warn('plot-released-labels: the plans could not be read; nothing was changed\n');
     return EXIT.failed;
   }
   const closed = await deps.tracker.issueListClosed('1970-01-01T00:00:00Z', 10000);
+  if (!closed.ok && section && closed.why === 'unaskable') {
+    deps.write(`\n${SECTION_HEADING}\n  (not checked: ${closed.reason ?? 'the closed issues cannot be read'})\n\n`);
+    return EXIT.ok;
+  }
   if (!closed.ok) {
     deps.warn(`plot-released-labels: the closed issues could not be read (${closed.why}); nothing was changed\n`);
     return EXIT.failed;

@@ -39,6 +39,7 @@ export const trackerNone = (reason?: string): Tracker => ({
   issueOpen: async (): Promise<PortResult<IssueOpenOutcome>> => unaskable(reason),
   issueComment: async (): Promise<PortResult<IssueCommentOutcome>> => unaskable(reason),
   issueLabel: async (): Promise<PortResult<IssueLabelOutcome>> => unaskable(reason),
+  issueLabelReach: (): PortResult<true> => unaskable(reason),
   planStateWrite: async (): Promise<PortResult<PlanStateOutcome>> => unaskable(reason),
   limit: async (): Promise<PortResult<readonly LimitReading[]>> => unaskable(reason),
   // NEVER A REFUSAL. A tracker nobody declared is not refusing anything; it is

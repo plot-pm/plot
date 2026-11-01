@@ -300,6 +300,8 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
       return answered<IssueLabelOutcome>('no-target');
     },
 
+    issueLabelReach: (): PortResult<true> => unaskable('the Jira tracker takes no issue label'),
+
     planStateWrite: async (): Promise<PortResult<PlanStateOutcome>> => {
       reads.refuse(null);
       return answered<PlanStateOutcome>('no-target');

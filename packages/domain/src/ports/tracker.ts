@@ -496,6 +496,15 @@ export interface Tracker {
   issueLabel(id: string, add: string, remove: readonly string[]): Promise<PortResult<IssueLabelOutcome>>;
 
   /**
+   * Whether {@link issueLabel} can write to this tracker, answered without a
+   * call.
+   *
+   * @returns `answered(true)` where `issueLabel` reaches a GitHub issue;
+   *   `unaskable`, with the reason, where this tracker takes no label write.
+   */
+  issueLabelReach(): PortResult<true>;
+
+  /**
    * Reflects a plan's phase, progress and open HIGH tickets on an issue, and
    * nothing else.
    *

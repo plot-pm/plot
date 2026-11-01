@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { trackerFixture } from '@plot-pm/domain/adapters';
+import { unaskable } from '@plot-pm/domain';
 import type { Issue } from '@plot-pm/domain/entities/issue';
 import { CALLS_PER_WRITE, EXIT, MIN_REMAINING, run, type Deps } from '../../src/server/entry/released-labels.js';
 
@@ -7,7 +8,7 @@ const closed = (id: string, labels: string[] = []): Issue => ({
   id, title: `t${id}`, url: '', status: 'closed', statusCategory: 'Done', assignees: [], createdAt: '', closedAt: '2026-01-02T00:00:00Z', labels,
 }) as Issue;
 
-const harness = (over: { issues?: Issue[]; env?: Record<string, string>; issueLabelFails?: boolean; remaining?: number } = {}) => {
+const harness = (over: { issues?: Issue[]; env?: Record<string, string>; issueLabelFails?: boolean; remaining?: number; unreachable?: string; closedUnaskable?: string } = {}) => {
   const labelWrites: { id: string; add: string; remove: readonly string[] }[] = [];
   const commented: { id: string; body: string }[] = [];
   const written: never[] = [];
@@ -20,16 +21,25 @@ const harness = (over: { issues?: Issue[]; env?: Record<string, string>; issueLa
     commented,
     written,
     issueLabelFails: over.issueLabelFails,
+    issueLabelUnreachable: over.unreachable,
     limits: [{ connector: 'github', bucket: 'core', remaining: over.remaining ?? 5000, limit: 5000, resetAt: null, known: true }] as never,
   });
+  const closedReads: string[] = [];
+  const counted = {
+    ...tracker,
+    issueListClosed: async (since: string, limit: number) => {
+      closedReads.push(since);
+      return over.closedUnaskable === undefined ? tracker.issueListClosed(since, limit) : unaskable(over.closedUnaskable);
+    },
+  } as typeof tracker;
   const deps: Deps = {
-    tracker,
+    tracker: counted,
     plans: async () => [{ phase: 'released', issues: [1, 2, 3] }],
     env: over.env ?? {},
     write: (s) => out.push(s),
     warn: (s) => err.push(s),
   };
-  return { deps, labelWrites, commented, written, out, err };
+  return { deps, labelWrites, commented, written, out, err, closedReads };
 };
 
 describe('plot-released-labels', () => {
@@ -85,6 +95,36 @@ describe('plot-released-labels', () => {
     expect(await run(['--section', '1'], h.deps)).toBe(EXIT.ok);
     expect(h.out.join('')).toBe('\n== Closed issues of Released plans without plan:released ==\n  2 issue(s) — run: node /x/plot-released-labels.mjs --yes\n\n');
     expect(h.labelWrites).toEqual([]);
+  });
+
+  it('a tracker that takes no label prints the not-checked line in --section and reads no closed issue', async () => {
+    const h = harness({ unreachable: 'the Jira tracker takes no issue label' });
+    expect(await run(['--section', '1'], h.deps)).toBe(EXIT.ok);
+    expect(h.out.join('')).toBe('\n== Closed issues of Released plans without plan:released ==\n  (not checked: the Jira tracker takes no issue label)\n\n');
+    expect(h.closedReads).toEqual([]);
+  });
+
+  it('a tracker that takes no label makes --yes and the dry run read and write nothing', async () => {
+    for (const argv of [['--yes'], []]) {
+      const h = harness({ unreachable: 'the Jira tracker takes no issue label' });
+      expect(await run(argv, h.deps)).toBe(EXIT.ok);
+      expect(h.out.join('')).toBe('not checked: the Jira tracker takes no issue label; nothing was read or written\n');
+      expect(h.closedReads).toEqual([]);
+      expect(h.labelWrites).toEqual([]);
+    }
+  });
+
+  it('the GitHub path reads the closed issues once', async () => {
+    const h = harness();
+    expect(await run(['--section', '1'], h.deps)).toBe(EXIT.ok);
+    expect(h.closedReads).toHaveLength(1);
+  });
+
+  it('--section prints the not-checked line where the closed read is unaskable', async () => {
+    const h = harness({ closedUnaskable: 'the source cannot list closed issues' });
+    expect(await run(['--section', '1'], h.deps)).toBe(EXIT.ok);
+    expect(h.out.join('')).toBe('\n== Closed issues of Released plans without plan:released ==\n  (not checked: the source cannot list closed issues)\n\n');
+    expect(h.err).toEqual([]);
   });
 
   it('refuses an unknown argument', async () => {

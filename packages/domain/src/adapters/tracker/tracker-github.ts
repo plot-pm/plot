@@ -212,6 +212,7 @@ export const trackerGithub = (context: ShellContext): Tracker => {
 
     issueComment: githubIssueComment(context, reads.refuse),
     issueLabel: githubIssueLabel(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
+    issueLabelReach: (): PortResult<true> => answered(true),
     planStateWrite: githubPlanStateWrite(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
