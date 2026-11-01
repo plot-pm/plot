@@ -17,7 +17,7 @@
     "typecheck": "pnpm --filter @plot-pm/board typecheck",
     "test:board": "./scripts/owned-run.sh ./scripts/bounded.sh 1200 sh -c 'pnpm --filter @plot-pm/board build && pnpm --filter @plot-pm/board test && pnpm --filter @plot-pm/board exec vitest run && pnpm --filter @plot-pm/fleet test'",
     "test:contracts": "./scripts/owned-run.sh ./scripts/bounded.sh 1500 node --test --test-reporter=tap --test-timeout=300000 test/reconcile/*.test.mjs",
-    "test:e2e": "node --test test/e2e/*.test.mjs",
+    "test:e2e": "PLOT_SCAN_WALK=${PLOT_SCAN_WALK:-shell} node --test test/e2e/*.test.mjs",
     "changeset": "cp .changeset/_template \".changeset/$(date +%Y%m%d-%H%M%S).md\" && echo 'Created changeset — edit it now'",
     "version": "bash .dev/scripts/bump-skill-versions.sh && changeset version && bash .dev/scripts/sync-versions.sh",
     "validate": "bash .dev/scripts/validate-skills.sh",

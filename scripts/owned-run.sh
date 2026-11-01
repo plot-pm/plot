@@ -260,6 +260,7 @@ HOME="$root/home" \
 PLOT_BUDGET_HOME="$root/budget" \
 PLOT_PR_INDEX_HOME="$root/pr-index" \
 PLOT_ISSUE_INDEX_HOME="$root/issue-index" \
+PLOT_SCAN_WALK="${PLOT_SCAN_WALK:-shell}" \
   "$@" &
 child_pid=$!
 wait "$child_pid"
