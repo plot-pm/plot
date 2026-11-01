@@ -254,7 +254,7 @@ export interface Refs {
    * Lists the files a branch changed against the default branch.
    *
    * @param branch - the branch to read.
-   * @param against - the default branch's name, such as `main`. Absent, the
+   * @param against - the default branch's name, such as `main`, or a full object id naming the base commit. Absent, the
    *   adapter resolves it from `origin/HEAD`, which a checkout that fetched
    *   branches by refspec never sets.
    * @returns the paths, relative to the repository root.

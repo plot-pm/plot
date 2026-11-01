@@ -12,6 +12,7 @@ import type { Trees } from '@plot-pm/domain/ports/trees';
 import { readBranchConflicts, readBranchReadings, type BranchStagePrs } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
+import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
@@ -107,6 +108,12 @@ export interface ScanState {
    * count. Never reset at the top of a pass; only the reader zeroes it.
    */
   calls: number;
+  /**
+   * The walk's oid-keyed answers, held in this process only. Never written to
+   * a file or the environment: `plot-dispatch.sh --list-eligible` runs cold.
+   * Absent, the walk runs cold every beat, as the board's fallback does.
+   */
+  walkCache?: WalkCache;
 }
 
 /**
@@ -125,6 +132,7 @@ export const freshScanState = (): ScanState => ({
   backoffUntil: null,
   backoffMs: null,
   calls: 0,
+  walkCache: freshWalkCache(),
 });
 
 /** What a scan reads through; every spawn goes through `scripts` or `refs`. */
@@ -148,6 +156,8 @@ export interface WalkPorts {
   trees: Trees;
   agents: Agents;
   processes: Processes;
+  /** Absolute path of `plot-plan-meta.sh`; absent, no parse is cached. */
+  parser?: string;
 }
 
 /** The pulse and the five facts read beside it. */
@@ -663,8 +673,14 @@ const shortSha = async (refs: Refs, ref: string): Promise<string> => {
  * @returns the pulse.
  * @throws where a stage fails or the assembled document is not a pulse.
  */
-export const walkOnce = async (world: ScanWorld, listing: string, listingSaid = ''): Promise<FleetReading> => {
-  const { scripts, refs, walk } = world;
+export const walkOnce = async (
+  world: ScanWorld,
+  listing: string,
+  listingSaid = '',
+  cache?: WalkCache,
+): Promise<FleetReading> => {
+  const { scripts, walk } = world;
+  let refs = world.refs;
   const cfg = async (key: string, fallback: string): Promise<string> => {
     const answer = await scripts.config(key, fallback);
     return answer.ok && answer.value.trim() !== '' ? answer.value.trim() : fallback;
@@ -684,12 +700,35 @@ export const walkOnce = async (world: ScanWorld, listing: string, listingSaid = 
   // `--prune` and the heads refspec ride after `origin`, where git reads them as
   // the shell scan's command did: the prune then covers the whole mirror.
   const fetched = await walk.trees.fetch(world.repoRoot, ['--prune', mainBranch, '+refs/heads/*:refs/remotes/origin/*']);
+
+  // THE SNAPSHOT IS READ ONCE, AFTER THE FETCH AND BEFORE ANY CACHED READ. Every
+  // cached read below resolves its names through it, so a ref that moves later
+  // in the beat moves no key. A snapshot git cannot give runs the beat cold.
+  const snapshot = cache === undefined ? null : await readRefSnapshot(refs);
+  let plansAt = walk.plans(`origin/${mainBranch}`, planDir);
+  if (cache !== undefined && snapshot !== null && snapshot.ok) {
+    cache.begin();
+    cache.stats.beats += 1;
+    if (cache.lastSnapshot !== null && cache.lastSnapshot !== snapshot.value.digest) cache.stats.changedBeats += 1;
+    cache.lastSnapshot = snapshot.value.digest;
+    refs = cachedRefs(refs, snapshot.value, cache);
+    // The parser file is hashed on disk every beat, not versioned in this bundle:
+    // a fast-forward of main changes the script while this process keeps running.
+    const parser = walk.parser !== undefined && typeof refs.hashFilesSync === 'function' ? refs.hashFilesSync([walk.parser]) : null;
+    const parserHash = parser !== null && parser.ok ? parser.value.get(walk.parser!) : undefined;
+    if (parserHash !== undefined) {
+      const digest = [mainBranch, planDir, activeDir, deliveredDir, prefixes.join('|')].join('\n');
+      plansAt = cachedPlans(plansAt, cache, `${parserHash}\0${digest}`);
+    }
+  } else if (cache !== undefined) {
+    cache.lastSnapshot = null;
+  }
   const readRef = await shortSha(refs, `origin/${mainBranch}`);
   const localHead = await shortSha(refs, 'HEAD');
 
   const carried = readCarriedPrStates(listing);
   const prs: BranchStagePrs = carried === null ? { kind: 'unread', said: listingSaid } : { kind: 'listed', listing: carried };
-  const estate = await readEstate(refs, walk.plans(`origin/${mainBranch}`, planDir), {
+  const estate = await readEstate(refs, plansAt, {
     mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
   const branches = estate.ok
@@ -849,7 +888,10 @@ export const scanOnce = async (
   // not the walk.
   let parsed: FleetReading;
   try {
-    parsed = await withinBudget(walkOnce(world, state.listing, listingSaid), FLEET_SCAN_BUDGET_MS);
+    parsed = await withinBudget(walkOnce(world, state.listing, listingSaid, state.walkCache), FLEET_SCAN_BUDGET_MS);
+    // Pruned only here, after a beat that completed: a beat that timed out
+    // keeps what it read, so the next one does not start cold again.
+    state.walkCache?.sweep();
   } finally {
     // A SPEND ATTEMPT THAT DID NOT ADOPT THROUGH THE HOST REFUSED. Both
     // backends read their listing host-side. A reused or backed-off pass spent
