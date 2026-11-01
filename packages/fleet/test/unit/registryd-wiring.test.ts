@@ -530,8 +530,8 @@ describe('run — the PR reader\'s failure reaches the bridge', () => {
   });
 
   /**
-   * A repository and a scripts directory: `plot-host.sh` refuses `pr-list`, and
-   * `plot-fleet-scan.sh` emits one pulse. Nothing else is reached.
+   * A repository and a scripts directory: `plot-host.sh` refuses `pr-list`. The scan
+   * walks the seeded repository in process; no scan script runs.
    */
   const fixture = () => {
     root = mkdtempSync(join(tmpdir(), 'registryd-pr-error-'));
@@ -539,7 +539,15 @@ describe('run — the PR reader\'s failure reaches the bridge', () => {
     const scripts = join(root, 'scripts');
     mkdirSync(repo);
     mkdirSync(scripts);
-    execFileSync('git', ['init', '--quiet'], { cwd: repo });
+    // The scan walks the repository in process, so it needs a default branch on
+    // an origin to resolve: one empty commit pushed to a bare remote.
+    const origin = join(root, 'origin.git');
+    execFileSync('git', ['init', '--quiet', '--bare', '--initial-branch=main', origin]);
+    execFileSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'seed'], { cwd: repo });
+    execFileSync('git', ['remote', 'add', 'origin', origin], { cwd: repo });
+    execFileSync('git', ['push', '--quiet', 'origin', 'main'], { cwd: repo });
+    execFileSync('git', ['fetch', '--quiet', 'origin'], { cwd: repo });
     vi.stubEnv('PLOT_PR_INDEX_HOME', join(root, 'pr-index'));
     vi.stubEnv('PLOT_BUDGET_HOME', join(root, 'budget'));
     const reading = JSON.stringify({

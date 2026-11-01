@@ -4,6 +4,7 @@ import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
+import { emptyWalk, withWalkRefs } from './walk-fake.js';
 import { freshScanState, scanOnce, type ScanOptions, type ScanWorld } from '../../src/shared/fleet-scan.js';
 
 /**
@@ -30,13 +31,13 @@ const READING: FleetReading = {
 const ok = <T>(value: T) => ({ ok: true as const, value });
 
 const refsFakeWith = (branches: readonly string[]): Refs =>
-  ({
+  withWalkRefs({
     branchDates: async () => ok([]),
     branchTips: async () => ok([]),
     listBlobs: async () => ok([]),
     listBranches: async () => ok(branches),
     remoteUrl: async () => ok(''),
-  }) as unknown as Refs;
+  } as unknown as Partial<Refs>);
 
 const OPEN_ROW = (head: string, updatedAt: string) =>
   `${JSON.stringify({ head, state: 'OPEN', updatedAt })}\n`;
@@ -62,6 +63,7 @@ const worldOf = (branches: readonly string[], stream: Scripts['stream'], hostSai
   } as unknown as Scripts,
   refs: refsFakeWith(branches),
   backend: async () => 'bitbucket',
+  walk: emptyWalk(),
 });
 
 const OPTIONS: ScanOptions = { record: false };
