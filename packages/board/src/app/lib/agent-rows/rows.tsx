@@ -37,6 +37,7 @@ const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 import { identityWasDeclared } from '@plot-pm/domain';
 import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
+import { sliceRowReading } from './slice-reading.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
 import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
@@ -934,7 +935,12 @@ export function PlanRow({
           pulse={pulse}
           onApproving={onApproving}
           soleSlice={
-            soleSlice?.verdict === 'eligible' && card && dispatch
+            soleSlice
+              && sliceRowReading(
+                soleSlice.verdict,
+                group.rows.filter((r) => r.kind !== 'plan' && soleSlice.branches.includes(r.branch)),
+              ).dispatch
+              && card && dispatch
               ? (soleSlice.name || UNNAMED_SLICE)
               : undefined
           }
@@ -1115,18 +1121,16 @@ export function SliceRow({
   // distinction IS the point: one of these can be started and two cannot.
   // `you` is the amber tone the board uses for *this needs a decision*, which is
   // exactly what an eligible slice is.
+  const reading = sliceRowReading(group.verdict, group.rows);
+  // A HELD SLICE SPEAKS FIRST, ahead of the sole row and the grouped count: its
+  // branches all wait on an open `waits:`, so neither a count nor a verdict
+  // sentence about starting is true of it.
   const sliceWaitingOn: WaitingOn | null =
+    reading.held ? reading.tone
     // `you` — a merge is a decision, whatever the verdict says about ordering.
-    soleRow ? soleRow.waitingOn
+    : soleRow ? soleRow.waitingOn
       : groupedCount !== undefined ? 'you'
-      : group.verdict === 'eligible' ? 'you'
-      // `you` FOR AN UNAPPROVED SLICE TOO, and for the same reason `eligible`
-      // has it: the tone means *this needs a decision from a person*, and an
-      // unapproved slice needs exactly one — an approval. `time` would be wrong,
-      // because nothing lands on its own to unblock this.
-      : group.verdict === 'unapproved' ? 'you'
-      : group.verdict === 'blocked' ? 'time'
-        : null;
+      : reading.tone;
   const sliceNote =
     // A REVIEWABLE SLICE says what it is waiting for, and it is a person. The
     // verdict's sentences are both about starting — and these branches are
@@ -1156,25 +1160,19 @@ export function SliceRow({
     // `work landed` over five live `blocked` slices that had never been touched.
     // A grouped slice with an unrecognised word is exactly the slice the verdict
     // describes, so it derives the same value a single-branch slice does.
-    soleRow ? soleNote
+    reading.held ? reading.note
+      : soleRow ? soleNote
       : (groupedCount !== undefined
         ? groupedNote(groupedWord, sliceDissent(group.rows))
         : '')
-        || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
-          : group.verdict === 'blocked' ? 'an earlier slice has to land first'
-          // THE SENTENCE NAMES THE ACTION, like its two siblings, and the
-          // action here is not merging — it is approving. The `eligible`
-          // sentence says *approved*, which is the fact this slice lacks, and
-          // the `blocked` one promises an earlier slice will land, which no
-          // amount of merging will do for this row.
-          : group.verdict === 'unapproved' ? 'the plan needs approving first'
-            : '');
+        || reading.note;
   return (
     <TupleRowView
       tuple={tupleFromSlice({
         name: group.wave,
         plan,
         verdict: group.verdict,
+        held: reading.held,
         groupedCount: groupedCount ?? null,
         groupedWord: groupedWord ?? '',
         // THE SOLE BRANCH'S OWN CONDITION, where the slice holds one. `prStatus`
@@ -1466,7 +1464,7 @@ export function SliceRow({
       // row one level up.
       menu={
         <>
-          {group.verdict === 'eligible' && card && dispatch ? (
+          {reading.dispatch && card && dispatch ? (
             <SliceActions
               wave={group.wave || '(unnamed)'}
               card={card}

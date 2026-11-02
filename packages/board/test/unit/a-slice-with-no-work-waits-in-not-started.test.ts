@@ -270,6 +270,14 @@ describe('a waiting or blocked branch reads as unbegun on its row', () => {
     });
   }
 
+  for (const state of ['waiting', 'blocked'] as const) {
+    it(`${state} in an eligible slice: carries no startability and no brief writer running`, () => {
+      const row = secondRow(state, 'open', 'eligible');
+      expect(row.startability).toBeNull();
+      expect(row.briefWriter).toBe('none');
+    });
+  }
+
   it('unknown: is not unbegun, because the host could not say the branch is empty', () => {
     const row = secondRow('unknown', 'unknown');
     expect(row.unbegun).toBe(false);

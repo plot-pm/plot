@@ -1376,6 +1376,8 @@ export interface SliceRowFacts {
    * the list of words a reader can see.
    */
   verdict: SliceVerdict | null;
+  /** Whether every unsettled branch waits on an open `waits:`; slot 5 then reads `waiting`. */
+  held?: boolean;
   /** The branches this slice holds — slot 4, and there may be five. */
   branches: { branch: string; branchUrl: string }[];
   /**
@@ -1539,7 +1541,9 @@ export function tupleFromSlice(facts: SliceRowFacts, index: PlanIndex = EMPTY_PL
     // Only where there is more than one, since `1 left` beside a single branch
     // link in slot 4 states what that link already shows. The count earns its
     // place exactly when the branches are folded out of sight.
-    status: facts.soleStatus
+    status: facts.held
+      ? 'waiting'
+      : facts.soleStatus
       ? facts.soleStatus
       : facts.groupedCount != null
       ? `${facts.groupedCount} ${facts.groupedWord || 'to review'}`

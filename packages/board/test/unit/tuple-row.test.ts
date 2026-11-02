@@ -1424,4 +1424,17 @@ describe('a row resolves its plan reference through the index, not its own field
     expect(t.name.label).toBe('3: a-plan');
     expect(t.name.href).toBe('/plan/2026-08-20-a-plan.md');
   });
+
+describe('a held slice reads waiting in slot 5', () => {
+  it('prints waiting over the eligible verdict', () => {
+    const t = tupleFromSlice({
+      name: 'Second', plan: 'a-plan', verdict: 'eligible', held: true,
+      blockedBy: null, outstanding: 1,
+      branches: [{ branch: 'feature/second', branchUrl: 'https://host/tree/feature/second' }],
+      ageMinutes: null, waitingDays: 2,
+    } as never);
+    expect(t.status).toBe('waiting');
+  });
+});
+
 });
