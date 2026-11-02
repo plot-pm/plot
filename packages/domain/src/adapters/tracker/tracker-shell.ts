@@ -21,6 +21,7 @@ interface RawIssue {
   assignees?: string[];
   type?: string;
   updatedAt?: string;
+  labels?: string[];
   nextPageToken?: string;
 }
 
@@ -57,9 +58,10 @@ const MS_PER_SECOND = 1000;
  * `To Do` would state a stage the tracker never claimed.
  *
  * @param raw - the script's JSON object.
+ * @param labels - whether the row's `labels` are kept; false drops them.
  * @returns the issue; a null `body` means it was not fetched.
  */
-export const issueOf = (raw: RawIssue): Issue => ({
+export const issueOf = (raw: RawIssue, labels = true): Issue => ({
   id: raw.number === undefined ? '' : String(raw.number),
   title: raw.title ?? '',
   url: raw.url ?? '',
@@ -71,6 +73,7 @@ export const issueOf = (raw: RawIssue): Issue => ({
   assignees: raw.assignees ?? [],
   ...(raw.type === undefined || raw.type === '' ? {} : { type: raw.type }),
   ...(raw.updatedAt === undefined || raw.updatedAt === '' ? {} : { updatedAt: raw.updatedAt }),
+  ...(!labels || raw.labels === undefined ? {} : { labels: raw.labels }),
 });
 
 /**
@@ -80,13 +83,14 @@ export const issueOf = (raw: RawIssue): Issue => ({
  * which has no `number`. Every other line is an issue.
  *
  * @param stdout - the script's output for one page.
+ * @param labels - whether each row's `labels` are kept; false drops them.
  * @returns the page's issues, and the token of the next page, or null on the last.
  */
-export const pageOf = (stdout: string): { issues: Issue[]; next: string | null } => {
+export const pageOf = (stdout: string, labels = true): { issues: Issue[]; next: string | null } => {
   const lines = asJsonLines<RawIssue>(stdout);
   const token = lines.find((line) => line.nextPageToken !== undefined)?.nextPageToken;
   return {
-    issues: lines.filter((line) => line.nextPageToken === undefined).map(issueOf),
+    issues: lines.filter((line) => line.nextPageToken === undefined).map((line) => issueOf(line, labels)),
     next: token === undefined || token === '' ? null : token,
   };
 };
@@ -209,6 +213,8 @@ export interface TrackerShell {
   baseUrl: string;
   /** The connector's own name, as its limit readings are tagged. */
   connector: string;
+  /** Whether this connector's issue rows keep their `labels`; true where unset. */
+  labels?: boolean;
 }
 
 /**
@@ -282,7 +288,7 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
     while (issues.length < limit) {
       const args = [...head, '--limit', String(limit - issues.length)];
       if (token !== null) args.push('--page-token', token);
-      const page = record(await runProcess('bash', [host, ...args], run), (stdout) => pageOf(stdout));
+      const page = record(await runProcess('bash', [host, ...args], run), (stdout) => pageOf(stdout, shell.labels !== false));
       calls += 1;
       if (!page.ok) return page;
       issues.push(...page.value.issues);
@@ -301,7 +307,7 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
   return {
     issueList: (limit?: number): Promise<PortResult<readonly Issue[]>> =>
       ask(['issue-list', ...(limit === undefined ? [] : ['--limit', String(limit)])], (stdout) =>
-        pageOf(stdout).issues,
+        pageOf(stdout, shell.labels !== false).issues,
       ),
 
     /**
@@ -401,7 +407,7 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
       ask(['version-list', project], (stdout) => asJsonLines<RawVersion>(stdout)),
 
     issueView: (id: string): Promise<PortResult<Issue>> =>
-      ask(['issue-view', id], (stdout) => issueOf(asJson<RawIssue>(stdout))),
+      ask(['issue-view', id], (stdout) => issueOf(asJson<RawIssue>(stdout), shell.labels !== false)),
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
       const readings = await ask(['limit'], (stdout) => asJsonLines<RawLimit>(stdout).map(limitOf));

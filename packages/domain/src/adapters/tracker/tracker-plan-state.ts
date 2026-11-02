@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import { filled, planIssueComment, priorPlanLinesOf, PLAN_STATE_MARKER } from '../../rules/plan-issue-comment.js';
-import type { PlanStatePhase, PlanStateOutcome, PlanStateWrite } from '../../ports/tracker.js';
+import type { IssueLabelOutcome, PlanStatePhase, PlanStateOutcome, PlanStateWrite } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { unaskableReasonOf } from './tracker-shell.js';
@@ -268,4 +268,43 @@ export const githubPlanStateWrite =
     } finally {
       await release();
     }
+  };
+
+/**
+ * Adds one label to a GitHub issue through `plot-host.sh issue-label`, which
+ * creates the label where the repository lacks it and removes only the listed
+ * labels the issue carries, in one edit.
+ *
+ * The shell op is the one the plan-state write already runs; this reuses it and
+ * posts no comment and closes nothing.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param env - the environment the calling connector runs `plot-host.sh` under.
+ * @param refuse - records the refusal the calling connector's `lastRefusal` reports.
+ * @returns the connector's `issueLabel`: `labelled`; `no-target` where the
+ *   identifier names no number; `unaskable` on exit 4; `failed` otherwise.
+ */
+export const githubIssueLabel =
+  (context: ShellContext, env: Record<string, string>, refuse: (said: string | null) => void) =>
+  async (id: string, add: string, remove: readonly string[]): Promise<PortResult<IssueLabelOutcome>> => {
+    const number = numberOf(id);
+    if (number === null) {
+      refuse(null);
+      return answered<IssueLabelOutcome>('no-target');
+    }
+    const said = await runProcess(
+      'bash',
+      [scriptPath(context, 'plot-host.sh'), 'issue-label', number, add, remove.join(',')],
+      { cwd: context.repoRoot, env },
+    );
+    if (said.code === 4) {
+      refuse(null);
+      return unaskable(unaskableReasonOf(said.stderr));
+    }
+    if (said.code !== 0) {
+      refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh issue-label exited ${said.code}`);
+      return failed();
+    }
+    refuse(null);
+    return answered<IssueLabelOutcome>('labelled');
   };

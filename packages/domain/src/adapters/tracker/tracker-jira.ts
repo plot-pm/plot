@@ -8,6 +8,7 @@ import {
   type IssueOpen,
   type IssueOpenOutcome,
   type IssueRead,
+  type IssueLabelOutcome,
   type PlanStateOutcome,
   type StatusOutcome,
   type StatusWrite,
@@ -122,7 +123,7 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
   const env: Record<string, string> = { PLOT_TRACKER: SCHEME };
   if (baseUrl !== '') env.PLOT_JIRA_BASE_URL = baseUrl;
 
-  const reads = trackerReads({ context, scheme: SCHEME, baseUrl, connector: CONNECTOR }, env);
+  const reads = trackerReads({ context, scheme: SCHEME, baseUrl, connector: CONNECTOR, labels: false }, env);
   const host = scriptPath(context, 'plot-host.sh');
   const run = { cwd: context.repoRoot, env };
   const config = scriptPath(context, 'plot-config.sh');
@@ -294,6 +295,13 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     // A STATUS AND NOTHING ELSE. A Jira issue takes no `plan:*` label, no plan
     // comment and no close from Plot, so the tracker was reached and holds
     // nowhere to put this.
+    issueLabel: async (): Promise<PortResult<IssueLabelOutcome>> => {
+      reads.refuse(null);
+      return answered<IssueLabelOutcome>('no-target');
+    },
+
+    issueLabelReach: (): PortResult<true> => unaskable('the Jira tracker takes no issue label'),
+
     planStateWrite: async (): Promise<PortResult<PlanStateOutcome>> => {
       reads.refuse(null);
       return answered<PlanStateOutcome>('no-target');
