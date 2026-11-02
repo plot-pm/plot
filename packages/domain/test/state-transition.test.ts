@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   effectivePaths,
+  issueReceiptKey,
+  issueTransitionOf,
+  issuesOf,
+  receiptOf,
   lifecycleKindOf,
   normalizedPath,
   owningCommand,
@@ -521,5 +525,77 @@ describe('pickedClears', () => {
   it('does not clear a different before or after', () => {
     expect(pickedClears(transition, 'Design', 'Draft')).toBe(false);
     expect(pickedClears(transition, 'Draft', 'Approved')).toBe(false);
+  });
+});
+
+const planWith = (state: string, issue: string): string =>
+  `# P\n\n## Status\n\n- **State:** ${state}\n${issue === '' ? '' : `- **Issue:** ${issue}\n`}- **Type:** feature\n`;
+const PLAN = 'docs/plans/2026-01-01-x.md';
+
+describe('issuesOf', () => {
+  it('reads #N and PROJ-N keys from the Status section only', () => {
+    expect(issuesOf(planWith('Released', '#2757, #2697, PROJ-12, #2757'))).toEqual(['2757', '2697', 'PROJ-12']);
+    expect(issuesOf('# P\n\n- **Issue:** #1\n\n## Status\n\n- **State:** Draft\n')).toEqual([]);
+    expect(issuesOf(planWith('Draft', ''))).toEqual([]);
+  });
+});
+
+describe('issueTransitionOf', () => {
+  it('answers the issue a Released plan gains, keyed per issue (commit 0e8c71e28)', () => {
+    const transitions = issueTransitionOf(PLAN, 'plan', planWith('Released', '#2757'), planWith('Released', '#2757, #2697'));
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]).toMatchObject({ path: PLAN, field: 'Issue 2697', after: '2697' });
+    expect(receiptOf(transitions[0]!)).toEqual({ key: issueReceiptKey(PLAN, '2697'), value: '2697' });
+    expect(issueReceiptKey(PLAN, '2697')).toBe(`${PLAN}#Issue 2697`);
+  });
+
+  it('answers one transition per gained issue', () => {
+    const transitions = issueTransitionOf(PLAN, 'plan', planWith('Approved', '#1'), planWith('Approved', '#1, #2, #3'));
+    expect(transitions.map((t) => t.after)).toEqual(['2', '3']);
+  });
+
+  it('owes nothing on a Draft or Design plan', () => {
+    expect(issueTransitionOf(PLAN, 'plan', planWith('Draft', '#1'), planWith('Draft', '#1, #2'))).toEqual([]);
+    expect(issueTransitionOf(PLAN, 'plan', planWith('Design', ''), planWith('Design', '#2'))).toEqual([]);
+  });
+
+  it('owes nothing for a removed key, an unchanged line, a sprint, a creation or an unreadable copy', () => {
+    expect(issueTransitionOf(PLAN, 'plan', planWith('Released', '#1, #2'), planWith('Released', '#1'))).toEqual([]);
+    expect(issueTransitionOf(PLAN, 'plan', planWith('Released', '#1'), planWith('Released', '#1'))).toEqual([]);
+    expect(issueTransitionOf(PLAN, 'sprint', planWith('Active', '#1'), planWith('Active', '#1, #2'))).toEqual([]);
+    expect(issueTransitionOf(PLAN, 'plan', null, planWith('Released', '#1'))).toEqual([]);
+    expect(issueTransitionOf(PLAN, 'plan', planWith('Released', '#1'), null)).toEqual([]);
+  });
+
+  it('judges the state after the commit: a plan approved in the same commit owes the gained issue', () => {
+    expect(issueTransitionOf(PLAN, 'plan', planWith('Draft', '#1'), planWith('Approved', '#1, #2'))).toHaveLength(1);
+  });
+
+  it('passes a merge whose text equals another parent, and reads a rename source as HEAD', () => {
+    const working = planWith('Released', '#1, #2');
+    expect(issueTransitionOf(PLAN, 'plan', planWith('Released', '#1'), working, null, [working])).toEqual([]);
+    const renamed = issueTransitionOf('docs/plans/2026-02-02-x.md', 'plan', null, working, { path: PLAN, head: planWith('Released', '#1') });
+    expect(renamed).toHaveLength(1);
+    expect(renamed[0]?.renamedFrom).toBe(PLAN);
+  });
+
+  it('joins stateTransitionsOf and refuses by naming --only-issue', () => {
+    const readings = [
+      {
+        path: PLAN,
+        kind: 'plan' as const,
+        head: { text: planWith('Released', '#1'), link: false },
+        committed: { text: planWith('Released', '#1, #2'), link: false },
+      },
+    ];
+    const found = stateTransitionsOf(readings, 'docs/plans', 'docs/sprints');
+    expect(found.map((t) => t.field)).toEqual(['Issue 2']);
+    const refusal = stateTransitionRefusal(found) ?? '';
+    expect(refusal).toContain('plot-plan-state.sh');
+    expect(refusal).toContain('--only-issue 2');
+  });
+
+  it('reads a picked commit per issue', () => {
+    expect(pickedTransitionOf('Issue 2', planWith('Released', '#1'), planWith('Released', '#1, #2'))).toEqual({ before: '', after: '2' });
   });
 });
