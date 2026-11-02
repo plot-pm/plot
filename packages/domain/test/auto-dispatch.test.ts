@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { firstBrieflessBranch, skippedClaimedBranches, planAutoDispatch, startableBranches, liveAgentCount, liveAgentBranches, freeAgentCount, pruneInFlight, freeAgentLabels, mergedBranches, planSlug, dispatchCandidates, machineDefers, machineIsClear, skippedPlans, sharedInFlightBlocks, type AutoDispatchPlan, type AutoDispatchAgent, type AutoDispatchControls } from '../src/index.js';
 import { measureMachine, ceilingFor, HEADROOM_THRESHOLDS, type Machine as MachineEntity } from '../src/index.js';
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
+import { dispatchReading } from '../src/rules/auto-dispatch.js';
+import { sliceHold } from '../src/rules/verdict.js';
 type AgentEntry = AutoDispatchAgent & { checkout?: string; [k: string]: unknown };
 
 // Wave 3 of approval-hands-the-work-to-agents. The planner is the DECISION half
@@ -1734,5 +1736,57 @@ describe('a Design plan with an approved spike dispatches the spike alone', () =
     expect(planAutoDispatch({
       controls: controls(true, 5), pulse: p, liveCount: 0, inFlight: new Set(), missingBriefs: new Set(),
     })).toEqual([]);
+  });
+});
+
+describe('dispatchReading — what a pulse says about starting a plan', () => {
+  type S = 'open' | 'wip' | 'merged' | 'claimed' | 'deferred' | 'waiting' | 'blocked';
+  const held = (name: string, branches: Array<[string, S, string[]?, boolean?]>, verdict = 'eligible') => ({
+    name,
+    verdict,
+    branches: branches.map(([branch, state, waits_on, desk]) => ({
+      branch, state, waits_on: waits_on ?? [], held: desk ?? false, deferred: state === 'deferred', claimed: '', ref_held: false,
+    })),
+  });
+  const read = (phase: string, slices: Array<ReturnType<typeof held>>, slug = 'p') =>
+    FleetReadingSchema.parse({
+      main: 'main', head: 'abc1234',
+      plans: [{ file: `2026-11-02-${slug}.md`, phase, slices }],
+      summary: { plans: 1, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    });
+
+  it('answers no-reading for no pulse, an absent plan and a phase dispatch rejects', () => {
+    expect(dispatchReading(null, 'p')).toEqual({ kind: 'no-reading' });
+    expect(dispatchReading(read('approved', []), 'other')).toEqual({ kind: 'no-reading' });
+    expect(dispatchReading(read('delivered', [held('w', [['a', 'waiting', ['x']]])]), 'p')).toEqual({ kind: 'no-reading' });
+  });
+
+  it('answers held, with each branch and its prerequisites, when the only unsettled branch waits', () => {
+    const r = dispatchReading(read('approved', [held('w', [['m', 'merged'], ['a', 'waiting', ['x']], ['b', 'blocked', ['y', 'z']]])]), 'p');
+    expect(r).toEqual({ kind: 'held', held: [
+      { branch: 'a', state: 'waiting', waits_on: ['x'] },
+      { branch: 'b', state: 'blocked', waits_on: ['y', 'z'] },
+    ] });
+  });
+
+  it('answers branch for an open branch beside a waiting one', () => {
+    expect(dispatchReading(read('approved', [held('w', [['o', 'open'], ['a', 'waiting', ['x']]])]), 'p')).toEqual({ kind: 'branch', branch: 'o' });
+  });
+
+  it('reads the branch state and never the desk-lock flag', () => {
+    expect(dispatchReading(read('approved', [held('w', [['o', 'open', [], true]])]), 'p')).toEqual({ kind: 'branch', branch: 'o' });
+  });
+
+  it('answers no-branch where a claimed branch sits beside a waiting one, or nothing is unsettled, or no slice is eligible', () => {
+    expect(dispatchReading(read('approved', [held('w', [['c', 'claimed'], ['a', 'waiting', ['x']]])]), 'p')).toEqual({ kind: 'no-branch' });
+    expect(dispatchReading(read('approved', [held('w', [['m', 'merged']])]), 'p')).toEqual({ kind: 'no-branch' });
+    expect(dispatchReading(read('approved', [held('w', [['a', 'waiting', ['x']]], 'blocked')]), 'p')).toEqual({ kind: 'no-branch' });
+  });
+
+  it('agrees with sliceHold on one fixture', () => {
+    const slices = [held('w', [['m', 'merged'], ['a', 'waiting', ['x']]])];
+    const reading = dispatchReading(read('approved', slices), 'p');
+    const hold = sliceHold('eligible', slices[0]!.branches.map((b) => ({ branch: b.branch, state: b.state as never, startability: null })));
+    expect(reading.kind === 'held').toBe(hold !== null);
   });
 });

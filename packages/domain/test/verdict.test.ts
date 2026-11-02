@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { startabilityVerdict, waveVerdict } from '../src/rules/verdict.js';
+import { sliceHold, startabilityVerdict, waveVerdict, type HoldBranch } from '../src/rules/verdict.js';
 
 /**
  * The verdicts, as rules rather than as board functions.
@@ -64,5 +64,53 @@ describe('waveVerdict — the gate between an untyped pulse and a slice verdict'
     // the scan happened to print.
     expect(waveVerdict('probably-fine')).toBeNull();
     expect(waveVerdict('')).toBeNull();
+  });
+});
+
+describe('startabilityVerdict — a branch held by an open waits annotation', () => {
+  it('offers nothing for a waiting or blocked branch of an eligible approved slice', () => {
+    expect(startabilityVerdict('waiting', 'approved', 'eligible', 'unknown')).toBeNull();
+    expect(startabilityVerdict('blocked', 'approved', 'eligible', 'unknown')).toBeNull();
+  });
+
+  it('keeps the Draft plan answer ahead of the hold', () => {
+    expect(startabilityVerdict('waiting', 'draft', 'eligible', 'unknown')).toBe('waiting-on-approval');
+  });
+
+  it('keeps today\'s answer for an unknown branch', () => {
+    expect(startabilityVerdict('unknown', 'approved', 'eligible', 'unknown')).toBe('start-work');
+  });
+});
+
+describe('sliceHold — whether an eligible slice is held by an open prerequisite', () => {
+  const b = (branch: string, state: HoldBranch['state'], startability: HoldBranch['startability'] = null): HoldBranch => ({ branch, state, startability });
+
+  it('holds when the only unsettled branch waits', () => {
+    expect(sliceHold('eligible', [b('a', 'waiting')])).toEqual({ blocked: false, held: ['a'] });
+  });
+
+  it('settled branches beside a waiting one still hold', () => {
+    expect(sliceHold('eligible', [b('m', 'merged'), b('d', 'deferred'), b('a', 'waiting')])).toEqual({ blocked: false, held: ['a'] });
+  });
+
+  it('marks blocked when any held branch is blocked', () => {
+    expect(sliceHold('eligible', [b('a', 'waiting'), b('c', 'blocked')])).toEqual({ blocked: true, held: ['a', 'c'] });
+  });
+
+  it('does not hold when an open branch is startable beside the waiting one', () => {
+    expect(sliceHold('eligible', [b('o', 'open', 'start-work'), b('a', 'waiting')])).toBeNull();
+  });
+
+  it('does not hold when a claimed branch sits beside a waiting one', () => {
+    expect(sliceHold('eligible', [b('c', 'claimed', 'someone-is-on-it'), b('a', 'waiting')])).toBeNull();
+  });
+
+  it('does not hold when everything is merged or everything is deferred', () => {
+    expect(sliceHold('eligible', [b('m', 'merged')])).toBeNull();
+    expect(sliceHold('eligible', [b('d', 'deferred')])).toBeNull();
+  });
+
+  it('does not hold a slice whose verdict is not eligible', () => {
+    expect(sliceHold('blocked', [b('a', 'waiting')])).toBeNull();
   });
 });

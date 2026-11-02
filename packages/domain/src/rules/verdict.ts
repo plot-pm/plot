@@ -59,6 +59,10 @@ export const startabilityVerdict = (
   // A Draft plan is not yours to start — approve it or leave it.
   if (planPhase === 'draft') return 'waiting-on-approval';
 
+  // A branch held by an open `waits:` annotation has no pull request to start
+  // from, whatever its slice verdict and brief say.
+  if (state === 'waiting' || state === 'blocked') return null;
+
   // A branch an earlier wave blocks cannot be started whatever the brief says.
   if (verdict !== 'eligible') return null;
 
@@ -68,6 +72,44 @@ export const startabilityVerdict = (
   if (brief === 'missing') return 'needs-brief';
 
   return 'start-work';
+};
+
+/** What {@link sliceHold} reads of one branch. */
+export interface HoldBranch {
+  /** The branch name. */
+  branch: string;
+  /** The branch's state, as the scan reports it. */
+  state: BranchState;
+  /** {@link startabilityVerdict} for the branch, or `null`. */
+  startability: StartabilityVerdict | null;
+}
+
+/** A slice whose only unsettled branches wait on an open `waits:` annotation. */
+export interface SliceHold {
+  /** Whether any held branch is `blocked` (its prerequisite has no pull request). */
+  blocked: boolean;
+  /** The names of the held (`waiting` or `blocked`) branches. */
+  held: string[];
+}
+
+/**
+ * Whether an eligible slice is held: it has unsettled branches, at least one
+ * waits on an open prerequisite, and none of them is startable.
+ *
+ * Reads {@link startabilityVerdict} through each branch's `startability` and adds
+ * only the hold. A branch counts as unsettled unless it is `merged` or `deferred`.
+ *
+ * @param verdict - the slice's verdict, as the scan reports it.
+ * @param branches - each branch's state and startability.
+ * @returns the hold, or `null` where the slice is not held.
+ */
+export const sliceHold = (verdict: string, branches: readonly HoldBranch[]): SliceHold | null => {
+  if (verdict !== 'eligible') return null;
+  const unsettled = branches.filter((b) => b.state !== 'merged' && b.state !== 'deferred');
+  if (unsettled.some((b) => b.startability !== null)) return null;
+  const holding = branches.filter((b) => b.state === 'waiting' || b.state === 'blocked');
+  if (holding.length === 0) return null;
+  return { blocked: holding.some((b) => b.state === 'blocked'), held: holding.map((b) => b.branch) };
 };
 
 /**

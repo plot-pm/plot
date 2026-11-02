@@ -29,7 +29,8 @@ export {
   startImplement,
   type ImplementStartFailure,
 };
-import { briefBranchFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
+import { briefBranchOf, nothingStartableDetail, startReadingFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
+import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
 import { pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';
@@ -69,7 +70,9 @@ import { localCapability } from './controllers/caller.js';
 /** Why implementing a plan was refused — each sends the reader somewhere different. */
 export type ImplementRefusal =
   /** No `Implement command` is configured, so no agent can be started. */
-  | 'no-implement-command';
+  | 'no-implement-command'
+  /** The plan's only unsettled branches wait on an open prerequisite. */
+  | 'nothing-startable';
 
 export interface ImplementOptions extends BuildBoardOptions {
   /** The interface the server bound to (`HOST`), verbatim. */
@@ -166,8 +169,8 @@ export const implementStatus = (opts: BuildBoardOptions, slug: string): Implemen
 export interface ImplementDeps {
   /** The configured `Implement command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** The branch to brief for a plan; `briefBranchFromPulse` over the board's pulse where absent. */
-  briefBranch?: (opts: BuildBoardOptions, slug: string) => string | null;
+  /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
+  startReading?: (opts: BuildBoardOptions, slug: string) => DispatchReading;
 }
 
 /**
@@ -252,7 +255,12 @@ export async function handleImplement(
   // copy; the two drifted in the one way that mattered — only this one wrote
   // the state file the status route reads — so the child belongs to
   // `startImplement` and both callers get the same log, bound and recording.
-  const branch = (deps.briefBranch ?? ((o, s) => briefBranchFromPulse(pulseFor(o), s)))(opts, slug);
+  const reading = (deps.startReading ?? ((o, s) => startReadingFromPulse(pulseFor(o), s)))(opts, slug);
+  if (reading.kind === 'held') {
+    refuse(409, 'nothing-startable', slug, nothingStartableDetail(reading));
+    return;
+  }
+  const branch = briefBranchOf(reading);
   const started = startImplement(opts, slug, usable, undefined, readCfg, branch);
   if ('failure' in started) {
     json(
