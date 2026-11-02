@@ -99,7 +99,7 @@ Decided 2026-11-01 after panel round 1 (`.plot/panels/2026-11-01-the-board-start
 
 ### Held parse
 
-- `feature/the-board-parses-a-plan-once-per-blob` — the `PlanMeta` kind on `WalkCache` under the `cachedPlans` key rule; `readPlanMeta` in `board.ts` stages and parses only missed blobs; working-tree plans keyed by their in-process blob id; `Tracker` in the parse digest of the board and of `fleet-scan.ts:720`; `planMetasAtDefault` reads the same store and `planMetaCaches` goes; `ticketLaneData` runs once per request and `discoveryLanes` takes its answer; the ratchet list loses the `plot-plan-meta.sh` and second-lane lines. Tests: `packages/domain/test/plan-walk-cache.test.ts`, `packages/board/test/unit/fleet.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- waits: feature/the-board-reads-git-through-cached-refs --> <!-- builds: one plan parse per blob on the board -->
+- `feature/the-board-parses-a-plan-once-per-blob` — the `PlanMeta` kind on `WalkCache` under the `cachedPlans` key rule; `readPlanMeta` in `board.ts` stages and parses only missed blobs; working-tree plans keyed by their in-process blob id; `Tracker` in the parse digest of the board and of `fleet-scan.ts:720`; `planMetasAtDefault` reads the same store and `planMetaCaches` goes; `ticketLaneData` runs once per request and `discoveryLanes` takes its answer; the ratchet list loses the `plot-plan-meta.sh` and second-lane lines. Tests: `packages/domain/test/plan-walk-cache.test.ts`, `packages/board/test/unit/fleet.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- waits: feature/the-board-reads-git-through-cached-refs --> <!-- builds: one plan parse per blob on the board --> → #3045
 
 ## Done when
 
