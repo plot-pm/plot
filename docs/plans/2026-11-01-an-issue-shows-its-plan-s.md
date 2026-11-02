@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2997
@@ -19,6 +19,7 @@
 - **Started:** 2026-11-02, Jan Wloka, `bug/an-added-issue-owes-its-phase`
 - **Started:** 2026-11-02, Jan Wloka, `bug/settled-finding-tickets-close`
 - **Started:** 2026-11-02, Jan Wloka, `bug/a-slice-row-reads-its-head-s-checks`
+- **Delivered:** 2026-11-02
 
 ## Changelog
 
