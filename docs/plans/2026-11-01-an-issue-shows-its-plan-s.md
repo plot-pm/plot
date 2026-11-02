@@ -17,6 +17,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `bug/the-plan-comment-has-one-writer`
 - **Started:** 2026-11-01, Jan Wloka, `infra/released-issues-carry-their-label`
 - **Started:** 2026-11-02, Jan Wloka, `bug/an-added-issue-owes-its-phase`
+- **Started:** 2026-11-02, Jan Wloka, `bug/settled-finding-tickets-close`
 
 ## Changelog
 
