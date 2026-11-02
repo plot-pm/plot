@@ -119,6 +119,7 @@ export * from './rules/supervision-debt.js';
 export * from './rules/checks-reading.js';
 export * from './rules/default-branch.js';
 export * from './rules/fixer-attempts.js';
+export * from './rules/fixer-concurrency.js';
 export * from './rules/ticket.js';
 export * from './rules/fixer-start.js';
 export * from './rules/task.js';

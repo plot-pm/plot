@@ -558,6 +558,8 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **Above about 200k context, the master agent briefs a `general-purpose` subagent instead of forking.** A fork starts with the parent's whole context, so its cost follows the parent's size at spawn time rather than the size of its task; a briefed `general-purpose` agent starts fresh from what the brief states. Measured 2026-10-02 in the master session: 34 `fork` subagents started at a median 336k tokens, 84M weighted, 16% of all spend, against 65 `general-purpose` subagents at a median 100k. Mechanical subtasks — search, git, test runs, verification — take `model: sonnet`, applying `## Model Tiers` above to Agent calls rather than adding a new one; a judgement task (review, design, root cause) keeps the model the task needs. **This is a rule, not a gate**: the spawn decision happens inside a model turn, and no hook reads the parent's context size to compare against. A fork is not banned — below about 200k it is cheaper than writing a brief, and it can see what the parent saw. This binds the master agent specifically, as the rest of this section does; a dispatched worker's own subagents are not covered here.
 
+**Before a hand fix of a pull request, the master agent reads `inFlight` in `.plot/state/fixer-attempts/<pr>.json`.** A mark there means a fleetd fixer runs on that pull request now, bounded to 3600 s, and a second writer on the same head races it.
+
 ## Gates Over Rules
 
 **For important agent behaviors, always implement gates, not rules.** ([Reference](https://blog.fsck.com/2026/04/07/rules-and-gates/))
