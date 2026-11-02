@@ -825,3 +825,35 @@ test('state gate: a plain non-merge commit reads no other parents and keeps requ
   const r = run(dir);
   assert.equal(r.status, 2, `no MERGE_HEAD means no other-parent bypass is available (stderr: ${r.stderr})`);
 });
+
+// --- an issue gained on the Issue: line owes its own receipt ----------------
+const issuePlan = (state, issue) =>
+  `# P\n\n## Status\n\n- **State:** ${state}\n- **Issue:** ${issue}\n- **Type:** feature\n`;
+
+test('state gate: an issue added to a Released plan is refused and names --only-issue', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: issuePlan('Released', '#2757') },
+    files: { [SPIKE_PATH]: issuePlan('Released', '#2757, #2697') },
+  });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /plot-plan-state\.sh .*--only-issue 2697/);
+});
+
+test('state gate: the issue receipt clears the added key, once', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: issuePlan('Released', '#2757') },
+    files: { [SPIKE_PATH]: issuePlan('Released', '#2757, #2697') },
+  });
+  recordKeyedReceipt(dir, `${SPIKE_PATH}#Issue 2697`, '2697');
+  assert.equal(run(dir).status, 0, 'the owner must pass');
+  assert.equal(run(dir).status, 2, 'the receipt is spent');
+});
+
+test('state gate: an issue added to a Draft plan passes with no receipt', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: issuePlan('Draft', '#1') },
+    files: { [SPIKE_PATH]: issuePlan('Draft', '#1, #2') },
+  });
+  assert.equal(run(dir).status, 0);
+});

@@ -3,12 +3,12 @@
 // here reaches `plot-host.sh`.
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { trackerFixture } from '@plot-pm/domain/adapters/tracker/tracker-fixture';
-import type { PlanStateWrite } from '@plot-pm/domain/ports/tracker';
+import type { PlanStateWrite, Tracker } from '@plot-pm/domain/ports/tracker';
 import { EXIT, flagsFrom, issuesFrom, run, writePlanStates } from '../../src/server/entry/plan-state.js';
 
 const SCRIPT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../skills/plot/scripts');
@@ -221,5 +221,137 @@ describe('the connector a run resolves', () => {
     expect(r.code).toBe(EXIT.ok);
     expect(r.out).toMatch(/^7\tno-target\t.*\nsummary: tracker=no-target\n$/);
     expect(r.hostCalls.filter((call) => call.startsWith('issue-'))).toEqual([]);
+  });
+});
+
+describe('--only-issue', () => {
+  it('takes exactly one value', () => {
+    expect(flagsFrom(['--phase', 'released', '--plan-link', 'p', '--only-issue', '9']).onlyIssue).toBe('9');
+    expect(() => flagsFrom(['--phase', 'released', '--plan-link', 'p', '--only-issue', '9', '--only-issue', '8'])).toThrow('exactly one');
+  });
+
+  it('writes one issue at released and leaves the receipt the gate spends', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-')));
+    try {
+      const file = path.join(root, '2026-10-17-p.md');
+      writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Released\n- **Issue:** #11, #12\n');
+      const written: string[] = [];
+      const tracker = {
+        planStateWrite: async (w: { issue: string }) => {
+          written.push(w.issue);
+          return { ok: true, value: 'written' };
+        },
+        lastRefusal: () => null,
+      } as unknown as Tracker;
+      const out: string[] = [];
+      const code = await run(
+        [file, '--phase', 'released', '--plan-link', 'docs/plans/p.md', '--only-issue', '12'],
+        { repoRoot: root, scriptDir: SCRIPT_DIR },
+        (s) => out.push(s),
+        () => {},
+        async () => tracker,
+      );
+      expect(code).toBe(EXIT.ok);
+      expect(written).toEqual(['12']);
+      const dir = path.join(root, '.plot', 'state', 'state-receipts');
+      const files = readdirSync(dir);
+      expect(files).toHaveLength(1);
+      expect(readFileSync(path.join(dir, files[0]!), 'utf8')).toBe('2026-10-17-p.md#Issue 12\t12\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  const receiptsIn = (root: string): string[] => {
+    const dir = path.join(root, '.plot', 'state', 'state-receipts');
+    return existsSync(dir) ? readdirSync(dir).map((name) => readFileSync(path.join(dir, name), 'utf8')) : [];
+  };
+
+  const onlyIssueRun = async (
+    root: string,
+    file: string,
+    answer: { ok: true; value: 'written' } | { ok: false; why: 'no-target' | 'unaskable' | 'failed' },
+  ): Promise<{ code: number; out: string[]; asked: string[] }> => {
+    const asked: string[] = [];
+    const tracker = {
+      planStateWrite: async (w: { issue: string }) => {
+        asked.push(w.issue);
+        return answer;
+      },
+      lastRefusal: () => null,
+    } as unknown as Tracker;
+    const out: string[] = [];
+    const code = await run(
+      [file, '--phase', 'released', '--plan-link', 'docs/plans/p.md', '--only-issue', '12'],
+      { repoRoot: root, scriptDir: SCRIPT_DIR },
+      (s) => out.push(s),
+      () => {},
+      async () => tracker,
+    );
+    return { code, out, asked };
+  };
+
+  it.each([
+    ['written', { ok: true, value: 'written' }],
+    ['no-target', { ok: false, why: 'no-target' }],
+    ['unaskable', { ok: false, why: 'unaskable' }],
+  ] as const)('leaves the receipt on a %s outcome, which owes the tracker nothing more', async (outcome, answer) => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-')));
+    try {
+      const file = path.join(root, '2026-10-17-p.md');
+      writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Released\n- **Issue:** #11, #12\n');
+      const r = await onlyIssueRun(root, file, answer);
+      expect(r.code).toBe(EXIT.ok);
+      expect(r.out[0]).toMatch(new RegExp(`^12\t${outcome}\t`));
+      expect(receiptsIn(root)).toEqual(['2026-10-17-p.md#Issue 12\t12\n']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves no receipt on a failed write, which still owes the tracker', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-')));
+    try {
+      const file = path.join(root, '2026-10-17-p.md');
+      writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Released\n- **Issue:** #11, #12\n');
+      const r = await onlyIssueRun(root, file, { ok: false, why: 'failed' });
+      expect(r.code).toBe(EXIT.ok);
+      expect(r.out).toEqual(['12\tfailed\tthe write failed\n', 'summary: tracker=failed\n']);
+      expect(receiptsIn(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the receipt for a released issue another unfinished plan shares, reported skipped and never asked', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-')));
+    try {
+      const plans = path.join(root, 'docs', 'plans');
+      mkdirSync(plans, { recursive: true });
+      const file = path.join(plans, '2026-10-17-p.md');
+      writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Released\n- **Issue:** #11, #12\n');
+      writeFileSync(path.join(plans, '2026-10-18-q.md'), '# Q\n\n## Status\n\n- **Phase:** Approved\n- **Issue:** #12\n');
+      const r = await onlyIssueRun(root, file, { ok: true, value: 'written' });
+      expect(r.code).toBe(EXIT.ok);
+      expect(r.asked).toEqual([]);
+      expect(r.out).toEqual(['12\tskipped\tanother plan unfinished\n', 'summary: tracker=none\n']);
+      expect(receiptsIn(root)).toEqual(['docs/plans/2026-10-17-p.md#Issue 12\t12\n']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an issue the plan does not name', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-')));
+    try {
+      const file = path.join(root, '2026-10-17-p.md');
+      writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Released\n- **Issue:** #11\n');
+      const err: string[] = [];
+      const code = await run([file, '--phase', 'released', '--plan-link', 'x', '--only-issue', '99'], { repoRoot: root, scriptDir: SCRIPT_DIR }, () => {}, (s) => err.push(s));
+      expect(code).toBe(EXIT.usage);
+      expect(err[0]).toContain('does not name issue 99');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
