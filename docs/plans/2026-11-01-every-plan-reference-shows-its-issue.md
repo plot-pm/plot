@@ -136,7 +136,7 @@ Decided 2026-11-01 by the operator after panel round 1 (`.plot/panels/every-plan
 
 ### Ticket rows
 
-- `feature/a-ticket-row-names-its-plan` — the ticket row (`rows.tsx:2879-2917`) renders its plan slot through `PlanReference`. A domain rule answers the reference a ticket row makes: the ticket's resolved plan with its file and issue keys when it has one, and otherwise the inferred name with the ticket's own key and no file. The rule has its own domain unit tests; the row test asserts the label and href for a ticket with a Delivered plan, an Approved plan and no plan. Removes the `href: ''` text-only arm and its comment. Refs #3040. <!-- waits: feature/a-plan-reference-is-decided-once -->
+- `feature/a-ticket-row-names-its-plan` — the ticket row (`rows.tsx:2879-2917`) renders its plan slot through `PlanReference`. A domain rule answers the reference a ticket row makes: the ticket's resolved plan with its file and issue keys when it has one, and otherwise the inferred name with the ticket's own key and no file. The rule has its own domain unit tests; the row test asserts the label and href for a ticket with a Delivered plan, an Approved plan and no plan. Removes the `href: ''` text-only arm and its comment. Refs #3040. <!-- waits: feature/a-plan-reference-is-decided-once --> → #3046
 
 ### Fleet index
 
