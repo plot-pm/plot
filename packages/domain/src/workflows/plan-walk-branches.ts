@@ -225,11 +225,16 @@ export const readBranchReadings = async (
     // could not be asked at all is `unasked`, as `plot-fleet-scan.sh` read it.
     hostReach = reachOfRefusal('failed', input.prs.said ?? '');
   } else {
-    const list = await host.prList('all', PR_LIST_LIMIT, undefined, input.loose === true);
+    // Open first, then settled: a PR that merges between the two calls carries an OPEN row and a MERGED one, and the rank keeps OPEN.
+    // A failed open call decides alone; the settled call is not made.
+    const open = await host.prList('open', PR_LIST_LIMIT, undefined, input.loose === true);
+    const settled = open.ok && host.lastRefusal() === null ? await host.prList('settled', PR_LIST_LIMIT) : open;
+    // A partial answer (exit 7) is `ok` with its refusal recorded; the listing is a whole answer or none, so a refusal discards the rows.
+    const list = open.ok && settled.ok && host.lastRefusal() === null ? { ok: true as const, value: [...open.value, ...(settled === open ? [] : settled.value)], whole: open.value.length < PR_LIST_LIMIT && settled.value.length < PR_LIST_LIMIT } : { ok: false as const };
     const prByBranch = new Map<string, Pr>();
     if (list.ok) {
       listed = true;
-      prListComplete = list.value.length > 0 && list.value.length < PR_LIST_LIMIT;
+      prListComplete = list.value.length > 0 && list.whole;
       for (const pr of list.value) {
         const held = prByBranch.get(pr.head);
         if (held === undefined || rank(pr) < rank(held)) prByBranch.set(pr.head, pr);

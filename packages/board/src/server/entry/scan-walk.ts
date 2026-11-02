@@ -43,7 +43,7 @@ import type { DeskReading } from '@plot-pm/domain/workflows/plan-walk-desks';
  *   <prefixes, "|"-separated> <offline 0|1> <readRef> <localHead> <fetchFailed 0|1> <fetchError>
  * ```
  *
- * `flags` is the scan's `slice_names why_nothing list_all next_only as_json log_pulse loose stream loose_verifiable` bits in that order. The first six select `slice-names`, `why-nothing`, `list-eligible`, `next`, `json` or `log-pulse`; `stream` selects `stream`. `log-pulse` appends one pulse line to each plan under `planDir`, writes the bridge under `<root>/.plot/state/` unless the fleet holds it, and prints the wave report, the delta, `Pulse complete.` and the `summary:` line. `stream` prints one `{"kind":"plan"}` line as each plan resolves, writes the bridge unless `PLOT_SCAN_RECORD=0`, then prints the `{"kind":"reading"}` line; a failed walk prints no `reading` line. `loose` is an input to the branch and assembly stages in every mode, and `loose_verifiable` says a host could be asked.
+ * `flags` is the scan's `slice_names why_nothing list_all next_only as_json log_pulse loose stream` bits in that order. The first six select `slice-names`, `why-nothing`, `list-eligible`, `next`, `json` or `log-pulse`; `stream` selects `stream`. `log-pulse` appends one pulse line to each plan under `planDir`, writes the bridge under `<root>/.plot/state/` unless the fleet holds it, and prints the wave report, the delta, `Pulse complete.` and the `summary:` line. `stream` prints one `{"kind":"plan"}` line as each plan resolves, writes the bridge unless `PLOT_SCAN_RECORD=0`, then prints the `{"kind":"reading"}` line; a failed walk prints no `reading` line. `loose` is an input to the branch and assembly stages in every mode; it is verified when a host is configured and the scan is not offline, and reads as strict otherwise.
  * The offer modes (`next`, `list-eligible`, `why-nothing`) read no desks;
  * `slice-names` reads the estate alone. With `offline` set and the mode not an
  * offer, the host answers `unaskable` for every question that costs a request.
@@ -163,11 +163,13 @@ const runStream = async (
 };
 
 const main = async (): Promise<number> => {
-  const [flags = '000000000', slug = '', mainBranch = 'main', planDir = '', activeDir = '', deliveredDir = '', prefixList = '', offline = '0', readRef = 'unknown', localHead = 'unknown', fetchFailed = '0', fetchError = ''] =
+  const [flags = '00000000', slug = '', mainBranch = 'main', planDir = '', activeDir = '', deliveredDir = '', prefixList = '', offline = '0', readRefArg = '', localHeadArg = '', fetchFailed = '0', fetchError = ''] =
     process.argv.slice(2);
-  const [sliceNames, whyNothing, listAll, nextOnly, , logPulse, looseFlag, streamFlag, looseVerifiable] = flags;
+  // The launcher passes an empty word where a ref does not resolve.
+  const readRef = readRefArg || 'unknown';
+  const localHead = localHeadArg || 'unknown';
+  const [sliceNames, whyNothing, listAll, nextOnly, , logPulse, looseFlag, streamFlag] = flags;
   const loose = looseFlag === '1';
-  const looseInput = loose ? { verifiable: looseVerifiable === '1' } : undefined;
   const [, , , , asJson] = flags;
   // A call with no slug and no mode flag prints the wave report, as the scan did before the walk moved here.
   const mode =
@@ -189,7 +191,25 @@ const main = async (): Promise<number> => {
   }
 
   const realHost = hostShell(context);
-  const host = offline === '1' && !offer ? unaskedHost(realHost) : realHost;
+  // `--loose` is verified against a host and reads as strict where none is configured or the scan asked none.
+  const backend = loose && offline !== '1' ? await realHost.backend() : null;
+  const looseVerifiable = backend !== null && backend.ok && backend.value !== '' && backend.value !== 'none' ? '1' : '0';
+  const looseInput = loose ? { verifiable: looseVerifiable === '1' } : undefined;
+  const asked = offline === '1' && !offer ? unaskedHost(realHost) : realHost;
+  // fleetd reads the scan's host spend from one `spend:` line on stderr: every listing and state call the walk made.
+  let spent = 0;
+  const host: Host = {
+    ...asked,
+    prList: (...args) => {
+      spent += 1;
+      return asked.prList(...args);
+    },
+    prState: (...args) => {
+      spent += 1;
+      return asked.prState(...args);
+    },
+  };
+  if (mode === 'stream') process.on('exit', () => spent > 0 && process.stderr.write(`spend: ${spent}\n`));
   // A carried listing is a full answer or it is not used: a value with no `.list-arrived` line is refused and the host is asked.
   const carried = readCarriedPrStates(process.env.PLOT_PR_LISTING ?? '');
   const stageInput = {
