@@ -66,6 +66,15 @@ const oidCache = <V>(): OidCache<V> => {
   };
 };
 
+/**
+ * A parsed plan as the board's parser reports it. The cache needs only the path
+ * the parser was given; the rest of the record is the caller's shape.
+ */
+export interface HeldPlanMeta {
+  /** The path the parser was given. */
+  readonly file: string;
+}
+
 /** What the cache answered and how often the refs moved, for the hour's measurement. */
 export interface WalkCacheStats {
   /** Beats whose snapshot was taken. */
@@ -92,6 +101,8 @@ export interface WalkCache {
   blobs: OidCache<string>;
   /** Parsed plans, keyed by (blob oid, path, prefixes, parser hash, config digest). */
   parses: OidCache<PlanRecord>;
+  /** Board plan metadata, keyed by (blob id, file name, parser hash, Tracker value). */
+  planMetas: OidCache<HeldPlanMeta>;
   /** Settled ancestry, keyed by (ancestor oid, descendant oid). */
   contains: OidCache<'yes' | 'no'>;
   /** Merge-commit subjects, keyed by (default-branch oid, cap). */
@@ -134,6 +145,7 @@ export const freshWalkCache = (): WalkCache => {
     trees: oidCache<readonly TreeBlob[]>(),
     blobs: oidCache<string>(),
     parses: oidCache<PlanRecord>(),
+    planMetas: oidCache<HeldPlanMeta>(),
     contains: oidCache<'yes' | 'no'>(),
     merges: oidCache<readonly MergeCommit[]>(),
     additions: oidCache<ReadonlyMap<string, string>>(),
@@ -428,3 +440,58 @@ export const cachedPlans = (inner: PlanStore, cache: WalkCache, parseKey: string
     return answered<readonly PlanRecord[]>(records);
   },
 });
+
+/** One plan file handed to {@link cachedPlanMetas}. */
+export interface PlanMetaFile {
+  /** The path the parser reads. */
+  path: string;
+  /** The git blob id of the file's bytes. */
+  blobId: string;
+  /** The file's base name; the parser derives fields from it. */
+  name: string;
+}
+
+/**
+ * Parses plan files once per content.
+ *
+ * A file whose (blob id, name, `parseKey`) is held is answered from the cache
+ * with `file` set to its current path; the others go to `parse` in one call and
+ * are stored. The result follows the order of `files`. A file the parser
+ * reports no record for is absent from the result and stored nothing. A parse
+ * that returns `null` makes the whole call return `null` and stores nothing.
+ *
+ * @typeParam M - the record the parser returns.
+ * @param cache - the process's cache.
+ * @param files - the plan files to read.
+ * @param parseKey - the parser-file hash joined to every config value the parser output depends on, such as `Tracker`.
+ * @param parse - parses the given paths in one call; reports each record's `file` as the path it was given.
+ * @returns one record per parsed file, or `null` where the parser failed.
+ */
+export const cachedPlanMetas = async <M extends HeldPlanMeta>(
+  cache: WalkCache,
+  files: readonly PlanMetaFile[],
+  parseKey: string,
+  parse: (paths: string[]) => Promise<readonly M[] | null>,
+): Promise<M[] | null> => {
+  const keyOf = (f: PlanMetaFile): string => [f.blobId, f.name, parseKey].join('\0');
+  const held = files.map((f) => cache.planMetas.get(keyOf(f)) as M | undefined);
+  const askedAt = files.flatMap((_, at) => (held[at] === undefined ? [at] : []));
+  cache.stats.hits += files.length - askedAt.length;
+  const fresh = new Map<string, M>();
+  if (askedAt.length > 0) {
+    cache.stats.misses += 1;
+    const parsed = await parse(askedAt.map((at) => files[at]!.path));
+    if (parsed === null) return null;
+    for (const meta of parsed) fresh.set(meta.file, meta);
+    for (const at of askedAt) {
+      const meta = fresh.get(files[at]!.path);
+      if (meta !== undefined) cache.planMetas.set(keyOf(files[at]!), meta);
+    }
+  }
+  const out: M[] = [];
+  files.forEach((f, at) => {
+    const meta = held[at] !== undefined ? { ...held[at]!, file: f.path } : fresh.get(f.path);
+    if (meta !== undefined) out.push(meta);
+  });
+  return out;
+};
