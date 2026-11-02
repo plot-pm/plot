@@ -1561,11 +1561,12 @@ export async function refreshRuns(
  * was never re-measured against this repo's current plan count. `ls-tree` +
  * `cat-file --batch` cost 63 ms for 623 blobs (7.5 MB); parsing the staged
  * blobs costs ~780 ms, slower than the stale figure, which is why a repeat read
- * at the same content MUST be a cache hit rather than a re-parse. The key is
- * the resolved `origin/<default>` oid plus the tip oid of every draft branch
- * read, computed with one `resolve` and one `branchTips` call — never a ref
- * name, which would hide a fast-forward, and never a TTL, which would serve a
- * stale answer inside its own window.
+ * at the same content MUST be a cache hit rather than a re-parse. Each plan is
+ * held per blob: the key is the blob oid, the file's basename, a hash of
+ * `plot-plan-meta.sh` and the `Tracker` config value (`parsePlanMetaFiles`).
+ * An edit to one plan re-parses that plan only. Never a ref name, which would
+ * hide a fast-forward, and never a TTL, which would serve a stale answer inside
+ * its own window.
  *
  * NO REMOTE, NO FETCH YET: falls back to the working tree's plan directory —
  * `plan-walk-estate.ts:71-73`'s existing rule for the same situation, reused
