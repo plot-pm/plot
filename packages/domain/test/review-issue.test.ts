@@ -64,6 +64,8 @@ describe('reviewTicketSettled', () => {
     expect(reviewTicketSettled(ticket(), verdict([...six.slice(0, 5), 'maybe']))).toBe('unjudged');
     expect(reviewTicketSettled(ticket(), verdict(six).replace('Default: abc1234\n', ''))).toBe('unjudged');
     expect(reviewTicketSettled({ body: 'no count' }, verdict(six))).toBe('unjudged');
+    expect(reviewTicketSettled({ body: null }, verdict(six))).toBe('unjudged');
+    expect(reviewTicketSettled(ticket(), `Default: a\n${verdict(six)}`)).toBe('unjudged');
   });
 
   it('takes no merge state: the function has two parameters, a body and a verdict text', () => {

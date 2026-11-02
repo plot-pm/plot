@@ -58,7 +58,6 @@ export type TicketSettlement = 'settled' | 'open' | 'unjudged';
 export const TICKET_TRIAGE_MARKER = '<!-- plot:ticket-triage -->';
 
 const FINDING_STATES: readonly FindingState[] = ['fixed', 'not-reproduced', 'wont-fix', 'still-true'];
-const FINDINGS_IN_BODY = /^Findings: HIGH \d+, MEDIUM \d+, LOW \d+\s*$/m;
 
 /** One recorded verdict, read: the default-branch commit and one state per finding. */
 export interface TicketVerdict {
@@ -120,11 +119,9 @@ export const reviewTicketSettled = (ticket: Pick<Issue, 'body'>, verdictText: st
   return verdict.findings.some((f) => f.state === 'still-true') ? 'open' : 'settled';
 };
 
-/** The ticket's finding total, or null where its body states no `Findings:` line. */
+/** The ticket's finding total, or null where its body states no `Findings:` line or an out-of-range count. */
 const ticketTotal = (body: string | null): number | null => {
-  const line = FINDINGS_IN_BODY.exec(body ?? '')?.[0];
-  if (line === undefined) return null;
-  const parsed = reviewVerdict(line);
+  const parsed = reviewVerdict(body ?? '');
   return parsed.read === 'counted' ? parsed.counts.high + parsed.counts.medium + parsed.counts.low : null;
 };
 
