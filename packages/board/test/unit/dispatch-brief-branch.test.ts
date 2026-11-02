@@ -5,21 +5,22 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { FleetReading } from '@plot-pm/domain';
+import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
 import { rmTree } from '../helpers.mjs';
 
 // The dispatch route's DEFAULT brief-branch resolver: the fleet's
-// `briefBranchFromPulse` over the board's pulse, with `deps.briefBranch` unset.
+// `startReadingFromPulse` over the board's pulse, with `deps.briefBranch` unset.
 // The implement run is a command that writes `PLOT_BRIEF_BRANCH` to a file and
 // exits 1, so no `plot-dispatch.sh` starts and the file is the branch the run
 // received.
 
 const pulse = { main: 'main', plans: [] } as unknown as FleetReading;
-const briefBranchFromPulse = vi.fn((_pulse: FleetReading | null, _slug: string): string | null => 'feature/the-chosen-slice');
+const startReadingFromPulse = vi.fn((_pulse: FleetReading | null, _slug: string): DispatchReading => ({ kind: 'branch', branch: 'feature/the-chosen-slice' }));
 
 vi.mock('../../src/server/fleet.js', () => ({ pulseFor: () => pulse }));
 vi.mock('@plot-pm/fleet/shared/dispatch-command', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@plot-pm/fleet/shared/dispatch-command')>()),
-  briefBranchFromPulse: (p: FleetReading | null, s: string) => briefBranchFromPulse(p, s),
+  startReadingFromPulse: (p: FleetReading | null, s: string) => startReadingFromPulse(p, s),
 }));
 
 const SLUG = 'a-dispatch-briefs-the-pulses-branch';
@@ -41,7 +42,7 @@ const until = async (read: () => string | null): Promise<string> => {
 };
 
 describe('handleDispatch without an injected resolver', () => {
-  it('hands the run the branch briefBranchFromPulse names for the board\'s pulse and the slug', async () => {
+  it('hands the run the branch startReadingFromPulse names for the board\'s pulse and the slug', async () => {
     const { handleDispatch } = await import('../../src/server/dispatch.js');
     const { IMPLEMENT_COMMAND_KEY } = await import('@plot-pm/fleet/shared/implement-run');
     const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-dispatch-brief-'));
@@ -63,7 +64,7 @@ describe('handleDispatch without an injected resolver', () => {
         key === IMPLEMENT_COMMAND_KEY ? `printf %s "$PLOT_BRIEF_BRANCH" > '${received}'; false` : fallback,
     });
     expect(status).toBe(202);
-    expect(briefBranchFromPulse).toHaveBeenCalledWith(pulse, SLUG);
+    expect(startReadingFromPulse).toHaveBeenCalledWith(pulse, SLUG);
     const branch = await until(() => (fs.existsSync(received) ? fs.readFileSync(received, 'utf8') : null));
     expect(branch).toBe('feature/the-chosen-slice');
   });

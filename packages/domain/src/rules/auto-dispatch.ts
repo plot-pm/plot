@@ -12,6 +12,7 @@ import {
   type Machine as MachineEntity,
 } from '../entities/machine.js';
 import { ceilingFor } from './fleet-size.js';
+import { sliceHold, startabilityVerdict } from './verdict.js';
 
 /**
  * The planners behind auto-dispatch: which plans to fan out on a pulse, and how
@@ -606,6 +607,64 @@ export const startableBranches = (
     }
   }
   return out;
+};
+
+/** One branch a dispatch is held on. */
+export interface HeldBranch {
+  branch: string;
+  state: 'waiting' | 'blocked';
+  waits_on: string[];
+}
+
+/** What a pulse says about starting a plan: see {@link dispatchReading}. */
+export type DispatchReading =
+  | { kind: 'no-reading' }
+  | { kind: 'branch'; branch: string }
+  | { kind: 'held'; held: HeldBranch[] }
+  | { kind: 'no-branch' };
+
+/**
+ * What a pulse says about starting `slug`.
+ *
+ * `no-reading` is no pulse, a plan the pulse omits, or a phase dispatch rejects.
+ * `branch` carries the first startable branch. `held` means no branch is
+ * startable, at least one slice is `eligible`, and every eligible slice is held
+ * by {@link sliceHold}; it carries each held branch. Anything else is
+ * `no-branch`. Only `held` is positive evidence that a start cannot succeed.
+ * A branch's `held` flag (a local worktree lock) is not read.
+ *
+ * @param pulse - a fleet reading, or `null` where there is none.
+ * @param slug - the plan slug.
+ * @returns the reading.
+ */
+export const dispatchReading = (pulse: FleetReading | null, slug: string): DispatchReading => {
+  if (pulse === null) return { kind: 'no-reading' };
+  const plan = pulse.plans.find((p) => dispatchPhase(p.phase) && planSlug(p.file) === slug);
+  if (plan === undefined) return { kind: 'no-reading' };
+  const first = startableBranches(pulse, slug, new Set())[0];
+  if (first !== undefined) return { kind: 'branch', branch: first };
+  const held: HeldBranch[] = [];
+  let eligible = 0;
+  for (const slice of plan.slices) {
+    if (slice.verdict !== 'eligible') continue;
+    eligible += 1;
+    const hold = sliceHold(
+      slice.verdict,
+      slice.branches.map((b) => ({
+        branch: b.branch,
+        state: b.state,
+        startability: startabilityVerdict(b.state, plan.phase, slice.verdict, 'unknown'),
+      })),
+    );
+    if (hold === null) return { kind: 'no-branch' };
+    for (const name of hold.held) {
+      const b = slice.branches.find((x) => x.branch === name);
+      if (b !== undefined && (b.state === 'waiting' || b.state === 'blocked')) {
+        held.push({ branch: b.branch, state: b.state, waits_on: b.waits_on });
+      }
+    }
+  }
+  return eligible > 0 ? { kind: 'held', held } : { kind: 'no-branch' };
 };
 
 /**

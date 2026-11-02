@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { startableBranches } from '@plot-pm/domain/rules/auto-dispatch';
+import { dispatchReading, type DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
 import type { FleetReading } from '@plot-pm/domain';
 import { DISPATCH_SCRIPT, dispatchLogPath, scriptsOf, type ActOptions } from './action-log.js';
 import { recordActionReceipt } from './action-receipt.js';
@@ -60,20 +60,49 @@ export interface DispatchInput {
   slug: string;
   /** Reads `## Plot Config` keys; {@link readConfig} where absent. */
   readCfg?: BoardConfigReader;
-  /** The branch the implement run briefs, or `null` for none. */
-  briefBranch: (slug: string) => string | null;
+  /** What the pulse says about starting the plan; see {@link dispatchReading}. */
+  startReading: (slug: string) => DispatchReading;
 }
 
 /**
- * The first branch of the first eligible slice that is startable and unclaimed,
- * by the rule auto-dispatch counts with.
+ * What the pulse says about starting `slug`.
  *
  * @param pulse - a fleet reading, or `null` where there is none.
  * @param slug - the plan slug.
- * @returns the branch, or `null` where there is no reading or no eligible branch.
+ * @returns the reading; see {@link dispatchReading}.
  */
-export const briefBranchFromPulse = (pulse: FleetReading | null, slug: string): string | null =>
-  pulse === null ? null : (startableBranches(pulse, slug, new Set())[0] ?? null);
+export const startReadingFromPulse = (pulse: FleetReading | null, slug: string): DispatchReading =>
+  dispatchReading(pulse, slug);
+
+/**
+ * The branch an implement run briefs for a reading, or `null` for a branchless run.
+ *
+ * @param reading - the reading.
+ * @returns the branch of a `branch` reading, else `null`.
+ */
+export const briefBranchOf = (reading: DispatchReading): string | null =>
+  reading.kind === 'branch' ? reading.branch : null;
+
+/**
+ * The refusal detail for a `held` reading: each held branch and what it waits on.
+ *
+ * @param reading - a `held` reading.
+ * @returns one sentence per held branch, joined by `; `.
+ */
+export const nothingStartableDetail = (reading: Extract<DispatchReading, { kind: 'held' }>): string => {
+  const parts = reading.held.map((h) => {
+    const names = h.waits_on;
+    const prerequisite =
+      names.length === 0
+        ? 'an unnamed prerequisite'
+        : names.length === 1
+          ? (names[0] as string)
+          : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+    const missing = names.length > 1 ? 'one of which has no pull request' : 'which has no pull request';
+    return `${h.branch} ${h.state === 'blocked' ? `waits for ${prerequisite}, ${missing}` : `waits for ${prerequisite}`}`;
+  });
+  return `nothing to start: ${parts.join('; ')}`;
+};
 
 /**
  * Starts a dispatch: refuses, or runs `/plot-implement` and, only when it exits
@@ -97,6 +126,10 @@ export const startDispatch = (input: DispatchInput): DispatchStart => {
       reason: 'no-implement-command',
       detail: `no \`${IMPLEMENT_COMMAND_KEY}\` in Plot Config — starting work requires a brief, and the brief requires the /plot-implement SKILL; add the key or run /plot-implement yourself first`,
     };
+  }
+  const reading = input.startReading(slug);
+  if (reading.kind === 'held') {
+    return { kind: 'refused', status: 409, reason: 'nothing-startable', detail: nothingStartableDetail(reading) };
   }
   const implementLog = implementLogPath(opts.repoRoot, slug);
   const holding = heldImplementLock(opts.repoRoot, slug);
@@ -143,7 +176,7 @@ export const startDispatch = (input: DispatchInput): DispatchStart => {
       }
     },
     readCfg,
-    input.briefBranch(slug),
+    briefBranchOf(reading),
   );
   if ('failure' in started) {
     return started.failure.running

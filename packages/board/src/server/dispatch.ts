@@ -5,7 +5,8 @@ import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
 import { pulseFor } from './fleet.js';
 import { localCapability } from './controllers/caller.js';
-import { briefBranchFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import { startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
 
 /**
  * The board's ONE state-changing route.
@@ -226,8 +227,8 @@ export function dispatchLogExists(repoRoot: string, slug: string): boolean {
 export interface DispatchDeps {
   /** Read a Plot Config key, or return the fallback. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** The branch to brief for a plan; `briefBranchFromPulse` over the board's pulse where absent. */
-  briefBranch?: (opts: BuildBoardOptions, slug: string) => string | null;
+  /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
+  startReading?: (opts: BuildBoardOptions, slug: string) => DispatchReading;
 }
 
 /**
@@ -349,7 +350,7 @@ export async function handleDispatch(
     opts: { ...opts, scripts: scriptsFor(opts) },
     slug,
     readCfg,
-    briefBranch: (s) => (deps.briefBranch ?? ((o, planSlug) => briefBranchFromPulse(pulseFor(o), planSlug)))(opts, s),
+    startReading: (s) => (deps.startReading ?? ((o, planSlug) => startReadingFromPulse(pulseFor(o), planSlug)))(opts, s),
   });
   if (started.kind === 'refused') {
     const { status, kind: _kind, ...refusal } = started;

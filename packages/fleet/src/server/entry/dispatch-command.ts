@@ -11,7 +11,7 @@ import { implementLogPath, implementStatePath } from '../../shared/implement-run
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import {
   SLUG_RE,
-  briefBranchFromPulse,
+  startReadingFromPulse,
   startDispatch,
 } from '../../shared/dispatch-command.js';
 
@@ -112,7 +112,7 @@ export const run = async (
     opts: { repoRoot, scriptsDir: scriptDir, scripts: deps.scripts },
     slug,
     readCfg: deps.readCfg,
-    briefBranch: (s) => briefBranchFromPulse(readPulse(repoRoot), s),
+    startReading: (s) => startReadingFromPulse(readPulse(repoRoot), s),
   });
   if (started.kind === 'refused') {
     warn(`plot-dispatch-command: ${started.reason}: ${started.detail}\n`);

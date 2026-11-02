@@ -19,6 +19,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import type { DispatchReading } from '@plot-pm/domain/rules/auto-dispatch';
 import {
   composeImplementPrompt,
   handleImplement,
@@ -96,6 +97,7 @@ async function post(
     command?: string;
     /** The branch the controller resolves; none by default, so no scan is read. */
     branch?: string | null;
+    reading?: DispatchReading;
     host?: string;
     headers?: http.IncomingHttpHeaders;
   },
@@ -104,7 +106,7 @@ async function post(
   const deps: ImplementDeps = {
     config: (_o, key, fallback) =>
       key === IMPLEMENT_COMMAND_KEY ? (opts.command ?? 'true') : fallback,
-    briefBranch: () => opts.branch ?? null,
+    startReading: () => (opts.reading ?? (opts.branch ? { kind: 'branch', branch: opts.branch } : { kind: 'no-reading' })),
   };
   await handleImplement(
     request(opts.body ?? { slug: SLUG }, opts.headers),
@@ -148,6 +150,17 @@ describe('the action prepares an approved plan, and says so', () => {
     // `--brief-only` while the board still sends the old prompt, which
     // re-creates the defect on every dispatch.
     assert.match(composeImplementPrompt(SLUG), /--brief-only/);
+  });
+});
+
+describe('a plan with nothing startable is refused', () => {
+  it('answers 409 nothing-startable and writes no log', async () => {
+    const dir = repo();
+    const got = await post({ repoRoot: dir, reading: { kind: 'held', held: [{ branch: 'feature/a', state: 'waiting', waits_on: ['feature/x'] }] } });
+    assert.equal(got.status, 409);
+    assert.equal(got.body.reason, 'nothing-startable');
+    assert.match(String(got.body.detail), /feature\/a waits for feature\/x/);
+    assert.equal(fs.existsSync(implementLogPath(dir, SLUG)), false);
   });
 });
 

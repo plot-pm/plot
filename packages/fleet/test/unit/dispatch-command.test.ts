@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { Scripts } from '@plot-pm/domain';
 import { run, runDetached } from '../../src/server/entry/dispatch-command.js';
 import { actionReceiptPath } from '../../src/shared/action-receipt.js';
-import { startDispatch } from '../../src/shared/dispatch-command.js';
+import { nothingStartableDetail, startDispatch } from '../../src/shared/dispatch-command.js';
 import { markBoardRun, writeState } from '../../src/shared/board-run.js';
 import { IMPLEMENT_COMMAND_KEY, implementLogPath, implementStatePath } from '../../src/shared/implement-run.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
@@ -224,10 +224,35 @@ describe('startDispatch', () => {
   it('refuses a second dispatch of a slug whose implement still runs', async () => {
     const { scripts } = recordingScripts();
     const opts = { repoRoot: repo, scriptsDir: SCRIPT_DIR, scripts };
-    const first = startDispatch({ opts, slug: SLUG, readCfg: configured('sleep 1'), briefBranch: () => null });
+    const first = startDispatch({ opts, slug: SLUG, readCfg: configured('sleep 1'), startReading: () => ({ kind: 'no-reading' }) });
     expect(first.kind).toBe('started');
-    const second = startDispatch({ opts, slug: SLUG, readCfg: configured('sleep 1'), briefBranch: () => null });
+    const second = startDispatch({ opts, slug: SLUG, readCfg: configured('sleep 1'), startReading: () => ({ kind: 'no-reading' }) });
     expect(second).toMatchObject({ kind: 'refused', status: 409, reason: 'implement-running' });
     if (first.kind === 'started') await first.ended;
+  });
+
+  it('refuses a held reading before any spawn, script start or receipt', () => {
+    const { scripts, starts } = recordingScripts();
+    const opts = { repoRoot: repo, scriptsDir: SCRIPT_DIR, scripts };
+    const reading = { kind: 'held', held: [{ branch: 'feature/a', state: 'waiting', waits_on: ['feature/x'] }] } as const;
+    const out = startDispatch({ opts, slug: SLUG, readCfg: configured('touch spawned'), startReading: () => reading });
+    expect(out).toMatchObject({ kind: 'refused', status: 409, reason: 'nothing-startable' });
+    expect(out).toMatchObject({ detail: expect.stringContaining('feature/a waits for feature/x') });
+    expect(starts).toHaveLength(0);
+    expect(fs.existsSync(implementLogPath(repo, SLUG))).toBe(false);
+    expect(fs.existsSync(actionReceiptPath(repo, 'dispatch'))).toBe(false);
+  });
+
+  it('still starts on no-reading and no-branch', async () => {
+    for (const kind of ['no-reading', 'no-branch'] as const) {
+      const { scripts } = recordingScripts();
+      const out = startDispatch({ opts: { repoRoot: repo, scriptsDir: SCRIPT_DIR, scripts }, slug: SLUG, readCfg: configured('true'), startReading: () => ({ kind }) });
+      expect(out.kind).toBe('started');
+      if (out.kind === 'started') await out.ended;
+    }
+  });
+
+  it('words a blocked branch with the missing-pull-request clause', () => {
+    expect(nothingStartableDetail({ kind: 'held', held: [{ branch: 'b', state: 'blocked', waits_on: ['y'] }] })).toContain('b waits for y, which has no pull request');
   });
 });
