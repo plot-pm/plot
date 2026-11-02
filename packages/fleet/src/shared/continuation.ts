@@ -845,8 +845,10 @@ export const REPORTER_FIFO_FILENAME = '.plot-worker.reporter.fifo';
  *
  * When `mkfifo` or the open fails, the agent still starts once and the reporter
  * polls `kill -0` on the agent's pid every second, then reports the same way.
- * The reporter ignores `SIGTERM` so a group stop does not end it before it
- * reports. The reporting text matches `start_worker`'s tail in
+ * The reporter starts with `SIGTERM` already ignored, so a group stop does not
+ * end it before it reports. The outer shell sets the ignore after `agent=$!`
+ * and before it forks the reporter; an ignore set earlier would reach `cmd`.
+ * The reporting text matches `start_worker`'s tail in
  * `plot-worker-loop.sh`.
  *
  * @param cmd The `Worker command` shell fragment, run as `( cmd )`.
@@ -873,7 +875,7 @@ export const reporterShell = (cmd: string): string => {
     'poll() { while kill -0 "$agent" 2>/dev/null; do sleep 1; done; }; ' +
     `( trap 'printf "%s" 143 > "$PLOT_EXIT_FILE"; exit 143' TERM; ( ${cmd} ) 3>&-; rc=$?; ` +
     '[ -f "$PLOT_EXIT_FILE" ] || printf "%s" "$rc" > "$PLOT_EXIT_FILE" ) & ' +
-    'agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; ' +
+    'agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; trap \'\' TERM; ' +
     '( trap \'\' TERM; ' +
     'if [ -n "$fifo" ]; then { exec 3>&-; while read -r _; do :; done; } < "$FIFO" || poll; else poll; fi; ' +
     `${reporterTail}; ` +

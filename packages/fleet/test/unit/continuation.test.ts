@@ -661,6 +661,33 @@ describe('reporterShell — the reporter waits on a held descriptor', () => {
     expect(between).not.toMatch(/\s\/[a-z]/);
   });
 
+  it('ignores SIGTERM in the outer shell after the agent fork and before the reporter fork', () => {
+    const script = reporterShell(WAIT);
+    const agentSet = script.indexOf('agent=$!');
+    const ignore = script.indexOf("trap '' TERM;");
+    const reporter = script.indexOf("( trap '' TERM;");
+    expect(agentSet).toBeGreaterThan(-1);
+    expect(ignore).toBeGreaterThan(agentSet);
+    expect(reporter).toBeGreaterThan(ignore);
+    expect(script.slice(agentSet, reporter)).toContain("trap '' TERM; ");
+    // nothing ignores SIGTERM before the agent subshell opens
+    const agentOpen = script.indexOf('( trap \'printf');
+    expect(agentOpen).toBeGreaterThan(-1);
+    expect(script.slice(0, agentOpen)).not.toContain("trap '' TERM");
+  });
+
+  it('still ends the agent command on a group SIGTERM and records 143', async () => {
+    const rig = track(reporterRig());
+    const cmdPid = join(rig.root, 'cmd.pid');
+    await rig.start(`sh -c 'echo $$ > "${cmdPid}"; read x < "$HOLD"'`);
+    await rig.waitFor(() => existsSync(cmdPid) && readFileSync(cmdPid, 'utf8').trim() !== '');
+    const cmd = Number(readFileSync(cmdPid, 'utf8'));
+    process.kill(-rig.pgid, 'SIGTERM');
+    expect(await rig.waitFor(() => rig.findings().length === 1, 5_000)).toBe(true);
+    expect(await rig.waitFor(() => !aliveByPid(cmd), 5_000)).toBe(true);
+    expect(readFileSync(rig.exitFile, 'utf8')).toBe('143');
+  });
+
   it('reports a natural exit once', async () => {
     const rig = track(reporterRig());
     await rig.start(`${WAIT}; exit 0`);
