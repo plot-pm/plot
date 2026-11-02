@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3028
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `bug/fleetd-s-fixer-runs-bounded`
 - **Started:** 2026-11-02, Jan Wloka, `bug/the-role-command-passes-agents-json`
 - **Started:** 2026-11-02, Jan Wloka, `bug/a-failed-role-start-spends-no-attempt`
+- **Delivered:** 2026-11-02
 
 ## Changelog
 

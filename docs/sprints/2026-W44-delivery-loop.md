@@ -39,7 +39,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [ ] [the-board-starts-processes-on-the] The board answers /api/board from held values: a process-count ratchet, one held config, git reads through the walk cache, and one plan parse per blob (#3017) <!-- pr: #3018 -->
 - [x] [the-bounded-run-group-stop-test] A stop that lands with the child's exit still stops, and the group-stop test tells a slow stop from a survivor (#3010) <!-- pr: #3019 -->
 - [x] [the-agent-reporter-starts-a-sleep] The agent reporter waits on a FIFO without a poll, and the AgentMonitor reads its pid with a builtin (#3024) <!-- pr: #3025 -->
-- [ ] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
+- [x] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
 
 ### Could Have
 
