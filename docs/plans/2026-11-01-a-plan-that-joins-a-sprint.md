@@ -141,7 +141,7 @@ Replayed over every non-merge commit on `origin/main` from 2026-10-01 to 68fde7a
 
 ### Repair
 
-- `bug/the-delivery-loop-sprint-is-repaired` — runs `plot-sprint-member.mjs add delivery-loop <slug> --tier should` for the three Should Have plans, which writes their annotations and ticks `the-commit-gates-match-only-the`, and commits the result through the writer. Touches only `docs/sprints/2026-W44-delivery-loop.md`. <!-- waits: feature/approve-and-deliver-find-the-sprint-by-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: delivery-loop member lines repaired -->
+- `bug/the-delivery-loop-sprint-is-repaired` — runs `plot-sprint-member.mjs add delivery-loop <slug> --tier should` for the three Should Have plans, which writes their annotations and ticks `the-commit-gates-match-only-the`, and commits the result through the writer. Touches only `docs/sprints/2026-W44-delivery-loop.md`. <!-- waits: feature/approve-and-deliver-find-the-sprint-by-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: delivery-loop member lines repaired --> → #3035
 
 ## Done when
 
