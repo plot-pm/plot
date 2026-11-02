@@ -69,6 +69,7 @@ import {
   type IssueIndexRow,
   draftPlacement,
   prRowPlacement,
+  checksReadOnOlderHead,
   awaitsMarkReady,
   prChecksSuppressedByMerge,
   waitingTickets,
@@ -3712,16 +3713,27 @@ const questionNote = (workerQuestion: string, questionAgeMinutes: number | null)
 const hasQuestion = (workerQuestion: string, questionAgeMinutes: number | null): boolean =>
   workerQuestion !== '' || questionAgeMinutes !== null;
 
+/** A PR record with the branch's local tip attached by `buildFleet`; absent where no tip was read. */
+export type PrWithTip = PrRecord & { tip?: string };
+
+/** The readings `prRowPlacement` takes from one PR: mergeability, checks, and the commit each names. */
+const placementReadings = (pr: PrWithTip) => ({
+  mergeable: pr.mergeable,
+  checks: pr.checks,
+  checksSha: pr.checksSha,
+  tip: pr.tip,
+});
+
 /**
  * The open PR's condition as a clause: `PR #n, conflicts`, `PR #n, CI running`,
  * `PR #n, checks failing`, and so on, followed by the review note.
  *
  * @param pr The open PR on the branch.
  */
-const prEvidence = (pr: PrRecord): string => {
+const prEvidence = (pr: PrWithTip): string => {
   if (pr.draft) return draftNote(pr);
   const base = `PR #${pr.number}`;
-  const { clause } = prRowPlacement({ mergeable: pr.mergeable, checks: pr.checks });
+  const { clause } = prRowPlacement(placementReadings(pr));
   return withNote(clause === 'green' ? `${base} green` : `${base}, ${clause}`, reviewNote(pr));
 };
 
@@ -4251,13 +4263,13 @@ function classifyGroup(
     // conflict, then unknown mergeability, then the checks — so this arm no
     // longer re-derives the order itself. Only the sentence is built here, from
     // the rule's clause, keeping the exact wording each case already had.
-    const placement = prRowPlacement({ mergeable: pr.mergeable, checks: pr.checks });
+    const placement = prRowPlacement(placementReadings(pr));
     // A green draft keeps its fall-through: still the author's, not yours, so
     // nothing returns here and the function reads on to the arms below.
     //
     // EXCEPT WHERE NO AGENT IS LIVE: a green draft whose desk finished waits only
     // for a person to mark it ready, and nothing else on the board shows it.
-    if (awaitsMarkReady({ draft: pr.draft, mergeable: pr.mergeable, checks: pr.checks, worker })) {
+    if (awaitsMarkReady({ ...placementReadings(pr), draft: pr.draft, worker })) {
       return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, draft, green · mark ready`, note) };
     }
     if (!(placement.clause === 'green' && pr.draft)) {
@@ -5215,7 +5227,7 @@ export function reviewNote(pr: PrRecord): string {
  * the row whose whole point is that it is unfinished. Every other value is a
  * reason to look, so every other value is said.
  */
-export function draftNote(pr: PrRecord): string {
+export function draftNote(pr: PrWithTip): string {
   const base = `PR #${pr.number}, draft`;
   // Same precedence as `classify`, via the same rule: a conflicting draft
   // reports an empty rollup, so reading `checks` first would say *no checks* on
@@ -5226,7 +5238,7 @@ export function draftNote(pr: PrRecord): string {
   // read falls to its `checks`, and a green one then says nothing extra — the
   // silence that means *not ready for you, but otherwise fine* on a row where
   // the host declined to say so.
-  const { clause } = prRowPlacement({ mergeable: pr.mergeable, checks: pr.checks });
+  const { clause } = prRowPlacement(placementReadings(pr));
   const checks = clause === 'green' ? '' : clause;
   return withNote(checks ? `${base}, ${checks}` : base, reviewNote(pr));
 }
@@ -5323,7 +5335,7 @@ export type PrStateWord =
  * the group instead of calling the same row `unknown` in one place and
  * *waiting on a machine* in another.
  */
-export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
+export function prStates(pr: PrWithTip): [PrStateWord, ...PrStateWord[]] {
   // CLOSED OUTRANKS EVERY CHECK, and it has to come first — the same rule the
   // singular `prState` carried before this function existed, restored here
   // because this is now where precedence is decided.
@@ -5359,7 +5371,9 @@ export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
   if (pr.mergeable !== 'mergeable' && pr.mergeable !== 'conflicting') {
     return pr.checks === 'pending' ? ['pending'] : ['unknown'];
   }
-  const checks = checkWord(pr.checks);
+  // Failing checks computed for an older commit than the branch's tip are not
+  // this head's checks: they read `pending`, as `prRowPlacement` places them.
+  const checks = pr.checks === 'failing' && checksReadOnOlderHead(pr) ? 'pending' : checkWord(pr.checks);
   if (pr.mergeable === 'conflicting') {
     // The conflict leads. The checks follow it ONLY where they are an errand of
     // their own: `none` beside a conflict is the empty rollup the conflict
@@ -7672,6 +7686,31 @@ const workerBoundSeconds = async (opts: BuildBoardOptions): Promise<number | nul
 };
 
 /**
+ * Attaches each PR's branch tip, read once from `refs/remotes/origin`.
+ *
+ * @param opts The board options naming the repository.
+ * @param prs Open PRs keyed by head branch, or null where the PR fetch never landed.
+ * @param prsByHead Every PR keyed by head branch, or null.
+ * @returns The two maps with `tip` set on each record whose branch has a tip; the inputs are not mutated. A failed read returns both maps unchanged.
+ */
+export const withBranchTips = async (
+  opts: BuildBoardOptions,
+  prs: Map<string, PrRecord> | null,
+  prsByHead: Map<string, PrRecord> | null,
+): Promise<[Map<string, PrWithTip> | null, Map<string, PrWithTip> | null]> => {
+  if (!prs && !prsByHead) return [prs, prsByHead];
+  const tips = await refsFor(opts).branchTips(['refs/remotes/origin']);
+  if (!tips.ok) return [prs, prsByHead];
+  const bySha = new Map(tips.value.map((t) => [t.branch, t.sha]));
+  const attach = (m: Map<string, PrRecord> | null): Map<string, PrWithTip> | null =>
+    m && new Map([...m].map(([branch, pr]) => {
+      const tip = bySha.get(branch);
+      return [branch, tip ? { ...pr, tip } : pr];
+    }));
+  return [attach(prs), attach(prsByHead)];
+};
+
+/**
  * Read the cached pulse. Never runs the scan — that is the whole point.
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
  * one is an addition rather than a rebuild.
@@ -7734,19 +7773,23 @@ export async function buildFleet(
       readConfigAsync(opts, 'Workflow phases', ''),
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
+  // Each open PR's branch tip, read from the local remote-tracking refs the scan
+  // already fetched: zero host calls. A failed read attaches no tip, and the
+  // rows then answer exactly as they did before.
+  const [prsWithTips, prsByHeadWithTips] = await withBranchTips(opts, entry.prs, entry.prsByHead);
   // THE ROWS READ THE SCAN, THEN THE HAND-OVER — see `withHandOver`. Applied to
   // the result rather than threaded into `rowsFromPulse`, because `entry.agents`
   // is in scope HERE (`refresh` fills it, and the sections and the live count
   // below read it) while that function takes the scan's readings only.
   const rows = entry.pulse
-    ? withHandOver(rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
+    ? withHandOver(rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, prsWithTips,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
       entry.runs,
       // The root, so each row can be asked whether its brief exists. Read HERE
       // on the render clock rather than carried on the pulse: the check is one
       // `existsSync` and a brief written between two scans is visible on the
       // next pulse, where a scan-time answer would be as stale as the scan.
-      entry.questions, entry.prsByHead, opts.repoRoot,
+      entry.questions, prsByHeadWithTips, opts.repoRoot,
       // Which active sprint claims each plan — read on the render clock like the
       // brief above, and for the same reason: a sprint file edited between two
       // scans shows up on the next pulse. One dir read per pulse, no host call.

@@ -10,13 +10,29 @@ export interface PrRowReadings {
   readonly mergeable: string | undefined;
   /** `'green' | 'pending' | 'failing' | 'none' | 'unknown'` — see `PrRecord.checks`. */
   readonly checks: string;
+  /** The commit `checks` was computed for — see `PrRecord.checksSha`. Absent where the host binds checks per branch. */
+  readonly checksSha?: string | undefined;
+  /** The branch's current tip, read from the local remote-tracking ref. Absent when it was not read. */
+  readonly tip?: string | undefined;
 }
+
+/**
+ * Whether a checks reading names an older commit than the branch's tip.
+ *
+ * Compares commit identity only; a timestamp is never consulted.
+ *
+ * @param readings The row's `checksSha` and `tip`.
+ * @returns true only when both are present, non-empty and different.
+ */
+export const checksReadOnOlderHead = (readings: Pick<PrRowReadings, 'checksSha' | 'tip'>): boolean =>
+  !!readings.checksSha && !!readings.tip && readings.checksSha !== readings.tip;
 
 export type PrRowPlacement =
   | { readonly group: 'waiting-on-you'; readonly clause: 'conflicts' }
   | { readonly group: 'waiting-on-you'; readonly clause: 'cannot say whether it merges' }
   | { readonly group: 'waiting-on-machine'; readonly clause: 'CI running' }
   | { readonly group: 'waiting-on-you'; readonly clause: 'checks failing' }
+  | { readonly group: 'waiting-on-machine'; readonly clause: 'new head, checks not yet read' }
   | { readonly group: 'waiting-on-you'; readonly clause: 'no checks' }
   | { readonly group: 'waiting-on-you'; readonly clause: 'cannot read the checks' }
   | { readonly group: 'waiting-on-you'; readonly clause: 'green' };
@@ -30,7 +46,9 @@ export type PrRowPlacement =
  * mergeability is unknown or absent answers `CI running` when its checks are
  * `pending`, and `cannot say whether it merges` for every other checks value.
  * A mergeable PR answers from its checks; an unrecognised checks word answers
- * `cannot read the checks`.
+ * `cannot read the checks`. Failing checks computed for a commit other than the
+ * branch's tip answer `new head, checks not yet read`; with `checksSha` or `tip`
+ * absent the answer is `checks failing`.
  *
  * @param readings What the row knows about the PR's mergeability and checks.
  * @returns The group the row belongs to and the clause for its note.
@@ -49,7 +67,9 @@ export const prRowPlacement = (readings: PrRowReadings): PrRowPlacement => {
     case 'pending':
       return { group: 'waiting-on-machine', clause: 'CI running' };
     case 'failing':
-      return { group: 'waiting-on-you', clause: 'checks failing' };
+      return checksReadOnOlderHead(readings)
+        ? { group: 'waiting-on-machine', clause: 'new head, checks not yet read' }
+        : { group: 'waiting-on-you', clause: 'checks failing' };
     case 'none':
       return { group: 'waiting-on-you', clause: 'no checks' };
     case 'green':

@@ -132,3 +132,46 @@ describe('awaitsMarkReady', () => {
     expect(awaitsMarkReady({ ...shape, mergeable: 'conflicting' })).toBe(false);
   });
 });
+
+describe('prRowPlacement — checks read on an older head', () => {
+  const OLD = 'dc98f4a02';
+  const NEW = '75da18f94';
+
+  it('answers waiting-on-machine/new head, checks not yet read when checksSha names an older head than the tip', () => {
+    expect(prRowPlacement(readings({ checks: 'failing', checksSha: OLD, tip: NEW }))).toEqual({
+      group: 'waiting-on-machine',
+      clause: 'new head, checks not yet read',
+    });
+  });
+
+  it('answers checks failing when checksSha equals the tip', () => {
+    expect(prRowPlacement(readings({ checks: 'failing', checksSha: NEW, tip: NEW }))).toEqual({
+      group: 'waiting-on-you',
+      clause: 'checks failing',
+    });
+  });
+
+  it('decides by commit and ignores any timestamp the caller holds', () => {
+    // A reading can be newer than the tip's own read and still name the older head.
+    const withNewerUpdatedAt = { ...readings({ checks: 'failing', checksSha: OLD, tip: NEW }), updatedAt: '2026-11-01T13:09:35Z' };
+    expect(prRowPlacement(withNewerUpdatedAt).clause).toBe('new head, checks not yet read');
+  });
+
+  it('answers checks failing when the host supplies no checksSha', () => {
+    expect(prRowPlacement(readings({ checks: 'failing', tip: NEW }))).toEqual({
+      group: 'waiting-on-you',
+      clause: 'checks failing',
+    });
+  });
+
+  it('answers checks failing when no tip was read', () => {
+    expect(prRowPlacement(readings({ checks: 'failing', checksSha: OLD }))).toEqual({
+      group: 'waiting-on-you',
+      clause: 'checks failing',
+    });
+  });
+
+  it('leaves a conflicting PR answering conflicts', () => {
+    expect(prRowPlacement(readings({ mergeable: 'conflicting', checks: 'failing', checksSha: OLD, tip: NEW })).clause).toBe('conflicts');
+  });
+});
