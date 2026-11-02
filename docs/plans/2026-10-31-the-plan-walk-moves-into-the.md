@@ -120,7 +120,7 @@ From the #2979 safety verdict (`.plot/panels/the-fleet-scan-re-reads-what/safety
 
 ### Removal
 
-- `feature/the-scan-script-is-a-launcher` — remove the shell walk, retire by name the corpus pairs that compare the domain with itself, and shrink `plot-fleet-scan.sh` to a launcher <!-- waits: feature/the-last-scan-modes-run-the-walk -->
+- `feature/the-scan-script-is-a-launcher` — remove the shell walk, retire by name the corpus pairs that compare the domain with itself, and shrink `plot-fleet-scan.sh` to a launcher <!-- waits: feature/the-last-scan-modes-run-the-walk --> → #3048
 
 ## Done when
 
