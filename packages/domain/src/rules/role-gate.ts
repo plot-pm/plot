@@ -138,6 +138,77 @@ export const pushesDefaultBranch = (command: string, defaultBranch: string, curr
   });
 };
 
+/** The branch a main-repair run claims: `bug/main-repair-` and 12 hex characters of the last green SHA. */
+const MAIN_REPAIR_BRANCH = /^bug\/main-repair-[0-9a-f]{12}$/;
+
+/** `git push` options that take the next word as their value. */
+const PUSH_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec']);
+
+/** `git push` options that write branches beyond the ones named. */
+const PUSH_BROAD_OPTIONS: ReadonlySet<string> = new Set(['--all', '--mirror', '--prune', '--branches']);
+
+/**
+ * The branch a fixer or main-repair run may push, or `''` where the run is
+ * neither.
+ *
+ * A fixer run names its pull request's head branch in `PLOT_ROLE_BRANCH`. A
+ * main-repair run checks out its claimed `bug/main-repair-<12 hex>` branch.
+ * Any other run gets `''`, and the push bounds do not apply to it.
+ *
+ * @param envBranch - the `PLOT_ROLE_BRANCH` value, `''` where unset.
+ * @param currentBranch - the branch the checkout is on, `''` where unknown or detached.
+ * @returns the branch the run may push.
+ */
+export const roleOwnBranch = (envBranch: string, currentBranch: string): string =>
+  envBranch !== '' ? envBranch : MAIN_REPAIR_BRANCH.test(currentBranch) ? currentBranch : '';
+
+/**
+ * What a `git push` in a command does beyond the role's own branch.
+ *
+ * Reads each push through {@link gitPushCalls}. A push is refused when it
+ * forces (`--force`, `-f`, `--force-with-lease`, `--force-if-includes`, a `+`
+ * refspec), deletes (`--delete`, `-d`, a `:<branch>` refspec), writes broadly
+ * (`--all`, `--mirror`, `--prune`), or names a destination other than `own`.
+ * A push naming no refspec, or `HEAD`, writes the current branch and is
+ * refused unless that is `own`.
+ *
+ * @param command - the Bash command line.
+ * @param own - the branch the role may push; a non-empty string.
+ * @param currentBranch - the branch the checkout is on, `''` where unknown or detached.
+ * @returns the description of the first push that crosses a bound, or `null`.
+ */
+export const rolePushViolation = (command: string, own: string, currentBranch: string): string | null => {
+  for (const args of gitPushCalls(command)) {
+    const operands: string[] = [];
+    for (let i = 0; i < args.length; i += 1) {
+      const word = args[i]!;
+      if (word.startsWith('--')) {
+        if (/^--force(?:-with-lease|-if-includes)?(?:=|$)/.test(word)) return 'forces a push';
+        if (word === '--delete') return 'deletes a branch';
+        if (PUSH_BROAD_OPTIONS.has(word)) return `pushes more than the role's own branch (${word})`;
+        if (PUSH_VALUE_OPTIONS.has(word)) i += 1;
+      } else if (word.startsWith('-') && word.length > 1) {
+        if (PUSH_VALUE_OPTIONS.has(word)) i += 1;
+        else if (/^-[A-Za-z]*f/.test(word)) return 'forces a push';
+        else if (/^-[A-Za-z]*d/.test(word)) return 'deletes a branch';
+      } else operands.push(word);
+    }
+    const refspecs = operands.slice(1);
+    if (refspecs.length === 0) {
+      if (currentBranch !== own) return `pushes the current branch, which is not ${own}`;
+      continue;
+    }
+    for (const spec of refspecs) {
+      if (spec.startsWith('+')) return 'forces a push';
+      if (spec.startsWith(':')) return 'deletes a branch';
+      const dest = (spec.includes(':') ? spec.slice(spec.indexOf(':') + 1) : spec).replace(/^refs\/heads\//, '');
+      const target = dest === 'HEAD' ? currentBranch : dest;
+      if (target !== own) return `pushes ${dest === 'HEAD' ? 'HEAD' : dest}, which is not ${own}`;
+    }
+  }
+  return null;
+};
+
 /** A `git commit` message naming an issue it claims to fix, e.g. `Fixes #123`, `fixes #123`, `closes #123`. */
 const FIXES_N = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*#\d+/i;
 
@@ -198,13 +269,18 @@ export const roleDenyRefusal = (reason: string): string =>
  * @param command - the Bash command line.
  * @param defaultBranch - the repository's default branch name, `''` where unknown.
  * @param currentBranch - the branch the checkout is on, `''` where unknown.
+ * @param ownBranch - the branch a fixer or main-repair run may push ({@link roleOwnBranch}); `''` applies no push bound.
  * @returns the refusal, or `null` where the command is allowed.
  */
-export const roleDeniesCommand = (command: string, defaultBranch: string, currentBranch: string): string | null => {
+export const roleDeniesCommand = (command: string, defaultBranch: string, currentBranch: string, ownBranch = ''): string | null => {
   if (callsCommitStatus(command)) return roleDenyRefusal('this command writes the PR review status (plot-host.sh commit-status)');
   if (callsReviewRun(command)) return roleDenyRefusal('this command runs the reviewer (plot-review.mjs)');
   if (callsMerge(command)) return roleDenyRefusal('this command merges a pull request');
   if (pushesDefaultBranch(command, defaultBranch, currentBranch)) return roleDenyRefusal('this command pushes the default branch');
+  if (ownBranch !== '') {
+    const violation = rolePushViolation(command, ownBranch, currentBranch);
+    if (violation !== null) return roleDenyRefusal(`this command ${violation}`);
+  }
   if (commitMessageClosesIssue(command)) return roleDenyRefusal('this commit message closes an issue (Fixes/Closes/Resolves #N)');
   return null;
 };

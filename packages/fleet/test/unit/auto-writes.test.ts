@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { FleetReading } from '@plot-pm/domain';
 
 const calls = vi.hoisted(() => [] as string[]);
+const fixerSlots = vi.hoisted(() => [] as unknown[]);
 vi.mock('../../src/shared/auto-dispatch.js', () => ({
   maybeAutoDispatch: (_o: unknown, _p: unknown, _c: unknown, _a: unknown, own: Set<string>) => {
     calls.push('dispatch');
@@ -12,7 +13,10 @@ vi.mock('../../src/shared/auto-deliver.js', () => ({
   runAutoDeliverPass: () => { calls.push('deliver'); },
 }));
 vi.mock('../../src/shared/auto-fixer.js', () => ({
-  runAutoFixerPass: () => { calls.push('fixer'); },
+  runAutoFixerPass: (_o: unknown, _l: unknown, _n: unknown, _w: unknown, _r: unknown, slot: unknown) => {
+    calls.push('fixer');
+    fixerSlots.push(slot);
+  },
 }));
 vi.mock('../../src/shared/auto-review.js', () => ({
   runAutoReviewPass: () => { calls.push('review'); },
@@ -23,7 +27,7 @@ vi.mock('../../src/shared/auto-ticket.js', () => ({
 vi.mock('../../src/shared/auto-merge.js', () => ({
   runAutoMergePass: () => { calls.push('merge'); },
 }));
-vi.mock('../../src/shared/machine-reading.js', () => ({ readMachine: async () => undefined }));
+vi.mock('../../src/shared/machine-reading.js', () => ({ readMachine: async () => ({ headroom: 'starved' }) }));
 vi.mock('../../src/shared/fleet-settings-store.js', () => ({
   readFleetSettings: async () => ({ autoDispatch: true, parallelAgents: 2, machineOverride: false }),
 }));
@@ -41,6 +45,19 @@ describe('fleetAutoWrites', () => {
     calls.length = 0;
     await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {})(PULSE);
     expect(calls).toEqual(['dispatch', 'deliver', 'fixer', 'review', 'ticket', 'merge']);
+  });
+
+  it('hands the fixer pass the machine headroom, the override and the queue hold, so a fixer takes a slot', async () => {
+    calls.length = 0;
+    fixerSlots.length = 0;
+    await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => [])(PULSE);
+    expect(fixerSlots).toEqual([{ headroom: 'starved', machineOverride: false, held: [] }]);
+  });
+
+  it('hands the fixer pass a null hold while no queue pass has been read', async () => {
+    fixerSlots.length = 0;
+    await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null)(PULSE);
+    expect(fixerSlots).toEqual([{ headroom: 'starved', machineOverride: false, held: null }]);
   });
 
   it('starts no agent, no fixer and no review once a stop is requested, and still delivers and merges', async () => {

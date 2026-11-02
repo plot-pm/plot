@@ -83,6 +83,12 @@ export interface Issue {
    * `createdAt` or `closedAt`.
    */
   updatedAt?: string;
+  /**
+   * The labels the issue carries, as the tracker names them. Absent where the
+   * op was not asked for them — only the closed-issue read states them, for the
+   * released-label backfill — and never `[]` for "not asked".
+   */
+  labels?: readonly string[];
 }
 
 /**

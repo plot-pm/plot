@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #3017
@@ -14,6 +14,9 @@
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3018 merged
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-board-request-counts-its-processes`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-board-holds-its-config`
+- **Started:** 2026-11-02, Jan Wloka, `feature/the-board-reads-git-through-cached-refs`
+- **Started:** 2026-11-02, Jan Wloka, `feature/the-board-parses-a-plan-once-per-blob`
+- **Delivered:** 2026-11-02
 
 ## Changelog
 
@@ -93,11 +96,11 @@ Decided 2026-11-01 after panel round 1 (`.plot/panels/2026-11-01-the-board-start
 
 ### Held git reads
 
-- `feature/the-board-reads-git-through-cached-refs` — `recordCommit`, `planAuthors`, `countBehind` and `defaultBranch` in `cachedRefs` (`plan-walk-cache.ts`); `Refs.recordCommit(file, field, ref)` in `ports/refs.ts`, `refs-git.ts`, `refs-fixture.ts` and its four callers; the board's `WalkCache` per `cacheKey(opts)` over the `refsToken` snapshot (`fleet-state.ts:139`) with `begin` and `sweep` per build; `planEstate`, `planMetasAtDefault`'s key, `measureBehind`, the Delivered loop and `draftPlanFiles` read through it; `hashFilesSync` held per bundle stat; the ratchet list loses those lines. Tests: `packages/domain/test/plan-walk-cache.test.ts`, `packages/domain/corpus/plan-walk-cache.corpus.test.ts`, `packages/domain/test/refs-git-reads.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- waits: feature/a-board-request-counts-its-processes --> <!-- builds: oid-keyed board git reads through cachedRefs -->
+- `feature/the-board-reads-git-through-cached-refs` — `recordCommit`, `planAuthors`, `countBehind` and `defaultBranch` in `cachedRefs` (`plan-walk-cache.ts`); `Refs.recordCommit(file, field, ref)` in `ports/refs.ts`, `refs-git.ts`, `refs-fixture.ts` and its four callers; the board's `WalkCache` per `cacheKey(opts)` over the `refsToken` snapshot (`fleet-state.ts:139`) with `begin` and `sweep` per build; `planEstate`, `planMetasAtDefault`'s key, `measureBehind`, the Delivered loop and `draftPlanFiles` read through it; `hashFilesSync` held per bundle stat; the ratchet list loses those lines. Tests: `packages/domain/test/plan-walk-cache.test.ts`, `packages/domain/corpus/plan-walk-cache.corpus.test.ts`, `packages/domain/test/refs-git-reads.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- waits: feature/a-board-request-counts-its-processes --> <!-- builds: oid-keyed board git reads through cachedRefs --> → #3034
 
 ### Held parse
 
-- `feature/the-board-parses-a-plan-once-per-blob` — the `PlanMeta` kind on `WalkCache` under the `cachedPlans` key rule; `readPlanMeta` in `board.ts` stages and parses only missed blobs; working-tree plans keyed by their in-process blob id; `Tracker` in the parse digest of the board and of `fleet-scan.ts:720`; `planMetasAtDefault` reads the same store and `planMetaCaches` goes; `ticketLaneData` runs once per request and `discoveryLanes` takes its answer; the ratchet list loses the `plot-plan-meta.sh` and second-lane lines. Tests: `packages/domain/test/plan-walk-cache.test.ts`, `packages/board/test/unit/fleet.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- waits: feature/the-board-reads-git-through-cached-refs --> <!-- builds: one plan parse per blob on the board -->
+- `feature/the-board-parses-a-plan-once-per-blob` — the `PlanMeta` kind on `WalkCache` under the `cachedPlans` key rule; `readPlanMeta` in `board.ts` stages and parses only missed blobs; working-tree plans keyed by their in-process blob id; `Tracker` in the parse digest of the board and of `fleet-scan.ts:720`; `planMetasAtDefault` reads the same store and `planMetaCaches` goes; `ticketLaneData` runs once per request and `discoveryLanes` takes its answer; the ratchet list loses the `plot-plan-meta.sh` and second-lane lines. Tests: `packages/domain/test/plan-walk-cache.test.ts`, `packages/board/test/unit/fleet.test.ts`, `packages/board/test/unit/board-request-starts.test.ts`. <!-- waits: feature/the-board-reads-git-through-cached-refs --> <!-- builds: one plan parse per blob on the board --> → #3045
 
 ## Done when
 

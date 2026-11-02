@@ -30,16 +30,17 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 
 ### Should Have
 
-- [ ] [the-plan-walk-moves-into-the] The plan walk moves into the domain and `plot-fleet-scan.sh` becomes a launcher (#2980)
-- [ ] [the-commit-gates-match-only-the] The commit gates read every commit form, and a replay or merge in progress passes (#2974)
-- [ ] [every-plan-reference-shows-its-issue] Every plan reference on the board shows its issue prefix and opens the plan (#2993)
+- [ ] [the-plan-walk-moves-into-the] The plan walk moves into the domain and `plot-fleet-scan.sh` becomes a launcher (#2980) <!-- pr: #2981, branch: feature/scan-once-walks-in-process -->
+- [x] [the-commit-gates-match-only-the] The commit gates read every commit form, and a replay or merge in progress passes (#2974) <!-- pr: #2984, branch: feature/replay-aware-commit-gates -->
+- [ ] [every-plan-reference-shows-its-issue] Every plan reference on the board shows its issue prefix and opens the plan (#2993) <!-- pr: #2994, branch: feature/a-plan-reference-is-decided-once -->
 - [ ] [an-issue-shows-its-plan-s] An issue shows its plan's state on every surface: lanes read the default branch, released issues carry their label, finding tickets close when settled, one plan comment, a slice row reads its head's checks (#2997) <!-- pr: #2998 -->
-- [ ] [a-plan-that-joins-a-sprint] A plan that joins a sprint names the sprint: one membership rule, one writer, a gate on added member lines, and a repair of this sprint (#2999) <!-- pr: #3000 -->
+- [x] [a-plan-that-joins-a-sprint] A plan that joins a sprint names the sprint: one membership rule, one writer, a gate on added member lines, and a repair of this sprint (#2999) <!-- pr: #3000 -->
 - [x] [two-test-teardowns-turn-main-red] Two test teardowns turn main red: a stopped process leaves no plan stage directory, and the continuation tests remove desks after the last write (#3006) <!-- pr: #3008 -->
-- [ ] [the-board-starts-processes-on-the] The board answers /api/board from held values: a process-count ratchet, one held config, git reads through the walk cache, and one plan parse per blob (#3017) <!-- pr: #3018 -->
-- [ ] [the-bounded-run-group-stop-test] A stop that lands with the child's exit still stops, and the group-stop test tells a slow stop from a survivor (#3010) <!-- pr: #3019 -->
-- [ ] [the-agent-reporter-starts-a-sleep] The agent reporter waits on a FIFO without a poll, and the AgentMonitor reads its pid with a builtin (#3024) <!-- pr: #3025 -->
-- [ ] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
+- [x] [the-board-starts-processes-on-the] The board answers /api/board from held values: a process-count ratchet, one held config, git reads through the walk cache, and one plan parse per blob (#3017) <!-- pr: #3018 -->
+- [x] [the-bounded-run-group-stop-test] A stop that lands with the child's exit still stops, and the group-stop test tells a slow stop from a survivor (#3010) <!-- pr: #3019 -->
+- [x] [the-agent-reporter-starts-a-sleep] The agent reporter waits on a FIFO without a poll, and the AgentMonitor reads its pid with a builtin (#3024) <!-- pr: #3025 -->
+- [x] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
+- [x] [the-reporter-sigterm-test-fails-on] The agent reporter ignores SIGTERM before it forks, so a group stop no longer loses its report (#3033) <!-- pr: #3039 -->
 
 ### Could Have
 
@@ -69,3 +70,4 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - 2026-11-01: Added [the-bounded-run-group-stop-test] the group-stop test turned main red at 926339afd, and a panel reproduced a lost SIGTERM in boundedRunProcess (#3010)
 - 2026-11-01: Added [the-agent-reporter-starts-a-sleep] syspolicyd checked about 256 new processes per second, and the reporter and AgentMonitor loops start a process per poll for every agent (#3024)
 - 2026-11-01: Added [fleetd-s-fixer-and-main-repair] every fixer and main-repair start since 2026-10-30 failed with --agent not found, so each HIGH waited 19 to 100 minutes for a hand fix (#3028)
+- 2026-11-02: Added [the-reporter-sigterm-test-fails-on] the reporter SIGTERM test turned main and PR #3036 red, and a panel reproduced a lost report in reporterShell under a group SIGTERM (#3033)

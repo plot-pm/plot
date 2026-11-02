@@ -16,7 +16,7 @@ import type {
 } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { githubPlanStateWrite } from './tracker-plan-state.js';
+import { githubIssueClose, githubIssueLabel, githubPlanStateWrite } from './tracker-plan-state.js';
 import { issueOpenOf, trackerReads } from './tracker-shell.js';
 
 /** The scheme `plot-host.sh` knows this connector's read arm by. */
@@ -89,12 +89,12 @@ export const githubIssueOpen =
  *   `failed` otherwise, with the refusal recorded.
  */
 export const githubIssueComment =
-  (context: ShellContext, refuse: (said: string | null) => void) =>
-  async (id: string, body: string): Promise<PortResult<IssueCommentOutcome>> => {
+  (context: ShellContext, refuse: (said: string | null) => void, env: Record<string, string> = { PLOT_TRACKER: SCHEME }) =>
+  async (id: string, body: string, marker = ''): Promise<PortResult<IssueCommentOutcome>> => {
     const said = await runProcess(
       'bash',
-      [scriptPath(context, 'plot-host.sh'), 'issue-comment', id, '', body],
-      { cwd: context.repoRoot, env: { PLOT_TRACKER: SCHEME } },
+      [scriptPath(context, 'plot-host.sh'), 'issue-comment', id, marker, body],
+      { cwd: context.repoRoot, env },
     );
     if (said.code === 4) {
       refuse(null);
@@ -211,6 +211,9 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     issueOpen: githubIssueOpen(context, reads.refuse),
 
     issueComment: githubIssueComment(context, reads.refuse),
+    issueLabel: githubIssueLabel(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
+    issueClose: githubIssueClose(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
+    issueLabelReach: (): PortResult<true> => answered(true),
     planStateWrite: githubPlanStateWrite(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),

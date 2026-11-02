@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
@@ -23,6 +24,7 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
+import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
@@ -69,9 +71,11 @@ import {
   buildShell,
   hostShell,
   planStoreShell,
+  planParserPath,
   refsGit,
   fleetStateFile,
   scriptsShell,
+  scriptsConfigCached,
   sliceSpendFile,
   treesGit,
   defaultBranchFile,
@@ -84,10 +88,6 @@ import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import {
-  readConfig as readConfigReader,
-  readConfigAsync as readConfigAsyncReader,
-} from '@plot-pm/fleet/shared/config-reader';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -128,6 +128,17 @@ export interface BuildBoardOptions {
    * caching a synchronous function keeps it synchronous.
    */
   planStore?: PlanStore;
+  /**
+   * Where `## Plot Config` reads are cached from. Absent means a `Scripts`
+   * backed by `plot-config.sh`, held per `(repoRoot, scriptsDir)` so every
+   * request-path reader — {@link scriptsFor}, {@link planStoreFor}'s `config`,
+   * and the `readConfig`/`readConfigAsync` helpers below — shares one set of
+   * held answers instead of each spawning its own.
+   *
+   * A board test injects a counting fake here to prove a request that reads
+   * the same key twice spawns once.
+   */
+  config?: Scripts;
   /**
    * Where host questions are answered from. Absent means this repository's
    * configured git host.
@@ -277,6 +288,84 @@ export const startBundleFor = (opts: BuildBoardOptions, here: string): { path: s
 export const refsFor = (opts: BuildBoardOptions): Refs =>
   opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
+/** One walk cache per repository and scripts directory, so two board configurations never share an answer. */
+const walkCaches = new Map<string, WalkCache>();
+
+/**
+ * The ref reader for these options, answering from the process's walk cache.
+ *
+ * Reads the ref snapshot once and wraps {@link refsFor}'s reader with
+ * `cachedRefs`, so a read keyed by an object id git has already answered starts
+ * no process. A reader the caller injected, and one that cannot list its refs,
+ * is returned unwrapped and answers every read itself. The caller marks the start and the end of a build
+ * on the returned cache.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the reader, and the cache it answers from or `null` where it is unwrapped.
+ */
+export const heldRefsFor = async (opts: BuildBoardOptions): Promise<{ refs: Refs; cache: WalkCache | null }> => {
+  const inner = refsFor(opts);
+  // A reader handed in by the caller answers by ref name and not by object id,
+  // so a key built from the snapshot's oids would miss what it holds.
+  if (opts.refs !== undefined) return { refs: inner, cache: null };
+  const snapshot = await readRefSnapshot(inner);
+  if (!snapshot.ok) return { refs: inner, cache: null };
+  const cache = walkCacheFor(opts);
+  return { refs: cachedRefs(inner, snapshot.value, cache), cache };
+};
+
+/**
+ * The process's walk cache for these options, created on first use.
+ *
+ * @param opts - where to read.
+ * @returns the cache shared by every read of this repository and scripts directory.
+ */
+const walkCacheFor = (opts: BuildBoardOptions): WalkCache => {
+  const key = `${opts.repoRoot}\0${opts.scriptsDir}`;
+  let cache = walkCaches.get(key);
+  if (cache === undefined) {
+    cache = freshWalkCache();
+    walkCaches.set(key, cache);
+  }
+  return cache;
+};
+
+/** The bundle hashes held per file, each with the stat stamp it was read at. */
+const bundleHashes = new Map<string, { stamp: string; hash: string | null }>();
+
+/**
+ * Hashes a bundle, reading its content again only when its stat stamp moved.
+ *
+ * The stamp is the file's `(mtimeMs, size, ino)`. A bundle rebuilt in place
+ * changes the mtime, so the drift check still sees a new hash. A reader injected
+ * through `opts.refs` and a file that cannot be stat'ed are hashed on every call.
+ *
+ * @param opts - where to read.
+ * @param bundlePath - the bundle, absolute or relative to the repository root.
+ * @returns the bundle's hash, or `null` where it cannot be hashed.
+ */
+const bundleHashOf = (opts: BuildBoardOptions, bundlePath: string): string | null => {
+  const read = (): string | null => {
+    const hashed = refsFor(opts).hashFilesSync([bundlePath]);
+    return hashed.ok ? hashed.value.get(bundlePath) ?? null : null;
+  };
+  if (opts.refs !== undefined) return read();
+  const absolute = path.resolve(opts.repoRoot, bundlePath);
+  let stamp: string;
+  try {
+    const stat = fs.statSync(absolute);
+    stamp = `${stat.mtimeMs}:${stat.size}:${stat.ino}`;
+  } catch {
+    return read();
+  }
+  const key = `${opts.repoRoot}\0${opts.scriptsDir}\0${absolute}`;
+  const held = bundleHashes.get(key);
+  if (held !== undefined && held.stamp === stamp) return held.hash;
+  const hash = read();
+  if (hash !== null) bundleHashes.set(key, { stamp, hash });
+  return hash;
+};
+
 /**
  * The worktree reader for these options — the caller's, or this machine's.
  *
@@ -292,11 +381,22 @@ export const treesFor = (opts: BuildBoardOptions): Trees =>
 /**
  * The config reader for these options — the caller's, or this repository's.
  *
+ * An injected {@link BuildBoardOptions.planStore} keeps its OWN `config` —
+ * a fixture that stubs `planStore` to control config reads must still be
+ * heard, so only the real `planStoreShell` has its `config` replaced by the
+ * shared cached reader.
+ *
  * @param opts - where to read, and optionally what to read through.
  * @returns the injected store, or one backed by `plot-config.sh`.
  */
-export const planStoreFor = (opts: BuildBoardOptions): PlanStore =>
-  opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+export const planStoreFor = (opts: BuildBoardOptions): PlanStore => {
+  if (opts.planStore) return opts.planStore;
+  const store = planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  return {
+    ...store,
+    config: (key, fallback) => configFor(opts).config(key, fallback),
+  };
+};
 
 /**
  * Where this board reads per-slice spend records from.
@@ -349,8 +449,7 @@ export const spawnContractReadingFor = async (
   const bundleHash = opts.startBundle?.hash ?? null;
   // Read fresh on every call, unlike `bundleHash` above — the "now" value
   // `bundleDriftDetected` compares the process-start value against.
-  const running = refsFor(opts).hashFilesSync([bundlePath]);
-  const runningBundleHash = running.ok ? running.value.get(bundlePath) ?? null : null;
+  const runningBundleHash = bundleHashOf(opts, bundlePath);
   // `resolve` always answers at least the repo-script fallback tier — it has
   // no `unaskable` path — so `gatePath` is always populated here.
   const resolved = await gateContractFor(opts).resolve(opts.repoRoot);
@@ -394,21 +493,6 @@ export const detachedFor = (opts: BuildBoardOptions): Detached => opts.detached 
 export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.processProbe ?? processProbeSystem();
 
 /**
- * The script runner for these options — the ONE way this package invokes a
- * `plot-*.sh`.
- *
- * Built per call for the same reason as {@link refsFor}: the adapter is a
- * closure over two paths, and the expense was never in constructing it.
- *
- * There is no `opts.scripts` beside `opts.refs` and `opts.planStore`. Those two
- * are substituted so a board can be built over a fixture estate; this one runs
- * the helpers Plot ships, and every test that needed to stand in for one already
- * does it at the route's own seam.
- *
- * @param opts - where the repository and the scripts are.
- * @returns a runner over `opts.scriptsDir`.
- */
-/**
  * The bridge the fleet writes, as the board reads it.
  *
  * @param opts - where the repository is.
@@ -417,8 +501,48 @@ export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.p
 export const fleetStateFor = (opts: BuildBoardOptions): FleetState =>
   fleetStateFile({ repoRoot: opts.repoRoot });
 
-export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
-  scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+/**
+ * One cached `Scripts` per `(repoRoot, scriptsDir)`, built the first time a
+ * request asks and reused by every request after — so a board with no
+ * injected {@link BuildBoardOptions.config} still shares one held-answers
+ * cache across `scriptsFor`, `planStoreFor`'s `config`, and the
+ * `readConfig`/`readConfigAsync` helpers below, rather than each reconstructing
+ * a cache of its own per call.
+ */
+const configByRoot = new Map<string, Scripts>();
+
+/**
+ * The cached config reader for these options — the caller's, or one held per
+ * `(repoRoot, scriptsDir)` over `plot-config.sh`.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected `Scripts`, or a cached one over `opts.scriptsDir`.
+ */
+export const configFor = (opts: BuildBoardOptions): Scripts => {
+  if (opts.config) return opts.config;
+  const mapKey = `${opts.repoRoot} ${opts.scriptsDir}`;
+  const existing = configByRoot.get(mapKey);
+  if (existing) return existing;
+  const built = scriptsConfigCached(
+    scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    opts.repoRoot,
+  );
+  configByRoot.set(mapKey, built);
+  return built;
+};
+
+/**
+ * The script runner for these options — the ONE way this package invokes a
+ * `plot-*.sh`.
+ *
+ * Same instance as {@link configFor}, so a route calling `scriptsFor(opts).config(...)`
+ * shares its held answers with `planStoreFor(opts).config` and the
+ * `readConfig`/`readConfigAsync` helpers below.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @returns a runner over `opts.scriptsDir`.
+ */
+export const scriptsFor = (opts: BuildBoardOptions): Scripts => configFor(opts);
 
 /**
  * Resolves the settings file every agent this process starts will receive, and
@@ -634,7 +758,8 @@ function readChecklist(repoRoot: string, releaseDir: string): { done: number; to
  * radius, and only the second one made a static file time out at 15 s.
  */
 export function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
-  return readConfigReader(opts, key, fallback);
+  const answer = configFor(opts).configSync(key, fallback);
+  return answer.ok ? answer.value.trim() || fallback : fallback;
 }
 
 /**
@@ -654,7 +779,8 @@ export async function readConfigAsync(
   key: string,
   fallback: string,
 ): Promise<string> {
-  return readConfigAsyncReader(opts, key, fallback);
+  const answer = await configFor(opts).config(key, fallback);
+  return answer.ok ? answer.value.trim() || fallback : fallback;
 }
 
 /**
@@ -1452,15 +1578,86 @@ function planSlug(file: string): string {
  * @param files - every plan file to parse, as real paths.
  * @returns one validated record per plan, or none where the parser failed.
  */
-const readPlanMeta = async (opts: BuildBoardOptions, files: string[]): Promise<PlanMeta[]> => {
+const readPlanMeta = async (opts: BuildBoardOptions, files: string[]): Promise<PlanMeta[]> =>
+  (await parsePlanMetas(opts, files)) ?? [];
+
+/**
+ * The git blob id of some bytes: SHA-1 over `blob <length>\0<bytes>`, computed
+ * in-process. It keys a held parse by content, so it need only be stable; a
+ * SHA-256 repository gets the same key it would get here.
+ */
+export const blobIdOfBytes = (bytes: Buffer): string =>
+  createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+
+/**
+ * Parses plan files through `plot-plan-meta.sh`, starting it only for files
+ * whose content the process has not parsed.
+ *
+ * The key is the file's content (its blob id, computed from its bytes whether
+ * it was read from a ref or from the working tree, never from its mtime), its
+ * base name, the parser script's hash and the `Tracker` value, which changes
+ * the parser's `issues` output. A held record is returned with `file` set to
+ * the path it is asked for now. A file that cannot be read is parsed without
+ * the cache.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @param files - every plan file to parse, as real paths.
+ * @returns the records in the order of `files`, or `null` where the parser failed.
+ * @throws where a record fails `PlanMetaSchema`.
+ */
+export const parsePlanMetas = async (opts: BuildBoardOptions, files: string[]): Promise<PlanMeta[] | null> => {
   if (files.length === 0) return [];
-  const answer = await scriptsFor(opts).planMeta(files, { maxBuffer: 64 * 1024 * 1024 });
-  if (!answer.ok) return [];
-  return answer.value
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((l) => PlanMetaSchema.parse(JSON.parse(l)));
+  let held: PlanMetaFile[];
+  try {
+    held = files.map((file) => ({ path: file, name: path.basename(file), blobId: blobIdOfBytes(fs.readFileSync(file)) }));
+  } catch {
+    return parsePlanMetaFiles(opts, files.map((file) => ({ path: file, name: path.basename(file), blobId: null })));
+  }
+  return parsePlanMetaFiles(opts, held);
+};
+
+/**
+ * {@link parsePlanMetas} over files whose blob ids the caller already holds.
+ *
+ * A file with a `null` blob id is parsed and not held. `prepare` runs on the
+ * paths about to be parsed, so a caller that stages content can write only the
+ * files the parser will read.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @param files - the plan files, in the order the result follows.
+ * @param prepare - called with the paths of the files not yet held, before the parser starts.
+ * @returns the records in the order of `files`, or `null` where the parser failed.
+ * @throws where a record fails `PlanMetaSchema`.
+ */
+export const parsePlanMetaFiles = async (
+  opts: BuildBoardOptions,
+  files: ReadonlyArray<{ path: string; name: string; blobId: string | null }>,
+  prepare?: (paths: string[]) => void,
+): Promise<PlanMeta[] | null> => {
+  const parse = async (paths: string[]): Promise<PlanMeta[] | null> => {
+    prepare?.(paths);
+    const answer = await scriptsFor(opts).planMeta(paths, { maxBuffer: 64 * 1024 * 1024 });
+    if (!answer.ok) return null;
+    return answer.value
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => PlanMetaSchema.parse(JSON.parse(l)));
+  };
+  if (files.length === 0) return [];
+  const unheld = files.filter((f) => f.blobId === null);
+  if (unheld.length > 0) {
+    // Order matters to callers, so an unkeyable file parses the whole list.
+    return parse(files.map((f) => f.path));
+  }
+  const parser = bundleHashOf(opts, planParserPath({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })) ?? '';
+  const tracker = await readConfigAsync(opts, 'Tracker', '');
+  return cachedPlanMetas(
+    walkCacheFor(opts),
+    files.map((f) => ({ path: f.path, name: f.name, blobId: f.blobId! })),
+    `${parser}\0${tracker.trim()}`,
+    parse,
+  );
 };
 
 /**
@@ -2168,7 +2365,16 @@ export function storyTopicInput(s: StoryCard): StoryDocument {
  * omitted, matching the previous walker.
  */
 export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
-  const refs = refsFor(opts);
+  const { refs, cache } = await heldRefsFor(opts);
+  cache?.begin();
+  const board = await buildBoardOver(opts, refs);
+  // Swept only after a completed build: a build that threw touched part of its
+  // keys, and sweeping on it would drop the rest.
+  cache?.sweep();
+  return board;
+}
+
+async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Board> {
   // FOUR INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
   // `plot-config.sh` spawn and none needs another's answer, so awaiting them
   // in sequence would serialise four ~58 ms waits for nothing. They are off
@@ -2327,7 +2533,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       if (text === null) continue;
       const canonical = canonicalPath.get(meta.file);
       const rel = canonical ?? path.relative(repoRoot, meta.file);
-      const found = await refs.recordCommit(rel, 'Delivered');
+      const found = await refs.recordCommit(rel, 'Delivered', `origin/${defaultBranch}`);
       if (!found.ok) continue;
       deliveredReadings.set(meta.file, { text, deliveryCommit: found.value });
     }
@@ -2842,8 +3048,9 @@ async function readPlanEstate(
   opts: BuildBoardOptions,
   pulse: FleetReading | null,
   complete: boolean,
+  held?: Refs,
 ): Promise<PlanEstate> {
-  const refs = refsFor(opts);
+  const refs = held ?? (await heldRefsFor(opts)).refs;
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
   // THE SAME ESTATE THE CARDS COME FROM, read the same way. This map is what
@@ -3001,18 +3208,18 @@ export const planEstate = async (
   pulse: FleetReading | null,
   complete: boolean,
 ): Promise<PlanEstate> => {
-  const refs = refsFor(opts);
+  const refs = (await heldRefsFor(opts)).refs;
   const repoRoot = resolvedRepoRoot(opts);
   const defaultBranch = await defaultBranchOf(opts, refs);
   const tip = await refs.resolve(`origin/${defaultBranch}`);
-  if (!tip.ok) return readPlanEstate(opts, pulse, complete);
+  if (!tip.ok) return readPlanEstate(opts, pulse, complete, refs);
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const key = `${tip.value} ${await estateInputsKey(opts, refs, planDir, defaultBranch)}`;
   const cached = planEstateCache.get(repoRoot);
   if (cached && cached.key === key && cached.pulse === pulse && cached.complete === complete) {
     return cached.estate;
   }
-  const estate = readPlanEstate(opts, pulse, complete);
+  const estate = readPlanEstate(opts, pulse, complete, refs);
   planEstateCache.set(repoRoot, { key, pulse, complete, estate });
   estate.catch(() => {
     if (planEstateCache.get(repoRoot)?.estate === estate) planEstateCache.delete(repoRoot);
@@ -3086,7 +3293,7 @@ const readPlanMarkdown = async (
   if (file) return fs.readFileSync(file, 'utf8');
 
   if (!filename || filename !== path.basename(filename) || !filename.endsWith('.md')) return null;
-  const refs = refsFor(opts);
+  const refs = (await heldRefsFor(opts)).refs;
   const repoRoot = resolvedRepoRoot(opts);
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const defaultBranch = await defaultBranchOf(opts, refs);

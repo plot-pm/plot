@@ -5,6 +5,7 @@ import { answered, failed } from '../src/port-result.js';
 import type { PlanStore } from '../src/ports/plan-store.js';
 import type { Refs } from '../src/ports/refs.js';
 import {
+  cachedPlanMetas,
   cachedPlans,
   cachedRefs,
   freshWalkCache,
@@ -381,5 +382,165 @@ describe('mark and sweep', () => {
     await wrap(refs, cache).commitSubjects('origin/main..origin/feature/a');
     expect(cache.stats.hits).toBe(1);
     expect(cache.stats.misses).toBe(0);
+  });
+});
+
+describe('the Delivered record, authors, behind count and default branch', () => {
+  const extras = () => {
+    const calls: Array<[string, ...unknown[]]> = [];
+    const note = <T>(name: string, value: T) => (...args: unknown[]) => {
+      calls.push([name, ...args]);
+      return Promise.resolve(answered(value));
+    };
+    const overrides = {
+      recordCommit: note('recordCommit', oid(50)),
+      planAuthors: note('planAuthors', new Map([['docs/plans/x.md', 'Ada']])),
+      countBehind: note('countBehind', 3),
+      defaultBranch: note('defaultBranch', 'main'),
+    } as unknown as Partial<Refs>;
+    return { calls, refs: recorder(overrides).refs, count: (n: string) => calls.filter((c) => c[0] === n).length };
+  };
+  const withHead = (head: string, sha: string) =>
+    entries().map((e) => {
+      const next = e.ref === 'refs/heads/main' ? { ...e, sha } : e;
+      return e.ref === head ? { ...next, head: true as const } : next;
+    });
+
+  it('reads the Delivered record once per oid and asks git again once the ref moves', async () => {
+    const { refs, count } = extras();
+    const cache = freshWalkCache();
+    await wrap(refs, cache).recordCommit('docs/plans/x.md', 'Delivered', 'origin/main');
+    await wrap(refs, cache).recordCommit('docs/plans/x.md', 'Delivered', 'origin/main');
+    expect(count('recordCommit')).toBe(1);
+    await wrap(refs, cache).recordCommit('docs/plans/x.md', 'Started', 'origin/main');
+    expect(count('recordCommit')).toBe(2);
+    const moved = entries().map((e) => (e.sha === MAIN ? { ...e, sha: MOVED } : e));
+    await wrap(refs, cache, moved).recordCommit('docs/plans/x.md', 'Delivered', 'origin/main');
+    expect(count('recordCommit')).toBe(3);
+  });
+
+  it('asks git for a ref the snapshot does not cover, and holds nothing for it', async () => {
+    const { refs, count } = extras();
+    const cache = freshWalkCache();
+    await wrap(refs, cache).recordCommit('docs/plans/x.md', 'Delivered', 'origin/gone');
+    await wrap(refs, cache).planAuthors('origin/gone', 'docs/plans/');
+    expect(count('recordCommit')).toBe(1);
+    expect(count('planAuthors')).toBe(1);
+    expect(cache.size()).toBe(0);
+  });
+
+  it('holds the plan authors by the oid of the ref', async () => {
+    const { refs, count } = extras();
+    const cache = freshWalkCache();
+    await wrap(refs, cache).planAuthors('origin/main', 'docs/plans/');
+    await wrap(refs, cache).planAuthors('origin/main', 'docs/plans/');
+    expect(count('planAuthors')).toBe(1);
+  });
+
+  it('follows HEAD for the behind count, and asks git where HEAD is detached', async () => {
+    const { refs, count } = extras();
+    const cache = freshWalkCache();
+    const attached = withHead('refs/heads/main', MAIN);
+    await wrap(refs, cache, attached).countBehind('origin/feature/a');
+    await wrap(refs, cache, attached).countBehind('origin/feature/a');
+    expect(count('countBehind')).toBe(1);
+    // A reset moves the checked-out branch; the held count must not survive it.
+    await wrap(refs, cache, withHead('refs/heads/main', MOVED)).countBehind('origin/feature/a');
+    expect(count('countBehind')).toBe(2);
+    // No entry carries the HEAD marker: nothing is keyed, nothing is stored.
+    await wrap(refs, cache).countBehind('origin/feature/a');
+    await wrap(refs, cache).countBehind('origin/feature/a');
+    expect(count('countBehind')).toBe(4);
+  });
+
+  it('asks again for the default branch when the refs or the checked-out branch change', async () => {
+    const { refs, count } = extras();
+    const cache = freshWalkCache();
+    await wrap(refs, cache).defaultBranch();
+    await wrap(refs, cache).defaultBranch();
+    expect(count('defaultBranch')).toBe(1);
+    await wrap(refs, cache, withHead('refs/heads/main', MAIN)).defaultBranch();
+    expect(count('defaultBranch')).toBe(2);
+  });
+
+  it('stores no failed read of the four', async () => {
+    const down = () => Promise.resolve(failed<never>());
+    const { refs } = recorder({ recordCommit: down, planAuthors: down, countBehind: down, defaultBranch: down } as unknown as Partial<Refs>);
+    const cache = freshWalkCache();
+    const w = wrap(refs, cache, withHead('refs/heads/main', MAIN));
+    const results = [
+      await w.recordCommit('f', 'Delivered', 'origin/main'),
+      await w.planAuthors('origin/main', 'd'),
+      await w.countBehind('origin/feature/a'),
+      await w.defaultBranch(),
+    ];
+    expect(results.every((r) => !r.ok)).toBe(true);
+    expect(cache.size()).toBe(0);
+  });
+});
+
+describe('a plan is parsed once per content', () => {
+  const file = (name: string, blobId: string, at = '/stage/a') => ({ path: `${at}/${name}`, name, blobId });
+  /** A parser that records the paths it was given and reports one record per path. */
+  const parser = () => {
+    const asked: string[][] = [];
+    return {
+      asked,
+      parse: (paths: string[]) => {
+        asked.push(paths);
+        return Promise.resolve(paths.map((p) => ({ file: p, n: asked.length })));
+      },
+    };
+  };
+
+  it('parses every plan once, then none, and only the changed one after an edit', async () => {
+    const cache = freshWalkCache();
+    const p = parser();
+    const files = [file('a.md', oid(1)), file('b.md', oid(2))];
+    await cachedPlanMetas(cache, files, 'k', p.parse);
+    const again = await cachedPlanMetas(cache, files, 'k', p.parse);
+    expect(p.asked).toEqual([['/stage/a/a.md', '/stage/a/b.md']]);
+    expect(again?.map((m) => m.file)).toEqual(['/stage/a/a.md', '/stage/a/b.md']);
+    await cachedPlanMetas(cache, [files[0]!, file('b.md', oid(3))], 'k', p.parse);
+    expect(p.asked[1]).toEqual(['/stage/a/b.md']);
+  });
+
+  it('omits a plan the parser reports no record for, and asks for it again next time', async () => {
+    const cache = freshWalkCache();
+    const asked: string[][] = [];
+    const parse = (paths: string[]) => {
+      asked.push(paths);
+      return Promise.resolve(paths.filter((p) => !p.endsWith('b.md')).map((p) => ({ file: p })));
+    };
+    const files = [file('a.md', oid(1)), file('b.md', oid(2))];
+    const first = await cachedPlanMetas(cache, files, 'k', parse);
+    expect(first?.map((m) => m.file)).toEqual(['/stage/a/a.md']);
+    await cachedPlanMetas(cache, files, 'k', parse);
+    expect(asked[1]).toEqual(['/stage/a/b.md']);
+  });
+
+  it('answers a held plan with the path it is asked for now, in the order asked', async () => {
+    const cache = freshWalkCache();
+    const p = parser();
+    await cachedPlanMetas(cache, [file('a.md', oid(1), '/one'), file('b.md', oid(2), '/one')], 'k', p.parse);
+    const moved = await cachedPlanMetas(cache, [file('b.md', oid(2), '/two'), file('a.md', oid(1), '/two')], 'k', p.parse);
+    expect(moved?.map((m) => m.file)).toEqual(['/two/b.md', '/two/a.md']);
+    expect(p.asked).toHaveLength(1);
+  });
+
+  it('parses every plan again when the parse key changes, as a Tracker change does', async () => {
+    const cache = freshWalkCache();
+    const p = parser();
+    const files = [file('a.md', oid(1)), file('b.md', oid(2))];
+    await cachedPlanMetas(cache, files, 'parser1\0github', p.parse);
+    await cachedPlanMetas(cache, files, 'parser1\0jira', p.parse);
+    expect(p.asked[1]).toEqual(['/stage/a/a.md', '/stage/a/b.md']);
+  });
+
+  it('stores nothing and answers null when the parser fails', async () => {
+    const cache = freshWalkCache();
+    const files = [file('a.md', oid(1))];
+    expect(await cachedPlanMetas(cache, files, 'k', () => Promise.resolve(null))).toBeNull();
+    expect(cache.planMetas.size()).toBe(0);
   });
 });

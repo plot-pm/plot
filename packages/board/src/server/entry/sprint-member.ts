@@ -13,6 +13,8 @@ import {
   type SprintMemberResult,
   type SprintMemberTier,
 } from '@plot-pm/domain/transitions/sprint-member';
+import { sprintMemberRefusalText } from '@plot-pm/domain/rules/sprint-member-gate';
+import { checkSprintMembers } from './sprint-member-check.js';
 import { localDate, realPlanPath, Refused, type Printer } from './ladder.js';
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -33,7 +35,16 @@ class NamedRefusal extends Error {
  * plot-sprint-member.mjs add <sprint> <slug> --tier must|should|could [--reason "<text>"] [--no-commit]
  * plot-sprint-member.mjs defer <sprint> <slug> [--reason "<text>"] [--no-commit]
  * plot-sprint-member.mjs remove <sprint> <slug> [--reason "<text>"] [--no-commit]
+ * plot-sprint-member.mjs check --base <sha>
  * ```
+ *
+ * `check` is read-only and structurally apart from the writers: it takes a
+ * base commit instead of a sprint and a plan, diffs `HEAD` against it and
+ * runs the sprint-member gate rule over the member lines the diff added or
+ * moved onto an open sprint. It exits 1 with the refusal text on stderr when
+ * a plan's `Sprint:` field disagrees, and 0 otherwise; a plan naming a sprint
+ * that does not list it is a `::notice::` line and never a refusal. It runs
+ * under `PLOT_UNATTENDED=1`, because it writes nothing.
  *
  * Writes the sprint's member line, the plan's `- **Sprint:**` field, and — in
  * a Committed or Active sprint — a dated `### Scope Changes` line, through
@@ -62,9 +73,11 @@ const USAGE = [
   '# Usage: plot-sprint-member.mjs add <sprint> <slug> --tier must|should|could [--reason "<text>"] [--no-commit]',
   '#        plot-sprint-member.mjs defer <sprint> <slug> [--reason "<text>"] [--no-commit]',
   '#        plot-sprint-member.mjs remove <sprint> <slug> [--reason "<text>"] [--no-commit]',
+  '#        plot-sprint-member.mjs check --base <sha>',
   '#   --tier        where add places the member line (required for add)',
   '#   --reason      freeform note appended to the dated Scope Changes line',
   '#   --no-commit   stage the plan and sprint files without committing',
+  '#   --base        check: the commit to diff HEAD against (the merge base)',
   '# Output: a `wrote:` or `noop:` line, then a machine-countable summary:',
   '#             summary: outcome=write commit=done',
   '#         Exit 0 on a write or a no-op; 1 on a refusal or a failure, with the',
@@ -84,12 +97,32 @@ interface Args {
 
 const TIERS: readonly SprintMemberTier[] = ['must', 'should', 'could'];
 
+/** What `check` asked for. */
+interface CheckArgs {
+  verb: 'check';
+  base: string;
+}
+
+/** Parses `check`'s argv: `--base <sha>` and nothing else. */
+const parseCheckArgs = (argv: readonly string[]): CheckArgs | string => {
+  let base = '';
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--base') base = argv[++i] ?? '';
+    else if (arg === '-h' || arg === '--help') return '__help__';
+    else return `unknown flag '${arg}'`;
+  }
+  if (base === '' || base.startsWith('-')) return 'check needs --base <sha>';
+  return { verb: 'check', base };
+};
+
 /** Parses argv; returns the message to refuse with, or `__help__`. */
-const parseArgs = (argv: readonly string[]): Args | string => {
+const parseArgs = (argv: readonly string[]): Args | CheckArgs | string => {
   if (argv[0] === '-h' || argv[0] === '--help') return '__help__';
+  if (argv[0] === 'check') return parseCheckArgs(argv);
   const verb = argv[0];
   if (verb !== 'add' && verb !== 'defer' && verb !== 'remove') {
-    return `expected a verb 'add', 'defer' or 'remove', got '${verb ?? ''}'`;
+    return `expected a verb 'add', 'defer', 'remove' or 'check', got '${verb ?? ''}'`;
   }
   const sprint = argv[1] ?? '';
   const slug = argv[2] ?? '';
@@ -195,6 +228,9 @@ export const run = async (
     return 1;
   }
 
+  // `check` reads and writes nothing, so it runs where a writer would refuse.
+  if (parsed.verb === 'check') return runCheck(parsed, cwd, scriptDir, warn);
+
   // Sprint scope is a person's decision — the same refusal `needs-design.ts:329`
   // carries, and no flag lifts it.
   if (process.env.PLOT_UNATTENDED === '1') {
@@ -218,7 +254,7 @@ export const run = async (
   };
 
   try {
-    return await perform(ctx, parsed, write, warn);
+    return await perform(ctx, parsed as Args, write, warn);
   } catch (err) {
     if (err instanceof NamedRefusal) {
       warn(`${err.reason}\t${err.message}\n`);
@@ -230,6 +266,52 @@ export const run = async (
     }
     throw err;
   }
+};
+
+/** The read-only `check` verb: the gate rule over `HEAD` against `--base`. */
+const runCheck = async (args: CheckArgs, cwd: string, scriptDir: string, warn: Printer): Promise<number> => {
+  const refs = refsGit({ repoRoot: cwd, scriptDir });
+  const probe = await refs.repoRoot();
+  if (!probe.ok) {
+    warn("plot-sprint-member: not a git repository — run this from inside the checkout\n");
+    return 1;
+  }
+  const context = { repoRoot: probe.value, scriptDir };
+  const scripts = scriptsShell(context);
+  const planDir = (await configured(scripts, 'Plan directory', 'docs/plans/')).replace(/\/+$/, '');
+  const sprintDir = (await configured(scripts, 'Sprint directory', 'docs/sprints/')).replace(/\/+$/, '');
+
+  const changed = await refs.changedFiles('HEAD', args.base);
+  if (!changed.ok) {
+    warn(`plot-sprint-member: could not diff HEAD against ${args.base}\n`);
+    return 1;
+  }
+  const show = async (ref: string, path: string) => {
+    const text = await refs.showFile(ref, path);
+    return text.ok ? text.value : null;
+  };
+  const answer = await checkSprintMembers(
+    {
+      list: async (dir) => {
+        const blobs = await refs.listBlobs('HEAD', dir);
+        return (blobs.ok ? blobs.value : [])
+          .map((blob) => blob.path)
+          .filter((p) => p.endsWith('.md') && !p.slice(dir.length + 1).includes('/'));
+      },
+      before: (path) => show(args.base, path),
+      after: (path) => show('HEAD', path),
+    },
+    changed.value,
+    planDir,
+    sprintDir,
+  );
+  for (const notice of answer.notices) {
+    warn(`::notice::sprint-member: plan '${notice.slug}' names sprint '${notice.field}', which does not list it.\n`);
+  }
+  const text = sprintMemberRefusalText(answer.refusals);
+  if (text === null) return 0;
+  warn(`${text}\n`);
+  return 1;
 };
 
 /** The write itself; a `Refused` thrown here becomes a refusal on stderr. */

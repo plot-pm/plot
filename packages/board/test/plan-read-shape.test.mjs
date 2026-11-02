@@ -187,6 +187,8 @@ describe('the read shape', () => {
     // And the reads this branch introduced are local ones, positively asserted
     // rather than left to the absence above: a test that only ever subtracts
     // would still pass if the batch read vanished entirely.
-    assert.equal(linesIn(log, /^git .*ls-tree -r origin\//).length >= 1, true);
+    // The walk cache names the tip by the oid it read from `for-each-ref`, so the
+    // listing arrives as `ls-tree -r <40 hex>` rather than `ls-tree -r origin/…`.
+    assert.equal(linesIn(log, /^git .*ls-tree -r (origin\/|[0-9a-f]{40} )/).length >= 1, true);
   });
 });

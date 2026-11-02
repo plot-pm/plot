@@ -15,6 +15,7 @@ import {
   issuesClosedReading,
   refresh,
   stopFleetRefresh,
+  ticketLaneData,
   type CacheEntry,
 } from '../../src/server/fleet.js';
 import { discoveryLanes } from '../../src/server/discovery-lanes.js';
@@ -332,9 +333,9 @@ describe('the Discovery lanes read what the route kept', () => {
         { number: '2', title: 'closed 2', url: 'u2', closedAt: new Date(Date.now() - 2 * DAY_MS).toISOString(), statusCategory: 'Done' },
       ] },
     };
-    const recent = await discoveryLanes(opts, board, false);
+    const recent = await discoveryLanes(opts, board, false, await ticketLaneData(opts));
     expect(recent.tickets?.done.map((r) => r.id)).toEqual(['2']);
-    const on = await discoveryLanes(opts, board, true);
+    const on = await discoveryLanes(opts, board, true, await ticketLaneData(opts));
     expect(on.tickets?.done.map((r) => r.id).sort()).toEqual(['1', '2']);
   });
 
@@ -345,11 +346,11 @@ describe('the Discovery lanes read what the route kept', () => {
       answer: 'answered', at: new Date().toISOString(),
       rows: [{ number: '7', title: 'open 7', url: 'u7' }], complete: true,
     };
-    const fresh = await discoveryLanes(opts, board, false);
+    const fresh = await discoveryLanes(opts, board, false, await ticketLaneData(opts));
     expect(fresh.plansUnreadable).toBe(false);
     expect(fresh.tickets?.open.map((r) => r.id)).toEqual(['7']);
     rmTree(path.join(dir, 'docs'));
-    const kept = await discoveryLanes(opts, board, false);
+    const kept = await discoveryLanes(opts, board, false, await ticketLaneData(opts));
     expect(kept.plansUnreadable).toBe(true);
     expect(kept.tickets).toEqual(fresh.tickets);
   });

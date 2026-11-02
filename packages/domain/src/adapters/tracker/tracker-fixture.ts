@@ -6,6 +6,8 @@ import {
   VERSION_NOT_FOUND,
   type ClosedIssues,
   type IssueCommentOutcome,
+  type IssueCloseOutcome,
+  type IssueLabelOutcome,
   type IssueOpen,
   type IssueOpenOutcome,
   type IssueRead,
@@ -69,15 +71,25 @@ export interface TrackerFixture {
   /** Where `issueListWithTitle` answers `unaskable`, with this reason. */
   issueListWithTitleUnaskable?: string;
   /** Where every `issueComment` is recorded, in call order, before it can refuse. */
-  commented?: { id: string; body: string }[];
+  commented?: { id: string; body: string; marker?: string }[];
   /** Whether a comment write fails outright. */
   issueCommentFails?: boolean;
+  /** Where every `issueClose` is recorded, in call order, before it can refuse. */
+  closed?: string[];
+  /** Whether an issue-close write fails outright. */
+  issueCloseFails?: boolean;
   /** Where every `planStateWrite` is recorded, in call order, before it can refuse. */
   planStates?: PlanStateWrite[];
   /** What a plan-state write answers with; `written` by default. */
   planStateOutcome?: PlanStateOutcome;
   /** Whether a plan-state write fails outright. */
   planStateWriteFails?: boolean;
+  /** Where every `issueLabel` is recorded, in call order, before it can refuse. */
+  labelWrites?: { id: string; add: string; remove: readonly string[] }[];
+  /** Whether an issue-label write fails outright. */
+  issueLabelFails?: boolean;
+  /** Where set, `issueLabelReach` answers `unaskable` with this reason; `answered(true)` otherwise. */
+  issueLabelUnreachable?: string;
   /** Whether an issue-open write fails outright. */
   issueOpenFails?: boolean;
   /** Whether a status write fails outright. */
@@ -117,6 +129,8 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
   const opened = fixture.opened ?? [];
   const commented = fixture.commented ?? [];
   const planStates = fixture.planStates ?? [];
+  const labelWrites = fixture.labelWrites ?? [];
+  const closedIds = fixture.closed ?? [];
   return {
     config: (): TrackerConfig => ({
       scheme: fixture.scheme ?? 'fixture',
@@ -195,9 +209,9 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       return answered({ issues: found, complete: found.length < limit, pages: pagesOf(found.length) });
     },
 
-    issueComment: async (id, body): Promise<PortResult<IssueCommentOutcome>> => {
+    issueComment: async (id, body, marker): Promise<PortResult<IssueCommentOutcome>> => {
       // RECORDED BEFORE IT REFUSES, like `issueOpen`.
-      commented.push({ id, body });
+      commented.push(marker === undefined ? { id, body } : { id, body, marker });
       if (fixture.issueCommentFails === true) return failed();
       return answered<IssueCommentOutcome>({ outcome: 'commented' });
     },
@@ -208,6 +222,23 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       if (fixture.issueOpenFails === true) return failed();
       return answered<IssueOpenOutcome>({ outcome: 'opened', id: String(opened.length) });
     },
+
+    issueLabel: async (id, add, remove): Promise<PortResult<IssueLabelOutcome>> => {
+      // RECORDED BEFORE IT REFUSES, like `planStateWrite`.
+      labelWrites.push({ id, add, remove });
+      if (fixture.issueLabelFails === true) return failed();
+      return answered('labelled');
+    },
+
+    issueClose: async (id): Promise<PortResult<IssueCloseOutcome>> => {
+      // RECORDED BEFORE IT REFUSES, like `issueLabel`.
+      closedIds.push(id);
+      if (fixture.issueCloseFails === true) return failed();
+      return answered('closed');
+    },
+
+    issueLabelReach: (): PortResult<true> =>
+      fixture.issueLabelUnreachable === undefined ? answered(true) : unaskable(fixture.issueLabelUnreachable),
 
     planStateWrite: async (write): Promise<PortResult<PlanStateOutcome>> => {
       // RECORDED BEFORE IT REFUSES, like `statusWrite`.

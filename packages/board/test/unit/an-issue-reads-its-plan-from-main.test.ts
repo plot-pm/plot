@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { refsFixture } from '@plot-pm/domain/adapters';
+import { refsFixture, scriptsShell } from '@plot-pm/domain/adapters';
+import type { Scripts } from '@plot-pm/domain';
 import type { TreeBlob } from '@plot-pm/domain/ports/refs';
 
 import type { BuildBoardOptions } from '../../src/server/board.js';
@@ -98,9 +99,19 @@ describe('planMetasAtDefault', () => {
     expect(metas?.map((m) => m.issues)).toEqual([[2997]]);
   });
 
-  it('caches on the resolved oid: a second read at the same tip costs no second parse', async () => {
+  it('holds a plan per blob: a second read of the same blob costs no second parse', async () => {
+    const real = scriptsShell({ repoRoot: '.', scriptDir: SCRIPTS_DIR });
+    let parses = 0;
+    const config: Scripts = {
+      ...real,
+      planMeta: (files, options) => {
+        parses += 1;
+        return real.planMeta(files, options);
+      },
+    };
     const opts: BuildBoardOptions = {
       ...estate(),
+      config,
       refs: refsFixture({
         shas: { 'origin/main': MAIN_TIP },
         trees: { [MAIN_TIP]: [blob(PLAN_PATH, 'sha-plan')] },
@@ -108,13 +119,12 @@ describe('planMetasAtDefault', () => {
       }),
     };
     const first = await planMetasAtDefault(opts);
-    // A second call still resolves `origin/main` to the SAME oid, but states
-    // no tree for it — a re-parse would list zero blobs and answer `[]`.
-    // Getting `first` back instead proves the cache short-circuited before
-    // `listBlobs` ran at all.
-    const sameOidNoTree = refsFixture({ shas: { 'origin/main': MAIN_TIP } });
-    const second = await planMetasAtDefault({ ...opts, refs: sameOidNoTree });
-    expect(second).toEqual(first);
+    const second = await planMetasAtDefault(opts);
+    // `file` is the per-call staging path; every other field is the held parse.
+    const unstaged = (metas: typeof first) => metas?.map(({ file: _file, ...rest }) => rest);
+    expect(unstaged(second)).toEqual(unstaged(first));
+    expect(first).toHaveLength(1);
+    expect(parses).toBe(1);
   });
 
   it('forces a second parse once the tip moves to a new commit', async () => {

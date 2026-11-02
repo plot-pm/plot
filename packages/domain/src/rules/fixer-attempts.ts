@@ -3,8 +3,14 @@ import type { FixerAttemptsRecord } from '../entities/fixer-attempts.js';
 /** How many fixer attempts a PR may spend before the HIGH goes to a ticket instead. */
 export const FIXER_ATTEMPTS_BUDGET = 2;
 
+/** How many seconds one fixer run may take before the process runner ends it. */
+export const FIXER_BOUND_SECONDS = 3600;
+
 /**
  * How many attempts a PR has spent, for the budget check.
+ *
+ * An attempt with `start: 'failed'` spent nothing: the CLI refused the run
+ * before any agent started.
  *
  * **A MISSING OR UNREADABLE RECORD READS AS ZERO.** Zero is the SAFE
  * direction for a budget: reading "no record" as "budget exhausted" would
@@ -18,7 +24,7 @@ export const FIXER_ATTEMPTS_BUDGET = 2;
  * @returns the number of attempts spent; `0` where there is nothing to count.
  */
 export const fixerAttemptsSpent = (record: FixerAttemptsRecord | 'none' | 'unreadable'): number =>
-  record === 'none' || record === 'unreadable' ? 0 : record.attempts.length;
+  record === 'none' || record === 'unreadable' ? 0 : record.attempts.filter((attempt) => attempt.start !== 'failed').length;
 
 /**
  * Whether a PR has spent its whole fixer budget.

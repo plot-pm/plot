@@ -10442,7 +10442,7 @@ test('host: issue-list github --state closed searches by close date, asks no sor
   // GitHub search ignores `sort:closed-desc` (measured 2026-10-13), so no sort
   // qualifier is sent and the adapter sorts by `closedAt`.
   assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z');
-  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,issueType,closedAt');
+  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,issueType,closedAt,labels');
 });
 
 test('host: issue-list github open rows carry no closedAt and ask for none', () => {

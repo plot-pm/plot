@@ -57,11 +57,12 @@ describe('pathOf', () => {
 });
 
 describe('the gate table', () => {
-  it('registers bundle-commit, brief-name, state, controller, phase, main-checkout, brief-push, and an empty command still allows', async () => {
+  it('registers bundle-commit, brief-name, state, sprint-member, controller, phase, main-checkout, brief-push, and an empty command still allows', async () => {
     expect(GATES.map((g) => g.name)).toEqual([
       'bundle-commit',
       'brief-name',
       'state',
+      'sprint-member',
       'controller',
       'phase',
       'main-checkout',

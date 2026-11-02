@@ -47,12 +47,14 @@ export const RepairAttemptSchema = z
     branch: z.string(),
     /**
      * How the attempt ended on this machine: `lost` where another machine won
-     * the claim, `ended` where the role run ended. Absent while the attempt is
-     * open. Either value ends the attempt for the episode.
+     * the claim, `ended` where the role run ended, `start-failed` where the CLI
+     * refused the run before any agent started. Absent while the attempt is
+     * open. `lost` and `ended` end the attempt for the episode; `start-failed`
+     * spends nothing and allows one more start.
      */
     // plot-state: reading — what ended this machine's attempt, written once by
     //                       `repairAttemptStep`'s caller; read on every pass.
-    outcome: z.enum(['lost', 'ended']).optional(),
+    outcome: z.enum(['lost', 'ended', 'start-failed']).optional(),
     /** True once a run that crashed with no ending record was resumed; a run resumes at most once. */
     resumed: z.literal(true).optional(),
   })

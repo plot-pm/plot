@@ -66,6 +66,15 @@ const oidCache = <V>(): OidCache<V> => {
   };
 };
 
+/**
+ * A parsed plan as the board's parser reports it. The cache needs only the path
+ * the parser was given; the rest of the record is the caller's shape.
+ */
+export interface HeldPlanMeta {
+  /** The path the parser was given. */
+  readonly file: string;
+}
+
 /** What the cache answered and how often the refs moved, for the hour's measurement. */
 export interface WalkCacheStats {
   /** Beats whose snapshot was taken. */
@@ -92,6 +101,8 @@ export interface WalkCache {
   blobs: OidCache<string>;
   /** Parsed plans, keyed by (blob oid, path, prefixes, parser hash, config digest). */
   parses: OidCache<PlanRecord>;
+  /** Board plan metadata, keyed by (blob id, file name, parser hash, Tracker value). */
+  planMetas: OidCache<HeldPlanMeta>;
   /** Settled ancestry, keyed by (ancestor oid, descendant oid). */
   contains: OidCache<'yes' | 'no'>;
   /** Merge-commit subjects, keyed by (default-branch oid, cap). */
@@ -104,6 +115,14 @@ export interface WalkCache {
   changed: OidCache<readonly string[]>;
   /** Conflicting paths, keyed by (default-branch oid, branch oid). */
   conflicts: OidCache<readonly string[]>;
+  /** Delivery-record commits, keyed by (default-branch oid, file, field). */
+  recordCommit: OidCache<string | null>;
+  /** Plan authors, keyed by (default-branch oid, directory). */
+  planAuthors: OidCache<ReadonlyMap<string, string>>;
+  /** Behind counts, keyed by (checked-out branch oid, default-branch oid). */
+  countBehind: OidCache<number | null>;
+  /** The default branch's name, keyed by the snapshot digest and the checked-out branch. */
+  defaultBranch: OidCache<string>;
   /** The beat counters. */
   stats: WalkCacheStats;
   /** The previous beat's snapshot digest, or `null` before the first. */
@@ -126,12 +145,17 @@ export const freshWalkCache = (): WalkCache => {
     trees: oidCache<readonly TreeBlob[]>(),
     blobs: oidCache<string>(),
     parses: oidCache<PlanRecord>(),
+    planMetas: oidCache<HeldPlanMeta>(),
     contains: oidCache<'yes' | 'no'>(),
     merges: oidCache<readonly MergeCommit[]>(),
     additions: oidCache<ReadonlyMap<string, string>>(),
     ranges: oidCache<readonly CommitSubject[]>(),
     changed: oidCache<readonly string[]>(),
     conflicts: oidCache<readonly string[]>(),
+    recordCommit: oidCache<string | null>(),
+    planAuthors: oidCache<ReadonlyMap<string, string>>(),
+    countBehind: oidCache<number | null>(),
+    defaultBranch: oidCache<string>(),
   };
   const all = Object.values(kinds) as Array<OidCache<unknown>>;
   return {
@@ -161,6 +185,10 @@ export interface RefSnapshot {
   entries: readonly RefState[];
   /** One string that differs whenever any ref was created, deleted or moved. */
   digest: string;
+  /** The full ref name of the attached local branch, or `undefined` on a detached HEAD or where the snapshot does not say. */
+  headRef: string | undefined;
+  /** The oid the attached local branch points at, or `undefined` where {@link RefSnapshot.headRef} is. */
+  headOid: string | undefined;
 }
 
 /**
@@ -171,8 +199,11 @@ export interface RefSnapshot {
  */
 export const snapshotOf = (entries: readonly RefState[]): RefSnapshot => {
   const byRef = new Map(entries.map((e) => [e.ref, e.sha] as const));
+  const head = entries.find((e) => e.head === true);
   return {
     entries,
+    headRef: head?.ref,
+    headOid: head?.sha,
     digest: entries.map((e) => `${e.ref}=${e.sha}`).join('\n'),
     oidOf: (ref) => {
       if (FULL_OID.test(ref)) return ref;
@@ -331,6 +362,25 @@ export const cachedRefs = (inner: Refs, snapshot: RefSnapshot, cache: WalkCache)
       (await keyed(cache.conflicts, [snapshot.oidOf(base), snapshot.oidOf(branch)], '', ([a, b]) => inner.conflictPaths(a!, b!)))
         ?? inner.conflictPaths(base, branch),
 
+    recordCommit: async (file, field, ref) =>
+      (await keyed(cache.recordCommit, [snapshot.oidOf(ref)], `${file}\0${field}`, ([oid]) => inner.recordCommit(file, field, oid!)))
+        ?? inner.recordCommit(file, field, ref),
+
+    planAuthors: async (ref, dir) =>
+      (await keyed(cache.planAuthors, [snapshot.oidOf(ref)], dir, ([oid]) => inner.planAuthors(oid!, dir)))
+        ?? inner.planAuthors(ref, dir),
+
+    // A detached HEAD has no attached branch in the snapshot, so it is never
+    // keyed: the inner read answers `null` for it, and a branch that was
+    // detached after a held count cannot replay that count.
+    countBehind: async (ref) =>
+      (await keyed(cache.countBehind, [snapshot.headOid, snapshot.oidOf(ref)], '', ([, oid]) => inner.countBehind(oid!)))
+        ?? inner.countBehind(ref),
+
+    // No oid is named, so `keyed` always answers.
+    defaultBranch: async () =>
+      (await keyed(cache.defaultBranch, [], `${snapshot.digest}\0${snapshot.headRef ?? ''}`, () => inner.defaultBranch()))!,
+
     containsMany: async (pairs) => {
       const settled = pairs.map((p) =>
         FULL_OID.test(p.ancestor) && FULL_OID.test(p.descendant) ? cache.contains.get(`${p.ancestor}\0${p.descendant}`) : undefined,
@@ -390,3 +440,58 @@ export const cachedPlans = (inner: PlanStore, cache: WalkCache, parseKey: string
     return answered<readonly PlanRecord[]>(records);
   },
 });
+
+/** One plan file handed to {@link cachedPlanMetas}. */
+export interface PlanMetaFile {
+  /** The path the parser reads. */
+  path: string;
+  /** The git blob id of the file's bytes. */
+  blobId: string;
+  /** The file's base name; the parser derives fields from it. */
+  name: string;
+}
+
+/**
+ * Parses plan files once per content.
+ *
+ * A file whose (blob id, name, `parseKey`) is held is answered from the cache
+ * with `file` set to its current path; the others go to `parse` in one call and
+ * are stored. The result follows the order of `files`. A file the parser
+ * reports no record for is absent from the result and stored nothing. A parse
+ * that returns `null` makes the whole call return `null` and stores nothing.
+ *
+ * @typeParam M - the record the parser returns.
+ * @param cache - the process's cache.
+ * @param files - the plan files to read.
+ * @param parseKey - the parser-file hash joined to every config value the parser output depends on, such as `Tracker`.
+ * @param parse - parses the given paths in one call; reports each record's `file` as the path it was given.
+ * @returns one record per parsed file, or `null` where the parser failed.
+ */
+export const cachedPlanMetas = async <M extends HeldPlanMeta>(
+  cache: WalkCache,
+  files: readonly PlanMetaFile[],
+  parseKey: string,
+  parse: (paths: string[]) => Promise<readonly M[] | null>,
+): Promise<M[] | null> => {
+  const keyOf = (f: PlanMetaFile): string => [f.blobId, f.name, parseKey].join('\0');
+  const held = files.map((f) => cache.planMetas.get(keyOf(f)) as M | undefined);
+  const askedAt = files.flatMap((_, at) => (held[at] === undefined ? [at] : []));
+  cache.stats.hits += files.length - askedAt.length;
+  const fresh = new Map<string, M>();
+  if (askedAt.length > 0) {
+    cache.stats.misses += 1;
+    const parsed = await parse(askedAt.map((at) => files[at]!.path));
+    if (parsed === null) return null;
+    for (const meta of parsed) fresh.set(meta.file, meta);
+    for (const at of askedAt) {
+      const meta = fresh.get(files[at]!.path);
+      if (meta !== undefined) cache.planMetas.set(keyOf(files[at]!), meta);
+    }
+  }
+  const out: M[] = [];
+  files.forEach((f, at) => {
+    const meta = held[at] !== undefined ? { ...held[at]!, file: f.path } : fresh.get(f.path);
+    if (meta !== undefined) out.push(meta);
+  });
+  return out;
+};

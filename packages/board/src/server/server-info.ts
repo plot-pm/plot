@@ -125,18 +125,18 @@ const readConfig = async (
 const CI_KEY = 'CI';
 
 /**
- * The CI system this repository declared, read ONCE for the process's life.
+ * The CI system this repository declared.
  *
- * A STARTUP FACT, unlike `branch`. A process serves one worktree, and that
- * worktree's `CI` key does not change under it the way its checked-out branch
- * does — so this is memoised outright rather than on a TTL, and the spawn stays
- * off the `/api/board` path this file exists to keep clear.
+ * No longer memoised for the process's life: {@link readConfig} already reads
+ * through `planStoreFor(opts).config`, which shares this board's held-answers
+ * cache over `CLAUDE.md`/`AGENTS.md` — so a repeat call still costs no spawn,
+ * and a startup read that failed is asked again rather than held as `''`
+ * forever.
  *
  * AN UNREADABLE KEY IS `''`, which `checksUnaskableNote` renders as the unnamed
  * sentence. A board that could not read the key knows less than one that did,
  * and naming a system it never read would be worse than naming none.
  */
-let cachedCi: string | null = null;
 
 /**
  * What a person calls each CI system, keyed by the word its config uses.
@@ -157,28 +157,22 @@ const CI_DISPLAY_NAMES: Readonly<Record<string, string>> = {
 };
 
 const ciSystem = async (opts: BuildBoardOptions): Promise<string> => {
-  if (cachedCi === null) {
-    const declared = await readConfig(opts, CI_KEY, '');
-    const key = declared.trim().toLowerCase();
-    cachedCi = key === '' ? '' : (CI_DISPLAY_NAMES[key] ?? declared.trim());
-  }
-  return cachedCi;
+  const declared = await readConfig(opts, CI_KEY, '');
+  const key = declared.trim().toLowerCase();
+  return key === '' ? '' : (CI_DISPLAY_NAMES[key] ?? declared.trim());
 };
 
 /** The `## Plot Config` key declaring each person's spellings. */
 const PEOPLE_KEY = 'People';
 
-let cachedPeople: PersonDirectory | null = null;
-
 /**
- * The declared spellings of each person, read ONCE for the process's life — a
- * startup fact, like `CI`. `{}` where the key is absent or unreadable, which
- * the ownership rule reads as no spelling declared.
+ * The declared spellings of each person — a startup fact, like `CI`, now read
+ * through {@link readConfig}'s own cache rather than held for the process's
+ * life. `{}` where the key is absent or unreadable, which the ownership rule
+ * reads as no spelling declared.
  */
-export const people = async (opts: BuildBoardOptions): Promise<PersonDirectory> => {
-  if (cachedPeople === null) cachedPeople = parsePersonDirectory(await readConfig(opts, PEOPLE_KEY, ''));
-  return cachedPeople;
-};
+export const people = async (opts: BuildBoardOptions): Promise<PersonDirectory> =>
+  parsePersonDirectory(await readConfig(opts, PEOPLE_KEY, ''));
 
 /** Who is reading this board: the host user and git's email, `''` where absent. */
 interface Identity {

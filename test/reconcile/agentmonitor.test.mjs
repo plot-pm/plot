@@ -22,7 +22,7 @@
 // there, one real wrapper over a real desk publishing a real finding.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -409,4 +409,75 @@ test('a debt on the new desk after a hop is reported there, naming it, with noth
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// THE PER-SECOND CHECK STARTS ONE PROCESS — slice 2 of the-agent-reporter-starts-a-sleep
+// ---------------------------------------------------------------------------
+const subjectScript = path.join(scripts, 'plot-monitor-subject.sh');
+
+/** `plot_monitor_subject` for a pid file, with a fresh shell per call. */
+const subjectOf = (pidFile) => execFileSync('bash', ['-c',
+  `. ${JSON.stringify(subjectScript)}; plot_monitor_subject "$1"`, '_', pidFile],
+{ encoding: 'utf8' });
+
+test('the AgentMonitor starts one process per second: sleep, and no cat, tr or dirname', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-shim-'));
+  const agent = spawn('sleep', ['30'], { stdio: 'ignore' });
+  try {
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    const log = path.join(root, 'starts.log');
+    for (const name of ['sleep', 'cat', 'tr', 'dirname']) {
+      const real = execFileSync('bash', ['-c', `command -v ${name}`], { encoding: 'utf8' }).trim();
+      fs.writeFileSync(path.join(bin, name),
+        `#!/bin/sh\necho ${name} >> ${JSON.stringify(log)}\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
+    }
+    const pidFile = path.join(root, '.plot-worker.pid');
+    fs.writeFileSync(pidFile, String(agent.pid));
+    execFileSync('bash', ['-c',
+      `. ${JSON.stringify(subjectScript)}; plot_monitor_wait 5 "$1"`, '_', pidFile],
+    { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, timeout: 30_000 });
+    const starts = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.deepEqual(starts, ['sleep', 'sleep', 'sleep', 'sleep', 'sleep'],
+      'five naps, and no cat, tr or dirname start beside them');
+  } finally {
+    agent.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a pid file with no trailing newline reads alive, then gone once the pid is dead', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-nonl-'));
+  const agent = spawn('sleep', ['30'], { stdio: 'ignore' });
+  try {
+    const pidFile = path.join(root, '.plot-worker.pid');
+    fs.writeFileSync(pidFile, String(agent.pid));
+    assert.equal(subjectOf(pidFile), 'alive');
+    // A zombie still answers `kill -0`, so wait for node to reap the child.
+    const exited = new Promise((resolve) => agent.once('exit', resolve));
+    agent.kill();
+    await exited;
+    assert.equal(subjectOf(pidFile), 'gone');
+  } finally {
+    agent.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a half-written or missing pid file keeps its answers', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-half-'));
+  try {
+    const pidFile = path.join(root, '.plot-worker.pid');
+    fs.writeFileSync(pidFile, '');
+    assert.equal(subjectOf(pidFile), 'starting');
+    fs.writeFileSync(path.join(root, '.plot-worker.exit'), '0');
+    assert.equal(subjectOf(pidFile), 'gone');
+    fs.rmSync(path.join(root, '.plot-worker.exit'));
+    fs.rmSync(pidFile);
+    assert.equal(subjectOf(pidFile), 'starting', 'no pid file, desk present');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  assert.equal(subjectOf(path.join(root, '.plot-worker.pid')), 'gone', 'desk removed');
 });

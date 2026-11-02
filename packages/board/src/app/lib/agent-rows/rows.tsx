@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from 'react';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
-import { planIndexOf, planReference, type PlanIndex } from '@plot-pm/domain';
+import { planIndexOf, planReference, planRefOfIssue, type PlanIndex } from '@plot-pm/domain';
 import {
   type AgentRow,
   type WaitingOn,
@@ -2844,9 +2844,19 @@ export function inferredPlanName(title: string): string {
  * than borrowing a word from another object's vocabulary.
  */
 export function IssueRowView(
-  { issue, idea, story, issueAnswer, showKindLabel = true }:
-  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer | null; showKindLabel?: boolean },
+  { issue, idea, story, issueAnswer, showKindLabel = true, onOpenPlan, planIndex = EMPTY_PLAN_INDEX }:
+  {
+    issue: IssueRow;
+    idea: DispatchInfo;
+    story: DispatchInfo;
+    issueAnswer: IssueAnswer | null;
+    showKindLabel?: boolean;
+    onOpenPlan?: AgentListProps['onOpenPlan'];
+    planIndex?: PlanIndex;
+  },
 ) {
+  const { ref, resolved } = planRefOfIssue(issue.number, inferredPlanName(issue.title), planIndex);
+  const answer = planReference(ref, resolved ? planIndex : EMPTY_PLAN_INDEX);
   return (
     <TupleRowView
       tuple={tupleFromIssue(issue, { showKindLabel })}
@@ -2905,14 +2915,22 @@ export function IssueRowView(
         // named thing in slot 4 — reported from a screenshot, where this was the
         // one name in the column with no icon before it.
         //
-        // `what: 'plan'` because that is what the name IS: the plan this issue
-        // would become, which is why the function is called
-        // `inferredPlanName`. `href: ''` keeps it TEXT, by the rule the
-        // component's own docstring states — the plan does not exist, and a link
-        // to one that does not is the fabrication this board keeps removing.
+        // `what: 'plan'` because that is what the name IS. Where an indexed plan
+        // names this issue, `planRefOfIssue` resolves it and the name links to
+        // that plan. Otherwise it is the plan this issue would become
+        // (`inferredPlanName`), and `href: ''` keeps it TEXT: that arm fires
+        // only when the lookup resolves nothing, and a link to a plan that
+        // does not exist is the fabrication this board keeps removing.
         <TupleLinkView
-          link={{ what: 'plan', label: inferredPlanName(issue.title), href: '' }}
+          link={{
+            what: 'plan',
+            label: answer.label,
+            href: answer.href ?? '',
+            internal: true,
+            file: answer.href !== null ? decodeURIComponent(answer.href.replace(/^\/plan\//, '')) : undefined,
+          }}
           showWhat
+          onOpenPlan={onOpenPlan}
           extraAttr={{ text: { 'data-issue-name': '' } }}
         />
       }

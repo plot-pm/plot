@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { gateContractFile } from '@plot-pm/domain/adapters';
+import { gateContractFile, hostFixture, treesFixture } from '@plot-pm/domain/adapters';
+import { answered, failed, type PortResult, type Scripts } from '@plot-pm/domain';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,6 +46,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 import { boardAnswer } from '../../src/server/controllers/board-answer.js';
 import { mockEstate, realEstate } from '../../src/server/estate.js';
 import { pauseFleetRefresh, pulseFor, stopFleetRefresh } from '../../src/server/fleet.js';
+import { serverInfo } from '../../src/server/server-info.js';
 import { removeTree } from '../rm-tree.mjs';
 
 /**
@@ -135,10 +137,14 @@ const estateRepo = (): string => {
   }
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'plans');
+  // The mirror a fetch leaves: the cache keys on these oids.
+  git(repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
   git(repo, 'checkout', '-q', '-b', 'idea/draft-one');
   fs.writeFileSync(path.join(repo, 'docs/plans/2026-10-04-draft-one.md'), PLAN('Draft one', 'Draft'));
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'draft');
+  git(repo, 'update-ref', 'refs/remotes/origin/idea/draft-one', 'HEAD');
   git(repo, 'checkout', '-q', 'main');
   return repo;
 };
@@ -168,7 +174,8 @@ const normalise = (line: string, roots: Record<string, string>): string => {
   for (const [name, value] of Object.entries(roots)) {
     out = out.split(`/private${value}`).join(`<${name}>`).split(value).join(`<${name}>`);
   }
-  return out;
+  // Plans read from a ref are staged in a fresh directory per request.
+  return out.replace(/(?:\/private)?\/\S*?plot-board-plans-[^/\s]+/g, '<stage>');
 };
 
 /**
@@ -177,44 +184,11 @@ const normalise = (line: string, roots: Record<string, string>): string => {
  */
 const WARM_STARTS: readonly string[] = [
   "execFileSync git hash-object --stdin-paths",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash <scripts>/plot-config.sh get Board command ",
-  "spawn bash <scripts>/plot-config.sh get Branch prefixes ",
-  "spawn bash <scripts>/plot-config.sh get Interrogate command ",
-  "spawn bash <scripts>/plot-config.sh get Main branch ",
-  "spawn bash <scripts>/plot-config.sh get Main branch ",
-  "spawn bash <scripts>/plot-config.sh get Main branch ",
-  "spawn bash <scripts>/plot-config.sh get Plan directory docs/plans/",
-  "spawn bash <scripts>/plot-config.sh get Plan directory docs/plans/",
-  "spawn bash <scripts>/plot-config.sh get Plan directory docs/plans/",
-  "spawn bash <scripts>/plot-config.sh get Release directory docs/releases/",
-  "spawn bash <scripts>/plot-config.sh get Sprint directory docs/sprints/",
-  "spawn bash <scripts>/plot-config.sh get Story directory docs/stories/",
-  "spawn bash <scripts>/plot-config.sh get Tracker ",
-  "spawn bash <scripts>/plot-config.sh get Tracker ",
-  "spawn bash <scripts>/plot-config.sh get Workflow phases ",
-  "spawn bash <scripts>/plot-config.sh get Workflow phases ",
-  "spawn bash <scripts>/plot-plan-meta.sh <repo>/docs/plans/2026-10-01-alpha.md <repo>/docs/plans/2026-10-02-beta.md <repo>/docs/plans/2026-10-03-gamma.md",
-  "spawn bash <scripts>/plot-plan-meta.sh <repo>/docs/plans/2026-10-01-alpha.md <repo>/docs/plans/2026-10-02-beta.md <repo>/docs/plans/2026-10-03-gamma.md",
-  "spawn bash <scripts>/plot-plan-meta.sh <repo>/docs/plans/2026-10-01-alpha.md <repo>/docs/plans/2026-10-02-beta.md <repo>/docs/plans/2026-10-03-gamma.md",
   "spawn git --no-optional-locks -C <repo> status --porcelain --untracked-files=no",
-  "spawn git for-each-ref --format=%(refname) %(objectname) refs/heads refs/remotes",
-  "spawn git log -m --first-parent -U0 --format=@@%H -G^[ 	]*[-*][ 	]*\\*\\*Delivered:\\*\\* origin/ -- docs/plans/2026-10-01-alpha.md",
-  "spawn git log -m --first-parent -U0 --format=@@%H -G^[ 	]*[-*][ 	]*\\*\\*Delivered:\\*\\* origin/ -- docs/plans/2026-10-02-beta.md",
-  "spawn git log -m --first-parent -U0 --format=@@%H -G^[ 	]*[-*][ 	]*\\*\\*Delivered:\\*\\* origin/ -- docs/plans/2026-10-03-gamma.md",
-  "spawn git log origin/main --diff-filter=AR --name-status --format=@%H	%an -- docs/plans/",
-  "spawn git ls-tree -r origin/main -- docs/plans/",
-  "spawn git ls-tree -r origin/main -- docs/sprints/active",
-  "spawn git ls-tree -r origin/main -- docs/stories/",
-  "spawn git ls-tree -r origin/main -- docs/stories/",
+  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
+  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
+  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git rev-parse --git-common-dir",
-  "spawn git rev-parse origin/main",
-  "spawn git rev-parse origin/main",
   "spawn git rev-parse origin/main^{commit}",
   "spawn node <gate>/plot-gate.mjs --spawn-contract",
 ];
@@ -264,5 +238,79 @@ describe('a warm /api/board request', () => {
     const opts = { repoRoot: estateRepo(), scriptsDir: scriptsWithSilentHost() };
     const answer = await boardAnswer(opts, mockEstate(), 'localhost', 7777, false);
     expect(answer.interrogate).toHaveProperty('available');
+  });
+});
+
+/** A `Scripts` whose config/configSync answer is scripted and counted, everything else unused. */
+const scriptedConfig = (answer: () => PortResult<string>): { scripts: Scripts; calls: { count: number } } => {
+  const calls = { count: 0 };
+  const unused = (): never => {
+    throw new Error('not used by serverInfo');
+  };
+  const scripts = {
+    planMeta: unused,
+    planMetaSync: unused,
+    config: async (..._args: unknown[]) => {
+      calls.count += 1;
+      return answer();
+    },
+    configSync: unused,
+    agentSettings: unused,
+    host: unused,
+    hostSaid: unused,
+    awaited: unused,
+    start: unused,
+    stream: unused,
+    sourced: unused,
+    pathOf: unused,
+  } as unknown as Scripts;
+  return { scripts, calls };
+};
+
+describe('serverInfo reads CI and People through the config cache, not a process-lifetime hold', () => {
+  it('shows a CLAUDE.md edit on the very next call', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-starts-ci-'));
+    made.push(repoRoot);
+    const claude = path.join(repoRoot, 'CLAUDE.md');
+    fs.writeFileSync(claude, '# P\n\n## Plot Config\n\n- **CI:** jenkins\n');
+    const opts = {
+      repoRoot,
+      scriptsDir: scriptsWithSilentHost(),
+      trees: treesFixture({}),
+      hostAdapter: hostFixture({}),
+    };
+
+    const first = await serverInfo(opts, 7777);
+    expect(first.ci).toBe('Jenkins');
+
+    const stat = fs.statSync(claude);
+    fs.writeFileSync(claude, '# P\n\n## Plot Config\n\n- **CI:** github-actions\n');
+    fs.utimesSync(claude, new Date(stat.atimeMs + 1000), new Date(stat.mtimeMs + 1000));
+
+    const second = await serverInfo(opts, 7777);
+    expect(second.ci).toBe('GitHub Actions');
+  });
+
+  it('re-asks People after a failed read instead of holding the failure', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-starts-people-'));
+    made.push(repoRoot);
+    let succeed = false;
+    const { scripts } = scriptedConfig(() =>
+      succeed ? answered('jwloka = Jan Wloka') : failed(),
+    );
+    const opts = {
+      repoRoot,
+      scriptsDir: scriptsWithSilentHost(),
+      trees: treesFixture({}),
+      hostAdapter: hostFixture({}),
+      config: scripts,
+    };
+
+    const first = await serverInfo(opts, 7777);
+    expect(first.people).toEqual({});
+
+    succeed = true;
+    const second = await serverInfo(opts, 7777);
+    expect(second.people).toEqual({ jwloka: 'jwloka', 'jan wloka': 'jwloka' });
   });
 });

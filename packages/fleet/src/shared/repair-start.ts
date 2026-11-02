@@ -20,6 +20,8 @@ export type RepairStartOutcome =
   | 'role-resumed'
   | 'role-failed'
   | 'attempt-ended'
+  | 'attempt-start-failed'
+  | 'attempt-held'
   | 'awaiting-repair'
   | 'pr-recorded';
 
@@ -183,6 +185,11 @@ const startRepair = async (
     case 'record-ended':
       await world.repair.write({ ...record, attempt: { ...attempt, outcome: 'ended' }, at: stamp });
       return 'attempt-ended';
+    case 'record-start-failed':
+      await world.repair.write({ ...record, attempt: { ...attempt, outcome: 'start-failed' }, at: stamp });
+      return 'attempt-start-failed';
+    case 'held':
+      return 'attempt-held';
     case 'resume':
       await world.repair.write({ ...record, attempt: { ...attempt, resumed: true }, at: stamp });
       return (await world.startRole(branch)) === 'started' ? 'role-resumed' : 'role-failed';

@@ -7,7 +7,7 @@
 - **State:** Approved
 - **Type:** feature
 - **Sprint:** delivery-loop
-- **Issue:** #2993
+- **Issue:** #2993, #3040
 - **Story:**
 - **Review:** pr
 - **Impl:** own branches
@@ -16,13 +16,15 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-plan-reference-is-decided-once`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-rows-name-a-plan-one-way`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-panels-name-a-plan-one-way`
+- **Started:** 2026-11-02, Jan Wloka, `feature/a-ticket-row-names-its-plan`
 
 ## Changelog
 
 - Every element whose subject is a plan names it as `<issue keys>: <slug>`, for example `1090, 1091: a-plan-slug` or `EWZKUS-3430: a-plan-slug`, when the plan has issue keys, and as the slug alone when it has none. The plan's title is the tooltip.
 - The issue prefix is never cut off. A slug that does not fit ends in an ellipsis and keeps at least 8 characters visible, and the tooltip and the accessible name keep the full text.
 - Every reference to a plan that exists is a link to the board's `/plan/<file>` page. A reference that carries its own plan file, as every Delivery row does, links from that file at once, before the Planning payload arrives. A plain click opens the plan panel; a click with a modifier key or the middle button opens the page as the browser does. No reference opens a new tab by itself, and no reference links the git host.
-- A reference that names no plan file and that the board cannot resolve, such as the inferred plan on an issue row, shows its issue prefix and no link.
+- A ticket row whose ticket has a plan names that plan as `<issue keys>: <slug>` and links it, in every section that lists tickets, such as *Assigned to you* and *Waiting on you*.
+- A reference that names no plan file and that the board cannot resolve, such as the inferred plan of a ticket with no plan, shows its issue prefix and no link.
 - The Delivery tab shows the issue prefix on its rows while the Planning payload is still loading or has failed.
 - A plan row on an `idea/<slug>` branch names its plan as `<issue keys>: <slug>` and links `/plan/<file>` from the first fleet payload, also before the fleet scan has read the plan on the branch. It never shows the branch name in the plan's place.
 - The board builds a `/plan/` link in one place. `scripts/check-plan-routes.sh` fails a change that builds one anywhere else.
@@ -80,7 +82,7 @@ The user also asked to remove the duplicate label and link helpers.
 - In scope: the plan head (`rows.tsx:649`), a row's plan link in slot 4 (`planLink`, `tuple-row.ts:486`), the slice row's sole-plan link (`tuple-row.ts:1514-1519`), the plan row (`tupleFromPlan`, `tuple-row.ts:1294`), the plan-level verify, design and spec rows (`plan-level-row.tsx:168`), the draft row (`draft-plan-row.tsx:24`), the mixed-group heading (`AgentList.tsx:2162`), the unplaced rows (`AgentList.tsx:2694`), the story modal's plan list (`StoryModal.tsx:310`), the sprint members (`SprintModal.tsx:203`, `:213`), the agent panel's plan fact (`AgentPanelFacts.tsx:399`), the inferred plan on an issue row (`rows.tsx:2879`).
 - The plan itself, not a reference: the Planning card heading (`PlanCard.tsx:373`) and the plan modal heading (`PlanModal.tsx:44-46`) keep the title as their heading and gain the issue prefix from `planReference`. Their `Open` anchors (`PlanCard.tsx:343`, `:498`, `PlanModal.tsx:45`) take their href from `planRoute`.
 - Excluded, and it stays as today: a slice's own name stays text (`tupleFromSlice`, `tuple-row.ts:1474-1477`; three sibling slices must not show three links to one document). Text inside a control stays plain text with no anchor: the approve, needs-design, dispatch and menu buttons and their `title`s (`ApproveButton.tsx:69-72`, `NeedsDesignButton.tsx:29`, `StartWorkButton.tsx:331`, `menus.tsx:1316`), because an `<a>` inside a `<button>` is invalid nesting. A branch row inside a plan group, whose plan head one line up carries the reference, shows no plan link (`agents-tab.browser.test.ts:545-557` stays unchanged).
-- The inferred plan on an issue row (a plan that does not exist yet) shows its issue number and no link. A reference that carries its own file links to it even when neither a card nor a draft resolves it, as rows do today; the `/plan/<file>` route answers for a file the server cannot find. A sprint member with no card keeps its `?` mark (`SprintModal.tsx:193-228`).
+- A ticket row names the plan its ticket already has: the plan the board resolves for the ticket (`ticketPlansOf`, the same answer the row's phase reads) goes to `planReference` with its file, so the row shows the prefix and links. Only a ticket with no plan shows the inferred name (`inferredPlanName`), with its issue number and no link. Measured 2026-11-02: every ticket row showed the inferred name as plain text with no prefix, also for delivered plans such as `two-test-teardowns-turn-main-red` (#3006), because `rows.tsx:2913` renders `href: ''` and the rows slice did not move that site (#3040). A reference that carries its own file links to it even when neither a card nor a draft resolves it, as rows do today; the `/plan/<file>` route answers for a file the server cannot find. A sprint member with no card keeps its `?` mark (`SprintModal.tsx:193-228`).
 - Out of scope for the label: a link inside a rendered document body (story or plan markdown). Its text is the author's prose, and the board does not rewrite prose. Its href is in scope: `StoryModal` and `server/board.ts` call `planRouteOfDocLink`, so the duplicate regex goes. `server/board.ts` is not in the files of PR #2992, which merged on 2026-11-01.
 
 **Two gates prove the two rules.**
@@ -132,6 +134,10 @@ Decided 2026-11-01 by the operator after panel round 1 (`.plot/panels/every-plan
 
 - `feature/the-panels-name-a-plan-one-way` — `PlanCard` and `PlanModal` headings gain the prefix and their `Open` anchors call `planRoute`; `StoryModal` lists its plans through `PlanReference` and calls `planRouteOfDocLink` instead of `rewritePlanLink`; `server/board.ts:3182-3194` calls `planRouteOfDocLink`; `SprintModal`, `AgentPanelFacts`, `WorkerLogModal` (`:108`, `:319`) and `Swimlanes` (`:244`) take `onOpenPlan(file) => boolean`; `Board.tsx:136` moves from `(card)` to `(file)`; the `App.tsx` fallbacks at `:952`, `:965`, `:980` call `planRoute`. Adds `scripts/check-plan-routes.sh` and a step that runs it in `.github/workflows/ci.yml`, beside the other `scripts/check-*.sh` steps (for example `Plan headings say Slices`, `ci.yml:1666-1667`), removes the `` href={`/plan/ `` allowance from `ROW_NAVIGATION` (`agent-list.test.ts:3398`), adds the catalogue browser test and updates the ledger in `stubbed-tests-start-no-board.test.ts:438-445`. Deletes `planHref` (`lib/plan.ts:13`), `rewritePlanLink` (`StoryModal.tsx:12`), `rewritePlanLinks` (`server/board.ts:3182`) and the moved `planHref` assertions in `plan.test.ts`. <!-- waits: feature/the-rows-name-a-plan-one-way --> → #3015
 
+### Ticket rows
+
+- `feature/a-ticket-row-names-its-plan` — the ticket row (`rows.tsx:2879-2917`) renders its plan slot through `PlanReference`. A domain rule answers the reference a ticket row makes: the ticket's resolved plan with its file and issue keys when it has one, and otherwise the inferred name with the ticket's own key and no file. The rule has its own domain unit tests; the row test asserts the label and href for a ticket with a Delivered plan, an Approved plan and no plan. Removes the `href: ''` text-only arm and its comment. Refs #3040. <!-- waits: feature/a-plan-reference-is-decided-once --> → #3046
+
 ### Fleet index
 
 - `feature/the-fleet-payload-indexes-its-plans` — `/api/fleet` carries `plans: Record<slug, { file, issues }>`, an optional field in `contract/schema.ts`, built in `server/fleet.ts` from the metas `planMetasOf` already returns to `referencedIssues` and `ticketPlansOf`. The Delivery tab passes it to `planIndexOf` as `fleetPlans`. A contract test asserts that every fleet row's and slice's plan has an index entry. <!-- waits: feature/the-panels-name-a-plan-one-way, feature/the-scan-script-is-a-launcher, bug/an-issue-reads-its-plan-from-main --> <!-- builds: a plan index on the fleet payload -->
@@ -155,6 +161,8 @@ Each row names the test that proves it. Domain rows run in `pnpm --filter @plot-
 | A reference with its own file links before the index | ref file `gone.md`, empty index | label `gone`, href `/plan/gone.md`, `exists: true` | domain unit | Rule |
 | No link where nothing resolves | ref slug `gone`, no file, empty index, keys `['5']` | label `5: gone`, href `null`, `exists: false` | domain unit | Rule |
 | Inferred plan | ref with issues `['42']`, no file | label `42: <inferred name>`, href `null` | domain unit | Rule |
+| A ticket names its existing plan | ticket `3006` whose plan `two-test-teardowns-turn-main-red` is Delivered | label `3006: two-test-teardowns-turn-main-red`, href `/plan/<file>` | domain unit and row test | Ticket rows |
+| A ticket with no plan | ticket `42`, no plan | label `42: <inferred name>`, no link | domain unit and row test | Ticket rows |
 | Document link rewrite | `../../plans/2026-08-16-slug.md`; `https://x/y` | `/plan/slug.md`; unchanged | domain unit | Rule |
 | Story link rewrite | `../stories/a-story/STORY-a-story.md` | `/story/a-story` | domain unit | Rule |
 | The prefix is never truncated | three-key plan in a narrow column | prefix span `shrink-0`, slug span `truncate`, `title` holds label and title | component unit | Rule |

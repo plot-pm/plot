@@ -16,6 +16,9 @@
 - **Started:** 2026-11-01, Jan Wloka, `bug/an-issue-reads-its-plan-from-main`
 - **Started:** 2026-11-01, Jan Wloka, `bug/the-plan-comment-has-one-writer`
 - **Started:** 2026-11-01, Jan Wloka, `infra/released-issues-carry-their-label`
+- **Started:** 2026-11-02, Jan Wloka, `bug/an-added-issue-owes-its-phase`
+- **Started:** 2026-11-02, Jan Wloka, `bug/settled-finding-tickets-close`
+- **Started:** 2026-11-02, Jan Wloka, `bug/a-slice-row-reads-its-head-s-checks`
 
 ## Changelog
 
@@ -173,11 +176,11 @@ Domain rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`, board
 
 ### Added issues
 
-- `bug/an-added-issue-owes-its-phase` — `issueTransitionOf` in `packages/domain/src/rules/state-transition.ts` and its call in the gate entry `packages/board/src/server/entry/gate.ts`; `--only-issue` and the receipt in `packages/board/src/server/entry/plan-state.ts`; the README row of `plot-plan-state.sh`. Tests: `packages/domain/test/state-transition.test.ts`, `packages/board/test/unit/plan-state.test.ts`, `test/reconcile/state-gate.test.mjs`. <!-- waits: bug/the-plan-comment-has-one-writer -->
+- `bug/an-added-issue-owes-its-phase` — `issueTransitionOf` in `packages/domain/src/rules/state-transition.ts` and its call in the gate entry `packages/board/src/server/entry/gate.ts`; `--only-issue` and the receipt in `packages/board/src/server/entry/plan-state.ts`; the README row of `plot-plan-state.sh`. Tests: `packages/domain/test/state-transition.test.ts`, `packages/board/test/unit/plan-state.test.ts`, `test/reconcile/state-gate.test.mjs`. <!-- waits: bug/the-plan-comment-has-one-writer --> → #3036
 
 ### Finding tickets
 
-- `bug/settled-finding-tickets-close` — `reviewTicketSettled` in `packages/domain/src/rules/review-issue.ts`; `issueClose` on the Tracker port and its adapters; `packages/board/src/server/entry/finding-tickets.ts` built to `skills/plot/scripts/board/plot-finding-tickets.mjs` with its README row. Tests: `packages/domain/test/review-issue.test.ts`, `packages/board/test/unit/finding-tickets-entry.test.ts`. <!-- waits: bug/the-plan-comment-has-one-writer -->
+- `bug/settled-finding-tickets-close` — `reviewTicketSettled` in `packages/domain/src/rules/review-issue.ts`; `issueClose` on the Tracker port and its adapters; `packages/board/src/server/entry/finding-tickets.ts` built to `skills/plot/scripts/board/plot-finding-tickets.mjs` with its README row. Tests: `packages/domain/test/review-issue.test.ts`, `packages/board/test/unit/finding-tickets-entry.test.ts`. <!-- waits: bug/the-plan-comment-has-one-writer --> → #3042
 
 ### Head checks
 

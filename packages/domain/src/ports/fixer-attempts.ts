@@ -56,4 +56,16 @@ export interface FixerAttemptsStore {
    *   unreadable, `index` names no attempt, or the write did not land.
    */
   markInFlight(pr: number, index: number, mark: FixerInFlight | null): Promise<PortResult<void>>;
+
+  /**
+   * Sets `start: 'failed'` on one recorded attempt; every other field stays.
+   *
+   * Idempotent: an attempt already marked reads success.
+   *
+   * @param pr - the PR number.
+   * @param index - the attempt's position in the record's `attempts`, from 0.
+   * @returns nothing on success; `failed` where the record is missing or
+   *   unreadable, `index` names no attempt, or the write did not land.
+   */
+  markStart(pr: number, index: number): Promise<PortResult<void>>;
 }

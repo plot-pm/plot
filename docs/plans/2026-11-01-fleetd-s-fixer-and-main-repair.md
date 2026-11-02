@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3028
@@ -14,6 +14,9 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-01, Jan Wloka, plan-PR #3029 merged
 - **Started:** 2026-11-01, Jan Wloka, `bug/fleetd-s-fixer-runs-bounded`
+- **Started:** 2026-11-02, Jan Wloka, `bug/the-role-command-passes-agents-json`
+- **Started:** 2026-11-02, Jan Wloka, `bug/a-failed-role-start-spends-no-attempt`
+- **Delivered:** 2026-11-02
 
 ## Changelog
 
@@ -139,11 +142,11 @@ Slice 1 rows run in `pnpm --filter @plot-pm/domain exec vitest run` and `pnpm --
 
 ### Role command
 
-- `bug/the-role-command-passes-agents-json` — `rules/role-command.ts`: `--agents "$(cat -- '<file>')"`, the doc comments; `role-command.test.ts` on the argument vector; the 2.1.231 fake and the real-runner rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: roleCommand JSON agents argument -->
+- `bug/the-role-command-passes-agents-json` — `rules/role-command.ts`: `--agents "$(cat -- '<file>')"`, the doc comments; `role-command.test.ts` on the argument vector; the 2.1.231 fake and the real-runner rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: roleCommand JSON agents argument --> → #3037
 
 ### Failed start
 
-- `bug/a-failed-role-start-spends-no-attempt` — the refusal line as harness data; the domain rule; `start: 'failed'` on the fixer attempt, written at reap time; `fixerAttemptsSpent` and the ticket arm skip it; the head hold; main-repair's `start-failed` outcome; the slice 3 rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: a failed-start outcome for role starts -->
+- `bug/a-failed-role-start-spends-no-attempt` — the refusal line as harness data; the domain rule; `start: 'failed'` on the fixer attempt, written at reap time; `fixerAttemptsSpent` and the ticket arm skip it; the head hold; main-repair's `start-failed` outcome; the slice 3 rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: a failed-start outcome for role starts --> → #3038
 
 ## Notes
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2999
@@ -13,6 +13,8 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/approve-and-deliver-find-the-sprint-by-rule`
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-plan-joins-a-sprint-through-one-command`
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-sprint-member-names-its-sprint`
+- **Started:** 2026-11-02, Jan Wloka, `bug/the-delivery-loop-sprint-is-repaired`
+- **Delivered:** 2026-11-02
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
@@ -140,7 +142,7 @@ Replayed over every non-merge commit on `origin/main` from 2026-10-01 to 68fde7a
 
 ### Repair
 
-- `bug/the-delivery-loop-sprint-is-repaired` — runs `plot-sprint-member.mjs add delivery-loop <slug> --tier should` for the three Should Have plans, which writes their annotations and ticks `the-commit-gates-match-only-the`, and commits the result through the writer. Touches only `docs/sprints/2026-W44-delivery-loop.md`. <!-- waits: feature/approve-and-deliver-find-the-sprint-by-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: delivery-loop member lines repaired -->
+- `bug/the-delivery-loop-sprint-is-repaired` — runs `plot-sprint-member.mjs add delivery-loop <slug> --tier should` for the three Should Have plans, which writes their annotations and ticks `the-commit-gates-match-only-the`, and commits the result through the writer. Touches only `docs/sprints/2026-W44-delivery-loop.md`. <!-- waits: feature/approve-and-deliver-find-the-sprint-by-rule, feature/a-plan-joins-a-sprint-through-one-command --> <!-- builds: delivery-loop member lines repaired --> → #3035
 
 ## Done when
 

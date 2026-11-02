@@ -124,11 +124,11 @@ plot_monitor_subject() {
   # PRODUCTION IS UNCHANGED: a real worktree outlives its agent, so the
   # directory is present and this reads `starting` exactly as before.
   if [ ! -f "$pid_file" ]; then
-    [ -d "$(dirname "$pid_file")" ] && { printf 'starting'; return 0; }
+    [ -d "${pid_file%/*}" ] && { printf 'starting'; return 0; }
     printf 'gone'; return 0
   fi
 
-  pid=$(cat "$pid_file" 2>/dev/null | tr -d ' \n')
+  read -r pid < "$pid_file" 2>/dev/null
 
   # A file that exists but holds no digits is a half-written pid, which is the
   # startup window caught mid-`printf`. Not gone — UNLESS the wrapper has
@@ -140,7 +140,7 @@ plot_monitor_subject() {
   # would read `starting` forever.
   case "$pid" in
     '' | *[!0-9]*)
-      if [ -f "$(dirname "$pid_file")/.plot-worker.exit" ]; then
+      if [ -f "${pid_file%/*}/.plot-worker.exit" ]; then
         printf 'gone'; return 0
       fi
       printf 'starting'; return 0 ;;

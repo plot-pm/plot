@@ -136,6 +136,15 @@ describe('ticketTick', () => {
     expect(r.calls.open).toHaveLength(0);
   });
 
+  it('does not accept on a record holding only failed starts', async () => {
+    const failedOnly: FixerAttemptsRecord = { v: 1, pr: 7, attempts: [{ ...attempt(1), start: 'failed' }, { ...attempt(2), start: 'failed' }] };
+    const r = rig({ attempts: failedOnly });
+    const [result] = await ticketTick([rowAt(HEAD)], readings, optsFor(), r.world);
+    expect(result!.step.step).toBe('fixer');
+    expect(r.calls.open).toHaveLength(0);
+    expect(r.calls.status).toHaveLength(0);
+  });
+
   it('holds on an unaskable tracker, clears the mark and writes no success', async () => {
     const r = rig({ open: 'unaskable' });
     const [result] = await ticketTick([rowAt(HEAD)], readings, optsFor(), r.world);
