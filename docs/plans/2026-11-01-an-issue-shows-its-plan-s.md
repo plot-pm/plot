@@ -179,7 +179,7 @@ Domain rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`, board
 
 ### Finding tickets
 
-- `bug/settled-finding-tickets-close` — `reviewTicketSettled` in `packages/domain/src/rules/review-issue.ts`; `issueClose` on the Tracker port and its adapters; `packages/board/src/server/entry/finding-tickets.ts` built to `skills/plot/scripts/board/plot-finding-tickets.mjs` with its README row. Tests: `packages/domain/test/review-issue.test.ts`, `packages/board/test/unit/finding-tickets-entry.test.ts`. <!-- waits: bug/the-plan-comment-has-one-writer -->
+- `bug/settled-finding-tickets-close` — `reviewTicketSettled` in `packages/domain/src/rules/review-issue.ts`; `issueClose` on the Tracker port and its adapters; `packages/board/src/server/entry/finding-tickets.ts` built to `skills/plot/scripts/board/plot-finding-tickets.mjs` with its README row. Tests: `packages/domain/test/review-issue.test.ts`, `packages/board/test/unit/finding-tickets-entry.test.ts`. <!-- waits: bug/the-plan-comment-has-one-writer --> → #3042
 
 ### Head checks
 
