@@ -36,7 +36,7 @@ export type DispatchStart =
   | {
       kind: 'refused';
       status: 409;
-      reason: 'no-implement-command' | 'implement-running';
+      reason: 'no-implement-command' | 'implement-running' | 'nothing-startable';
       detail: string;
       /** The running implement's log; present for `implement-running`. */
       log?: string;
