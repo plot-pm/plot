@@ -1103,3 +1103,40 @@ describe('refsGit: conflictPaths runs merge-tree in memory', () => {
     expect((await at().conflictPaths('main', 'feature/absent')).ok).toBe(false);
   });
 });
+
+describe('refsGit: recordCommit reads at the oid it is given', () => {
+  it('RACE: names the commit that added the record at an oid, though the ref has since moved', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-record-'));
+    try {
+      const run = (args: readonly string[]): string => execFileSync('git', [...args], { cwd: dir }).toString().trim();
+      run(['init', '--quiet', '--initial-branch=main']);
+      run(['config', 'user.email', 'test@example.com']);
+      run(['config', 'user.name', 'Test']);
+      fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+      const plan = path.join(dir, 'docs/plans/p.md');
+      fs.writeFileSync(plan, '# p\n\n- **Delivered:** <!-- when -->\n');
+      run(['add', '-A']);
+      run(['commit', '--quiet', '-m', 'draft']);
+      const before = run(['rev-parse', 'HEAD']);
+      fs.writeFileSync(plan, '# p\n\n- **Delivered:** 2026-11-01 via #7\n');
+      run(['commit', '--quiet', '-am', 'deliver']);
+      const delivered = run(['rev-parse', 'HEAD']);
+      const reader = refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') });
+
+      const at = async (oid: string) => reader.recordCommit('docs/plans/p.md', 'Delivered', oid);
+      const now = await at(delivered);
+      expect(now.ok && now.value).toBe(delivered);
+      // The record is not yet written at the earlier oid, so a read pinned there says so.
+      const earlier = await at(before);
+      expect(earlier.ok && earlier.value).toBeNull();
+
+      // The ref moves on after the oid was taken: the pinned read still answers for the oid.
+      fs.writeFileSync(plan, '# p\n\n- **Delivered:** 2026-11-02 via #8\n');
+      run(['commit', '--quiet', '-am', 'redeliver']);
+      const pinned = await at(delivered);
+      expect(pinned.ok && pinned.value).toBe(delivered);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

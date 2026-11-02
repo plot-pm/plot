@@ -104,6 +104,14 @@ export interface WalkCache {
   changed: OidCache<readonly string[]>;
   /** Conflicting paths, keyed by (default-branch oid, branch oid). */
   conflicts: OidCache<readonly string[]>;
+  /** Delivery-record commits, keyed by (default-branch oid, file, field). */
+  recordCommit: OidCache<string | null>;
+  /** Plan authors, keyed by (default-branch oid, directory). */
+  planAuthors: OidCache<ReadonlyMap<string, string>>;
+  /** Behind counts, keyed by (checked-out branch oid, default-branch oid). */
+  countBehind: OidCache<number | null>;
+  /** The default branch's name, keyed by the snapshot digest and the checked-out branch. */
+  defaultBranch: OidCache<string>;
   /** The beat counters. */
   stats: WalkCacheStats;
   /** The previous beat's snapshot digest, or `null` before the first. */
@@ -132,6 +140,10 @@ export const freshWalkCache = (): WalkCache => {
     ranges: oidCache<readonly CommitSubject[]>(),
     changed: oidCache<readonly string[]>(),
     conflicts: oidCache<readonly string[]>(),
+    recordCommit: oidCache<string | null>(),
+    planAuthors: oidCache<ReadonlyMap<string, string>>(),
+    countBehind: oidCache<number | null>(),
+    defaultBranch: oidCache<string>(),
   };
   const all = Object.values(kinds) as Array<OidCache<unknown>>;
   return {
@@ -161,6 +173,10 @@ export interface RefSnapshot {
   entries: readonly RefState[];
   /** One string that differs whenever any ref was created, deleted or moved. */
   digest: string;
+  /** The full ref name of the attached local branch, or `undefined` on a detached HEAD or where the snapshot does not say. */
+  headRef: string | undefined;
+  /** The oid the attached local branch points at, or `undefined` where {@link RefSnapshot.headRef} is. */
+  headOid: string | undefined;
 }
 
 /**
@@ -171,8 +187,11 @@ export interface RefSnapshot {
  */
 export const snapshotOf = (entries: readonly RefState[]): RefSnapshot => {
   const byRef = new Map(entries.map((e) => [e.ref, e.sha] as const));
+  const head = entries.find((e) => e.head === true);
   return {
     entries,
+    headRef: head?.ref,
+    headOid: head?.sha,
     digest: entries.map((e) => `${e.ref}=${e.sha}`).join('\n'),
     oidOf: (ref) => {
       if (FULL_OID.test(ref)) return ref;
@@ -330,6 +349,25 @@ export const cachedRefs = (inner: Refs, snapshot: RefSnapshot, cache: WalkCache)
     conflictPaths: async (base, branch) =>
       (await keyed(cache.conflicts, [snapshot.oidOf(base), snapshot.oidOf(branch)], '', ([a, b]) => inner.conflictPaths(a!, b!)))
         ?? inner.conflictPaths(base, branch),
+
+    recordCommit: async (file, field, ref) =>
+      (await keyed(cache.recordCommit, [snapshot.oidOf(ref)], `${file}\0${field}`, ([oid]) => inner.recordCommit(file, field, oid!)))
+        ?? inner.recordCommit(file, field, ref),
+
+    planAuthors: async (ref, dir) =>
+      (await keyed(cache.planAuthors, [snapshot.oidOf(ref)], dir, ([oid]) => inner.planAuthors(oid!, dir)))
+        ?? inner.planAuthors(ref, dir),
+
+    // A detached HEAD has no attached branch in the snapshot, so it is never
+    // keyed: the inner read answers `null` for it, and a branch that was
+    // detached after a held count cannot replay that count.
+    countBehind: async (ref) =>
+      (await keyed(cache.countBehind, [snapshot.headOid, snapshot.oidOf(ref)], '', ([, oid]) => inner.countBehind(oid!)))
+        ?? inner.countBehind(ref),
+
+    // No oid is named, so `keyed` always answers.
+    defaultBranch: async () =>
+      (await keyed(cache.defaultBranch, [], `${snapshot.digest}\0${snapshot.headRef ?? ''}`, () => inner.defaultBranch()))!,
 
     containsMany: async (pairs) => {
       const settled = pairs.map((p) =>

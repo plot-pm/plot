@@ -104,6 +104,8 @@ export interface RefState {
   ref: string;
   /** The object the ref resolves to. */
   sha: string;
+  /** True on the one local branch the checkout has attached; absent on every other ref and on a detached HEAD. */
+  head?: true;
 }
 
 /** A branch and when its tip was committed. */
@@ -399,11 +401,12 @@ export interface Refs {
    *
    * @param file - the file to read, relative to the repository root.
    * @param field - the record's field name, as the file spells it, such as `Delivered`.
-   * @returns the commit's sha, or `null` when no commit on the default branch
-   *   added a filled value — an ANSWER. A history that could not be read is a
+   * @param ref - the revision whose history is read, such as `origin/main`; a full
+   *   object id reads that commit's history whatever the branch does afterwards.
+   * @returns the commit's sha, or `null` when no commit on `ref` added a filled value — an ANSWER. A history that could not be read is a
    *   failed result, never `null`.
    */
-  recordCommit(file: string, field: string): Promise<PortResult<string | null>>;
+  recordCommit(file: string, field: string, ref: string): Promise<PortResult<string | null>>;
 
   /**
    * Reads the fleet's whole state in one pass.

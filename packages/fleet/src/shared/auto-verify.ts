@@ -301,7 +301,7 @@ export const readVerifyCandidatesWith = async (
         continue;
       }
       if (line.phase !== 'delivered') continue;
-      const found = await ports.refs.recordCommit(file, 'Delivered');
+      const found = await ports.refs.recordCommit(file, 'Delivered', ref);
       if (!found.ok || found.value === null) {
         unread.set(slug, 'the delivery commit cannot be read');
         continue;
