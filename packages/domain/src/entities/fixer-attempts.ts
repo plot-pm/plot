@@ -46,12 +46,12 @@ export type FixerInFlight = z.infer<typeof FixerInFlightSchema>;
 /**
  * One fixer attempt on one PR.
  *
- * WRITTEN ONCE, BEFORE THE FIXER STARTS, AND NEVER MUTATED AFTER THE FIXER
- * ENDS. A fixer that ends without a push still spent this attempt — the
- * record holds no "refunded" marker, because the plan's decision is that an
- * attempt is spent by starting, not by succeeding. `inFlight` is the one
- * field a caller may still touch after the write: present while the fixer
- * runs, absent once it has ended.
+ * WRITTEN ONCE, BEFORE THE FIXER STARTS. A fixer that ends without a push
+ * still spent this attempt, because an attempt is spent by starting, not by
+ * succeeding. Two fields change after the write: `inFlight` is present while
+ * the fixer runs and absent once it has ended, and `start` is set once, to
+ * `'failed'`, by the tick that settles an attempt whose CLI refused its
+ * arguments before any agent ran. A `start: 'failed'` attempt spends no budget.
  */
 export const FixerAttemptSchema = z
   .object({
@@ -61,6 +61,8 @@ export const FixerAttemptSchema = z
     finding: FixerFindingSchema,
     /** Present while the fixer this attempt describes is still running. */
     inFlight: FixerInFlightSchema.optional(),
+    /** `'failed'` where the CLI refused the run before any agent started; absent otherwise. */
+    start: z.literal('failed').optional(),
   })
   .strict();
 export type FixerAttempt = z.infer<typeof FixerAttemptSchema>;

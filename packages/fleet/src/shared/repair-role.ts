@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
+import { HARNESS_START_REFUSALS } from '@plot-pm/domain/adapters/harness/limit-lines';
+import { failedStart } from '@plot-pm/domain/rules/failed-start';
 import { roleAgentsJson, roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 import type { RoleRunReading } from '@plot-pm/domain/rules/repair-start';
 import { roleRunAlive } from '@plot-pm/domain/rules/role-run-alive';
@@ -43,6 +45,8 @@ interface RunRecord {
   pid: number;
   startedAt: number;
   endedAt?: number;
+  /** The CLI's refusal sentence, set with `endedAt` where the run never started an agent. */
+  startFailed?: string;
 }
 
 /** The directory outside any desk that holds the role's files, its log and its run record. */
@@ -53,7 +57,8 @@ const readRun = (repoRoot: string): RunRecord | null => {
     const parsed = JSON.parse(readFileSync(join(stateDir(repoRoot), 'run.json'), 'utf8')) as Partial<RunRecord>;
     if (typeof parsed.branch !== 'string' || typeof parsed.pid !== 'number' || typeof parsed.startedAt !== 'number') return null;
     const run: RunRecord = { branch: parsed.branch, pid: parsed.pid, startedAt: parsed.startedAt };
-    return typeof parsed.endedAt === 'number' ? { ...run, endedAt: parsed.endedAt } : run;
+    if (typeof parsed.endedAt !== 'number') return run;
+    return typeof parsed.startFailed === 'string' ? { ...run, endedAt: parsed.endedAt, startFailed: parsed.startFailed } : { ...run, endedAt: parsed.endedAt };
   } catch {
     return null;
   }
@@ -91,7 +96,7 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
   const roleRun = (branch: string, sinceMs: number): RoleRunReading => {
     const run = readRun(deps.repoRoot);
     if (run === null || run.branch !== branch || run.startedAt < sinceMs) return 'none';
-    if (run.endedAt !== undefined) return 'ended';
+    if (run.endedAt !== undefined) return run.startFailed === undefined ? 'ended' : 'start-failed';
     const alive = roleRunAlive({
       role: 'main-repair',
       pid: String(run.pid),
@@ -142,10 +147,13 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
         writeRun(deps.repoRoot, record);
         resolve(true);
       });
-      void run.then((ok) => {
-        if (!ok) deps.warn(`plot-fleetd: the main-repair run for '${branch}' ended without a result`);
+      void run.then((ran) => {
+        if (ran.refusal !== null) deps.warn(`plot-fleetd: the main-repair run for '${branch}' did not start: ${ran.refusal}`);
+        else if (!ran.ok) deps.warn(`plot-fleetd: the main-repair run for '${branch}' ended without a result`);
         try {
-          if (record !== null) writeRun(deps.repoRoot, { ...record, endedAt: deps.now() });
+          if (record !== null) {
+            writeRun(deps.repoRoot, { ...record, endedAt: deps.now(), ...(ran.refusal === null ? {} : { startFailed: ran.refusal }) });
+          }
         } catch {
           deps.warn(`plot-fleetd: the ending record of the main-repair run for '${branch}' could not be written`);
         }
@@ -158,7 +166,11 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
   return { hasDesk, startRole, roleRun };
 };
 
-/** Starts the run; resolves `true` when the agent answered. `onStarted` fires on the pid. */
+/**
+ * Starts the run. `ok` is true when the agent answered; `refusal` is the CLI's
+ * refusal sentence where the run ended `unstarted` with that line as the last
+ * of the output it appended, else `null`. `onStarted` fires on the pid.
+ */
 const agentRunOf = async (
   deps: RepairRoleDeps,
   agentRun: AgentRun,
@@ -166,7 +178,7 @@ const agentRunOf = async (
   desk: string,
   branch: string,
   onStarted: (pid: number) => void,
-): Promise<boolean> => {
+): Promise<{ ok: boolean; refusal: string | null }> => {
   const result = await agentRun.run({
     worktree: desk,
     prompt: `The default branch is red. Repair it from this worktree, on branch ${branch}. Open a fix PR, or do nothing if no safe fix exists.`,
@@ -187,5 +199,7 @@ const agentRunOf = async (
     logFile: join(stateDir(deps.repoRoot), 'run.log'),
     onStarted,
   });
-  return result.ok;
+  if (!result.ok) return { ok: false, refusal: null };
+  const refused = failedStart({ status: null, output: result.value.finalText ?? '' }, HARNESS_START_REFUSALS.claude);
+  return { ok: true, refusal: result.value.end.answer === 'unstarted' && refused.failed ? refused.line : null };
 };

@@ -90,6 +90,10 @@ interface WorldOptions {
   agentRunStarts?: { pid: number; prompt: string; worktree: string }[];
   /** How the started agent run settles: launches a pid, or fails to spawn at all. */
   agentRunOutcome?: 'starts' | 'never-spawns' | 'exits-unstarted' | 'rejects';
+  /** The text of the fixer's log. */
+  logText?: string | null;
+  /** A held result the started run settles with once the test resolves it; the run calls `onStarted` first. */
+  runResult?: Promise<never>;
   /** Every path `add` was asked to create, with its start. */
   addCalls?: string[];
   /** Every path `removeOnly` was asked to remove. */
@@ -172,9 +176,16 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
         if (opts.markOk === false || record === 'none' || record === 'unreadable') return { ok: false, why: 'failed' };
         const target = record.attempts[index];
         if (target === undefined) return { ok: false, why: 'failed' };
-        const kept: FixerAttempt = { headSha: target.headSha, finding: target.finding };
+        const kept: FixerAttempt = { headSha: target.headSha, finding: target.finding, ...(target.start === undefined ? {} : { start: target.start }) };
         const changed: FixerAttempt = mark === null ? kept : { ...kept, inFlight: mark };
         records.set(pr, { ...record, attempts: record.attempts.map((a, at) => (at === index ? changed : a)) });
+        return { ok: true, value: undefined };
+      },
+      markStart: async (pr, index) => {
+        const record = recordOf(pr);
+        opts.order?.push('start-failed');
+        if (record === 'none' || record === 'unreadable' || record.attempts[index] === undefined) return { ok: false, why: 'failed' };
+        records.set(pr, { ...record, attempts: record.attempts.map((a, at): FixerAttempt => (at === index ? { ...a, start: 'failed' } : a)) });
         return { ok: true, value: undefined };
       },
     }),
@@ -184,6 +195,7 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
     readEndingFile: () => (opts.endingText === undefined ? null : opts.endingText),
     readRoleFile: () => (opts.roleText === undefined ? FIXER_MD : opts.roleText),
     agentSettingsFile: () => (opts.agentSettings === undefined ? '/main/.plot/agent-settings.json' : opts.agentSettings),
+    readLogFile: () => (opts.logText === undefined ? null : opts.logText),
     readVerdictFile: (file) => {
       opts.verdictFiles?.push(file);
       return opts.verdictText === undefined ? FINDINGS : opts.verdictText;
@@ -197,12 +209,12 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
         opts.order?.push('launch');
         if (outcome === 'rejects') return Promise.reject(new Error('spawn failed'));
         if (outcome === 'never-spawns') return Promise.resolve({ ok: false, why: 'failed' } as never);
-        if (outcome === 'exits-unstarted') return Promise.resolve({ ok: true, value: undefined } as never);
+        if (outcome === 'exits-unstarted') return Promise.resolve({ ok: true, value: { end: { answer: 'unstarted', detail: 'x' } } } as never);
         const pid = 9000 + (opts.agentRunStarts?.length ?? 0) + 1;
         opts.agentRunStarts?.push({ pid, prompt: request.prompt, worktree: request.worktree });
         request.onStarted?.(pid);
         // THE RUN NEVER ENDS here: a tick that awaited it would never return.
-        return new Promise<never>(() => undefined);
+        return opts.runResult ?? new Promise<never>(() => undefined);
       },
     }),
   };
@@ -849,5 +861,85 @@ describe('deskDeadFromWorkerState', () => {
 describe('fixerRunDir', () => {
   it('names a worktree inside the repo, under .plot/fixer/<pr>', () => {
     expect(fixerRunDir('/repo', 7)).toBe(path.join('/repo', '.plot', 'fixer', '7'));
+  });
+});
+
+const REFUSAL_LOG = "--agent 'fixer' not found. Available agents: claude, Explore, general-purpose\n";
+
+/** A run result the test resolves by hand: the refused start `launchFixer` reads `finalText` from. */
+const heldRefusal = () => {
+  let resolve: (value: never) => void = () => undefined;
+  const promise = new Promise<never>((r) => {
+    resolve = r;
+  });
+  const refuse = () => resolve({ ok: true, value: { end: { answer: 'unstarted', detail: 'x' }, finalText: REFUSAL_LOG } } as never);
+  return { promise, refuse };
+};
+
+const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+
+describe('fixerTick records a failed start', () => {
+  const run = async (order: 'reap-first' | 'result-first') => {
+    const logged = new Set<string>();
+    const opts = fixture();
+    let check: PidCheck = 'alive';
+    const held = heldRefusal();
+    const w = world({ pidCheck: () => check, runResult: held.promise, logText: REFUSAL_LOG });
+    await fixerTick([highRow], baseReadings, opts, w, logged);
+    check = 'dead';
+    if (order === 'result-first') {
+      held.refuse();
+      await settle();
+    }
+    const [reap] = await fixerTick([highRow], baseReadings, opts, w, logged);
+    if (order === 'reap-first') {
+      held.refuse();
+      await settle();
+    }
+    const record = await w.attempts(opts).read(7);
+    return { opts, w, reap, logged, record: record.ok ? record.value : null };
+  };
+
+  it.each(['reap-first', 'result-first'] as const)('writes the same record and one failed-start line, %s', async (order) => {
+    const { opts, record } = await run(order);
+    expect(record).toEqual({ v: 1, pr: 7, attempts: [{ headSha: HEAD, finding: expect.anything(), start: 'failed' }] });
+    const ends = opts.runLog.lines.filter((l) => l.step === 'fixer-end' && l.outcome.startsWith('failed-start'));
+    expect(ends.map((l) => l.outcome)).toEqual(["failed-start: --agent 'fixer' not found."]);
+  });
+
+  it('reads the refusal from the log where the result never arrives', async () => {
+    const logged = new Set<string>();
+    const opts = fixture();
+    let check: PidCheck = 'alive';
+    const w = world({ pidCheck: () => check, logText: REFUSAL_LOG });
+    await fixerTick([highRow], baseReadings, opts, w, logged);
+    check = 'dead';
+    await fixerTick([highRow], baseReadings, opts, w, logged);
+    const record = await w.attempts(opts).read(7);
+    expect(record.ok && record.value !== 'none' && record.value !== 'unreadable' ? record.value.attempts[0]!.start : null).toBe('failed');
+  });
+
+  it('settles an ended attempt with no refusal in the log as moved and spends it', async () => {
+    const logged = new Set<string>();
+    const opts = fixture();
+    let check: PidCheck = 'alive';
+    const w = world({ pidCheck: () => check, logText: 'turn 60\nError: crashed\n' });
+    await fixerTick([highRow], baseReadings, opts, w, logged);
+    check = 'dead';
+    await fixerTick([highRow], baseReadings, opts, w, logged);
+    expect(opts.runLog.lines.map((l) => [l.step, l.outcome]).filter(([step]) => step === 'fixer-end')).toEqual([['fixer-end', 'moved']]);
+  });
+
+  it('holds the head once, and starts normally on a new head', async () => {
+    const { opts, w, reap, logged } = await run('result-first');
+    expect(reap.started).toEqual({ started: false, why: 'fixer-start-failed' });
+    const [again] = await fixerTick([highRow], baseReadings, opts, w, logged);
+    expect(again!.started).toEqual({ started: false, why: 'fixer-start-failed' });
+    expect(opts.runLog.lines.filter((l) => l.outcome === 'failed: fixer-start-failed')).toHaveLength(1);
+
+    const newHead: PrIndexRow = { ...highRow, headSha: OTHER_HEAD, plotReviewSha: OTHER_HEAD };
+    const fresh = world({ attempts: (await w.attempts(opts).read(7)).ok ? ((await w.attempts(opts).read(7)) as { value: FixerAttemptsRecord }).value : 'none', prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } });
+    const [next] = await fixerTick([newHead], baseReadings, opts, fresh, logged);
+    expect(next!.started).toMatchObject({ started: true });
   });
 });

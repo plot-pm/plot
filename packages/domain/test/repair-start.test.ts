@@ -129,6 +129,12 @@ describe('repairAttemptStep', () => {
     expect(repairAttemptStep({ branch: BRANCH, resumed: true }, true, 'crashed')).toBe('record-ended');
   });
 
+  it('records a failed start, resumes once, then holds the episode', () => {
+    expect(repairAttemptStep({ branch: BRANCH }, true, 'start-failed')).toBe('record-start-failed');
+    expect(repairAttemptStep({ branch: BRANCH, outcome: 'start-failed' }, true, 'start-failed')).toBe('resume');
+    expect(repairAttemptStep({ branch: BRANCH, outcome: 'start-failed', resumed: true }, true, 'start-failed')).toBe('held');
+  });
+
   it('starts the role on a desk it holds, and claims where it holds none', () => {
     expect(repairAttemptStep({ branch: BRANCH }, true, 'none')).toBe('start');
     expect(repairAttemptStep({ branch: BRANCH }, false, 'none')).toBe('claim');

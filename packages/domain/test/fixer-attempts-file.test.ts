@@ -140,4 +140,24 @@ describe('fixerAttemptsFile.markInFlight', () => {
     expect(await store.markInFlight(43, 0, mark)).toEqual({ ok: false, why: 'failed' });
     expect(await store.read(43)).toEqual({ ok: true, value: 'unreadable' });
   });
+
+  it('markStart sets start on one attempt, keeps the others, and survives markInFlight', async () => {
+    const store = fixerAttemptsFile(root);
+    await store.append(42, { ...attempt, inFlight: { pid: 1, startedAt: 't' } });
+    await store.append(42, attempt);
+    expect((await store.markStart(42, 0)).ok).toBe(true);
+    expect((await store.markStart(42, 0)).ok).toBe(true);
+    expect((await store.markInFlight(42, 0, null)).ok).toBe(true);
+    const read = await store.read(42);
+    expect(read.ok && read.value !== 'none' && read.value !== 'unreadable' ? read.value.attempts : null).toEqual([{ ...attempt, start: 'failed' }, attempt]);
+  });
+
+  it('markStart fails for a missing record, an unreadable one and an index with no attempt', async () => {
+    const store = fixerAttemptsFile(root);
+    expect((await store.markStart(42, 0)).ok).toBe(false);
+    await store.append(42, attempt);
+    expect((await store.markStart(42, 3)).ok).toBe(false);
+    writeFileSync(fixerAttemptsPath(root, 42), '{ not json');
+    expect((await store.markStart(42, 0)).ok).toBe(false);
+  });
 });

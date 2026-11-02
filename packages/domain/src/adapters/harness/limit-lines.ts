@@ -37,6 +37,7 @@
  */
 
 import type { LimitPatterns } from '../../rules/prompt-exit.js';
+import type { StartRefusalPatterns } from '../../rules/failed-start.js';
 
 /**
  * The limit patterns per harness name, keyed as the launch names the harness.
@@ -52,5 +53,24 @@ export const HARNESS_LIMIT_LINES: Readonly<Record<string, LimitPatterns>> = {
     names: ['session limit', 'weekly limit', 'Opus limit', 'fast limit', 'monthly spend limit'],
     resetSeparator: ' · resets ',
     dropped: 'Background tasks still running after ',
+  },
+};
+
+/**
+ * What each harness prints when its CLI refuses a run's arguments before any
+ * agent starts, keyed as {@link HARNESS_LIMIT_LINES} is.
+ *
+ * Measured 2026-11-01 in 19 fixer logs under `.plot/state/fixer/`: each holds
+ * one line of this shape, naming the role and then every agent the CLI knows.
+ *
+ * ```
+ * --agent 'fixer' not found. Available agents: claude, Explore, general-purpose, ...
+ * ```
+ */
+export const HARNESS_START_REFUSALS: Readonly<Record<string, StartRefusalPatterns>> = {
+  claude: {
+    lead: "--agent '",
+    notFound: "' not found.",
+    listing: ' Available agents: ',
   },
 };

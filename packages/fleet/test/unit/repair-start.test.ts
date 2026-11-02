@@ -280,4 +280,16 @@ describe('repairStartTick — one attempt per episode', () => {
     expect(await repairStartTick(r.world)).toBe('attempt-ended');
     expect(r.calls.filter((c) => c === 'role')).toHaveLength(1);
   });
+
+  it('names a failed start, leaves the attempt open, starts once more, and holds on a second', async () => {
+    const r = rig(repairing(), later);
+    r.set({ desk: true, run: 'start-failed' });
+    expect(await repairStartTick(r.world)).toBe('attempt-start-failed');
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, outcome: 'start-failed' });
+    expect(await repairStartTick(r.world)).toBe('role-resumed');
+    expect(r.stored()?.attempt).toEqual({ branch: BRANCH, outcome: 'start-failed', resumed: true });
+    expect(await repairStartTick(r.world)).toBe('attempt-held');
+    expect(await repairStartTick(r.world)).toBe('attempt-held');
+    expect(r.calls.filter((c) => c === 'role')).toHaveLength(1);
+  });
 });

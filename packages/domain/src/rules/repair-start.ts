@@ -99,9 +99,10 @@ export const lastGreenRerunOverdue = (
  *
  * `none` where no run of the branch started in this episode; `alive` while its
  * pid answers; `ended` where the run wrote its ending record; `crashed` where
- * the pid is gone and no ending record exists.
+ * the pid is gone and no ending record exists; `start-failed` where the ending
+ * record names a CLI refusal, so no agent ran.
  */
-export type RoleRunReading = 'none' | 'alive' | 'ended' | 'crashed';
+export type RoleRunReading = 'none' | 'alive' | 'ended' | 'crashed' | 'start-failed';
 
 /** What the `start-repair` step does with the episode's one attempt. */
 export type RepairAttemptStep =
@@ -110,7 +111,9 @@ export type RepairAttemptStep =
   | 'resume'
   | 'wait'
   | 'record-ended'
+  | 'record-start-failed'
   | 'ended'
+  | 'held'
   | 'lost';
 
 /**
@@ -124,6 +127,9 @@ export type RepairAttemptStep =
  * - `outcome: 'lost'`: `lost`. `outcome: 'ended'`: `ended`. Neither starts anything.
  * - Run `alive`: `wait`.
  * - Run `ended`: `record-ended`; the caller writes `outcome: 'ended'`.
+ * - Run `start-failed`: `record-start-failed` where the attempt does not yet say
+ *   so; then `resume` once, which starts the role again; then `held`. A failed
+ *   start spends no attempt, and a second one holds the episode.
  * - Run `crashed`: `resume` where `resumed` is unset, else `record-ended`.
  * - Run `none`: `start` where this machine holds the desk, else `claim`.
  *
@@ -142,6 +148,10 @@ export const repairAttemptStep = (
   if (attempt.outcome === 'ended') return 'ended';
   if (run === 'alive') return 'wait';
   if (run === 'ended') return 'record-ended';
+  if (run === 'start-failed') {
+    if (attempt.outcome !== 'start-failed') return 'record-start-failed';
+    return attempt.resumed === true ? 'held' : 'resume';
+  }
   if (run === 'crashed') return attempt.resumed === true ? 'record-ended' : 'resume';
   return desk ? 'start' : 'claim';
 };
