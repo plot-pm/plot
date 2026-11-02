@@ -11,7 +11,7 @@ import { afterAll } from 'vitest';
  * fails to authenticate and the scan reads the host as `unasked`. A local run
  * inherits the operator's `gh` login and reads `ok`. A reading that depends on
  * a host answer then passes locally and fails in CI. Measured 2026-10-30:
- * `corpus/eligible.corpus.test.ts` failed on `main` only in CI, because the
+ * the eligibility corpus test failed on `main` only in CI, because the
  * scan's `host_pr_state --ask` answered `-` there and `OPEN` locally (#2942).
  *
  * This setup file runs before every corpus test file. It removes the token

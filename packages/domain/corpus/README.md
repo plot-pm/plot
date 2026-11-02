@@ -5,8 +5,7 @@ this repository's real estate — and does a rule answer what its shell duplicat
 answers?**
 
 Run it with `pnpm --filter @plot-pm/domain run test:corpus`. It is not part of
-the default suite and is not meant to be: it spawns `plot-fleet-scan.sh` twice
-and `plot-plan-meta.sh` over every plan, and it runs as its own CI job.
+the default suite and is not meant to be: it spawns `plot-plan-meta.sh` over every plan, and it runs as its own CI job.
 
 **It runs with no host token, locally and in CI.** `no-host-token.ts` removes `GH_TOKEN`, `GITHUB_TOKEN`, the two enterprise token variables, `PLOT_PR_LISTING` and `PLOT_TERMINAL_CACHE`, and points `GH_CONFIG_DIR` at an empty directory before each file. CI's job has no token, so a local run now reads the host as `unasked`, as CI does. `host-environment.corpus.test.ts` fails when the setup does not reach a spawned `plot-host.sh`.
 
@@ -28,7 +27,7 @@ comparison here. Production supplies both the readings *and* its own verdict;
 the rule re-scores the same readings; the two verdicts are compared.
 `sprint-score.corpus.test.ts` is the first — `scoreItem` against
 `plot-sprint-release.sh`'s `item_state`, over 134 MoSCoW items in 10 sprints.
-`sample.corpus.test.ts` is the fifth — `idleNow` against
+`sample.corpus.test.ts` is another — `idleNow` against
 `plot-worker-state.sh`'s `plot_worker_idle_now`, over all 864 combinations of
 the six readings, including both window boundaries and the `''` activity word.
 `pr-merged.corpus.test.ts` compares two LOOKUPS rather than a rule and its
@@ -61,40 +60,6 @@ the domain cannot yet express, the comparison names those subjects with the
 reason and asserts the set exactly — so it shrinks when the plan that closes it
 lands, and a *new* divergence still fails.
 
-## The two live-sample fields
-
-Two fields cannot be compared for equality, because this tier reads production
-and the adapter at two different moments:
-
-- **`changed_ago_seconds`** — `now` minus a commit time. Two scans 30 s apart
-  agreed on every verdict, state, claim and branch, and differed here by
-  exactly the elapsed time. Compared against a tolerance rather than skipped: an
-  exemption written for a 30-second difference would also hide the field
-  reading zero.
-
-- **`worker_activity`** — a 0.4 s CPU delta over a live process tree
-  (`plot-worker-state.sh`, `PLOT_ACTIVITY_INTERVAL`). It varies *within* a
-  moment rather than with it, and **the comparison causes the difference**: the
-  observed pid is this suite's own worker loop, whose subtree burns CPU while
-  production's scan runs (that scan is its child) and then blocks while the
-  adapter's runs. Measured 2026-08-30 — five consecutive scans of the same pid
-  all read `working`, while the two scans inside this suite read `working` then
-  `idle`. Compared for enum membership, not value.
-
-The `worker` state these qualify is **not** exempt, and neither is anything
-else.
-
-## The direction an adapter cannot fail by itself
-
-Every comparison above checks fields the port *declares*. None of them notices
-a field production reports that the port never carried — which is exactly how a
-reading gets dropped silently: the adapter keeps agreeing about what it reads,
-while the domain stops being told something it needs.
-
-So both suites also assert that **every key the wire emits is either mapped or
-written down as deliberately uncarried**. A key on neither list fails, and the
-fix is a decision — carry it, or record why not.
-
 ## Verified discriminating
 
 A comparison that can only pass proves nothing. Measured 2026-08-30, each of
@@ -102,16 +67,6 @@ these was injected and caught:
 
 | mutation | caught by |
 |---|---|
-| adapter drops `prs` | 230 disagreements, each naming the plan |
-| adapter reads `phase_raw` where production reads `phase` | every plan, `"Released"` vs `"released"` |
-| adapter loses the legacy `waves` spelling | every plan reports 0 slices against production's 1+ |
-| pulse summary counter zeroed | `pulse.summary :: blocked :: adapter=0 production=3` |
-| branch `state` rewritten to `open` | every branch, naming plan, slice and branch |
-| production grows an unmapped field | `names every wire field` |
 | `scoreItem` reads a checked-and-undelivered item as `open` | 2 disagreements, `… :: state :: rule="open" shell="disputed"` |
 | `item_state` reads the same case as `open` | the same 2, inverted, plus the vacuity guard — `disputed` left the estate |
 | `idleNow` compares a duration with `>` where `>=` belongs | 6 disagreements, each naming the case — `… :: idle-now :: rule="silent" shell="idle"` |
-
-The third is worth keeping: it shows the adapter's tolerance for the parser's
-older `waves` spelling is load-bearing rather than defensive. `plot-plan-meta.sh`
-emitted `waves` for all 172 plans on 2026-08-30 and `slices` for none.

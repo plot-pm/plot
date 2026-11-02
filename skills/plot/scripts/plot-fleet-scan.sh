@@ -256,8 +256,8 @@ set -o pipefail
 # mode it is given. No rule lives here. The walk takes the fetch result,
 # `origin/<main>` and HEAD as inputs (empty where a ref does not resolve), so the fetch stays in this file. A call with
 # no slug and no mode flag prints the wave report.
-d=$(dirname "$0"); . "$d/plot-default-branch.sh"
-c() { "$d/plot-config.sh" get "$@"; }
+here=$(dirname "$0"); . "$here/plot-default-branch.sh"
+c() { "$here/plot-config.sh" get "$@"; }
 printf '%s\n' "$@" | grep -qxE -- '-h|--help' && { sed -n '2,12p' "$0"; exit 0; }
 git rev-parse --git-dir >/dev/null || exit 1
 MAIN=$(c "Main branch"); MAIN=${MAIN:-$(default_branch)}
@@ -268,7 +268,7 @@ MAIN=$(c "Main branch"); MAIN=${MAIN:-$(default_branch)}
 # stale ref and read `wip`. `--offline`, `--no-fetch` and `--slice-names` skip it.
 printf '%s\n' "$@" | grep -qxE -- '--no-fetch|--offline|--slice-names'; skip=$((1 - $?))
 [ "$skip" = 1 ] || err=$(git fetch -q --prune origin "$MAIN" "+refs/heads/*:refs/remotes/origin/*" 2>&1) || failed=1
-exec node "$d/board/plot-scan-walk.mjs" \
+exec node "$here/board/plot-scan-walk.mjs" \
   "$(printf '%s\n' "$@" | awk '{s[$0]=1} END{printf "%d%d%d%d%d%d%d%d", s["--slice-names"], s["--why-nothing"], s["--list-eligible"], s["--next"]||s["--list-eligible"]||s["--why-nothing"], s["--json"]||s["--stream"], s["--log-pulse"], s["--loose"], s["--stream"]}')" \
   "$(printf '%s\n' "$@" | grep -v '^-' | tail -1)" "$MAIN" "$(c "Plan directory" docs/plans/)" "$(c "Active index" docs/plans/active/)" "$(c "Delivered index" docs/plans/delivered/)" \
   "$(c "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" | tr -d ' ' | tr ',' '\n' | sed 's#/$##' | grep -v '^$' | paste -sd'|' -)" "$((skip == 1 ? 1 : 0))" \
