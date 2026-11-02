@@ -294,8 +294,8 @@ const walkCaches = new Map<string, WalkCache>();
  *
  * Reads the ref snapshot once and wraps {@link refsFor}'s reader with
  * `cachedRefs`, so a read keyed by an object id git has already answered starts
- * no process. A reader that cannot list its refs is returned unwrapped and
- * answers every read itself. The caller marks the start and the end of a build
+ * no process. A reader the caller injected, and one that cannot list its refs,
+ * is returned unwrapped and answers every read itself. The caller marks the start and the end of a build
  * on the returned cache.
  *
  * @param opts - where to read, and optionally what to read through.
@@ -303,6 +303,9 @@ const walkCaches = new Map<string, WalkCache>();
  */
 export const heldRefsFor = async (opts: BuildBoardOptions): Promise<{ refs: Refs; cache: WalkCache | null }> => {
   const inner = refsFor(opts);
+  // A reader handed in by the caller answers by ref name and not by object id,
+  // so a key built from the snapshot's oids would miss what it holds.
+  if (opts.refs !== undefined) return { refs: inner, cache: null };
   const snapshot = await readRefSnapshot(inner);
   if (!snapshot.ok) return { refs: inner, cache: null };
   const key = `${opts.repoRoot}\0${opts.scriptsDir}`;
