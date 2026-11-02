@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-02, Jan Wloka, plan-PR #3050 merged
 - **Started:** 2026-11-02, Jan Wloka, `feature/dispatch-refuses-a-plan-with-nothing-startable`
+- **Started:** 2026-11-02, Jan Wloka, `feature/a-held-slice-reads-as-waiting`
 
 ## Changelog
 
