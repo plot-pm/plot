@@ -40,7 +40,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [x] [the-bounded-run-group-stop-test] A stop that lands with the child's exit still stops, and the group-stop test tells a slow stop from a survivor (#3010) <!-- pr: #3019 -->
 - [x] [the-agent-reporter-starts-a-sleep] The agent reporter waits on a FIFO without a poll, and the AgentMonitor reads its pid with a builtin (#3024) <!-- pr: #3025 -->
 - [x] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
-- [ ] [the-reporter-sigterm-test-fails-on] The agent reporter ignores SIGTERM before it forks, so a group stop no longer loses its report (#3033) <!-- pr: #3039 -->
+- [x] [the-reporter-sigterm-test-fails-on] The agent reporter ignores SIGTERM before it forks, so a group stop no longer loses its report (#3033) <!-- pr: #3039 -->
 
 ### Could Have
 
