@@ -362,7 +362,7 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     },
 
     commitFiles: async (sha) => answered(commitFiles[sha] ?? []),
-    recordCommit: async (file, field) => answered(fixture.recordCommits?.[`${file}\t${field}`] ?? null),
+    recordCommit: async (file, field, _ref) => answered(fixture.recordCommits?.[`${file}\t${field}`] ?? null),
 
     pulse: async () =>
       fixture.pulse === undefined ? unaskable<FleetReading>() : answered(fixture.pulse),

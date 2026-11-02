@@ -167,7 +167,7 @@ const designCommitOf = async (ctx: Context, slug: string): Promise<string> => {
   if (!main.ok) return '';
   const planFile = await planFileAt(ctx, `origin/${main.value}`, slug);
   if (planFile === '') return '';
-  const found = await ctx.refs.recordCommit(planFile, 'Design');
+  const found = await ctx.refs.recordCommit(planFile, 'Design', `origin/${main.value}`);
   return found.ok && found.value !== null ? found.value : '';
 };
 
