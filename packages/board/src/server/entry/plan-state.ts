@@ -49,11 +49,13 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * **`--only-issue <id>` (once)** writes the phase to that one issue and to no
  * other; the plan must already name it. It is the command the state gate
  * names when a commit adds an issue to the `Issue:` line of a plan past
- * Draft. On a `written` outcome it leaves the state receipt
- * `<plan path>#Issue <id>`, which clears that gate. At `released` it first
- * asks `releaseIssueDecisions` whether another unfinished plan also names the
- * issue, as `deliver` does for every issue; one that does is reported
- * `skipped` and leaves no receipt.
+ * Draft. On every outcome except `failed` — `written`, `no-target`,
+ * `unaskable` and `skipped` — it leaves the state receipt
+ * `<plan path>#Issue <id>`, which clears that gate: each of those means the
+ * tracker is owed nothing more. A `failed` write leaves no receipt. At
+ * `released` it first asks `releaseIssueDecisions` whether another unfinished
+ * plan also names the issue, as `deliver` does for every issue; one that does
+ * is reported `skipped`.
  *
  * **Tab-separated out**, one line per owed write:
  * `<issue>\t<written|no-target|unaskable|failed|skipped>\t<reason>`, then
@@ -268,8 +270,9 @@ export const run = async (
     if (sharing) skip.add(onlyIssue);
   }
   const { lines, outcomes } = await writePlanStates(reading, tracker, skip);
-  if (onlyIssue !== undefined && outcomes.includes('written')) {
+  if (onlyIssue !== undefined && outcomes.length > 0 && !outcomes.includes('failed')) {
     // The receipt clears the state gate for the commit that adds the issue.
+    // Only a failed write still owes the tracker something.
     recordStateReceipt(context.repoRoot, issueReceiptKey(path.relative(context.repoRoot, planAbs), onlyIssue), onlyIssue);
   }
   for (const line of lines) write(line);
