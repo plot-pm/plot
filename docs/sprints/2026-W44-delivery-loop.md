@@ -37,7 +37,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [x] [a-plan-that-joins-a-sprint] A plan that joins a sprint names the sprint: one membership rule, one writer, a gate on added member lines, and a repair of this sprint (#2999) <!-- pr: #3000 -->
 - [x] [two-test-teardowns-turn-main-red] Two test teardowns turn main red: a stopped process leaves no plan stage directory, and the continuation tests remove desks after the last write (#3006) <!-- pr: #3008 -->
 - [ ] [the-board-starts-processes-on-the] The board answers /api/board from held values: a process-count ratchet, one held config, git reads through the walk cache, and one plan parse per blob (#3017) <!-- pr: #3018 -->
-- [ ] [the-bounded-run-group-stop-test] A stop that lands with the child's exit still stops, and the group-stop test tells a slow stop from a survivor (#3010) <!-- pr: #3019 -->
+- [x] [the-bounded-run-group-stop-test] A stop that lands with the child's exit still stops, and the group-stop test tells a slow stop from a survivor (#3010) <!-- pr: #3019 -->
 - [x] [the-agent-reporter-starts-a-sleep] The agent reporter waits on a FIFO without a poll, and the AgentMonitor reads its pid with a builtin (#3024) <!-- pr: #3025 -->
 - [ ] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
 
