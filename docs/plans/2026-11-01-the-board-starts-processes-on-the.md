@@ -15,6 +15,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-board-request-counts-its-processes`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-board-holds-its-config`
 - **Started:** 2026-11-02, Jan Wloka, `feature/the-board-reads-git-through-cached-refs`
+- **Started:** 2026-11-02, Jan Wloka, `feature/the-board-parses-a-plan-once-per-blob`
 
 ## Changelog
 
