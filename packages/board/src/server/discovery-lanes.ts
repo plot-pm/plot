@@ -1,6 +1,6 @@
 import { storyLanes, phaseOfStory, ticketLanes, type StoryLaneMap, type TicketLaneGroups } from '@plot-pm/domain';
 import { readConfigAsync, declaredPhaseMap, deriveStoryStatus, type BuildBoardOptions } from './board.js';
-import { ticketLaneData, keptClosedRows, ensureCache } from './fleet.js';
+import { keptClosedRows, ensureCache, type TicketLaneData } from './fleet.js';
 
 /**
  * The last ticket lanes `discoveryLanes` computed successfully, by repo root and toggle state —
@@ -16,7 +16,7 @@ const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
 /**
  * Builds the Discovery tab's lane groups for `/api/board`.
  *
- * Reads `ticketLaneData` from the SAME cache `/api/fleet` reads, and with the
+ * Groups `ticketLaneData`'s answer, read from the SAME cache `/api/fleet` reads, and with the
  * toggle on the rows `GET /api/issues/closed` kept ({@link keptClosedRows}) —
  * no tracker call of its own — lanes the tickets through `ticketLanes` and groups `board.stories`/`board.archivedStories` through
  * `storyLanes`. `archived` controls only whether archived-directory stories and
@@ -38,17 +38,16 @@ const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
  * @param opts - the board's repo root and scripts directory.
  * @param board - the board payload already built by `boardState`.
  * @param archived - whether the Discovery tab's `?archived=1` toggle is on.
+ * @param data - the request's one `ticketLaneData` answer, or null where it has none.
  * @returns tickets grouped by lane, stories grouped by lane, and the tracker answer.
  */
 export const discoveryLanes = async (
   opts: BuildBoardOptions,
   board: { stories: Array<{ status: string; plans: Array<{ phase: string }> }>; archivedStories: Array<{ status: string; plans: Array<{ phase: string }> }> },
   archived: boolean,
+  data: TicketLaneData | null,
 ) => {
-  const [data, phasesValue] = await Promise.all([
-    ticketLaneData(opts),
-    readConfigAsync(opts, 'Workflow phases', ''),
-  ]);
+  const phasesValue = await readConfigAsync(opts, 'Workflow phases', '');
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
   // `archived` is a derived standing `phaseOfStory`'s six-value vocabulary has
   // no word for — it answers false for it, the same as `storyLanes`'s own test

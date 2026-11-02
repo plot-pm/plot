@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
@@ -23,7 +24,7 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
-import { cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
@@ -70,6 +71,7 @@ import {
   buildShell,
   hostShell,
   planStoreShell,
+  planParserPath,
   refsGit,
   fleetStateFile,
   scriptsShell,
@@ -308,13 +310,24 @@ export const heldRefsFor = async (opts: BuildBoardOptions): Promise<{ refs: Refs
   if (opts.refs !== undefined) return { refs: inner, cache: null };
   const snapshot = await readRefSnapshot(inner);
   if (!snapshot.ok) return { refs: inner, cache: null };
+  const cache = walkCacheFor(opts);
+  return { refs: cachedRefs(inner, snapshot.value, cache), cache };
+};
+
+/**
+ * The process's walk cache for these options, created on first use.
+ *
+ * @param opts - where to read.
+ * @returns the cache shared by every read of this repository and scripts directory.
+ */
+const walkCacheFor = (opts: BuildBoardOptions): WalkCache => {
   const key = `${opts.repoRoot}\0${opts.scriptsDir}`;
   let cache = walkCaches.get(key);
   if (cache === undefined) {
     cache = freshWalkCache();
     walkCaches.set(key, cache);
   }
-  return { refs: cachedRefs(inner, snapshot.value, cache), cache };
+  return cache;
 };
 
 /** The bundle hashes held per file, each with the stat stamp it was read at. */
@@ -1565,15 +1578,86 @@ function planSlug(file: string): string {
  * @param files - every plan file to parse, as real paths.
  * @returns one validated record per plan, or none where the parser failed.
  */
-const readPlanMeta = async (opts: BuildBoardOptions, files: string[]): Promise<PlanMeta[]> => {
+const readPlanMeta = async (opts: BuildBoardOptions, files: string[]): Promise<PlanMeta[]> =>
+  (await parsePlanMetas(opts, files)) ?? [];
+
+/**
+ * The git blob id of some bytes: SHA-1 over `blob <length>\0<bytes>`, computed
+ * in-process. It keys a held parse by content, so it need only be stable; a
+ * SHA-256 repository gets the same key it would get here.
+ */
+export const blobIdOfBytes = (bytes: Buffer): string =>
+  createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+
+/**
+ * Parses plan files through `plot-plan-meta.sh`, starting it only for files
+ * whose content the process has not parsed.
+ *
+ * The key is the file's content (its blob id, computed from its bytes whether
+ * it was read from a ref or from the working tree, never from its mtime), its
+ * base name, the parser script's hash and the `Tracker` value, which changes
+ * the parser's `issues` output. A held record is returned with `file` set to
+ * the path it is asked for now. A file that cannot be read is parsed without
+ * the cache.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @param files - every plan file to parse, as real paths.
+ * @returns the records in the order of `files`, or `null` where the parser failed.
+ * @throws where a record fails `PlanMetaSchema`.
+ */
+export const parsePlanMetas = async (opts: BuildBoardOptions, files: string[]): Promise<PlanMeta[] | null> => {
   if (files.length === 0) return [];
-  const answer = await scriptsFor(opts).planMeta(files, { maxBuffer: 64 * 1024 * 1024 });
-  if (!answer.ok) return [];
-  return answer.value
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((l) => PlanMetaSchema.parse(JSON.parse(l)));
+  let held: PlanMetaFile[];
+  try {
+    held = files.map((file) => ({ path: file, name: path.basename(file), blobId: blobIdOfBytes(fs.readFileSync(file)) }));
+  } catch {
+    return parsePlanMetaFiles(opts, files.map((file) => ({ path: file, name: path.basename(file), blobId: null })));
+  }
+  return parsePlanMetaFiles(opts, held);
+};
+
+/**
+ * {@link parsePlanMetas} over files whose blob ids the caller already holds.
+ *
+ * A file with a `null` blob id is parsed and not held. `prepare` runs on the
+ * paths about to be parsed, so a caller that stages content can write only the
+ * files the parser will read.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @param files - the plan files, in the order the result follows.
+ * @param prepare - called with the paths of the files not yet held, before the parser starts.
+ * @returns the records in the order of `files`, or `null` where the parser failed.
+ * @throws where a record fails `PlanMetaSchema`.
+ */
+export const parsePlanMetaFiles = async (
+  opts: BuildBoardOptions,
+  files: ReadonlyArray<{ path: string; name: string; blobId: string | null }>,
+  prepare?: (paths: string[]) => void,
+): Promise<PlanMeta[] | null> => {
+  const parse = async (paths: string[]): Promise<PlanMeta[] | null> => {
+    prepare?.(paths);
+    const answer = await scriptsFor(opts).planMeta(paths, { maxBuffer: 64 * 1024 * 1024 });
+    if (!answer.ok) return null;
+    return answer.value
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => PlanMetaSchema.parse(JSON.parse(l)));
+  };
+  if (files.length === 0) return [];
+  const unheld = files.filter((f) => f.blobId === null);
+  if (unheld.length > 0) {
+    // Order matters to callers, so an unkeyable file parses the whole list.
+    return parse(files.map((f) => f.path));
+  }
+  const parser = bundleHashOf(opts, planParserPath({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })) ?? '';
+  const tracker = await readConfigAsync(opts, 'Tracker', '');
+  return cachedPlanMetas(
+    walkCacheFor(opts),
+    files.map((f) => ({ path: f.path, name: f.name, blobId: f.blobId! })),
+    `${parser}\0${tracker.trim()}`,
+    parse,
+  );
 };
 
 /**

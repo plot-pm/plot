@@ -37,7 +37,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { blobIdOfBytes, parsePlanMetaFiles, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
@@ -1561,11 +1561,12 @@ export async function refreshRuns(
  * was never re-measured against this repo's current plan count. `ls-tree` +
  * `cat-file --batch` cost 63 ms for 623 blobs (7.5 MB); parsing the staged
  * blobs costs ~780 ms, slower than the stale figure, which is why a repeat read
- * at the same content MUST be a cache hit rather than a re-parse. The key is
- * the resolved `origin/<default>` oid plus the tip oid of every draft branch
- * read, computed with one `resolve` and one `branchTips` call — never a ref
- * name, which would hide a fast-forward, and never a TTL, which would serve a
- * stale answer inside its own window.
+ * at the same content MUST be a cache hit rather than a re-parse. Each plan is
+ * held per blob: the key is the blob oid, the file's basename, a hash of
+ * `plot-plan-meta.sh` and the `Tracker` config value (`parsePlanMetaFiles`).
+ * An edit to one plan re-parses that plan only. Never a ref name, which would
+ * hide a fast-forward, and never a TTL, which would serve a stale answer inside
+ * its own window.
  *
  * NO REMOTE, NO FETCH YET: falls back to the working tree's plan directory —
  * `plan-walk-estate.ts:71-73`'s existing rule for the same situation, reused
@@ -1597,11 +1598,6 @@ export async function planMetasAtDefault(
   if (!resolved.ok || resolved.value === '') {
     return planMetasFromWorkingTree(opts, planDir, entry);
   }
-  const draftTips = await draftBranchTips(refs, entry);
-  if (draftTips === null) return null;
-  const key = `${resolved.value}\0${draftTips.map((t) => `${t.branch}@${t.sha}`).sort().join('\0')}`;
-  const cached = planMetaCaches.get(cacheKey(opts));
-  if (cached && cached.key === key) return cached.metas;
   const listing = await refs.listBlobs(resolved.value, planDir);
   if (!listing.ok) return null;
   const plans = listing.value.filter(
@@ -1615,65 +1611,40 @@ export async function planMetasAtDefault(
   let draft: { dir: string | null; files: string[] } = { dir: null, files: [] };
   try {
     draft = await draftPlanFiles(planDir, entry, refs);
-    const files: string[] = [];
+    // One subdirectory per blob keeps the real basename: `plot-plan-meta.sh`
+    // reports the path it was given, and `ticketPlansOf` matches that
+    // basename against the pulse's `file`. A blob's file is written only when
+    // the parser is about to read it, so a plan already held costs no write.
+    const files: Array<{ path: string; name: string; blobId: string | null }> = [];
+    const content = new Map<string, string>();
     for (const plan of plans) {
-      const content = blobs.value.get(plan.sha);
-      if (content === undefined) continue;
-      // One subdirectory per blob keeps the real basename: `plot-plan-meta.sh`
-      // reports the path it was given, and `ticketPlansOf` matches that
-      // basename against the pulse's `file`.
-      const sub = path.join(scratch, String(files.length));
-      fs.mkdirSync(sub);
-      const target = path.join(sub, path.basename(plan.path));
-      fs.writeFileSync(target, content);
-      files.push(target);
+      const text = blobs.value.get(plan.sha);
+      if (text === undefined) continue;
+      const target = path.join(scratch, String(files.length), path.basename(plan.path));
+      content.set(target, text);
+      files.push({ path: target, name: path.basename(plan.path), blobId: plan.sha });
     }
-    files.push(...draft.files);
-    if (files.length === 0) {
-      planMetaCaches.set(cacheKey(opts), { key, metas: [] });
-      return [];
+    for (const file of draft.files) {
+      let id: string | null = null;
+      try { id = blobIdOfBytes(fs.readFileSync(file)); } catch { /* unreadable: parsed, not held */ }
+      files.push({ path: file, name: path.basename(file), blobId: id });
     }
-    const metas: PlanMeta[] = [];
     try {
-      const answer = await scriptsFor(opts).planMeta(files, { maxBuffer: 64 * 1024 * 1024 });
-      if (!answer.ok) return null;
-      for (const line of answer.value.split('\n')) {
-        if (!line.trim()) continue;
-        metas.push(PlanMetaSchema.parse(JSON.parse(line)));
-      }
+      return await parsePlanMetaFiles(opts, files, (paths) => {
+        for (const target of paths) {
+          const text = content.get(target);
+          if (text === undefined) continue;
+          fs.mkdirSync(path.dirname(target));
+          fs.writeFileSync(target, text);
+        }
+      });
     } catch {
       return null;
     }
-    planMetaCaches.set(cacheKey(opts), { key, metas });
-    return metas;
   } finally {
     removeStageDir(scratch);
     if (draft.dir) removeStageDir(draft.dir);
   }
-}
-
-/** One cached parse per repository, keyed on content rather than on a ref name or a clock — see {@link planMetasAtDefault}. */
-const planMetaCaches = new Map<string, { key: string; metas: PlanMeta[] }>();
-
-/**
- * The tip oid of every open draft-plan branch `planMetasAtDefault` would read,
- * for its cache key — one `branchTips` call over the exact branch names rather
- * than a `resolve` per branch.
- *
- * @param refs - the repo's ref reader.
- * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
- * @returns the branch/sha pairs, or null where the tips could not be read.
- */
-async function draftBranchTips(
-  refs: Refs,
-  entry: Pick<CacheEntry, 'ideaPlans' | 'prs'> | undefined,
-): Promise<{ branch: string; sha: string }[] | null> {
-  if (!entry?.prs) return [];
-  const branches = [...entry.ideaPlans.keys()].filter((branch) => entry.prs?.has(branch));
-  if (branches.length === 0) return [];
-  const tips = await refs.branchTips(branches.map((branch) => `refs/remotes/origin/${branch}`));
-  if (!tips.ok) return null;
-  return tips.value.map((tip) => ({ branch: tip.branch, sha: tip.sha }));
 }
 
 /**

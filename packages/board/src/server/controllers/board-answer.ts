@@ -57,8 +57,8 @@ export const boardAnswer = async (
   // the same answer; one flag serving several capabilities is precisely
   // how they diverge when a later change makes only one of them local.
   const built = await boardState(boardQueryFor(opts, estate));
-  // The SAME cache `discoveryLanes` reads from, asked once here and once
-  // there: a raw read, before `ticketLanes` groups it into Open/In
+  // The SAME cache `discoveryLanes` reads from, asked once and handed to
+  // `discoveryLanes` below: a raw read, before `ticketLanes` groups it into Open/In
   // progress/Done, because the topic cloud wants every tracker row's
   // `number`/`title` and does not care which lane it fell in. Null where
   // `discoveryLanes` would also find no cache — `boardState`'s topics
@@ -87,7 +87,7 @@ export const boardAnswer = async (
     // owns. Computed here rather than inside `boardState`: the cache
     // `ticketLaneData` reads lives in `fleet.ts`, and `boardState` has no
     // dependency on it today.
-    ...(await discoveryLanes(opts, built, archived)),
+    ...(await discoveryLanes(opts, built, archived, ticketData)),
     // Recomputed with tickets folded in, for the same reason `tickets`
     // itself is: `boardState`'s own `topics` (above, spread first) saw
     // stories alone. A topic found only in ticket titles — no story, no

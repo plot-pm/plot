@@ -688,6 +688,7 @@ export const walkOnce = async (
   const planDir = await cfg('Plan directory', 'docs/plans/');
   const activeDir = await cfg('Active index', 'docs/plans/active/');
   const deliveredDir = await cfg('Delivered index', 'docs/plans/delivered/');
+  const tracker = await cfg('Tracker', '');
   const prefixes = (await cfg('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/'))
     .split(',').map((p) => p.trim().replace(/\/$/, '')).filter((p) => p !== '');
   const configured = await scripts.config('Main branch', '');
@@ -717,7 +718,7 @@ export const walkOnce = async (
     const parser = walk.parser !== undefined && typeof refs.hashFilesSync === 'function' ? refs.hashFilesSync([walk.parser]) : null;
     const parserHash = parser !== null && parser.ok ? parser.value.get(walk.parser!) : undefined;
     if (parserHash !== undefined) {
-      const digest = [mainBranch, planDir, activeDir, deliveredDir, prefixes.join('|')].join('\n');
+      const digest = [mainBranch, planDir, activeDir, deliveredDir, prefixes.join('|'), tracker].join('\n');
       plansAt = cachedPlans(plansAt, cache, `${parserHash}\0${digest}`);
     }
   } else if (cache !== undefined) {
