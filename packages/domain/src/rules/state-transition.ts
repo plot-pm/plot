@@ -100,8 +100,7 @@ export const issuesOf = (text: string): readonly string[] => {
     }
     if (inStatus && /^[ \t]*[-*]?[ \t]*\**issue[:*]/i.test(line)) {
       const value = line.replace(/^[^:]*:\**[ \t]*/, '');
-      const keys = [...value.matchAll(/#([0-9]+)|\b([A-Z][A-Z0-9]*-[0-9]+)\b/g)].map((m) => m[1] ?? m[2] ?? '');
-      return [...new Set(keys.filter((key) => key !== ''))];
+      return [...new Set([...value.matchAll(/#([0-9]+)|\b([A-Z][A-Z0-9]*-[0-9]+)\b/g)].map((m) => m[1] || m[2]!))];
     }
   }
   return [];
