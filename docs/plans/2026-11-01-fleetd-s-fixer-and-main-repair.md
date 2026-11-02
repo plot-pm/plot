@@ -140,7 +140,7 @@ Slice 1 rows run in `pnpm --filter @plot-pm/domain exec vitest run` and `pnpm --
 
 ### Role command
 
-- `bug/the-role-command-passes-agents-json` — `rules/role-command.ts`: `--agents "$(cat -- '<file>')"`, the doc comments; `role-command.test.ts` on the argument vector; the 2.1.231 fake and the real-runner rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: roleCommand JSON agents argument -->
+- `bug/the-role-command-passes-agents-json` — `rules/role-command.ts`: `--agents "$(cat -- '<file>')"`, the doc comments; `role-command.test.ts` on the argument vector; the 2.1.231 fake and the real-runner rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: roleCommand JSON agents argument --> → #3037
 
 ### Failed start
 
