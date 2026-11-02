@@ -1,9 +1,13 @@
-import { hostShell, scriptsShell, trackerForIssues, type ShellContext } from '@plot-pm/domain/adapters';
+import { hostShell, planStoreShell, scriptsShell, trackerForIssues, type ShellContext } from '@plot-pm/domain/adapters';
+import { issueReceiptKey } from '@plot-pm/domain/rules/state-transition';
+import { recordStateReceipt } from './ladder.js';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import {
   isPlanStatePhase,
   planStateWrites,
+  releaseIssueDecisions,
   trackerWriteSummary,
+  unfinishedIssuesOf,
   type PlanStateReading,
   type TrackerWriteOutcome,
 } from '@plot-pm/domain/rules/issue-status';
@@ -42,6 +46,15 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * `skipped` on its own line and never reaches the tracker. The caller decides
  * which issues to skip — this entry only honours the list.
  *
+ * **`--only-issue <id>` (once)** writes the phase to that one issue and to no
+ * other; the plan must already name it. It is the command the state gate
+ * names when a commit adds an issue to the `Issue:` line of a plan past
+ * Draft. On a `written` outcome it leaves the state receipt
+ * `<plan path>#Issue <id>`, which clears that gate. At `released` it first
+ * asks `releaseIssueDecisions` whether another unfinished plan also names the
+ * issue, as `deliver` does for every issue; one that does is reported
+ * `skipped` and leaves no receipt.
+ *
  * **Tab-separated out**, one line per owed write:
  * `<issue>\t<written|no-target|unaskable|failed|skipped>\t<reason>`, then
  * `summary: tracker=<none|written|no-target|unaskable|failed>` — `skipped`
@@ -78,7 +91,7 @@ export const issuesFrom = (text: string): readonly string[] => {
 
 /**
  * Reads `--phase <phase>`, `--plan-link <link>`, an optional `--version <v>`,
- * an optional `--slice-progress <string>`, and zero or more `--skip-issue <id>`.
+ * an optional `--slice-progress <string>`, and zero or more `--skip-issue <id>`, and an optional `--only-issue <id>`.
  *
  * @param argv - the arguments after the script name.
  * @returns the phase, link, version and slice progress the caller declared, and the issues to skip.
@@ -87,12 +100,16 @@ export const issuesFrom = (text: string): readonly string[] => {
  */
 export const flagsFrom = (
   argv: readonly string[],
-): Pick<PlanStateReading, 'phase' | 'planLink' | 'version' | 'sliceProgress'> & { skipIssues: readonly string[] } => {
+): Pick<PlanStateReading, 'phase' | 'planLink' | 'version' | 'sliceProgress'> & {
+  skipIssues: readonly string[];
+  onlyIssue?: string;
+} => {
   let phase: string | undefined;
   let planLink: string | undefined;
   let version: string | undefined;
   let sliceProgress: string | undefined;
   const skipIssues: string[] = [];
+  let onlyIssue: string | undefined;
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -102,6 +119,10 @@ export const flagsFrom = (
     else if (flag === '--version') version = value;
     else if (flag === '--slice-progress') sliceProgress = value;
     else if (flag === '--skip-issue') skipIssues.push(value);
+    else if (flag === '--only-issue') {
+      if (onlyIssue !== undefined) throw new Error('--only-issue takes exactly one issue');
+      onlyIssue = value;
+    }
     else throw new Error(`unknown argument '${flag}'`);
   }
   if (phase === undefined) throw new Error('--phase is required');
@@ -111,6 +132,7 @@ export const flagsFrom = (
     phase,
     planLink,
     skipIssues,
+    ...(onlyIssue === undefined ? {} : { onlyIssue }),
     ...(version === undefined ? {} : { version }),
     ...(sliceProgress === undefined ? {} : { sliceProgress }),
   };
@@ -163,12 +185,42 @@ export const writePlanStates = async (
 };
 
 /**
+ * Whether another plan that is not yet released also names an issue, or the
+ * sibling read cannot be trusted — either way the issue must not close.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param planAbs - the absolute path of the plan being written.
+ * @param issue - the issue the write targets.
+ */
+const sharedWithUnfinishedPlan = async (context: ShellContext, planAbs: string, issue: string): Promise<boolean> => {
+  const scripts = scriptsShell(context);
+  const dirRead = await scripts.config('Plan directory', 'docs/plans/');
+  const planDir = path.resolve(context.repoRoot, dirRead.ok ? dirRead.value.trim() : 'docs/plans/');
+  const listed = await planStoreShell(context).listDir(planDir);
+  if (!listed.ok) return true;
+  const files = listed.value
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => path.join(planDir, name))
+    .filter((file) => path.normalize(file) !== path.normalize(planAbs));
+  let lines: readonly string[] = [];
+  if (files.length > 0) {
+    const meta = await scripts.planMeta(files);
+    if (!meta.ok) return true;
+    lines = meta.value.split('\n');
+  }
+  const unfinished = unfinishedIssuesOf(lines);
+  const [decision] = releaseIssueDecisions([issue], unfinished);
+  return decision?.skip !== null;
+};
+
+/**
  * Reads the plan, writes the plan states, prints the answer.
  *
  * @param argv - the plan file, then the flags.
  * @param context - where the scripts and the repository are.
  * @param write - where the answer goes.
  * @param warn - where the reason for a usage error goes.
+ * @param trackerOf - resolves the connector; the declared one by default.
  * @returns the process exit code.
  */
 export const run = async (
@@ -176,23 +228,30 @@ export const run = async (
   context: ShellContext,
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
+  trackerOf: (context: ShellContext) => Promise<Tracker> = planStateTracker,
 ): Promise<number> => {
   const [planFile = '', ...flags] = argv;
   let reading: PlanStateReading;
   let skipIssues: readonly string[];
+  let onlyIssue: string | undefined;
+  let planAbs = '';
   try {
     if (planFile === '' || !existsSync(planFile)) throw new Error(`'${planFile}' is not a plan file`);
     const meta = await scriptsShell(context).planMeta([path.resolve(planFile)]);
     if (!meta.ok) throw new Error(`cannot parse '${planFile}'`);
     const line = meta.value.split('\n').map((l) => l.trim()).find(Boolean);
     if (line === undefined) throw new Error(`cannot parse '${planFile}'`);
-    const { skipIssues: skip, ...flags2 } = flagsFrom(flags);
+    const { skipIssues: skip, onlyIssue: only, ...flags2 } = flagsFrom(flags);
     skipIssues = skip;
-    reading = { issues: issuesFrom(line), ...flags2 };
+    onlyIssue = only;
+    planAbs = path.resolve(planFile);
+    const named = issuesFrom(line);
+    if (only !== undefined && !named.includes(only)) throw new Error(`'${planFile}' does not name issue ${only}`);
+    reading = { issues: only === undefined ? named : [only], ...flags2 };
   } catch (err) {
     warn(`plot-plan-state: ${(err as Error).message}\n`);
     warn(
-      'plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>] [--slice-progress <string>] [--skip-issue <id> ...]\n',
+      'plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>] [--slice-progress <string>] [--skip-issue <id> ...] [--only-issue <id>]\n',
     );
     write('summary: tracker=failed\n');
     return EXIT.usage;
@@ -202,8 +261,17 @@ export const run = async (
     write('summary: tracker=none\n');
     return EXIT.ok;
   }
-  const tracker = await planStateTracker(context);
-  const { lines, outcomes } = await writePlanStates(reading, tracker, new Set(skipIssues));
+  const tracker = await trackerOf(context);
+  const skip = new Set(skipIssues);
+  if (onlyIssue !== undefined && reading.phase === 'released') {
+    const sharing = await sharedWithUnfinishedPlan(context, planAbs, onlyIssue);
+    if (sharing) skip.add(onlyIssue);
+  }
+  const { lines, outcomes } = await writePlanStates(reading, tracker, skip);
+  if (onlyIssue !== undefined && outcomes.includes('written')) {
+    // The receipt clears the state gate for the commit that adds the issue.
+    recordStateReceipt(context.repoRoot, issueReceiptKey(path.relative(context.repoRoot, planAbs), onlyIssue), onlyIssue);
+  }
   for (const line of lines) write(line);
   // SKIPPED IS TRANSPARENT TO THIS LINE'S VOCABULARY, which existing readers
   // parse (`trackerWriteSummary`, the `summary: tracker=` regex in

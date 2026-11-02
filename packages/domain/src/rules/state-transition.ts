@@ -69,6 +69,44 @@ export const spikeApprovalOf = (text: string): string => {
  */
 export const spikeReceiptKey = (path: string): string => `${path}#${SPIKE_APPROVED_FIELD}`;
 
+/** The prefix of the `field` an issue transition carries; the issue key follows. */
+export const ISSUE_FIELD_PREFIX = 'Issue ';
+
+/**
+ * The key a receipt for one issue gained on a plan's `Issue:` line is filed
+ * under: the plan path, `#Issue `, and the issue key. Two issues gained in one
+ * commit need two receipts, which the bare path could not express.
+ *
+ * @param path - the plan's repository-relative path.
+ * @param issue - the issue key, as {@link issuesOf} reads it (`2697`, `PROJ-12`).
+ */
+export const issueReceiptKey = (path: string, issue: string): string => `${path}#${ISSUE_FIELD_PREFIX}${issue}`;
+
+/**
+ * The issues a plan's `Issue:` line in its `## Status` section names.
+ *
+ * Scoped to that section for the reason {@link statusStateOf} is. `#N` reads as
+ * `N` and a `PROJ-N` key reads as itself. An unfilled placeholder names none.
+ *
+ * @param text - the file's content.
+ * @returns the keys in the order the line names them, without duplicates.
+ */
+export const issuesOf = (text: string): readonly string[] => {
+  let inStatus = false;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('## ')) {
+      inStatus = line.startsWith('## Status');
+      continue;
+    }
+    if (inStatus && /^[ \t]*[-*]?[ \t]*\**issue[:*]/i.test(line)) {
+      const value = line.replace(/^[^:]*:\**[ \t]*/, '');
+      const keys = [...value.matchAll(/#([0-9]+)|\b([A-Z][A-Z0-9]*-[0-9]+)\b/g)].map((m) => m[1] ?? m[2] ?? '');
+      return [...new Set(keys.filter((key) => key !== ''))];
+    }
+  }
+  return [];
+};
+
 /**
  * Whether a path is a plan or a sprint file, by directory membership only.
  *
@@ -168,9 +206,10 @@ export interface StateTransition {
   /**
    * The field the transition changes. Absent for the `State:` line; the
    * `Spike approved:` record sets it, and its receipt is filed under
-   * {@link spikeReceiptKey}.
+   * {@link spikeReceiptKey}. An issue gained on the `Issue:` line sets
+   * `Issue <key>`, filed under {@link issueReceiptKey}; its `after` is the key.
    */
-  field?: typeof SPIKE_APPROVED_FIELD;
+  field?: string;
 }
 
 /**
@@ -179,10 +218,13 @@ export interface StateTransition {
  *
  * @param transition - a transition from {@link stateTransitionsOf}.
  */
-export const receiptOf = (transition: StateTransition): { key: string; value: string } => ({
-  key: transition.field === SPIKE_APPROVED_FIELD ? spikeReceiptKey(transition.path) : transition.path,
-  value: transition.after,
-});
+export const receiptOf = (transition: StateTransition): { key: string; value: string } => {
+  const { field, path } = transition;
+  if (field?.startsWith(ISSUE_FIELD_PREFIX)) {
+    return { key: issueReceiptKey(path, field.slice(ISSUE_FIELD_PREFIX.length)), value: transition.after };
+  }
+  return { key: field === SPIKE_APPROVED_FIELD ? spikeReceiptKey(path) : path, value: transition.after };
+};
 
 /** A file the commit deletes, with the text `HEAD` holds. */
 export interface DeletedFile {
@@ -312,6 +354,54 @@ export const spikeTransitionOf = (
   };
 };
 
+/** The plan phases whose `Issue:` line owes a write for every issue it names. */
+const ISSUE_OWING_STATES = ['approved', 'delivered', 'released'];
+
+/**
+ * The transitions of a plan's `Issue:` line a commit carries: one per issue the
+ * line gains against `HEAD`.
+ *
+ * An issue that leaves the line owes nothing. Nothing is owed either while the
+ * plan's `State:` after the commit is not Approved, Delivered or Released: no
+ * phase write reaches an issue before approval. A plan with no `HEAD` version
+ * and no same-slug deletion is a creation and passes. The merge-equality bypass
+ * is {@link stateTransitionOf}'s.
+ *
+ * @param path - the repository-relative path.
+ * @param kind - the file's kind; only a plan carries the line.
+ * @param head - the file's text in `HEAD`, or `null` when `HEAD` holds no such file.
+ * @param working - the file's text being committed, or `null` when unreadable.
+ * @param renamed - the same-slug file the commit deletes, or `null`.
+ * @param otherParentTexts - the file's text in each parent other than `HEAD`;
+ *   empty for a non-merge commit.
+ * @returns the transitions in the order the line names the gained issues.
+ */
+export const issueTransitionOf = (
+  path: string,
+  kind: LifecycleKind,
+  head: string | null,
+  working: string | null,
+  renamed: DeletedFile | null = null,
+  otherParentTexts: readonly string[] = [],
+): readonly StateTransition[] => {
+  if (kind !== 'plan' || working === null) return [];
+  const source = head ?? renamed?.head ?? null;
+  if (source === null) return [];
+  if (!ISSUE_OWING_STATES.includes(statusStateOf(working).toLowerCase())) return [];
+  if (otherParentTexts.includes(working)) return [];
+  const had = new Set(issuesOf(source));
+  return issuesOf(working)
+    .filter((issue) => !had.has(issue))
+    .map((issue) => ({
+      path,
+      kind,
+      before: '',
+      after: issue,
+      field: `${ISSUE_FIELD_PREFIX}${issue}`,
+      ...(head === null && renamed !== null ? { renamedFrom: renamed.path } : {}),
+    }));
+};
+
 /** The mode git gives a symbolic link. */
 export const SYMLINK_MODE = '120000';
 
@@ -356,7 +446,7 @@ export interface LifecycleReading {
  * a `HEAD` version and no committed one is a deletion, and is the rename source
  * {@link renamedFromOf} searches for a path with no `HEAD` version. Each path
  * is then judged by {@link stateTransitionOf} and, for a plan, by
- * {@link spikeTransitionOf} — both take `otherParents`' texts as an extra
+ * {@link spikeTransitionOf} and {@link issueTransitionOf} — both take `otherParents`' texts as an extra
  * reading, a symbolic link among them reading as no text the same way `head`
  * and `committed` do.
  *
@@ -391,7 +481,10 @@ export const stateTransitionsOf = (
       stateTransitionOf(path, kind, head, committed, renamed, otherParentTexts),
       spikeTransitionOf(path, kind, head, committed, renamed, otherParentTexts),
     ];
-    return transitions.filter((transition): transition is StateTransition => transition !== null);
+    return [
+      ...transitions.filter((transition): transition is StateTransition => transition !== null),
+      ...issueTransitionOf(path, kind, head, committed, renamed, otherParentTexts),
+    ];
   });
 };
 
@@ -522,10 +615,15 @@ export const effectivePaths = (
  *   picked commit holds no such file.
  */
 export const pickedTransitionOf = (
-  field: typeof SPIKE_APPROVED_FIELD | undefined,
+  field: string | undefined,
   parentText: string | null,
   pickedText: string | null,
 ): { before: string; after: string } => {
+  if (field?.startsWith(ISSUE_FIELD_PREFIX)) {
+    const issue = field.slice(ISSUE_FIELD_PREFIX.length);
+    const named = (text: string | null): string => (text !== null && issuesOf(text).includes(issue) ? issue : '');
+    return { before: named(parentText), after: named(pickedText) };
+  }
   const valueOf = field === SPIKE_APPROVED_FIELD ? spikeApprovalOf : statusStateOf;
   return {
     before: parentText === null ? '' : valueOf(parentText),
@@ -569,6 +667,16 @@ export const stateTransitionRefusal = (uncleared: readonly StateTransition[]): s
   const lines = ['plot state gate: a lifecycle field has one writer, and this commit is not it.'];
   for (const { path, kind, before, after, renamedFrom, field } of uncleared) {
     const spike = field === SPIKE_APPROVED_FIELD;
+    const issue = field?.startsWith(ISSUE_FIELD_PREFIX) ? field.slice(ISSUE_FIELD_PREFIX.length) : null;
+    if (issue !== null) {
+      lines.push(
+        '',
+        `  ${path}`,
+        `    issue ${issue} joined the Issue: line of a ${statusStateOf('') === '' ? 'plan past Draft' : ''}, written by hand${renamedFrom === undefined ? '' : ` (renamed from ${renamedFrom})`}.`,
+        `    The command that owns this write: bash skills/plot/scripts/plot-plan-state.sh ${path} --only-issue ${issue} --phase <approved|delivered|released> --plan-link <link>`,
+      );
+      continue;
+    }
     const name = spike ? 'Spike approved' : 'State';
     const owner =
       after === ''

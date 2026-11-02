@@ -3,12 +3,12 @@
 // here reaches `plot-host.sh`.
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { trackerFixture } from '@plot-pm/domain/adapters/tracker/tracker-fixture';
-import type { PlanStateWrite } from '@plot-pm/domain/ports/tracker';
+import type { PlanStateWrite, Tracker } from '@plot-pm/domain/ports/tracker';
 import { EXIT, flagsFrom, issuesFrom, run, writePlanStates } from '../../src/server/entry/plan-state.js';
 
 const SCRIPT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../skills/plot/scripts');
@@ -221,5 +221,58 @@ describe('the connector a run resolves', () => {
     expect(r.code).toBe(EXIT.ok);
     expect(r.out).toMatch(/^7\tno-target\t.*\nsummary: tracker=no-target\n$/);
     expect(r.hostCalls.filter((call) => call.startsWith('issue-'))).toEqual([]);
+  });
+});
+
+describe('--only-issue', () => {
+  it('takes exactly one value', () => {
+    expect(flagsFrom(['--phase', 'released', '--plan-link', 'p', '--only-issue', '9']).onlyIssue).toBe('9');
+    expect(() => flagsFrom(['--phase', 'released', '--plan-link', 'p', '--only-issue', '9', '--only-issue', '8'])).toThrow('exactly one');
+  });
+
+  it('writes one issue at released and leaves the receipt the gate spends', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-')));
+    try {
+      const file = path.join(root, '2026-10-17-p.md');
+      writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Released\n- **Issue:** #11, #12\n');
+      const written: string[] = [];
+      const tracker = {
+        planStateWrite: async (w: { issue: string }) => {
+          written.push(w.issue);
+          return { ok: true, value: 'written' };
+        },
+        lastRefusal: () => null,
+      } as unknown as Tracker;
+      const out: string[] = [];
+      const code = await run(
+        [file, '--phase', 'released', '--plan-link', 'docs/plans/p.md', '--only-issue', '12'],
+        { repoRoot: root, scriptDir: SCRIPT_DIR },
+        (s) => out.push(s),
+        () => {},
+        async () => tracker,
+      );
+      expect(code).toBe(EXIT.ok);
+      expect(written).toEqual(['12']);
+      const dir = path.join(root, '.plot', 'state', 'state-receipts');
+      const files = readdirSync(dir);
+      expect(files).toHaveLength(1);
+      expect(readFileSync(path.join(dir, files[0]!), 'utf8')).toBe('2026-10-17-p.md#Issue 12\t12\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an issue the plan does not name', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-')));
+    try {
+      const file = path.join(root, '2026-10-17-p.md');
+      writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Released\n- **Issue:** #11\n');
+      const err: string[] = [];
+      const code = await run([file, '--phase', 'released', '--plan-link', 'x', '--only-issue', '99'], { repoRoot: root, scriptDir: SCRIPT_DIR }, () => {}, (s) => err.push(s));
+      expect(code).toBe(EXIT.usage);
+      expect(err[0]).toContain('does not name issue 99');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
