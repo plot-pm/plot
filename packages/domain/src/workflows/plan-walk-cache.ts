@@ -365,9 +365,9 @@ export const cachedRefs = (inner: Refs, snapshot: RefSnapshot, cache: WalkCache)
       (await keyed(cache.countBehind, [snapshot.headOid, snapshot.oidOf(ref)], '', ([, oid]) => inner.countBehind(oid!)))
         ?? inner.countBehind(ref),
 
+    // No oid is named, so `keyed` always answers.
     defaultBranch: async () =>
-      (await keyed(cache.defaultBranch, [], `${snapshot.digest}\0${snapshot.headRef ?? ''}`, () => inner.defaultBranch()))
-        ?? inner.defaultBranch(),
+      (await keyed(cache.defaultBranch, [], `${snapshot.digest}\0${snapshot.headRef ?? ''}`, () => inner.defaultBranch()))!,
 
     containsMany: async (pairs) => {
       const settled = pairs.map((p) =>

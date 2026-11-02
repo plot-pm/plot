@@ -418,6 +418,16 @@ describe('the Delivered record, authors, behind count and default branch', () =>
     expect(count('recordCommit')).toBe(3);
   });
 
+  it('asks git for a ref the snapshot does not cover, and holds nothing for it', async () => {
+    const { refs, count } = extras();
+    const cache = freshWalkCache();
+    await wrap(refs, cache).recordCommit('docs/plans/x.md', 'Delivered', 'origin/gone');
+    await wrap(refs, cache).planAuthors('origin/gone', 'docs/plans/');
+    expect(count('recordCommit')).toBe(1);
+    expect(count('planAuthors')).toBe(1);
+    expect(cache.size()).toBe(0);
+  });
+
   it('holds the plan authors by the oid of the ref', async () => {
     const { refs, count } = extras();
     const cache = freshWalkCache();
