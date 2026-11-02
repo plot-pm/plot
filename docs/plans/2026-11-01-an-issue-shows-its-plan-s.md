@@ -174,7 +174,7 @@ Domain rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`, board
 
 ### Added issues
 
-- `bug/an-added-issue-owes-its-phase` — `issueTransitionOf` in `packages/domain/src/rules/state-transition.ts` and its call in the gate entry `packages/board/src/server/entry/gate.ts`; `--only-issue` and the receipt in `packages/board/src/server/entry/plan-state.ts`; the README row of `plot-plan-state.sh`. Tests: `packages/domain/test/state-transition.test.ts`, `packages/board/test/unit/plan-state.test.ts`, `test/reconcile/state-gate.test.mjs`. <!-- waits: bug/the-plan-comment-has-one-writer -->
+- `bug/an-added-issue-owes-its-phase` — `issueTransitionOf` in `packages/domain/src/rules/state-transition.ts` and its call in the gate entry `packages/board/src/server/entry/gate.ts`; `--only-issue` and the receipt in `packages/board/src/server/entry/plan-state.ts`; the README row of `plot-plan-state.sh`. Tests: `packages/domain/test/state-transition.test.ts`, `packages/board/test/unit/plan-state.test.ts`, `test/reconcile/state-gate.test.mjs`. <!-- waits: bug/the-plan-comment-has-one-writer --> → #3036
 
 ### Finding tickets
 
