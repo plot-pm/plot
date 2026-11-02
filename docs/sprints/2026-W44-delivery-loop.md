@@ -30,9 +30,9 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 
 ### Should Have
 
-- [ ] [the-plan-walk-moves-into-the] The plan walk moves into the domain and `plot-fleet-scan.sh` becomes a launcher (#2980)
-- [ ] [the-commit-gates-match-only-the] The commit gates read every commit form, and a replay or merge in progress passes (#2974)
-- [ ] [every-plan-reference-shows-its-issue] Every plan reference on the board shows its issue prefix and opens the plan (#2993)
+- [ ] [the-plan-walk-moves-into-the] The plan walk moves into the domain and `plot-fleet-scan.sh` becomes a launcher (#2980) <!-- pr: #2981, branch: feature/scan-once-walks-in-process -->
+- [x] [the-commit-gates-match-only-the] The commit gates read every commit form, and a replay or merge in progress passes (#2974) <!-- pr: #2984, branch: feature/replay-aware-commit-gates -->
+- [ ] [every-plan-reference-shows-its-issue] Every plan reference on the board shows its issue prefix and opens the plan (#2993) <!-- pr: #2994, branch: feature/a-plan-reference-is-decided-once -->
 - [ ] [an-issue-shows-its-plan-s] An issue shows its plan's state on every surface: lanes read the default branch, released issues carry their label, finding tickets close when settled, one plan comment, a slice row reads its head's checks (#2997) <!-- pr: #2998 -->
 - [ ] [a-plan-that-joins-a-sprint] A plan that joins a sprint names the sprint: one membership rule, one writer, a gate on added member lines, and a repair of this sprint (#2999) <!-- pr: #3000 -->
 - [x] [two-test-teardowns-turn-main-red] Two test teardowns turn main red: a stopped process leaves no plan stage directory, and the continuation tests remove desks after the last write (#3006) <!-- pr: #3008 -->

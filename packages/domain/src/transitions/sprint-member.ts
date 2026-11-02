@@ -337,7 +337,8 @@ export interface SprintMemberContext {
  * owes — the same inputs `/plot-approve` and `/plot-deliver` use.
  *
  * A re-run with the same arguments is a no-op: the member line already sits
- * in the requested tier and the field already holds this sprint.
+ * in the requested tier, the field already holds this sprint and the line
+ * already carries the annotation and tick the plan's state owes.
  *
  * @param sprintText - the sprint file's content.
  * @param planText - the plan file's content.
@@ -410,7 +411,7 @@ export const addSprintMember = (
   }
 
   const fieldUnchanged = field.text === planText;
-  if (!changed && fieldUnchanged) return { outcome: 'noop' };
+  if (!changed && fieldUnchanged && nextSprintText === sprintText) return { outcome: 'noop' };
 
   return { outcome: 'write', planText: field.text, sprintText: nextSprintText };
 };
