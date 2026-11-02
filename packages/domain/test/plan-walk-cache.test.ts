@@ -505,6 +505,20 @@ describe('a plan is parsed once per content', () => {
     expect(p.asked[1]).toEqual(['/stage/a/b.md']);
   });
 
+  it('omits a plan the parser reports no record for, and asks for it again next time', async () => {
+    const cache = freshWalkCache();
+    const asked: string[][] = [];
+    const parse = (paths: string[]) => {
+      asked.push(paths);
+      return Promise.resolve(paths.filter((p) => !p.endsWith('b.md')).map((p) => ({ file: p })));
+    };
+    const files = [file('a.md', oid(1)), file('b.md', oid(2))];
+    const first = await cachedPlanMetas(cache, files, 'k', parse);
+    expect(first?.map((m) => m.file)).toEqual(['/stage/a/a.md']);
+    await cachedPlanMetas(cache, files, 'k', parse);
+    expect(asked[1]).toEqual(['/stage/a/b.md']);
+  });
+
   it('answers a held plan with the path it is asked for now, in the order asked', async () => {
     const cache = freshWalkCache();
     const p = parser();
