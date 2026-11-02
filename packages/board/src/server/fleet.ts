@@ -37,7 +37,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
@@ -1590,7 +1590,7 @@ export async function planMetasAtDefault(
   opts: BuildBoardOptions,
   entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
 ): Promise<PlanMeta[] | null> {
-  const refs = refsFor(opts);
+  const refs = (await heldRefsFor(opts)).refs;
   const planDir = await planDirectory(scriptsFor(opts));
   const defaultBranch = await defaultBranchOf(opts, refs);
   const resolved = await refs.resolve(`origin/${defaultBranch}`);
@@ -1614,7 +1614,7 @@ export async function planMetasAtDefault(
   const scratch = makeStageDir('plot-default-plans-');
   let draft: { dir: string | null; files: string[] } = { dir: null, files: [] };
   try {
-    draft = await draftPlanFiles(opts, planDir, entry);
+    draft = await draftPlanFiles(planDir, entry, refs);
     const files: string[] = [];
     for (const plan of plans) {
       const content = blobs.value.get(plan.sha);
@@ -1700,7 +1700,7 @@ async function planMetasFromWorkingTree(
   } catch {
     return null; // no plan directory to read — not a claim that nothing is planned
   }
-  const scratch = await draftPlanFiles(opts, planDir, entry);
+  const scratch = await draftPlanFiles(planDir, entry, refsFor(opts));
   try {
     files.push(...scratch.files);
     if (files.length === 0) return [];
@@ -1771,23 +1771,22 @@ async function ticketPlansOf(
  *
  * A branch whose plan cannot be read is skipped; the other plans still count.
  *
- * @param opts - the board's repo root and scripts directory.
  * @param planDir - the configured plan directory, relative to the repo root.
  * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
+ * @param refs - the ref reader the draft branches are read through.
  * @returns the files written and their directory, which the caller removes.
  */
 async function draftPlanFiles(
-  opts: BuildBoardOptions,
   planDir: string,
   entry: Pick<CacheEntry, 'ideaPlans' | 'prs'> | undefined,
+  refs: Refs,
 ): Promise<{ dir: string | null; files: string[] }> {
   const files: string[] = [];
   if (!entry?.prs) return { dir: null, files };
   let dir: string | null = null;
   for (const [branch, file] of entry.ideaPlans) {
     if (!entry.prs.has(branch)) continue;
-    const raw = await run('git', ['show', `origin/${branch}:${path.posix.join(planDir, file)}`], opts.repoRoot)
-      .catch(() => '');
+    const raw = await draftPlanText(refs, branch, planDir, file);
     if (!raw) continue;
     dir ??= makeStageDir('plot-draft-plans-');
     const target = path.join(dir, `${files.length}-${path.basename(file)}`);
@@ -1796,6 +1795,26 @@ async function draftPlanFiles(
   }
   return { dir, files };
 }
+
+/**
+ * A draft plan's text at its branch tip, read as the tree listing and blob read
+ * the default-branch plans use, so both answer from the walk cache by object id.
+ *
+ * @param refs - the ref reader.
+ * @param branch - the draft branch, without the remote prefix.
+ * @param planDir - the configured plan directory.
+ * @param file - the plan's file name inside `planDir`.
+ * @returns the text, or `''` where the file or the branch cannot be read.
+ */
+const draftPlanText = async (refs: Refs, branch: string, planDir: string, file: string): Promise<string> => {
+  const listing = await refs.listBlobs(`origin/${branch}`, planDir);
+  if (!listing.ok) return '';
+  const wanted = path.posix.join(planDir, file).replace(/^\.\//, '');
+  const blob = listing.value.find((b) => b.path === wanted);
+  if (blob === undefined) return '';
+  const read = await refs.readBlobs([blob.sha]);
+  return read.ok ? read.value.get(blob.sha) ?? '' : '';
+};
 
 /** What `ticketLane` needs beyond the rows themselves, read from the cache without a new tracker call. */
 export interface TicketLaneData {

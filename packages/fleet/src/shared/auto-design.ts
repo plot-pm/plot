@@ -467,10 +467,11 @@ const boundSecondsOf = (opts: ActOptions): number => sharedBoundSecondsOf(opts, 
  *
  * @param refs - the refs port.
  * @param planFile - the plan's repository-relative path.
+ * @param defaultBranchName - the default branch, without the remote prefix.
  * @returns the commit sha, or `''` where the record or the file cannot be read.
  */
-const designCommitOf = async (refs: Pick<Refs, 'recordCommit'>, planFile: string): Promise<string> => {
-  const found = await refs.recordCommit(planFile, 'Design');
+const designCommitOf = async (refs: Pick<Refs, 'recordCommit'>, planFile: string, defaultBranchName: string): Promise<string> => {
+  const found = await refs.recordCommit(planFile, 'Design', `origin/${defaultBranchName}`);
   return found.ok && found.value !== null ? found.value : '';
 };
 
@@ -594,7 +595,7 @@ export const runAutoDesignPass = async (
       const specRef = await specRefOf(refs, defaultBranchName, branch);
       if (specRef.claim === 'absent' || specRef.claim === 'claim-only') delete orphans[plan.slug];
 
-      const designCommit = await designCommitOf(refs, plan.planFile);
+      const designCommit = await designCommitOf(refs, plan.planFile, defaultBranchName);
       const prRetry = failures[plan.slug]?.reading === designCommit;
       const answer = designWork({ state: plan.state, text: plan.text, specRef: specRef.claim, prRetry });
       const store: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart, orphans };
@@ -653,7 +654,7 @@ export const runAutoDesignPass = async (
     for (const plan of candidates.plans.values()) {
       const row = specRow(
         plan.slug,
-        await designCommitOf(refs, plan.planFile),
+        await designCommitOf(refs, plan.planFile, defaultBranchName),
         finalStore,
         designLogPath(opts.repoRoot, plan.slug),
         going.has(plan.slug),

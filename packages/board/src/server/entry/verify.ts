@@ -397,7 +397,9 @@ const preparePin = async (ctx: Context, args: Args, rel: string, write: Printer)
     if (toolsHead === null || toolsHead.code !== 0) throw new Refused(`tools-unavailable: no tools tree at ${tools}`);
     const toolsSha = toolsHead.stdout.trim();
 
-    const found = await ctx.refs.recordCommit(rel, 'Delivered');
+    const main = await ctx.refs.defaultBranch();
+    if (!main.ok) throw new Refused('pin-not-found: the default branch cannot be named');
+    const found = await ctx.refs.recordCommit(rel, 'Delivered', `origin/${main.value}`);
     const delivery = found.ok && found.value !== null ? found.value : '';
     if (delivery === '') {
       throw new Refused(`pin-not-found: no commit on the default branch added a filled 'Delivered:' to ${rel}`);

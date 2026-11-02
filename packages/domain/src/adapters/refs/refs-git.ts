@@ -108,8 +108,8 @@ const NAMESPACES: Record<RefScope, readonly string[]> = {
  */
 const refStatesOf = (stdout: string): readonly RefState[] =>
   asLines(stdout).flatMap((line) => {
-    const [ref, sha] = line.split(' ');
-    return ref && sha ? [{ ref, sha }] : [];
+    const [ref, sha, head] = line.split(' ');
+    return ref && sha ? [head === '*' ? { ref, sha, head: true as const } : { ref, sha }] : [];
   });
 
 /**
@@ -637,9 +637,7 @@ export const refsGit = (context: ShellContext): Refs => {
         inRepo,
       ),
 
-    recordCommit: async (file, field) => {
-      const main = await defaultBranch();
-      if (!main.ok) return main as PortResult<string | null>;
+    recordCommit: async (file, field, ref) => {
       const escaped = field.replace(/[.[\]\\*^$+?(){}|]/g, '\\$&');
       // `-G` narrows the walk to commits whose diff touches a line of this
       // field; the patch then says whether the line was ADDED with a value.
@@ -650,7 +648,7 @@ export const refsGit = (context: ShellContext): Refs => {
         [
           'log', '-m', '--first-parent', '-U0', '--format=@@%H',
           `-G^[ \t]*[-*][ \t]*\\*\\*${escaped}:\\*\\*`,
-          `origin/${main.value}`, '--', file,
+          ref, '--', file,
         ],
         (stdout) => recordCommitOf(stdout, field),
         { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
@@ -743,7 +741,7 @@ export const refsGit = (context: ShellContext): Refs => {
     refState: (scope) =>
       runScript(
         'git',
-        ['for-each-ref', '--format=%(refname) %(objectname)', ...NAMESPACES[scope]],
+        ['for-each-ref', '--format=%(refname) %(objectname) %(HEAD)', ...NAMESPACES[scope]],
         refStatesOf,
         { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
       ),
@@ -751,7 +749,7 @@ export const refsGit = (context: ShellContext): Refs => {
     refStateSync: (scope) =>
       runScriptSync(
         'git',
-        ['for-each-ref', '--format=%(refname) %(objectname)', ...NAMESPACES[scope]],
+        ['for-each-ref', '--format=%(refname) %(objectname) %(HEAD)', ...NAMESPACES[scope]],
         refStatesOf,
         { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
       ),
