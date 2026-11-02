@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-02, Jan Wloka, plan-PR #3039 merged
+- **Started:** 2026-11-02, Jan Wloka, `bug/the-reporter-sigterm-test-fails-on`
 
 ## Changelog
 
