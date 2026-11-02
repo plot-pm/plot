@@ -78,7 +78,7 @@ The fix changes production code, not the test rig. A readiness signal in the rig
 
 ### Reporter ignores SIGTERM from its fork
 
-- `bug/the-reporter-sigterm-test-fails-on` — set `trap '' TERM` in `reporterShell`'s outer shell after `agent=$!` and before the reporter fork, add the structural and agent-dies tests, and record the macOS and dash A/B counts in the PR
+- `bug/the-reporter-sigterm-test-fails-on` — set `trap '' TERM` in `reporterShell`'s outer shell after `agent=$!` and before the reporter fork, add the structural and agent-dies tests, and record the macOS and dash A/B counts in the PR → #3044
 
 ## Notes
 
