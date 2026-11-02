@@ -137,10 +137,14 @@ const estateRepo = (): string => {
   }
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'plans');
+  // The mirror a fetch leaves: the cache keys on these oids.
+  git(repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
   git(repo, 'checkout', '-q', '-b', 'idea/draft-one');
   fs.writeFileSync(path.join(repo, 'docs/plans/2026-10-04-draft-one.md'), PLAN('Draft one', 'Draft'));
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'draft');
+  git(repo, 'update-ref', 'refs/remotes/origin/idea/draft-one', 'HEAD');
   git(repo, 'checkout', '-q', 'main');
   return repo;
 };
@@ -170,7 +174,8 @@ const normalise = (line: string, roots: Record<string, string>): string => {
   for (const [name, value] of Object.entries(roots)) {
     out = out.split(`/private${value}`).join(`<${name}>`).split(value).join(`<${name}>`);
   }
-  return out;
+  // Plans read from a ref are staged in a fresh directory per request.
+  return out.replace(/(?:\/private)?\/\S*?plot-board-plans-[^/\s]+/g, '<stage>');
 };
 
 /**
@@ -179,28 +184,13 @@ const normalise = (line: string, roots: Record<string, string>): string => {
  */
 const WARM_STARTS: readonly string[] = [
   "execFileSync git hash-object --stdin-paths",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash -c git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed \"s|^origin/||\" || git rev-parse --abbrev-ref HEAD",
-  "spawn bash <scripts>/plot-plan-meta.sh <repo>/docs/plans/2026-10-01-alpha.md <repo>/docs/plans/2026-10-02-beta.md <repo>/docs/plans/2026-10-03-gamma.md",
-  "spawn bash <scripts>/plot-plan-meta.sh <repo>/docs/plans/2026-10-01-alpha.md <repo>/docs/plans/2026-10-02-beta.md <repo>/docs/plans/2026-10-03-gamma.md",
-  "spawn bash <scripts>/plot-plan-meta.sh <repo>/docs/plans/2026-10-01-alpha.md <repo>/docs/plans/2026-10-02-beta.md <repo>/docs/plans/2026-10-03-gamma.md",
+  "spawn bash <scripts>/plot-plan-meta.sh <stage>/0/2026-10-01-alpha.md <stage>/1/2026-10-02-beta.md <stage>/2/2026-10-03-gamma.md",
   "spawn git --no-optional-locks -C <repo> status --porcelain --untracked-files=no",
-  "spawn git for-each-ref --format=%(refname) %(objectname) refs/heads refs/remotes",
-  "spawn git log -m --first-parent -U0 --format=@@%H -G^[ 	]*[-*][ 	]*\\*\\*Delivered:\\*\\* origin/ -- docs/plans/2026-10-01-alpha.md",
-  "spawn git log -m --first-parent -U0 --format=@@%H -G^[ 	]*[-*][ 	]*\\*\\*Delivered:\\*\\* origin/ -- docs/plans/2026-10-02-beta.md",
-  "spawn git log -m --first-parent -U0 --format=@@%H -G^[ 	]*[-*][ 	]*\\*\\*Delivered:\\*\\* origin/ -- docs/plans/2026-10-03-gamma.md",
-  "spawn git log origin/main --diff-filter=AR --name-status --format=@%H	%an -- docs/plans/",
-  "spawn git ls-tree -r origin/main -- docs/plans/",
-  "spawn git ls-tree -r origin/main -- docs/sprints/active",
-  "spawn git ls-tree -r origin/main -- docs/stories/",
-  "spawn git ls-tree -r origin/main -- docs/stories/",
+  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
+  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
+  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
+  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git rev-parse --git-common-dir",
-  "spawn git rev-parse origin/main",
-  "spawn git rev-parse origin/main",
   "spawn git rev-parse origin/main^{commit}",
   "spawn node <gate>/plot-gate.mjs --spawn-contract",
 ];
