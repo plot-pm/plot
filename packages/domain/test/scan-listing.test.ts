@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  encodeListingKey, foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingWindowFor,
+  encodeListingKey, foldScanListing, parseScanListingRows, readCarriedPrStates, renderListingReport, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingRow,
 } from '../src/rules/scan-listing.js';
 
@@ -293,5 +293,43 @@ describe('readCarriedPrStates', () => {
   it('skips dotted notes and lines with no state, and lets a later line win', () => {
     const read = readCarriedPrStates('.branches\t2\t-\t-\nfeature_x\t\t-\t-\nfeature_y\tOPEN\t-\t-\nfeature_y\tMERGED\t-\t-\n.list-arrived\t1\t-\t-\n');
     expect([...read!.states]).toEqual([['feature_y', 'MERGED']]);
+  });
+});
+
+describe('readCarriedPrStates rows', () => {
+  it('keeps checks and draft as written and fills a missing word with a dash', () => {
+    const read = readCarriedPrStates('feature_a\tOPEN\tgreen\tfalse\nfeature_b\tMERGED\n.list-arrived\t1\t-\t-\n');
+    expect(read!.rows).toEqual([
+      { key: 'feature_a', state: 'OPEN', checks: 'green', draft: 'false' },
+      { key: 'feature_b', state: 'MERGED', checks: '-', draft: '-' },
+    ]);
+  });
+});
+
+describe('renderListingReport', () => {
+  const rows = [
+    { key: 'feature_b', state: 'MERGED', checks: '-', draft: '-' },
+    { key: 'feature_a', state: 'OPEN', checks: 'green', draft: 'false' },
+  ];
+
+  it('prints .branches first, rows in key order, .list-complete, then .list-arrived last', () => {
+    expect(renderListingReport(rows, 7, true)).toBe(
+      'listing: .branches\t7\t-\t-\n'
+      + 'listing: feature_a\tOPEN\tgreen\tfalse\n'
+      + 'listing: feature_b\tMERGED\t-\t-\n'
+      + 'listing: .list-complete\t1\t-\t-\n'
+      + 'listing: .list-arrived\t1\t-\t-\n',
+    );
+  });
+
+  it('omits .list-complete for a cut listing', () => {
+    expect(renderListingReport(rows, 2, false)).not.toContain('.list-complete');
+  });
+
+  it('round-trips through readCarriedPrStates', () => {
+    const text = renderListingReport(rows, 2, true).replaceAll('listing: ', '');
+    const read = readCarriedPrStates(text);
+    expect(read?.complete).toBe(true);
+    expect(read?.rows.map((r) => r.key).sort()).toEqual(['feature_a', 'feature_b']);
   });
 });

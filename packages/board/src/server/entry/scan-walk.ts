@@ -11,6 +11,7 @@ import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { shellContext } from '@plot-pm/domain/adapters/scripts';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { logToPlan, pulseLine, recordBridge, type PulseCounts } from './pulse-log.js';
+import { readCarriedPrStates, renderListingReport } from '@plot-pm/domain/rules/scan-listing';
 import type { Host } from '@plot-pm/domain/ports/host';
 import { readBranchConflicts, readBranchReadings, stageMergeDetect, type ConflictCandidate } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
@@ -108,6 +109,7 @@ const runStream = async (
   input: Parameters<typeof chosenPlans>[1],
   header: FleetReadingHeader,
   root: string,
+  reportListing: (stage: BranchStageReadings) => void,
 ): Promise<number> => {
   const assembler = planWalkAssembler(estate, input);
   const order = chosenPlans(estate, input).map(({ record }) => record);
@@ -144,6 +146,7 @@ const runStream = async (
     process.stderr.write('plot-scan-walk: the branches stage failed\n');
     return 2;
   }
+  reportListing(stage.value);
   await flush(true);
   if (broken) {
     process.stderr.write('plot-scan-walk: the assembly stage failed\n');
@@ -165,8 +168,10 @@ const main = async (): Promise<number> => {
   const [sliceNames, whyNothing, listAll, nextOnly, , logPulse, looseFlag, streamFlag, looseVerifiable] = flags;
   const loose = looseFlag === '1';
   const looseInput = loose ? { verifiable: looseVerifiable === '1' } : undefined;
+  const [, , , , asJson] = flags;
+  // A call with no slug and no mode flag prints the wave report, as the scan did before the walk moved here.
   const mode =
-    streamFlag === '1' ? 'stream' : logPulse === '1' ? 'log-pulse' : sliceNames === '1' ? 'slice-names' : whyNothing === '1' ? 'why-nothing' : listAll === '1' ? 'list-eligible' : nextOnly === '1' ? 'next' : 'json';
+    streamFlag === '1' ? 'stream' : logPulse === '1' ? 'log-pulse' : sliceNames === '1' ? 'slice-names' : whyNothing === '1' ? 'why-nothing' : listAll === '1' ? 'list-eligible' : nextOnly === '1' ? 'next' : asJson === '1' || slug !== '' ? 'json' : 'prose';
   const prefixes = prefixList.split('|').filter((p) => p !== '');
   const offer = mode === 'next' || mode === 'list-eligible' || mode === 'why-nothing';
   const root = process.env.PLOT_REPO_ROOT ?? process.cwd();
@@ -185,7 +190,17 @@ const main = async (): Promise<number> => {
 
   const realHost = hostShell(context);
   const host = offline === '1' && !offer ? unaskedHost(realHost) : realHost;
-  const stageInput = { mainBranch, planDir, loose: loose && looseVerifiable === '1' };
+  // A carried listing is a full answer or it is not used: a value with no `.list-arrived` line is refused and the host is asked.
+  const carried = readCarriedPrStates(process.env.PLOT_PR_LISTING ?? '');
+  const stageInput = {
+    mainBranch,
+    planDir,
+    loose: loose && looseVerifiable === '1',
+    ...(carried === null || (offline === '1' && !offer) ? {} : { prs: { kind: 'listed' as const, listing: carried } }),
+  };
+  const reportListing = (stage: BranchStageReadings): void => {
+    if (stage.listing !== undefined) process.stderr.write(renderListingReport(stage.listing.rows, stage.listing.tracked, stage.listing.complete));
+  };
   const header: FleetReadingHeader = {
     main: mainBranch,
     readRef,
@@ -219,6 +234,7 @@ const main = async (): Promise<number> => {
       { slug, offer: false, ...(looseInput === undefined ? {} : { loose: looseInput }) },
       header,
       root,
+      reportListing,
     );
   }
 
@@ -238,6 +254,7 @@ const main = async (): Promise<number> => {
     return 2;
   }
   const assembly = assembled.value;
+  reportListing(branches.value);
   if (mode === 'why-nothing') {
     process.stdout.write(assembly.plans.length === 0 ? 'none\n' : whyNothingText(assembly));
     return 0;
@@ -251,14 +268,14 @@ const main = async (): Promise<number> => {
   const chosen = new Set(chosenPlans(estate.value, { slug, offer }).map(({ record }) => record.file));
   const read = { ...header, host: hostWord(header, branches.value), mergeDetect: stageMergeDetect(branches.value, chosen) };
   const document = fleetReading(assembly, read, await readBranchConflicts(refs, mainBranch, branchesOf(assembly.plans)));
-  if (mode === 'log-pulse') {
+  if (mode === 'log-pulse' || mode === 'prose') {
     const summary = document.summary as Record<string, number>;
     const counts: PulseCounts = {
       waves: summary.waves ?? 0, eligible: summary.eligible ?? 0, claimed: summary.claimed ?? 0, blocked: summary.blocked ?? 0,
       deferred: summary.deferred ?? 0, waiting: summary.waiting ?? 0, prereq_missing: summary.prereq_missing ?? 0,
     };
     const line = pulseLine(new Date().toISOString().slice(0, 16) + 'Z', counts);
-    for (const plan of document.plans as { file: string }[]) logToPlan(`${planDir}${plan.file}`, line);
+    if (mode === 'log-pulse') for (const plan of document.plans as { file: string }[]) logToPlan(`${planDir}${plan.file}`, line);
     const behindRead = readRef !== 'unknown' && localHead !== readRef ? await refs.commitSubjects(`HEAD..origin/${mainBranch}`) : null;
     const report: ReportContext = {
       behind: behindRead !== null && behindRead.ok ? behindRead.value.length : null,
@@ -272,8 +289,10 @@ const main = async (): Promise<number> => {
     if (assembly.plans.length === 0) out += `No plans found in ${planDir}.\n`;
     for (const plan of assembly.plans) out += planReport(plan, read, loose);
     out += reportNotes(read, report);
-    const delta = recordBridge(root, document, Date.now());
-    if (delta !== '') out += `${delta.replace(/\n+$/, '')}\n\n`;
+    if (mode === 'log-pulse') {
+      const delta = recordBridge(root, document, Date.now());
+      if (delta !== '') out += `${delta.replace(/\n+$/, '')}\n\n`;
+    }
     process.stdout.write(out + reportFooter(assembly, read, report));
     return 0;
   }

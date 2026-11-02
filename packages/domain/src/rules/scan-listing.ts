@@ -158,6 +158,20 @@ export interface CarriedPrStates {
   states: ReadonlyMap<string, string>;
   /** Whether the listing carried `.list-complete`. */
   complete: boolean;
+  /** Every branch line the listing carried, with its checks and draft words as written. */
+  rows: readonly ReportedListingRow[];
+}
+
+/** One branch line of a listing the scan reports on stderr. */
+export interface ReportedListingRow {
+  /** The branch, encoded by {@link encodeListingKey}. */
+  key: string;
+  /** The PR state word. */
+  state: string;
+  /** The checks word, or `-` where the row carried none. */
+  checks: string;
+  /** The draft word, or `-` where the row carried none. */
+  draft: string;
 }
 
 /**
@@ -173,16 +187,41 @@ export interface CarriedPrStates {
  */
 export const readCarriedPrStates = (listing: string): CarriedPrStates | null => {
   const states = new Map<string, string>();
+  const rows = new Map<string, ReportedListingRow>();
   let arrived = false;
   let complete = false;
   for (const line of listing.split('\n')) {
-    const [key = '', state = ''] = line.split('\t');
+    const [key = '', state = '', checks = '-', draft = '-'] = line.split('\t');
     if (key === '') continue;
     if (key === '.list-arrived') arrived = true;
     else if (key === '.list-complete') complete = true;
-    else if (!key.startsWith('.') && state !== '') states.set(key, state);
+    else if (!key.startsWith('.') && state !== '') {
+      states.set(key, state);
+      rows.set(key, { key, state, checks: checks || '-', draft: draft || '-' });
+    }
   }
-  return arrived ? { states, complete } : null;
+  return arrived ? { states, complete, rows: [...rows.values()] } : null;
+};
+
+/**
+ * Renders the `listing:` lines a scan prints on stderr for the board to carry:
+ * `.branches` first, one line per branch in key order, `.list-complete` where
+ * the listing was whole, and `.list-arrived` last so a cut listing carries none.
+ *
+ * @param rows - the listing's branch lines.
+ * @param tracked - how many remote branches the listing swept.
+ * @param complete - whether the listing was whole.
+ * @returns the lines, each ending in a newline.
+ */
+export const renderListingReport = (rows: readonly ReportedListingRow[], tracked: number, complete: boolean): string => {
+  const line = (key: string, a: string, b: string, c: string): string => `listing: ${key}\t${a}\t${b}\t${c}\n`;
+  const sorted = [...rows].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return (
+    line('.branches', String(tracked), '-', '-') +
+    sorted.map((r) => line(r.key, r.state, r.checks || '-', r.draft || '-')).join('') +
+    (complete ? line('.list-complete', '1', '-', '-') : '') +
+    line('.list-arrived', '1', '-', '-')
+  );
 };
 
 /** One host answer to one `pr-list` call, read for the fold below. */

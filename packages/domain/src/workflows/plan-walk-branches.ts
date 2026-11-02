@@ -11,7 +11,7 @@ import {
   type WaitsReading,
 } from '../rules/branch-state.js';
 import { realCommits } from '../rules/empty-claim.js';
-import { encodeListingKey, type CarriedPrStates } from '../rules/scan-listing.js';
+import { encodeListingKey, type CarriedPrStates, type ReportedListingRow } from '../rules/scan-listing.js';
 import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge-subject.js';
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
@@ -118,6 +118,11 @@ export interface BranchStageReadings {
   added: ReadonlyMap<string, string>;
   /** One entry per branch line, in plan order and then slice order. */
   branches: readonly BranchReading[];
+  /**
+   * The PR listing the stage held: read from the host or handed in. Absent
+   * where no listing arrived, so a caller that reports it reports nothing.
+   */
+  listing?: { rows: readonly ReportedListingRow[]; complete: boolean; tracked: number };
 }
 
 /**
@@ -196,6 +201,7 @@ export const readBranchReadings = async (
   let prListComplete = false;
   let listed = false;
   let heldPr: (branch: string) => PrReading | undefined = () => undefined;
+  let listingRows: readonly ReportedListingRow[] = [];
   let detailOf: (branch: string) => PrDetail = () => 'no-host';
   if (backend === 'none') {
     // A repository with no git host has no pull requests to ask about: the
@@ -206,6 +212,7 @@ export const readBranchReadings = async (
     const { states, complete } = input.prs.listing;
     listed = true;
     prListComplete = complete;
+    listingRows = input.prs.listing.rows;
     heldPr = (branch) => {
       const key = encodeListingKey(branch);
       const state = key === null ? undefined : states.get(key);
@@ -227,6 +234,13 @@ export const readBranchReadings = async (
         const held = prByBranch.get(pr.head);
         if (held === undefined || rank(pr) < rank(held)) prByBranch.set(pr.head, pr);
       }
+      listingRows = [...prByBranch.values()].flatMap((pr) => {
+        const key = encodeListingKey(pr.head);
+        if (key === null) return [];
+        // A row the list carried no rollup for reads `unknown`; the report says `-`, as a plain row does.
+        const rich = pr.checks !== 'unknown';
+        return [{ key, state: pr.state, checks: rich ? pr.checks : '-', draft: rich ? String(pr.draft) : '-' }];
+      });
     } else {
       const refusal = host.lastRefusal();
       hostReach = reachOfRefusal(refusal?.kind ?? null, refusal?.said ?? '');
@@ -377,6 +391,9 @@ export const readBranchReadings = async (
     merges: merges.value,
     added: addedByPlan,
     branches,
+    ...(listed
+      ? { listing: { rows: listingRows, complete: prListComplete, tracked: [...tipOf.keys()].filter((b) => b !== 'HEAD').length } }
+      : {}),
   });
 };
 

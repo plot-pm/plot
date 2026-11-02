@@ -365,7 +365,7 @@ describe('readBranchReadings — the stage carries its host reach', () => {
       return answer.value.hostReach;
     };
     const base = hostFixture({ backend: 'github' });
-    expect(await stage(base, { kind: 'listed', listing: { states: new Map(), complete: true } })).toBe('ok');
+    expect(await stage(base, { kind: 'listed', listing: { states: new Map(), complete: true, rows: [] } })).toBe('ok');
     expect(await stage(base, { kind: 'unread' })).toBe('failed');
     expect(await stage({ ...base, prList: async () => failed(), lastRefusal: () => ({ kind: 'throttled', said: '' }) as never }, undefined)).toBe('throttled');
   });
@@ -457,7 +457,7 @@ describe('readBranchReadings — --loose reads each branch\'s PR detail', () => 
 
   it('reads no-host where the list failed, and no-cache where the caller carried the listing', async () => {
     expect(await detail({ ...hostFixture({ backend: 'github' }), prList: async () => failed() })).toEqual(['no-host', 'no-host']);
-    expect(await detail(hostFixture({ backend: 'github' }), { kind: 'listed', listing: { states: new Map(), complete: true } })).toEqual(['no-cache', 'no-cache']);
+    expect(await detail(hostFixture({ backend: 'github' }), { kind: 'listed', listing: { states: new Map(), complete: true, rows: [] } })).toEqual(['no-cache', 'no-cache']);
     expect(await detail(hostFixture({ backend: 'github' }), { kind: 'unread' })).toEqual(['no-host', 'no-host']);
   });
 
@@ -478,5 +478,35 @@ describe('readBranchReadings — onPlan', () => {
     });
     expect(isAnswered(answer)).toBe(true);
     expect(seen).toEqual([`${PLAN} feature/here,feature/gone`]);
+  });
+});
+
+describe('readBranchReadings — the stage reports its PR listing', () => {
+  const pr = (head: string, checks: string, draft: boolean) =>
+    ({ number: 1, repo: '', head, base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '', draft, mergeable: 'unknown', review: 'none', checks, failingChecks: [], url: '', author: '' }) as never;
+  const listingOf = async (host: Host, prs?: BranchStageInput['prs']) => {
+    const answer = await readBranchReadings(world(), host, estateOf(line('feature/here')), { ...INPUT, ...(prs === undefined ? {} : { prs }) });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return answer.value.listing;
+  };
+
+  it('reports the host list with encoded keys, and a dash where the row carried no rollup', async () => {
+    const listing = await listingOf(hostFixture({ backend: 'github', prs: [pr('feature/a_b', 'green', false), pr('bug/c', 'unknown', false)] }));
+    expect(listing?.rows).toEqual([
+      { key: 'feature_a__b', state: 'OPEN', checks: 'green', draft: 'false' },
+      { key: 'bug_c', state: 'OPEN', checks: '-', draft: '-' },
+    ]);
+    expect(listing?.complete).toBe(true);
+  });
+
+  it('reports a carried listing as it arrived', async () => {
+    const carried = readCarriedPrStates('feature_one\tOPEN\tgreen\tfalse\n.list-arrived\t1\t-\t-\n')!;
+    const listing = await listingOf(hostFixture({ backend: 'github' }), { kind: 'listed', listing: carried });
+    expect(listing).toMatchObject({ complete: false, rows: [{ key: 'feature_one', state: 'OPEN', checks: 'green', draft: 'false' }] });
+  });
+
+  it('reports nothing where no listing arrived', async () => {
+    expect(await listingOf({ ...hostFixture({ backend: 'github' }), prList: async () => failed() })).toBeUndefined();
+    expect(await listingOf(hostFixture({ backend: 'github' }), { kind: 'unread' })).toBeUndefined();
   });
 });
