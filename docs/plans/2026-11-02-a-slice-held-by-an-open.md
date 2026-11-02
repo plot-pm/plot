@@ -127,7 +127,7 @@ The browser test `packages/board/test/integration/slice-head-says-its-verdict.br
 
 ### Slice reading
 
-- `feature/a-held-slice-reads-as-waiting` — `slice-reading.ts` maps `sliceHold` to the slice word, note, tone and dispatch gate; `SliceRow` (`rows.tsx:937`, `:1122`, `:1163`, `:1469`) and `tupleFromSlice` read it; the board rows of the test table <!-- builds: sliceRowReading, the slice row's word, note, tone and dispatch gate as one pure function -->
+- `feature/a-held-slice-reads-as-waiting` — `slice-reading.ts` maps `sliceHold` to the slice word, note, tone and dispatch gate; `SliceRow` (`rows.tsx:937`, `:1122`, `:1163`, `:1469`) and `tupleFromSlice` read it; the board rows of the test table <!-- builds: sliceRowReading, the slice row's word, note, tone and dispatch gate as one pure function --> → #3052
 
 ## Notes
 
