@@ -41,6 +41,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [x] [the-agent-reporter-starts-a-sleep] The agent reporter waits on a FIFO without a poll, and the AgentMonitor reads its pid with a builtin (#3024) <!-- pr: #3025 -->
 - [x] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
 - [x] [the-reporter-sigterm-test-fails-on] The agent reporter ignores SIGTERM before it forks, so a group stop no longer loses its report (#3033) <!-- pr: #3039 -->
+- [ ] [a-slice-held-by-an-open] A slice held by an open wait reads as waiting: no brief or dispatch for a held branch, and the dispatch controller refuses a plan with nothing startable (#3049) <!-- pr: #3050 -->
 
 ### Could Have
 
@@ -71,3 +72,4 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - 2026-11-01: Added [the-agent-reporter-starts-a-sleep] syspolicyd checked about 256 new processes per second, and the reporter and AgentMonitor loops start a process per poll for every agent (#3024)
 - 2026-11-01: Added [fleetd-s-fixer-and-main-repair] every fixer and main-repair start since 2026-10-30 failed with --agent not found, so each HIGH waited 19 to 100 minutes for a hand fix (#3028)
 - 2026-11-02: Added [the-reporter-sigterm-test-fails-on] the reporter SIGTERM test turned main and PR #3036 red, and a panel reproduced a lost report in reporterShell under a group SIGTERM (#3033)
+- 2026-11-02: Added [a-slice-held-by-an-open] the board read a slice held by an unmerged wait as eligible, and three dispatches of it started the brief writer, two ending at the 5-minute bound (#3049)
