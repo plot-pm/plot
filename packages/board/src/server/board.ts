@@ -71,6 +71,7 @@ import {
   buildShell,
   hostShell,
   planStoreShell,
+  planParserPath,
   refsGit,
   fleetStateFile,
   scriptsShell,
@@ -1649,7 +1650,7 @@ export const parsePlanMetaFiles = async (
     // Order matters to callers, so an unkeyable file parses the whole list.
     return parse(files.map((f) => f.path));
   }
-  const parser = bundleHashOf(opts, path.join(opts.scriptsDir, 'plot-plan-meta.sh')) ?? '';
+  const parser = bundleHashOf(opts, planParserPath({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir })) ?? '';
   const tracker = await readConfigAsync(opts, 'Tracker', '');
   return cachedPlanMetas(
     walkCacheFor(opts),
