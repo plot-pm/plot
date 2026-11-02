@@ -201,7 +201,7 @@ test('release scope: --next never names a branch from a delivered plan', (t) => 
   assert.equal(picked, 'feature/live-one');
 });
 
-test('scan: file_mtime reads a real time on this platform', (t) => {
+test('scan: the mtime read returns a real time on this platform', (t) => {
   // A DIRECT assertion, because the failure mode is silent in the worst way.
   // The first implementation read the mtime as `stat -f %m || stat -c %Y`, and
   // on GNU coreutils `-f` is a valid flag meaning *file system status* — so it
@@ -209,24 +209,32 @@ test('scan: file_mtime reads a real time on this platform', (t) => {
   // as zero. Every delivered plan was then excluded on Linux while macOS was
   // green, and the symptom was an empty DONE group rather than an error.
   //
-  // `file_mtime` still dates a desk's newest change. Asserted against the real
-  // script rather than a copy: a copy would have been just as wrong.
+  // `plot-fleet-scan.sh` held this as `file_mtime` until the walk moved into
+  // the domain, where `node:fs` reads the mtime directly. The shell trap
+  // survives in `plot-fleetctl.sh`, so THE ORDER is asserted there: GNU `-c`
+  // first, because only `-c` is unambiguous.
   const { tmp, repo } = makeRepo();
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
-  // The function is lifted out of the script rather than the script being run:
-  // sourcing it would execute the whole scan. The extraction failing is itself
-  // a signal — the function was renamed or reshaped, and this test must be
-  // looked at rather than silently skipped.
-  const src = fs.readFileSync(scan, 'utf8').match(/^file_mtime\(\)[\s\S]*?\n}$/m);
-  assert.ok(src, 'file_mtime() not found in plot-fleet-scan.sh — has it been renamed?');
-  const probe = `set -uo pipefail\n${src[0]}\nfile_mtime "$1"`;
+  const fleetctl = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-fleetctl.sh');
+  const src = fs.readFileSync(fleetctl, 'utf8');
+  const read = src.match(/stat -c %Y "\$[A-Za-z_][A-Za-z0-9_]*" 2>\/dev\/null \|\| stat -f %m /);
+  assert.ok(read,
+    'plot-fleetctl.sh must read an mtime as `stat -c %Y ... || stat -f %m ...` — GNU FIRST');
+  // GNU `stat -f` exits 0 with a filesystem report, so a BSD-first order cannot
+  // be caught by an exit code. Asserting the absence pins the order itself.
+  assert.ok(!/stat -f %m "\$[A-Za-z_][A-Za-z0-9_]*" 2>\/dev\/null \|\| stat -c %Y /.test(src),
+    'plot-fleetctl.sh must not try BSD `stat -f` before GNU `stat -c`');
+
+  // And the order must produce a plausible time when actually run here.
+  const probe = 'set -uo pipefail\nf="$1"\n' +
+    'touched=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)\necho "$touched"';
   const out = execFileSync('bash', ['-c', probe, 'probe', path.join(repo, 'CLAUDE.md')],
     { encoding: 'utf8' }).trim();
-  assert.match(out, /^\d+$/, `file_mtime must return epoch seconds, got: ${JSON.stringify(out)}`);
-  // And it must be a plausible time rather than a filesystem block count.
+  assert.match(out, /^\d+$/, `the mtime read must return epoch seconds, got: ${JSON.stringify(out)}`);
+  // A filesystem block count would land far outside this window.
   const secondsAgo = Date.now() / 1000 - Number(out);
   assert.ok(secondsAgo >= 0 && secondsAgo < 3600,
-    `file_mtime returned an implausible time (${secondsAgo}s ago)`);
+    `the mtime read returned an implausible time (${secondsAgo}s ago)`);
 });
 
 test('pulse: each plan carries its own phase, verbatim', (t) => {

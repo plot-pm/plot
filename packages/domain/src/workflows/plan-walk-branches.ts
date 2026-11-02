@@ -22,6 +22,24 @@ const SKIPPED_PHASES: ReadonlySet<string> = new Set(['released', 'rejected', 'su
 /** How many merge commits the subject lookup walks, as the shell scan caps it. */
 const MERGE_WALK = 20000;
 
+/**
+ * The effective merge walk cap: `PLOT_MERGE_SCAN_LIMIT` where it parses as a
+ * positive integer, {@link MERGE_WALK} otherwise.
+ *
+ * The cap guards against a pathological history rather than saving time
+ * (measured: cap 500 = 7.7ms, no cap = 11.8ms on 2000 merges), and a capped
+ * walk reports `merge_detect=truncated` so an `open` it could not disprove
+ * stays readable as such.
+ *
+ * @returns the number of merge commits to walk.
+ */
+export const mergeWalkLimit = (): number => {
+  const raw = process.env.PLOT_MERGE_SCAN_LIMIT;
+  if (raw === undefined || !/^\d+$/.test(raw)) return MERGE_WALK;
+  const parsed = Number(raw);
+  return parsed > 0 ? parsed : MERGE_WALK;
+};
+
 /** How many pull requests the host list asks for, as the shell scan caps it. */
 const PR_LIST_LIMIT = 1000;
 
@@ -271,7 +289,7 @@ export const readBranchReadings = async (
   // additions, no ancestry and no commits ahead, as `plot-fleet-scan.sh` reads
   // `origin/<main>` when it does not resolve.
   const noMain = estate.source === 'worktree';
-  const merges = noMain ? answered<ReadonlyArray<{ sha: string; subject: string }>>([]) : await refs.mergeSubjects(mainRef, MERGE_WALK);
+  const merges = noMain ? answered<ReadonlyArray<{ sha: string; subject: string }>>([]) : await refs.mergeSubjects(mainRef, mergeWalkLimit());
   if (!merges.ok) return failed<BranchStageReadings>();
   const additions = noMain ? answered<ReadonlyMap<string, string>>(new Map()) : await refs.planAdditions(mainRef, input.planDir);
   if (!additions.ok) return failed<BranchStageReadings>();
@@ -464,5 +482,5 @@ export const stageMergeDetect = (stage: BranchStageReadings, plans: ReadonlySet<
     subjects: stage.merges,
     forms: mergeSubjectForms(stage.backend),
     asked: stage.branches.some((b) => plans.has(b.plan) && b.readings.refTip === null),
-    truncated: stage.merges.length >= MERGE_WALK,
+    truncated: stage.merges.length >= mergeWalkLimit(),
   });

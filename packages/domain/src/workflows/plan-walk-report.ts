@@ -22,6 +22,8 @@ export interface ReportContext {
   planSource: 'ref' | 'worktree';
   /** The `subject_predates_plan` count the footer carries. */
   subjectPredatesPlan: number;
+  /** The merge walk cap, stated where the walk saturated it. */
+  mergeScanLimit?: number;
 }
 
 /**
@@ -123,6 +125,11 @@ export const reportNotes = (header: FleetReadingHeader, context: ReportContext):
       '  note: --offline skipped the fetch, so stale remote-tracking refs were\n' +
       '        not pruned; a branch merged and deleted upstream may read wip\n' +
       '        and hold its wave blocked. Re-run without --offline to settle it.\n';
+  }
+  if (header.mergeDetect === 'truncated' && context.mergeScanLimit !== undefined) {
+    out +=
+      `  note: merge scan hit its limit of ${context.mergeScanLimit} — an older merge was not\n` +
+      '        read, so a branch merged before it may still read open.\n';
   }
   if (context.planSource !== 'ref') {
     out +=

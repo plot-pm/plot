@@ -6,6 +6,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { agentsFs } from '@plot-pm/domain/adapters/agents/agents-fs';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { planStoreRef } from '@plot-pm/domain/adapters/plan-store/plan-store-ref';
+import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { shellContext } from '@plot-pm/domain/adapters/scripts';
@@ -13,7 +14,7 @@ import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { logToPlan, pulseLine, recordBridge, type PulseCounts } from './pulse-log.js';
 import { readCarriedPrStates, renderListingReport } from '@plot-pm/domain/rules/scan-listing';
 import type { Host } from '@plot-pm/domain/ports/host';
-import { readBranchConflicts, readBranchReadings, stageMergeDetect, type ConflictCandidate } from '@plot-pm/domain/workflows/plan-walk-branches';
+import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type ConflictCandidate } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import {
@@ -182,7 +183,9 @@ const main = async (): Promise<number> => {
   const context = { ...shellContext(root), scriptDir: dirname(dirname(realpathSync(process.argv[1] ?? ''))) };
   const refs = refsGit(context);
   const store = planStoreRef(refs, context, `origin/${mainBranch}`);
-  const estate = await readEstate(refs, store, { mainBranch, planDir, activeDir, deliveredDir, prefixes });
+  // A scan whose `origin/<main>` does not resolve reads the checkout: a repository with
+  // no remote, or one never fetched, reports `plan_source: worktree` rather than nothing.
+  const estate = await readEstate(refs, store, { mainBranch, planDir, activeDir, deliveredDir, prefixes }, planStoreShell(context));
 
   if (mode === 'slice-names') {
     if (!estate.ok) return 2;
@@ -231,6 +234,7 @@ const main = async (): Promise<number> => {
     host: offline === '1' ? 'unasked' : 'ok',
     mergeDetect: 'unaskable',
     nowSeconds: Math.floor(Date.now() / 1000),
+    ...(estate.ok ? { planSource: estate.value.source ?? 'ref' } : {}),
   };
 
   if (mode === 'stream') {
@@ -302,7 +306,8 @@ const main = async (): Promise<number> => {
       loose,
       looseVerifiable: looseVerifiable === '1',
       offline: offline === '1',
-      planSource: 'ref',
+      planSource: read.planSource ?? 'ref',
+      mergeScanLimit: mergeWalkLimit(),
       subjectPredatesPlan: 0,
     };
     let out = reportBanner(read, report);

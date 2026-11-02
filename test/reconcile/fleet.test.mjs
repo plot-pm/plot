@@ -1178,14 +1178,21 @@ test('fleet: a saturated merge walk is reported, never silent', () => {
   f.cleanup();
 });
 
-test('fleet: the merge walk cap agrees across shell, TS constant, and corpus default', () => {
-  // Three independent literals — one shell variable default, one exported TS
-  // constant, one default parameter value — with no shared constant to import
-  // across a shell script and two TypeScript files. This is the test that
-  // catches a future edit to one site without the other two.
-  const scanSrc = fs.readFileSync(scan, 'utf8');
-  const scanMatch = scanSrc.match(/MERGE_SCAN_LIMIT=\$\{PLOT_MERGE_SCAN_LIMIT:-(\d+)\}/);
-  assert.ok(scanMatch, 'plot-fleet-scan.sh must set MERGE_SCAN_LIMIT from PLOT_MERGE_SCAN_LIMIT with a default');
+test('fleet: the merge walk cap agrees across the walk and the registry', () => {
+  // Two independent literals — the walk's cap and the registry daemon's
+  // exported constant — with no shared constant to import across two
+  // packages. This is the test that catches a future edit to one site
+  // without the other. The scan script and the corpus helper held two more
+  // copies until the walk moved into the domain.
+  const walkPath = path.join(here, '..', '..', 'packages', 'domain', 'src',
+    'workflows', 'plan-walk-branches.ts');
+  const walkSrc = fs.readFileSync(walkPath, 'utf8');
+  const walkMatch = walkSrc.match(/const MERGE_WALK = (\d+);/);
+  assert.ok(walkMatch, 'plan-walk-branches.ts must set MERGE_WALK to a numeric literal');
+  // The cap is overridable, so a saturated walk can be tested without a
+  // 20000-merge history.
+  assert.match(walkSrc, /PLOT_MERGE_SCAN_LIMIT/,
+    'the walk must honour PLOT_MERGE_SCAN_LIMIT');
 
   const registrydPath = path.join(here, '..', '..', 'packages', 'fleet', 'src',
     'server', 'entry', 'registryd-main.ts');
@@ -1193,19 +1200,10 @@ test('fleet: the merge walk cap agrees across shell, TS constant, and corpus def
   const registrydMatch = registrydSrc.match(/export const MERGE_WALK_LIMIT = (\d+);/);
   assert.ok(registrydMatch, 'registryd-main.ts must export MERGE_WALK_LIMIT as a numeric literal');
 
-  const productionPath = path.join(here, '..', '..', 'packages', 'domain', 'corpus',
-    'production.ts');
-  const productionSrc = fs.readFileSync(productionPath, 'utf8');
-  const productionMatch = productionSrc.match(/limit = (\d+),\n\): string\[\] =>/);
-  assert.ok(productionMatch, "production.ts's readMergeSubjects must default limit to a numeric literal");
-
-  const [scanLimit, registrydLimit, productionLimit] =
-    [scanMatch, registrydMatch, productionMatch].map((m) => Number(m[1]));
-  assert.equal(scanLimit, 20000, 'the shell default must be 20000');
-  assert.equal(registrydLimit, scanLimit,
-    `MERGE_WALK_LIMIT (${registrydLimit}) must equal MERGE_SCAN_LIMIT's default (${scanLimit})`);
-  assert.equal(productionLimit, scanLimit,
-    `readMergeSubjects's default (${productionLimit}) must equal MERGE_SCAN_LIMIT's default (${scanLimit})`);
+  const [walkLimit, registrydLimit] = [walkMatch, registrydMatch].map((m) => Number(m[1]));
+  assert.equal(walkLimit, 20000, "the walk's cap must be 20000");
+  assert.equal(registrydLimit, walkLimit,
+    `MERGE_WALK_LIMIT (${registrydLimit}) must equal MERGE_WALK (${walkLimit})`);
 });
 
 test('fleet: merge_detect=none when the default branch offers no PR merges', () => {
