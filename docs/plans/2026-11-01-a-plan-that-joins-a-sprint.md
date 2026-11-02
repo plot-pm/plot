@@ -13,6 +13,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/approve-and-deliver-find-the-sprint-by-rule`
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-plan-joins-a-sprint-through-one-command`
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-sprint-member-names-its-sprint`
+- **Started:** 2026-11-02, Jan Wloka, `bug/the-delivery-loop-sprint-is-repaired`
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
