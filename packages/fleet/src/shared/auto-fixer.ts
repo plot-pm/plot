@@ -36,8 +36,9 @@ import {
   treesGit,
 } from '@plot-pm/domain/adapters';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
-import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
+import { HARNESS_LIMIT_LINES, HARNESS_START_REFUSALS } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
+import { failedStart } from '@plot-pm/domain/rules/failed-start';
 import { sameCommit } from '@plot-pm/domain/rules/same-commit';
 import type { WorkerState } from '@plot-pm/domain/entities/fleet';
 import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
@@ -51,7 +52,7 @@ export interface FixerTickWorld {
   readonly trees: (opts: ActOptions) => Pick<Trees, 'forBranch' | 'add' | 'fetch' | 'prune' | 'removeOnly'>;
   readonly host: (opts: ActOptions) => Pick<Host, 'prState'>;
   readonly worker: (opts: ActOptions) => Pick<Processes, 'workerState'>;
-  readonly attempts: (opts: ActOptions) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight'>;
+  readonly attempts: (opts: ActOptions) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart'>;
   readonly freshAgents: (opts: ActOptions) => Pick<FreshAgentRecordStore, 'rowsFor'>;
   /** Reads a desk worktree's ending file; real `fs` by default, `null` for "no file". */
   readonly readEndingFile: (worktree: string) => string | null;
@@ -61,6 +62,8 @@ export interface FixerTickWorld {
   readonly agentSettingsFile: (main: string) => string | null;
   /** Reads a review verdict file; real `fs` by default, `null` for a file that cannot be read. */
   readonly readVerdictFile: (file: string) => string | null;
+  /** The fixer run's log for one PR; `null` where it cannot be read. */
+  readonly readLogFile: (file: string) => string | null;
   /** Asks the process table about one pid; `kill -0` by default. */
   readonly pidCheck: (pid: string) => PidCheck;
   /** The pid the in-flight mark names until the fixer's own pid is known: this process. */
@@ -149,6 +152,9 @@ const clearRunDirRemnants = (dir: string): boolean => {
   }
 };
 
+/** Where this fixer run's log is appended. */
+const fixerLogPath = (repoRoot: string, pr: number): string => path.join(repoRoot, '.plot', 'state', 'fixer', `${pr}.log`);
+
 /** Where this fixer run's `--agents` JSON is written — outside the run's own tree, as `PLOT_ROLE_GATE` requires. */
 const fixerAgentsJsonPath = (repoRoot: string, pr: number): string =>
   path.join(repoRoot, '.plot', 'state', 'fixer', `${pr}.agents.json`);
@@ -225,6 +231,31 @@ const fixerLine = (row: PrIndexRow, head: string, step: 'fixer-start' | 'fixer-e
 });
 
 /**
+ * The refusal line of an ended attempt the CLI refused to start, or `null`.
+ *
+ * Reads the attempt's own `start` mark, which {@link launchFixer} writes when
+ * the run's result carries the line, and the log's last line otherwise, so the
+ * reap and the result agree whichever comes first. Marks every ended attempt
+ * it finds failed, once.
+ */
+const failedStartOf = async (
+  world: FixerTickWorld,
+  opts: ActOptions,
+  row: PrIndexRow,
+  ended: readonly number[],
+  record: FixerAttemptsRecord,
+): Promise<string | null> => {
+  const last = ended[ended.length - 1];
+  if (last === undefined) return null;
+  const marked = record.attempts[last]?.start === 'failed';
+  const log = world.readLogFile(fixerLogPath(opts.repoRoot, row.number));
+  const read = failedStart({ status: null, output: log ?? '' }, HARNESS_START_REFUSALS.claude);
+  if (!marked && !read.failed) return null;
+  if (!marked) await world.attempts(opts).markStart(row.number, last);
+  return read.failed ? read.line : 'the CLI refused the run';
+};
+
+/**
  * Settles the attempts whose fixer process has ended.
  *
  * Removes the fixer's worktree through {@link Trees.removeOnly} where its run
@@ -260,7 +291,9 @@ const settleEnded = async (
     return startedAt !== undefined && fixerRanToBound(startedAt, now);
   });
   if (boundHit) problems.push(`bound: the run reached ${FIXER_BOUND_SECONDS}s`);
-  const outcome = problems.length === 0 ? 'moved' : `failed: ${[...new Set(problems)].join(', ')}`;
+  const refusal = await failedStartOf(world, opts, row, ended, record);
+  const outcome =
+    refusal !== null ? `failed-start: ${refusal}` : problems.length === 0 ? 'moved' : `failed: ${[...new Set(problems)].join(', ')}`;
   await runLogOf(opts).append(fixerLine(row, head, 'fixer-end', outcome, now));
 };
 
@@ -346,6 +379,12 @@ export const fixerTick = async (
     const step = slicePrNext({ ...readings, row, desk, correctionsSpentExhausted: spentExhausted, fixer });
     if (step.step !== 'fixer' || attempts === 'unreadable') {
       results.push({ pr: row.number, step });
+      continue;
+    }
+    if (attempts !== 'none' && attempts.attempts.some((attempt) => attempt.start === 'failed' && attempt.headSha === step.head)) {
+      const held: FixerStartOutcome = { started: false, why: 'fixer-start-failed' };
+      await logStart(opts, row, step.head, held, logged, readings.now);
+      results.push({ pr: row.number, step, started: held });
       continue;
     }
     const index = attempts === 'none' ? 0 : attempts.attempts.length;
@@ -479,9 +518,14 @@ const startFixer = async (
     });
     if (!appended.ok) return (outcome = { started: false, why: 'append-failed' });
 
-    outcome = await launchFixer(world, opts, row, worktree, command.command, prompt.text, main);
+    let markWritten: () => void = () => undefined;
+    const markSettled = new Promise<void>((resolve) => {
+      markWritten = resolve;
+    });
+    outcome = await launchFixer(world, opts, row, worktree, command.command, prompt.text, main, index, markSettled, startedAt);
     const mark: FixerInFlight | null = outcome.started ? { pid: outcome.pid, startedAt } : null;
     const marked = await store.markInFlight(row.number, index, mark);
+    markWritten();
     if (!marked.ok) {
       console.error(`plot-fleetd: fixer on PR #${row.number}: could not ${mark === null ? 'clear' : 'record'} the in-flight mark`);
     }
@@ -493,6 +537,30 @@ const startFixer = async (
     }
     releaseContinueLock(lockDir, lock);
   }
+};
+
+/**
+ * Records a failed start from the run's result.
+ *
+ * Sets `start: 'failed'` on the attempt. Where the reap already settled the
+ * attempt as ended without that mark, the fixer-end line it wrote said `moved`;
+ * this appends the `failed-start` line the reap would have written. Where the
+ * attempt already carries the mark, the reap logged it and this appends nothing.
+ */
+const recordFailedStart = async (
+  world: FixerTickWorld,
+  opts: ActOptions,
+  row: PrIndexRow,
+  index: number,
+  line: string,
+  startedAt: string,
+): Promise<void> => {
+  const store = world.attempts(opts);
+  const before = await store.read(row.number);
+  const prior = before.ok && before.value !== 'none' && before.value !== 'unreadable' ? before.value.attempts[index] : undefined;
+  if (!(await store.markStart(row.number, index)).ok) return;
+  if (prior === undefined || prior.start === 'failed' || prior.inFlight !== undefined) return;
+  await runLogOf(opts).append(fixerLine(row, prior.headSha, 'fixer-end', `failed-start: ${line}`, Date.parse(startedAt)));
 };
 
 /**
@@ -508,6 +576,9 @@ const startFixer = async (
  * @param command - the `roleCommand` fragment.
  * @param prompt - the `fixerPrompt` text.
  * @param main - the main checkout, which holds the role gate.
+ * @param index - the position of the attempt this run belongs to.
+ * @param markSettled - resolves once the caller has written the attempt's in-flight mark; a failed start is recorded after it, never racing it.
+ * @param startedAt - the attempt's start time, for the failed-start log line.
  * @returns whether a process started, and its pid, or why not.
  */
 const launchFixer = async (
@@ -518,6 +589,9 @@ const launchFixer = async (
   command: string,
   prompt: string,
   main: string,
+  index: number,
+  markSettled: Promise<void>,
+  startedAt: string,
 ): Promise<FixerStartOutcome> => {
   const logFile = path.join(opts.repoRoot, '.plot', 'state', 'fixer', `${row.number}.log`);
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
@@ -547,9 +621,18 @@ const launchFixer = async (
           resolve({ started: true, pid });
         },
       })
-      .then((result) => {
-        // Reached only where the process never spawned: `onStarted` settles
-        // this promise in every path that does.
+      .then(async (result) => {
+        // A run the CLI refused records its failed start whichever of this and
+        // the reap comes first; the reap writes the log line.
+        if (result.ok) {
+          const refused = failedStart({ status: null, output: result.value.finalText ?? '' }, HARNESS_START_REFUSALS.claude);
+          if (result.value.end.answer === 'unstarted' && refused.failed) {
+            await markSettled;
+            await recordFailedStart(world, opts, row, index, refused.line, startedAt);
+          }
+        }
+        // The rest is reached only where the process never spawned:
+        // `onStarted` settles this promise in every path that does.
         if (settled) return;
         settled = true;
         resolve({ started: false, why: result.ok ? 'command-exited-unstarted' : result.why });
@@ -658,6 +741,7 @@ const defaultFixerTickWorld: FixerTickWorld = {
   readEndingFile: readOrNull,
   readRoleFile: (main, role) => readOrNull(path.join(main, '.claude', 'agents', `${role}.md`)),
   readVerdictFile: readOrNull,
+  readLogFile: readOrNull,
   agentSettingsFile: (main) => {
     const file = path.join(main, '.plot', 'agent-settings.json');
     return fs.existsSync(file) ? file : null;

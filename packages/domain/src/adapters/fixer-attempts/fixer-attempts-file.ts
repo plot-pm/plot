@@ -73,9 +73,22 @@ export const fixerAttemptsFile = (repoRoot: string): FixerAttemptsStore => {
       if (existing === 'none' || existing === 'unreadable') return failed<void>();
       const target = existing.attempts[index];
       if (target === undefined) return failed<void>();
-      const kept: FixerAttempt = { headSha: target.headSha, finding: target.finding };
+      const kept: FixerAttempt = { headSha: target.headSha, finding: target.finding, ...(target.start === undefined ? {} : { start: target.start }) };
       const changed: FixerAttempt = mark === null ? kept : { ...kept, inFlight: mark };
       const attempts = existing.attempts.map((attempt, at) => (at === index ? changed : attempt));
+      return write(pr, { ...existing, attempts });
+    },
+
+    markStart: async (pr: number, index: number): Promise<PortResult<void>> => {
+      let existing: FixerAttemptsRecord | 'none' | 'unreadable';
+      try {
+        existing = decodeFixerAttempts(await readFile(pathFor(pr), 'utf8'));
+      } catch {
+        return failed<void>();
+      }
+      if (existing === 'none' || existing === 'unreadable') return failed<void>();
+      if (existing.attempts[index] === undefined) return failed<void>();
+      const attempts = existing.attempts.map((attempt, at): FixerAttempt => (at === index ? { ...attempt, start: 'failed' } : attempt));
       return write(pr, { ...existing, attempts });
     },
 

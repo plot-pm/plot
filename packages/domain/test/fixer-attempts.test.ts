@@ -132,3 +132,29 @@ describe('fixerInFlight', () => {
     expect(fixerInFlight(r)).toBe(true);
   });
 });
+
+describe('a failed start spends no attempt', () => {
+  const failedStarts = record({
+    attempts: [
+      { headSha: 'a'.repeat(40), finding: { kind: 'high', hash: 'h1' }, start: 'failed' },
+      { headSha: 'a'.repeat(40), finding: { kind: 'high', hash: 'h2' }, start: 'failed' },
+    ],
+  });
+
+  it('counts none of two failed starts', () => {
+    expect(fixerAttemptsSpent(failedStarts)).toBe(0);
+    expect(fixerAttemptsExhausted(failedStarts)).toBe(false);
+  });
+
+  it('counts the attempts that ran next to a failed one', () => {
+    const mixed = record({ attempts: [...failedStarts.attempts, { headSha: 'b'.repeat(40), finding: { kind: 'high', hash: 'h3' } }] });
+    expect(fixerAttemptsSpent(mixed)).toBe(1);
+  });
+
+  it('decodes a record with no start field at version 1', () => {
+    const decoded = decodeFixerAttempts(JSON.stringify(record()));
+    expect(decoded).not.toBe('unreadable');
+    expect(decoded === 'none' || decoded === 'unreadable' ? undefined : decoded.attempts[0]!.start).toBeUndefined();
+    expect(FIXER_ATTEMPTS_VERSION).toBe(1);
+  });
+});

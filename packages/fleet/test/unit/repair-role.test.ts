@@ -22,7 +22,9 @@ afterEach(() => {
   roots = [];
 });
 
-const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean; alive?: boolean } = {}) => {
+const REFUSAL = "--agent 'main-repair' not found. Available agents: claude, Explore\n";
+
+const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean; alive?: boolean; refused?: boolean; warns?: string[] } = {}) => {
   const repoRoot = mkdtempSync(join(tmpdir(), 'repair-role-'));
   roots.push(repoRoot);
   const calls: string[] = [];
@@ -58,6 +60,7 @@ const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean; alive?:
           await new Promise<void>((resolve) => {
             finish = resolve;
           });
+          if (over.refused === true) return answered({ end: { answer: 'unstarted', detail: 'x' }, finalText: REFUSAL } as never);
           return failed();
         },
       };
@@ -66,7 +69,7 @@ const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean; alive?:
     boundSeconds: 3600,
     pidAlive: (pid) => pid === 4242 && over.alive !== false,
     now: () => 1000,
-    warn: () => undefined,
+    warn: (line) => over.warns?.push(line),
   };
   return { deps, calls, requests, fragments, repoRoot, finish: () => finish() };
 };
@@ -100,6 +103,28 @@ describe('repairRoleOf', () => {
     const recorded = JSON.parse(readFileSync(join(r.repoRoot, '.plot', 'state', 'main-repair', 'run.json'), 'utf8'));
     expect(recorded).toEqual({ branch: BRANCH, pid: 4242, startedAt: 1000, endedAt: 1000 });
     expect(world.roleRun(BRANCH, 0)).toBe('ended');
+  });
+
+  it('records a refused start as start-failed with the refusal sentence, and warns with it', async () => {
+    const warns: string[] = [];
+    const r = rig({ refused: true, warns });
+    const world = repairRoleOf(r.deps);
+    expect(await world.startRole(BRANCH)).toBe('started');
+    r.finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const recorded = JSON.parse(readFileSync(join(r.repoRoot, '.plot', 'state', 'main-repair', 'run.json'), 'utf8'));
+    expect(recorded.startFailed).toBe("--agent 'main-repair' not found.");
+    expect(world.roleRun(BRANCH, 0)).toBe('start-failed');
+    expect(warns).toEqual([`plot-fleetd: the main-repair run for '${BRANCH}' did not start: --agent 'main-repair' not found.`]);
+  });
+
+  it('keeps the no-result warning for a run that failed without the refusal line', async () => {
+    const warns: string[] = [];
+    const r = rig({ warns });
+    await repairRoleOf(r.deps).startRole(BRANCH);
+    r.finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(warns).toEqual([`plot-fleetd: the main-repair run for '${BRANCH}' ended without a result`]);
   });
 
   it('reads a dead pid with no ending record as crashed', async () => {
