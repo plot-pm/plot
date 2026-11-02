@@ -72,6 +72,7 @@ import {
   refsGit,
   fleetStateFile,
   scriptsShell,
+  scriptsConfigCached,
   sliceSpendFile,
   treesGit,
   defaultBranchFile,
@@ -84,10 +85,6 @@ import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import {
-  readConfig as readConfigReader,
-  readConfigAsync as readConfigAsyncReader,
-} from '@plot-pm/fleet/shared/config-reader';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -128,6 +125,17 @@ export interface BuildBoardOptions {
    * caching a synchronous function keeps it synchronous.
    */
   planStore?: PlanStore;
+  /**
+   * Where `## Plot Config` reads are cached from. Absent means a `Scripts`
+   * backed by `plot-config.sh`, held per `(repoRoot, scriptsDir)` so every
+   * request-path reader — {@link scriptsFor}, {@link planStoreFor}'s `config`,
+   * and the `readConfig`/`readConfigAsync` helpers below — shares one set of
+   * held answers instead of each spawning its own.
+   *
+   * A board test injects a counting fake here to prove a request that reads
+   * the same key twice spawns once.
+   */
+  config?: Scripts;
   /**
    * Where host questions are answered from. Absent means this repository's
    * configured git host.
@@ -292,11 +300,22 @@ export const treesFor = (opts: BuildBoardOptions): Trees =>
 /**
  * The config reader for these options — the caller's, or this repository's.
  *
+ * An injected {@link BuildBoardOptions.planStore} keeps its OWN `config` —
+ * a fixture that stubs `planStore` to control config reads must still be
+ * heard, so only the real `planStoreShell` has its `config` replaced by the
+ * shared cached reader.
+ *
  * @param opts - where to read, and optionally what to read through.
  * @returns the injected store, or one backed by `plot-config.sh`.
  */
-export const planStoreFor = (opts: BuildBoardOptions): PlanStore =>
-  opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+export const planStoreFor = (opts: BuildBoardOptions): PlanStore => {
+  if (opts.planStore) return opts.planStore;
+  const store = planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  return {
+    ...store,
+    config: (key, fallback) => configFor(opts).config(key, fallback),
+  };
+};
 
 /**
  * Where this board reads per-slice spend records from.
@@ -394,21 +413,6 @@ export const detachedFor = (opts: BuildBoardOptions): Detached => opts.detached 
 export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.processProbe ?? processProbeSystem();
 
 /**
- * The script runner for these options — the ONE way this package invokes a
- * `plot-*.sh`.
- *
- * Built per call for the same reason as {@link refsFor}: the adapter is a
- * closure over two paths, and the expense was never in constructing it.
- *
- * There is no `opts.scripts` beside `opts.refs` and `opts.planStore`. Those two
- * are substituted so a board can be built over a fixture estate; this one runs
- * the helpers Plot ships, and every test that needed to stand in for one already
- * does it at the route's own seam.
- *
- * @param opts - where the repository and the scripts are.
- * @returns a runner over `opts.scriptsDir`.
- */
-/**
  * The bridge the fleet writes, as the board reads it.
  *
  * @param opts - where the repository is.
@@ -417,8 +421,48 @@ export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.p
 export const fleetStateFor = (opts: BuildBoardOptions): FleetState =>
   fleetStateFile({ repoRoot: opts.repoRoot });
 
-export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
-  scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+/**
+ * One cached `Scripts` per `(repoRoot, scriptsDir)`, built the first time a
+ * request asks and reused by every request after — so a board with no
+ * injected {@link BuildBoardOptions.config} still shares one held-answers
+ * cache across `scriptsFor`, `planStoreFor`'s `config`, and the
+ * `readConfig`/`readConfigAsync` helpers below, rather than each reconstructing
+ * a cache of its own per call.
+ */
+const configByRoot = new Map<string, Scripts>();
+
+/**
+ * The cached config reader for these options — the caller's, or one held per
+ * `(repoRoot, scriptsDir)` over `plot-config.sh`.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected `Scripts`, or a cached one over `opts.scriptsDir`.
+ */
+export const configFor = (opts: BuildBoardOptions): Scripts => {
+  if (opts.config) return opts.config;
+  const mapKey = `${opts.repoRoot} ${opts.scriptsDir}`;
+  const existing = configByRoot.get(mapKey);
+  if (existing) return existing;
+  const built = scriptsConfigCached(
+    scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    opts.repoRoot,
+  );
+  configByRoot.set(mapKey, built);
+  return built;
+};
+
+/**
+ * The script runner for these options — the ONE way this package invokes a
+ * `plot-*.sh`.
+ *
+ * Same instance as {@link configFor}, so a route calling `scriptsFor(opts).config(...)`
+ * shares its held answers with `planStoreFor(opts).config` and the
+ * `readConfig`/`readConfigAsync` helpers below.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @returns a runner over `opts.scriptsDir`.
+ */
+export const scriptsFor = (opts: BuildBoardOptions): Scripts => configFor(opts);
 
 /**
  * Resolves the settings file every agent this process starts will receive, and
@@ -634,7 +678,8 @@ function readChecklist(repoRoot: string, releaseDir: string): { done: number; to
  * radius, and only the second one made a static file time out at 15 s.
  */
 export function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
-  return readConfigReader(opts, key, fallback);
+  const answer = configFor(opts).configSync(key, fallback);
+  return answer.ok ? answer.value.trim() || fallback : fallback;
 }
 
 /**
@@ -654,7 +699,8 @@ export async function readConfigAsync(
   key: string,
   fallback: string,
 ): Promise<string> {
-  return readConfigAsyncReader(opts, key, fallback);
+  const answer = await configFor(opts).config(key, fallback);
+  return answer.ok ? answer.value.trim() || fallback : fallback;
 }
 
 /**
