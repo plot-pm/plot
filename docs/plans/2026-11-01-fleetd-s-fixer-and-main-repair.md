@@ -145,7 +145,7 @@ Slice 1 rows run in `pnpm --filter @plot-pm/domain exec vitest run` and `pnpm --
 
 ### Failed start
 
-- `bug/a-failed-role-start-spends-no-attempt` — the refusal line as harness data; the domain rule; `start: 'failed'` on the fixer attempt, written at reap time; `fixerAttemptsSpent` and the ticket arm skip it; the head hold; main-repair's `start-failed` outcome; the slice 3 rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: a failed-start outcome for role starts -->
+- `bug/a-failed-role-start-spends-no-attempt` — the refusal line as harness data; the domain rule; `start: 'failed'` on the fixer attempt, written at reap time; `fixerAttemptsSpent` and the ticket arm skip it; the head hold; main-repair's `start-failed` outcome; the slice 3 rows; a changeset for `plot`. <!-- waits: bug/fleetd-s-fixer-runs-bounded --> <!-- builds: a failed-start outcome for role starts --> → #3038
 
 ## Notes
 
