@@ -1,0 +1,1 @@
+../2026-11-02-a-slice-held-by-an-open.md
