@@ -598,4 +598,14 @@ describe('issueTransitionOf', () => {
   it('reads a picked commit per issue', () => {
     expect(pickedTransitionOf('Issue 2', planWith('Released', '#1'), planWith('Released', '#1, #2'))).toEqual({ before: '', after: '2' });
   });
+
+  it('names a rename source in the refusal', () => {
+    const [transition] = issueTransitionOf('docs/plans/2026-02-02-x.md', 'plan', null, planWith('Released', '#1, #2'), {
+      path: PLAN,
+      head: planWith('Released', '#1'),
+    });
+    const refusal = stateTransitionRefusal([transition!]) ?? '';
+    expect(refusal).toContain(`(renamed from ${PLAN})`);
+    expect(refusal).toContain('joined the Issue: line of a plan past Draft');
+  });
 });

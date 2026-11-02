@@ -672,7 +672,7 @@ export const stateTransitionRefusal = (uncleared: readonly StateTransition[]): s
       lines.push(
         '',
         `  ${path}`,
-        `    issue ${issue} joined the Issue: line of a ${statusStateOf('') === '' ? 'plan past Draft' : ''}, written by hand${renamedFrom === undefined ? '' : ` (renamed from ${renamedFrom})`}.`,
+        `    issue ${issue} joined the Issue: line of a plan past Draft, with no write of the plan's phase to it${renamedFrom === undefined ? '' : ` (renamed from ${renamedFrom})`}.`,
         `    The command that owns this write: bash skills/plot/scripts/plot-plan-state.sh ${path} --only-issue ${issue} --phase <approved|delivered|released> --plan-link <link>`,
       );
       continue;
