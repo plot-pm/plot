@@ -173,7 +173,7 @@ const main = async (): Promise<number> => {
   const [, , , , asJson] = flags;
   // A call with no slug and no mode flag prints the wave report, as the scan did before the walk moved here.
   const mode =
-    streamFlag === '1' ? 'stream' : logPulse === '1' ? 'log-pulse' : sliceNames === '1' ? 'slice-names' : whyNothing === '1' ? 'why-nothing' : listAll === '1' ? 'list-eligible' : nextOnly === '1' ? 'next' : asJson === '1' || slug !== '' ? 'json' : 'prose';
+    streamFlag === '1' ? 'stream' : logPulse === '1' ? 'log-pulse' : sliceNames === '1' ? 'slice-names' : whyNothing === '1' ? 'why-nothing' : listAll === '1' ? 'list-eligible' : nextOnly === '1' ? 'next' : asJson === '1' ? 'json' : 'prose';
   const prefixes = prefixList.split('|').filter((p) => p !== '');
   const offer = mode === 'next' || mode === 'list-eligible' || mode === 'why-nothing';
   const root = process.env.PLOT_REPO_ROOT ?? process.cwd();

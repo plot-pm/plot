@@ -110,12 +110,11 @@ test('scan-walk: a slug scopes the json document to that plan', () => {
   assert.ok(plans[0].file.includes('taken'));
 });
 
-test('scan-walk: a bare slug answers the json document scoped to that plan', () => {
+test('scan-walk: a bare slug answers the prose report scoped to that plan', () => {
   const bare = run('--offline', 'taken');
   assert.equal(bare.status, 0, bare.stderr);
-  const scoped = run('--offline', '--json', 'taken');
-  assert.deepEqual(normalise(JSON.parse(bare.stdout)), normalise(JSON.parse(scoped.stdout)));
-  assert.ok(JSON.parse(bare.stdout).plans.length >= 1, 'the slug named a plan');
+  assert.match(bare.stdout, /^summary: /m, 'the prose report ends in its summary footer');
+  assert.doesNotMatch(bare.stdout, /^\{/, 'prose, not the json document');
 });
 
 test('scan-walk: --loose --json answers the fixture plans', () => {
