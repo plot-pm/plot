@@ -184,9 +184,7 @@ const normalise = (line: string, roots: Record<string, string>): string => {
  */
 const WARM_STARTS: readonly string[] = [
   "execFileSync git hash-object --stdin-paths",
-  "spawn bash <scripts>/plot-plan-meta.sh <stage>/0/2026-10-01-alpha.md <stage>/1/2026-10-02-beta.md <stage>/2/2026-10-03-gamma.md",
   "spawn git --no-optional-locks -C <repo> status --porcelain --untracked-files=no",
-  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",

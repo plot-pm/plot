@@ -5,6 +5,7 @@ import { answered, failed } from '../src/port-result.js';
 import type { PlanStore } from '../src/ports/plan-store.js';
 import type { Refs } from '../src/ports/refs.js';
 import {
+  cachedPlanMetas,
   cachedPlans,
   cachedRefs,
   freshWalkCache,
@@ -475,5 +476,57 @@ describe('the Delivered record, authors, behind count and default branch', () =>
     ];
     expect(results.every((r) => !r.ok)).toBe(true);
     expect(cache.size()).toBe(0);
+  });
+});
+
+describe('a plan is parsed once per content', () => {
+  const file = (name: string, blobId: string, at = '/stage/a') => ({ path: `${at}/${name}`, name, blobId });
+  /** A parser that records the paths it was given and reports one record per path. */
+  const parser = () => {
+    const asked: string[][] = [];
+    return {
+      asked,
+      parse: (paths: string[]) => {
+        asked.push(paths);
+        return Promise.resolve(paths.map((p) => ({ file: p, n: asked.length })));
+      },
+    };
+  };
+
+  it('parses every plan once, then none, and only the changed one after an edit', async () => {
+    const cache = freshWalkCache();
+    const p = parser();
+    const files = [file('a.md', oid(1)), file('b.md', oid(2))];
+    await cachedPlanMetas(cache, files, 'k', p.parse);
+    const again = await cachedPlanMetas(cache, files, 'k', p.parse);
+    expect(p.asked).toEqual([['/stage/a/a.md', '/stage/a/b.md']]);
+    expect(again?.map((m) => m.file)).toEqual(['/stage/a/a.md', '/stage/a/b.md']);
+    await cachedPlanMetas(cache, [files[0]!, file('b.md', oid(3))], 'k', p.parse);
+    expect(p.asked[1]).toEqual(['/stage/a/b.md']);
+  });
+
+  it('answers a held plan with the path it is asked for now, in the order asked', async () => {
+    const cache = freshWalkCache();
+    const p = parser();
+    await cachedPlanMetas(cache, [file('a.md', oid(1), '/one'), file('b.md', oid(2), '/one')], 'k', p.parse);
+    const moved = await cachedPlanMetas(cache, [file('b.md', oid(2), '/two'), file('a.md', oid(1), '/two')], 'k', p.parse);
+    expect(moved?.map((m) => m.file)).toEqual(['/two/b.md', '/two/a.md']);
+    expect(p.asked).toHaveLength(1);
+  });
+
+  it('parses every plan again when the parse key changes, as a Tracker change does', async () => {
+    const cache = freshWalkCache();
+    const p = parser();
+    const files = [file('a.md', oid(1)), file('b.md', oid(2))];
+    await cachedPlanMetas(cache, files, 'parser1\0github', p.parse);
+    await cachedPlanMetas(cache, files, 'parser1\0jira', p.parse);
+    expect(p.asked[1]).toEqual(['/stage/a/a.md', '/stage/a/b.md']);
+  });
+
+  it('stores nothing and answers null when the parser fails', async () => {
+    const cache = freshWalkCache();
+    const files = [file('a.md', oid(1))];
+    expect(await cachedPlanMetas(cache, files, 'k', () => Promise.resolve(null))).toBeNull();
+    expect(cache.planMetas.size()).toBe(0);
   });
 });
