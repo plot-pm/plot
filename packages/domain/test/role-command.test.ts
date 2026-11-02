@@ -12,14 +12,39 @@ const ref = (over: Partial<RoleAgentRef> = {}): RoleAgentRef => ({
   ...over,
 });
 
+/** Splits a fragment into shell words: single and double quotes group, and the quotes are dropped. */
+const words = (text: string): string[] => {
+  const out: string[] = [];
+  let cur = '';
+  let quote: string | null = null;
+  let open = false;
+  for (const ch of text) {
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+      open = true;
+    } else if (ch === ' ') {
+      if (open || cur !== '') out.push(cur);
+      cur = '';
+      open = false;
+    } else cur += ch;
+  }
+  if (open || cur !== '') out.push(cur);
+  return out;
+};
+
 describe('roleCommand', () => {
-  it('emits --agent, --agents and --settings with user settings only', () => {
+  it('emits --agent, --agents (file contents by substitution) and --settings with user settings only', () => {
     const built = roleCommand(ref(), 80);
-    expect(built).toEqual({
-      read: 'command',
-      command:
-        "claude -p --setting-sources user --agent fixer --agents '/tmp/r/agents.json' --settings '/tmp/r/fixer.json' --max-turns 80",
-    });
+    expect(built.read).toBe('command');
+    if (built.read !== 'command') return;
+    expect(words(built.command)).toEqual([
+      'claude', '-p', '--setting-sources', 'user', '--agent', 'fixer',
+      '--agents', "$(cat -- '/tmp/r/agents.json')",
+      '--settings', '/tmp/r/fixer.json', '--max-turns', '80',
+    ]);
   });
 
   it('bounds the session with --max-turns, and omits it for no limit', () => {

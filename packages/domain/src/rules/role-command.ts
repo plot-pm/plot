@@ -4,7 +4,9 @@
  * A role is a `.claude/agents/<role>.md` file on the default branch plus a
  * per-role settings file. `claude --agents` takes a JSON object, not that
  * frontmatter file, so {@link roleAgentsJson} translates one into the other;
- * {@link roleCommand} builds the shell fragment that loads it.
+ * {@link roleCommand} builds the shell fragment that loads it. The fragment
+ * contains a command substitution, so it needs a bash runner (the `command`
+ * agent runner runs it as `bash -c '<fragment> "$@"'`).
  *
  * @concept role-command
  */
@@ -24,7 +26,7 @@ export type RoleName = (typeof ROLE_NAMES)[number];
 export interface RoleAgentRef {
   /** The declared role. */
   readonly name: RoleName;
-  /** The JSON file {@link roleAgentsJson} produced, passed as `--agents`. */
+  /** The JSON file {@link roleAgentsJson} produced; its text is passed as `--agents`. */
   readonly agentsFile: string;
   /** The role's settings file, passed as `--settings`. */
   readonly settingsFile: string;
@@ -39,6 +41,11 @@ export type RoleCommand = { read: 'command'; command: string } | { read: 'refuse
 /**
  * The shell fragment that runs one declared role, for the `command` agent
  * runner. The prompt follows it as an argument.
+ *
+ * `--agents` carries the JSON text, not a path: the fragment substitutes the
+ * agents file's contents with `"$(cat -- '<agentsFile>')"`, which the
+ * Claude Code CLI (2.1.231) requires. A missing file substitutes empty text,
+ * which the CLI refuses. The fragment needs a bash runner.
  *
  * The fragment loads user settings only (`--setting-sources user`, so nothing
  * from the reviewed or fixed tree applies), selects the role with `--agent`,
@@ -67,7 +74,7 @@ export const roleCommand = (role: RoleAgentRef, maxTurns: number): RoleCommand =
     '--agent',
     role.name,
     '--agents',
-    singleQuote(role.agentsFile),
+    `"$(cat -- ${singleQuote(role.agentsFile)})"`,
     '--settings',
     singleQuote(role.settingsFile),
     ...(maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),
