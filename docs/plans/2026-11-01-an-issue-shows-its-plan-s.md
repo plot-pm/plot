@@ -184,7 +184,7 @@ Domain rows run in `pnpm --filter @plot-pm/domain exec vitest run <file>`, board
 
 ### Head checks
 
-- `bug/a-slice-row-reads-its-head-s-checks` — the root-cause step first, recorded in the PR body; then `checksSha` and `tip` in `PrRowReadings` (`packages/domain/src/rules/pr-row.ts`), the tip read and the three `prRowPlacement` calls in `packages/board/src/server/fleet.ts` (`:3621`, `:4151`, `:5126`), and `stuck.ts`'s input. Tests: `packages/domain/test/pr-row.test.ts`, `packages/board/test/unit/fleet.test.ts`. If the root cause places the fix in `packages/fleet/src/shared/fleet-scan.ts`, the slice line gains a wait on `feature/the-scan-script-is-a-launcher` before dispatch.
+- `bug/a-slice-row-reads-its-head-s-checks` — the root-cause step first, recorded in the PR body; then `checksSha` and `tip` in `PrRowReadings` (`packages/domain/src/rules/pr-row.ts`), the tip read and the three `prRowPlacement` calls in `packages/board/src/server/fleet.ts` (`:3621`, `:4151`, `:5126`), and `stuck.ts`'s input. Tests: `packages/domain/test/pr-row.test.ts`, `packages/board/test/unit/fleet.test.ts`. If the root cause places the fix in `packages/fleet/src/shared/fleet-scan.ts`, the slice line gains a wait on `feature/the-scan-script-is-a-launcher` before dispatch. → #3047
 
 ## Notes
 
