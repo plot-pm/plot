@@ -657,9 +657,8 @@ export const dispatchReading = (pulse: FleetReading | null, slug: string): Dispa
       })),
     );
     if (hold === null) return { kind: 'no-branch' };
-    for (const name of hold.held) {
-      const b = slice.branches.find((x) => x.branch === name);
-      if (b !== undefined && (b.state === 'waiting' || b.state === 'blocked')) {
+    for (const b of slice.branches) {
+      if (b.state === 'waiting' || b.state === 'blocked') {
         held.push({ branch: b.branch, state: b.state, waits_on: b.waits_on });
       }
     }
