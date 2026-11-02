@@ -193,18 +193,25 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
   });
 
   it('renders the inferred name as TEXT, never as an anchor', async () => {
-    // Nothing is behind the name yet, and a link to a plan that does not exist
-    // is the fabrication this board keeps removing.
+    // No plan names #228, so a link to a plan that does not exist is the
+    // fabrication this board keeps removing. The name is still TEXT; what it
+    // reads gained the ticket's own key as a prefix.
     const page = await open();
     try {
       const name = issueRow(page, 228).locator('[data-issue-name]');
       // `innerText`, not `textContent`. The slot carries an `sr-only` word
       // naming the column — measured, `textContent` reads
-      // `planfleet-scan-asks-the-host-once` — and that word is for a screen
-      // reader, not part of the name. `innerText` is computed from layout and
-      // reports what a sighted reader sees, which is what this claims.
+      // `plan228: fleet-scan-asks-the-host-once` — and that word is for a
+      // screen reader, not part of the name. `innerText` is computed from
+      // layout and reports what a sighted reader sees, which is what this
+      // claims.
+      //
+      // `228: ` is the ISSUE PREFIX every plan reference wears. A ticket no
+      // plan names refers to the plan it would become, and `planRefOfIssue`
+      // makes the ticket's own key that reference's prefix, so the row reads
+      // the same shape as a row whose plan exists.
       await expect.poll(() => name.evaluate((el) => (el as HTMLElement).innerText.trim()))
-        .toBe('fleet-scan-asks-the-host-once');
+        .toBe('228: fleet-scan-asks-the-host-once');
       await expect.poll(() => name.locator('a').count()).toBe(0);
       await expect.poll(() => name.evaluate((el) => el.tagName)).not.toBe('A');
     } finally {

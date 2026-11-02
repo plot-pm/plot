@@ -2574,6 +2574,8 @@ export function AgentList({
                   story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
                   issueAnswer={fleet.issueAnswer}
                   showKindLabel={false}
+                  onOpenPlan={onOpenPlan}
+                  planIndex={planIndex}
                 />
               ))}
               {drafts.map((draft) => (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { planIndexOf, planRefOfRow, planReference, planRoute, planRouteOfDocLink, type PlanIndex, type PlanIndexCard } from '../src/rules/plan-reference.js';
+import { planIndexOf, planOfIssue, planRefOfIssue, planRefOfRow, planReference, planRoute, planRouteOfDocLink, type PlanIndex, type PlanIndexCard } from '../src/rules/plan-reference.js';
 
 describe('planRoute', () => {
   it('routes to /plan/<basename> from a repo-relative plan path', () => {
@@ -175,5 +175,52 @@ describe('planRefOfRow', () => {
 
   it('answers null for a non-plan row that names no plan', () => {
     expect(planRefOfRow({ kind: 'branch', branch: 'feature/x', plan: '', planFile: '' })).toBeNull();
+  });
+});
+
+describe('planOfIssue', () => {
+  const index = planIndexOf({
+    cards: [
+      { slug: 'first', title: 'First', path: 'docs/plans/2026-11-01-first.md', issues: ['10'] },
+      { slug: 'two-test-teardowns-turn-main-red', title: 'Teardowns', path: 'docs/plans/2026-11-01-two-test-teardowns-turn-main-red.md', issues: ['3006'] },
+      { slug: 'third', title: 'Third', path: 'docs/plans/2026-11-01-third.md', issues: ['EWZKUS-1'] },
+    ],
+  });
+
+  it('finds the one plan naming the key', () => {
+    expect(planOfIssue('3006', index)?.slug).toBe('two-test-teardowns-turn-main-red');
+  });
+
+  it('matches by key among several plans, not by first entry', () => {
+    expect(planOfIssue(10, index)?.slug).toBe('first');
+    expect(planOfIssue('EWZKUS-1', index)?.slug).toBe('third');
+    expect(planOfIssue('#3006', index)?.slug).toBe('two-test-teardowns-turn-main-red');
+  });
+
+  it('answers null where no plan names the key', () => {
+    expect(planOfIssue(42, index)).toBeNull();
+    expect(planOfIssue('', index)).toBeNull();
+  });
+});
+
+describe('planRefOfIssue', () => {
+  const index = planIndexOf({
+    cards: [{ slug: 'two-test-teardowns-turn-main-red', title: 'T', path: 'docs/plans/2026-11-01-two-test-teardowns-turn-main-red.md', issues: ['3006'] }],
+  });
+
+  it('a ticket with a plan resolves to the label and link of that plan', () => {
+    const { ref, resolved } = planRefOfIssue(3006, 'inferred', index);
+    expect(resolved).toBe(true);
+    const answer = planReference(ref, index);
+    expect(answer.label).toBe('3006: two-test-teardowns-turn-main-red');
+    expect(answer.href).toBe('/plan/2026-11-01-two-test-teardowns-turn-main-red.md');
+  });
+
+  it('a ticket with no plan keeps the inferred name, its own key and no link', () => {
+    const { ref, resolved } = planRefOfIssue(42, 'inferred-name', index);
+    expect(resolved).toBe(false);
+    const answer = planReference(ref, planIndexOf({}));
+    expect(answer.label).toBe('42: inferred-name');
+    expect(answer.href).toBeNull();
   });
 });

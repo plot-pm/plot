@@ -221,6 +221,51 @@ export const planReference = (ref: PlanRef, index: PlanIndex): PlanReferenceAnsw
   };
 };
 
+/**
+ * The plan whose resolved `issues` name a tracker key, or `null` where none does.
+ *
+ * Reads the index from the issue side: `planIndexOf` keys each entry twice
+ * (file basename and slug), so the scan visits an entry up to twice and
+ * returns the first match in insertion order — cards, then drafts, then fleet
+ * plans. A key is compared normalised, so `#3006`, `3006` and `3006` as a
+ * number all match.
+ *
+ * @param issueKey - the ticket's key, as its source spelled it.
+ * @param index - the plan index built by {@link planIndexOf}.
+ * @returns the first indexed plan naming the key, or `null`.
+ */
+export const planOfIssue = (issueKey: string | number, index: PlanIndex): PlanIndexEntry | null => {
+  const key = normalizedIssueKey(issueKey);
+  if (key === '') return null;
+  for (const entry of index.values()) {
+    if (entry.issues.includes(key)) return entry;
+  }
+  return null;
+};
+
+/**
+ * The plan reference a ticket row makes.
+ *
+ * A ticket that an indexed plan names refers to that plan, by file and slug.
+ * A ticket no plan names refers to the plan it would become: `inferredName`
+ * as the slug, the ticket's own key as the prefix, and no file, so
+ * {@link planReference} resolves no link.
+ *
+ * @param issueKey - the ticket's key.
+ * @param inferredName - the name the ticket's plan would take; used only where no indexed plan names the ticket.
+ * @param index - the plan index built by {@link planIndexOf}.
+ * @returns a reference for {@link planReference}, and whether an indexed plan resolved it.
+ */
+export const planRefOfIssue = (
+  issueKey: string | number,
+  inferredName: string,
+  index: PlanIndex,
+): { ref: PlanRef; resolved: boolean } => {
+  const entry = planOfIssue(issueKey, index);
+  if (entry !== null) return { ref: { file: entry.file, slug: entry.slug }, resolved: true };
+  return { ref: { slug: inferredName, issues: [issueKey] }, resolved: false };
+};
+
 /** What `planRefOfRow` reads of one fleet row. */
 export interface PlanRefRow {
   kind: string;
