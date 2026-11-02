@@ -174,6 +174,12 @@ export interface IssueOpenOutcome {
 export type IssueLabelOutcome = 'labelled' | 'no-target';
 
 /**
+ * What came of an issue-close write: `closed` where the issue is closed,
+ * `no-target` where the identifier names no issue.
+ */
+export type IssueCloseOutcome = 'closed' | 'no-target';
+
+/**
  * What came of a comment write: the comment exists on the issue it was addressed to.
  *
  * A write that broke is a `PortResult` failure and is not a member here.
@@ -466,11 +472,13 @@ export interface Tracker {
    *
    * @param id - the issue's identifier, as `issueOpen` returned it.
    * @param body - the comment text, verbatim.
+   * @param marker - where given, the comment holding this marker is edited in
+   *   place, else posted; the call is then idempotent. Absent, it always posts.
    * @returns `commented`; `unaskable` where no tracker was declared or the
    *   declared one cannot comment; `failed` otherwise, with the reason in
    *   `lastRefusal`.
    */
-  issueComment(id: string, body: string): Promise<PortResult<IssueCommentOutcome>>;
+  issueComment(id: string, body: string, marker?: string): Promise<PortResult<IssueCommentOutcome>>;
 
   /**
    * Adds one label to an issue and removes the listed ones it carries, and
@@ -494,6 +502,20 @@ export interface Tracker {
    *   reason in `lastRefusal`.
    */
   issueLabel(id: string, add: string, remove: readonly string[]): Promise<PortResult<IssueLabelOutcome>>;
+
+  /**
+   * Closes one issue, and nothing else.
+   *
+   * THE SIXTH WRITE ON THIS PORT, and closing-only: it posts no comment, sets
+   * no label and cannot reopen. Level-triggered: closing a closed issue is a
+   * no-op.
+   *
+   * @param id - the issue's identifier.
+   * @returns `closed`; `no-target` where the identifier names no issue;
+   *   `unaskable` where no tracker was declared or the declared one cannot
+   *   close issues; `failed` otherwise, with the reason in `lastRefusal`.
+   */
+  issueClose(id: string): Promise<PortResult<IssueCloseOutcome>>;
 
   /**
    * Whether {@link issueLabel} can write to this tracker, answered without a

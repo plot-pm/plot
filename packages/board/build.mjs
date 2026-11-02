@@ -1724,6 +1724,26 @@ await esbuild.build({
 fs.copyFileSync(releasedLabelsArtifact, shippedReleasedLabels);
 fs.chmodSync(shippedReleasedLabels, 0o755);
 
+// The review-finding ticket triage — an operator-command entry like
+// plot-released-labels.mjs above, with no `.sh` launcher.
+const findingTicketsArtifact = path.join(here, 'dist/plot-finding-tickets.mjs');
+const shippedFindingTickets = path.join(here, '../../skills/plot/scripts/board/plot-finding-tickets.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/finding-tickets.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: findingTicketsArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(findingTicketsArtifact, shippedFindingTickets);
+fs.chmodSync(shippedFindingTickets, 0o755);
+
 // A plan's sprint membership — the same `caller-checkout` shape as
 // needs-design.ts above, with no `.sh` launcher: a skill calls it with
 // `node` directly (plan §73), so the shell-line ratchet does not see it.
@@ -1939,6 +1959,7 @@ const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(
 const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
 const approveKb = (fs.statSync(shippedApprove).size / 1024).toFixed(1);
+const findingTicketsKb = (fs.statSync(shippedFindingTickets).size / 1024).toFixed(1);
 const releasedLabelsKb = (fs.statSync(shippedReleasedLabels).size / 1024).toFixed(1);
 const needsDesignKb = (fs.statSync(shippedNeedsDesign).size / 1024).toFixed(1);
 const sprintMemberKb = (fs.statSync(shippedSprintMember).size / 1024).toFixed(1);
@@ -1989,6 +2010,7 @@ console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/pl
 console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-approve.mjs (${approveKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-finding-tickets.mjs (${findingTicketsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-released-labels.mjs (${releasedLabelsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-needs-design.mjs (${needsDesignKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-member.mjs (${sprintMemberKb} KB) → skills/plot/scripts/board/`);
