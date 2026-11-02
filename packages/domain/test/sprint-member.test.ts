@@ -197,6 +197,29 @@ Here is a quoted block:
     expect(result.sprintText).toMatch(/pr: #123/);
   });
 
+  it('writes the owed annotation and tick onto a member line already in the tier', () => {
+    const planText = `${PLAN(`- **State:** Delivered
+- **Type:** feature
+- **Sprint:** example
+- **Approved:** 2026-11-01, Jan Wloka, plan-PR #123 merged`)}
+
+## Slices
+
+### Writer
+
+- \`feature/does-a-thing\` — does the thing.
+`;
+    const sprintText = SPRINT('<!-- nothing yet -->').replace(
+      '### Should Have\n\n<!-- add items here -->',
+      '### Should Have\n\n- [ ] [a] A plan that does something',
+    );
+    const result = addSprintMember(sprintText, planText, 'should', ctx());
+    if (result.outcome !== 'write') throw new Error(`expected write, got ${result.outcome}`);
+    expect(result.sprintText).toMatch(/- \[x\] \[a\].*<!-- pr: #123, branch: feature\/does-a-thing -->/);
+    expect(result.planText).toBe(planText);
+    expect(addSprintMember(result.sprintText, result.planText, 'should', ctx())).toEqual({ outcome: 'noop' });
+  });
+
   describe('the branch an Approved plan annotates with', () => {
     const APPROVED_WITH_PROSE_BULLETS = `${PLAN(`- **State:** Approved
 - **Type:** feature
