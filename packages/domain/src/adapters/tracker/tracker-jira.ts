@@ -8,6 +8,7 @@ import {
   type IssueOpen,
   type IssueOpenOutcome,
   type IssueRead,
+  type IssueCloseOutcome,
   type IssueLabelOutcome,
   type PlanStateOutcome,
   type StatusOutcome,
@@ -299,6 +300,8 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
       reads.refuse(null);
       return answered<IssueLabelOutcome>('no-target');
     },
+
+    issueClose: async (): Promise<PortResult<IssueCloseOutcome>> => unaskable('the Jira tracker does not close issues'),
 
     issueLabelReach: (): PortResult<true> => unaskable('the Jira tracker takes no issue label'),
 

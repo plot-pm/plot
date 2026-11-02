@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import { filled, planIssueComment, priorPlanLinesOf, PLAN_STATE_MARKER } from '../../rules/plan-issue-comment.js';
-import type { IssueLabelOutcome, PlanStatePhase, PlanStateOutcome, PlanStateWrite } from '../../ports/tracker.js';
+import type { IssueCloseOutcome, IssueLabelOutcome, PlanStatePhase, PlanStateOutcome, PlanStateWrite } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { unaskableReasonOf } from './tracker-shell.js';
@@ -307,4 +307,38 @@ export const githubIssueLabel =
     }
     refuse(null);
     return answered<IssueLabelOutcome>('labelled');
+  };
+
+/**
+ * Closes a GitHub issue through `plot-host.sh issue-close`, and does nothing
+ * else.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param env - the environment the calling connector runs `plot-host.sh` under.
+ * @param refuse - records the refusal the calling connector's `lastRefusal` reports.
+ * @returns the connector's `issueClose`: `closed`; `no-target` where the
+ *   identifier names no number; `unaskable` on exit 4; `failed` otherwise.
+ */
+export const githubIssueClose =
+  (context: ShellContext, env: Record<string, string>, refuse: (said: string | null) => void) =>
+  async (id: string): Promise<PortResult<IssueCloseOutcome>> => {
+    const number = numberOf(id);
+    if (number === null) {
+      refuse(null);
+      return answered<IssueCloseOutcome>('no-target');
+    }
+    const said = await runProcess('bash', [scriptPath(context, 'plot-host.sh'), 'issue-close', number], {
+      cwd: context.repoRoot,
+      env,
+    });
+    if (said.code === 4) {
+      refuse(null);
+      return unaskable(unaskableReasonOf(said.stderr));
+    }
+    if (said.code !== 0) {
+      refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh issue-close exited ${said.code}`);
+      return failed();
+    }
+    refuse(null);
+    return answered<IssueCloseOutcome>('closed');
   };

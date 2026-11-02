@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Issue } from '../src/entities/issue.js';
-import { findOpenReviewIssue, reviewIssue, reviewIssueTitle } from '../src/rules/review-issue.js';
+import { findOpenReviewIssue, readTicketVerdict, reviewIssue, reviewIssueTitle, reviewTicketSettled, ticketStayOpenComment, TICKET_TRIAGE_MARKER } from '../src/rules/review-issue.js';
 
 const issue = (id: string, title: string): Issue => ({
   id, title, url: '', createdAt: null, body: null, status: 'open', statusCategory: 'To Do', closedAt: null,
@@ -42,5 +42,42 @@ describe('findOpenReviewIssue', () => {
 
   it('answers null for no issues', () => {
     expect(findOpenReviewIssue([], 7)).toBeNull();
+  });
+});
+
+describe('reviewTicketSettled', () => {
+  const ticket = (findings = 'Findings: HIGH 0, MEDIUM 2, LOW 4') => ({ body: `Review.\n${findings}\n` });
+  const verdict = (states: string[]) => `Default: abc1234\n${states.map((s, i) => `- finding ${i}: ${s}`).join('\n')}\n`;
+  const six = ['fixed', 'fixed', 'wont-fix', 'not-reproduced', 'fixed', 'fixed'];
+
+  it('settles when every one of the ticket\'s findings is judged settled', () => {
+    expect(reviewTicketSettled(ticket(), verdict(six))).toBe('settled');
+  });
+
+  it('stays open on one still-true line', () => {
+    expect(reviewTicketSettled(ticket(), verdict([...six.slice(0, 5), 'still-true']))).toBe('open');
+  });
+
+  it('is unjudged for a short verdict, a missing verdict, and an unreadable line', () => {
+    expect(reviewTicketSettled(ticket(), verdict(six.slice(0, 5)))).toBe('unjudged');
+    expect(reviewTicketSettled(ticket(), null)).toBe('unjudged');
+    expect(reviewTicketSettled(ticket(), verdict([...six.slice(0, 5), 'maybe']))).toBe('unjudged');
+    expect(reviewTicketSettled(ticket(), verdict(six).replace('Default: abc1234\n', ''))).toBe('unjudged');
+    expect(reviewTicketSettled({ body: 'no count' }, verdict(six))).toBe('unjudged');
+    expect(reviewTicketSettled({ body: null }, verdict(six))).toBe('unjudged');
+    expect(reviewTicketSettled(ticket(), `Default: a\n${verdict(six)}`)).toBe('unjudged');
+  });
+
+  it('takes no merge state: the function has two parameters, a body and a verdict text', () => {
+    expect(reviewTicketSettled.length).toBe(2);
+    expect(reviewTicketSettled(ticket(), null)).toBe('unjudged');
+  });
+
+  it('renders the same comment for the same verdict and lists only still-true findings', () => {
+    const read = readTicketVerdict(verdict(['fixed', 'still-true']))!;
+    expect(ticketStayOpenComment(read)).toBe(ticketStayOpenComment(read));
+    expect(ticketStayOpenComment(read)).toContain('- finding 1');
+    expect(ticketStayOpenComment(read)).not.toContain('- finding 0');
+    expect(ticketStayOpenComment(read).startsWith(TICKET_TRIAGE_MARKER)).toBe(true);
   });
 });

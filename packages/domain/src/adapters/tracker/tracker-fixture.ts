@@ -6,6 +6,7 @@ import {
   VERSION_NOT_FOUND,
   type ClosedIssues,
   type IssueCommentOutcome,
+  type IssueCloseOutcome,
   type IssueLabelOutcome,
   type IssueOpen,
   type IssueOpenOutcome,
@@ -70,9 +71,13 @@ export interface TrackerFixture {
   /** Where `issueListWithTitle` answers `unaskable`, with this reason. */
   issueListWithTitleUnaskable?: string;
   /** Where every `issueComment` is recorded, in call order, before it can refuse. */
-  commented?: { id: string; body: string }[];
+  commented?: { id: string; body: string; marker?: string }[];
   /** Whether a comment write fails outright. */
   issueCommentFails?: boolean;
+  /** Where every `issueClose` is recorded, in call order, before it can refuse. */
+  closed?: string[];
+  /** Whether an issue-close write fails outright. */
+  issueCloseFails?: boolean;
   /** Where every `planStateWrite` is recorded, in call order, before it can refuse. */
   planStates?: PlanStateWrite[];
   /** What a plan-state write answers with; `written` by default. */
@@ -125,6 +130,7 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
   const commented = fixture.commented ?? [];
   const planStates = fixture.planStates ?? [];
   const labelWrites = fixture.labelWrites ?? [];
+  const closedIds = fixture.closed ?? [];
   return {
     config: (): TrackerConfig => ({
       scheme: fixture.scheme ?? 'fixture',
@@ -203,9 +209,9 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       return answered({ issues: found, complete: found.length < limit, pages: pagesOf(found.length) });
     },
 
-    issueComment: async (id, body): Promise<PortResult<IssueCommentOutcome>> => {
+    issueComment: async (id, body, marker): Promise<PortResult<IssueCommentOutcome>> => {
       // RECORDED BEFORE IT REFUSES, like `issueOpen`.
-      commented.push({ id, body });
+      commented.push(marker === undefined ? { id, body } : { id, body, marker });
       if (fixture.issueCommentFails === true) return failed();
       return answered<IssueCommentOutcome>({ outcome: 'commented' });
     },
@@ -222,6 +228,13 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       labelWrites.push({ id, add, remove });
       if (fixture.issueLabelFails === true) return failed();
       return answered('labelled');
+    },
+
+    issueClose: async (id): Promise<PortResult<IssueCloseOutcome>> => {
+      // RECORDED BEFORE IT REFUSES, like `issueLabel`.
+      closedIds.push(id);
+      if (fixture.issueCloseFails === true) return failed();
+      return answered('closed');
     },
 
     issueLabelReach: (): PortResult<true> =>
