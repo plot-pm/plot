@@ -58,3 +58,5 @@ Jan Wloka decided on 2026-11-03, after reading this summary:
 The plan's `## Design` records each decision and the rule it supersedes.
 
 Plan review of PR #3098 at `9f2037923` (HIGH 1, MEDIUM 2, LOW 2) was fixed in the plan without a new round; the plan's `## Notes` names what changed.
+
+Second plan review of PR #3098 at `b6df4dfcf` (HIGH 1, MEDIUM 1) was fixed in the plan without a new round: `stateStatus` and `startableNote` read `quietKind` first only on a QUIET row, `withHandOver` clears `quietKind`, and the slice-1 invariant names its Draft-plan exception.
