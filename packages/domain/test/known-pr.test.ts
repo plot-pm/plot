@@ -10,6 +10,7 @@ import {
   mergedSetWindowFor,
   viewLanded,
 } from '../src/rules/known-pr.js';
+import type { PlanRecord } from '../src/ports/plan-store.js';
 
 const row = (number: number, head: string, state: string, draft = false): PrIndexRow => ({
   number,
@@ -161,36 +162,42 @@ describe('viewLanded', () => {
 });
 
 describe('blockingBranches', () => {
-  const line = (branch: string, deferred = false) => ({ branch, deferred });
+  const line = (branch: string, deferred = false) => ({ branch, deferred, waitsOn: [] });
   const none = () => false;
+  const plan = (phase: string, slices: ReturnType<typeof line>[][]): PlanRecord =>
+    ({
+      phase,
+      spikeApprovedRaw: '',
+      slices: slices.map((branches) => ({ branches })),
+    }) as unknown as PlanRecord;
 
   it('names the unsettled branches of the first slice that is not complete', () => {
     const slices = [[line('feature/a')], [line('feature/b'), line('feature/c')], [line('feature/d')]];
-    expect(blockingBranches('approved', slices, (b) => b === 'feature/a' || b === 'feature/c')).toEqual([
+    expect(blockingBranches(plan('approved', slices), (b) => b === 'feature/a' || b === 'feature/c')).toEqual([
       'feature/b',
     ]);
   });
 
   it('skips deferred branches', () => {
-    expect(blockingBranches('approved', [[line('feature/a', true), line('feature/b')]], none)).toEqual([
+    expect(blockingBranches(plan('approved', [[line('feature/a', true), line('feature/b')]]), none)).toEqual([
       'feature/b',
     ]);
   });
 
   it('names nothing for a plan whose slices are all complete', () => {
-    expect(blockingBranches('approved', [[line('feature/a')]], () => true)).toEqual([]);
+    expect(blockingBranches(plan('approved', [[line('feature/a')]]), () => true)).toEqual([]);
   });
 
   it('names nothing for an unapproved plan', () => {
-    expect(blockingBranches('draft', [[line('feature/a')], [line('feature/b')]], none)).toEqual([]);
+    expect(blockingBranches(plan('draft', [[line('feature/a')], [line('feature/b')]]), none)).toEqual([]);
   });
 
   it('names nothing where the first incomplete slice names no branch', () => {
-    expect(blockingBranches('approved', [[], [line('feature/b')]], none)).toEqual([]);
+    expect(blockingBranches(plan('approved', [[], [line('feature/b')]]), none)).toEqual([]);
   });
 
   it('names nothing for a finished plan', () => {
-    expect(blockingBranches('delivered', [[line('feature/a')]], none)).toEqual([]);
+    expect(blockingBranches(plan('delivered', [[line('feature/a')]]), none)).toEqual([]);
   });
 });
 

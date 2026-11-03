@@ -20,6 +20,8 @@ const owed = (over: Partial<SliceReadings> = {}): SliceReadings => ({
   // different fact with its own word — see `empty-slice.test.ts`, which holds
   // it and `deliverable` to one answer.
   branches: 1,
+  spike: undefined,
+  spikeApproved: undefined,
   ...over,
 });
 
@@ -84,11 +86,11 @@ describe('sliceVerdict — complete outranks everything', () => {
   // that is a statement about work that already landed, not an invitation to
   // start any. Only the word a reader ACTS on is withheld.
   it('calls a landed slice complete even under a draft plan', () => {
-    expect(sliceVerdict({ outstanding: 0, phase: 'draft', branches: 1 }, true)).toBe('complete');
+    expect(sliceVerdict(owed({ outstanding: 0, phase: 'draft' }), true)).toBe('complete');
   });
 
   it('calls a landed slice complete even behind an unlanded one', () => {
-    expect(sliceVerdict({ outstanding: 0, phase: 'approved', branches: 1 }, false)).toBe('complete');
+    expect(sliceVerdict(owed({ outstanding: 0 }), false)).toBe('complete');
   });
 });
 
@@ -132,9 +134,9 @@ describe('sliceVerdict — unapproved is not blocked', () => {
 describe('sliceVerdicts — the fold', () => {
   it('holds the ordering: only a complete slice lets the next one be eligible', () => {
     expect(sliceVerdicts([
-      { outstanding: 0, phase: 'approved', branches: 1 },
-      { outstanding: 2, phase: 'approved', branches: 1 },
-      { outstanding: 1, phase: 'approved', branches: 1 },
+      owed({ outstanding: 0 }),
+      owed({ outstanding: 2 }),
+      owed({ outstanding: 1 }),
     ])).toEqual(['complete', 'eligible', 'blocked']);
   });
 
@@ -143,21 +145,21 @@ describe('sliceVerdicts — the fold', () => {
     // the slice behind it — this is exactly what `prior_ok=0` could not undo,
     // and the property a per-slice call would leak back to the caller.
     expect(sliceVerdicts([
-      { outstanding: 1, phase: 'approved', branches: 1 },
-      { outstanding: 0, phase: 'approved', branches: 1 },
-      { outstanding: 1, phase: 'approved', branches: 1 },
+      owed({ outstanding: 1 }),
+      owed({ outstanding: 0 }),
+      owed({ outstanding: 1 }),
     ])).toEqual(['eligible', 'complete', 'blocked']);
   });
 
   it('stops the chain on unapproved too — a plan nobody approved has landed nothing', () => {
     expect(sliceVerdicts([
-      { outstanding: 1, phase: 'draft', branches: 1 },
-      { outstanding: 1, phase: 'draft', branches: 1 },
+      owed({ outstanding: 1, phase: 'draft' }),
+      owed({ outstanding: 1, phase: 'draft' }),
     ])).toEqual(['unapproved', 'unapproved']);
   });
 
   it('makes the first slice eligible with nothing before it', () => {
-    expect(sliceVerdicts([{ outstanding: 3, phase: 'approved', branches: 1 }])).toEqual(['eligible']);
+    expect(sliceVerdicts([owed({ outstanding: 3 })])).toEqual(['eligible']);
   });
 
   it('answers nothing for no slices', () => {
@@ -165,9 +167,7 @@ describe('sliceVerdicts — the fold', () => {
   });
 
   it('answers once per slice, in order', () => {
-    const slices = Array.from({ length: 7 }, (_, i) => ({
-      outstanding: i % 2, phase: 'approved', branches: 1,
-    }));
+    const slices = Array.from({ length: 7 }, (_, i) => owed({ outstanding: i % 2 }));
     expect(sliceVerdicts(slices)).toHaveLength(7);
   });
 });

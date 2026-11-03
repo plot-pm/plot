@@ -38,15 +38,15 @@ describe('PlanSchema — tracer', () => {
 });
 
 describe('slicesFrom — the three spike columns', () => {
-  it('leaves both absent on a three-column line', () => {
+  it('leaves both unread on a three-column line', () => {
     const [s] = slicesFrom('1\tapproved\topen\n');
-    expect('spike' in s).toBe(false);
-    expect('spikeApproved' in s).toBe(false);
+    expect(s.spike).toBe(undefined);
+    expect(s.spikeApproved).toBe(undefined);
   });
 
   it('leaves spike unread without the plan count, so a bare 1 admits nothing', () => {
     const [a] = slicesFrom('1\tdesign\topen\t1\t1\n');
-    expect('spike' in a).toBe(false);
+    expect(a.spike).toBe(undefined);
     expect(a.spikeApproved).toBe(true);
   });
 

@@ -2,6 +2,8 @@ import type { Pr } from '../entities/pr.js';
 import type { PrIndex, PrIndexRow } from '../entities/pr-index.js';
 import { sliceVerdicts } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
+import { sliceReadingsOf } from './slice-readings.js';
+import type { PlanRecord } from '../ports/plan-store.js';
 
 /**
  * How many single-PR lookups by number one pass may make.
@@ -34,14 +36,6 @@ export interface KnownPr {
 
 /** A PR lookup by number: the PR, `null` where the host holds none, or no answer. */
 export type ViewReading = Pick<Pr, 'state' | 'mergedAt'> | null | 'unanswered';
-
-/** One branch line of a slice, as the plan names it. */
-export interface SliceLine {
-  /** The branch name. */
-  branch: string;
-  /** Whether the plan gave the branch up. */
-  deferred: boolean;
-}
 
 /**
  * Whether an index row records a merged, non-draft PR.
@@ -184,22 +178,18 @@ export const viewLanded = (view: ViewReading): LandedAnswer => {
  * complete, and only where that slice is `eligible`. A later slice waits on
  * this one, and an unapproved or empty slice moves on no landing.
  *
- * @param phase - the plan's phase, as the parser emits it.
- * @param slices - the plan's slices, in plan order.
+ * @param plan - the plan, as the plan store parsed it.
  * @param settled - whether a branch is already claimed or known merged.
  * @returns the branches to ask about, in plan order; empty where none decide.
  */
 export const blockingBranches = (
-  phase: string,
-  slices: readonly (readonly SliceLine[])[],
+  plan: PlanRecord,
   settled: (branch: string) => boolean,
 ): readonly string[] => {
-  const open = slices.map((lines) =>
-    lines.filter((line) => !line.deferred && !settled(line.branch)).map((line) => line.branch),
+  const open = plan.slices.map((slice) =>
+    slice.branches.filter((line) => !line.deferred && !settled(line.branch)).map((line) => line.branch),
   );
-  const verdicts = sliceVerdicts(
-    slices.map((lines, index) => ({ outstanding: open[index].length, phase, branches: lines.length })),
-  );
+  const verdicts = sliceVerdicts(sliceReadingsOf(plan, open.map((branches) => branches.length)));
   const first = verdicts.findIndex((verdict) => verdict !== 'complete');
   return first !== -1 && verdicts[first] === 'eligible' ? open[first] : [];
 };

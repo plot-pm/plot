@@ -2,7 +2,7 @@ import type { BranchState, SliceVerdict } from '../entities/fleet.js';
 import { failed, isAnswered, answered, type PortResult } from '../port-result.js';
 import { branchState, withPlanLandings } from '../rules/branch-state.js';
 import { isClaimable, sliceVerdicts, type SliceReadings } from '../rules/eligible.js';
-import { spikeSliceOf } from '../rules/spike.js';
+import { sliceReadingsOf } from '../rules/slice-readings.js';
 import { nextWork, type SliceOutlookReading } from '../rules/waiting.js';
 import type { PlanRecord } from '../ports/plan-store.js';
 import type { BranchReading, BranchStageReadings, PrDetail } from './plan-walk-branches.js';
@@ -317,9 +317,9 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
 
     const candidate = record.phase === 'approved' && lines.every(({ line }, i) => line.deferred || states[i] === 'merged');
     const degraded: string[][] = record.slices.map(() => []);
-    const sliceReadings: SliceReadings[] = record.slices.map((_slice, s) => {
+    const outstandingPerSlice = record.slices.map((_slice, s) => {
       const own = lines.flatMap((l, i) => (l.sliceIndex === s ? [i] : []));
-      const outstanding = own.filter((i) => {
+      return own.filter((i) => {
         if (states[i] === 'deferred' || states[i] === 'merged') return false;
         if (states[i] !== 'wip' || input.loose === undefined || !input.loose.verifiable) return true;
         const readiness = looseReadiness(found[i]!.prDetail);
@@ -327,17 +327,13 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
         if (readiness.degraded !== '') degraded[s]!.push(`${lines[i]!.line.branch}(${readiness.degraded})`);
         return true;
       }).length;
-      return {
-        outstanding,
-        phase: record.phase,
-        branches: own.length,
-        spikeApproved: record.spikeApprovedRaw !== undefined && record.spikeApprovedRaw !== '',
-      };
     });
-    const spikeCounts = record.slices.map((slice) => slice.branches.filter((b) => b.spike === true).length);
-    const planSpikes = spikeCounts.reduce((a, b) => a + b, 0);
-    const spikeAt = spikeSliceOf(spikeCounts, planSpikes);
-    const verdicts = sliceVerdicts(sliceReadings.map((r, s) => ({ ...r, spike: spikeAt === s })));
+    const sliceReadings: SliceReadings[] = sliceReadingsOf(record, outstandingPerSlice);
+    const planSpikes = record.slices.reduce(
+      (sum, slice) => sum + slice.branches.filter((b) => b.spike === true).length,
+      0,
+    );
+    const verdicts = sliceVerdicts(sliceReadings);
 
     const slices: AssembledSlice[] = record.slices.map((sliceRecord, s) => {
       const verdict = verdicts[s]!;

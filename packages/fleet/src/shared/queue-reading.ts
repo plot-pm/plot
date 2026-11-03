@@ -617,9 +617,8 @@ const landedWithoutListing = async (
     // branch still blocks this walk exactly as it blocks the queue's order.
     const landedHere = (branch: string): boolean =>
       settled(branch, merged) || proven.has(branch);
-    const slices = plan.slices.map((slice: PlanRecordSlice) => slice.branches);
     for (;;) {
-      const needed = blockingBranches(plan.phase, slices, landedHere);
+      const needed = blockingBranches(plan, landedHere);
       let moved = needed.length > 0;
       for (const branch of needed) {
         const known = knownPrFor(rows, branch);

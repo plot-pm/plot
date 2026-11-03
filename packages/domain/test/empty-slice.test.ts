@@ -64,7 +64,7 @@ describe('an empty slice is not finished — the two rules give one answer', () 
   it('is `empty` to eligible and `not-merged` to deliverable, for one plan shape', () => {
     // THE PAIR, in one assertion, over the one plan the defect describes: a
     // single heading under `## Slices` carrying prose and no branch.
-    const verdict = sliceVerdict({ outstanding: 0, phase: 'approved', branches: 0 }, true);
+    const verdict = sliceVerdict({ outstanding: 0, phase: 'approved', branches: 0, spike: undefined, spikeApproved: undefined }, true);
     expect(verdict).toBe('empty');
 
     const p = pulse(PLAN, [slice('Prose only', verdict, [])]);
@@ -75,7 +75,7 @@ describe('an empty slice is not finished — the two rules give one answer', () 
     // The old test was the FIRST one in the function, so no phase corrected it.
     // Every phase that is not finished must now withhold the word.
     for (const phase of ['draft', 'approved', 'design', 'superseded', 'UNKNOWN', '']) {
-      expect(sliceVerdict({ outstanding: 0, phase, branches: 0 }, true)).toBe('empty');
+      expect(sliceVerdict({ outstanding: 0, phase, branches: 0, spike: undefined, spikeApproved: undefined }, true)).toBe('empty');
     }
   });
 
@@ -95,14 +95,14 @@ describe('an empty slice is distinguished from the shapes it was folded into', (
   it('keeps `complete` for a slice whose branches all merged', () => {
     // The other half of `outstanding === 0`, and the one that was always right.
     // Both count zero outstanding; only this one has a branch to count.
-    expect(sliceVerdict({ outstanding: 0, phase: 'approved', branches: 2 }, true)).toBe('complete');
+    expect(sliceVerdict({ outstanding: 0, phase: 'approved', branches: 2, spike: undefined, spikeApproved: undefined }, true)).toBe('complete');
   });
 
   it('keeps `complete` for a slice holding only deferred branches', () => {
     // A DECISION, NOT A MALFORMED PLAN. Deferred branches are named work
     // somebody gave up, so `branches` counts them and the slice is not `empty`.
     // Collapsing the two would report a shelving as a plan defect.
-    expect(sliceVerdict({ outstanding: 0, phase: 'approved', branches: 1 }, true)).toBe('complete');
+    expect(sliceVerdict({ outstanding: 0, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined }, true)).toBe('complete');
   });
 
   it('leaves a finished plan\'s empty heading `complete`', () => {
@@ -110,8 +110,8 @@ describe('an empty slice is distinguished from the shapes it was folded into', (
     // this estate sit on Released or Superseded plans; a released heading is
     // history, and reporting it malformed would ask a person to edit a plan
     // that shipped. The 46 historical slices stay as written.
-    expect(sliceVerdict({ outstanding: 0, phase: 'released', branches: 0 }, true)).toBe('complete');
-    expect(sliceVerdict({ outstanding: 0, phase: 'delivered', branches: 0 }, true)).toBe('complete');
+    expect(sliceVerdict({ outstanding: 0, phase: 'released', branches: 0, spike: undefined, spikeApproved: undefined }, true)).toBe('complete');
+    expect(sliceVerdict({ outstanding: 0, phase: 'delivered', branches: 0, spike: undefined, spikeApproved: undefined }, true)).toBe('complete');
   });
 });
 
@@ -121,8 +121,8 @@ describe('an empty slice does not advance the fold', () => {
     // supply it — so a plan's second slice was offered as startable on the
     // strength of a first that had landed nothing.
     expect(sliceVerdicts([
-      { outstanding: 0, phase: 'approved', branches: 0 },
-      { outstanding: 1, phase: 'approved', branches: 1 },
+      { outstanding: 0, phase: 'approved', branches: 0, spike: undefined, spikeApproved: undefined },
+      { outstanding: 1, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined },
     ])).toEqual(['empty', 'blocked']);
   });
 
@@ -130,8 +130,8 @@ describe('an empty slice does not advance the fold', () => {
     // The control: the change withholds the word from ONE shape and leaves
     // ordering otherwise as it was.
     expect(sliceVerdicts([
-      { outstanding: 0, phase: 'approved', branches: 1 },
-      { outstanding: 1, phase: 'approved', branches: 1 },
+      { outstanding: 0, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined },
+      { outstanding: 1, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined },
     ])).toEqual(['complete', 'eligible']);
   });
 });

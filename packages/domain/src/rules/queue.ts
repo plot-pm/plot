@@ -2,6 +2,7 @@ import { type AgentReading, isAgentFree } from './free.js';
 import { sliceVerdicts, type PrereqAnswer } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
 import { unnamedBranches } from './slice-name.js';
+import { sliceReadingsOf } from './slice-readings.js';
 import type { SliceRefusal } from '../ports/refused-slices.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
 import { planIdOf } from '../entities/plan.js';
@@ -926,14 +927,11 @@ export const planQueue = (
   // see `settled` above. A claimed branch stays outstanding for the ORDER,
   // which is why this reads `settled` alone rather than `taken` below.
   const verdicts = sliceVerdicts(
-    plan.slices.map((slice: PlanRecordSlice) => ({
-      outstanding: slice.branches.filter((line) => !line.deferred && !settled(line.branch, merged))
-        .length,
-      phase: plan.phase,
-      // EVERY branch the slice names, deferred ones included: a slice whose
-      // branches were all deferred still names work and is not `empty`.
-      branches: slice.branches.length,
-    })),
+    sliceReadingsOf(
+      plan,
+      plan.slices.map((slice: PlanRecordSlice) =>
+        slice.branches.filter((line) => !line.deferred && !settled(line.branch, merged)).length),
+    ),
   );
 
   // THE PLAN'S OWN UNNAMED BRANCHES, the predicate `/plot-approve` refuses on.

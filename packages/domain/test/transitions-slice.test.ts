@@ -36,15 +36,15 @@ describe('the states are consumed, never redeclared', () => {
     // and this file refuses as unrecognised would be a lifecycle over a
     // different set of states than the estate actually derives.
     const produced = new Set<SliceVerdict>([
-      sliceVerdict({ outstanding: 0, phase: 'approved', branches: 1 }, true),
-      sliceVerdict({ outstanding: 1, phase: 'delivered', branches: 1 }, true),
-      sliceVerdict({ outstanding: 1, phase: 'draft', branches: 1 }, true),
-      sliceVerdict({ outstanding: 1, phase: 'approved', branches: 1 }, true),
-      sliceVerdict({ outstanding: 1, phase: 'approved', branches: 1 }, false),
+      sliceVerdict({ outstanding: 0, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined }, true),
+      sliceVerdict({ outstanding: 1, phase: 'delivered', branches: 1, spike: undefined, spikeApproved: undefined }, true),
+      sliceVerdict({ outstanding: 1, phase: 'draft', branches: 1, spike: undefined, spikeApproved: undefined }, true),
+      sliceVerdict({ outstanding: 1, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined }, true),
+      sliceVerdict({ outstanding: 1, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined }, false),
       // `empty` is produced by a slice naming no branch — the fifth verdict,
       // added 2026-09-06 because zero outstanding could not tell *all merged*
       // from *none named*.
-      sliceVerdict({ outstanding: 0, phase: 'approved', branches: 0 }, true),
+      sliceVerdict({ outstanding: 0, phase: 'approved', branches: 0, spike: undefined, spikeApproved: undefined }, true),
     ]);
     expect([...produced].sort()).toEqual([...SliceVerdictSchema.options].sort());
   });
@@ -313,7 +313,7 @@ describe('the rule does not depend on `outstanding === 0` meaning finished', () 
     // **The test's point is unchanged** — the move out of a verdict is judged
     // the same way whatever the derivation answers — so the fixture names the
     // corrected case and the assertions below do not move.
-    const vacuous = sliceVerdict({ outstanding: 0, phase: 'draft', branches: 0 }, false);
+    const vacuous = sliceVerdict({ outstanding: 0, phase: 'draft', branches: 0, spike: undefined, spikeApproved: undefined }, false);
     expect(vacuous).toBe('empty');
     // Whatever that answer becomes, the move out of it is judged the same way.
     expect(isRefusal(move('complete', 'eligible'))).toBe(true);
@@ -322,8 +322,8 @@ describe('the rule does not depend on `outstanding === 0` meaning finished', () 
 
   it('takes the verdict as a reading, so a corrected derivation moves no refusal', () => {
     const asDerived = sliceVerdicts([
-      { outstanding: 1, phase: 'approved', branches: 1 },
-      { outstanding: 1, phase: 'approved', branches: 1 },
+      { outstanding: 1, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined },
+      { outstanding: 1, phase: 'approved', branches: 1, spike: undefined, spikeApproved: undefined },
     ]);
     expect(asDerived).toEqual(['eligible', 'blocked']);
     // The second slice is blocked by the first, and this rule refuses its
