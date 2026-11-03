@@ -46,6 +46,14 @@ describe('PlanReference', () => {
     expect(html).toContain('data-tuple-text="plan"');
     expect(html).not.toContain('<a ');
   });
+
+  it('shows the prefix from the fleet payload alone — no cards, the way the Delivery tab reads it while /api/board is slow or null', () => {
+    const index = planIndexOf({ fleetPlans: { 'a-plan': { file: '2026-11-01-a-plan.md', issues: ['1089'] } } });
+    const answer = planReference({ slug: 'a-plan' }, index);
+    const html = render(answer, '2026-11-01-a-plan.md');
+    expect(html).toContain('1089: a-plan');
+    expect(html).toContain('href="/plan/2026-11-01-a-plan.md"');
+  });
 });
 
 describe('isPlainPlanClick', () => {

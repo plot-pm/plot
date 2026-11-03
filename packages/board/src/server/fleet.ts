@@ -1732,6 +1732,40 @@ async function ticketPlansOf(
 }
 
 /**
+ * The `/api/fleet` plan index — every plan at the default branch, keyed by
+ * slug, with its file and the tracker issues its `Issue:` field names.
+ *
+ * Reads the same `planMetasAtDefault` call `ticketPlansOf` already makes, so
+ * this adds no parser run of its own — see the plan's Decisions section on
+ * why a second read here would silently diverge from `ticketPlansOf`'s
+ * answer. The slug is derived from `meta.file` the way `board.ts`'s
+ * `planSlug` does — basename first, then the date prefix stripped — because
+ * `PlanMeta` carries no slug field of its own, and `meta.file` is not always
+ * repo-relative: `planMetasAtDefault`'s working-tree fallback (no
+ * `origin/<default>` to resolve) reports the absolute staged path
+ * `plot-plan-meta.sh` was given, where the default-branch path reports a
+ * repo-relative blob path. Stripping the basename first makes both agree.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param entry - the cache entry holding `ideaPlans` and `prs`.
+ * @returns the plan index keyed by slug, or null when the plans cannot be read.
+ */
+async function fleetPlanIndexOf(
+  opts: BuildBoardOptions,
+  entry: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
+): Promise<Record<string, { file: string; issues: string[] }> | null> {
+  const metas = await planMetasAtDefault(opts, entry);
+  if (metas === null) return null;
+  const plans: Record<string, { file: string; issues: string[] }> = {};
+  for (const meta of metas) {
+    const base = path.basename(meta.file, '.md');
+    const slug = base.replace(/^\d{4}-\d{2}-\d{2}-/, '');
+    plans[slug] = { file: meta.file, issues: meta.issues.map(issueKey) };
+  }
+  return plans;
+}
+
+/**
  * The plans of open `idea/` PRs, written out so the plan parser can read them.
  *
  * A plan under review lives on its `idea/<slug>` branch and reaches the plan
@@ -7745,7 +7779,7 @@ export async function buildFleet(
   // THE PLAN ESTATE IS PARSED ONCE, and three answers read it: the sprint
   // counts, the estate totals and the Draft plans WAITING ON YOU names.
   const estate = planEstate(opts, entry.pulse, entry.pulseComplete);
-  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans, approvedSpikes, fieldsBySlug }, supervision, phasesValue] =
+  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans, approvedSpikes, fieldsBySlug }, supervision, phasesValue, planIndex] =
     await Promise.all([
       estate.then((e) => activeSprints(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
       estate.then((e) => estateTotals(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
@@ -7771,6 +7805,10 @@ export async function buildFleet(
       readSupervisionReport(opts),
       // The declared phases, read beside its siblings so no serial spawn is added.
       readConfigAsync(opts, 'Workflow phases', ''),
+      // The plan index `/api/fleet` carries, read via the same `entry` already
+      // in scope — one more concurrent read riding the group rather than a
+      // second parse of the plan estate.
+      fleetPlanIndexOf(opts, entry),
     ]);
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
   // Each open PR's branch tip, read from the local remote-tracking refs the scan
@@ -7971,6 +8009,11 @@ export async function buildFleet(
     // 12 synthesized` knows the drop menu is absent because the board is reading
     // an empty directory, not because nothing is broken.
     registry: entry.registry,
+    // Every plan at the default branch, keyed by slug — see `fleetPlanIndexOf`.
+    // `{}` where the read failed, matching `planIndexOf`'s own empty-source
+    // handling rather than omitting the key the schema says this server emits
+    // unconditionally.
+    plans: planIndex ?? {},
     // WHETHER ANYTHING SUPERVISES THE FLEET, rendered on the WORKING header
     // beside the registry annotation. The verdict is derived HERE rather than
     // stored, because it combines the run — asked once per refresh — with the

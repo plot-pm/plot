@@ -358,11 +358,13 @@ export function AgentList({
 }: AgentListProps) {
   // THE BOARD'S PLAN INDEX — every card and draft plan, keyed by file
   // basename and by slug, built once here and threaded to every row builder
-  // that names a plan. `cards` is the board's own Planning cards; drafts come
-  // from the fleet payload `AgentList` already reads.
+  // that names a plan. `cards` is the board's own Planning cards; drafts and
+  // the fleet plan index come from the fleet payload `AgentList` already
+  // reads — `fleetPlans` is what lets the index resolve while `/api/board` is
+  // slow or `null`, so the Delivery tab's prefix does not wait on it.
   const planIndex = useMemo(
-    () => planIndexOf({ cards: cards ?? [], drafts: fleet?.draftPlans ?? [] }),
-    [cards, fleet?.draftPlans],
+    () => planIndexOf({ cards: cards ?? [], drafts: fleet?.draftPlans ?? [], fleetPlans: fleet?.plans ?? {} }),
+    [cards, fleet?.draftPlans, fleet?.plans],
   );
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
