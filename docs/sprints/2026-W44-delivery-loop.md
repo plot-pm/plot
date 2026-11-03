@@ -54,7 +54,32 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 
 ## Retrospective
 
-<!-- Filled during /plot-sprint close: What went well / What could improve / Action items -->
+### What went well
+
+- All 24 items reached Delivered: 12 Must Have and 12 Should Have. Twelve Should Have items joined during the sprint, and each Scope Changes line names the defect that justified it.
+- Release 2.30.0 waited for one approval by a person, as the goal states. It was published on 2026-11-03 at `92bbf3e1e` and booked all 24 plans as Released.
+- The plan walk moved into the domain (#2980). PR #3048 removed 8,113 lines of shell, and `plot-fleet-scan.sh` is now a 276-line launcher.
+- On 2026-11-03 the loop worked without help at four points. fleetd's fixer fixed two HIGH findings on #3048. auto-deliver delivered `the-plan-walk-moves-into-the` and `every-plan-reference-shows-its-issue`. fleetd detected the red main on `f669084` and opened repair PR #3057. The review gate let no HIGH finding through.
+
+### What could improve
+
+- The goal says "alone", and the last day needed four interventions:
+  - The desk on #3048 blocked on a design question: close the domain walk's gaps, or keep the shell arm. An Opus fix agent did the work in three pushes.
+  - A person merged #3053, because the merge watcher would only have merged it on its next pass.
+  - A person merged #3057 in the GitHub UI, because `plot-ask.mjs merge` refused it with `repair-branch-mismatch` (#3058).
+  - `release-approve` refused #2934 with `not-release-pr` for the same cause, and then refused it with `review-missing`. A person ran `plot-review` on the release head and approved its waiting `pull_request` CI run, because the `workflow_dispatch` run reports no `validate` check.
+- From 2026-10-30, every fixer and main-repair start failed with `--agent not found` (#3028). Each HIGH finding waited 19 to 100 minutes for a hand fix.
+- The brief writer for `the-fleet-payload-indexes-its-plans` ended twice at the 5-minute bound with exit 124, because the slice was held by an open wait that the board read as eligible (#3049).
+- A delivery commit emptied `docs/plans/active/`, and a corpus test that required an active plan turned main red (#3057).
+- The domain walk kept a merged branch at `evidence: subject` while the PR index held its MERGED row, so the deliver controller refused with `scan-incomplete` (#3055, fixed by #3056).
+- `pr-state` named no head branch, so the merge controller admitted no repair PR and the release controller refused the release PR (#3058, fixed by #3059).
+
+### Action items
+
+- Measure "alone": run one small approved plan from dispatch to Delivered with no intervention, and record each intervention it still needs.
+- Decide how a desk's design question reaches a decision without a person: the unblocker answers it, or the plan must answer it before approval.
+- Make the merge watcher merge a green head on the same pass in which its checks turn green.
+- Make the release PR carry its own `validate` and `plot/review` without a person: review the release head, and run CI that reports to the PR.
 
 ## Notes
 
