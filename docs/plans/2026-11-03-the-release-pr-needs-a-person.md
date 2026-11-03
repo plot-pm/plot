@@ -9,6 +9,7 @@
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3065
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3070 merged
+- **Started:** 2026-11-03, Jan Wloka, `feature/the-release-review-is-switched-on`
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
