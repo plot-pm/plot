@@ -1,0 +1,1 @@
+../2026-11-03-plot-approve-reads-the-plan-from.md
