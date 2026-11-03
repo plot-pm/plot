@@ -69,7 +69,7 @@ const USAGE = [
 ].join('\n');
 
 /** What the command line asked for. */
-interface Args {
+export interface Args {
   who: string;
   slug: string;
   channel: 'board' | 'cli';
@@ -98,7 +98,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
 };
 
 /** The ports and paths this entry needs. */
-interface Context {
+export interface Context {
   repoRoot: string;
   scriptDir: string;
   host: Host;
@@ -332,7 +332,7 @@ export const run = async (
 };
 
 /** The move itself; a `Refused` thrown here becomes a refusal on stderr. */
-const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer): Promise<number> => {
+export const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer): Promise<number> => {
   const { slug } = args;
   const dirs: Dirs = {
     planDir: await configured(ctx.scripts, 'Plan directory', 'docs/plans/'),
