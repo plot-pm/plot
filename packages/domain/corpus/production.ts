@@ -384,6 +384,32 @@ export const readSliceNames = (estate: Estate, slug?: string): string[] =>
     .filter((line) => line !== '');
 
 /**
+ * The symlinks one index directory holds, as `git ls-tree` reports them.
+ *
+ * Read with `git ls-tree` rather than from the walk's own listing, for this
+ * file's reason: an oracle that reused the adapter's listing could only agree
+ * with it. Only mode `120000` entries count — an index directory also carries
+ * a `.gitkeep`, which is a file and not a plan reference.
+ *
+ * @param estate - the repository to read.
+ * @param ref - the revision to list at.
+ * @param dir - the index directory, relative to the root.
+ * @returns the symlink paths relative to the root, sorted.
+ */
+export const readIndexLinks = (estate: Estate, ref: string, dir: string): string[] =>
+  execFileSync('git', ['ls-tree', '-r', ref, '--', dir.replace(/\/$/, '')], {
+    cwd: estate.root,
+    encoding: 'utf8',
+    maxBuffer: MAX_BUFFER,
+    timeout: TIMEOUT_MS,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+    .split('\n')
+    .filter((line) => line.startsWith('120000 '))
+    .map((line) => line.slice(line.indexOf('\t') + 1))
+    .sort();
+
+/**
  * One MoSCoW item, as `plot-sprint-release.sh` reports it.
  *
  * BOTH THE READINGS AND THE VERDICT. `checked`, `slug` and `delivered` are what

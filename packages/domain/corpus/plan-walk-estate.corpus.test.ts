@@ -9,7 +9,7 @@ import { isAnswered } from '../src/port-result.js';
 import { namedSlices } from '../src/rules/branch-state.js';
 import { readEstate, type Estate as WalkEstate } from '../src/workflows/plan-walk-estate.js';
 import { compareField, describeDisagreement, type Disagreement } from './compare.js';
-import { readEstatePlanMeta, readMainBranch, readSliceNames, type Estate } from './production.js';
+import { readEstatePlanMeta, readIndexLinks, readMainBranch, readSliceNames, type Estate } from './production.js';
 
 /**
  * THE PLAN WALK'S ESTATE STAGE AGAINST THE SHELL SCAN: does `readEstate` find
@@ -51,6 +51,8 @@ const FIELDS: ReadonlyArray<readonly [keyof WalkEstate['plans'][number]['record'
 let walked: WalkEstate;
 let production: Record<string, unknown>[];
 let sliceNames: string[];
+let productionActive: string[];
+let productionDelivered: string[];
 
 beforeAll(async () => {
   const main = readMainBranch(estate);
@@ -80,6 +82,9 @@ beforeAll(async () => {
   });
   if (!isAnswered(walk)) throw new Error(`the estate stage could not read the corpus: ${walk.why}`);
   walked = walk.value;
+  // The same snapshot and the same directories the walk above was given.
+  productionActive = readIndexLinks(estate, `origin/${main}`, active.value);
+  productionDelivered = readIndexLinks(estate, `origin/${main}`, delivered.value);
 }, 500_000);
 
 describe('the estate stage agrees with the shell scan', () => {
@@ -120,10 +125,28 @@ describe('the estate stage agrees with the shell scan', () => {
   });
 
   it('reads the active and delivered indexes from the same snapshot', () => {
-    // Not vacuous: this repository keeps both indexes as symlinks.
-    expect(walked.indexes.some((link) => link.index === 'active')).toBe(true);
-    expect(walked.indexes.some((link) => link.index === 'delivered')).toBe(true);
+    // Compared against `git ls-tree`, not against a literal: the delivery
+    // workflow empties the active index whenever the last active plan is
+    // delivered, so a floor on `active` would assert the queue's depth rather
+    // than the walk's reading, and would go red on an ordinary delivery.
+    const walkedIn = (index: 'active' | 'delivered'): string[] =>
+      walked.indexes
+        .filter((link) => link.index === index)
+        .map((link) => link.path)
+        .sort();
+
+    expect(walkedIn('active')).toEqual(productionActive);
+    expect(walkedIn('delivered')).toEqual(productionDelivered);
     expect(walked.indexes.every((link) => link.target !== '')).toBe(true);
     expect(walked.dangling).toEqual([]);
+  });
+
+  it('reads a delivered index worth comparing, so this is not vacuous', () => {
+    // A FLOOR under the comparison above, on the index this repository cannot
+    // empty: a delivered plan's reference stays once it is written. The active
+    // index carries no floor because delivering the last active plan is a
+    // normal state of this estate.
+    expect(productionDelivered.length).toBeGreaterThan(100);
+    expect(walked.indexes.filter((link) => link.index === 'delivered').length).toBeGreaterThan(100);
   });
 });
