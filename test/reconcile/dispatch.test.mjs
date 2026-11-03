@@ -53,8 +53,57 @@ process.env.PATH = `${noPrHost}${path.delimiter}${process.env.PATH}`;
 
 let tmp, repo;
 
+/**
+ * Run git in `cwd`, retrying only while `index.lock` is held.
+ *
+ * The live-start tests launch REAL worker agents into the very desks they then
+ * mutate: `--start 2` hands two desks to two agents, and the test immediately
+ * runs `git checkout -b` in each to give its manifest a branch that
+ * `--stop <branch>` can resolve. The agent and the test both want that desk's
+ * `index.lock`, so on a loaded runner the test loses the race and throws an
+ * error naming git rather than dispatch. CI failed this way on 2026-11-03 —
+ * one test of 3655, inside `--stop from another group`, on a commit that added
+ * a brief and a plan line and touched no code this suite covers.
+ *
+ * The concurrency cannot be designed away: the test asserts what a stop does to
+ * a RUNNING agent and its sibling, so the agents must be running and their
+ * desks must be mutated.
+ *
+ * Contention is transient by definition — the holder finishes in milliseconds —
+ * so a bounded retry turns a spurious failure into a marginally slower test.
+ *
+ * Keyed on the lock message SPECIFICALLY. A blanket retry would paper over real
+ * git errors and turn a deterministic failure into a slow flaky one, which is
+ * the opposite of the goal: a broken test must still fail on its first attempt.
+ *
+ * This mirrors `packages/board/test/helpers.mjs`, which carries the same guard
+ * for the same reason, and `plot-fleet-scan.sh`, where production already reads
+ * an `index.lock` as "an agent is writing HERE, RIGHT NOW" — a state to handle,
+ * not an error to propagate. The asymmetry between the production code and this
+ * harness was the bug.
+ */
+const HELD_BY_ANOTHER_GIT = /index\.lock/;
+
 function git(cwd, ...args) {
-  return execFileSync('git', args, { encoding: 'utf8', cwd });
+  // Ten ticks of 25 ms gives ~250 ms of patience: long enough for an agent
+  // holding the index to finish, short enough that a genuinely stuck lock
+  // fails the test rather than stalling the suite.
+  const retries = 10;
+  const delayMs = 25;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return execFileSync('git', args, { encoding: 'utf8', cwd });
+    } catch (err) {
+      // `stderr` AND `message` are both consulted: stderr is where git puts the
+      // lock message under the stdio this helper passes today, and message is
+      // what survives if a future caller changes that.
+      const text = `${err?.stderr ?? ''}${err?.message ?? ''}`;
+      if (attempt >= retries || !HELD_BY_ANOTHER_GIT.test(text)) throw err;
+      // Synchronous by necessity — every caller uses this helper synchronously
+      // during fixture setup, so there is no `await` to reach for.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
 }
 function run(args, cwd = repo) {
   return execFileSync('bash', [dispatch, ...args], { encoding: 'utf8', cwd });
