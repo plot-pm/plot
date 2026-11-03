@@ -134,6 +134,10 @@ describe('planPrOf — a plan the default branch holds', () => {
     expect(planPrOf(landed({ merged: [{ number: 70, headSha: 'other' }] }))).toEqual({ outcome: 'none' });
   });
 
+  it('answers none where a merged PR names no head at all', () => {
+    expect(planPrOf(landed({ merged: [{ number: 70, headSha: '' }] }))).toEqual({ outcome: 'none' });
+  });
+
   it('takes a case-insensitive prefix of at least 7 hex characters as the same head', () => {
     const readings = landed({
       addition: { sha: 'm', secondParent: '0123456789abcdef' },
