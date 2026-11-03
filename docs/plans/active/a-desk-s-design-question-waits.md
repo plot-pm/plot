@@ -1,0 +1,1 @@
+../2026-11-03-a-desk-s-design-question-waits.md
