@@ -141,7 +141,7 @@ Decided 2026-11-01 by the operator after panel round 1 (`.plot/panels/every-plan
 
 ### Fleet index
 
-- `feature/the-fleet-payload-indexes-its-plans` — `/api/fleet` carries `plans: Record<slug, { file, issues }>`, an optional field in `contract/schema.ts`, built in `server/fleet.ts` from the metas `planMetasOf` already returns to `referencedIssues` and `ticketPlansOf`. The Delivery tab passes it to `planIndexOf` as `fleetPlans`. A contract test asserts that every fleet row's and slice's plan has an index entry. <!-- waits: feature/the-panels-name-a-plan-one-way, feature/the-scan-script-is-a-launcher, bug/an-issue-reads-its-plan-from-main --> <!-- builds: a plan index on the fleet payload -->
+- `feature/the-fleet-payload-indexes-its-plans` — `/api/fleet` carries `plans: Record<slug, { file, issues }>`, an optional field in `contract/schema.ts`, built in `server/fleet.ts` from the metas `planMetasOf` already returns to `referencedIssues` and `ticketPlansOf`. The Delivery tab passes it to `planIndexOf` as `fleetPlans`. A contract test asserts that every fleet row's and slice's plan has an index entry. <!-- waits: feature/the-panels-name-a-plan-one-way, feature/the-scan-script-is-a-launcher, bug/an-issue-reads-its-plan-from-main --> <!-- builds: a plan index on the fleet payload --> → #3053
 
 ## Done when
 
