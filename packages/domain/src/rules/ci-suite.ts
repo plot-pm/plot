@@ -187,6 +187,14 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * | `node .../plot-deliver.mjs --release 2.22.3 x` | `'release'`, the bundle read the same as the launcher |
  * | `node .../plot-deliver.mjs --dry-run x` | `null` — no endpoint for this mode |
  * | `node skills/plot/scripts/board/plot-approve.mjs x` | `'approve'` — the launcher's own bundle |
+ * | `node .../board/plot-ask.mjs release-approve 1 abc1234` | `'release-approve'` |
+ * | `node .../board/plot-ask.mjs merge 1 abc1234` | `null` — a different subcommand |
+ * | `curl -X POST http://localhost:4000/api/release` | `'release'` |
+ * | `curl -X POST http://localhost:4000/api/release-approve` | `'release-approve'` |
+ * | `curl -X POST http://localhost:4000/api/restart` | `'restart'` |
+ * | `curl http://localhost:4000/api/release` | `null` — GET, the default method |
+ * | `curl -X POST http://localhost:4000/api/dispatch` | `null` — a different route |
+ * | `grep release-approve docs/plans/*.md` | `null` — a read |
  * | `node .../plot-approve.mjs --dry-run x` | `null` — no endpoint for this mode |
  *
  * A script named is a RUN unless its segment's program is a reader
@@ -218,11 +226,37 @@ export const controllerInvocation = (command: string): GatedAction | null => {
     const words = segment.trim().split(/\s+/).filter((word) => word !== '');
     if (words.length === 0) continue;
     if (isReadSegment(words)) continue;
+    const route = httpRouteAction(words);
+    if (route !== null) return route;
     for (const word of words) {
+      if (wordBasename(word) === ASK_MJS && words.includes('release-approve')) return 'release-approve';
       const script = scriptNamed(word);
       if (script === null) continue;
       return actionFor(script, words);
     }
+  }
+  return null;
+};
+
+/**
+ * Whether a command is specifically an HTTP client call that POSTs to one of
+ * the three gated board routes — as opposed to a script or bundle call that
+ * {@link controllerInvocation} classifies to the same `'release'`/`'restart'`
+ * action. The caller that must offer the bundle call no receipt escape for
+ * the HTTP form, while leaving the bundle form's own receipt escape alone,
+ * reads this rather than re-deriving it from `controllerInvocation`'s answer.
+ *
+ * @param command - the command line an agent is about to run, with any
+ *   single-quoted heredoc body already stripped.
+ * @returns the action, or `null` when no segment is a gated HTTP call.
+ */
+export const controllerHttpAction = (command: string): GatedAction | null => {
+  for (const segment of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;|\n]/)) {
+    const words = segment.trim().split(/\s+/).filter((word) => word !== '');
+    if (words.length === 0) continue;
+    if (isReadSegment(words)) continue;
+    const route = httpRouteAction(words);
+    if (route !== null) return route;
   }
   return null;
 };
@@ -242,9 +276,14 @@ const DELIVER_SH = 'plot-deliver.sh';
 const DELIVER_MJS = 'plot-deliver.mjs';
 // `approval-becomes-a-command` did the same to `plot-approve.sh`.
 const APPROVE_MJS = 'plot-approve.mjs';
+// `plot-ask.mjs` answers several questions and runs two actions
+// (`merge`, `release-approve`); only its `release-approve` subcommand is
+// gated here, so it is matched by name and subcommand together rather than
+// joining `GATED`'s bare-script lookup.
+const ASK_MJS = 'plot-ask.mjs';
 
 /** The lifecycle actions a gated script call can be. */
-export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'restart';
+export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart';
 
 /** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
@@ -348,4 +387,59 @@ const actionFor = (script: string, words: readonly string[]): GatedAction | null
   if ((script === DELIVER_SH || script === DELIVER_MJS) && words.includes('--release')) return 'release';
   if (script === DISPATCH_SH && words.includes('--restart')) return 'restart';
   return GATED[script];
+};
+
+/** The programs that can make an HTTP request, by basename. */
+const HTTP_PROGRAMS: ReadonlySet<string> = new Set(['curl', 'wget', 'http', 'httpie']);
+
+/**
+ * The three board routes this gate refuses, each requiring a POST, longest
+ * first so `/api/release-approve` is tried before the `/api/release` prefix
+ * it would otherwise also match.
+ */
+const ROUTE_ACTION: ReadonlyArray<readonly [string, GatedAction]> = [
+  ['/api/release-approve', 'release-approve'],
+  ['/api/release', 'release'],
+  ['/api/restart', 'restart'],
+];
+
+/** A path segment naming one of `ROUTE_ACTION`'s routes, found in a URL-shaped word. The route must end the word or be followed by `/`, `?` or `#`, so `/api/release2` names no route. */
+const routeIn = (word: string): GatedAction | null => {
+  for (const [route, action] of ROUTE_ACTION) {
+    const at = word.indexOf(route);
+    if (at === -1) continue;
+    const after = word[at + route.length];
+    if (after === undefined || after === '/' || after === '?' || after === '#') return action;
+  }
+  return null;
+};
+
+/**
+ * Whether a segment is an HTTP client call that POSTs to one of the gated
+ * board routes, and which action that is. `controllerHttpAction` is the
+ * public form of this reading, run once per segment the same way this
+ * function's caller, `controllerInvocation`, already splits a command.
+ *
+ * A GET (the default method, or an explicit `-X GET`/`--request GET`) is
+ * never gated: these routes only act on a POST. A URL naming a different
+ * route (`/api/dispatch`) is likewise not gated — this reading is for exactly
+ * the three named routes.
+ *
+ * @param words - one segment's words, already past the read-segment carve-out.
+ * @returns the action, or `null` when the segment is not a gated HTTP call.
+ */
+const httpRouteAction = (words: readonly string[]): GatedAction | null => {
+  const program = programWords(words);
+  if (program.length === 0) return null;
+  if (!HTTP_PROGRAMS.has(wordBasename(program[0]))) return null;
+  const route = program.map(routeIn).find((action) => action !== null) ?? null;
+  if (route === null) return null;
+  let method = 'GET';
+  for (let i = 1; i < program.length; i += 1) {
+    const word = program[i];
+    if ((word === '-X' || word === '--request') && program[i + 1] !== undefined) method = program[i + 1].toUpperCase();
+    else if (word.startsWith('--request=')) method = word.slice('--request='.length).toUpperCase();
+    else if (/^-X./.test(word)) method = word.slice(2).toUpperCase();
+  }
+  return method === 'POST' ? route : null;
 };

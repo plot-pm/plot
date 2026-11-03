@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXIT, controllerGateOf, runGates, type ControllerReadings, type Where } from '../../src/server/entry/gate.js';
@@ -133,6 +133,97 @@ describe('a desk and no git', () => {
     } finally {
       write.mockRestore();
     }
+  });
+});
+
+describe('release-approve and the HTTP routes refuse with no receipt escape', () => {
+  /** A repo root carrying a fresh receipt for `action`, so the ordinary receipt-clearing path would answer `null` if it ran. */
+  const withReceipt = (action: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-receipt-'));
+    const receiptDir = join(dir, '.plot', 'state', 'action-receipts');
+    mkdirSync(receiptDir, { recursive: true });
+    writeFileSync(join(receiptDir, action), 'spent\n');
+    return dir;
+  };
+
+  const CASES = [
+    ['release-approve', 'node board/plot-ask.mjs release-approve 1 abc1234'],
+    ['release', 'curl -X POST http://localhost:4000/api/release'],
+    ['release-approve route', 'curl -X POST http://localhost:4000/api/release-approve'],
+    ['restart', 'curl -X POST http://localhost:4000/api/restart'],
+  ] as const;
+
+  it.each(CASES)('refuses %s from the main checkout with a fresh receipt present, naming the board button', async (_label, command) => {
+    const dir = withReceipt('release-approve');
+    try {
+      const { r } = readings({ root: { ok: true, value: dir }, linked: false });
+      const answer = await ask(r, command);
+      expect(answer.code).toBe(EXIT.refuse);
+      expect(answer.warned).toMatch(/board/i);
+      expect(answer.warned).not.toContain('plot-state-receipt.sh');
+      expect(answer.warned).not.toContain('unowned-action');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(CASES)('refuses %s from a linked worktree (a desk)', async (_label, command) => {
+    const dir = withReceipt('release-approve');
+    try {
+      const { r } = readings({ root: { ok: true, value: dir }, linked: true });
+      const answer = await ask(r, command);
+      expect(answer.code).toBe(EXIT.refuse);
+      expect(answer.warned).toMatch(/board/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(CASES)('refuses %s even when the git reading throws', async (_label, command) => {
+    const { r } = readings(new Error('git is broken'));
+    const answer = await ask(r, command);
+    expect(answer.code).toBe(EXIT.refuse);
+    expect(answer.warned).toMatch(/board/i);
+  });
+
+  it('still allows the master agent route for release under the existing receipt', async () => {
+    const dir = withReceipt('release');
+    try {
+      const { r } = readings({ root: { ok: true, value: dir }, linked: false });
+      const answer = await ask(r, 'node board/plot-deliver.mjs --release my-plan 1.2.3');
+      expect(answer.code).toBe(EXIT.allow);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('still allows the master agent route for restart under the existing receipt', async () => {
+    const dir = withReceipt('restart');
+    try {
+      const { r } = readings({ root: { ok: true, value: dir }, linked: false });
+      const answer = await ask(r, 'node board/plot-restart-command.mjs feature/some-branch');
+      expect(answer.code).toBe(EXIT.allow);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['a grep for the subcommand', 'grep release-approve docs/plans/2026-11-03-who-may-approve-a-release-and.md'],
+    ['a cat of a file naming it', 'cat notes/release-approve.md'],
+    ['a comment naming plot-ask.mjs release-approve', '# plot-ask.mjs release-approve runs the merge'],
+  ])('still allows %s as a read', async (_label, command) => {
+    const { r } = readings(MAIN);
+    expect((await ask(r, command)).code).toBe(EXIT.allow);
+  });
+
+  it.each([
+    ['GET on the release route', 'curl http://localhost:4000/api/release'],
+    ['explicit GET on restart', 'curl -X GET http://localhost:4000/api/restart'],
+    ['POST to a different route', 'curl -X POST http://localhost:4000/api/dispatch'],
+  ])("keeps today's allow answer for %s", async (_label, command) => {
+    const { r } = readings(MAIN);
+    expect((await ask(r, command)).code).toBe(EXIT.allow);
   });
 });
 
