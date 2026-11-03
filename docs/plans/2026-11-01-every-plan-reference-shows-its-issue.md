@@ -17,6 +17,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-rows-name-a-plan-one-way`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-panels-name-a-plan-one-way`
 - **Started:** 2026-11-02, Jan Wloka, `feature/a-ticket-row-names-its-plan`
+- **Started:** 2026-11-03, Jan Wloka, `feature/the-fleet-payload-indexes-its-plans`
 
 ## Changelog
 
