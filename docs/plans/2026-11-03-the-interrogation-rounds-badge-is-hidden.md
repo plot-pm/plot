@@ -111,7 +111,7 @@ plan: docs/plans/2026-11-03-the-interrogation-rounds-badge-is-hidden.md
 
 ### Badge and route on Design cards
 
-- `feature/the-interrogation-rounds-badge-is-hidden` — `cardControls` sets `roundsBadge` for Draft and Design; the interrogate route admits Design; reconcile section 15 covers Design; comments, tests and the changeset follow
+- `feature/the-interrogation-rounds-badge-is-hidden` — `cardControls` sets `roundsBadge` for Draft and Design; the interrogate route admits Design; reconcile section 15 covers Design; comments, tests and the changeset follow → #3104
 
 ## Notes
 
