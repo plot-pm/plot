@@ -157,3 +157,4 @@ Each test fails on `origin/main` at `f10abe5a4`.
 - Created from tracker issue #3077 by `/plot-idea`, unattended, and amended after its first four-juror panel round (`.plot/panels/2026-11-03-who-may-approve-a-release-and/`). The decisions under *Approach* are jwloka's.
 - Follow-ups: `continue.ts:184` passes every request as `person`; whether a change to `.claude/agents/*.md` or `.claude/settings/*` needs a person's review before merge; whether `plot-deliver.mjs --release` needs the passkey proof too.
 - Refs #3069.
+- `feature/the-gate-refuses-release-approve` (#3083) could not measure whether Claude Code's `!` bash-mode prefix passes the PreToolUse hook — that prefix is an interactive-CLI shortcut the harness this slice ran under has no way to type into itself, only to observe through the Bash tool, which the hook already covers. Unverified; a person testing an interactive session is the only way to settle it.
