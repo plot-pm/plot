@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Issue:** #3063
 - **Sprint:** follow-ups-2-30-1
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 1
+- **Approved:** 2026-11-03, Jan Wloka, plan-PR #3068 merged
 
 ## Changelog
 
