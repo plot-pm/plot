@@ -107,7 +107,7 @@ Slice 3:
 
 ### The unblocker runs
 
-- `feature/fleetd-starts-the-unblocker` — fleetd passes an `UnblockWorld` to the tick and applies `unblock` writes through `applyUnblockDecisions`, with `UnblockPorts.run` starting the unblocker role; the run hands back `ANSWER` or `ESCALATE: <reason>`, parsed by `unblockOutcome`; every path records one row; one run per question key and a per-branch answer cap; the charter states the class line <!-- builds: unblock wiring, unblock outcome rule, unblocker charter -->
+- `feature/fleetd-starts-the-unblocker` — fleetd passes an `UnblockWorld` to the tick and applies `unblock` writes through `applyUnblockDecisions`, with `UnblockPorts.run` starting the unblocker role; the run hands back `ANSWER` or `ESCALATE: <reason>`, parsed by `unblockOutcome`; every path records one row; one run per question key and a per-branch answer cap; the charter states the class line <!-- builds: unblock wiring, unblock outcome rule, unblocker charter --> → #3084
 
 ### The record names its author
 
