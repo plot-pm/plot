@@ -281,6 +281,8 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['httpie body items', 'release', 'http :4000/api/release slug=x version=1.2.3'],
     ['an httpie raw-JSON item', 'release', 'http :4000/api/release count:=1'],
     ['an httpie file item', 'release', 'http :4000/api/release body@b.json'],
+    // A read segment ahead of the real call is skipped, not matched.
+    ['a grep ahead of the POST', 'release', 'grep release-approve notes.md && curl -X POST http://localhost:4000/api/release'],
   ])('answers %s for %s written as %s', (_label, action, command) => {
     expect(controllerInvocation(command)).toBe(action);
     expect(controllerHttpAction(command)).toBe(action);
