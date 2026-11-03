@@ -306,6 +306,9 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['a bare httpie URL', 'http :4000/api/release'],
     ['a route the name only prefixes', 'curl -X POST http://localhost:4000/api/release2'],
     ['a POST by a program that makes no request', 'node tools/post.mjs -X POST http://localhost:4000/api/release'],
+    ['an empty segment between two separators', 'echo start ;; echo done'],
+    ['an httpie flag, which is not a method or body operand', 'http -v :4000/api/release'],
+    ['a trailing -X with no value', 'curl http://localhost:4000/api/release -X'],
   ])("keeps today's null answer for %s", (_label, command) => {
     expect(controllerInvocation(command)).toBeNull();
     expect(controllerHttpAction(command)).toBeNull();
