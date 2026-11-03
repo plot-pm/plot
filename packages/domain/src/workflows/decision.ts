@@ -23,6 +23,20 @@ import type { EndingActor, EndingReason } from '../entities/ending.js';
 export type Caller = 'person' | 'unattended' | 'fleetd';
 
 /**
+ * Maps one `PLOT_UNATTENDED`/`--unattended` reading to a {@link Caller}.
+ *
+ * It reads no `process.env` or `argv` itself — every entrance reads its own
+ * source and passes the boolean in, so the eight call sites that used to
+ * spell this inline now share one mapping with no new reading.
+ *
+ * @param reading - what the entrance already read.
+ * @returns `'unattended'` when true, `'person'` otherwise. Never `'fleetd'`:
+ *   no entrance has an in-process fleetd caller to report yet.
+ */
+export const callerOf = ({ unattended }: { readonly unattended: boolean }): Caller =>
+  unattended ? 'unattended' : 'person';
+
+/**
  * One write a decision would make, named so a performer can apply it and a
  * test can diff for it.
  *

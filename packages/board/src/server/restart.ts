@@ -5,6 +5,7 @@ import { pulseFor } from './fleet.js';
 import type { FleetReading } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 import type { DeskMonitors } from '@plot-pm/domain';
+import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { restartBranch, type RestartReaders } from '@plot-pm/fleet/shared/restart-command';
 import { BODY_LIMIT, type ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
 
@@ -67,7 +68,7 @@ export const handleRestart = async (
     branch,
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.
-    caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
+    caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
     monitors: deps.monitors,
     readers: deps.readers,
   });

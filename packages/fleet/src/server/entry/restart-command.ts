@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import type { Caller, DeskMonitors, FleetReading } from '@plot-pm/domain';
+import { callerOf, type Caller, type DeskMonitors, type FleetReading } from '@plot-pm/domain';
 import { restartBranch, type RestartReaders } from '../../shared/restart-command.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
@@ -88,7 +88,7 @@ export const run = async (
     worktree: deps.worktree ?? process.env.PLOT_RESTART_WORKTREE,
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.
-    caller: deps.caller ?? (process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person'),
+    caller: deps.caller ?? callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
     offline: deps.offline ?? process.env.PLOT_RESTART_OFFLINE === '1',
     monitors: deps.monitors,
     readers: deps.readers,

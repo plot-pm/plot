@@ -8,7 +8,7 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { prIndexFile } from '@plot-pm/domain/adapters/pr-index/pr-index-file';
-import type { Caller, Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
+import { callerOf, type Caller, type Host, type PlanStore, type Refs, type Scripts, type Trees } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import {
   deliver,
@@ -754,7 +754,7 @@ export const runRelease = async (
   // itself is the domain's — `bookRelease` passes this straight to `release`,
   // which checks it before anything else, including whether a version or a
   // merged PR exists.
-  const caller: Caller = process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person';
+  const caller: Caller = callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' });
   if (caller === 'unattended') {
     warn('plot-deliver: unattended: a release needs a person. An unattended caller does not finish one, and fleetd gets no exception here.\n');
     return 1;

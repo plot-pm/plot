@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fleetStateFile, fleetStoppedFile } from '@plot-pm/domain/adapters';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import type { Caller, FleetReading } from '@plot-pm/domain';
+import { callerOf, type Caller, type FleetReading } from '@plot-pm/domain';
 import { FLEET_STOPPED_VERSION } from '@plot-pm/domain';
 import { restartBranch as realRestartBranch, type RestartBranchInput } from '../../shared/restart-command.js';
 import type { DeskContinuation } from '../../shared/continuation.js';
@@ -102,7 +102,7 @@ const restartRecorded = async (
   const pulse = deps ? deps.pulse : bridgedPulse(repoRoot);
   // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
   // maps to 'unattended', never to 'fleetd'.
-  const caller = deps ? deps.caller : (process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person');
+  const caller = deps ? deps.caller : callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' });
   const restart = deps ? deps.restartBranch : realRestartBranch;
   for (const branch of found.branches) {
     const worktree = found.worktrees?.[branch];
