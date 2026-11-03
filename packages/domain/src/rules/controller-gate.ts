@@ -203,12 +203,17 @@ export const withoutMessageSinks = (command: string): string => {
   return blankSpans(command, spans);
 };
 
+/** The board routes `mayRunController` watches for, so a bare `curl .../api/restart` is not filtered out before `controllerInvocation` can read its method. */
+const API_ROUTES = ['/api/release', '/api/release-approve', '/api/restart'];
+
 /**
- * Whether a command could name a controller-owned script or merge a pull
- * request. A word passes when it contains `plot-dispatch`, `plot-approve` or
- * `plot-deliver`, when it ends `.sh` or `.mjs` and holds a glob character, or
- * when it is `merge` or `pr-merge`. The test may over-pass and never
- * under-passes: it only decides whether the full reading is worth its cost.
+ * Whether a command could name a controller-owned script, call `plot-ask`, hit
+ * a gated board route, or merge a pull request. A word passes when it
+ * contains `plot-dispatch`, `plot-approve`, `plot-deliver` or `plot-ask`,
+ * when it ends `.sh` or `.mjs` and holds a glob character, when it contains
+ * one of `API_ROUTES`, or when it is `merge` or `pr-merge`. The test may
+ * over-pass and never under-passes: it only decides whether the full reading
+ * is worth its cost.
  *
  * @param command - the command line.
  * @returns whether the full reading should run.
@@ -216,8 +221,9 @@ export const withoutMessageSinks = (command: string): string => {
 export const mayRunController = (command: string): boolean =>
   command.split(/\s+/).some(
     (word) =>
-      /plot-(dispatch|approve|deliver)/.test(word) ||
+      /plot-(dispatch|approve|deliver|ask)/.test(word) ||
       /\.(sh|mjs)$/.test(word) && /[*?[\]]/.test(word) ||
+      API_ROUTES.some((route) => word.includes(route)) ||
       word === 'merge' ||
       word === 'pr-merge',
   );
@@ -373,6 +379,42 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
     '',
   );
   return lines.join('\n');
+};
+
+/** Actions this slice refuses with no receipt escape: a release approval, and the two HTTP routes with no board-free bundle of their own. */
+export type FinalAction = 'release-approve' | 'release' | 'restart';
+
+/**
+ * The refusal for `plot-ask.mjs release-approve`, or an HTTP POST to
+ * `/api/release`, `/api/release-approve` or `/api/restart`. Unlike
+ * {@link controllerRefusal}, this names only the person's route — the
+ * board's button for `release`/`restart`, `plot-ask.mjs release-approve`'s
+ * own bundle for `release-approve` — and offers no receipt bypass: a receipt
+ * written by the very call this refuses (`plot-ask.mjs`'s `main.ts:220`)
+ * would otherwise clear the gate guarding it.
+ *
+ * @param action - the action the command runs.
+ * @param scriptDir - the absolute directory holding the plot scripts.
+ * @returns the text for stderr.
+ */
+export const finalControllerRefusal = (action: FinalAction, scriptDir: string): string => {
+  if (action === 'release-approve') {
+    return [
+      'plot-controller-gate: plot-ask.mjs release-approve is a controller-owned action.',
+      '',
+      "  A release approval is a person decision. Use the board's Approve release button, which asks",
+      `      node ${shellQuote(`${scriptDir}/board/plot-ask.mjs`)} release-approve <pr> <sha>`,
+      '    itself, once a person has clicked it. No receipt bypasses this refusal.',
+    ].join('\n');
+  }
+  const bundle =
+    action === 'release' ? `node ${shellQuote(`${scriptDir}/board/plot-deliver.mjs`)} --release <slug> <version>` : `node ${shellQuote(`${scriptDir}/board/plot-restart-command.mjs`)} <branch>`;
+  return [
+    `plot-controller-gate: ${ENDPOINT[action]} is a controller-owned action.`,
+    '',
+    "  Use the board's button, which asks that route once a person has clicked it. With no board, the",
+    `  master agent's own route is ${bundle}. No receipt bypasses this refusal.`,
+  ].join('\n');
 };
 
 /**

@@ -187,6 +187,14 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * | `node .../plot-deliver.mjs --release 2.22.3 x` | `'release'`, the bundle read the same as the launcher |
  * | `node .../plot-deliver.mjs --dry-run x` | `null` — no endpoint for this mode |
  * | `node skills/plot/scripts/board/plot-approve.mjs x` | `'approve'` — the launcher's own bundle |
+ * | `node .../board/plot-ask.mjs release-approve 1 abc1234` | `'release-approve'` |
+ * | `node .../board/plot-ask.mjs merge 1 abc1234` | `null` — a different subcommand |
+ * | `curl -X POST http://localhost:4000/api/release` | `'release'` |
+ * | `curl -X POST http://localhost:4000/api/release-approve` | `'release-approve'` |
+ * | `curl -X POST http://localhost:4000/api/restart` | `'restart'` |
+ * | `curl http://localhost:4000/api/release` | `null` — GET, the default method |
+ * | `curl -X POST http://localhost:4000/api/dispatch` | `null` — a different route |
+ * | `grep release-approve docs/plans/*.md` | `null` — a read |
  * | `node .../plot-approve.mjs --dry-run x` | `null` — no endpoint for this mode |
  *
  * A script named is a RUN unless its segment's program is a reader
@@ -218,11 +226,37 @@ export const controllerInvocation = (command: string): GatedAction | null => {
     const words = segment.trim().split(/\s+/).filter((word) => word !== '');
     if (words.length === 0) continue;
     if (isReadSegment(words)) continue;
+    const route = httpRouteAction(words);
+    if (route !== null) return route;
     for (const word of words) {
+      if (wordBasename(word) === ASK_MJS && words.includes('release-approve')) return 'release-approve';
       const script = scriptNamed(word);
       if (script === null) continue;
       return actionFor(script, words);
     }
+  }
+  return null;
+};
+
+/**
+ * Whether a command is specifically an HTTP client call that POSTs to one of
+ * the three gated board routes — as opposed to a script or bundle call that
+ * {@link controllerInvocation} classifies to the same `'release'`/`'restart'`
+ * action. The caller that must offer the bundle call no receipt escape for
+ * the HTTP form, while leaving the bundle form's own receipt escape alone,
+ * reads this rather than re-deriving it from `controllerInvocation`'s answer.
+ *
+ * @param command - the command line an agent is about to run, with any
+ *   single-quoted heredoc body already stripped.
+ * @returns the action, or `null` when no segment is a gated HTTP call.
+ */
+export const controllerHttpAction = (command: string): GatedAction | null => {
+  for (const segment of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;|\n]/)) {
+    const words = segment.trim().split(/\s+/).filter((word) => word !== '');
+    if (words.length === 0) continue;
+    if (isReadSegment(words)) continue;
+    const route = httpRouteAction(words);
+    if (route !== null) return route;
   }
   return null;
 };
@@ -242,9 +276,14 @@ const DELIVER_SH = 'plot-deliver.sh';
 const DELIVER_MJS = 'plot-deliver.mjs';
 // `approval-becomes-a-command` did the same to `plot-approve.sh`.
 const APPROVE_MJS = 'plot-approve.mjs';
+// `plot-ask.mjs` answers several questions and runs two actions
+// (`merge`, `release-approve`); only its `release-approve` subcommand is
+// gated here, so it is matched by name and subcommand together rather than
+// joining `GATED`'s bare-script lookup.
+const ASK_MJS = 'plot-ask.mjs';
 
 /** The lifecycle actions a gated script call can be. */
-export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'restart';
+export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart';
 
 /** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
@@ -348,4 +387,173 @@ const actionFor = (script: string, words: readonly string[]): GatedAction | null
   if ((script === DELIVER_SH || script === DELIVER_MJS) && words.includes('--release')) return 'release';
   if (script === DISPATCH_SH && words.includes('--restart')) return 'restart';
   return GATED[script];
+};
+
+/** The programs that can make an HTTP request, by basename. */
+const HTTP_PROGRAMS: ReadonlySet<string> = new Set(['curl', 'wget', 'http', 'https', 'httpie']);
+
+/**
+ * The three board routes this gate refuses, each requiring a POST, longest
+ * first so `/api/release-approve` is tried before the `/api/release` prefix
+ * it would otherwise also match.
+ */
+const ROUTE_ACTION: ReadonlyArray<readonly [string, GatedAction]> = [
+  ['/api/release-approve', 'release-approve'],
+  ['/api/release', 'release'],
+  ['/api/restart', 'restart'],
+];
+
+/** The quote characters a URL or a method may be wrapped in, dropped before either is read. */
+const QUOTES = /^['"]+|['"]+$/g;
+
+/** A word with any wrapping quote dropped, so `"http://host/api/release"` reads as the bare URL. */
+const unquoted = (word: string): string => word.replace(QUOTES, '');
+
+/** A path segment naming one of `ROUTE_ACTION`'s routes, found in a URL-shaped word. The route must end the word or be followed by `/`, `?` or `#`, so `/api/release2` names no route. A wrapping quote is dropped first, so a quoted URL reads the same as a bare one. */
+const routeIn = (word: string): GatedAction | null => {
+  const bare = unquoted(word);
+  for (const [route, action] of ROUTE_ACTION) {
+    const at = bare.indexOf(route);
+    if (at === -1) continue;
+    const after = bare[at + route.length];
+    if (after === undefined || after === '/' || after === '?' || after === '#') return action;
+  }
+  return null;
+};
+
+/**
+ * A `curl` long option that sends a request body, which makes `curl` POST
+ * unless an explicit method overrides it: every `--data*` form
+ * (`--data-raw`, `--data-binary`, `--data-urlencode`, `--data-ascii`),
+ * `--json` and `--form`. A long option's value is glued with `=` or follows
+ * as the next word.
+ */
+const CURL_BODY_LONG = /^(--data(-raw|-binary|-urlencode|-ascii)?|--json|--form)(=|$)/;
+
+/**
+ * A `curl` short option that sends a body, `-d` or `-F`, in a short-option
+ * group. A short option takes its value glued with no separator (`-d@body`,
+ * `-dslug=x`) or as the next word, so the value is not read here — only that
+ * the group holds the flag. The group may carry other flags first (`-sd@body`).
+ * The letters after the single `-` never cross a second `-`, so a long option
+ * such as `--dump-header` is not read as a group — `CURL_BODY_LONG` names the
+ * long forms that do send a body.
+ */
+const CURL_BODY_SHORT = /^-[A-Za-z]*[dF]/;
+
+/** A `wget` option that sends a request body, which makes `wget` POST unless `--method` overrides it. */
+const WGET_BODY_FLAG = /^(--post-data|--post-file|--body-data|--body-file)(=|$)/;
+
+/** The explicit method a `curl` word names: `-X POST`, `--request POST`, `--request=POST` or a grouped `-sXPOST`. Returns the method, `'next'` when the value is the following word, or `null`. */
+const curlMethodIn = (word: string): string | 'next' | null => {
+  const bare = unquoted(word);
+  if (bare === '-X' || bare === '--request') return 'next';
+  if (bare.startsWith('--request=')) return unquoted(bare.slice('--request='.length)).toUpperCase();
+  // A short-option group ends at `X`, whose value is the rest of the word
+  // (`-sXPOST`) or, when it ends the group (`-sX`), the following word. The
+  // letters after the single `-` never cross a second `-`, so no long option
+  // reaches here — `--request` is read above and `--max-time` matches nothing.
+  const group = /^-[A-Za-z]*X(.*)$/.exec(bare);
+  if (group !== null) return group[1] === '' ? 'next' : unquoted(group[1]).toUpperCase();
+  return null;
+};
+
+/** The explicit method a `wget` word names: `--method=POST` or `--method POST`. */
+const wgetMethodIn = (word: string): string | 'next' | null => {
+  const bare = unquoted(word);
+  if (bare === '--method') return 'next';
+  if (bare.startsWith('--method=')) return unquoted(bare.slice('--method='.length)).toUpperCase();
+  return null;
+};
+
+/** The HTTP methods `httpie` takes as its first operand, so `http POST :4000/api/release` reads as a POST. */
+const HTTPIE_METHODS: ReadonlySet<string> = new Set([
+  'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS',
+]);
+
+/**
+ * An `httpie` request item that sends a body, which makes `httpie` POST when
+ * no method is named: `field=value`, `field:=json`, `field@file` and
+ * `field=@file`. A header (`Name:Value`), a query parameter (`k==v`) and an
+ * option (`-x`) send no body, and neither does a bare URL.
+ */
+const HTTPIE_BODY_ITEM = /^[A-Za-z_][\w.-]*(:?=@?|@)(?!=)/;
+
+/**
+ * The method an HTTP client call uses, read per program so each client's own
+ * way of naming or implying a POST is understood.
+ *
+ * An explicit method always wins over one a body flag implies, because that is
+ * what the clients do: `curl -d x -X GET <url>` sends a GET.
+ *
+ * - **`curl`** POSTs on `-d`/`--data*`/`--json`/`-F`, whether the value is
+ *   glued (`-d@body`) or the next word, and takes its method from
+ *   `-X`/`--request`, including a grouped `-sXPOST`.
+ * - **`wget`** POSTs on `--post-data`/`--post-file`/`--body-data`/`--body-file`,
+ *   and takes its method from `--method`.
+ * - **`httpie`** (`http`, `https`, `httpie`) takes an optional method as its
+ *   first operand, and otherwise POSTs when any request item sends a body.
+ *
+ * @param program - the segment's words from the program on.
+ * @returns the method in upper case, `'GET'` when none is named or implied.
+ */
+const httpMethod = (program: readonly string[]): string => {
+  const name = wordBasename(program[0]);
+  const isHttpie = name === 'http' || name === 'https' || name === 'httpie';
+  const explicitIn = name === 'wget' ? wgetMethodIn : curlMethodIn;
+  /** Whether a word is a body flag for this program, reading a `curl` short-option group apart from a long option. */
+  const sendsBody = (bare: string): boolean =>
+    name === 'wget' ? WGET_BODY_FLAG.test(bare) : CURL_BODY_LONG.test(bare) || CURL_BODY_SHORT.test(bare);
+  let explicit: string | null = null;
+  let implied: string | null = null;
+  let operands = 0;
+  for (let i = 1; i < program.length; i += 1) {
+    const word = program[i];
+    const bare = unquoted(word);
+    if (isHttpie) {
+      // httpie's method, when given, is the first operand before the URL.
+      if (!bare.startsWith('-')) {
+        operands += 1;
+        if (operands === 1 && HTTPIE_METHODS.has(bare.toUpperCase())) explicit = bare.toUpperCase();
+        else if (HTTPIE_BODY_ITEM.test(bare)) implied = 'POST';
+      }
+      continue;
+    }
+    const named = explicitIn(word);
+    if (named === 'next') {
+      const value = program[i + 1];
+      if (value !== undefined) {
+        explicit = unquoted(value).toUpperCase();
+        i += 1;
+      }
+    } else if (named !== null) explicit = named;
+    else if (sendsBody(bare)) implied = 'POST';
+  }
+  return explicit ?? implied ?? 'GET';
+};
+
+/**
+ * Whether a segment is an HTTP client call that POSTs to one of the gated
+ * board routes, and which action that is. `controllerHttpAction` is the
+ * public form of this reading, run once per segment the same way this
+ * function's caller, `controllerInvocation`, already splits a command.
+ *
+ * A GET is never gated: these routes only act on a POST. That covers the
+ * default method, an explicit `GET`, and the documented
+ * `GET /api/release/<slug>` poll. A URL naming a different route
+ * (`/api/dispatch`) is likewise not gated — this reading is for exactly the
+ * three named routes. {@link httpMethod} reads the method, so a quoted URL, a
+ * body-implied POST, a grouped short option and `wget`/`httpie` forms are all
+ * read the same as a bare `curl -X POST`.
+ *
+ * @param words - one segment's words, already past the read-segment carve-out.
+ * @returns the action, or `null` when the segment is not a gated HTTP call.
+ */
+const httpRouteAction = (words: readonly string[]): GatedAction | null => {
+  const program = programWords(words);
+  if (program.length === 0) return null;
+  if (!HTTP_PROGRAMS.has(wordBasename(program[0]))) return null;
+  const route = program.map(routeIn).find((action) => action !== null) ?? null;
+  if (route === null) return null;
+  return httpMethod(program) === 'POST' ? route : null;
 };

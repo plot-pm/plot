@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   controllerRefusal,
+  finalControllerRefusal,
   mayRunController,
   mergeCalls,
   unpinnedMerges,
@@ -8,7 +9,7 @@ import {
   withoutMessageSinks,
   withoutQuotedHeredocs,
 } from '../src/rules/controller-gate.js';
-import { controllerInvocation } from '../src/rules/ci-suite.js';
+import { controllerHttpAction, controllerInvocation } from '../src/rules/ci-suite.js';
 
 describe('withoutQuotedHeredocs', () => {
   it('blanks the body of a single-quoted heredoc and keeps the opener, the terminator and every line', () => {
@@ -210,12 +211,162 @@ describe('withoutMessageSinks reads each git commit option form', () => {
 });
 
 describe('mayRunController', () => {
-  it.each(['bash plot-deliver.sh x', 'node board/plot-approve.mjs x', 'bash *.sh', 'node b/plot-appro?e.mjs', 'gh pr merge 1', 'plot-host.sh pr-merge 1'])(
-    'passes %s',
-    (command) => expect(mayRunController(command)).toBe(true),
-  );
+  it.each([
+    'bash plot-deliver.sh x',
+    'node board/plot-approve.mjs x',
+    'bash *.sh',
+    'node b/plot-appro?e.mjs',
+    'gh pr merge 1',
+    'plot-host.sh pr-merge 1',
+    'node board/plot-ask.mjs release-approve 1 abc1234',
+    'curl -X POST http://localhost:4000/api/release',
+    'curl -X POST http://localhost:4000/api/release-approve',
+    'curl -X POST http://localhost:4000/api/restart',
+  ])('passes %s', (command) => expect(mayRunController(command)).toBe(true));
 
-  it.each(['ls -la', 'git commit -m x', 'pnpm test'])('skips %s', (command) => expect(mayRunController(command)).toBe(false));
+  it.each(['ls -la', 'git commit -m x', 'pnpm test', 'curl http://localhost:4000/api/dispatch'])('skips %s', (command) =>
+    expect(mayRunController(command)).toBe(false),
+  );
+});
+
+describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', () => {
+  it('answers release-approve for plot-ask.mjs release-approve', () => {
+    expect(controllerInvocation('node skills/plot/scripts/board/plot-ask.mjs release-approve 1 abc1234')).toBe('release-approve');
+  });
+
+  it('answers null for a different plot-ask.mjs subcommand', () => {
+    expect(controllerInvocation('node skills/plot/scripts/board/plot-ask.mjs merge 1 abc1234')).toBeNull();
+  });
+
+  it.each([
+    ['release', 'curl -X POST http://localhost:4000/api/release'],
+    ['release-approve', 'curl -X POST http://localhost:4000/api/release-approve'],
+    ['restart', 'curl -X POST http://localhost:4000/api/restart'],
+  ])('answers %s for a POST to its route', (action, command) => expect(controllerInvocation(command)).toBe(action));
+
+  it('answers restart for --request POST', () => {
+    expect(controllerInvocation('curl --request POST http://localhost:4000/api/restart')).toBe('restart');
+  });
+
+  it.each([
+    // A quoted URL or method: the quote must not hide the route or the method.
+    ['a quoted URL', 'release', 'curl -X POST "http://localhost:4000/api/release"'],
+    ['a single-quoted URL', 'release-approve', "curl -X POST 'http://localhost:4000/api/release-approve'"],
+    ['a quoted method', 'release', "curl -X 'POST' http://localhost:4000/api/release"],
+    ['a quoted --request value', 'restart', 'curl --request="POST" http://localhost:4000/api/restart'],
+    // A short option group: `-X` may be glued to its value or end the group.
+    ['a grouped short option', 'release', 'curl -sXPOST http://localhost:4000/api/release'],
+    ['a group ending at X', 'restart', 'curl -sX POST http://localhost:4000/api/restart'],
+    ['--request=POST', 'release', 'curl --request=POST http://localhost:4000/api/release'],
+    // A body flag makes curl POST with no method named at all.
+    ['-d', 'release', 'curl -d \'{"slug":"x","version":"1.2.3"}\' http://localhost:4000/api/release'],
+    ['a glued -d value', 'release', 'curl -d@body.json http://localhost:4000/api/release'],
+    ['--data', 'release', 'curl --data slug=x http://localhost:4000/api/release'],
+    ['--data-raw', 'release-approve', 'curl --data-raw slug=x http://localhost:4000/api/release-approve'],
+    ['--data-binary', 'restart', 'curl --data-binary @b.json http://localhost:4000/api/restart'],
+    ['--data-urlencode', 'release', 'curl --data-urlencode slug=x http://localhost:4000/api/release'],
+    ['--json', 'release', 'curl --json \'{"slug":"x"}\' http://localhost:4000/api/release'],
+    ['-F', 'restart', 'curl -F slug=x http://localhost:4000/api/restart'],
+    ['--form', 'release', 'curl --form slug=x http://localhost:4000/api/release'],
+    // wget names its method with --method and implies a POST from a body flag.
+    ['wget --post-data', 'release', 'wget --post-data=slug=x http://localhost:4000/api/release'],
+    ['wget --post-file', 'release', 'wget --post-file=b.json http://localhost:4000/api/release'],
+    ['wget --body-data', 'restart', 'wget --body-data=slug=x http://localhost:4000/api/restart'],
+    ['wget --method=POST', 'restart', 'wget --method=POST http://localhost:4000/api/restart'],
+    ['wget --method POST', 'release-approve', 'wget --method POST http://localhost:4000/api/release-approve'],
+    // httpie takes a method as its first operand, and POSTs on a body item.
+    ['httpie with a method', 'release', 'http POST :4000/api/release'],
+    ['the https binary', 'release-approve', 'https POST localhost:4000/api/release-approve'],
+    ['the httpie binary', 'restart', 'httpie POST :4000/api/restart'],
+    ['httpie body items', 'release', 'http :4000/api/release slug=x version=1.2.3'],
+    ['an httpie raw-JSON item', 'release', 'http :4000/api/release count:=1'],
+    ['an httpie file item', 'release', 'http :4000/api/release body@b.json'],
+    // A read segment ahead of the real call is skipped, not matched.
+    ['a grep ahead of the POST', 'release', 'grep release-approve notes.md && curl -X POST http://localhost:4000/api/release'],
+  ])('answers %s for %s written as %s', (_label, action, command) => {
+    expect(controllerInvocation(command)).toBe(action);
+    expect(controllerHttpAction(command)).toBe(action);
+    expect(mayRunController(command)).toBe(true);
+  });
+
+  it.each([
+    ['no method (GET by default)', 'curl http://localhost:4000/api/release'],
+    ['an explicit GET', 'curl -X GET http://localhost:4000/api/release'],
+    ['a POST to a different route', 'curl -X POST http://localhost:4000/api/dispatch'],
+    ['a quoted GET', 'curl "http://localhost:4000/api/release"'],
+    // `skills/plot-release/SKILL.md:487` polls this route while a release runs.
+    ['the per-plan release poll', 'curl -s http://localhost:4000/api/release/my-slug'],
+    ['a quoted release poll', 'curl "http://localhost:4000/api/release/my-slug"'],
+    ['httpie polling the release', 'http GET :4000/api/release/my-slug'],
+    // An explicit method wins over one a body flag implies, as curl does.
+    ['a body flag an explicit GET overrides', 'curl -d slug=x -X GET http://localhost:4000/api/release'],
+    ['wget with an explicit GET', 'wget --method=GET --post-data=slug=x http://localhost:4000/api/release'],
+    ['httpie with an explicit GET and a body item', 'http GET :4000/api/release slug=x'],
+    // httpie items that send no body.
+    ['an httpie header', 'http :4000/api/release X-Token:abc'],
+    ['an httpie query parameter', 'http :4000/api/release q==1'],
+    ['a bare httpie URL', 'http :4000/api/release'],
+    ['a route the name only prefixes', 'curl -X POST http://localhost:4000/api/release2'],
+    ['a POST by a program that makes no request', 'node tools/post.mjs -X POST http://localhost:4000/api/release'],
+    ['an empty segment between two separators', 'echo start ;; echo done'],
+    ['an httpie flag, which is not a method or body operand', 'http -v :4000/api/release'],
+    ['a trailing -X with no value', 'curl http://localhost:4000/api/release -X'],
+  ])("keeps today's null answer for %s", (_label, command) => {
+    expect(controllerInvocation(command)).toBeNull();
+    expect(controllerHttpAction(command)).toBeNull();
+  });
+
+  it.each([
+    ['a grep for the subcommand', 'grep release-approve docs/plans/2026-11-03-who-may-approve-a-release-and.md'],
+    ['a cat of a file naming it', 'cat notes/release-approve.md'],
+    ['a comment naming plot-ask.mjs release-approve', '# plot-ask.mjs release-approve runs the merge'],
+    [
+      'a single-quoted heredoc body naming the route',
+      withoutQuotedHeredocs(["cat <<'EOF'", 'curl -X POST http://localhost:4000/api/release', 'EOF'].join('\n')),
+    ],
+  ])('leaves %s as a read', (_label, command) => expect(controllerInvocation(withoutMessageSinks(command))).toBeNull());
+});
+
+describe('controllerHttpAction', () => {
+  it.each([
+    ['release', 'curl -X POST http://localhost:4000/api/release'],
+    ['release-approve', 'curl -X POST http://localhost:4000/api/release-approve'],
+    ['restart', 'curl -X POST http://localhost:4000/api/restart'],
+  ])('answers %s for a POST to its route', (action, command) => expect(controllerHttpAction(command)).toBe(action));
+
+  it('answers null for the plot-ask.mjs script call, which is not an HTTP request', () => {
+    expect(controllerHttpAction('node skills/plot/scripts/board/plot-ask.mjs release-approve 1 abc1234')).toBeNull();
+  });
+
+  it('answers null for a GET', () => {
+    expect(controllerHttpAction('curl http://localhost:4000/api/release')).toBeNull();
+  });
+});
+
+describe('finalControllerRefusal', () => {
+  const dir = '/plugins/plot/skills/plot/scripts';
+
+  it('names the board button and plot-ask.mjs for release-approve, and offers no receipt bypass', () => {
+    const text = finalControllerRefusal('release-approve', dir);
+    expect(text).toContain(`node ${dir}/board/plot-ask.mjs release-approve <pr> <sha>`);
+    expect(text).toContain("board's Approve release button");
+    expect(text).not.toContain('plot-state-receipt.sh');
+    expect(text).not.toContain('unowned-action');
+  });
+
+  it('names the board button and the deliver bundle for release, with no receipt bypass', () => {
+    const text = finalControllerRefusal('release', dir);
+    expect(text).toContain('POST /api/release');
+    expect(text).toContain(`node ${dir}/board/plot-deliver.mjs --release`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+  });
+
+  it('names the board button and the restart bundle for restart, with no receipt bypass', () => {
+    const text = finalControllerRefusal('restart', dir);
+    expect(text).toContain('POST /api/restart');
+    expect(text).toContain(`node ${dir}/board/plot-restart-command.mjs <branch>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+  });
 });
 
 describe('mergeCalls', () => {

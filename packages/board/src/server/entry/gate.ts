@@ -2,10 +2,11 @@ import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlink
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { MANAGED_PROCESS_MARKERS, controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
+import { MANAGED_PROCESS_MARKERS, controllerHttpAction, controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
   carriesSpikeFlag,
   controllerRefusal,
+  finalControllerRefusal,
   mayRunController,
   unpinnedMergeRefusal,
   unpinnedMerges,
@@ -947,6 +948,23 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     const named = mayRunController(stripped);
+
+    // A release approval, and an HTTP POST to a gated board route, refuse
+    // unconditionally: before a desk is distinguished from the main
+    // checkout, before git is read at all, and with no receipt able to
+    // clear them. `release`/`restart` also name a script or bundle call
+    // (`plot-deliver.sh --release`, `plot-restart-command.mjs`) that stays
+    // under the existing receipt below — only the HTTP form is final here.
+    // `release-approve` has no HTTP route yet, so its only form is the
+    // script call, and `plot-ask.mjs` writes its own receipt for that call
+    // before it decides — reusing the receipt check below would let that
+    // very call defeat the gate guarding it.
+    if (named) {
+      if (controllerInvocation(stripped) === 'release-approve') return finalControllerRefusal('release-approve', scriptDir);
+      const httpAction = controllerHttpAction(stripped);
+      if (httpAction === 'release' || httpAction === 'restart') return finalControllerRefusal(httpAction, scriptDir);
+    }
+
     const atDesk = process.env.PLOT_UNATTENDED === '1' && readings.desk(cwd);
     if (!named && !atDesk) return null;
 
