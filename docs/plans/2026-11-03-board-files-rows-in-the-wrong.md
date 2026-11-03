@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3098 merged
+- **Started:** 2026-11-04, Jan Wloka, `feature/board-files-rows-in-the-wrong`
 
 ## Changelog
 
