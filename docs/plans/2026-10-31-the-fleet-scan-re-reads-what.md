@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #2978
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-31, Jan Wloka, `feature/a-fleetd-whose-scans-start-owns-the-scan`
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-subject-walk-skips-settled-plans`
 - **Delivered:** 2026-10-31
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 
