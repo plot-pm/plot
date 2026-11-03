@@ -7,6 +7,7 @@ import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 
 import { commitAndPush, localDate, recordStateReceipt, Refused, type Printer, type PushLock } from './ladder.js';
+import { tellTrackerAbout } from './release-tracker.js';
 
 /** The ports and settings the finish reads and writes through. */
 export interface FinishContext {
@@ -17,6 +18,8 @@ export interface FinishContext {
   scripts: Scripts;
   trees: Trees;
   caller: Caller;
+  /** Where `plot-*.sh` scripts resolve from; the tracker step's `Scripts`/`PlanStore` ports take it. */
+  scriptDir: string;
   /** The longest the finish waits for the tag, in milliseconds (`Checks wait`). */
   tagWaitMs: number;
   /** The gap between tag polls, in milliseconds. */
@@ -169,6 +172,7 @@ export const finishRelease = async (
 
   let refusal: { reason: string; detail: string } | null = null;
   let booked: readonly string[] = [];
+  let bookedFiles: readonly { slug: string; file: string }[] = [];
 
   /** Decides from the text `wt` holds now, applies the edits, and stages them. */
   const book = async (wt: string): Promise<void> => {
@@ -230,8 +234,10 @@ export const finishRelease = async (
       return;
     }
     booked = out.detail.booked;
+    const bookedScope = scope.filter((s) => out.detail.booked.includes(s.slug));
+    bookedFiles = bookedScope.map((p) => ({ slug: p.slug, file: p.file }));
     const staged: string[] = [];
-    for (const p of scope.filter((s) => out.detail.booked.includes(s.slug))) {
+    for (const p of bookedScope) {
       const target = path.join(wt, p.file);
       const text = await ctx.planStore.readText(target);
       if (!text.ok || text.value === null) throw new Refused(`could not read ${p.file}; nothing was pushed.`);
@@ -294,7 +300,18 @@ export const finishRelease = async (
       await ctx.trees.removeOnly(tmpwt);
       return 1;
     }
+    const tracker = await tellTrackerAbout(
+      tmpwt,
+      tag,
+      bookedFiles,
+      { scripts: ctx.scripts, planStore: ctx.planStore, scriptDir: ctx.scriptDir },
+      write,
+    );
+    const reasons = Object.entries(tracker.issues.reasons)
+      .map(([reason, count]) => `${reason}=${count}`)
+      .join(' ');
     write(`finished: ${tag} booked ${booked.join(', ') || 'none'} (${pushed.pushed})\n`);
+    write(`summary: issues closed=${tracker.issues.closed} left-open=${tracker.issues.leftOpen}${reasons === '' ? '' : ` (${reasons})`}\n`);
     await cleanup();
     return 0;
   } catch (err) {

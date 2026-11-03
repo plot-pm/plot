@@ -660,6 +660,13 @@ and let the user go and get it. The two are independent systems that share a
 machine — neither is a component of the other, and a board that serves says
 nothing about whether a supervisor is loaded.
 
+**On GitHub, name the `Merger app` key too.** A supervised fleet that dispatches
+to GitHub merges nothing on its own until that key is declared — the merge arm
+holds every row rather than running as the signed-in `gh` identity's ruleset
+bypass. Point at the setup steps in
+[docs/review-status-rollout.md](../../docs/review-status-rollout.md); this
+command creates no App and writes no key.
+
 ## Failure modes
 
 | Condition | Response |

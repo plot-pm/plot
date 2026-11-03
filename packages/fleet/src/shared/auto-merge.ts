@@ -1,27 +1,32 @@
 import {
   checkNamesOf,
   checksWaitMsOf,
+  mergeIdentity,
   nextMerge,
   slicePrNext,
   type DefaultBranchReading,
   type MergePorts,
   type MergeResult,
+  type MergerAppReading,
   type SlicePrNextReadings,
   type SlicePrStep,
 } from '@plot-pm/domain';
 import {
   buildShell,
   defaultBranchFile,
+  mergerAppShell,
   prIndexFile,
   repairRecordFile,
+  type ShellContext,
 } from '@plot-pm/domain/adapters';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair, mergeAt } from '@plot-pm/domain/workflows/merge';
-import { hostOf, refsOf, scriptsOf, type ActOptions } from './action-log.js';
+import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
 import { readAutoReview } from './auto-review.js';
 import { readConfig } from './config-reader.js';
 import { pidAlive } from './fleet-run.js';
@@ -39,6 +44,74 @@ export interface MergeTickResult {
 
 /** The (PR, head) pairs whose merge the host refused, for the daemon's life. */
 export type MergeRefusals = Map<number, string>;
+
+/**
+ * Appends one `merge` record for the one PR a tick tried, naming the identity
+ * it merged as (`merged as app` / `merged as host`) or the refusal
+ * (`failed: <reason>`).
+ *
+ * @param opts - where the fleet acts.
+ * @param pr - the PR number the tick tried.
+ * @param branch - the row's head branch name.
+ * @param head - the commit the merge was pinned to.
+ * @param result - `mergeAt`'s outcome.
+ * @param identity - the identity {@link mergeIdentity} named for this tick.
+ * @param now - epoch milliseconds.
+ */
+const logMergeAttempt = async (
+  opts: ActOptions,
+  pr: number,
+  branch: string,
+  head: string,
+  result: MergeResult,
+  identity: 'app' | 'host',
+  now: number,
+): Promise<void> => {
+  const outcome = result.merged ? `merged as ${identity}` : `failed: ${result.reason}`;
+  const line: RunLogLine = {
+    plan: '',
+    branch,
+    pr: String(pr),
+    head,
+    step: 'merge',
+    outcome,
+    at: new Date(now).toISOString(),
+  };
+  await runLogOf(opts).append(line);
+};
+
+/**
+ * Appends one `merge-hold` record the first time a (PR, head, reason)
+ * combination holds — the same dedup shape `auto-review.ts`'s
+ * `logReviewStart` uses for `review-start`.
+ *
+ * @param opts - where the fleet acts.
+ * @param row - the row that held.
+ * @param reason - the hold reason `slicePrNext` answered.
+ * @param logged - the hold keys already recorded, for the daemon's life.
+ * @param now - epoch milliseconds.
+ */
+const logMergeHold = async (
+  opts: ActOptions,
+  row: PrIndexRow,
+  reason: string,
+  logged: Set<string>,
+  now: number,
+): Promise<void> => {
+  const key = `${row.number}:${row.head}:${reason}`;
+  if (logged.has(key)) return;
+  logged.add(key);
+  const line: RunLogLine = {
+    plan: '',
+    branch: row.head,
+    pr: String(row.number),
+    head: row.head,
+    step: 'merge-hold',
+    outcome: reason,
+    at: new Date(now).toISOString(),
+  };
+  await runLogOf(opts).append(line);
+};
 
 /**
  * Reads the repair record's merge reading once for a tick.
@@ -82,6 +155,8 @@ const repairReading = async (
  * @param ports - the merge controller's ports.
  * @param refused - the host-refused (PR, head) pairs; the caller keeps it across passes.
  * @param pidAlive - whether a review run's pid is alive.
+ * @param opts - where the fleet acts; `undefined` logs nothing (unit tests that pass no `ActOptions`).
+ * @param logged - the merge-hold keys already recorded, for the daemon's life.
  * @returns every row's step and the merge attempt, if any.
  */
 export const mergeTick = async (
@@ -91,10 +166,12 @@ export const mergeTick = async (
   refused: MergeRefusals,
   repoRoot: string,
   pidAlive: (pid: number) => boolean,
+  opts?: ActOptions,
+  logged: Set<string> = new Set(),
 ): Promise<MergeTickResult> => {
   const repairMerge = readings.repairMerge ?? (await repairReading(rows, readings.defaultBranch, ports));
   const live = liveReviewRuns(repoRoot, pidAlive, readings.now);
-  const steps = rows.map((row) => {
+  const rowSteps = rows.map((row) => {
     const run = live?.find((e) => e.pr === row.number) ?? null;
     const step = slicePrNext({
       ...readings,
@@ -103,8 +180,16 @@ export const mergeTick = async (
       reviewRun: run === null ? null : { head: run.head, pid: run.pid, startedAt: run.startedAt, live: true },
       reviewStarts: null,
     });
-    return { pr: row.number, step };
+    return { row, pr: row.number, step };
   });
+  const steps = rowSteps.map(({ pr, step }) => ({ pr, step }));
+  if (opts !== undefined) {
+    await Promise.all(
+      rowSteps
+        .filter(({ step }) => step.step === 'hold' && step.reason.startsWith('merger-app-'))
+        .map(({ row, step }) => logMergeHold(opts, row, (step as { reason: string }).reason, logged, readings.now)),
+    );
+  }
   const candidates = steps.map(({ pr, step }) =>
     step.step === 'merge' && refused.get(pr) === step.head
       ? { pr, step: { step: 'none', why: 'host-refused' } as SlicePrStep }
@@ -114,6 +199,11 @@ export const mergeTick = async (
   if (pick === null) return { steps };
   const result = await mergeAt(ports, pick.pr, pick.head);
   if (!result.merged && result.reason === 'host-refused') refused.set(pick.pr, pick.head);
+  if (opts !== undefined) {
+    const branch = rowSteps.find(({ pr }) => pr === pick.pr)?.row.head ?? pick.head;
+    const identity = mergeIdentity(readings.backend, readings.mergerApp).identity === 'app' ? 'app' : 'host';
+    await logMergeAttempt(opts, pick.pr, branch, pick.head, result, identity, readings.now);
+  }
   return { steps, merged: { ...pick, result } };
 };
 
@@ -129,6 +219,8 @@ export const mergeTick = async (
  * @param refused - the host-refused pairs, kept by the caller for the daemon's life.
  * @param now - epoch milliseconds.
  * @param alive - whether a pid is alive.
+ * @param logged - the merge-hold keys already recorded, for the daemon's life.
+ * @param mergerApp - reads whether the `Merger app` key is usable; defaults to the real adapter.
  * @returns the tick's result, or `null` where nothing was read to act on.
  */
 export const runAutoMergePass = async (
@@ -136,6 +228,8 @@ export const runAutoMergePass = async (
   refused: MergeRefusals,
   now: number = Date.now(),
   alive: (pid: number) => boolean = pidAlive,
+  logged: Set<string> = new Set(),
+  mergerApp: (context: ShellContext) => MergerAppReading = mergerAppShell,
 ): Promise<MergeTickResult | null> => {
   const host = hostOf(opts);
   const backend = await host.backend();
@@ -180,7 +274,8 @@ export const runAutoMergePass = async (
       verdict: { read: 'absent' },
       defaultBranch,
       desk: { dead: false, why: 'live' },
-      mergerAppMissing: backend.value === 'github' && readConfig(opts, MERGER_APP_KEY, '') === '',
+      backend: backend.value,
+      mergerApp: backend.value === 'github' ? mergerApp({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }) : undefined,
       config: {
         autoReview: readAutoReview(opts).autoReview,
         reviewBoundMs: 0,
@@ -193,5 +288,7 @@ export const runAutoMergePass = async (
     refused,
     opts.repoRoot,
     alive,
+    opts,
+    logged,
   );
 };

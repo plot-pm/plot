@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { MergePorts } from '@plot-pm/domain/workflows/merge';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import { runLogFixture } from '@plot-pm/domain/adapters';
 import { mergeTick, type MergeRefusals } from '../../src/shared/auto-merge.js';
 
 const TIP = 'c'.repeat(40);
@@ -123,8 +124,64 @@ describe('mergeTick', () => {
 
   it('merges nothing where Merger app is missing on GitHub', async () => {
     const { ports, calls } = portsFor('answered');
-    await tick([row(3)], { mergerAppMissing: true }, ports);
+    await tick([row(3)], { backend: 'github', mergerApp: { read: 'absent' } }, ports);
     expect(calls).toEqual([]);
+  });
+
+  it('merges as app with a usable Merger app key on GitHub', async () => {
+    const { ports, calls } = portsFor('answered');
+    const out = await tick([row(3)], { backend: 'github', mergerApp: { read: 'usable' } }, ports);
+    expect(calls).toEqual([['pr-merge', '3', '--match-head', head(3)]]);
+    expect(out.merged).toMatchObject({ pr: 3, result: { merged: true } });
+  });
+});
+
+describe('mergeTick action-log records', () => {
+  const opts = () => ({ repoRoot: '/nowhere', scriptsDir: '/nowhere', runLog: runLogFixture() });
+
+  it('logs one merge record naming the identity it merged as', async () => {
+    const { ports } = portsFor('answered');
+    const o = opts();
+    await mergeTick([row(3)], readings({ backend: 'github', mergerApp: { read: 'usable' } }), ports, new Map(), '/nowhere', () => false, o);
+    expect(o.runLog.lines).toEqual([
+      { plan: '', branch: 'feature/p3', pr: '3', head: head(3), step: 'merge', outcome: 'merged as app', at: new Date(NOW).toISOString() },
+    ]);
+  });
+
+  it('logs one merge record naming the host identity off GitHub', async () => {
+    const { ports } = portsFor('answered');
+    const o = opts();
+    await mergeTick([row(3)], readings({}), ports, new Map(), '/nowhere', () => false, o);
+    expect(o.runLog.lines).toEqual([
+      { plan: '', branch: 'feature/p3', pr: '3', head: head(3), step: 'merge', outcome: 'merged as host', at: new Date(NOW).toISOString() },
+    ]);
+  });
+
+  it('logs a failed merge attempt by its refusal reason', async () => {
+    const { ports } = portsFor('failed');
+    const o = opts();
+    await mergeTick([row(3)], readings({}), ports, new Map(), '/nowhere', () => false, o);
+    expect(o.runLog.lines).toEqual([
+      { plan: '', branch: 'feature/p3', pr: '3', head: head(3), step: 'merge', outcome: 'failed: host-refused', at: new Date(NOW).toISOString() },
+    ]);
+  });
+
+  it('logs a merge-hold once per PR, head and reason, and merges nothing', async () => {
+    const { ports } = portsFor('answered');
+    const o = opts();
+    const logged = new Set<string>();
+    await mergeTick([row(3)], readings({ backend: 'github', mergerApp: { read: 'absent' } }), ports, new Map(), '/nowhere', () => false, o, logged);
+    await mergeTick([row(3)], readings({ backend: 'github', mergerApp: { read: 'absent' } }), ports, new Map(), '/nowhere', () => false, o, logged);
+    expect(o.runLog.lines).toEqual([
+      { plan: '', branch: 'feature/p3', pr: '3', head: 'feature/p3', step: 'merge-hold', outcome: 'merger-app-missing', at: new Date(NOW).toISOString() },
+    ]);
+  });
+
+  it('logs nothing for a non-merger hold', async () => {
+    const { ports } = portsFor('answered');
+    const o = opts();
+    await mergeTick([row(5)], readings({ newestMerged: { mergedAt: '2026-10-30T11:58:00Z' } }), ports, new Map(), '/nowhere', () => false, o);
+    expect(o.runLog.lines).toEqual([]);
   });
 });
 

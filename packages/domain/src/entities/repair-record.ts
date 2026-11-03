@@ -16,8 +16,7 @@ export const REPAIR_RECORD_VERSION = 1;
  * `reverting`   the bound passed; a revert is in flight.
  * `done`        main settled green; any open fix or revert PR was closed.
  * `exhausted`   the episode ends with nothing more to try — a revert already
- *               made, an unexplained red, a conflicting revert, or an
- *               undeclared `Merger app`.
+ *               made, an unexplained red, or a conflicting revert.
  */
 // plot-state: lifecycle repair-record — idle -> rerun -> repairing -> reverting
 //                                       -> done | exhausted. transitions/repair-record.ts

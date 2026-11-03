@@ -680,6 +680,7 @@ export const readFixerPass = async (opts: ActOptions, now: number): Promise<Fixe
       reviewStarts: null,
       verdict: { read: 'absent' },
       defaultBranch,
+      backend: backend.value,
       config: { autoReview: false, reviewBoundMs: 0, startBudget: 0, checksWaitMs: 0 },
       now,
       slot: null,
