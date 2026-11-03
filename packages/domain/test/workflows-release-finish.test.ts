@@ -16,6 +16,7 @@ const sprint = (over: Partial<FinishSprint> = {}): FinishSprint => ({
   link: 'docs/sprints/active/2026-w44.md',
   state: 'Active',
   start: '2026-10-20',
+  release: '',
   ...over,
 });
 
@@ -129,6 +130,40 @@ describe('releaseFinish — books a release in one commit', () => {
       expect(out.detail).toContain('docs/sprints/active/2026-w44.md');
       expect(out.detail).toContain('docs/sprints/active/2026-w46.md');
     }
+  });
+
+  it('refuses release-scope-mismatch when the active sprint names another version, and writes nothing', () => {
+    const out = releaseFinish(readings({ sprints: [sprint({ release: '2.31.0' })] }), input);
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'release-scope-mismatch' });
+    if (out.outcome === 'refused') {
+      expect(out.detail).toContain('docs/sprints/active/2026-w44.md');
+      expect(out.detail).toContain('2.31.0');
+    }
+  });
+
+  it('orders release-scope-mismatch after sprint-ambiguous, on a fixture that triggers both', () => {
+    const two = readings({
+      sprints: [sprint({ release: '2.31.0' }), sprint({ slug: 'w46', link: 'docs/sprints/active/2026-w46.md' })],
+    });
+    expect(reasonOf(two)).toBe('sprint-ambiguous');
+  });
+
+  it('orders release-scope-mismatch before plan-unbookable, on a fixture that triggers both', () => {
+    const both = readings({
+      scope: [plan('a'), plan('d', { phase: 'approved' })],
+      sprints: [sprint({ release: '2.31.0' })],
+    });
+    expect(reasonOf(both)).toBe('release-scope-mismatch');
+  });
+
+  it('matches 2.30.0 against v2.30.0, ignoring the leading v on both sides', () => {
+    const out = releaseFinish(readings({ version: 'v2.30.0', sprints: [sprint({ release: '2.30.0' })] }), input);
+    expect(out.outcome).toBe('decided');
+  });
+
+  it('does not refuse a sprint with no Release field', () => {
+    const out = releaseFinish(readings({ sprints: [sprint({ release: '' })] }), input);
+    expect(out.outcome).toBe('decided');
   });
 
   it('closes a Committed sprint through the sprint transition, its state word trimmed', () => {

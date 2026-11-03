@@ -195,6 +195,7 @@ export const finishRelease = async (
         link,
         state: statusField(content, ['State', 'Phase']),
         start: statusField(content, ['Start']),
+        release: statusField(content, ['Release']),
       });
     }
     const only = sprints.length === 1 ? sprints[0] : undefined;

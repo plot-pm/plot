@@ -8,13 +8,18 @@ import { type Caller, type Outcome, decide, refuse } from './decision.js';
  *
  * `already-released` is the safe answer to a second run: every scope plan holds
  * its `Released:` record and the sprint is closed. `sprint-ambiguous` names
- * every sprint the active index holds when it holds more than one, and
- * `sprint-unclosable` carries the sprint transition's own refusal.
+ * every sprint the active index holds when it holds more than one.
+ * `release-scope-mismatch` catches the sprint that moved on: the active
+ * sprint's own `Release:` field names a different version than the tag this
+ * finish is booking, which happens once a new sprint has started before the
+ * previous release's `release-approve` is re-run. `sprint-unclosable` carries
+ * the sprint transition's own refusal.
  */
 export type ReleaseFinishRefusal =
   | 'unattended'
   | 'tag-absent'
   | 'sprint-ambiguous'
+  | 'release-scope-mismatch'
   | 'plan-unbookable'
   | 'sprint-unclosable'
   | 'already-released';
@@ -45,6 +50,8 @@ export interface FinishSprint {
   readonly state: string;
   /** The `Start:` date as the file states it, or `''`. */
   readonly start: string;
+  /** The `Release:` field as the file spells it, or `''` where the sprint template leaves it commented out. */
+  readonly release: string;
 }
 
 /** What `releaseFinish` reads. */
@@ -93,10 +100,11 @@ export interface ReleaseFinishDetail {
  * Decides what finishing a merged release writes.
  *
  * Refuses `unattended` first, then `tag-absent`, then `sprint-ambiguous` when
- * the active index holds more than one sprint, then `plan-unbookable` for a
- * scope plan whose file is absent or whose phase is neither `delivered` nor
- * `released`. An active sprint that is not closed goes through
- * `setSprintState` to `Closed`, and its refusal stops the finish as
+ * the active index holds more than one sprint, then `release-scope-mismatch`
+ * when that one sprint names a `Release:` other than the tag being booked,
+ * then `plan-unbookable` for a scope plan whose file is absent or whose phase
+ * is neither `delivered` nor `released`. An active sprint that is not closed
+ * goes through `setSprintState` to `Closed`, and its refusal stops the finish as
  * `sprint-unclosable`. A plan already holding a `Released:` record is left
  * alone. When nothing remains to book and no sprint closes, refuses
  * `already-released`. Otherwise one commit and one push book every remaining
@@ -122,6 +130,13 @@ export const releaseFinish = (
   if (readings.sprints.length > 1) {
     const named = readings.sprints.map((s) => s.link).join(', ');
     return no('sprint-ambiguous', `the active sprint index holds ${readings.sprints.length} sprints: ${named}. Close all but one with /plot-sprint, then run the finish again. Nothing is written.`);
+  }
+  const activeSprint = readings.sprints.length === 1 ? readings.sprints[0] : undefined;
+  if (activeSprint !== undefined && activeSprint.release.trim() !== '' && normalizeVersion(activeSprint.release) !== version) {
+    return no(
+      'release-scope-mismatch',
+      `the active sprint ${activeSprint.link} names Release: ${activeSprint.release.trim()}, not ${version}. Nothing is written; re-run the finish once ${version}'s own sprint is active, or fix the sprint's Release field.`,
+    );
   }
   const unbookable = readings.scope.filter(
     (p) => p.file === '' || (p.phase !== 'delivered' && p.phase !== 'released'),

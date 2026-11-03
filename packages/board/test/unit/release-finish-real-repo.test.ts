@@ -25,9 +25,10 @@ const git = (cwd: string, ...args: string[]): string =>
 const plan = (type: string, state: string, released = ''): string =>
   `# P\n\n## Status\n\n- **State:** ${state}\n- **Type:** ${type}\n${released === '' ? '' : `- **Released:** ${released}\n`}\n## Notes\n\n- one\n`;
 
-const sprint = (state: string, field = 'State', items = ['alpha', 'beta', 'gamma']): string =>
+const sprint = (state: string, field = 'State', items = ['alpha', 'beta', 'gamma'], release = ''): string =>
   [
-    '# Sprint: S', '', '> goal', '', '## Status', '', `- **${field}:** ${state}`, '- **Start:** 2026-10-20', '- **End:** 2026-10-30', '',
+    '# Sprint: S', '', '> goal', '', '## Status', '', `- **${field}:** ${state}`, '- **Start:** 2026-10-20', '- **End:** 2026-10-30',
+    ...(release === '' ? [] : [`- **Release:** ${release}`]), '',
     '## Sprint Goal', '', 'g', '', '### Must Have', '', ...items.map((slug) => `- [x] [${slug}] item`), '- [ ] ~~[delta]~~ left', '',
     '### Should Have', '', '## Notes', '',
   ].join('\n');
@@ -121,11 +122,11 @@ describe('finishRelease against a real remote', () => {
   };
 
   /** Starts a new active sprint naming `slug`, a delivered plan, from a second clone. */
-  const startSprint = (root: string, origin: string, week: string, slug: string): void => {
+  const startSprint = (root: string, origin: string, week: string, slug: string, release = '1.3.0'): void => {
     const other = path.join(root, `sprint-${week}`);
     git(root, 'clone', '-q', origin, other);
     writeFileSync(path.join(other, `docs/plans/2026-10-20-${slug}.md`), plan('feature', 'Delivered'));
-    writeFileSync(path.join(other, `docs/sprints/${week}-t.md`), sprint('Active', 'State', [slug]));
+    writeFileSync(path.join(other, `docs/sprints/${week}-t.md`), sprint('Active', 'State', [slug], release));
     mkdirSync(path.join(other, 'docs/sprints/active'), { recursive: true });
     symlinkSync(`../${week}-t.md`, path.join(other, `docs/sprints/active/${week}-t.md`));
     git(other, 'add', '-A');
@@ -213,6 +214,24 @@ describe('finishRelease against a real remote', () => {
     expect(err).toContain('docs/sprints/active/2026-W44-s.md');
     expect(err).toContain('docs/sprints/active/2026-W46-t.md');
     expect(originMain(origin)).toBe(before);
+  });
+
+  it('refuses release-scope-mismatch and writes nothing once a later sprint is active for a different release', async () => {
+    const { repo, origin, ctx } = estate({ tagged: true });
+    const root = path.dirname(repo);
+    expect((await run(ctx)).code).toBe(0);
+    startSprint(root, origin, '2026-W46', 'epsilon', '2.30.1');
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    const before = originMain(origin);
+
+    const { code, err } = await run(ctx);
+
+    expect(code).toBe(1);
+    expect(err).toContain('release-scope-mismatch');
+    expect(err).toContain('docs/sprints/active/2026-W46-t.md');
+    expect(originMain(origin)).toBe(before);
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    expect(onMain(repo, 'docs/plans/2026-10-20-epsilon.md')).not.toContain('Released:');
   });
 
   it('books the next release against the next sprint once the first close removed its active entry', async () => {
