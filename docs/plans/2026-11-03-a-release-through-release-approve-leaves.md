@@ -87,7 +87,7 @@ Existing tests:
 
 ### Tracker step
 
-- `bug/release-approve-tells-its-tracker` — move the tracker step out of `runRelease` into `entry/release-tracker.ts` and call it from `finishRelease` once after the final push <!-- builds: a shared release tracker step used by runRelease and finishRelease -->
+- `bug/release-approve-tells-its-tracker` — move the tracker step out of `runRelease` into `entry/release-tracker.ts` and call it from `finishRelease` once after the final push <!-- builds: a shared release tracker step used by runRelease and finishRelease --> → #3086
 
 ## Notes
 
