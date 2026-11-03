@@ -4603,6 +4603,20 @@ export const FleetShape = z.object({
    */
   registry: RegistryInfoSchema.optional(),
   /**
+   * Every plan at the default branch, keyed by slug, with its file and the
+   * tracker issues its `Issue:` field names — the same read `ticketPlansOf`
+   * already makes, carried onto the payload so `planIndexOf` can resolve a
+   * plan reference from `/api/fleet` alone, before `/api/board` answers.
+   *
+   * Optional so a client talking to an older server still validates, the
+   * `registry` precedent: metadata about a read, not a list the client always
+   * needs a value for. The server emits this field unconditionally.
+   */
+  plans: z.record(z.string(), z.object({
+    file: z.string(),
+    issues: z.array(z.string()).default([]),
+  })).optional(),
+  /**
    * Whether anything supervises the fleet — the WORKING header's second
    * annotation, beside the registry's.
    *
