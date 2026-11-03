@@ -123,7 +123,7 @@ bumps:
 
 ### Shared slice readings
 
-- `bug/the-queue-hands-out-an-approved-spike` — add `sliceReadingsOf`, make the spike fields required keys, call the builder from `planQueue`, `blockingBranches` and `assemblePlanWalk`, add the tests and the changeset <!-- builds: a shared slice-readings builder used by planQueue, blockingBranches and assemblePlanWalk -->
+- `bug/the-queue-hands-out-an-approved-spike` — add `sliceReadingsOf`, make the spike fields required keys, call the builder from `planQueue`, `blockingBranches` and `assemblePlanWalk`, add the tests and the changeset <!-- builds: a shared slice-readings builder used by planQueue, blockingBranches and assemblePlanWalk --> → #3105
 
 ## Notes
 
