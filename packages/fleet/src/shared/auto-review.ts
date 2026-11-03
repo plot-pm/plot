@@ -225,6 +225,7 @@ export const readReviewPass = async (opts: ActOptions, now: number): Promise<Rev
       verdict: { read: 'absent' },
       defaultBranch,
       desk: { dead: false, why: 'live' },
+      backend: backend.value,
       config: { autoReview: true, reviewBoundMs: REVIEW_BOUND_MS, startBudget: REVIEW_START_BUDGET, checksWaitMs: 0 },
       now,
     },

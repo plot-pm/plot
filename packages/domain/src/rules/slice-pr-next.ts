@@ -1,6 +1,8 @@
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { PrIndexRow } from '../entities/pr-index.js';
+import type { HostBackend } from '../ports/host.js';
 import { defaultBranchAgeMs } from './default-branch.js';
+import { mergeIdentity, type MergerAppReading } from './merge-identity.js';
 import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './repair-pr.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
@@ -86,11 +88,13 @@ export interface SlicePrNextReadings {
    * per tick (#2904). Absent reads as no record: a settled red holds every PR.
    */
   readonly repairMerge?: RepairMergeReading;
+  /** The host backend, as `Host.backend()` answers it. {@link mergeIdentity} reads this to decide an identity. */
+  readonly backend: HostBackend;
   /**
-   * True where the host is GitHub and `Merger app` is undeclared. Absent reads
-   * as not applicable, which is every other host.
+   * The `Merger app` key, as the adapter reads it. Unconsulted on a non-GitHub
+   * backend; absent (or an unread read) holds `merger-app-unread` on GitHub.
    */
-  readonly mergerAppMissing?: boolean;
+  readonly mergerApp?: MergerAppReading;
   readonly config: SlicePrConfig;
   /** Epoch milliseconds of the tick. */
   readonly now: number;
@@ -107,6 +111,8 @@ export type HoldReason =
   | 'merge-in-flight'
   | 'conflicting'
   | 'merger-app-missing'
+  | 'merger-app-invalid'
+  | 'merger-app-unread'
   | 'default-branch-unsettled'
   | 'ticket-pending'
   | 'unread'
@@ -307,7 +313,8 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * or green; `default-branch-red`; `default-branch-unsettled` for a settled
  * state that is not green; `merge-in-flight` for a settled commit that is not
  * the head, or a merged row newer than the reading; `conflicting`;
- * `merger-app-missing`. On a settled red, `readings.repairMerge` lifts
+ * `merger-app-missing`, `merger-app-invalid` or `merger-app-unread` from
+ * {@link mergeIdentity}. On a settled red, `readings.repairMerge` lifts
  * `default-branch-red` for the one PR {@link repairMergeVerdict} admits; the
  * remaining holds then apply to it unchanged. A PR the record names and the
  * verdict refuses holds with the verdict's reason. The stale check is this arm's own and never
@@ -343,7 +350,8 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
     return hold('merge-in-flight');
   }
   if (row.mergeable === 'CONFLICTING') return hold('conflicting');
-  if (readings.mergerAppMissing === true) return hold('merger-app-missing');
+  const identity = mergeIdentity(readings.backend, readings.mergerApp);
+  if (identity.identity === 'hold') return hold(identity.reason);
   return { step: 'merge', head: row.headSha };
 };
 

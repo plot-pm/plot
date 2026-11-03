@@ -273,6 +273,8 @@ export { performerShell } from './performer/performer-shell.js';
 
 export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
 
+export { mergerAppShell } from './merger-app/merger-app-shell.js';
+
 export { claimReleaseShell } from './claim-release/claim-release-shell.js';
 
 export { writeProbeShell, type WriteProbeShellOptions } from './write-probe/write-probe-shell.js';

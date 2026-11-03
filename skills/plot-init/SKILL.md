@@ -650,6 +650,7 @@ justify**, and say what triggered the offer:
 | Repo has `docs/sessionlogs/` (or a session-wrap tool is in use) | A `## Session Wrap Up` section in the hub | Session-scoped tools write the log; Plot only supplies the plot-shaped facts |
 | Repo has a plan directory with plans in it | `/plot-board-setup` — a local Kanban view of those plans | The board is first-class and gated in the Definition of Done, but nothing else in adoption mentions it |
 | Repo dispatches agents (a `Worktree root` key, or `.plot/agents/`) | The `post-commit` commit record | Several writers to one plan estate is where a commit silently reverts a file it never edited; the record is what makes the next one diagnosable |
+| `git_host: github` | Point at the `Merger app` setup in [docs/review-status-rollout.md](../../docs/review-status-rollout.md) | Without a declared `Merger app`, a fleet merge on GitHub holds rather than running as the signed-in `gh` identity's bypass. Neither the App nor the key is created here — that is a person-step |
 | **Plot is being adopted at all** | **Plot's gates as `PreToolUse` hooks** | `hooks/hooks.json` is `${CLAUDE_PLUGIN_ROOT}`-relative, so any install that is not the plugin gets no gates and nothing says so |
 
 **The commit record**, when offered, is installed by the script and never by
