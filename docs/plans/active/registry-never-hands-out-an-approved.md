@@ -1,0 +1,1 @@
+../2026-11-03-registry-never-hands-out-an-approved.md
