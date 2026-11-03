@@ -165,13 +165,9 @@ The CI slice is delivered only after this record exists.
 - `feature/the-release-checks-are-counted` — `release-approve` refuses `checks-missing` and the release stage reads the same rule
 - `feature/the-release-head-is-the-version-step` — `release-approve` refuses `release-head-foreign` and fleetd starts no review on a foreign head
 
-### CI
-
-- `feature/the-release-head-reports-validate` — the release head reports `validate` with no person approving a run; starts only after the CI Measurement is recorded
-
 ## Notes
 
 - Issue: https://github.com/plot-pm/plot/issues/3065. Refs #2907, #2934, #2810.
 - Created unattended from the issue. Review channel `pr` and implementation `own branches` follow the repo's `Plan PRs: required`. The plan stays in Draft.
 - Panel round 1: `.plot/panels/2026-11-03-the-release-pr-needs-a-person/panel.md`.
-- The CI slice cannot run unattended before the measurement: the measurement is a merge attempt a person authorises (`release-approve` refuses `unattended`). An agent that picks the slice up while the CI Measurement record is empty stops with a `PLOT-BLOCKED` question.
+- The CI mechanism is not a slice of this plan (decided 2026-11-03). Its measurement needs a live release head, and release 2.30.1 cannot be cut while this plan is unfinished, so a CI slice here would hold the release it needs. The measurement and the mechanism move to #3073; the `### CI Measurement` procedure above is its starting point.
