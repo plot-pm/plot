@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +81,8 @@ import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gat
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { roleCommand, roleAgentsJson, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
+import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
+import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
@@ -104,7 +106,7 @@ import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
-import { markerReading } from '../../shared/worker-question.js';
+import { markerReading, markerText } from '../../shared/worker-question.js';
 import { mainCheckout } from '../../shared/main-checkout.js';
 import { deskDeadFromWorkerState } from '../../shared/auto-fixer.js';
 import {
@@ -152,7 +154,8 @@ import {
   type SliceIdleReader,
   type UnblockWorld,
   type UnblockPorts,
-  applyUnblockDecisions,
+  type applyUnblockDecisions,
+  unblockApplier,
   unblockLines,
 } from './registryd.js';
 import { gatherReadingsAndRelease } from '../../shared/release-claim-reader.js';
@@ -1217,20 +1220,24 @@ const unblockerMaxTurns = (text: string): number => {
  * the answer record's outcomes and `started` count for that desk, and the
  * configured `Correction budget`.
  *
- * **`liveFixer` ALWAYS ANSWERS `false`.** The unblocker's own `run` port
- * (`unblockPortsFor`, below) awaits the role run to its end rather than
- * detaching it, and `run()`'s own tick loop awaits `applyUnblockDecisions` in
- * full before its next tick starts — so there is never a second tick whose
- * apply step could observe a still-running first one. The fleet-wide
- * one-run-at-a-time gate in `unblockWrites` therefore never fires in
- * production; `already-recorded` is what actually bounds a desk whose
- * `started` row has no terminal follow-up yet.
+ * `liveFixer` answers `liveRun()` for every desk: in production that is the
+ * {@link unblockApplier}'s `live`, which is true while a batch of role runs
+ * started by an earlier tick has not ended.
+ *
+ * A failed answer-record read gives `null` for the outcomes and the `started`
+ * count, which `unblockerDue` refuses as `record-unread`. A missing record
+ * file reads as empty, not failed.
  *
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
+ * @param liveRun - whether an unblocker batch is live; `false` by default.
  * @returns the world the tick's unblock pass reads through.
  */
-export const unblockWorldForRepo = (repoRoot: string, scriptsDir: string): UnblockWorld => {
+export const unblockWorldForRepo = (
+  repoRoot: string,
+  scriptsDir: string,
+  liveRun: () => boolean = () => false,
+): UnblockWorld => {
   const processes = processesShell({ repoRoot, scriptDir: scriptsDir });
   const record = answerRecordFile({ cwd: repoRoot });
   return {
@@ -1239,14 +1246,14 @@ export const unblockWorldForRepo = (repoRoot: string, scriptsDir: string): Unblo
       const state = await processes.workerState(worktree, true);
       return state.ok ? deskDeadFromWorkerState(state.value.state) : { dead: false, why: 'unread' };
     },
-    liveFixer: async () => false,
+    liveFixer: async () => liveRun(),
     recordedOutcomes: async (worktree, askedAt) => {
       const rows = await record.rowsFor(worktree, askedAt);
-      return rows.ok ? rows.value.map((row) => row.outcome) : [];
+      return rows.ok ? rows.value.map((row) => row.outcome) : null;
     },
     startedCount: async (worktree) => {
       const rows = await record.rowsForDesk(worktree);
-      return rows.ok ? rows.value.filter((row) => row.outcome === 'started').length : 0;
+      return rows.ok ? rows.value.filter((row) => row.outcome === 'started').length : null;
     },
     answerCap: async () => {
       const value = Number(await readConfigAsync({ repoRoot, scriptsDir }, CORRECTION_BUDGET_KEY, '2'));
@@ -1266,18 +1273,29 @@ export const unblockWorldForRepo = (repoRoot: string, scriptsDir: string): Unblo
  * dependency cannot prove the production wiring; a test that calls this
  * builder can.
  *
- * **`run` AWAITS THE ROLE TO ITS END.** Unlike the fixer's detached
- * `agentRun.run(...).then(...)` (which resolves early, on `onStarted`), the
- * unblocker answers a question synchronously within one tick: this reads the
- * run's `finalText` from the awaited result and hands it back as `output`
- * unparsed — the caller (`applyUnblockDecisions`) parses it with
- * `unblockOutcome`.
+ * `question` reads the marker's full text through `markerText`, never the
+ * board note's clipped `firstLine`, so the role's prompt and every record row
+ * carry the whole question.
+ *
+ * `run` awaits the role to its end and hands back the run's `finalText`
+ * unparsed; `applyUnblockDecisions` parses it with `unblockOutcome`. The run
+ * is bounded to {@link UNBLOCKER_BOUND_SECONDS}. A run whose end is not `ran`
+ * (bound, turn limit, unstarted, and the rest of `AgentRunEnd`) answers
+ * `{ ok: false }` with `run ended <answer>`, and its output is never parsed.
+ * The command carries `.plot/agent-settings.json` from the main checkout as a
+ * second `--settings` where that file exists, as the fixer's does. fleetd's
+ * tick loop does not await this run: it hands the writes to
+ * {@link unblockApplier}.
  *
  * @param deps.repoRoot - the repository root.
  * @param deps.scriptsDir - where the helper scripts are.
  * @param deps.boardOpts - `{ repoRoot, scriptsDir }`, read for `Worker command`.
  * @param deps.readRoleFile - reads the `unblocker` role's `.claude/agents/unblocker.md`
  *   definition from the main checkout; real `fs` by default.
+ * @param deps.agentSettingsFile - the main checkout's `.plot/agent-settings.json`,
+ *   or `null` where it does not exist; real `fs` by default.
+ * @param deps.agentRun - builds the runner for a command fragment;
+ *   `agentRunCommand` over `boundedRunProcess` by default.
  * @returns the ports {@link applyUnblockDecisions} acts through.
  */
 export const unblockPortsFor = (deps: {
@@ -1285,14 +1303,31 @@ export const unblockPortsFor = (deps: {
   scriptsDir: string;
   boardOpts: { repoRoot: string; scriptsDir: string };
   readRoleFile?: (main: string, role: string) => string | null;
+  agentSettingsFile?: (main: string) => string | null;
+  agentRun?: (fragment: string) => AgentRun;
 }): UnblockPorts => {
   const record = answerRecordFile({ cwd: deps.repoRoot });
   const readRoleFile =
     deps.readRoleFile ?? ((main: string, role: string) => fileOrNull(join(main, '.claude', 'agents', `${role}.md`)));
+  const agentSettingsFile =
+    deps.agentSettingsFile ??
+    ((main: string) => {
+      const file = join(main, '.plot', 'agent-settings.json');
+      return existsSync(file) ? file : null;
+    });
+  const agentRun =
+    deps.agentRun ??
+    ((fragment: string) =>
+      agentRunCommand({
+        boundedRun: boundedRunProcess(processesShell({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir })),
+        fragment,
+        limitPatterns: undefined,
+        now: () => Date.now(),
+      }));
   return {
     record,
     now: () => new Date(),
-    question: async (worktree) => (await markerReading(worktree))?.firstLine ?? '',
+    question: (worktree) => markerText(worktree),
     run: async ({ worktree, branch, question }) => {
       const main = mainCheckout(deps.repoRoot);
       const text = readRoleFile(main, 'unblocker');
@@ -1306,13 +1341,10 @@ export const unblockPortsFor = (deps: {
       const command = roleCommand(roleAgent, unblockerMaxTurns(text));
       if (command.read === 'refused') return { ok: false, detail: command.why };
       const logFile = join(deps.repoRoot, '.plot', 'state', 'unblocker.log');
-      const run = agentRunCommand({
-        boundedRun: boundedRunProcess(processesShell({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir })),
-        fragment: command.command,
-        limitPatterns: undefined,
-        now: () => Date.now(),
-      });
-      const result = await run.run({
+      const settings = agentSettingsFile(main);
+      const fragment =
+        settings === null ? command.command : `${command.command} --settings '${settings.replace(/'/g, `'\\''`)}'`;
+      const result = await agentRun(fragment).run({
         worktree,
         prompt: question,
         resumeId: '',
@@ -1323,13 +1355,14 @@ export const unblockPortsFor = (deps: {
         effort: '',
         maxTurns: 0,
         maxSpendUsd: 0,
-        boundSeconds: 0,
+        boundSeconds: UNBLOCKER_BOUND_SECONDS,
         contextWindow: 0,
         capabilities: [],
         env: { PLOT_ROLE_GATE: join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs'), PLOT_ROLE_BRANCH: branch },
         logFile,
       });
       if (!result.ok) return { ok: false, detail: result.why };
+      if (result.value.end.answer !== 'ran') return { ok: false, detail: `run ended ${result.value.end.answer}` };
       return { ok: true, output: result.value.finalText ?? '' };
     },
     start: async ({ branch, worktree, answer, expectedAskedAt, beforeStart }) => {
@@ -2833,8 +2866,19 @@ export const run = async (
 
   // `--once` BUILDS NO UNBLOCK WORLD either, matching `idle` above: a one-shot
   // tick answers nothing a person is waiting on.
-  const unblock = args.once ? undefined : unblockWorldForRepo(repoRoot, scriptsDir);
+  // THE UNBLOCKER RUNS OFF THE TICK LOOP, as the fixer does: a role run takes
+  // up to `UNBLOCKER_BOUND_SECONDS`, and an awaited one would hold every tick
+  // behind it. The world's `liveFixer` reads the applier, so no tick starts a
+  // second run while one is live.
   const unblockPorts: UnblockPorts = unblockPortsFor({ repoRoot, scriptsDir, boardOpts });
+  const unblockRuns = unblockApplier(
+    unblockPorts,
+    (applied) => {
+      for (const { line, error } of unblockLines(applied)) (error ? warn : write)(`${line}\n`);
+    },
+    (error) => warn(`plot-fleetd unblock: ${error instanceof Error ? error.message : String(error)}\n`),
+  );
+  const unblock = args.once ? undefined : unblockWorldForRepo(repoRoot, scriptsDir, unblockRuns.live);
 
   // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and
   // must neither delay a supervision tick nor start a second scan. `--once`
@@ -3363,10 +3407,8 @@ export const run = async (
       const unblockWritesThisTick = report.decision.writes.filter(
         (item): item is UnblockWrite => item.kind === 'unblock',
       );
-      if (unblockWritesThisTick.length > 0) {
-        const applied = await applyUnblockDecisions(unblockWritesThisTick, unblockPorts);
-        for (const { line, error } of unblockLines(applied)) (error ? warn : write)(`${line}\n`);
-      }
+      // NOT AWAITED: `unblockRuns` writes its lines when the batch ends.
+      unblockRuns.apply(unblockWritesThisTick);
     }
     if (args.sweepTemp) await sweepTempIfDue(tempSweep, Date.now(), write, warn);
 

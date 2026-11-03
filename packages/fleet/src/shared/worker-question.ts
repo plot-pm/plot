@@ -144,6 +144,38 @@ export const markerReading = (worktree: string): Promise<MarkerReading | null> =
   Promise.resolve(readMarkerReading(worktree));
 
 /**
+ * The whole question a worktree's `PLOT-BLOCKED*` marker asks: the file's full
+ * text with its `<!-- author: … -->` line removed, trimmed, and not bounded to
+ * {@link QUESTION_MAX}.
+ *
+ * Reads the same file {@link markerReading} reads: the first regular file at
+ * the worktree root whose name starts with the marker prefix, in listing order.
+ *
+ * @param worktree Path of the worktree root.
+ * @returns the question text, or "" where no marker file reads.
+ */
+export const markerText = (worktree: string): Promise<string> => {
+  let names: string[];
+  try {
+    names = fs.readdirSync(worktree);
+  } catch {
+    return Promise.resolve('');
+  }
+  for (const name of names) {
+    if (!name.startsWith(MARKER_PREFIX)) continue;
+    const full = path.join(worktree, name);
+    try {
+      if (!fs.statSync(full).isFile()) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      return Promise.resolve(text.replace(/^[ \t]*<!--\s*author:\s*(?:loop|fleetd)\s*-->[ \t]*\r?\n?/gm, '').trim());
+    } catch {
+      continue;
+    }
+  }
+  return Promise.resolve('');
+};
+
+/**
  * The first non-empty line of grep output, trimmed and bounded to
  * {@link QUESTION_MAX}.
  *

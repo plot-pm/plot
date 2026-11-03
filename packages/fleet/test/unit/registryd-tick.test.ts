@@ -24,6 +24,7 @@ import {
   type TickReport,
   type UnblockWorld,
   applyUnblockDecisions,
+  unblockApplier,
   unblockLines,
   type UnblockPorts,
 } from '../../src/server/entry/registryd.js';
@@ -1804,6 +1805,114 @@ describe('applyUnblockDecisions — running the unblocker and handing its answer
       },
     });
     expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
+  });
+
+  it('starts no run for a desk whose answer record did not read — `record-unread`', async () => {
+    const marker: MarkerReading = { firstLine: 'x', askedAt: '2026-10-05T13:36:00.000Z' };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      unblock: {
+        marker: async () => marker,
+        deskDead: async () => WAITING,
+        liveFixer: async () => false,
+        recordedOutcomes: async () => null,
+        startedCount: async () => null,
+        answerCap: async () => 2,
+      },
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
+  });
+});
+
+describe('unblockApplier — the unblocker runs off the tick loop', () => {
+  const write = (): UnblockWrite => ({
+    kind: 'unblock',
+    worktree: '/estate/.worktrees/feature-one',
+    branch: 'feature/one',
+    askedAt: '2026-10-05T13:36:00.000Z',
+  });
+
+  it('returns before a run ends, starts no second batch while one is live, and reports when it ends', async () => {
+    let finish: (value: { ok: true; output: string }) => void = () => {};
+    let runs = 0;
+    const reported: unknown[] = [];
+    const applier = unblockApplier(
+      {
+        record: { append: async () => ({ ok: true }) },
+        run: () => {
+          runs += 1;
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        },
+        start: async (input) => {
+          await input.beforeStart();
+          return { kind: 'started', pid: '999', previousPid: '', prompt: 'p', log: 'l' };
+        },
+        question: async () => 'which adapter?',
+        now: () => new Date('2026-10-05T14:00:00.000Z'),
+      },
+      (applied) => reported.push(...applied),
+      (error) => reported.push(error),
+    );
+
+    expect(applier.apply([write()])).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(runs).toBe(1);
+    expect(applier.live()).toBe(true);
+    expect(applier.apply([write()])).toBe(false);
+    expect(runs).toBe(1);
+    expect(reported).toEqual([]);
+
+    finish({ ok: true, output: 'ANSWER\nuse adapter B' });
+    await applier.settled();
+    expect(applier.live()).toBe(false);
+    expect(reported).toEqual([{ branch: 'feature/one', outcome: 'started', detail: 'unblocker answered, pid 999' }]);
+  });
+
+  it('a live batch is the tick world`s `liveFixer`, so the tick emits no run write while it lasts', async () => {
+    const applier = unblockApplier(
+      {
+        record: { append: async () => ({ ok: true }) },
+        run: () => new Promise(() => {}),
+        start: async () => ({ kind: 'started', pid: '1', previousPid: '', prompt: '', log: '' }),
+        question: async () => 'q',
+        now: () => new Date(),
+      },
+      () => {},
+      () => {},
+    );
+    applier.apply([write()]);
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      unblock: {
+        marker: async () => ({ firstLine: 'x', askedAt: '2026-10-05T13:36:00.000Z' }),
+        deskDead: async () => WAITING,
+        liveFixer: async () => applier.live(),
+        recordedOutcomes: async () => [],
+        startedCount: async () => 0,
+        answerCap: async () => 2,
+      },
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
+  });
+
+  it('starts nothing for an empty batch', () => {
+    const applier = unblockApplier(
+      {
+        record: { append: async () => ({ ok: true }) },
+        run: async () => ({ ok: true, output: '' }),
+        start: async () => ({ kind: 'started', pid: '1', previousPid: '', prompt: '', log: '' }),
+        question: async () => 'q',
+        now: () => new Date(),
+      },
+      () => {},
+      () => {},
+    );
+    expect(applier.apply([])).toBe(false);
+    expect(applier.live()).toBe(false);
   });
 });
 

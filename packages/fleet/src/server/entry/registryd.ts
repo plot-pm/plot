@@ -247,10 +247,10 @@ export interface UnblockWorld {
   deskDead(worktree: string): Promise<DeskDeadAnswer>;
   /** Whether an unblocker run is already live on this desk. */
   liveFixer(worktree: string): Promise<boolean>;
-  /** The outcomes already recorded for this desk's `(worktree, askedAt)` key. */
-  recordedOutcomes(worktree: string, askedAt: string): Promise<readonly string[]>;
-  /** How many `started` rows this desk's whole answer record already holds, any question. */
-  startedCount(worktree: string): Promise<number>;
+  /** The outcomes already recorded for this desk's `(worktree, askedAt)` key; `null` where the record did not read. */
+  recordedOutcomes(worktree: string, askedAt: string): Promise<readonly string[] | null>;
+  /** How many `started` rows this desk's whole answer record already holds, any question; `null` where the record did not read. */
+  startedCount(worktree: string): Promise<number | null>;
   /** The `Correction budget` config value — the most `started` rows a desk may ever reach. */
   answerCap(): Promise<number>;
 }
@@ -1763,6 +1763,59 @@ export const unblockLines = (
     line: `plot-fleetd unblock ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
     error: entry.outcome !== 'started',
   }));
+
+/** Applies a tick's unblock writes off the tick loop, one batch at a time. */
+export interface UnblockApplier {
+  /** Whether a batch started by {@link UnblockApplier.apply} has not ended yet. */
+  live: () => boolean;
+  /**
+   * Starts {@link applyUnblockDecisions} over `writes` and returns without
+   * waiting for it.
+   *
+   * @returns `true` where a batch started; `false` where `writes` is empty or
+   *   a batch is still live, and nothing started.
+   */
+  apply: (writes: readonly UnblockWrite[]) => boolean;
+  /** Resolves when the live batch ends; resolves at once where none is live. */
+  settled: () => Promise<void>;
+}
+
+/**
+ * Builds the {@link UnblockApplier} fleetd's tick loop hands its `unblock`
+ * writes to.
+ *
+ * The tick does not await the batch, so a role run does not delay the next
+ * tick. At most one batch is live: while one is, {@link UnblockApplier.apply}
+ * starts nothing and drops the tick's writes, and the next tick decides them
+ * again. The tick's `liveFixer` reading is {@link UnblockApplier.live}, so a
+ * tick that runs while a batch is live emits no run write.
+ *
+ * @param ports - what each write acts through.
+ * @param report - receives each batch's applied outcomes when it ends.
+ * @param fail - receives the error when a batch or `report` throws.
+ * @returns the applier.
+ */
+export const unblockApplier = (
+  ports: UnblockPorts,
+  report: (applied: readonly UnblockApplied[]) => void,
+  fail: (error: unknown) => void,
+): UnblockApplier => {
+  let inFlight: Promise<void> | null = null;
+  return {
+    live: () => inFlight !== null,
+    apply: (writes) => {
+      if (inFlight !== null || writes.length === 0) return false;
+      inFlight = applyUnblockDecisions(writes, ports)
+        .then(report)
+        .catch(fail)
+        .finally(() => {
+          inFlight = null;
+        });
+      return true;
+    },
+    settled: () => inFlight ?? Promise.resolve(),
+  };
+};
 
 /**
  * A desk whose worker ended with no manifest left — the population
