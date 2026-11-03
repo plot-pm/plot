@@ -15,7 +15,7 @@
 ## Changelog
 
 - A release approved through `release-approve` tells the tracker about each plan it books, as the per-plan release command already does: on GitHub the issue gets `plan:released` and closes. A tracker failure prints one `tracker=failed <issue>` line and does not fail the release.
-- `release-approve` refuses `release-scope-mismatch` and writes nothing when the active sprint's `Release:` field does not name the version being released, so a re-run on an old merged release PR no longer books the next sprint's plans under the old tag.
+- `release-approve` refuses `release-scope-mismatch` and writes nothing when the active sprint's `Release:` field names a different version than the one being released, so a re-run on an old merged release PR no longer books the next sprint's plans under the old tag.
 
 Board impact: **none expected.** The change runs in the board's server entry code and the domain's release-finish workflow. The plan format, template and helper scripts keep their shape.
 
@@ -39,7 +39,7 @@ The repair ran by hand. A person relabelled #2898 and #2997 at 16:57Z, the per-p
 
 The step takes its `Scripts`, its `PlanStore` and `scriptDir` as parameters, so a test injects fakes; it never constructs `scriptsShell` itself. `FinishContext` gains `scriptDir`, and `main.ts:227` sets it. The step keeps one temp copy of the booked plan per plan, named after the plan, not the single `plot-release-plan-${process.pid}.md` path `deliver.ts:925` uses today, and it runs plans one after another. A finish reads the sibling plans once, from `tmpwt` after the push: every booked plan reads `Released` in that tree, so two booked plans that share an issue do not keep it open, and a Delivered plan outside the booking that names the same issue does keep it open (`skipped another-plan-unfinished`). An unreadable sibling read keeps every issue open, as `runRelease` does.
 
-**A finish refuses another sprint (decided).** The domain's `releaseFinish` refuses `release-scope-mismatch` when exactly one sprint is active and its `Release:` field does not name the version being released, before any write. The comparison ignores a leading `v` and reads the field's first version token, so `- **Release:** 2.30.0` matches `v2.30.0`. A sprint with no `Release:` field refuses too. The refusal sits after `sprint-ambiguous` and before `plan-unbookable`. `FinishSprint` gains a `release` reading, which `release-finish.ts` reads with `statusField(content, ['Release'])`. An empty active index still answers `already-released`. This closes the path the panel found: once `follow-ups-2-30-1` is active, `release-approve` on the merged v2.30.0 release PR reads `2.30.0` from `package.json` (`release-finish.ts:123-135`), finds the tag, and books the new sprint's Delivered plans as `Released: <date>, v2.30.0`. With the tracker step that would also close their issues.
+**A finish refuses another sprint (decided).** The domain's `releaseFinish` refuses `release-scope-mismatch` when exactly one sprint is active and its `Release:` field names a different version than the one being released, before any write. The comparison ignores a leading `v` and reads the field's first version token, so `- **Release:** 2.30.0` matches `v2.30.0`. A sprint with no `Release:` field does not refuse (decided 2026-11-03): `skills/plot/templates/sprint.md` leaves the field commented out, and a project that never fills it in must still release. Such a sprint keeps today's behaviour. The refusal sits after `sprint-ambiguous` and before `plan-unbookable`. `FinishSprint` gains a `release` reading, which `release-finish.ts` reads with `statusField(content, ['Release'])`. An empty active index still answers `already-released`. This closes the path the panel found: once `follow-ups-2-30-1` is active, `release-approve` on the merged v2.30.0 release PR reads `2.30.0` from `package.json` (`release-finish.ts:123-135`), finds the tag, and books the new sprint's Delivered plans as `Released: <date>, v2.30.0`. With the tracker step that would also close their issues.
 
 **No repair through `release-approve` (decided).** A re-run keeps answering `already-released` and writes nothing. The repair route for a missed tracker write is the existing per-plan `plot-deliver.mjs --release <tag> <slug>` (`POST /api/release` where a board runs). Its `case 'released'` arm accepts a Released plan and re-runs the tracker step with nothing to commit. That route repaired all of v2.30.0 on 2026-11-03. Step 5b of `skills/plot-release/SKILL.md` names it.
 
@@ -80,7 +80,7 @@ Existing tests:
 
 ### Release finish refuses another sprint
 
-- `bug/release-finish-refuses-another-sprint` — `releaseFinish` refuses `release-scope-mismatch` when the one active sprint's `Release:` does not name the tag <!-- builds: a release-finish refusal that keeps a re-run off the next sprint -->
+- `bug/release-finish-refuses-another-sprint` — `releaseFinish` refuses `release-scope-mismatch` when the one active sprint's `Release:` names a different version than the tag <!-- builds: a release-finish refusal that keeps a re-run off the next sprint -->
 
 ### Tracker step
 
