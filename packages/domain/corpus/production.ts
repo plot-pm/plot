@@ -3,8 +3,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import type { PlanSlices } from '../src/rules/branch-state.js';
-
 /**
  * PRODUCTION'S OWN READING, taken the way production takes it.
  *
@@ -70,73 +68,6 @@ export const readPlanMeta = (
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
-
-/**
- * Runs `plot-fleet-scan.sh --json` and parses its pulse.
- *
- * stderr is discarded rather than inherited: the scan reports its terminal-state
- * cache there on every run, and inheriting it buries the test output.
- *
- * @param estate - the repository to read.
- * @param slug - a plan slug, to scan that plan alone.
- * @returns the raw pulse document, under the wire's own field names.
- */
-export const readFleetScan = (estate: Estate, slug?: string): Record<string, unknown> =>
-  JSON.parse(
-    execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), '--json', ...(slug ? [slug] : [])], {
-      cwd: estate.root,
-      encoding: 'utf8',
-      maxBuffer: MAX_BUFFER,
-      timeout: TIMEOUT_MS,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }),
-  ) as Record<string, unknown>;
-
-/**
- * Runs `plot-fleet-scan.sh --list-eligible` and returns every branch it names.
- *
- * THE CLAIM `--next` ACTS ON. `--list-eligible` is the same computation as
- * `--next` with the head not taken — one flag sets both (`--list-eligible`
- * implies `--next`), so a difference between them is impossible by
- * construction while a difference between either and the pulse is exactly what
- * this tier is for.
- *
- * Exit 1 means *nothing to start*, which is an ANSWER and not a failure — the
- * scan is deliberate about it, because exiting 0 with no output would hand a
- * caller an empty branch name as if it were work. So a non-zero exit yields an
- * empty list here, and the caller distinguishes the two by comparing against
- * what the pulse offers rather than by the exit code.
- *
- * `fetch: false` adds `--offline`, which skips the scan's `git fetch` and
- * nothing else: `--list-eligible` still asks the host, because the flag that
- * implies `--next` sets `HOST_LOOKUP_OK` itself (`plot-fleet-scan.sh:577`). A
- * caller that has just fetched through another scan passes it, so both
- * readings see one `origin/<main>`.
- *
- * @param estate - the repository to read.
- * @param options - `fetch`: whether the scan fetches first; default `true`.
- * @returns the claimable branch names, in the order the scan offered them.
- */
-export const readListEligible = (
-  estate: Estate,
-  { fetch = true }: { fetch?: boolean } = {},
-): string[] => {
-  const flags = fetch ? ['--list-eligible'] : ['--offline', '--list-eligible'];
-  try {
-    return execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), ...flags], {
-      cwd: estate.root,
-      encoding: 'utf8',
-      maxBuffer: MAX_BUFFER,
-      timeout: TIMEOUT_MS,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  } catch {
-    return [];
-  }
-};
 
 /**
  * One pull request, as `plot-host.sh pr-list` reports it.
@@ -270,31 +201,6 @@ export const readRemoteRefs = (estate: Estate): Map<string, string> => {
   }
   return refs;
 };
-
-/**
- * Every conforming merge subject on the default branch.
- *
- * `MERGE_SUBJECTS` in the scan: one `git log --merges` per run, capped, because
- * asking per branch is O(history × branches) where O(history + branches) is
- * available.
- *
- * @param estate - the repository to read.
- * @param mainBranch - the default branch's name.
- * @param limit - the walk's cap, matching `MERGE_SCAN_LIMIT`.
- * @returns the subjects, in the order git yielded them.
- */
-export const readMergeSubjects = (
-  estate: Estate,
-  mainBranch: string,
-  limit = 20000,
-): string[] =>
-  execFileSync(
-    'git',
-    ['log', `origin/${mainBranch}`, '--merges', `--max-count=${limit}`, '--pretty=%s'],
-    { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER },
-  )
-    .split('\n')
-    .filter((line) => line.length > 0);
 
 /**
  * How many commits a branch carries beyond the default branch, and how many of
@@ -457,22 +363,6 @@ export const readEstatePlanMeta = (estate: Estate, mainBranch: string): Record<s
     rmSync(dir, { recursive: true, force: true });
   }
 };
-
-/**
- * Every plan of the estate as `namedSlices` reads it: `readEstatePlanMeta`,
- * with each plan's phase and every slice of its `waves` wire field.
- *
- * @param estate - the repository to read.
- * @param mainBranch - the default branch's name.
- * @returns one entry per plan.
- */
-export const readEstatePlanSlices = (estate: Estate, mainBranch: string): PlanSlices[] =>
-  readEstatePlanMeta(estate, mainBranch).map((meta) => ({
-    phase: String(meta.phase ?? ''),
-    slices: ((meta.waves ?? []) as { branches?: { branch?: string; deferred?: boolean }[] }[]).flatMap(
-      (slice) => (slice.branches ?? []).map((b) => ({ branch: b.branch ?? '', deferred: b.deferred === true })),
-    ),
-  }));
 
 /**
  * Runs `plot-fleet-scan.sh --slice-names`: the set a `waits:` name is looked

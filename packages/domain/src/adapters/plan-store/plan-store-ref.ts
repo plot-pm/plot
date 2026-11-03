@@ -10,6 +10,20 @@ import { scriptPath, type ShellContext } from '../scripts.js';
 import { planOf, planStoreShell, prefixArgs, statusField, type RawPlan } from './plan-store-shell.js';
 
 /**
+ * Escapes the control characters that JSON whitespace does not use in the parser's
+ * output. A plan blob may carry one, such as a NUL byte, and the parser copies
+ * it into a JSON string verbatim on some awk builds (gawk keeps a NUL, BSD awk
+ * drops it), which `JSON.parse` refuses. Outside a string the parser prints
+ * none, so the escape changes no structure.
+ *
+ * @param stdout - the parser's output.
+ * @returns the output with each such character as a `\u` escape.
+ */
+const escapeControls = (stdout: string): string =>
+  // eslint-disable-next-line no-control-regex
+  stdout.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
+/**
  * Reads plan files from a ref rather than from a checkout's working tree.
  *
  * `fleetd`'s queue, supervisor and index monitor used to read plans through
@@ -134,7 +148,7 @@ export const planStoreRef = (
         { cwd: context.repoRoot },
       );
       const canonicalPath = new Map(staged.map((s) => [s.stagedPath, s.file]));
-      const parsed = resultOf(run, (stdout) => asJsonLines<RawPlan>(stdout));
+      const parsed = resultOf(run, (stdout) => asJsonLines<RawPlan>(escapeControls(stdout)));
       if (!parsed.ok) return failed<readonly PlanRecord[]>();
       // A line carrying `error` is a file the parser could not read; dropping
       // it would shrink the estate without saying so.

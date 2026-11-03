@@ -22,6 +22,8 @@ export interface ReportContext {
   planSource: 'ref' | 'worktree';
   /** The `subject_predates_plan` count the footer carries. */
   subjectPredatesPlan: number;
+  /** The merge walk cap, stated where the walk saturated it. */
+  mergeScanLimit?: number;
 }
 
 /**
@@ -102,6 +104,35 @@ export const planReport = (plan: AssembledPlan, header: FleetReadingHeader, loos
 };
 
 /**
+ * The note for a host that did not answer in full, by the summary's host word.
+ * A spent quota, a burst refusal and an outage each read no PR and need a
+ * different response; a partial answer read some PRs, so its note says the
+ * list is short rather than absent.
+ */
+const HOST_NOTES: Readonly<Record<string, string>> = {
+  throttled:
+    "  note: the git host's rate limit was spent, so no PR could be read. Every\n" +
+    "        branch below reads from local evidence alone — a merged branch whose\n" +
+    "        ref was deleted reads 'unknown', never 'open', and none was offered\n" +
+    '        to --next. The budget refills on a clock; re-run in a few minutes.\n',
+  secondary:
+    '  note: the git host refused a burst, not a spent budget, so no PR could be\n' +
+    '        read. Every branch below reads from local evidence alone and none\n' +
+    '        was offered to --next. This clears in seconds — re-run shortly, and\n' +
+    '        run fewer scans at once rather than waiting for a reset.\n',
+  failed:
+    '  note: the git host could not be reached, so no PR could be read. Every\n' +
+    '        branch below reads from local evidence alone, and a branch whose\n' +
+    "        PR is unknown reads 'unknown' rather than 'open'. This is not a\n" +
+    '        rate limit — waiting will not clear it; check the host and auth.\n',
+  partial:
+    '  note: the git host answered for some states and not others, so the PR\n' +
+    '        list below is INCOMPLETE. A branch shown without a PR may have one\n' +
+    '        in the state that failed — do not read this as evidence that a\n' +
+    '        branch is unreviewed. Re-run to get the whole list.\n',
+};
+
+/**
  * The notes that qualify the reading, after the last plan.
  *
  * @param header - the checkout's facts.
@@ -124,6 +155,12 @@ export const reportNotes = (header: FleetReadingHeader, context: ReportContext):
       '        not pruned; a branch merged and deleted upstream may read wip\n' +
       '        and hold its wave blocked. Re-run without --offline to settle it.\n';
   }
+  if (header.mergeDetect === 'truncated' && context.mergeScanLimit !== undefined) {
+    out +=
+      `  note: merge scan hit its limit of ${context.mergeScanLimit} — an older merge was not\n` +
+      '        read, so a branch merged before it may still read open.\n';
+  }
+  out += HOST_NOTES[header.host] ?? '';
   if (context.planSource !== 'ref') {
     out +=
       `  note: origin/${header.main} could not be read — plans were listed from this\n` +

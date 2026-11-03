@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hostFixture } from '../src/adapters/host/host-fixture.js';
 import { planRecord } from '../src/adapters/plan-store/plan-store-fixture.js';
@@ -9,7 +9,7 @@ import type { Refs } from '../src/ports/refs.js';
 import type { PlanRecordBranch } from '../src/ports/plan-store.js';
 import { branchState } from '../src/rules/branch-state.js';
 import { readCarriedPrStates } from '../src/rules/scan-listing.js';
-import { readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
+import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
 
 const INPUT: BranchStageInput = { mainBranch: 'main', planDir: 'docs/plans/' };
@@ -62,7 +62,7 @@ describe('readBranchReadings — what each branch line reads', () => {
       shas: { 'origin/main': 'm1' },
       tips: { 'feature/here': 't1' },
       commitSubjects: {
-        'origin/main..origin/feature/here': [
+        'm1..t1': [
           { at: 1, subject: 'plot: claim feature/here', tree: 'a', parentTree: 'a' },
           { at: 2, subject: 'real work', tree: 'b', parentTree: 'a' },
         ],
@@ -179,7 +179,7 @@ describe('readBranchReadings — an unreadable snapshot fails the beat', () => {
     const base = refsFixture({
       shas: { 'origin/main': 'm1' },
       tips: { 'feature/here': 't1' },
-      commitSubjects: { 'origin/main..origin/feature/here': [{ at: 1, subject: 'work', tree: 'b', parentTree: 'a' }] },
+      commitSubjects: { 'm1..t1': [{ at: 1, subject: 'work', tree: 'b', parentTree: 'a' }] },
       additions: { [PLAN]: 'add1' },
     });
     const refs: Refs = { ...base, changedFiles: async () => failed() };
@@ -220,7 +220,7 @@ describe('readBranchReadings — how a host list is read', () => {
       prs: [pr('feature/c', 'CLOSED', null, 1), pr('feature/m', 'MERGED', null, 2), pr('feature/x', 'WEIRD', null, 3), pr('feature/y', 'WEIRD', null, 4)],
     });
     const out = await read(world(), host, line('feature/c'), line('feature/m'), line('feature/x'), line('feature/none'));
-    expect(out.branches.map((b) => b.readings.pr)).toEqual(['CLOSED', 'CLOSED', 'unreadable', 'none']);
+    expect(out.branches.map((b) => b.readings.pr)).toEqual(['CLOSED', 'MERGED', 'CLOSED', 'none']);
     expect(out.branches[0]!.readings.prListComplete).toBe(true);
   });
 
@@ -249,7 +249,7 @@ describe('readBranchReadings — how a host list is read', () => {
   });
 
   it('reads no changed paths for a branch with a ref and no commit ahead', async () => {
-    const refs = world({ commitSubjects: { 'origin/main..origin/feature/here': [] } });
+    const refs = world({ commitSubjects: { 'm1..t1': [] } });
     const out = await read(refs, base, line('feature/here'));
     expect(out.branches[0]).toMatchObject({ changedPaths: [] });
     expect(out.branches[0]!.readings.commitsAhead).toBe(0);
@@ -262,9 +262,32 @@ describe('readBranchReadings — how a host list is read', () => {
     expect(isAnswered(answer) && answer.value.branches).toEqual([]);
   });
 
-  it('reads a merged-state PR with no mergedAt as closed', async () => {
+  it('reads a list row whose state word is MERGED as merged, with or without mergedAt', async () => {
+    // `pr-list` rows carry the state word and no `mergedAt`; the word is the list's own answer.
     const host = hostFixture({ backend: 'github', prs: [pr('feature/z', 'MERGED', null)] });
-    expect((await read(world(), host, line('feature/z'))).branches[0]!.readings.pr).toBe('CLOSED');
+    expect((await read(world(), host, line('feature/z'))).branches[0]!.readings.pr).toBe('MERGED');
+  });
+
+  it('neither joins nor counts a row that names no head branch', async () => {
+    const host = hostFixture({ backend: 'github', prs: [pr('', 'OPEN', null)] });
+    const out = await read(world(), host, line('feature/here'));
+    expect(out.branches[0]!.readings).toMatchObject({ pr: 'unreadable', prListComplete: false });
+    expect(out.listing).toEqual({ rows: [], complete: false, tracked: 1 });
+  });
+
+  it('asks each list call for the limit it is given, and a page at that limit is not whole', async () => {
+    const limits: Array<number | undefined> = [];
+    const host: Host = {
+      ...hostFixture({ backend: 'github', prs: [pr('feature/a', 'OPEN', null, 1), pr('feature/b', 'OPEN', null, 2)] }),
+      prList: async (_state, limit) => {
+        limits.push(limit);
+        return hostFixture({ backend: 'github', prs: [pr('feature/a', 'OPEN', null, 1)] }).prList('open', limit);
+      },
+    };
+    const answer = await readBranchReadings(world(), host, estateOf(line('feature/here')), { ...INPUT, listLimit: 1 });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    expect(limits).toEqual([1, 1]);
+    expect(answer.value.branches[0]!.readings.prListComplete).toBe(false);
   });
 });
 
@@ -357,6 +380,211 @@ describe('readBranchReadings — a listing the caller holds replaces the host li
   });
 });
 
+describe('readBranchReadings — a name the list does not answer is asked once', () => {
+  const merged = { number: 42, repo: '', head: 'feature/gone', base: 'main', state: 'MERGED', mergedAt: null, mergeCommit: '', draft: false, mergeable: 'unknown', review: 'none', checks: 'none', failingChecks: [], url: '', author: '' } as never;
+  const counting = (over: Partial<Host> = {}) => {
+    const calls = { prList: 0, prState: [] as string[], backend: 0 };
+    const inner = hostFixture({ backend: 'github', prs: [merged] });
+    const host: Host = {
+      ...inner,
+      backend: async () => {
+        calls.backend += 1;
+        return inner.backend();
+      },
+      prList: async () => {
+        calls.prList += 1;
+        return failed();
+      },
+      prState: async (ref) => {
+        calls.prState.push(String(ref));
+        return inner.prState(ref);
+      },
+      ...over,
+    };
+    return { host, calls };
+  };
+  // No merge commit, so only the host can say that `feature/gone` merged.
+  const quiet = (over: Partial<Parameters<typeof refsFixture>[0]> = {}) => world({ merges: [], ...over });
+  const stage = async (refs: Refs, host: Host, input: Partial<BranchStageInput>, ...lines: PlanRecordBranch[]) => {
+    const answer = await readBranchReadings(refs, host, estateOf(...lines), { ...INPUT, ...input });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return answer.value;
+  };
+
+  it('asks a refless branch and each prerequisite once, and never a branch with a ref', async () => {
+    const { host, calls } = counting();
+    const out = await stage(
+      quiet(),
+      host,
+      { askAbsent: true },
+      line('feature/gone'),
+      line('feature/here', { waitsOn: ['feature/gone', 'feature/other'] }),
+      line('feature/next', { waitsOn: ['feature/other'] }),
+    );
+    // `feature/next` has no ref either; `feature/other` is asked once for both waits.
+    expect(calls.prState).toEqual(['feature/gone', 'feature/other', 'feature/next']);
+    expect(out.branches[0]!.readings.pr).toBe('MERGED');
+    expect(out.branches[1]!.readings.waits.map((w) => w.pr)).toEqual(['MERGED', 'none']);
+    expect(out.branches[1]!.readings.pr).toBe('unreadable');
+  });
+
+  it('reads an ask the host refuses as unreadable', async () => {
+    const { host } = counting({ prState: async () => failed() });
+    const out = await stage(quiet(), host, { askAbsent: true }, line('feature/gone'));
+    expect(out.branches[0]!.readings.pr).toBe('unreadable');
+  });
+
+  it('asks nothing for a refless branch a merge subject already proves', async () => {
+    const { host, calls } = counting();
+    await stage(world(), host, { askAbsent: true }, line('feature/gone'));
+    expect(calls.prState).toEqual([]);
+  });
+
+  it('lets a complete list answer none, unless every name is to be asked', async () => {
+    const listing = readCarriedPrStates('feature_here\tOPEN\t-\t-\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n')!;
+    const whole = counting();
+    const out = await stage(quiet(), whole.host, { askAbsent: true, prs: { kind: 'listed', listing } }, line('feature/gone'));
+    expect(whole.calls.prState).toEqual([]);
+    expect(out.branches[0]!.readings.pr).toBe('none');
+    const always = counting();
+    const asked = await stage(quiet(), always.host, { askAbsent: true, askAlways: true, prs: { kind: 'listed', listing } }, line('feature/gone'));
+    expect(always.calls.prState).toEqual(['feature/gone']);
+    expect(asked.branches[0]!.readings.pr).toBe('MERGED');
+  });
+
+  it('asks nothing where the stage is not told to, or the repository has no git host', async () => {
+    const plain = counting();
+    await stage(quiet(), plain.host, {}, line('feature/gone'));
+    expect(plain.calls.prState).toEqual([]);
+    const none = counting({ backend: async () => hostFixture({ backend: 'none' }).backend() });
+    await stage(quiet(), none.host, { askAbsent: true }, line('feature/gone'));
+    expect(none.calls.prState).toEqual([]);
+  });
+
+  it('asks the host nothing offline, and its backend only for a merge subject', async () => {
+    const bare = counting();
+    const out = await stage(quiet(), bare.host, { askAbsent: true, offline: true }, line('feature/gone'));
+    expect(bare.calls).toEqual({ prList: 0, prState: [], backend: 0 });
+    expect(out.hostReach).toBe('unasked');
+    expect(out.backend).toBe('');
+    const subject = counting();
+    const proven = await stage(world(), subject.host, { askAbsent: true, offline: true }, line('feature/gone'));
+    expect(subject.calls).toEqual({ prList: 0, prState: [], backend: 1 });
+    expect(proven.branches[0]!.readings.mergeSubjectFound).toBe(true);
+  });
+});
+
+describe('readBranchReadings — a subject refused for age, and a delivery candidate', () => {
+  const merged = { number: 7, repo: '', head: 'feature/gone', base: 'main', state: 'MERGED', mergedAt: null, mergeCommit: '', draft: false, mergeable: 'unknown', review: 'none', checks: 'none', failingChecks: [], url: '', author: '' } as never;
+  const listing = (complete: boolean) =>
+    readCarriedPrStates(`feature_here\tOPEN\t-\t-\n${complete ? '.list-complete\t1\t-\t-\n' : ''}.list-arrived\t1\t-\t-\n`)!;
+  const asking = () => {
+    const asked: string[] = [];
+    const inner = hostFixture({ backend: 'github', prs: [merged] });
+    const host: Host = { ...inner, prState: async (ref) => (asked.push(String(ref)), inner.prState(ref)) };
+    return { host, asked };
+  };
+  const stage = async (host: Host, phase: string, input: Partial<BranchStageInput>, ...lines: PlanRecordBranch[]) => {
+    const estate = estateOf(...lines);
+    estate.plans[0]!.record = { ...estate.plans[0]!.record, phase };
+    const answer = await readBranchReadings(world(), host, estate, { ...INPUT, ...input });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return answer.value;
+  };
+
+  it('marks a refless branch whose every subject predates the plan, and no other', async () => {
+    const old = await read(world({ ancestry: { 'mg1 add1': 'yes' } }), hostFixture({ backend: 'github' }), line('feature/gone'));
+    expect(old.branches[0]!.subjectPredatesPlan).toBe(true);
+    const fresh = await read(world(), hostFixture({ backend: 'github' }), line('feature/gone'));
+    expect(fresh.branches[0]!.subjectPredatesPlan).toBe(false);
+  });
+
+  it('asks the host about a subject-proven branch of an approved plan whose every branch merged', async () => {
+    const { host, asked } = asking();
+    const out = await stage(host, 'approved', { askAbsent: true, prs: { kind: 'listed', listing: listing(false) } }, line('feature/gone'), line('feature/off', { deferred: true }));
+    // `feature/off` has no ref and is asked as it is read; `feature/gone` once the plan reads as a candidate.
+    expect(asked).toEqual(['feature/off', 'feature/gone']);
+    expect(out.branches[0]!.readings.pr).toBe('MERGED');
+  });
+
+  it('asks nothing for a plan with an unmerged branch, an unapproved plan, or no arrived list', async () => {
+    const open = asking();
+    await stage(open.host, 'approved', { askAbsent: true, prs: { kind: 'listed', listing: listing(true) } }, line('feature/gone'), line('feature/here'));
+    expect(open.asked).toEqual([]);
+    const draft = asking();
+    await stage(draft.host, 'draft', { askAbsent: true, prs: { kind: 'listed', listing: listing(true) } }, line('feature/gone'));
+    expect(draft.asked).toEqual([]);
+    const unread = asking();
+    await stage(unread.host, 'approved', { askAbsent: true, prs: { kind: 'unread', said: 'x', reach: 'throttled' } }, line('feature/gone'));
+    expect(unread.asked).toEqual([]);
+  });
+
+  it('asks nothing again for a branch the list already names merged', async () => {
+    const { host, asked } = asking();
+    const named = readCarriedPrStates('feature_gone\tMERGED\t-\t-\n.list-arrived\t1\t-\t-\n')!;
+    await stage(host, 'approved', { askAbsent: true, prs: { kind: 'listed', listing: named } }, line('feature/gone'));
+    expect(asked).toEqual([]);
+  });
+
+  it('carries a refusal reach the caller names, and reads the listing rows for --loose', async () => {
+    const { host } = asking();
+    const unread = await stage(host, 'approved', { prs: { kind: 'unread', said: 'x', reach: 'secondary' } }, line('feature/here'));
+    expect(unread.hostReach).toBe('secondary');
+    const rows = readCarriedPrStates('feature_here\tOPEN\tgreen\ttrue\nfeature_x\tWEIRD\t-\t-\nfeature_m\tMERGED\t-\t-\n.list-arrived\t1\t-\t-\n')!;
+    const loose = await stage(host, 'approved', { loose: true, prs: { kind: 'listed', listing: rows } }, line('feature/here'), line('feature/x'), line('feature/m'), line('feature/none'), line(''));
+    expect(loose.branches.map((b) => b.prDetail)).toEqual([
+      { state: 'OPEN', checks: 'green', draft: true },
+      { state: 'CLOSED', checks: 'unknown', draft: false },
+      { state: 'MERGED', checks: 'unknown', draft: false },
+      'no-cache',
+      'no-cache',
+    ]);
+  });
+});
+
+describe('mergeWalkLimit', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('reads a positive PLOT_MERGE_SCAN_LIMIT, and the default for anything else', () => {
+    vi.stubEnv('PLOT_MERGE_SCAN_LIMIT', '7');
+    expect(mergeWalkLimit()).toBe(7);
+    vi.stubEnv('PLOT_MERGE_SCAN_LIMIT', '0');
+    expect(mergeWalkLimit()).toBe(20000);
+    vi.stubEnv('PLOT_MERGE_SCAN_LIMIT', 'many');
+    expect(mergeWalkLimit()).toBe(20000);
+  });
+});
+
+describe('readBranchReadings — the local branch ahead of its remote', () => {
+  const host = hostFixture({ backend: 'github' });
+  const withLocal = (local: Record<string, string> | null, over: Partial<Parameters<typeof refsFixture>[0]> = {}): Refs => {
+    const base = world(over);
+    return {
+      ...base,
+      branchTips: async (patterns) =>
+        patterns.includes('refs/heads/')
+          ? local === null ? failed() : ({ ok: true, value: Object.entries(local).map(([branch, sha]) => ({ branch, sha })) } as never)
+          : base.branchTips(patterns),
+    };
+  };
+  const ahead = async (refs: Refs) => (await read(refs, host, line('feature/here'))).branches[0]!.localAhead;
+
+  it('counts the local commits the remote ref does not hold, by oid', async () => {
+    const refs = withLocal({ 'feature/here': 'l1' }, { commitSubjects: { 't1..l1': [{ at: 1, subject: 'unpushed', tree: 'b', parentTree: 'a' }] } });
+    expect(await ahead(refs)).toBe(1);
+  });
+
+  it('reads 0 where the local head is the remote tip, absent, unreadable, or not countable', async () => {
+    expect(await ahead(withLocal({ 'feature/here': 't1' }))).toBe(0);
+    expect(await ahead(withLocal({}))).toBe(0);
+    expect(await ahead(withLocal(null))).toBe(0);
+    const refs = withLocal({ 'feature/here': 'l1' });
+    expect(await ahead({ ...refs, commitSubjects: async (range) => (range === 't1..l1' ? failed() : refs.commitSubjects(range)) })).toBe(0);
+  });
+});
+
 describe('readBranchReadings — the stage carries its host reach', () => {
   it('names ok for a listing, failed for no listing, and the refusal for a refused host', async () => {
     const stage = async (host: Host, prs: BranchStageInput['prs']) => {
@@ -365,7 +593,7 @@ describe('readBranchReadings — the stage carries its host reach', () => {
       return answer.value.hostReach;
     };
     const base = hostFixture({ backend: 'github' });
-    expect(await stage(base, { kind: 'listed', listing: { states: new Map(), complete: true } })).toBe('ok');
+    expect(await stage(base, { kind: 'listed', listing: { states: new Map(), complete: true, rows: [] } })).toBe('ok');
     expect(await stage(base, { kind: 'unread' })).toBe('failed');
     expect(await stage({ ...base, prList: async () => failed(), lastRefusal: () => ({ kind: 'throttled', said: '' }) as never }, undefined)).toBe('throttled');
   });
@@ -457,7 +685,7 @@ describe('readBranchReadings — --loose reads each branch\'s PR detail', () => 
 
   it('reads no-host where the list failed, and no-cache where the caller carried the listing', async () => {
     expect(await detail({ ...hostFixture({ backend: 'github' }), prList: async () => failed() })).toEqual(['no-host', 'no-host']);
-    expect(await detail(hostFixture({ backend: 'github' }), { kind: 'listed', listing: { states: new Map(), complete: true } })).toEqual(['no-cache', 'no-cache']);
+    expect(await detail(hostFixture({ backend: 'github' }), { kind: 'listed', listing: { states: new Map(), complete: true, rows: [] } })).toEqual(['no-cache', 'no-cache']);
     expect(await detail(hostFixture({ backend: 'github' }), { kind: 'unread' })).toEqual(['no-host', 'no-host']);
   });
 
@@ -478,5 +706,35 @@ describe('readBranchReadings — onPlan', () => {
     });
     expect(isAnswered(answer)).toBe(true);
     expect(seen).toEqual([`${PLAN} feature/here,feature/gone`]);
+  });
+});
+
+describe('readBranchReadings — the stage reports its PR listing', () => {
+  const pr = (head: string, checks: string, draft: boolean) =>
+    ({ number: 1, repo: '', head, base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '', draft, mergeable: 'unknown', review: 'none', checks, failingChecks: [], url: '', author: '' }) as never;
+  const listingOf = async (host: Host, prs?: BranchStageInput['prs']) => {
+    const answer = await readBranchReadings(world(), host, estateOf(line('feature/here')), { ...INPUT, ...(prs === undefined ? {} : { prs }) });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return answer.value.listing;
+  };
+
+  it('reports the host list with encoded keys, and a dash where the row carried no rollup', async () => {
+    const listing = await listingOf(hostFixture({ backend: 'github', prs: [pr('feature/a_b', 'green', false), pr('bug/c', 'unknown', false)] }));
+    expect(listing?.rows).toEqual([
+      { key: 'feature_a__b', state: 'OPEN', checks: 'green', draft: 'false' },
+      { key: 'bug_c', state: 'OPEN', checks: '-', draft: '-' },
+    ]);
+    expect(listing?.complete).toBe(true);
+  });
+
+  it('reports a carried listing as it arrived', async () => {
+    const carried = readCarriedPrStates('feature_one\tOPEN\tgreen\tfalse\n.list-arrived\t1\t-\t-\n')!;
+    const listing = await listingOf(hostFixture({ backend: 'github' }), { kind: 'listed', listing: carried });
+    expect(listing).toMatchObject({ complete: false, rows: [{ key: 'feature_one', state: 'OPEN', checks: 'green', draft: 'false' }] });
+  });
+
+  it('reports nothing where no listing arrived', async () => {
+    expect(await listingOf({ ...hostFixture({ backend: 'github' }), prList: async () => failed() })).toBeUndefined();
+    expect(await listingOf(hostFixture({ backend: 'github' }), { kind: 'unread' })).toBeUndefined();
   });
 });

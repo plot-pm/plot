@@ -42,11 +42,13 @@ export interface Estate {
  * each at that commit, and parses the plan blobs by object name. A fetch that
  * lands during the read moves no name this function looks up again.
  *
- * AN UNREADABLE SNAPSHOT FAILS THE BEAT. The default branch not resolving, a
+ * AN UNREADABLE SNAPSHOT FAILS THE BEAT. The default branch not resolving, its
  * tree not listing, a symlink or plan blob not reading, or the parser
  * rejecting a file each answer `failed`, never an empty estate: an empty
  * answer is indistinguishable from a repository with no plans, and the board
- * would drop every plan when one fetch glitched.
+ * would drop every plan when one fetch glitched. A prefix branch whose tree
+ * cannot be listed contributes no plan and fails nothing, as
+ * `plot-fleet-scan.sh` read it: the default branch's plans are still whole.
  *
  * A DEFAULT BRANCH THAT DOES NOT RESOLVE READS THE CHECKOUT where `worktree`
  * is given, as `plot-fleet-scan.sh` does for a repository with no remote or
@@ -82,9 +84,10 @@ export const readEstate = async (
     .sort((a, b) => (a.branch < b.branch ? -1 : 1));
   const branches = [];
   for (const tip of ordered) {
+    // A branch whose tree cannot be listed (a tip object a half-landed fetch
+    // never wrote) contributes no plan; the default branch's plans stand.
     const blobs = await refs.listBlobs(tip.sha, input.planDir);
-    if (!blobs.ok) return failed<Estate>();
-    branches.push({ branch: tip.branch, blobs: blobs.value });
+    if (blobs.ok) branches.push({ branch: tip.branch, blobs: blobs.value });
   }
 
   const linkShas = main.value.filter((blob) => blob.mode === '120000').map((blob) => blob.sha);

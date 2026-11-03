@@ -125,6 +125,23 @@ describe('report', () => {
     expect(reportNotes(header, { ...context, offline: true })).toContain('--offline skipped the fetch');
   });
 
+  it('says why no PR could be read for each refusing host word, and that a partial list is short', () => {
+    const note = (host: string) => reportNotes({ ...header, host } as FleetReadingHeader, context);
+    expect(note('throttled')).toContain('rate limit was spent');
+    expect(note('secondary')).toContain('refused a burst');
+    expect(note('failed')).toContain('could not be reached');
+    expect(note('partial')).toContain('INCOMPLETE');
+    expect(note('partial')).not.toContain('no PR could be read');
+    expect(note('ok')).toBe('');
+    expect(note('unasked')).toBe('');
+  });
+
+  it('names the merge scan limit only where a truncated walk carries one', () => {
+    const truncated = { ...header, mergeDetect: 'truncated' } as FleetReadingHeader;
+    expect(reportNotes(truncated, { ...context, mergeScanLimit: 5 })).toContain('merge scan hit its limit of 5');
+    expect(reportNotes(truncated, context)).not.toContain('merge scan hit its limit');
+  });
+
   it('ends with the derived-report line and the short summary when no plan exists', () => {
     const assembly = assemble([], undefined);
     expect(reportFooter(assembly, header, context)).toBe(

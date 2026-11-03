@@ -104,7 +104,10 @@ const walk = async (box: Sandbox, cache: WalkCache | null, options: Options = {}
   const conflicts = await readBranchConflicts(refs, 'main', branches.value.branches.map((b) => ({
     branch: b.branch, state: 'wip', refHeld: b.readings.refTip !== null, changedPaths: b.changedPaths,
   })));
-  const said = JSON.stringify({ estate: estate.value, branches: branches.value, conflicts }, (_k, v) => (v instanceof Map ? [...v.entries()] : v));
+  // `listing` echoes the host's rows for the scan's stderr report and is no reading
+  // a rule takes, so it stays out of what the cold and cached walks must agree on.
+  const { listing: _echoed, ...readings } = branches.value;
+  const said = JSON.stringify({ estate: estate.value, branches: readings, conflicts }, (_k, v) => (v instanceof Map ? [...v.entries()] : v));
   if (cache !== null) cache.sweep();
   return { said, hits: cache?.stats.hits ?? 0, misses: cache?.stats.misses ?? 0 };
 };

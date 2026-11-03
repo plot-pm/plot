@@ -187,3 +187,20 @@ describe('readDeskReadings — dirty paths', () => {
     expect(unread!.dirty).toBe('unknown');
   });
 });
+
+describe('readDeskReadings — the worker log is evidence of work', () => {
+  const withLog = (log: ((path: string) => Promise<ReturnType<typeof answered<number | null>> | ReturnType<typeof failed>>), over: Partial<TreesFixture> = {}): Trees =>
+    ({ ...world(over), logQuietSeconds: log }) as unknown as Trees;
+  const quiet = async (trees: Trees) => (await read(trees, desks(), processesOf(table), stageOf(['feature/b']))).desks[0]!.quietSeconds;
+
+  it('reads the quieter of the tree and the log as the newer evidence', async () => {
+    expect(await quiet(withLog(async () => answered<number | null>(30)))).toBe(30);
+    expect(await quiet(withLog(async () => answered<number | null>(9000)))).toBe(4000);
+  });
+
+  it('reads the tree alone where the log is absent or unreadable, and the log alone where the tree has nothing', async () => {
+    expect(await quiet(withLog(async () => answered<number | null>(null)))).toBe(4000);
+    expect(await quiet(withLog(async () => failed()))).toBe(4000);
+    expect(await quiet(withLog(async () => answered<number | null>(30), { quiet: { '/w/a': 12 } }))).toBe(30);
+  });
+});

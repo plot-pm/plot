@@ -138,9 +138,7 @@ exec '${process.execPath}' "$@"
 
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-const viaShell = process.env.PLOT_SCAN_WALK === 'domain'
-  ? { skip: 'asserts the shell-to-plot-verdicts pipe, which the domain walk does not have; the spike outcome is asserted by the --list-eligible tests below' }
-  : {};
+const viaShell = { skip: 'asserts the shell-to-plot-verdicts pipe, which the domain walk does not have; the spike outcome is asserted by the --list-eligible tests below' };
 
 const planOf = (slug) => json.plans.find((p) => p.file.includes(slug));
 

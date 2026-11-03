@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { answer, held } from './delta-core.js';
 
@@ -67,6 +67,8 @@ export const logToPlan = (file: string, line: string): boolean => {
  * @param now - epoch ms.
  * @param respectHold - whether a held bridge is left unwritten; `--stream` passes false and always writes.
  * @returns the delta lines for stdout, `''` where the delta could not be read.
+ *   A bridge that cannot be written (a read-only `.plot`, a full disk) is
+ *   left as it was, with no temporary file beside it, and the pulse goes on.
  */
 export const recordBridge = (root: string, reading: Record<string, unknown>, now: number, respectHold = true): string => {
   const file = join(root, '.plot', 'state', 'last-pulse.json');
@@ -78,9 +80,17 @@ export const recordBridge = (root: string, reading: Record<string, unknown>, now
     delta = '';
   }
   if (respectHold && previous !== '' && held(previous, now)) return delta;
-  mkdirSync(join(root, '.plot', 'state'), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `{"version":1,"at":${now},"pulse":${JSON.stringify(reading)},"ages":[],"branchUrlBase":"","approvedAt":[],"ideaPlans":[]}`);
-  renameSync(tmp, file);
+  try {
+    mkdirSync(join(root, '.plot', 'state'), { recursive: true });
+    writeFileSync(tmp, `{"version":1,"at":${now},"pulse":${JSON.stringify(reading)},"ages":[],"branchUrlBase":"","approvedAt":[],"ideaPlans":[]}`);
+    renameSync(tmp, file);
+  } catch {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // No temporary file was written.
+    }
+  }
   return delta;
 };

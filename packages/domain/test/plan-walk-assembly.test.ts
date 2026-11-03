@@ -320,6 +320,31 @@ describe('fleetReading', () => {
     expect(bySubject.evidence).toBe('subject');
     expect(byHost.evidence).toBeUndefined();
   });
+
+  it('keeps the subject evidence of a plan that is no delivery candidate, whatever the host says', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/h' }], [{ branch: 'feature/next' }]]));
+    const branches = branchesOf(
+      ['p.md', 'feature/h', open({ refTip: null, mergeSubjectFound: true, pr: 'MERGED' })],
+      ['p.md', 'feature/next', open()],
+    );
+    const doc = fleetReading(assembled(estate, branches), header) as any;
+    expect(doc.plans[0].waves[0].branches[0].evidence).toBe('subject');
+  });
+
+  it('names a subject refused for age, counts it, and reads a branch with no desk ahead from refs', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/old' }, { branch: 'feature/local' }]]));
+    const stage = branchesOf(['p.md', 'feature/old', open({ refTip: null })], ['p.md', 'feature/local', open()]);
+    const branches = {
+      ...stage,
+      branches: [{ ...stage.branches[0]!, subjectPredatesPlan: true }, { ...stage.branches[1]!, localAhead: 3 }],
+    } as BranchStageReadings;
+    const assembly = assembled(estate, branches);
+    expect(assembly.summary.subjectPredatesPlan).toBe(1);
+    const [old, local] = (fleetReading(assembly, header) as any).plans[0].waves[0].branches;
+    expect(old.subjectIgnored).toBe('predates-plan');
+    expect(local.subjectIgnored).toBeUndefined();
+    expect(local.local_ahead).toBe(3);
+  });
 });
 
 describe('fleetReading — dirty worktrees, conflicts and changed paths', () => {

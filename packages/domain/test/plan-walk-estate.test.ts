@@ -204,14 +204,20 @@ describe('readEstate — one snapshot, parsed by object name', () => {
     expect((await readEstate(refs, store, INPUT)).ok).toBe(false);
   });
 
-  it('fails the beat when a branch tree cannot be listed', async () => {
+  it('reads a branch whose tree cannot be listed as contributing no plan', async () => {
     const base = world();
     const refs: Refs = {
       ...base,
       listBlobs: (ref, dir) => (ref === 't1' ? Promise.resolve(failed<readonly TreeBlob[]>()) : base.listBlobs(ref, dir)),
     };
     const store = planStoreRef(refs, shellContext(REPO_ROOT), 'origin/main', 'docs/plans');
-    expect((await readEstate(refs, store, INPUT)).ok).toBe(false);
+    const answer = await readEstate(refs, store, INPUT);
+    if (!isAnswered(answer)) throw new Error('readEstate should answer');
+    const cold = await readEstate(base, planStoreRef(base, shellContext(REPO_ROOT), 'origin/main', 'docs/plans'), INPUT);
+    if (!isAnswered(cold)) throw new Error('readEstate should answer');
+    expect(answer.value.plans.map((p) => p.blob.path)).toEqual(
+      cold.value.plans.filter((p) => p.blob.source === 'main').map((p) => p.blob.path),
+    );
   });
 
   it('lists branches in bytewise order and skips main and HEAD', async () => {

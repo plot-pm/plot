@@ -1,18 +1,10 @@
-// Contract test for `PLOT_SCAN_WALK=domain` in `plot-fleet-scan.sh`: the five
-// machine modes answer from `plot-scan-walk.mjs` and must equal the shell's own
-// answers on the same sandbox.
+// Contract test for `plot-fleet-scan.sh`, a launcher over `plot-scan-walk.mjs`:
+// every mode answers from the walk on a sandbox repository.
 //
-// THE COMPARISON runs `--offline`, with no host token, no `PLOT_PR_LISTING` and
-// no `PLOT_TERMINAL_CACHE`, and normalises both documents with
-// `jq -S 'walk(... del(.changed_ago_seconds) ...)'`.
+// The runs use `--offline`, with no host token, no `PLOT_PR_LISTING` and no
+// `PLOT_TERMINAL_CACHE`.
 //
-// TWO FIELDS ARE MASKED, `changed_ago_seconds` and `changed_at`: both read the
-// wall clock. The conflict readings and `summary.merge_detect` are compared as
-// printed, and a fixture with a conflicting branch proves the conflict
-// readings are not empty on both sides.
-//
-// `--offline --next` STILL ASKS THE HOST on the domain path, as on the shell
-// path: a stub `gh` records every call.
+// `--offline --next` STILL ASKS THE HOST: a stub `gh` records every call.
 //
 // The bundle is a build product. `pnpm build:board` writes it; a run without it
 // fails with that instruction.
@@ -49,12 +41,12 @@ let repo;
 let ghLog;
 let binDir;
 
-const env = (walk) => {
-  const e = { ...process.env, PLOT_SCAN_WALK: walk, PATH: `${binDir}${path.delimiter}${process.env.PATH}` };
+const env = () => {
+  const e = { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}` };
   for (const k of ['PLOT_REPO_ROOT', 'PLOT_UNATTENDED', 'PLOT_PR_LISTING', 'PLOT_TERMINAL_CACHE', 'GH_TOKEN', 'GITHUB_TOKEN']) delete e[k];
   return e;
 };
-const run = (walk, ...args) => spawnSync('bash', [scan, ...args], { encoding: 'utf8', cwd: repo, env: env(walk) });
+const run = (...args) => spawnSync('bash', [scan, ...args], { encoding: 'utf8', cwd: repo, env: env() });
 
 before(() => {
   assert.ok(fs.existsSync(bundle), `${bundle} is missing: run \`pnpm build:board\` first`);
@@ -90,64 +82,61 @@ before(() => {
   git(repo, 'checkout', '-q', 'main');
 });
 
-const both = (...args) => ({ shell: run('shell', ...args), domain: run('domain', ...args) });
-
-test('scan-walk: --json equals the shell, apart from the masked readings', () => {
-  const { shell, domain } = both('--offline', '--json');
-  assert.equal(domain.status, 0, domain.stderr);
-  const a = JSON.parse(shell.stdout);
-  const b = JSON.parse(domain.stdout);
-  assert.ok(a.plans.length >= 3, 'the comparison saw the fixture plans');
-  assert.deepEqual(normalise(b), normalise(a));
+test('scan-walk: --json answers the fixture plans', () => {
+  const r = run('--offline', '--json');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(JSON.parse(r.stdout).plans.length >= 3, 'the scan saw the fixture plans');
 });
 
-for (const flag of ['--next', '--list-eligible', '--why-nothing', '--slice-names']) {
-  test(`scan-walk: ${flag} equals the shell`, () => {
-    const { shell, domain } = both('--offline', flag);
-    assert.equal(domain.stdout, shell.stdout);
-    assert.equal(domain.status, shell.status);
-    const note = (r) => r.stderr.split('\n').filter((l) => !l.startsWith('listing: ')).join('\n');
-    assert.equal(note(domain), note(shell));
+test('scan-walk: --slice-names names the fixture branches', () => {
+  const r = run('--offline', '--slice-names');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.split('\n').filter(Boolean).includes('feature/first-slice'), true);
+});
+
+for (const flag of ['--next', '--list-eligible', '--why-nothing']) {
+  test(`scan-walk: ${flag} answers with status 0 or 1 and no listing lines on stdout`, () => {
+    const r = run('--offline', flag);
+    assert.ok(r.status === 0 || r.status === 1, r.stderr);
+    assert.ok(!r.stdout.includes('listing:'), r.stdout);
   });
 }
 
 test('scan-walk: a slug scopes the json document to that plan', () => {
-  const { shell, domain } = both('--offline', '--json', 'taken');
-  assert.deepEqual(normalise(JSON.parse(domain.stdout)), normalise(JSON.parse(shell.stdout)));
+  const r = run('--offline', '--json', 'taken');
+  assert.equal(r.status, 0, r.stderr);
+  const plans = JSON.parse(r.stdout).plans;
+  assert.equal(plans.length, 1);
+  assert.ok(plans[0].file.includes('taken'));
 });
 
-test('scan-walk: a bare slug answers the json document scoped to that plan', () => {
-  const bare = run('domain', '--offline', 'taken');
+test('scan-walk: a bare slug answers the prose report scoped to that plan', () => {
+  const bare = run('--offline', 'taken');
   assert.equal(bare.status, 0, bare.stderr);
-  const scoped = run('domain', '--offline', '--json', 'taken');
-  assert.deepEqual(normalise(JSON.parse(bare.stdout)), normalise(JSON.parse(scoped.stdout)));
-  assert.ok(JSON.parse(bare.stdout).plans.length >= 1, 'the slug named a plan');
+  assert.match(bare.stdout, /^summary: /m, 'the prose report ends in its summary footer');
+  assert.doesNotMatch(bare.stdout, /^\{/, 'prose, not the json document');
 });
 
-test('scan-walk: --loose --json equals the shell', () => {
-  const { shell, domain } = both('--offline', '--loose', '--json');
-  assert.equal(domain.status, shell.status, domain.stderr);
-  assert.deepEqual(normalise(JSON.parse(domain.stdout)), normalise(JSON.parse(shell.stdout)));
+test('scan-walk: --loose --json answers the fixture plans', () => {
+  const r = run('--offline', '--loose', '--json');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(JSON.parse(r.stdout).plans.length >= 3);
 });
 
-test('scan-walk: --loose --next equals the shell', () => {
-  const { shell, domain } = both('--offline', '--loose', '--next');
-  assert.equal(domain.stdout, shell.stdout);
-  assert.equal(domain.status, shell.status);
+test('scan-walk: --loose --next answers with status 0 or 1', () => {
+  const r = run('--offline', '--loose', '--next');
+  assert.ok(r.status === 0 || r.status === 1, r.stderr);
 });
 
 const planLines = (stdout) => stdout.split('\n').filter((l) => l.startsWith('{"kind":"plan"')).map((l) => normalise(JSON.parse(l).plan));
 const readingLine = (stdout) => stdout.split('\n').filter((l) => l.startsWith('{"kind":"reading"')).map((l) => normalise(JSON.parse(l).reading));
 
-test('scan-walk: --stream prints the shell\'s plan lines and one terminal reading', () => {
-  const quiet = { PLOT_SCAN_RECORD: '0' };
-  const shell = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env('shell'), ...quiet } });
-  const domain = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env('domain'), ...quiet } });
-  assert.equal(domain.status, 0, domain.stderr);
-  assert.ok(planLines(shell.stdout).length >= 3, 'the shell streamed the fixture plans');
-  assert.deepEqual(planLines(domain.stdout), planLines(shell.stdout));
-  assert.deepEqual(readingLine(domain.stdout), readingLine(shell.stdout));
-  const kinds = domain.stdout.trim().split('\n').map((l) => JSON.parse(l).kind);
+test('scan-walk: --stream prints a line per plan and one terminal reading', () => {
+  const r = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env(), PLOT_SCAN_RECORD: '0' } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(planLines(r.stdout).length >= 3, 'the stream carried the fixture plans');
+  assert.equal(readingLine(r.stdout).length, 1);
+  const kinds = r.stdout.trim().split('\n').map((l) => JSON.parse(l).kind);
   assert.equal(kinds.at(-1), 'reading');
   assert.equal(kinds.filter((k) => k === 'reading').length, 1);
 });
@@ -155,7 +144,7 @@ test('scan-walk: --stream prints the shell\'s plan lines and one terminal readin
 test('scan-walk: --stream writes the bridge before it prints the reading', () => {
   const bridge = path.join(repo, '.plot', 'state', 'last-pulse.json');
   fs.rmSync(bridge, { force: true });
-  const r = run('domain', '--offline', '--stream');
+  const r = run('--offline', '--stream');
   assert.equal(r.status, 0, r.stderr);
   assert.ok(fs.existsSync(bridge), 'the bridge exists');
   assert.deepEqual(JSON.parse(fs.readFileSync(bridge, 'utf8')).pulse, JSON.parse(r.stdout.trim().split('\n').at(-1)).reading);
@@ -168,15 +157,17 @@ test('scan-walk: --stream prints the first plan before the walk has read the lat
   const held = path.join(gateDir, 'held');
   const gitBin = path.join(gateDir, 'bin');
   fs.mkdirSync(gitBin);
-  // `git log main..origin/bug/already-claimed` is the later plan's branch read; it blocks until the gate file exists.
+  // The walk reads a branch's commits as `git log <main oid>..<tip oid>`; the
+  // later plan's branch read blocks until the gate file exists.
+  const tip = execFileSync(realGit, ['rev-parse', 'origin/bug/already-claimed'], { encoding: 'utf8', cwd: repo }).trim();
   fs.writeFileSync(
     path.join(gitBin, 'git'),
-    `#!/usr/bin/env bash\ncase " $* " in *" log "*"origin/bug/already-claimed"*) : > ${JSON.stringify(held)}; for _ in $(seq 1 600); do [ -e ${JSON.stringify(gate)} ] && break; sleep 0.1; done ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    `#!/usr/bin/env bash\ncase " $* " in *" log "*"..${tip}"*) : > ${JSON.stringify(held)}; for _ in $(seq 1 600); do [ -e ${JSON.stringify(gate)} ] && break; sleep 0.1; done ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`,
     { mode: 0o755 },
   );
   const child = spawn('bash', [scan, '--offline', '--stream'], {
     cwd: repo,
-    env: { ...env('domain'), PLOT_SCAN_RECORD: '0', PATH: `${gitBin}${path.delimiter}${binDir}${path.delimiter}${process.env.PATH}` },
+    env: { ...env(), PLOT_SCAN_RECORD: '0', PATH: `${gitBin}${path.delimiter}${binDir}${path.delimiter}${process.env.PATH}` },
   });
   let out = '';
   let printedWhileBlocked = false;
@@ -203,38 +194,36 @@ test('scan-walk: --stream prints no reading line when the walk fails', () => {
   const shim = path.join(broken, 'bin');
   fs.mkdirSync(shim);
   const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
-  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash\ncase " $* " in *" log "*"origin/bug/already-claimed"*) exit 128 ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
-  const r = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env('domain'), PLOT_SCAN_RECORD: '0', PATH: `${shim}${path.delimiter}${binDir}${path.delimiter}${process.env.PATH}` } });
+  // The walk reads a branch's commits by oid, `git log <main oid>..<tip oid>`.
+  const tip = execFileSync(realGit, ['rev-parse', 'origin/bug/already-claimed'], { encoding: 'utf8', cwd: repo }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash\ncase " $* " in *" log "*"..${tip}"*) exit 128 ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
+  const r = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env(), PLOT_SCAN_RECORD: '0', PATH: `${shim}${path.delimiter}${binDir}${path.delimiter}${process.env.PATH}` } });
   assert.notEqual(r.status, 0);
   assert.ok(!r.stdout.includes('"kind":"reading"'), r.stdout);
 });
 
-const withoutPredates = (text) => text.replace(/ subject_predates_plan=\S+/, '');
 const freshBridge = () => fs.rmSync(path.join(repo, '.plot', 'state', 'last-pulse.json'), { force: true });
 
 for (const extra of [[], ['--loose']]) {
-  test(`scan-walk: plain ${['--log-pulse', ...extra].join(' ')} prints the shell's wave report, footer and completion line`, () => {
+  test(`scan-walk: plain ${['--log-pulse', ...extra].join(' ')} prints the wave report, footer and completion line`, () => {
     freshBridge();
-    const shell = run('shell', '--offline', '--log-pulse', ...extra);
-    freshBridge();
-    const domain = run('domain', '--offline', '--log-pulse', ...extra);
-    assert.equal(domain.status, shell.status, domain.stderr);
-    assert.match(domain.stdout, /== .* ==\n {2}\S.* — (eligible|blocked|complete)/);
-    assert.match(domain.stdout, /Pulse complete\. This report is derived — nothing was changed\.\nsummary: plans=\d+ /);
-    assert.equal(withoutPredates(domain.stdout), withoutPredates(shell.stdout));
+    const r = run('--offline', '--log-pulse', ...extra);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /== .* ==\n {2}\S.* — (eligible|blocked|complete)/);
+    assert.match(r.stdout, /Pulse complete\. This report is derived — nothing was changed\.\nsummary: plans=\d+ /);
   });
 }
 
-test('scan-walk: --offline --next still asks the host on the domain path', () => {
+test('scan-walk: --offline --next still asks the host', () => {
   fs.rmSync(ghLog, { force: true });
-  const r = run('domain', '--offline', '--next');
+  const r = run('--offline', '--next');
   assert.ok(r.status === 0 || r.status === 1, r.stderr);
   assert.ok(fs.existsSync(ghLog) && fs.readFileSync(ghLog, 'utf8').trim() !== '', 'gh was called');
 });
 
-test('scan-walk: --offline --json asks the host nothing on the domain path', () => {
+test('scan-walk: --offline --json asks the host nothing', () => {
   fs.rmSync(ghLog, { force: true });
-  const r = run('domain', '--offline', '--json');
+  const r = run('--offline', '--json');
   assert.equal(r.status, 0, r.stderr);
   assert.ok(!fs.existsSync(ghLog), 'gh was not called');
 });
@@ -270,22 +259,17 @@ const conflictRepo = () => {
   return dir;
 };
 
-test('scan-walk: --stream reports a conflicting branch\'s conflicts as the shell does', () => {
+test('scan-walk: --stream reports a conflicting branch\'s conflicts', () => {
   const dir = conflictRepo();
-  const stream = (walk) => spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: dir, env: { ...env(walk), PLOT_SCAN_RECORD: '0' } });
-  const lines = (stdout) => stdout.trim().split('\n').map((l) => JSON.parse(l));
-  const shell = lines(stream('shell').stdout);
-  const ran = stream('domain');
+  const ran = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: dir, env: { ...env(), PLOT_SCAN_RECORD: '0' } });
   assert.equal(ran.status, 0, ran.stderr);
-  const domain = lines(ran.stdout);
+  const lines = ran.stdout.trim().split('\n').map((l) => JSON.parse(l));
   const rowOf = (out) => out.find((l) => l.kind === 'plan').plan.waves.flatMap((w) => w.branches).find((b) => b.branch === 'feature/clash');
   const pick = (row) => ({ state: row.state, conflicts_known: row.conflicts_known, conflicts: row.conflicts, changed_paths: row.changed_paths });
-  assert.deepEqual(pick(rowOf(domain)), { state: 'wip', conflicts_known: true, conflicts: ['shared.txt'], changed_paths: ['shared.txt'] });
-  assert.deepEqual(pick(rowOf(domain)), pick(rowOf(shell)));
-  const readingOf = (out) => out.find((l) => l.kind === 'reading').reading;
-  const readRow = (out) => readingOf(out).plans[0].waves.flatMap((w) => w.branches).find((b) => b.branch === 'feature/clash');
-  assert.deepEqual(pick(readRow(domain)), pick(readRow(shell)));
-  assert.equal(readingOf(domain).summary.merge_detect, readingOf(shell).summary.merge_detect);
+  assert.deepEqual(pick(rowOf(lines)), { state: 'wip', conflicts_known: true, conflicts: ['shared.txt'], changed_paths: ['shared.txt'] });
+  const reading = lines.find((l) => l.kind === 'reading').reading;
+  const readRow = reading.plans[0].waves.flatMap((w) => w.branches).find((b) => b.branch === 'feature/clash');
+  assert.deepEqual(pick(readRow), pick(rowOf(lines)));
 });
 
 after(() => {});

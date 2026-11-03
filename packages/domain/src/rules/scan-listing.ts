@@ -1,5 +1,6 @@
 import { extractHostNotices } from './pr-status.js';
 import { sinceWatermark } from './known-pr.js';
+import { refusalKind } from './refusal.js';
 
 /** One GitHub PR row as the host's plain or rich `pr-list` JSON carries it. */
 export interface ScanListingRow {
@@ -158,6 +159,20 @@ export interface CarriedPrStates {
   states: ReadonlyMap<string, string>;
   /** Whether the listing carried `.list-complete`. */
   complete: boolean;
+  /** Every branch line the listing carried, with its checks and draft words as written. */
+  rows: readonly ReportedListingRow[];
+}
+
+/** One branch line of a listing the scan reports on stderr. */
+export interface ReportedListingRow {
+  /** The branch, encoded by {@link encodeListingKey}. */
+  key: string;
+  /** The PR state word. */
+  state: string;
+  /** The checks word, or `-` where the row carried none. */
+  checks: string;
+  /** The draft word, or `-` where the row carried none. */
+  draft: string;
 }
 
 /**
@@ -173,16 +188,41 @@ export interface CarriedPrStates {
  */
 export const readCarriedPrStates = (listing: string): CarriedPrStates | null => {
   const states = new Map<string, string>();
+  const rows = new Map<string, ReportedListingRow>();
   let arrived = false;
   let complete = false;
   for (const line of listing.split('\n')) {
-    const [key = '', state = ''] = line.split('\t');
+    const [key = '', state = '', checks = '-', draft = '-'] = line.split('\t');
     if (key === '') continue;
     if (key === '.list-arrived') arrived = true;
     else if (key === '.list-complete') complete = true;
-    else if (!key.startsWith('.') && state !== '') states.set(key, state);
+    else if (!key.startsWith('.') && state !== '') {
+      states.set(key, state);
+      rows.set(key, { key, state, checks: checks || '-', draft: draft || '-' });
+    }
   }
-  return arrived ? { states, complete } : null;
+  return arrived ? { states, complete, rows: [...rows.values()] } : null;
+};
+
+/**
+ * Renders the `listing:` lines a scan prints on stderr for the board to carry:
+ * `.branches` first, one line per branch in key order, `.list-complete` where
+ * the listing was whole, and `.list-arrived` last so a cut listing carries none.
+ *
+ * @param rows - the listing's branch lines.
+ * @param tracked - how many remote branches the listing swept.
+ * @param complete - whether the listing was whole.
+ * @returns the lines, each ending in a newline.
+ */
+export const renderListingReport = (rows: readonly ReportedListingRow[], tracked: number, complete: boolean): string => {
+  const line = (key: string, a: string, b: string, c: string): string => `listing: ${key}\t${a}\t${b}\t${c}\n`;
+  const sorted = [...rows].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return (
+    line('.branches', String(tracked), '-', '-') +
+    sorted.map((r) => line(r.key, r.state, r.checks || '-', r.draft || '-')).join('') +
+    (complete ? line('.list-complete', '1', '-', '-') : '') +
+    line('.list-arrived', '1', '-', '-')
+  );
 };
 
 /** One host answer to one `pr-list` call, read for the fold below. */
@@ -284,4 +324,110 @@ const rank = (state: string): number => {
   if (state === 'OPEN') return 1;
   if (state === 'MERGED') return 2;
   return 3;
+};
+
+/** How one `pr-list` call of the scan's own listing read was answered. */
+export type PulseListingVerdict = 'ok' | 'partial' | 'unasked' | 'secondary' | 'throttled' | 'failed';
+
+/** One `pr-list` call of the scan's own listing read, as `Scripts.hostSaid` answered it. */
+export interface PulseListingCall {
+  /** `answered`, `partial` (exit 7, some states answered), `failed`, or `unaskable` (exit 4). */
+  answer: 'answered' | 'partial' | 'failed' | 'unaskable';
+  /** The call's stdout; `''` where it failed. */
+  stdout: string;
+  /** The call's stderr on an answer, or the host's sentence on a refusal. */
+  said: string;
+  /** The refusal the host named on a failed call, where it named one. */
+  kind?: 'throttled' | 'secondary';
+}
+
+/** The scan's own listing: the rows it holds, as a carried listing reads them, and how the host answered. */
+export interface PulseListing {
+  /** The worse of the two calls' verdicts. */
+  verdict: PulseListingVerdict;
+  /** The listing, or null where no call's rows may be used. */
+  listing: CarriedPrStates | null;
+  /** The host's sentence where the verdict is a refusal; `''` otherwise. */
+  said: string;
+}
+
+/** The wordings a host CLI uses when it has no identity: the question was never put. */
+const NO_IDENTITY: readonly RegExp[] = [/token/i, /auth/i, /login/i, /credential/i, /not logged/i, /no git remotes?/i, /no remote/i];
+
+/** The verdicts from best to worst; the listing reports the worse of its two calls. */
+const VERDICT_ORDER: readonly PulseListingVerdict[] = ['ok', 'partial', 'unasked', 'secondary', 'throttled', 'failed'];
+
+/**
+ * Reads one `pr-list` call's answer as a verdict: a spent quota is
+ * `throttled`, a burst refusal `secondary`, a host with no identity or no such
+ * capability `unasked`, and any other refusal `failed`. The refusal the host
+ * named outranks what its sentence says.
+ *
+ * @param call - the call.
+ * @returns the verdict.
+ */
+export const pulseListingVerdict = (call: PulseListingCall): PulseListingVerdict => {
+  if (call.answer === 'answered') return 'ok';
+  if (call.answer === 'partial') return 'partial';
+  if (call.answer === 'unaskable') return 'unasked';
+  if (call.kind !== undefined) return call.kind;
+  const kind = refusalKind(call.said);
+  if (kind === 'quota') return 'throttled';
+  if (kind === 'secondary') return 'secondary';
+  return NO_IDENTITY.some((pattern) => pattern.test(call.said)) ? 'unasked' : 'failed';
+};
+
+/** The rows of a `pr-list` payload; a line that is not a PR row is skipped, as the shell scan's `sed` skipped it. */
+const pulseRows = (stdout: string): ScanListingRow[] =>
+  stdout.split('\n').flatMap((line) => {
+    if (line.trim() === '') return [];
+    const rows = parseScanListingRows(line);
+    return rows === null ? [] : rows;
+  });
+
+/** Whether a call's stderr claims its page whole: `plot-host.sh`'s sweep or page-complete sentence. */
+const claimsWhole = (said: string): boolean =>
+  /pr-list sweep complete/.test(said) || /pr-list state=\S+ page complete /.test(said);
+
+/**
+ * Folds the scan's own two `pr-list` calls into one listing: `--state open
+ * --rich`, then `--state settled`, the second asked only where the first
+ * answered.
+ *
+ * THE SHELL SCAN'S `prefill_pr_states`, moved. The verdict is the worse of
+ * the two. A refusal yields no listing; a partial answer keeps the rows that
+ * arrived. The settled payload's OPEN rows are dropped, so an open PR keeps
+ * the rich row's checks and draft words, and one row per branch is kept:
+ * OPEN, then MERGED, then any other state, the first of a rank where two tie.
+ *
+ * THE LISTING IS COMPLETE only where the open call answered in full and either
+ * both calls' stderr claims its page whole, or, with no claim, the settled
+ * payload holds at least one row and each payload holds fewer rows than
+ * `limit`. A page at its limit with no claim may be truncated, so it licenses
+ * nothing.
+ *
+ * @param open - the open call.
+ * @param settled - the settled call, or null where it was not asked.
+ * @param limit - the `--limit` both calls were asked with.
+ * @returns the verdict and the listing.
+ */
+export const foldPulseListing = (open: PulseListingCall, settled: PulseListingCall | null, limit: number): PulseListing => {
+  const calls = settled === null ? [open] : [open, settled];
+  const verdicts = calls.map(pulseListingVerdict);
+  const worst = verdicts.reduce((a, b) => (VERDICT_ORDER.indexOf(b) > VERDICT_ORDER.indexOf(a) ? b : a));
+  if (settled === null || (worst !== 'ok' && worst !== 'partial')) {
+    const refused = calls.find((_call, i) => verdicts[i] === worst)!;
+    return { verdict: worst, listing: null, said: refused.said };
+  }
+  const openRows = pulseRows(open.stdout);
+  const settledRows = pulseRows(settled.stdout);
+  const kept = new Map<string, ScanListingRow>();
+  for (const row of [...openRows, ...settledRows.filter((r) => r.state !== 'OPEN')]) {
+    const held = kept.get(row.head);
+    if (held === undefined || rank(row.state) < rank(held.state)) kept.set(row.head, row);
+  }
+  const complete = verdicts[0] === 'ok'
+    && ((claimsWhole(open.said) && claimsWhole(settled.said))
+      || (settledRows.length > 0 && settledRows.length < limit && openRows.length < limit));
+  return { verdict: worst, listing: readCarriedPrStates(renderScanListing([...kept.values()], complete)!), said: '' };
 };
