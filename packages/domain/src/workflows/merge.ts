@@ -130,8 +130,8 @@ const short = (sha: string | undefined): string =>
  * same commit as the caller's sha (see {@link sameCommit} — a short host head
  * and a full-length caller sha, in either direction, still match, at the floor
  * `input.minHexLen` sets), the check rollup is green for that head, the PR is not a
- * draft, and the default branch is not red. A host that did not answer, or that names no head commit,
- * refuses as `unaskable`, and so does a default-branch read that failed. A
+ * draft, and the default branch is not red. A host that did not answer, or that names no head commit
+ * or no head branch, refuses as `unaskable`, and so does a default-branch read that failed. A
  * missing default-branch reading holds nothing (unless `input.requireReading`,
  * which refuses it as `default-branch-unread`) and the decision says so in its
  * detail. A reading whose `askedAt` is older than `input.checksWaitMs`, or does
@@ -186,6 +186,9 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   }
   if (pr === null || pr.state !== 'OPEN') {
     return no('pr-not-open', `PR #${input.pr} is ${pr === null ? 'unknown to the host' : pr.state}. Only an open PR merges.`);
+  }
+  if (pr.head === '') {
+    return no('unaskable', `the host named no head branch for PR #${input.pr}, so neither the release-PR check nor the repair-branch check can read it. Nothing was merged.`);
   }
   if (RELEASE_BRANCH.test(pr.head) && input.viaReleaseApprove !== true) {
     return no('release-pr', `PR #${input.pr} is a release PR and merges only through release-approve, which reads its review first. Run: plot-ask.mjs release-approve ${input.pr} ${short(input.sha)}`);

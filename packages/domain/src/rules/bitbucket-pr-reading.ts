@@ -25,6 +25,7 @@ export interface PrStateRow {
   draft: boolean;
   url: string;
   mergeCommit: string;
+  head?: string;
   headSha?: string;
   base?: string;
   checks?: string;
@@ -89,6 +90,7 @@ export const bitbucketPrState = (
     draft: pr.draft ?? false,
     url: pr.links.html.href,
     mergeCommit: pr.merge_commit?.hash ?? '',
+    head: branch,
     headSha: pr.source?.commit?.hash ?? '',
     base: pr.destination?.branch?.name ?? '',
     checks,

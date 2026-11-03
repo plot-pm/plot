@@ -16,6 +16,10 @@ describe('bitbucketPrState', () => {
     expect(bitbucketPrState(null, {}, null)).toEqual({ number: 0, state: 'NONE', draft: false, url: '', mergeCommit: '' });
   });
 
+  it('names the head branch from source.branch.name', () => {
+    expect(bitbucketPrState(pr(), null, null).head).toBe('feature/a');
+  });
+
   it('names the head and reads the check unknown where no Jenkins reading exists', () => {
     expect(bitbucketPrState(pr(), null, null)).toMatchObject({ headSha: 'sha-head', checks: 'unknown', checksSha: '' });
   });
@@ -44,6 +48,7 @@ describe('bitbucketPrState', () => {
   it('reads a payload with no source or destination as empty head, base and branch', () => {
     const sparse = { id: 4, state: 'OPEN', links: { html: { href: 'https://bb/pr/4' } } };
     expect(bitbucketPrState(sparse, { '': { checks: 'green' } }, null)).toMatchObject({
+      head: '',
       headSha: '',
       base: '',
       checks: 'green',

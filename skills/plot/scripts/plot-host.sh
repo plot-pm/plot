@@ -2568,7 +2568,7 @@ rest_pr_to_state() {
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of,
+        mergeCommit: (.merge_commit_sha // ""), head: (.head.ref // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of,
         mergedAt: (.merged_at // "") }
   '
 }
@@ -4084,9 +4084,9 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt 2>"$HOST_ERR")"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefName,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}' <<<"$out"
+        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),head:(.headRefName // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}' <<<"$out"
       else
         host_err
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
