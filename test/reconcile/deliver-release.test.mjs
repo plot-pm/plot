@@ -35,6 +35,7 @@ function run(args, { cwd = repo, expectFail = false } = {}) {
       PLOT_HOST: 'github',
     };
     delete childEnv.PLOT_UNATTENDED;
+    if (process.env.GH_STUB_CALL_LOG) childEnv.GH_STUB_CALL_LOG = process.env.GH_STUB_CALL_LOG;
     const out = execFileSync('bash', [deliver, ...args], {
       encoding: 'utf8',
       cwd,
@@ -60,7 +61,9 @@ exec node "${stubDir}/gh.mjs" "$@"
 `);
   fs.chmodSync(path.join(stubDir, 'gh'), 0o755);
   fs.writeFileSync(path.join(stubDir, 'gh.mjs'), `
+import fs from 'node:fs';
 const argv = process.argv.slice(2);
+if (process.env.GH_STUB_CALL_LOG) fs.appendFileSync(process.env.GH_STUB_CALL_LOG, argv.join(' ') + '\\n');
 if (argv[0] === 'pr' && argv[1] === 'view') {
   const closed = (process.env.GH_STUB_CLOSED || '').split(',').includes(argv[2]);
   const sha = closed ? '' : process.env.GH_STUB_SHA || '';
@@ -162,6 +165,7 @@ function commitDate(ref) {
 beforeEach(() => {
   delete process.env.GH_STUB_SHA;
   delete process.env.GH_STUB_CLOSED;
+  delete process.env.GH_STUB_CALL_LOG;
 });
 
 test('release: a plan with no → #N annotation is refused, writing nothing', () => {
@@ -354,4 +358,71 @@ test('release: moves no index symlink — delivered/ stays as it was', () => {
   // unlike delivering, which moves active/ → delivered/.
   const lsTree = git(repo, 'ls-tree', 'origin/main', '--', 'docs/plans/active/');
   assert.match(lsTree, /release-me\.md/, 'the active/ symlink must survive a release');
+});
+
+// #3081 — A LOCAL `→ #N` MUST WIN OVER A HIGHER-NUMBERED FOREIGN ONE. Without
+// GH_STUB_CLOSED marking the foreign number closed, the stub would answer it
+// MERGED regardless of `--repo`, and the buggy "highest PR number" code would
+// pass these tests too — closing it is what makes a wrong implementation fail.
+
+test('release: a local PR wins over a higher-numbered foreign one', () => {
+  const { shippedSha } = makeRepo(DEFERRED_PLAN(`### Shipped
+- \`feature/alpha\` — the work → #33 → owner/other-repo#280
+`));
+  process.env.GH_STUB_SHA = shippedSha;
+  process.env.GH_STUB_CLOSED = '280';
+  tag('v0.1.0', shippedSha);
+
+  const r = run(['--release', '0.1.0', 'release-me']);
+  assert.match(r.out, /PR #33 merged/, `must resolve the local PR:\n${r.out}`);
+  refreshMain();
+  assert.match(planOnMain(), /- \*\*Released:\*\* .*v0\.1\.0/);
+});
+
+test('release: a foreign reference sharing the local PR number still resolves locally', () => {
+  const { shippedSha } = makeRepo(DEFERRED_PLAN(`### Shipped
+- \`feature/alpha\` — the work → #33 → owner/other-repo#33
+`));
+  process.env.GH_STUB_SHA = shippedSha;
+  tag('v0.1.0', shippedSha);
+
+  const r = run(['--release', '0.1.0', 'release-me']);
+  assert.match(r.out, /PR #33 merged/, `must still resolve:\n${r.out}`);
+  refreshMain();
+  assert.match(planOnMain(), /- \*\*Released:\*\* .*v0\.1\.0/);
+});
+
+test('release: a deferred foreign reference equal to the shipped local PR is dropped before counting', () => {
+  const { shippedSha } = makeRepo(DEFERRED_PLAN(`### Shipped
+- \`feature/alpha\` — the work → #33
+
+### Given up
+- \`feature/beta\` — not built <!-- deferred: 2026-10-09, PR closed on purpose --> → owner/other-repo#33
+`));
+  process.env.GH_STUB_SHA = shippedSha;
+  tag('v0.1.0', shippedSha);
+
+  const r = run(['--release', '0.1.0', 'release-me']);
+  assert.match(r.out, /PR #33 merged/, `must resolve the local, non-deferred PR:\n${r.out}`);
+  refreshMain();
+  assert.match(planOnMain(), /- \*\*Released:\*\* .*v0\.1\.0/);
+});
+
+test('release: an all-foreign plan books Released with all-prs-foreign, asking the host nothing', () => {
+  makeRepo(DEFERRED_PLAN(`### Shipped
+- \`feature/alpha\` — the work → owner/other-repo#280
+`));
+  const callLog = path.join(tmp, 'gh-calls.log');
+  process.env.GH_STUB_CALL_LOG = callLog;
+
+  const r = run(['--release', '0.1.0', 'release-me']);
+  assert.match(r.out, /all-prs-foreign/, `must name the reason:\n${r.out}`);
+  assert.match(r.out, /owner\/other-repo/, `must name the foreign repository:\n${r.out}`);
+  assert.ok(!fs.existsSync(callLog) || fs.readFileSync(callLog, 'utf8').trim() === '',
+    `must ask the host nothing — gh was called:\n${fs.existsSync(callLog) ? fs.readFileSync(callLog, 'utf8') : ''}`);
+
+  refreshMain();
+  const plan = planOnMain();
+  assert.match(plan, /- \*\*Phase:\*\* Released/, `phase must flip:\n${plan}`);
+  assert.match(plan, /- \*\*Released:\*\* .*v0\.1\.0/, `record must name the requested version:\n${plan}`);
 });

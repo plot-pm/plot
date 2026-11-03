@@ -1,22 +1,60 @@
 import { describe, expect, it } from 'vitest';
 
-import { releasePr, releaseTag } from '../src/rules/release-tag.js';
+import { releasePr, releaseTag, type ReleasePrRow } from '../src/rules/release-tag.js';
+
+const row = (repo: string, number: number, deferred = false): ReleasePrRow => ({
+  reference: { repo, number },
+  deferred,
+});
+
+const unannotated = (deferred = false): ReleasePrRow => ({ reference: null, deferred });
 
 describe('releasePr', () => {
-  it('reads the highest PR when no slice is deferred', () => {
-    expect(releasePr([1423, 1425], [])).toBe('1425');
+  it('answers local with the local PR when a higher-numbered foreign PR is also named', () => {
+    expect(releasePr([row('', 33), row('other/repo', 280)])).toEqual({
+      outcome: 'local',
+      numbers: [33],
+    });
   });
 
-  it('skips a deferred last slice and reads the earlier PR', () => {
-    expect(releasePr([1423, 1425], [1425])).toBe('1423');
+  it('answers local when a foreign reference shares the same number', () => {
+    expect(releasePr([row('', 33), row('other/repo', 33)])).toEqual({
+      outcome: 'local',
+      numbers: [33],
+    });
   });
 
-  it('answers none when the only PR-bearing slice is deferred', () => {
-    expect(releasePr([1425], [1425])).toBe('');
+  it('drops a deferred foreign reference before counting, even sharing the local number', () => {
+    expect(releasePr([row('', 33), row('other/repo', 33, true)])).toEqual({
+      outcome: 'local',
+      numbers: [33],
+    });
+  });
+
+  it('answers all-foreign with the repositories when every non-deferred reference is foreign', () => {
+    expect(releasePr([row('owner/one', 10), row('owner/two', 20)])).toEqual({
+      outcome: 'all-foreign',
+      repos: ['owner/one', 'owner/two'],
+    });
+  });
+
+  it('answers none when an unannotated non-deferred branch sits beside a foreign PR', () => {
+    expect(releasePr([row('other/repo', 280), unannotated()])).toEqual({ outcome: 'none' });
   });
 
   it('answers none when the plan names no PR', () => {
-    expect(releasePr([], [])).toBe('');
+    expect(releasePr([])).toEqual({ outcome: 'none' });
+  });
+
+  it('answers none when every reference is deferred', () => {
+    expect(releasePr([row('', 33, true)])).toEqual({ outcome: 'none' });
+  });
+
+  it('drops a deferred unannotated branch rather than forcing none', () => {
+    expect(releasePr([row('owner/one', 10), unannotated(true)])).toEqual({
+      outcome: 'all-foreign',
+      repos: ['owner/one'],
+    });
   });
 });
 
