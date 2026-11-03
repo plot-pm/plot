@@ -56,3 +56,5 @@ Jan Wloka decided on 2026-11-03, after reading this summary:
 - **F, G, H.** Typed invariant tests, two slices, and a changeset per slice.
 
 The plan's `## Design` records each decision and the rule it supersedes.
+
+Plan review of PR #3098 at `9f2037923` (HIGH 1, MEDIUM 2, LOW 2) was fixed in the plan without a new round; the plan's `## Notes` names what changed.
