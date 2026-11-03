@@ -429,10 +429,38 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
+    head: '', headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
-    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt']);
+    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefName,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt']);
+});
+
+// The merge controller reads `head` to admit a repair PR and to refuse a
+// release PR (#3058). An absent `head` read as '' and refused PR #3057.
+test('host: pr-state names the head branch on github, over GraphQL and REST', () => {
+  const gql = makeStubs({
+    ghJson: '{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefName":"bug/main-repair-6a321aee0df2"}',
+  });
+  assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: gql })).head,
+    'bug/main-repair-6a321aee0df2');
+  const rest = makeStubsRateAware({
+    restJson: JSON.stringify({
+      number: 7, state: 'open', draft: false, html_url: 'u', merged: false,
+      merge_commit_sha: null, head: { ref: 'changeset-release/main', sha: 'c'.repeat(40) },
+    }),
+  });
+  assert.equal(JSON.parse(run(['pr-state', '7'], {
+    env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs: rest,
+  })).head, 'changeset-release/main');
+});
+
+test('host: pr-state names the head branch on bitbucket', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":5,"state":"OPEN","source":{"branch":{"name":"bug/main-repair-6a321aee0df2"},"commit":{"hash":"sha-head"}},'
+      + '"links":{"html":{"href":"https://example.test/pr/5"}},"destination":{"branch":{"name":"main"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '5'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.head, 'bug/main-repair-6a321aee0df2', 'source.branch.name, from the payload already fetched');
 });
 
 // The desk's early merge reads `pr-state`'s `mergeable` (worker-loop.ts
@@ -856,7 +884,7 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
   });
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(out, {
-    number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', headSha: '', base: 'develop',
+    number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', head: '', headSha: '', base: 'develop',
     checks: 'unknown', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
 });
@@ -1051,7 +1079,7 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   });
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
-    number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
+    number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', head: 'feature/a', headSha: '', base: 'main',
     checks: 'unknown', checksSha: '', mergeable: 'unknown', mergeableReason: 'no head commit for this pull request', mergedAt: '',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
@@ -6898,7 +6926,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   });
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'unknown',
     mergeable: 'unknown', mergedAt: '',
   });
   const calls = callsOf(stubs.callsFile);
@@ -7082,7 +7110,7 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   // button has. The key is present because the arm always emits it; the value
   // is empty because there is nothing honest to put in it.
   assert.deepEqual(out, {
-    number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', headSha: '', base: '',
+    number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', head: '', headSha: '', base: '',
     checks: 'unknown', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
@@ -7868,7 +7896,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
     stubs,
   });
   assert.deepEqual(JSON.parse(out), {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'unknown',
     mergeable: 'unknown', mergedAt: '',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');

@@ -8,6 +8,7 @@ import { afterAll, afterEach, describe, it, expect, vi } from 'vitest';
 
 import { EXIT_PARTIAL } from '../src/adapters/host-exit.js';
 import { hostShell, refusalKindOfExit } from '../src/adapters/host/host-shell.js';
+import { merge } from '../src/workflows/merge.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 
 /** This repository's own `skills/plot/scripts`, for the cases that run the real script. */
@@ -1019,6 +1020,54 @@ describe('prState reads mergeability through the real script', () => {
     );
     const answer = await host.prState('feature/x');
     expect(answer).toMatchObject({ ok: true, value: { number: 7, mergeable: 'conflicting' } });
+  });
+
+  describe('the head branch reaches the merge controller (#3058)', () => {
+    const HEAD = 'a'.repeat(40);
+    const LAST_GREEN = '6a321aee0df2'.padEnd(40, '0');
+    const RED = 'f'.repeat(40);
+    const readPr = async (headRefName: string) => {
+      const answer = await hostShell(
+        githubWhoseGhSays({
+          number: 3057, state: 'OPEN', isDraft: false, url: 'u', headRefName, headRefOid: HEAD,
+          statusCheckRollup: [{ conclusion: 'SUCCESS' }], mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+        }),
+      ).prState(3057);
+      if (!answer.ok || answer.value === null) throw new Error('the stubbed host answered no PR');
+      return answer.value;
+    };
+    const mergeOnRed = async (headRefName: string) => {
+      const out = merge(
+        {
+          caller: 'person',
+          pr: await readPr(headRefName),
+          defaultBranch: {
+            v: 1, branch: 'main', headSha: RED, head: 'red', headSince: '2026-11-03T00:00:00Z',
+            settled: { sha: RED, state: 'red' }, failingRuns: [], askedAt: '2026-11-03T00:00:00Z', at: '2026-11-03T00:00:00Z',
+          },
+          defaultBranchTip: RED,
+          review: { sha: HEAD, state: 'success', description: '', time: '', bypass: false },
+          repair: {
+            record: {
+              v: 1, branch: 'main', state: 'idle', lastGreenSha: LAST_GREEN, firstRedSha: RED, redSince: '2026-11-03T00:00:00Z',
+              candidates: [], rerun: 'none', preRevertRerun: 'none', repairPr: 3057, at: '2026-11-03T00:00:00Z',
+            },
+            episode: 'open',
+            redRuns: 'red',
+          },
+        },
+        { pr: 3057, sha: HEAD, now: Date.parse('2026-11-03T00:10:00Z'), checksWaitMs: 3_600_000, minHexLen: 7 },
+      );
+      return out.outcome === 'refused' ? out.reason : out.outcome;
+    };
+
+    it('admits the repair PR from the episode branch on a red default branch', async () => {
+      expect(await mergeOnRed('bug/main-repair-6a321aee0df2')).toBe('decided');
+    });
+
+    it('refuses a changeset-release head as release-pr', async () => {
+      expect(await mergeOnRed('changeset-release/main')).toBe('release-pr');
+    });
   });
 
   it('answers mergeable for a PR GitHub reports MERGEABLE', async () => {

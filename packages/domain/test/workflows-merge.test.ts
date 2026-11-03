@@ -133,6 +133,12 @@ describe('merge — the controller for a PR merge', () => {
     expect(refusalOf(readings({ pr: 'unaskable' }))).toBe('unaskable');
   });
 
+  it('refuses unaskable when the host names no head branch, never passing the release-pr check', () => {
+    expect(refusalOf(readings({ pr: pr({ head: '' }) }))).toBe('unaskable');
+    const out = merge(readings({ pr: pr({ head: '' }) }), { pr: 42, sha: HEAD, ...CLOCK, viaReleaseApprove: true });
+    expect(out.outcome === 'refused' ? out.reason : out.outcome).toBe('unaskable');
+  });
+
   it('refuses unaskable when the host names no head', () => {
     expect(refusalOf(readings({ pr: pr({ headSha: undefined }) }))).toBe('unaskable');
     expect(refusalOf(readings({ pr: pr({ headSha: '' }) }))).toBe('unaskable');
