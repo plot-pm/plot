@@ -133,7 +133,7 @@
 #                                 that cannot move — so it carries
 #                                 `double_claims=` and stays out of
 #                                 `attention`.
-#  15. Stale interrogation rounds — a DRAFT plan whose recorded `Rounds:` value
+#  15. Stale interrogation rounds — a DRAFT OR DESIGN plan whose recorded `Rounds:` value
 #                                 predates its own last amendment, naming the
 #                                 round, the commit that last wrote it, and the
 #                                 commit that amended the plan after it. A plan
@@ -1991,7 +1991,7 @@ echo
 # ---------------------------------------------------------------------------
 # 13. Stale interrogation rounds
 #
-# A Draft plan whose recorded round predates its own last amendment. The
+# A Draft or Design plan whose recorded round predates its own last amendment. The
 # finding is the DISAGREEMENT between what the plan says it was questioned
 # through and what its text has become since — the case the board's badge gets
 # wrong, because the badge shows the number and the reader cannot see that the
@@ -2038,8 +2038,8 @@ echo
 # repo the file was added to whole), and one whose amendment is that same
 # commit.
 #
-# DRAFT PLANS ONLY. An Approved plan has already passed the review the
-# questioning feeds; a Draft plan is the one whose card a reader judges by the
+# DRAFT AND DESIGN PLANS ONLY. An Approved plan has already passed the review the
+# questioning feeds; a Draft or Design plan is the one whose card a reader judges by the
 # badge. A file with no `Phase:` is not a plan (phase == NONE) and never
 # reaches this test, the same rule sections 1, 7, 8 and 12 apply.
 #
@@ -2049,10 +2049,10 @@ echo
 # sprint drift, stale tallies, index drift and double claims each do. And it
 # sits below the `== blocking sections end ==` marker, which is what keeps it
 # out of /plot-deliver's gate — its number is not what does that.
-echo "== 15. Stale interrogation rounds (a Draft plan amended since its last round) =="
+echo "== 15. Stale interrogation rounds (a Draft or Design plan amended since its last round) =="
 rounds_out=""
 if [ -n "$plan_json" ]; then
-  # One jq pass, one record per Draft plan that RECORDS a round. `has("rounds")`
+  # One jq pass, one record per Draft or Design plan that RECORDS a round. `has("rounds")`
   # is the presence test the section turns on — see the note above on `0`.
   while IFS="$US" read -r f rounds; do
     [ -n "$f" ] || continue
@@ -2073,10 +2073,10 @@ if [ -n "$plan_json" ]; then
     n_rounds_drift=$((n_rounds_drift + 1))
   done < <(printf '%s\n' "$plan_json" \
     | jq -r --arg US "$US" '
-        select(.phase == "draft") | select(has("rounds"))
+        select(.phase == "draft" or .phase == "design") | select(has("rounds"))
         | [.file, (.rounds | tostring)] | join($US)')
 fi
-[ -n "$rounds_out" ] && printf '%b' "$rounds_out" || echo "  (none — no Draft plan has been amended since the round it records)"
+[ -n "$rounds_out" ] && printf '%b' "$rounds_out" || echo "  (none — no Draft or Design plan has been amended since the round it records)"
 echo
 
 # ---------------------------------------------------------------------------

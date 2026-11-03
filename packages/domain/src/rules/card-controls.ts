@@ -39,8 +39,9 @@ export interface CardControlsReadings {
  * The controls a plan card offers.
  *
  * `approve` and `interrogate` hold on the `draft` and `design` states.
- * `needsDesign` and `roundsBadge` hold on the `draft` state only: the
- * interrogation-rounds badge shows on a Draft card only. `dispatch` holds where `status` is `approved` or `in-progress`. `readyToStart` holds where
+ * `needsDesign` holds on the `draft` state only. `roundsBadge` holds on the
+ * `draft` and `design` states: the interrogation-rounds badge shows on a
+ * Draft or Design card. `dispatch` holds where `status` is `approved` or `in-progress`. `readyToStart` holds where
  * `dispatch` holds and the plan records no `Started:` entry.
  *
  * A control answers whether the card renders the button. It does not answer
@@ -76,7 +77,7 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
     approve: underReview && !waits,
     needsDesign: draft,
     interrogate: underReview,
-    roundsBadge: draft,
+    roundsBadge: underReview,
     dispatch,
     readyToStart: dispatch && !readings.started,
     approveSpike,
