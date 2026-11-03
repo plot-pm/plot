@@ -30,7 +30,7 @@ export type UnblockOutcome = z.infer<typeof UnblockOutcomeSchema>;
  */
 export const unblockOutcome = (output: string): UnblockOutcome => {
   const lines = output.split('\n');
-  const first = lines[0] ?? '';
+  const first = lines[0];
   if (first === 'ANSWER') {
     const text = lines.slice(1).join('\n').trim();
     return text === '' ? { kind: 'refused', why: 'unparseable-run' } : { kind: 'answer', text };
