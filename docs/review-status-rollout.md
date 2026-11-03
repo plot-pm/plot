@@ -143,12 +143,12 @@ holds the JWT-to-installation-token exchange both Apps share with the
 
 **Each key switches its identity on.** Each App is opt-in, and each `## Plot Config` key works independently of the other:
 
-| `## Plot Config` | Lifecycle push (`plot-push-main.sh`) | `pr-merge` on GitHub (`plot-host.sh`) |
-|---|---|---|
-| Key absent | Plain `git push origin <branch>:<default>` as the ambient git identity, plus one stderr line: `plot-push-main: Writer app not configured — pushing as the ambient git identity` | Plain `gh pr merge … --match-head-commit <sha>` as the signed-in `gh` identity, plus one stderr line: `plot-host: pr-merge — Merger app not configured — merging as the signed-in gh identity` |
-| Key declared and readable | Push as the Writer App installation | Merge as the Merger App installation |
-| Key malformed or key file unreadable | Refused by name with exit 4 from `plot-push-writer-app.mjs`, no push attempted | Refused by name with exit 4, no merge attempted |
-| `Writer app` and `Merger app` name the same App id | — | Refused by name with exit 4, no merge attempted |
+| `## Plot Config` | Lifecycle push (`plot-push-main.sh`) | `pr-merge` on GitHub (`plot-host.sh`) | fleetd's own merge arm (`auto-merge.ts`) |
+|---|---|---|---|
+| Key absent | Plain `git push origin <branch>:<default>` as the ambient git identity, plus one stderr line: `plot-push-main: Writer app not configured — pushing as the ambient git identity` | Plain `gh pr merge … --match-head-commit <sha>` as the signed-in `gh` identity, plus one stderr line: `plot-host: pr-merge — Merger app not configured — merging as the signed-in gh identity` | Holds every row: `merger-app-missing`, recorded once per (PR, head) as a `merge-hold` line |
+| Key declared and readable | Push as the Writer App installation | Merge as the Merger App installation | Attempts the merge, recorded as a `merge` line with outcome `merged as app` |
+| Key malformed or key file unreadable | Refused by name with exit 4 from `plot-push-writer-app.mjs`, no push attempted | Refused by name with exit 4, no merge attempted | Holds every row: `merger-app-invalid`, recorded once per (PR, head) as a `merge-hold` line |
+| `Writer app` and `Merger app` name the same App id | — | Refused by name with exit 4, no merge attempted | Holds every row: `merger-app-invalid`, recorded once per (PR, head) as a `merge-hold` line |
 
 Without the keys, the ruleset does not apply to an identity that holds `bypass_mode: always` — the #1730 behaviour. Declare `Merger app` to close it. A repository that is not on GitHub never reads either key.
 
@@ -209,7 +209,7 @@ point.
 4. Prove the write before relying on it: merge a scratch PR through
    `/plot-approve`'s or `/plot-dispatch`'s normal path and confirm the merge
    commit (or the PR's merged-by field) shows the App's bot identity
-   (`<app-slug>[bot]`), not the maintainer's account. A declared key that is malformed or unreadable refuses with exit 4 naming `Merger app` before any `gh pr merge` call. `plot-host.sh` asks `gh repo view` first to learn the repo name, and attempts no merge if the token mint fails.
+   (`<app-slug>[bot]`), not the maintainer's account. A declared key that is malformed or unreadable refuses with exit 4 naming `Merger app` before any `gh pr merge` call. `plot-host.sh` asks `gh repo view` first to learn the repo name, and attempts no merge if the token mint fails. The same proof holds for fleetd's own merge arm: a slice PR with green CI and `plot/review` success that fleetd merges with no `plot-ask.mjs merge` call and no person, evidenced by a `merge` record with outcome `merged as app` whose PR and head match the `gh pr view` read above.
 
 A declared key follows the same refusal discipline as `Review app`: a key that cannot be used refuses by name and never falls back. An absent key falls back to the ambient identity and says so on stderr. Neither installation token leaves its minting process except through a request header, `GH_TOKEN`, or (for the Writer App's push) a `GIT_ASKPASS` helper reading a mode-600 temp file — never a child's argv, a file committed anywhere, or a log line.
 

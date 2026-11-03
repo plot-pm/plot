@@ -36,6 +36,8 @@ const readings = (over: Partial<SlicePrNextReadings> = {}): SlicePrNextReadings 
   verdict: { read: 'absent' },
   defaultBranch: null,
   desk: { dead: false, why: 'live' },
+  backend: 'github',
+  mergerApp: { read: 'usable' },
   config: { autoReview: true, reviewBoundMs: 3_600_000, startBudget: 3, checksWaitMs: 3_600_000 },
   now: NOW,
   ...over,
@@ -402,10 +404,31 @@ describe('the merge arm', () => {
     expect(merging({ newestMerged: { mergedAt: '2026-10-30T11:50:00Z' } })).toMatchObject({ step: 'merge' });
   });
 
-  it('holds conflicting and merger-app-missing', () => {
+  it('holds conflicting', () => {
     expect(merging({ row: { ...passed, mergeable: 'CONFLICTING' } })).toEqual({ step: 'hold', reason: 'conflicting' });
-    expect(merging({ mergerAppMissing: true })).toEqual({ step: 'hold', reason: 'merger-app-missing' });
-    expect(merging({ mergerAppMissing: false })).toMatchObject({ step: 'merge' });
+  });
+
+  it('holds merger-app-missing for an absent key on GitHub', () => {
+    expect(merging({ backend: 'github', mergerApp: { read: 'absent' } })).toEqual({ step: 'hold', reason: 'merger-app-missing' });
+  });
+
+  it('holds merger-app-invalid for an invalid key on GitHub', () => {
+    expect(merging({ backend: 'github', mergerApp: { read: 'invalid', reason: 'malformed' } })).toEqual({
+      step: 'hold',
+      reason: 'merger-app-invalid',
+    });
+  });
+
+  it('holds merger-app-unread with no reading on GitHub', () => {
+    const { mergerApp: _, ...noReading } = readings();
+    expect(slicePrNext({ ...noReading, row: passed, defaultBranch: reading() })).toEqual({
+      step: 'hold',
+      reason: 'merger-app-unread',
+    });
+  });
+
+  it('merges with a usable key on GitHub', () => {
+    expect(merging({ backend: 'github', mergerApp: { read: 'usable' } })).toMatchObject({ step: 'merge' });
   });
 
   describe('the repair exception', () => {
@@ -468,6 +491,18 @@ describe('the merge arm', () => {
     it('admits the revert PR the open episode names from bug/revert-<pr>', () => {
       const record = { ...(repairMerge().record as object), repairPr: undefined, revertPr: 7 } as RepairMergeReading['record'];
       expect(onRed({ repairMerge: repairMerge({ record }) }, 'bug/revert-6')).toEqual({ step: 'merge', head: HEAD });
+    });
+
+    it('holds the admitted repair and revert PRs to the same merger check', () => {
+      expect(onRed({ backend: 'github', mergerApp: { read: 'absent' } })).toEqual({ step: 'hold', reason: 'merger-app-missing' });
+      expect(onRed({ backend: 'github', mergerApp: { read: 'usable' } })).toEqual({ step: 'merge', head: HEAD });
+      const record = { ...(repairMerge().record as object), repairPr: undefined, revertPr: 7 } as RepairMergeReading['record'];
+      expect(
+        onRed({ repairMerge: repairMerge({ record }), backend: 'github', mergerApp: { read: 'absent' } }, 'bug/revert-6'),
+      ).toEqual({ step: 'hold', reason: 'merger-app-missing' });
+      expect(
+        onRed({ repairMerge: repairMerge({ record }), backend: 'github', mergerApp: { read: 'usable' } }, 'bug/revert-6'),
+      ).toEqual({ step: 'merge', head: HEAD });
     });
 
     it('keeps an out-of-scope PR the record does not name out of scope', () => {

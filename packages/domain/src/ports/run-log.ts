@@ -21,12 +21,16 @@ import type { PortResult } from '../port-result.js';
  *   refused the start; the outcome names the refusal.
  * `ticket-open` — fleetd put a HIGH's findings on the PR's ticket, or refused.
  * `ticket-status` — fleetd wrote the accepted `plot/review` success for a ticketed HIGH, or refused.
+ * `merge` — fleetd tried a slice PR's merge; the outcome names the identity it
+ *   merged as, or the failure.
+ * `merge-hold` — `mergeIdentity` held a slice PR's merge rather than naming an
+ *   identity; the outcome names the hold reason.
  */
 // plot-state: classification — one action the delivery loop took on a slice,
 // or a notification it sent about one. A step never transitions into another:
 // a slice's next line may name any step, in any order, because the loop acts
 // on whatever the pulse shows it this tick.
-export const RunLogStepSchema = z.enum(['dispatch', 'correction', 'fresh-agent', 'deliver', 'notified', 'release-review', 'release-notified', 'fixer-start', 'fixer-end', 'review-start', 'ticket-open', 'ticket-status']);
+export const RunLogStepSchema = z.enum(['dispatch', 'correction', 'fresh-agent', 'deliver', 'notified', 'release-review', 'release-notified', 'fixer-start', 'fixer-end', 'review-start', 'ticket-open', 'ticket-status', 'merge', 'merge-hold']);
 export type RunLogStep = z.infer<typeof RunLogStepSchema>;
 
 /**

@@ -58,6 +58,8 @@ export const fleetAutoWrites = (
   const reviewLogged = new Set<string>();
   // THE TICKET REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const ticketLogged = new Set<string>();
+  // THE MERGER-APP HOLDS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
+  const mergeLogged = new Set<string>();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -89,7 +91,7 @@ export const fleetAutoWrites = (
       await runAutoTicketPass(opts, ticketLogged);
       // ONE MERGE PER PASS, after delivery has read the merges already landed.
       // Under `--once` the scan clock does not run, so this never does either.
-      await runAutoMergePass(opts, mergeRefused);
+      await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.
       await runAutoVerifyPass(opts, pulse, {

@@ -5,15 +5,19 @@
 // argv.
 //
 // Usage: plot-merger-token.mjs <owner/repo>
-// Output: the installation token, and nothing else, on stdout.
+//        plot-merger-token.mjs --check
+// Output: the installation token, and nothing else, on stdout. `--check`
+//         prints nothing on stdout ever — it answers only through its exit
+//         code, and mints no token, so a usable key costs no network call.
 // Exit: 5 with one notice line on stderr and nothing on stdout where
 //       ## Plot Config declares no `Merger app` key, so the caller merges as
 //       the signed-in `gh` identity. 4, naming the key, where `Merger app` is
 //       declared but malformed, its key file cannot be read, or it names the
 //       SAME App id as `Writer app` (one credential doing both jobs is
 //       forbidden — a merge by it would carry the writer's branch-protection
-//       bypass). 3 where the exchange itself fails. 0 with the token on
-//       stdout otherwise.
+//       bypass). 3 where the exchange itself fails (not reachable from
+//       `--check`, which exchanges nothing). 0 with the token on stdout
+//       otherwise, or with nothing on stdout for `--check`.
 //
 // NO CREDENTIAL LEAVES THIS PROCESS except in a request header. The JWT and
 // the installation token travel through `fetch`; the token this script
@@ -30,22 +34,47 @@ const refuse = (code, message) => {
   process.exit(code);
 };
 
-const [repo] = process.argv.slice(2);
-if (!repo) refuse(1, 'usage: plot-merger-token.mjs <owner/repo>');
+/**
+ * `resolveApp('Merger app', ...)` plus the same-id-as-Writer check, the one
+ * piece of validity `resolveApp` itself does not cover. Shared by the minting
+ * path and `--check` so neither reimplements it.
+ */
+const checkMergerApp = () => {
+  const { app, absent, reason } = resolveApp('Merger app', here);
+  if (absent) return { app: null, absent: true, reason: 'Merger app not configured — merging as the signed-in gh identity' };
+  if (!app) return { app: null, absent: false, reason };
 
-const { app, absent, reason } = resolveApp('Merger app', here);
-if (absent) refuse(5, 'Merger app not configured — merging as the signed-in gh identity');
-if (!app) refuse(4, reason);
+  // Two jobs on one credential is explicitly forbidden: a merger sharing the
+  // writer's App id would carry the writer's bypass-list membership into a
+  // merge, defeating the reason two identities exist at all. The writer key
+  // may legitimately be absent (not every caller of pr-merge also pushes), so
+  // only a NAMED, matching id refuses here.
+  const writer = resolveApp('Writer app', here);
+  if (writer.app && writer.app.appId === app.appId) {
+    return {
+      app: null,
+      absent: false,
+      reason: `'Merger app' and 'Writer app' name the same App id (${app.appId}); one credential cannot hold both jobs`,
+    };
+  }
+  return { app, absent: false, reason: null };
+};
 
-// Two jobs on one credential is explicitly forbidden: a merger sharing the
-// writer's App id would carry the writer's bypass-list membership into a
-// merge, defeating the reason two identities exist at all. The writer key
-// may legitimately be absent (not every caller of pr-merge also pushes), so
-// only a NAMED, matching id refuses here.
-const writer = resolveApp('Writer app', here);
-if (writer.app && writer.app.appId === app.appId) {
-  refuse(4, `'Merger app' and 'Writer app' name the same App id (${app.appId}); one credential cannot hold both jobs`);
+const [arg] = process.argv.slice(2);
+
+if (arg === '--check') {
+  const { app, absent, reason } = checkMergerApp();
+  if (absent) refuse(5, reason);
+  if (!app) refuse(4, reason);
+  process.exit(0);
 }
+
+const repo = arg;
+if (!repo) refuse(1, 'usage: plot-merger-token.mjs <owner/repo> | --check');
+
+const { app, absent, reason } = checkMergerApp();
+if (absent) refuse(5, reason);
+if (!app) refuse(4, reason);
 
 const { token, error } = await installationToken(app, repo);
 if (!token) refuse(3, error);
