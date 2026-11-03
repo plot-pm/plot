@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3095 merged
+- **Started:** 2026-11-03, Jan Wloka, `bug/the-queue-hands-out-an-approved-spike`
 
 ## Changelog
 
