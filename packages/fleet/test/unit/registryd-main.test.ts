@@ -1,9 +1,12 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { refusedSlicesFixture, runLogFixture } from '@plot-pm/domain/adapters';
+import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
+import type { AgentRun, AgentRunEnd, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
+import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
+import { QUESTION_MAX } from '../../src/shared/worker-question.js';
 import { join } from 'node:path';
 import { connect, createServer } from 'node:net';
 
@@ -27,6 +30,8 @@ import {
   settleOnce,
   spendForTick,
   startAgents,
+  unblockWorldForRepo,
+  unblockPortsFor,
   worldForRepo,
   writersFor,
   writeSupervisionReport,
@@ -43,9 +48,10 @@ import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
 import { answered, failed, unaskable, PR_INDEX_VERSION } from '@plot-pm/domain';
-import { TICK_INTERVAL_MS, type TickReport } from '../../src/server/entry/registryd.js';
+import { TICK_INTERVAL_MS, applyUnblockDecisions, tick, type TickReport } from '../../src/server/entry/registryd.js';
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/shared/supervisor.js';
 import type { AgentEntry } from '../../src/shared/registry.js';
+import type { UnblockWrite } from '@plot-pm/domain/workflows/decision';
 
 const manifest = (over: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -3069,5 +3075,261 @@ describe('settleOnce — --once must not cut off a write still draining (#1539)'
 
     expect(ends).toEqual([1]);
     expect(err.join('')).toContain('plot-fleetd failed to start: missing registry directory');
+  });
+});
+
+describe('unblockWorldForRepo and unblockPortsFor — the production wiring', () => {
+  const dirs: string[] = [];
+  // A SCRATCH `repoRoot` IS NOT A GIT REPOSITORY, so `answerRecordFile`'s own
+  // `git rev-parse --git-common-dir` (`answer-record-file.ts:90`) finds no
+  // record directory — the override env var is the same escape
+  // `continuation.test.ts` uses for the same reason.
+  const recordHome = mkdtempSync(join(tmpdir(), 'plot-unblock-wiring-record-'));
+  beforeAll(() => {
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+  });
+  afterAll(() => {
+    delete process.env[ANSWER_RECORD_HOME_ENV];
+    dirs.push(recordHome);
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * A repository that is its own main checkout (`mainCheckout` returns
+   * `repoRoot` with no git history needed) and a `scripts/` directory whose
+   * `plot-config.sh` answers `Worker command` with `true` and everything
+   * else with the caller's own fallback — the same minimal config fixture
+   * `continueOnDesk accepts a fleetd caller` (`continuation.test.ts:147`)
+   * uses inline, built here as real scripts because `unblockPortsFor` reads
+   * config through `scriptsShell`, not through an injectable `readCfg`.
+   */
+  const fixture = (): { repoRoot: string; scriptsDir: string } => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'plot-unblock-wiring-repo-'));
+    const scriptsDir = mkdtempSync(join(tmpdir(), 'plot-unblock-wiring-scripts-'));
+    dirs.push(repoRoot, scriptsDir);
+    writeFileSync(
+      join(scriptsDir, 'plot-config.sh'),
+      '#!/usr/bin/env bash\nif [ "$2" = "Worker command" ]; then echo true; else echo "$3"; fi\n',
+    );
+    chmodSync(join(scriptsDir, 'plot-config.sh'), 0o755);
+    // `processesShell.workerState` sources this file and calls `plot_worker_state`
+    // (`processes-shell.ts:168`) — a real `waiting` answer, not a stubbed port,
+    // is what proves `unblockWorldForRepo`'s `deskDead` reads production code.
+    writeFileSync(join(scriptsDir, 'plot-worker-state.sh'), 'plot_worker_state() {\n  printf "waiting\\t\\t\\t\\n"\n}\n');
+    return { repoRoot, scriptsDir };
+  };
+
+  it('unblockWorldForRepo reads a real marker and answerCap through real config', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+    const world = unblockWorldForRepo(repoRoot, scriptsDir);
+    const marker = await world.marker(repoRoot);
+    expect(marker?.firstLine).toBe('PLOT-BLOCKED: which adapter?');
+    expect(await world.answerCap()).toBe(2);
+    expect(await world.startedCount(repoRoot)).toBe(0);
+    expect(await world.liveFixer(repoRoot)).toBe(false);
+  });
+
+  it(
+    'the production-built options builder returns a defined unblock, and a tick with an ' +
+      'untagged marker on a waiting desk yields one unblock write, one run call and a started row',
+    async () => {
+      const { repoRoot, scriptsDir } = fixture();
+      writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+
+      // `continueOnDesk` refuses `no-manifest` unless some agent registry entry
+      // names this worktree (`deskManifestFor`, `manifest-stamp.ts:248`) — a real
+      // file under a real `manifestDir`, matching `deskWithMarker`'s fixture in
+      // `continuation.test.ts:337`.
+      const manifestDir = mkdtempSync(join(tmpdir(), 'plot-unblock-wiring-manifests-'));
+      dirs.push(manifestDir);
+      writeFileSync(join(manifestDir, 'sess.json'), JSON.stringify({ session: 'sess', branch: 'feature/waiting', worktree: repoRoot, pid: '424242' }));
+
+      const unblock = unblockWorldForRepo(repoRoot, scriptsDir);
+      expect(unblock).toBeDefined();
+
+      let runCalls = 0;
+      const ports = unblockPortsFor({
+        repoRoot,
+        scriptsDir,
+        boardOpts: { repoRoot, scriptsDir, manifestDir } as unknown as { repoRoot: string; scriptsDir: string },
+        // THE ROLE RUN ITSELF IS STUBBED: proving `unblockWorldForRepo`'s and
+        // `unblockPortsFor`'s own wiring does not require a real `.claude/agents`
+        // definition or a real `claude` binary on PATH — `unblockOutcome`'s
+        // parser and `agentRunCommand`'s spawn are each tested on their own.
+        readRoleFile: () => null,
+      });
+      ports.run = async () => {
+        runCalls += 1;
+        return { ok: true, output: 'ANSWER\nuse the shell adapter' };
+      };
+
+      const report = await tick({
+        registry: async () => [
+          {
+            session: 'a1b2c3',
+            resumeId: 'a1b2c3',
+            identity: 'manifest',
+            branch: 'feature/waiting',
+            worktree: repoRoot,
+            command: 'plot-worker-loop.sh',
+            startedAt: '2026-11-03T10:00:00Z',
+            pid: '4242',
+            previousPid: '',
+            relaunches: 0,
+            attempts: 0,
+            state: 'none',
+          } as AgentEntry,
+        ],
+        world: {
+          workerAlive: async () => true,
+          merge: async () => 'merged',
+          dirtyPath: async () => '',
+          blockedMarker: async () => '',
+          changesets: async () => [],
+          workspacePackages: async () => [],
+          planLine: async () => ({ prs: [], deferred: false, deferredReason: '' }),
+          madeProgress: async () => true,
+          headroom: async () => 'clear',
+          deskFile: () => null,
+          transcriptFound: () => true,
+        } as SupervisorWorld,
+        unblock,
+      });
+      const writes = report.decision.writes.filter((w): w is UnblockWrite => w.kind === 'unblock');
+      expect(writes).toHaveLength(1);
+      expect(writes[0]!.worktree).toBe(repoRoot);
+
+      const applied = await applyUnblockDecisions(writes, ports);
+      expect(runCalls).toBe(1);
+      expect(applied).toHaveLength(1);
+      expect(applied[0]!.outcome, applied[0]?.detail).toBe('started');
+    },
+  );
+});
+
+describe('unblockPortsFor — the role run the unblocker gets', () => {
+  const dirs: string[] = [];
+  const recordHome = mkdtempSync(join(tmpdir(), 'plot-unblock-run-record-'));
+  dirs.push(recordHome);
+  beforeAll(() => {
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+  });
+  afterAll(() => {
+    delete process.env[ANSWER_RECORD_HOME_ENV];
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  // `.claude/agents/unblocker.md` FROM THIS CHECKOUT, so `roleAgentsJson` and
+  // `roleCommand` read the real definition.
+  const roleText = readFileSync(join(__dirname, '../../../../.claude/agents/unblocker.md'), 'utf8');
+  const question3048 = readFileSync(join(__dirname, '../fixtures/unblocked-question-3048.txt'), 'utf8');
+
+  const ranResult = (end: AgentRunEnd, finalText: string): PortResult<AgentRunResult> =>
+    answered({
+      sessionId: 's',
+      end,
+      usageByModel: {},
+      costUsd: null,
+      costUsdByModel: {},
+      turns: 1,
+      limitReadings: [],
+      account: null,
+      finalText,
+    } as unknown as AgentRunResult);
+
+  const setup = (end: AgentRunEnd, finalText: string) => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'plot-unblock-run-repo-'));
+    const scriptsDir = mkdtempSync(join(tmpdir(), 'plot-unblock-run-scripts-'));
+    dirs.push(repoRoot, scriptsDir);
+    writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), question3048);
+    const seen: { fragment: string; request: AgentRunRequest | null } = { fragment: '', request: null };
+    let starts = 0;
+    const ports = unblockPortsFor({
+      repoRoot,
+      scriptsDir,
+      boardOpts: { repoRoot, scriptsDir },
+      readRoleFile: () => roleText,
+      agentSettingsFile: (main) => join(main, '.plot', 'agent-settings.json'),
+      agentRun: (fragment) => {
+        seen.fragment = fragment;
+        return {
+          run: async (request: AgentRunRequest) => {
+            seen.request = request;
+            return ranResult(end, finalText);
+          },
+        } as unknown as AgentRun;
+      },
+    });
+    ports.start = async ({ beforeStart }) => {
+      starts += 1;
+      await beforeStart();
+      return { kind: 'started', pid: '4242', previousPid: '', prompt: '', log: '' };
+    };
+    const write: UnblockWrite = {
+      kind: 'unblock',
+      worktree: repoRoot,
+      branch: 'feature/the-scan-script-is-a-launcher',
+      askedAt: '2026-11-03T09:21:39.000Z',
+    };
+    return { repoRoot, ports, seen, write, starts: () => starts };
+  };
+
+  it('puts the marker`s whole question in the prompt and the `started` row, not the 120-character note (#3048)', async () => {
+    const { repoRoot, ports, seen, write } = setup({ answer: 'ran', handBack: null }, 'ANSWER\nclose the gaps here');
+    const whole = question3048.trim();
+    expect(whole.length).toBeGreaterThan(QUESTION_MAX);
+
+    const applied = await applyUnblockDecisions([write], ports);
+
+    expect(applied[0]!.outcome, applied[0]?.detail).toBe('started');
+    expect(seen.request?.prompt).toBe(whole);
+    const rows = await answerRecordFile({ cwd: repoRoot }).rowsForDesk(repoRoot);
+    expect(rows.ok && rows.value.map((row) => [row.outcome, row.question])).toEqual([['started', whole]]);
+  });
+
+  it('bounds the run in time and adds the agent settings as a second `--settings`', async () => {
+    const { repoRoot, ports, seen, write } = setup({ answer: 'ran', handBack: null }, 'ANSWER\nyes');
+    await applyUnblockDecisions([write], ports);
+    expect(UNBLOCKER_BOUND_SECONDS).toBeGreaterThan(0);
+    expect(seen.request?.boundSeconds).toBe(UNBLOCKER_BOUND_SECONDS);
+    expect(seen.fragment).toContain(`--settings '${join(repoRoot, '.plot', 'agent-settings.json')}'`);
+  });
+
+  it('records `failed run ended bound` for a run that reached its bound, and never parses its output', async () => {
+    const { repoRoot, ports, write, starts } = setup({ answer: 'bound' }, 'ANSWER\nhalf an answer');
+    const applied = await applyUnblockDecisions([write], ports);
+    expect(applied).toEqual([{ branch: write.branch, outcome: 'failed', detail: 'run ended bound' }]);
+    expect(starts()).toBe(0);
+    const rows = await answerRecordFile({ cwd: repoRoot }).rowsForDesk(repoRoot);
+    expect(rows.ok && rows.value.map((row) => row.outcome)).toEqual(['failed run ended bound']);
+  });
+});
+
+describe('unblockWorldForRepo — an unread answer record', () => {
+  it('reads `null` outcomes and a `null` started count where the record does not read', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'plot-unblock-unread-'));
+    const repoRoot = mkdtempSync(join(tmpdir(), 'plot-unblock-unread-repo-'));
+    // A DIRECTORY WHERE THE FILE BELONGS: `readFile` fails with EISDIR, not ENOENT.
+    mkdirSync(join(home, 'answers.tsv'));
+    process.env[ANSWER_RECORD_HOME_ENV] = home;
+    try {
+      const world = unblockWorldForRepo(repoRoot, repoRoot);
+      expect(await world.recordedOutcomes(repoRoot, '2026-11-03T09:21:39.000Z')).toBeNull();
+      expect(await world.startedCount(repoRoot)).toBeNull();
+    } finally {
+      delete process.env[ANSWER_RECORD_HOME_ENV];
+      rmSync(home, { recursive: true, force: true });
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('answers `liveFixer` from the live-run reading it is given', async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'plot-unblock-live-repo-'));
+    try {
+      expect(await unblockWorldForRepo(repoRoot, repoRoot, () => true).liveFixer(repoRoot)).toBe(true);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });

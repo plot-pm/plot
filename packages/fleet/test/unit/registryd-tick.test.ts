@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,6 +24,7 @@ import {
   type TickReport,
   type UnblockWorld,
   applyUnblockDecisions,
+  unblockApplier,
   unblockLines,
   type UnblockPorts,
 } from '../../src/server/entry/registryd.js';
@@ -1475,6 +1476,8 @@ describe('the tick decides whether fleetd should answer a desk\'s own question',
     deskDead: async () => WAITING,
     liveFixer: async () => false,
     recordedOutcomes: async () => [],
+    startedCount: async () => 0,
+    answerCap: async () => 2,
     ...over,
   });
 
@@ -1554,6 +1557,68 @@ describe('the tick decides whether fleetd should answer a desk\'s own question',
     });
     expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
   });
+
+  it('writes a tagged `answer-cap` unblock once the desk already holds `Correction budget` started rows, and starts no run', async () => {
+    const marker: MarkerReading = { firstLine: 'which adapter?', askedAt: '2026-10-05T13:36:00.000Z' };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      unblock: unblock({ marker: async () => marker, startedCount: async () => 2, answerCap: async () => 2 }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([
+      {
+        kind: 'unblock',
+        worktree: '/estate/.worktrees/feature-one',
+        branch: 'feature/one',
+        askedAt: '2026-10-05T13:36:00.000Z',
+        refused: 'answer-cap',
+      },
+    ]);
+  });
+
+  it('picks the OLDEST eligible marker across three desks, and writes only that one', async () => {
+    const markers: Record<string, MarkerReading> = {
+      '/estate/.worktrees/feature-one': { firstLine: 'a', askedAt: '2026-10-05T13:36:00.000Z' },
+      '/estate/.worktrees/feature-two': { firstLine: 'b', askedAt: '2026-10-05T12:00:00.000Z' },
+      '/estate/.worktrees/feature-three': { firstLine: 'c', askedAt: '2026-10-05T14:00:00.000Z' },
+    };
+    const report = await tick({
+      registry: async () => [
+        manifest({ branch: 'feature/one', worktree: '/estate/.worktrees/feature-one' }),
+        manifest({ branch: 'feature/two', worktree: '/estate/.worktrees/feature-two' }),
+        manifest({ branch: 'feature/three', worktree: '/estate/.worktrees/feature-three' }),
+      ],
+      world: world({ workerAlive: async () => true }),
+      unblock: unblock({ marker: async (worktree) => markers[worktree] ?? null }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([
+      {
+        kind: 'unblock',
+        worktree: '/estate/.worktrees/feature-two',
+        branch: 'feature/two',
+        askedAt: '2026-10-05T12:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('writes nothing fleet-wide while any desk already has a live unblocker run, however old its own marker is', async () => {
+    const markers: Record<string, MarkerReading> = {
+      '/estate/.worktrees/feature-one': { firstLine: 'a', askedAt: '2026-10-05T13:36:00.000Z' },
+      '/estate/.worktrees/feature-two': { firstLine: 'b', askedAt: '2026-10-05T12:00:00.000Z' },
+    };
+    const report = await tick({
+      registry: async () => [
+        manifest({ branch: 'feature/one', worktree: '/estate/.worktrees/feature-one' }),
+        manifest({ branch: 'feature/two', worktree: '/estate/.worktrees/feature-two' }),
+      ],
+      world: world({ workerAlive: async () => true }),
+      unblock: unblock({
+        marker: async (worktree) => markers[worktree] ?? null,
+        liveFixer: async (worktree) => worktree === '/estate/.worktrees/feature-one',
+      }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
+  });
 });
 
 describe('applyUnblockDecisions — running the unblocker and handing its answer to continue', () => {
@@ -1567,7 +1632,7 @@ describe('applyUnblockDecisions — running the unblocker and handing its answer
 
   const ports = (over: Partial<UnblockPorts> = {}): UnblockPorts => ({
     record: { append: async () => ({ ok: true }) },
-    run: async () => ({ ok: true, answer: 'use adapter B' }),
+    run: async () => ({ ok: true, output: 'ANSWER\nuse adapter B' }),
     start: async (input) => {
       await input.beforeStart();
       return { kind: 'started', pid: '999', previousPid: '888', prompt: 'p', log: 'l' };
@@ -1577,13 +1642,13 @@ describe('applyUnblockDecisions — running the unblocker and handing its answer
     ...over,
   });
 
-  it('runs the unblocker, records the answer, and reports `answered` on a successful start', async () => {
+  it('runs the unblocker, records the answer, and reports `started` on a successful continue', async () => {
     let appended: unknown;
     const applied = await applyUnblockDecisions(
       [write()],
       ports({ record: { append: async (row) => ((appended = row), { ok: true }) } }),
     );
-    expect(applied).toEqual([{ branch: 'feature/one', outcome: 'answered', detail: 'unblocker answered, pid 999' }]);
+    expect(applied).toEqual([{ branch: 'feature/one', outcome: 'started', detail: 'unblocker answered, pid 999' }]);
     expect(appended).toEqual(
       expect.objectContaining({
         worktree: '/estate/.worktrees/feature-one',
@@ -1595,37 +1660,73 @@ describe('applyUnblockDecisions — running the unblocker and handing its answer
     );
   });
 
-  it('surfaces a `question-moved` refusal from `start` as `refused`, and writes nothing on the desk', async () => {
+  it('records `escalated answer-cap` and calls neither `run` nor `start`, on a write tagged `refused: \'answer-cap\'`', async () => {
+    const rows: unknown[] = [];
+    let ran = false;
+    let started = false;
+    const applied = await applyUnblockDecisions(
+      [write({ refused: 'answer-cap' })],
+      ports({
+        record: { append: async (row) => (rows.push(row), { ok: true }) },
+        run: async () => {
+          ran = true;
+          return { ok: true, output: 'ANSWER\nuse adapter B' };
+        },
+        start: async () => {
+          started = true;
+          return { kind: 'started', pid: '999', previousPid: '888', prompt: 'p', log: 'l' };
+        },
+      }),
+    );
+    expect(applied).toEqual([{ branch: 'feature/one', outcome: 'escalated', detail: 'answer-cap' }]);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        worktree: '/estate/.worktrees/feature-one',
+        askedAt: '2026-10-05T13:36:00.000Z',
+        author: 'unblocker',
+        outcome: 'escalated answer-cap',
+      }),
+    ]);
+    expect(ran).toBe(false);
+    expect(started).toBe(false);
+  });
+
+  it('surfaces a `question-moved` refusal from `start` as `refused`, written after the row `continueOnDesk` already wrote', async () => {
     // THE REFUSAL ITSELF IS CONTINUEONDESK'S, ALREADY BUILT — this asserts the
     // applier passes it through rather than swallowing or miscategorising it.
+    const rows: unknown[] = [];
     const applied = await applyUnblockDecisions(
       [write()],
       ports({
+        record: { append: async (row) => (rows.push(row), { ok: true }) },
         start: async () => ({ kind: 'refused', status: 409, reason: 'question-moved', detail: 'the marker changed' }),
       }),
     );
     expect(applied).toEqual([
       { branch: 'feature/one', outcome: 'refused', detail: 'continue refused (question-moved): the marker changed' },
     ]);
+    expect(rows).toEqual([expect.objectContaining({ outcome: 'refused question-moved' })]);
   });
 
-  it('records nothing and reports `run-failed` when the unblocker run itself fails', async () => {
-    let appended = false;
+  it('records `failed <detail>` and reports `failed` when the unblocker run itself fails', async () => {
+    let appended: unknown;
     const applied = await applyUnblockDecisions(
       [write()],
       ports({
         run: async () => ({ ok: false, detail: 'role run timed out' }),
-        record: { append: async () => ((appended = true), { ok: true }) },
+        record: { append: async (row) => ((appended = row), { ok: true }) },
       }),
     );
-    expect(applied).toEqual([{ branch: 'feature/one', outcome: 'run-failed', detail: 'role run timed out' }]);
-    expect(appended).toBe(false);
+    expect(applied).toEqual([{ branch: 'feature/one', outcome: 'failed', detail: 'role run timed out' }]);
+    expect(appended).toEqual(expect.objectContaining({ outcome: 'failed role run timed out' }));
   });
 
-  it('reports `threw` for one desk without stopping the rest', async () => {
+  it('reports `failed` for one desk without stopping the rest, and still records that desk\'s row', async () => {
+    const rows: unknown[] = [];
     const applied = await applyUnblockDecisions(
       [write({ branch: 'feature/one' }), write({ branch: 'feature/two', worktree: '/estate/.worktrees/feature-two' })],
       ports({
+        record: { append: async (row) => (rows.push(row), { ok: true }) },
         question: async (worktree) => {
           if (worktree === '/estate/.worktrees/feature-one') throw new Error('disk gone');
           return 'which adapter?';
@@ -1633,20 +1734,196 @@ describe('applyUnblockDecisions — running the unblocker and handing its answer
       }),
     );
     expect(applied).toEqual([
-      { branch: 'feature/one', outcome: 'threw', detail: 'disk gone' },
-      { branch: 'feature/two', outcome: 'answered', detail: 'unblocker answered, pid 999' },
+      { branch: 'feature/one', outcome: 'failed', detail: 'disk gone' },
+      { branch: 'feature/two', outcome: 'started', detail: 'unblocker answered, pid 999' },
     ]);
+    expect(rows).toEqual([
+      expect.objectContaining({ worktree: '/estate/.worktrees/feature-one', outcome: 'failed disk gone' }),
+      expect.objectContaining({ worktree: '/estate/.worktrees/feature-two', outcome: 'started' }),
+    ]);
+  });
+
+  it('refuses `unparseable-run` and records it when the run output carries neither prefix', async () => {
+    let appended: unknown;
+    const applied = await applyUnblockDecisions(
+      [write()],
+      ports({
+        run: async () => ({ ok: true, output: 'I think the answer is adapter B.' }),
+        record: { append: async (row) => ((appended = row), { ok: true }) },
+      }),
+    );
+    expect(applied).toEqual([{ branch: 'feature/one', outcome: 'refused', detail: 'unparseable-run' }]);
+    expect(appended).toEqual(expect.objectContaining({ outcome: 'refused unparseable-run' }));
+  });
+
+  // THE FIXTURE IS A REAL `PLOT-BLOCKED:` QUESTION FROM `.plot/state/refusals.tsv`,
+  // row 16, verbatim — a scope question an unblocker run genuinely cannot
+  // decide, which is why its answer escalates rather than answers.
+  it('records `escalated <reason>` and calls `continue` never, on an ESCALATE answer', async () => {
+    const question3048 = readFileSync(
+      join(__dirname, '../fixtures/unblocked-question-3048.txt'),
+      'utf8',
+    ).trim();
+    const rows: unknown[] = [];
+    let started = false;
+    const applied = await applyUnblockDecisions(
+      [write()],
+      ports({
+        question: async () => question3048,
+        run: async () => ({ ok: true, output: 'ESCALATE: scope adds a slice, which this run cannot decide' }),
+        record: { append: async (row) => (rows.push(row), { ok: true }) },
+        start: async () => {
+          started = true;
+          return { kind: 'started', pid: '1', previousPid: '', prompt: '', log: '' };
+        },
+      }),
+    );
+    expect(applied).toEqual([
+      { branch: 'feature/one', outcome: 'escalated', detail: 'scope adds a slice, which this run cannot decide' },
+    ]);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        question: question3048,
+        outcome: 'escalated scope adds a slice, which this run cannot decide',
+      }),
+    ]);
+    expect(started).toBe(false);
+  });
+
+  it('starts no run for the same key once a `failed` row is recorded — the retry bound', async () => {
+    const marker: MarkerReading = { firstLine: 'x', askedAt: '2026-10-05T13:36:00.000Z' };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      unblock: {
+        marker: async () => marker,
+        deskDead: async () => WAITING,
+        liveFixer: async () => false,
+        recordedOutcomes: async () => ['failed role run timed out'],
+        startedCount: async () => 0,
+        answerCap: async () => 2,
+      },
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
+  });
+
+  it('starts no run for a desk whose answer record did not read — `record-unread`', async () => {
+    const marker: MarkerReading = { firstLine: 'x', askedAt: '2026-10-05T13:36:00.000Z' };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      unblock: {
+        marker: async () => marker,
+        deskDead: async () => WAITING,
+        liveFixer: async () => false,
+        recordedOutcomes: async () => null,
+        startedCount: async () => null,
+        answerCap: async () => 2,
+      },
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
+  });
+});
+
+describe('unblockApplier — the unblocker runs off the tick loop', () => {
+  const write = (): UnblockWrite => ({
+    kind: 'unblock',
+    worktree: '/estate/.worktrees/feature-one',
+    branch: 'feature/one',
+    askedAt: '2026-10-05T13:36:00.000Z',
+  });
+
+  it('returns before a run ends, starts no second batch while one is live, and reports when it ends', async () => {
+    let finish: (value: { ok: true; output: string }) => void = () => {};
+    let runs = 0;
+    const reported: unknown[] = [];
+    const applier = unblockApplier(
+      {
+        record: { append: async () => ({ ok: true }) },
+        run: () => {
+          runs += 1;
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        },
+        start: async (input) => {
+          await input.beforeStart();
+          return { kind: 'started', pid: '999', previousPid: '', prompt: 'p', log: 'l' };
+        },
+        question: async () => 'which adapter?',
+        now: () => new Date('2026-10-05T14:00:00.000Z'),
+      },
+      (applied) => reported.push(...applied),
+      (error) => reported.push(error),
+    );
+
+    expect(applier.apply([write()])).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(runs).toBe(1);
+    expect(applier.live()).toBe(true);
+    expect(applier.apply([write()])).toBe(false);
+    expect(runs).toBe(1);
+    expect(reported).toEqual([]);
+
+    finish({ ok: true, output: 'ANSWER\nuse adapter B' });
+    await applier.settled();
+    expect(applier.live()).toBe(false);
+    expect(reported).toEqual([{ branch: 'feature/one', outcome: 'started', detail: 'unblocker answered, pid 999' }]);
+  });
+
+  it('a live batch is the tick world`s `liveFixer`, so the tick emits no run write while it lasts', async () => {
+    const applier = unblockApplier(
+      {
+        record: { append: async () => ({ ok: true }) },
+        run: () => new Promise(() => {}),
+        start: async () => ({ kind: 'started', pid: '1', previousPid: '', prompt: '', log: '' }),
+        question: async () => 'q',
+        now: () => new Date(),
+      },
+      () => {},
+      () => {},
+    );
+    applier.apply([write()]);
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true }),
+      unblock: {
+        marker: async () => ({ firstLine: 'x', askedAt: '2026-10-05T13:36:00.000Z' }),
+        deskDead: async () => WAITING,
+        liveFixer: async () => applier.live(),
+        recordedOutcomes: async () => [],
+        startedCount: async () => 0,
+        answerCap: async () => 2,
+      },
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'unblock')).toEqual([]);
+  });
+
+  it('starts nothing for an empty batch', () => {
+    const applier = unblockApplier(
+      {
+        record: { append: async () => ({ ok: true }) },
+        run: async () => ({ ok: true, output: '' }),
+        start: async () => ({ kind: 'started', pid: '1', previousPid: '', prompt: '', log: '' }),
+        question: async () => 'q',
+        now: () => new Date(),
+      },
+      () => {},
+      () => {},
+    );
+    expect(applier.apply([])).toBe(false);
+    expect(applier.live()).toBe(false);
   });
 });
 
 describe('unblockLines', () => {
-  it('names the branch and outcome, flagging every non-`answered` outcome as an error line', () => {
+  it('names the branch and outcome, flagging every non-`started` outcome as an error line', () => {
     const lines = unblockLines([
-      { branch: 'feature/one', outcome: 'answered', detail: 'unblocker answered, pid 999' },
+      { branch: 'feature/one', outcome: 'started', detail: 'unblocker answered, pid 999' },
       { branch: 'feature/two', outcome: 'refused', detail: 'continue refused (question-moved): the marker changed' },
     ]);
     expect(lines).toEqual([
-      { line: 'plot-fleetd unblock feature/one: answered — unblocker answered, pid 999', error: false },
+      { line: 'plot-fleetd unblock feature/one: started — unblocker answered, pid 999', error: false },
       {
         line: 'plot-fleetd unblock feature/two: refused — continue refused (question-moved): the marker changed',
         error: true,
