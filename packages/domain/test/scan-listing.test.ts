@@ -381,6 +381,8 @@ describe('the scan\'s own listing read', () => {
     expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'secondary rate limit' })).toBe('secondary');
     expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'gh auth login required' })).toBe('unasked');
     expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'HTTP 503' })).toBe('failed');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: '', kind: 'throttled' })).toBe('throttled');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'a burst', kind: 'secondary' })).toBe('secondary');
   });
 
   it('keeps the open row with its rollup, drops the settled OPEN rows, and ranks merged over closed', () => {

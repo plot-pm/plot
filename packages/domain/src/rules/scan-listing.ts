@@ -337,6 +337,8 @@ export interface PulseListingCall {
   stdout: string;
   /** The call's stderr on an answer, or the host's sentence on a refusal. */
   said: string;
+  /** The refusal the host named on a failed call, where it named one. */
+  kind?: 'throttled' | 'secondary';
 }
 
 /** The scan's own listing: the rows it holds, as a carried listing reads them, and how the host answered. */
@@ -358,7 +360,8 @@ const VERDICT_ORDER: readonly PulseListingVerdict[] = ['ok', 'partial', 'unasked
 /**
  * Reads one `pr-list` call's answer as a verdict: a spent quota is
  * `throttled`, a burst refusal `secondary`, a host with no identity or no such
- * capability `unasked`, and any other refusal `failed`.
+ * capability `unasked`, and any other refusal `failed`. The refusal the host
+ * named outranks what its sentence says.
  *
  * @param call - the call.
  * @returns the verdict.
@@ -367,6 +370,7 @@ export const pulseListingVerdict = (call: PulseListingCall): PulseListingVerdict
   if (call.answer === 'answered') return 'ok';
   if (call.answer === 'partial') return 'partial';
   if (call.answer === 'unaskable') return 'unasked';
+  if (call.kind !== undefined) return call.kind;
   const kind = refusalKind(call.said);
   if (kind === 'quota') return 'throttled';
   if (kind === 'secondary') return 'secondary';

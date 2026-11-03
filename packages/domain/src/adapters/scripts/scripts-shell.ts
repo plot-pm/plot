@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 
 import type { PortResult } from '../../port-result.js';
 import type { HostAnswer, ScriptOptions, Scripts, StartedRun } from '../../ports/scripts.js';
-import { EXIT_OK, EXIT_PARTIAL, EXIT_UNASKABLE } from '../host-exit.js';
+import { EXIT_OK, EXIT_PARTIAL, EXIT_QUOTA, EXIT_SECONDARY, EXIT_UNASKABLE } from '../host-exit.js';
 import { killGroup, runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -109,9 +109,10 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       // reach this line. The adapter decides which of the two it was; here the
       // only job is to keep the rows alongside the sentence.
       if (run.code === EXIT_PARTIAL) return { answer: 'partial', stdout: run.stdout, said };
-      return run.code === EXIT_UNASKABLE
-        ? { answer: 'unaskable', said }
-        : { answer: 'failed', said };
+      if (run.code === EXIT_UNASKABLE) return { answer: 'unaskable', said };
+      if (run.code === EXIT_QUOTA) return { answer: 'failed', said, kind: 'throttled' };
+      if (run.code === EXIT_SECONDARY) return { answer: 'failed', said, kind: 'secondary' };
+      return { answer: 'failed', said };
     },
 
     awaited: async (script, args, options) => {

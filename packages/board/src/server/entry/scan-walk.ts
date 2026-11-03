@@ -88,6 +88,7 @@ const askPrList = async (scripts: Scripts, args: readonly string[]): Promise<Pul
   const said = await scripts.hostSaid(['pr-list', ...args]);
   if (said.answer === 'answered') return { answer: 'answered', stdout: said.stdout, said: said.stderr };
   if (said.answer === 'partial') return { answer: 'partial', stdout: said.stdout, said: said.said };
+  if (said.answer === 'failed' && said.kind !== undefined) return { answer: 'failed', stdout: '', said: said.said, kind: said.kind };
   return { answer: said.answer, stdout: '', said: said.said };
 };
 
@@ -252,6 +253,9 @@ const main = async (): Promise<number> => {
   // `--state settled`, both naming the branches the remote tracks, and the
   // second only where the first answered.
   let listingVerdict: PulseListingVerdict | null = null;
+  // A listing whose open call did not answer in full is used for this scan and
+  // not reported, so fleetd never carries a short listing to the next one.
+  let reportable = true;
   let prs: BranchStageInput['prs'];
   if (carried !== null && asksHost) {
     prs = { kind: 'listed', listing: carried };
@@ -265,6 +269,7 @@ const main = async (): Promise<number> => {
       const open = await askPrList(scripts, ['--state', 'open', ...limitArgs, '--rich', ...branchArgs]);
       spent += 1;
       const openVerdict = foldPulseListing(open, null, listLimit).verdict;
+      reportable = openVerdict === 'ok';
       const settled = openVerdict === 'ok' || openVerdict === 'partial' ? await askPrList(scripts, ['--state', 'settled', ...limitArgs, ...branchArgs]) : null;
       if (settled !== null) spent += 1;
       const folded = foldPulseListing(open, settled, listLimit);
@@ -285,7 +290,7 @@ const main = async (): Promise<number> => {
     ...(prs === undefined ? {} : { prs }),
   };
   const reportListing = (stage: BranchStageReadings): void => {
-    if (stage.listing !== undefined) process.stderr.write(renderListingReport(stage.listing.rows, stage.listing.tracked, stage.listing.complete));
+    if (reportable && stage.listing !== undefined) process.stderr.write(renderListingReport(stage.listing.rows, stage.listing.tracked, stage.listing.complete));
   };
   const header: FleetReadingHeader = {
     main: mainBranch,

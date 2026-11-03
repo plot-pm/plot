@@ -66,7 +66,8 @@ export interface BranchStageInput {
   /**
    * The PR listing the caller already holds. Where present, the stage calls
    * no `Host.prList`: `listed` answers each branch from `states`, and
-   * `unread` reads every PR as `unreadable`, with `hostReach` `failed`, or `unasked` where `said` names a host that could not be asked. Where
+   * `unread` reads every PR as `unreadable`, with `hostReach` the `reach` it
+   * carries, or else `failed`, or `unasked` where `said` names a host that could not be asked. Where
    * absent, the stage asks the host for its list.
    */
   prs?: BranchStagePrs;

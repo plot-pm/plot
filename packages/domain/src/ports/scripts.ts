@@ -46,11 +46,15 @@ export interface StartedRun {
  * prints its own diagnostic notices (a page-complete claim, a sweep-complete
  * claim) on stderr even where the call exits 0 — a caller deciding from a
  * notice, not only from a refusal, needs that stream on the clean path too.
+ *
+ * `failed` carries `kind` where the host named its refusal: `throttled` for a
+ * spent quota and `secondary` for a burst refusal. Absent, the host named
+ * neither, and only the sentence is left to read.
  */
 export type HostAnswer =
   | { answer: 'answered'; stdout: string; stderr: string }
   | { answer: 'partial'; stdout: string; said: string }
-  | { answer: 'failed'; said: string }
+  | { answer: 'failed'; said: string; kind?: 'throttled' | 'secondary' }
   | { answer: 'unaskable'; said: string };
 
 /** How to run one script. */
