@@ -49,7 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel. A merged spike's changeset pairs with its Design plan |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `git mv` of any `vnext-checklist.md` |
-| 5b. Record the Release in the Plans | Small | One `plot-deliver.sh --release` call per plan (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
+| 5b. Record the Release in the Plans | Small | `release-approve` already tells the tracker for each plan it books, as part of booking it Released. This step covers what that pass missed: one `plot-deliver.sh --release` call per plan still at `State: Delivered` (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -433,6 +433,14 @@ The release exists; the plans it shipped do not know it. Until this step, no
 plan in this repo's history had ever reached `State: Released` — not once across
 sixteen versioned releases — because step 4 hands off to the project's release
 process and nothing came back afterwards.
+
+**`release-approve` already runs this for every plan it books.** The sprint
+booking pass tells the plan's tracker as part of booking it Released, the same
+`plot-issue-status.sh` / `plot-plan-state.sh --phase released` pair this step
+runs by hand below. This step is the repair path: a plan still sitting at
+`State: Delivered` after a release went out is one `release-approve` missed —
+`plot-deliver.sh --release <version> <slug>` writes that one plan's record and
+tells its tracker, without re-running the whole booking pass.
 
 **Only run this once the tag exists.** A plan marked before the tag is cut
 claims a version nobody released. Verify with `git tag --list v<version>` before

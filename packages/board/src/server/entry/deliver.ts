@@ -22,8 +22,9 @@ import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-membership';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
-import { parsePlanSiblingLine, releaseIssueDecisions, releaseIssueSummary, trackerReportOf, unfinishedIssuesOf, type ReleaseSkipReason } from '@plot-pm/domain/rules/issue-status';
+import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
+import { tellTrackerAbout } from './release-tracker.js';
 import {
   commitAndPush,
   localDate,
@@ -169,41 +170,6 @@ const findPlanFile = async (
     if (held.ok && held.value !== null) return candidate;
   }
   return '';
-};
-
-/**
- * Reads every sibling plan's `plot-plan-meta.sh` line, for
- * {@link unfinishedIssuesOf} to decide which issues stay open.
- *
- * Lists the flat `Plan directory` rather than the `Active index` — the index
- * is a symlink view holding only not-yet-released plans, so a sibling already
- * Delivered but not yet Released, which still owes its issue, would be
- * invisible there. The flat directory holds every plan regardless of phase,
- * and the pure rule is what excludes `released` ones.
- *
- * @param planStore - where the plan directory and its files live.
- * @param scripts - the `plot-plan-meta.sh` port, for a batched phase+issues read.
- * @param planDir - the configured plan directory.
- * @param excludeFile - the plan being released, repository-relative; skipped
- *   so it never reads itself as its own sibling.
- * @returns one `plot-plan-meta.sh` line per sibling, or `null` where the
- *   directory listing or the batched read itself could not be trusted.
- */
-const siblingLinesOf = async (
-  planStore: PlanStore,
-  scripts: Scripts,
-  planDir: string,
-  excludeFile: string,
-): Promise<readonly string[] | null> => {
-  const listed = await planStore.listDir(planDir);
-  if (!listed.ok) return null;
-  const files = listed.value
-    .filter((name) => name.endsWith('.md'))
-    .map((name) => path.join(planDir, name))
-    .filter((file) => path.normalize(file) !== path.normalize(excludeFile));
-  if (files.length === 0) return [];
-  const meta = await scripts.planMeta(files);
-  return meta.ok ? meta.value.split('\n') : null;
 };
 
 /** `git` run in the repository, discarding nothing from the caller. */
@@ -918,100 +884,24 @@ export const runRelease = async (
     return 1;
   }
 
-  // THE BOOKED PLAN, KEPT FOR THE TRACKER — the deliver arm's own pattern,
-  // read before `cleanup()` removes `tmpwt`, after the push landed.
-  const target = path.join(tmpwt, rel);
-  const booked = await ctx.planStore.readText(target);
-  const bookedPlanFile = path.join(os.tmpdir(), `plot-release-plan-${process.pid}.md`);
-  if (!booked.ok || booked.value === null || !(await ctx.planStore.writeText(bookedPlanFile, booked.value)).ok) {
-    throw new Refused(`could not keep a copy of the released plan at ${bookedPlanFile} for the tracker.\n  Re-run this — it is idempotent.`);
-  }
-
-  // AN ISSUE ANOTHER UNFINISHED PLAN ALSO NAMES STAYS OPEN — shared, and the
-  // last plan to release is the one that closes it. Read BEFORE either
-  // tracker write, so one skip list reaches both: a write that ran first with
-  // no skip list is the defect this guards against (#2374 (2)). `planDirCfg`
-  // is read fresh here rather than threaded in: `runDeliver` resolves its own
-  // directory config the same way, once per arm.
-  //
-  // READ FROM `tmpwt`, NOT `ctx.repoRoot` — and before `cleanup()` removes it.
-  // `tmpwt` holds `origin/${main}` as of the moment THIS release's booking
-  // branch was cut, which is after every push that landed before it in a
-  // sweep; the main checkout holds whatever was last fetched into it, which
-  // is unrelated to release ordering and can be arbitrarily stale (#shared-
-  // issue-reads-the-post-push-tree). `scriptDir` stays `ctx.scriptDir` — only
-  // the tree being read moves.
-  const bookedPlanStore = planStoreShell({ repoRoot: tmpwt, scriptDir: ctx.scriptDir });
-  const bookedScripts = scriptsShell({ repoRoot: tmpwt, scriptDir: ctx.scriptDir });
-  const planDirCfg = await ctx.scripts.config('Plan directory', 'docs/plans/');
-  const planDir = planDirCfg.ok ? planDirCfg.value.trim() : 'docs/plans/';
-  const siblingLines = await siblingLinesOf(bookedPlanStore, bookedScripts, planDir, rel);
-  const unfinishedIssues = siblingLines === null ? 'unreadable' : unfinishedIssuesOf(siblingLines);
+  // THE TRACKER STEP — read before `cleanup()` removes `tmpwt`, after the
+  // push landed. `runRelease` only ever books one plan, so the shared step's
+  // one-sibling-read-per-run collapses to the per-plan read it always did.
+  const tracker = await tellTrackerAbout(
+    tmpwt,
+    resolved.tag,
+    [{ slug: args.slug, file: rel }],
+    { scripts: ctx.scripts, planStore: ctx.planStore, scriptDir: ctx.scriptDir },
+    write,
+  );
   await cleanup();
-  const releasedLine = await (async () => {
-    const releasedMeta = await ctx.scripts.planMeta([bookedPlanFile]);
-    return releasedMeta.ok ? releasedMeta.value.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
-  })();
-  const releasedRecord = releasedLine === undefined ? null : parsePlanSiblingLine(releasedLine);
-  const releasedIssues: readonly string[] = releasedRecord?.issues ?? [];
-  const decisions = releaseIssueDecisions(releasedIssues, releasedRecord === null ? 'unreadable' : unfinishedIssues);
-  const skipIssues = decisions.filter((d) => d.skip !== null).map((d) => d.issue);
-  const skipFlags = skipIssues.flatMap((issue) => ['--skip-issue', issue]);
-
-  if (unfinishedIssues === 'unreadable') {
-    write(`  tracker: sibling read unreadable — could not parse a plot-plan-meta.sh line for a plan under ${planDir}; every issue this release names stays open.\n`);
-  }
-  if (releasedRecord === null) {
-    write(`  tracker: could not parse the released plan's own plot-plan-meta.sh line (${bookedPlanFile}); every issue this release names stays open.\n`);
-  }
-
-  const statusTracker = await ctx.scripts.awaited('plot-issue-status.sh', [bookedPlanFile, ...skipFlags]);
-  for (const line of statusTracker.stdout.split('\n')) {
-    if (line.length > 0 && !line.startsWith('summary: ')) write(`  tracker: ${line}\n`);
-  }
-  let trackerReport = 'failed';
-  for (const line of statusTracker.stdout.split('\n')) {
-    const match = line.match(/^summary: tracker=([a-z-]*)/);
-    if (match) trackerReport = match[1];
-  }
-
-  const planState = trackerReportOf(
-    await ctx.scripts.awaited('plot-plan-state.sh', [
-      bookedPlanFile,
-      '--phase',
-      'released',
-      '--plan-link',
-      rel,
-      '--version',
-      resolved.tag,
-      ...skipFlags,
-    ]),
-  );
-  for (const line of planState.lines) write(`  plan-state: ${line}\n`);
-
-  // THE WRITTEN LINES NAME THE OUTCOME PER ISSUE — `written` only for an issue
-  // this release did not skip, so a plan-state failure on an unskipped issue
-  // still counts against `closed`, never silently joins `decisions`' `null`.
-  const writtenOutcomes = new Map(
-    planState.lines
-      .map((line) => line.split('\t'))
-      .filter((cols): cols is [string, string, ...string[]] => cols.length >= 2)
-      .map(([issue, outcome]) => [issue, outcome] as const),
-  );
-  const outcomes: ('closed' | ReleaseSkipReason)[] = decisions.map((decision) => {
-    if (decision.skip !== null) return decision.skip;
-    const outcome = writtenOutcomes.get(decision.issue);
-    return outcome === 'written' ? 'closed' : ((outcome as ReleaseSkipReason | undefined) ?? 'failed');
-  });
-  const issueSummary = releaseIssueSummary(outcomes);
-  const reasons = Object.entries(issueSummary.reasons)
+  const trackerReport = tracker.perPlan[0] ?? 'failed';
+  const reasons = Object.entries(tracker.issues.reasons)
     .map(([reason, count]) => `${reason}=${count}`)
     .join(' ');
 
-  unlinkSyncSafe(bookedPlanFile);
-
   write(`summary: phase=${report.phase} record=${report.record} index=skipped sprint=none push=${pushResult.pushed} tracker=${trackerReport}\n`);
-  write(`summary: issues closed=${issueSummary.closed} left-open=${issueSummary.leftOpen}${reasons === '' ? '' : ` (${reasons})`}\n`);
+  write(`summary: issues closed=${tracker.issues.closed} left-open=${tracker.issues.leftOpen}${reasons === '' ? '' : ` (${reasons})`}\n`);
   spendActionReceipt(ctx.repoRoot, 'release');
   return 0;
 };
