@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3097 merged
+- **Started:** 2026-11-03, Jan Wloka, `bug/plot-approve-reads-the-plan-from`
 
 ## Changelog
 
