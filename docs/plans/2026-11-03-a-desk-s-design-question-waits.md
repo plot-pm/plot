@@ -75,7 +75,7 @@ The charter adds "never widen the scope guard" and "never tell the desk to weake
 
 ### Open Questions
 
-- [ ] What bounds the first tick after slice 1 merges? Every waiting desk with an untagged marker and no recorded outcome becomes due at once, and the per-branch cap does not bound a burst across branches. The answer names the bound and its test before approval.
+- [x] What bounds the first tick after slice 1 merges? Decided 2026-11-03: at most one unblocker run is in flight across the fleet. A tick starts a run only when no `started` row is open, and it takes the waiting question with the oldest marker first. The rest stay due and start on later ticks. Test (slice 1): a tick with three waiting desks and no open run starts exactly one run, on the oldest marker; a second tick while that run is open starts none.
 
 ### Tests
 
