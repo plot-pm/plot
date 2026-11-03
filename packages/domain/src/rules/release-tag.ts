@@ -18,18 +18,54 @@
  * @concept release-tag
  */
 
+import type { BranchClaim, SliceReference } from './cross-repo-reference.js';
+
 /**
- * The PR whose merge commit a release record reads: the highest PR number the
- * plan annotates, skipping every PR that only a deferred branch line or slice
- * heading names.
- *
- * @param prs - every PR number the plan annotates, sorted ascending.
- * @param deferredPrs - the PR numbers a deferred line annotates.
- * @returns that PR number as a string, or `''` where every annotated PR is deferred or none exists.
+ * One row {@link releasePr} reads: a plan claim line's PR reference — as
+ * {@link BranchClaim} reports it — joined with whether its branch was
+ * deferred.
  */
-export const releasePr = (prs: readonly number[], deferredPrs: readonly number[]): string => {
-  const shipped = prs.filter((pr) => !deferredPrs.includes(pr));
-  return shipped.length > 0 ? String(shipped[shipped.length - 1]) : '';
+export interface ReleasePrRow {
+  /** The PR, as a claim line names it; `null` where the branch's claim lines name none. */
+  readonly reference: SliceReference | null;
+  /** Whether the branch this row's claim line belongs to was deferred. */
+  readonly deferred: boolean;
+}
+
+/** {@link releasePr}'s answer: where the plan's PRs live, or that it names none. */
+export type ReleasePrResult =
+  | { readonly outcome: 'local'; readonly numbers: readonly number[] }
+  | { readonly outcome: 'all-foreign'; readonly repos: readonly string[] }
+  | { readonly outcome: 'none' };
+
+/**
+ * Where the PR that ships a plan lives: this repository, only other
+ * repositories, or nowhere a non-deferred claim names.
+ *
+ * A reference with no `owner/repo` prefix is this repository's — local; every
+ * `owner/repo#N` is foreign, including one naming this repository. A deferred
+ * row is dropped before either count: it does not make a plan `all-foreign`
+ * and does not join `local`'s numbers. A non-deferred row naming no reference
+ * at all forces `none`, even where another row names a foreign PR — an
+ * unannotated local branch must never read as shipped by another repository.
+ *
+ * @param rows - one row per PR a plan's claim lines name, plus one
+ *   `reference: null` row per non-deferred branch whose claim lines name
+ *   none — {@link BranchClaim} joined with each branch's deferral.
+ * @returns `local` with every non-deferred local PR number; `all-foreign`
+ *   with the foreign repositories, where every non-deferred row is foreign;
+ *   `none`, where no non-deferred row names a PR or a non-deferred row names
+ *   none.
+ */
+export const releasePr = (rows: readonly ReleasePrRow[]): ReleasePrResult => {
+  const shipped = rows.filter((row) => !row.deferred);
+  if (shipped.some((row) => row.reference === null)) return { outcome: 'none' };
+  const local = shipped
+    .filter((row) => row.reference!.repo === '')
+    .map((row) => row.reference!.number);
+  if (local.length > 0) return { outcome: 'local', numbers: local };
+  const foreign = [...new Set(shipped.map((row) => row.reference!.repo))];
+  return foreign.length > 0 ? { outcome: 'all-foreign', repos: foreign } : { outcome: 'none' };
 };
 
 /** What the caller read before asking. */

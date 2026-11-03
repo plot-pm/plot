@@ -16,7 +16,9 @@ import {
   release,
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
-import { releasePr, releaseTag } from '@plot-pm/domain/rules/release-tag';
+import { releasePr, releaseTag, type ReleasePrRow } from '@plot-pm/domain/rules/release-tag';
+import { branchClaims } from '@plot-pm/domain/rules/cross-repo-reference';
+import { normalizeVersion } from '@plot-pm/domain/entities/version';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-membership';
@@ -799,11 +801,25 @@ export const runRelease = async (
   if (plan === null) {
     throw new Refused(`cannot parse '${planFile}' — refusing rather than guessing.\n  See what the parser reads: ${ctx.scriptDir}/plot-plan-meta.sh ${planFile}\n  A plan needs a '## Status' section with a 'State:' field.`);
   }
-  // The last PR of a slice that was not deferred, read through the ONE parser
-  // that owns the plan format — never a regex over the raw text, which cannot
-  // tell a branch's `→ #N` annotation from a PR number mentioned in prose.
+  // The plan's PR references, repository-qualified and deferral-aware —
+  // `branchClaims` reads the `→ #N` / `→ owner/repo#N` annotations with their
+  // repository, and `parsed.value.slices` carries each branch's own
+  // `deferred` flag, read through the ONE parser that owns the plan format.
+  // Joined by branch name rather than parsed twice: `plot-plan-meta.sh` gains
+  // no new field for this.
   const parsed = await ctx.planStore.readPlan(planFile);
-  const lastPr = parsed.ok ? releasePr(parsed.value.prs, parsed.value.deferredPrs) : '';
+  const planText = await ctx.planStore.readText(absPlanFile);
+  const deferredBranches = new Set(
+    parsed.ok ? parsed.value.slices.flatMap((slice) => slice.branches).filter((b) => b.deferred).map((b) => b.branch) : [],
+  );
+  const prRows: readonly ReleasePrRow[] =
+    planText.ok && planText.value !== null
+      ? branchClaims(planText.value).map((claim) => ({
+          reference: claim.reference,
+          deferred: deferredBranches.has(claim.branch),
+        }))
+      : [];
+  const prResult = releasePr(prRows);
 
   switch (plan.phase) {
     case 'delivered':
@@ -826,37 +842,58 @@ export const runRelease = async (
 
   const main = await resolveMain(ctx.repoRoot, ctx.scripts);
 
-  if (lastPr === '') {
+  let tag: string;
+  let tagDate: string;
+  if (prResult.outcome === 'none') {
     throw new Refused(`plan '${args.slug}' names no '→ #N' annotation on a slice that was not deferred — the version cannot be resolved from a merge commit that does not exist.\n  Nothing was written. Annotate the branch that shipped this plan, then re-run.`);
-  }
-  const prState = await ctx.host.prState(Number(lastPr));
-  const mergeCommit = prState.ok && prState.value !== null ? prState.value.mergeCommit : '';
-  if (mergeCommit === '') {
-    throw new Refused(`plan '${args.slug}''s last PR (#${lastPr}) carries no mergeCommit — it may not have merged, or the host could not answer.\n  Nothing was written. Verify #${lastPr} merged, then re-run.`);
+  } else if (prResult.outcome === 'all-foreign') {
+    // No host call and no tag lookup: every non-deferred PR this plan names
+    // lives in another repository, so there is no merge commit of this
+    // repository's to find a tag for.
+    tag = normalizeVersion(args.releaseVersion);
+    tagDate = localDate();
+  } else {
+    // `prResult.outcome === 'local'` — the first local PR number, as today:
+    // tag resolution still reads a single PR's merge commit; wave 2 widens
+    // this to every local number.
+    const lastPr = String(prResult.numbers[prResult.numbers.length - 1]);
+    const prState = await ctx.host.prState(Number(lastPr));
+    const mergeCommit = prState.ok && prState.value !== null ? prState.value.mergeCommit : '';
+    if (mergeCommit === '') {
+      throw new Refused(`plan '${args.slug}''s last PR (#${lastPr}) carries no mergeCommit — it may not have merged, or the host could not answer.\n  Nothing was written. Verify #${lastPr} merged, then re-run.`);
+    }
+
+    const tagsResult = await ctx.refs.tagsContaining(mergeCommit);
+    const containingTags = tagsResult.ok ? tagsResult.value : [];
+    const resolved = releaseTag({ lastPr, mergeCommit, containingTags, wantedVersion: args.releaseVersion });
+    if (resolved.outcome === 'refused') {
+      throw new Refused(`plan '${args.slug}' ${resolved.detail}\n  Nothing was written.`);
+    }
+
+    const tagDateResult = await ctx.refs.tagDate(resolved.tag);
+    if (!tagDateResult.ok) {
+      throw new Refused(`could not read the date of tag '${resolved.tag}' — refusing rather than guessing.\n  Nothing was written.`);
+    }
+    tag = resolved.tag;
+    tagDate = tagDateResult.value;
+    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr} merged ${mergeCommit}, shipped in ${tag} (${tagDate})\n`);
   }
 
-  const tagsResult = await ctx.refs.tagsContaining(mergeCommit);
-  const containingTags = tagsResult.ok ? tagsResult.value : [];
-  const resolved = releaseTag({ lastPr, mergeCommit, containingTags, wantedVersion: args.releaseVersion });
-  if (resolved.outcome === 'refused') {
-    throw new Refused(`plan '${args.slug}' ${resolved.detail}\n  Nothing was written.`);
-  }
-
-  const tagDateResult = await ctx.refs.tagDate(resolved.tag);
-  if (!tagDateResult.ok) {
-    throw new Refused(`could not read the date of tag '${resolved.tag}' — refusing rather than guessing.\n  Nothing was written.`);
-  }
-  const tagDate = tagDateResult.value;
   const who = args.who || process.env.PLOT_DELIVER_WHO || (await gitUserName(ctx.repoRoot));
 
   if (args.dryRun) {
     write(`step: plan ${planFile} — phase=${plan.phase} released_raw=${plan.releasedRecord || '<empty>'}\n`);
-    write(`step: would flip State → Released and fill Released: ${tagDate}, ${resolved.tag}\n`);
+    if (prResult.outcome === 'all-foreign') {
+      write(`step: reason=all-prs-foreign repos=${prResult.repos.join(',')}\n`);
+    }
+    write(`step: would flip State → Released and fill Released: ${tagDate}, ${tag}\n`);
     write('summary: phase=would record=would index=skipped sprint=none push=would tracker=skipped\n');
     return 0;
   }
 
-  write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr} merged ${mergeCommit}, shipped in ${resolved.tag} (${tagDate})\n`);
+  if (prResult.outcome === 'all-foreign') {
+    write(`step: plan ${planFile} — phase=${plan.phase} reason=all-prs-foreign repos=${prResult.repos.join(',')}, shipped in ${tag} (${tagDate})\n`);
+  }
 
   const rel = realPlanPath(ctx.repoRoot, planFile);
   if (rel === null) {
@@ -874,7 +911,7 @@ export const runRelease = async (
   }
   const cleanup = () => ctx.trees.removeWithBranch(tmpwt, bookbr);
 
-  const booking: ReleaseBooking = { rel, slug: args.slug, tagDate, tag: resolved.tag, caller };
+  const booking: ReleaseBooking = { rel, slug: args.slug, tagDate, tag, caller };
   const first = await bookRelease(ctx, tmpwt, booking);
   if ('refused' in first) {
     warn(`plot-deliver: ${first.refused}\n`);
@@ -900,7 +937,7 @@ export const runRelease = async (
       bookbr,
       main,
       who,
-      `plot: release ${args.slug} (${resolved.tag})`,
+      `plot: release ${args.slug} (${tag})`,
       'release',
       `nothing to commit — the release is already recorded on ${main}`,
       reapply,
@@ -983,7 +1020,7 @@ export const runRelease = async (
       '--plan-link',
       rel,
       '--version',
-      resolved.tag,
+      tag,
       ...skipFlags,
     ]),
   );
