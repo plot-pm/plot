@@ -22,8 +22,18 @@ const noWait = async (): Promise<void> => {};
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
 
-const plan = (type: string, state: string, released = ''): string =>
-  `# P\n\n## Status\n\n- **State:** ${state}\n- **Type:** ${type}\n${released === '' ? '' : `- **Released:** ${released}\n`}\n## Notes\n\n- one\n`;
+const plan = (type: string, state: string, released = '', issue = ''): string =>
+  `# P\n\n## Status\n\n- **State:** ${state}\n- **Type:** ${type}\n${issue === '' ? '' : `- **Issue:** ${issue}\n`}${released === '' ? '' : `- **Released:** ${released}\n`}\n## Notes\n\n- one\n`;
+
+/**
+ * Stands in for the two tracker-write scripts the finish's tracker step
+ * calls, so these tests need no configured `Tracker` or git host — the same
+ * stand-in `shared-issue-reads-the-post-push-tree.test.ts` uses for `runRelease`.
+ */
+const trackerStub = (script: string) =>
+  script === 'plot-plan-state.sh'
+    ? { stdout: '999\twritten\treleased\nsummary: tracker=written\n', stderr: '', code: 0 }
+    : { stdout: 'summary: tracker=none\n', stderr: '', code: 0 };
 
 const sprint = (state: string, field = 'State', items = ['alpha', 'beta', 'gamma'], release = ''): string =>
   [
@@ -72,20 +82,33 @@ describe('finishRelease against a real remote', () => {
     const host = {
       prState: async () => answered({ number: 9, head: 'changeset-release/main', base: 'main', state: 'MERGED' }),
     } as unknown as Host;
+    const realScripts = scriptsShell(context);
+    const trackerCalls: { script: string; args: readonly string[]; fileText: string }[] = [];
+    const scripts = {
+      ...realScripts,
+      awaited: async (script: string, args: readonly string[], options?: unknown) => {
+        if (script === 'plot-issue-status.sh' || script === 'plot-plan-state.sh') {
+          trackerCalls.push({ script, args, fileText: readFileSync(args[0], 'utf8') });
+          return trackerStub(script);
+        }
+        return realScripts.awaited(script, args, options as never);
+      },
+    };
     const ctx: FinishContext = {
       repoRoot: repo,
       refs: refsGit(context),
       host,
       planStore: planStoreShell(context),
-      scripts: scriptsShell(context),
+      scripts: scripts as FinishContext['scripts'],
       trees: treesGit(context),
+      scriptDir: SCRIPT_DIR,
       caller: 'person',
       tagWaitMs: 0,
       pollMs: 1,
       sleep: noWait,
       retryWait: noWait,
     };
-    return { repo, origin, ctx };
+    return { repo, origin, ctx, trackerCalls };
   };
 
   const run = async (ctx: FinishContext) => {
@@ -251,13 +274,14 @@ describe('finishRelease against a real remote', () => {
     expect(activeOnMain(repo)).toEqual([]);
   });
 
-  it('reports already-released and writes nothing on a second run', async () => {
-    const { repo, ctx } = estate({ tagged: true });
+  it('reports already-released and writes nothing on a second run, and calls the tracker no further', async () => {
+    const { repo, ctx, trackerCalls } = estate({ tagged: true });
     expect((await run(ctx)).code).toBe(0);
     git(repo, 'fetch', '-q', 'origin', 'main');
     const after = mainSha(repo);
 
     expect(activeOnMain(repo)).toEqual([]);
+    trackerCalls.length = 0;
 
     const second = await run(ctx);
 
@@ -265,6 +289,7 @@ describe('finishRelease against a real remote', () => {
     expect(second.out).toContain('already-released');
     git(repo, 'fetch', '-q', 'origin', 'main');
     expect(mainSha(repo)).toBe(after);
+    expect(trackerCalls).toEqual([]);
   });
 
   it('reports tag-absent and writes nothing when the tag never appears', async () => {
@@ -278,5 +303,108 @@ describe('finishRelease against a real remote', () => {
     git(repo, 'fetch', '-q', 'origin', 'main');
     expect(mainSha(repo)).toBe(before);
     expect(readFileSync(path.join(repo, 'docs/plans/2026-10-01-alpha.md'), 'utf8')).toContain('- **State:** Delivered');
+  });
+
+  it('writes one plot-plan-state.sh call per booked plan, naming its own file, phase, link and version', async () => {
+    const { repo, ctx, trackerCalls } = estate({ tagged: true });
+
+    expect((await run(ctx)).code).toBe(0);
+
+    const stateCalls = trackerCalls.filter((c) => c.script === 'plot-plan-state.sh');
+    expect(stateCalls).toHaveLength(3);
+    for (const [index, slug] of ['alpha', 'beta', 'gamma'].entries()) {
+      const call = stateCalls[index];
+      expect(call.fileText).toContain('- **State:** Released');
+      expect(call.args).toEqual(
+        expect.arrayContaining(['--phase', 'released', '--plan-link', `docs/plans/2026-10-01-${slug}.md`, '--version', 'v1.2.3']),
+      );
+    }
+  });
+
+  it('makes no tracker call on a rejected push, and the next accepted push makes one call per plan, not two', async () => {
+    const { repo, ctx, trackerCalls } = estate({ tagged: true });
+    const realAwaited = ctx.scripts.awaited.bind(ctx.scripts);
+    let rejectPush = true;
+    ctx.scripts = {
+      ...ctx.scripts,
+      awaited: async (script, args, options) => {
+        if (script === 'plot-push-main.sh' && rejectPush) return { stdout: '', stderr: 'rejected\n', code: 1 };
+        return realAwaited(script, args, options as never);
+      },
+    };
+    ctx.retryWait = noWait;
+
+    const rejected = await run(ctx);
+
+    expect(rejected.code).toBe(1);
+    expect(rejected.err).toContain('did not reach main');
+    expect(trackerCalls).toEqual([]);
+
+    rejectPush = false;
+    const accepted = await run(ctx);
+
+    expect(accepted.code).toBe(0);
+    expect(trackerCalls.filter((c) => c.script === 'plot-plan-state.sh')).toHaveLength(3);
+  });
+
+  it('keeps a shared issue open while an outside-the-release sibling still owes it', async () => {
+    const { repo, ctx, trackerCalls } = estate({ tagged: true });
+    for (const slug of ['alpha', 'beta', 'gamma']) {
+      writeFileSync(path.join(repo, `docs/plans/2026-10-01-${slug}.md`), plan('feature', 'Delivered', '', '#999'));
+    }
+    writeFileSync(path.join(repo, 'docs/plans/2026-09-15-outside.md'), plan('bug', 'Delivered', '', '#999'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'add shared-issue plans');
+    git(repo, 'push', '-q', 'origin', 'main');
+
+    expect((await run(ctx)).code).toBe(0);
+
+    const statusCalls = trackerCalls.filter((c) => c.script === 'plot-issue-status.sh');
+    expect(statusCalls).toHaveLength(3);
+    for (const call of statusCalls) expect(call.args).toEqual(expect.arrayContaining(['--skip-issue', '999']));
+  });
+
+  it('keeps a shared issue open with no outside sibling, now that the release itself books every plan naming it', async () => {
+    const { repo, ctx, trackerCalls } = estate({ tagged: true });
+    for (const slug of ['alpha', 'beta', 'gamma']) {
+      writeFileSync(path.join(repo, `docs/plans/2026-10-01-${slug}.md`), plan('feature', 'Delivered', '', '#999'));
+    }
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'share an issue across the booked plans');
+    git(repo, 'push', '-q', 'origin', 'main');
+
+    expect((await run(ctx)).code).toBe(0);
+
+    const statusCalls = trackerCalls.filter((c) => c.script === 'plot-issue-status.sh');
+    expect(statusCalls).toHaveLength(3);
+    for (const call of statusCalls) expect(call.args).not.toEqual(expect.arrayContaining(['--skip-issue', '999']));
+  });
+
+  it('continues past one plan\'s tracker failure, prints it, and still writes the next plan', async () => {
+    const { repo, ctx, trackerCalls } = estate({ tagged: true });
+    writeFileSync(path.join(repo, 'docs/plans/2026-10-01-alpha.md'), plan('feature', 'Delivered', '', '#999'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'give alpha an issue');
+    git(repo, 'push', '-q', 'origin', 'main');
+    const realAwaited = ctx.scripts.awaited.bind(ctx.scripts);
+    let failedOnce = false;
+    ctx.scripts = {
+      ...ctx.scripts,
+      awaited: async (script, args, options) => {
+        if (script === 'plot-plan-state.sh' && !failedOnce) {
+          failedOnce = true;
+          trackerCalls.push({ script, args, fileText: readFileSync(args[0], 'utf8') });
+          return { stdout: '', stderr: 'boom\n', code: 1 };
+        }
+        return realAwaited(script, args, options as never);
+      },
+    };
+
+    const { code, out } = await run(ctx);
+
+    expect(code).toBe(0);
+    expect(out).toContain('plan-state: boom');
+    expect(out).toContain('left-open=1 (failed=1)');
+    expect(trackerCalls.filter((c) => c.script === 'plot-plan-state.sh')).toHaveLength(3);
   });
 });

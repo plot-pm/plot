@@ -232,6 +232,7 @@ export const run = async (
         planStore: estate.planStore,
         scripts: ports.scripts,
         trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+        scriptDir: opts.scriptsDir,
         caller: ports.caller,
         tagWaitMs: ports.checksWaitMs,
         pollMs: 15_000,
