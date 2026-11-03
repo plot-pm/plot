@@ -69,7 +69,7 @@ Each test fails on `main` today, for the reason given.
 
 ### Fix
 
-- `bug/plot-approve-finds-no-plan-on` — emit `headSha`, `draft` and the other fields on the plain Bitbucket `pr-list` arm, correct `pr-ready` to `bb pr edit --ready`, lift the open-PR lookup into `open-prs.ts` with the full sha and the named unread rows, prefix-match the merged-PR comparison, and add the tests above <!-- builds: headSha on the plain Bitbucket pr-list arm -->
+- `bug/plot-approve-finds-no-plan-on` — emit `headSha`, `draft` and the other fields on the plain Bitbucket `pr-list` arm, correct `pr-ready` to `bb pr edit --ready`, lift the open-PR lookup into `open-prs.ts` with the full sha and the named unread rows, prefix-match the merged-PR comparison, and add the tests above <!-- builds: headSha on the plain Bitbucket pr-list arm --> → #3106
 
 Files: `skills/plot/scripts/plot-host.sh`, `packages/board/src/server/entry/approve.ts`, `packages/board/src/server/entry/needs-design.ts`, `packages/board/src/server/entry/open-prs.ts` (new), `packages/domain/src/rules/plan-pr.ts`, and the tests above. `host-shell.ts` does not change: `prOf` already copies `headSha` and `draft` when the row carries them (`host-shell.ts:108`, `:115`).
 
