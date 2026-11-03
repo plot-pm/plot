@@ -19,10 +19,10 @@ export interface UnblockerDueReading {
   deskDead: DeskDeadAnswer;
   /** Whether an unblocker is already running on this desk. */
   liveFixer: boolean;
-  /** The outcomes already recorded for this marker's `(worktree, askedAt)` key, in any order. */
-  recordedOutcomes: readonly string[];
-  /** How many `started` rows this desk's whole answer record already holds, any question. */
-  startedCount: number;
+  /** The outcomes already recorded for this marker's `(worktree, askedAt)` key, in any order; `null` where the record did not read. */
+  recordedOutcomes: readonly string[] | null;
+  /** How many `started` rows this desk's whole answer record already holds, any question; `null` where the record did not read. */
+  startedCount: number | null;
   /** The `Correction budget` config value — the most `started` rows a desk may ever reach. */
   answerCap: number;
 }
@@ -30,7 +30,13 @@ export interface UnblockerDueReading {
 /** Whether an unblocker should start on a desk, and why not when it should not. */
 export type UnblockerDueAnswer =
   | { start: true }
-  | { start: false; why: 'no-marker' | 'not-waiting' | 'tagged-marker' | 'live-fixer' | 'already-recorded' | 'answer-cap' };
+  | {
+      start: false;
+      why: 'no-marker' | 'not-waiting' | 'tagged-marker' | 'live-fixer' | 'record-unread' | 'already-recorded' | 'answer-cap';
+    };
+
+/** How many seconds one unblocker run may take before the process runner ends it. */
+export const UNBLOCKER_BOUND_SECONDS = 1800;
 
 /**
  * Whether fleetd should start an `unblocker` run against one desk's question.
@@ -59,6 +65,10 @@ export type UnblockerDueAnswer =
  * genuinely new question gets a new `askedAt` from its own marker, which is a
  * new key with no recorded rows.
  *
+ * **AN UNREAD RECORD REFUSES `record-unread`.** A `null` outcome list or
+ * `started` count means the answer record did not read, so neither the retry
+ * bound nor the cap can be checked, and no run starts.
+ *
  * **`answer-cap` IS CHECKED LAST, AND IT IS A WHOLE-DESK COUNT.** Unlike
  * `already-recorded`, which is scoped to this one question's key, `started`
  * rows are counted across every question this desk has ever asked — a desk
@@ -75,6 +85,7 @@ export const unblockerDue = (reading: UnblockerDueReading): UnblockerDueAnswer =
   if (reading.deskDead.dead || reading.deskDead.why !== 'waiting') return { start: false, why: 'not-waiting' };
   if (reading.marker.author !== undefined) return { start: false, why: 'tagged-marker' };
   if (reading.liveFixer) return { start: false, why: 'live-fixer' };
+  if (reading.recordedOutcomes === null || reading.startedCount === null) return { start: false, why: 'record-unread' };
   if (reading.recordedOutcomes.length > 0) return { start: false, why: 'already-recorded' };
   if (reading.startedCount >= reading.answerCap) return { start: false, why: 'answer-cap' };
   return { start: true };

@@ -43,6 +43,14 @@ describe('unblockerDue', () => {
     expect(unblockerDue(reading({ liveFixer: true }))).toEqual({ start: false, why: 'live-fixer' });
   });
 
+  it('refuses record-unread when the outcomes for this key did not read', () => {
+    expect(unblockerDue(reading({ recordedOutcomes: null }))).toEqual({ start: false, why: 'record-unread' });
+  });
+
+  it('refuses record-unread when the started count did not read, even under the cap', () => {
+    expect(unblockerDue(reading({ startedCount: null, answerCap: 2 }))).toEqual({ start: false, why: 'record-unread' });
+  });
+
   it.each(['started', 'answered', 'refused no-marker', 'failed'])(
     'refuses already-recorded on a %s outcome',
     (outcome) => {

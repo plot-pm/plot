@@ -33,12 +33,11 @@ const isMissing = (error: unknown): boolean =>
 /**
  * One row, tab-separated: worktree, askedAt, question, answer, author, outcome.
  *
- * **A FIELD NEVER CARRIES A TAB OR A NEWLINE, SO NONE IS ESCAPED, EXCEPT
- * WHAT A PERSON TYPES.** A worktree path, an ISO timestamp and an author
- * handle cannot hold either; the question is a marker's first line, already
- * free of newlines by construction. The answer is free text, so a tab or
- * newline within it is replaced with a space before encoding — the row stays
- * one line and no field boundary shifts.
+ * **EVERY FIELD IS SANITIZED: A RUN OF TABS, NEWLINES OR CARRIAGE RETURNS
+ * BECOMES ONE SPACE.** A worktree path, an ISO timestamp and an author handle
+ * hold none of them. The question can be a marker's full text and the answer
+ * is free text, so either can hold them. The row stays one line and no field
+ * boundary shifts.
  */
 const sanitize = (field: string): string => field.replace(/[\t\n\r]+/g, ' ');
 
