@@ -20,19 +20,22 @@ export type UnblockOutcome = z.infer<typeof UnblockOutcomeSchema>;
 /**
  * Parses an unblocker run's raw output into its typed outcome.
  *
- * The contract is the first line: `ANSWER` (the rest of the output is the
- * answer text) or `ESCALATE: <reason>`. Anything else — an unrecognised
- * first line, an `ANSWER` with no following text, an `ESCALATE:` with no
- * reason, or empty output — is `refused` with `unparseable-run`.
+ * The contract is the first non-empty line, trimmed: `ANSWER` (the lines
+ * after it are the answer text) or `ESCALATE: <reason>`. Lines split on `\n`
+ * or `\r\n`. Anything else — an unrecognised first line, an `ANSWER` with no
+ * following text, an `ESCALATE:` with no reason, or output with no non-empty
+ * line — is `refused` with `unparseable-run`.
  *
  * @param output - the run's raw text output.
  * @returns the typed outcome.
  */
 export const unblockOutcome = (output: string): UnblockOutcome => {
-  const lines = output.split('\n');
-  const first = lines[0];
+  const lines = output.split(/\r?\n/);
+  const at = lines.findIndex((line) => line.trim() !== '');
+  if (at === -1) return { kind: 'refused', why: 'unparseable-run' };
+  const first = lines[at]!.trim();
   if (first === 'ANSWER') {
-    const text = lines.slice(1).join('\n').trim();
+    const text = lines.slice(at + 1).join('\n').trim();
     return text === '' ? { kind: 'refused', why: 'unparseable-run' } : { kind: 'answer', text };
   }
   const escalate = /^ESCALATE:\s*(.*)$/.exec(first);

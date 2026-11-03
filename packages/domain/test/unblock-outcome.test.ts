@@ -26,6 +26,18 @@ describe('unblockOutcome', () => {
     expect(unblockOutcome('I think the answer is adapter B.')).toEqual({ kind: 'refused', why: 'unparseable-run' });
   });
 
+  it('reads the first non-empty line, trimmed, past leading blank lines and a CRLF ending', () => {
+    expect(unblockOutcome('\n  \r\n ANSWER \r\nuse adapter B\r\n')).toEqual({ kind: 'answer', text: 'use adapter B' });
+    expect(unblockOutcome('\n\nESCALATE: scope adds a slice\r\n')).toEqual({
+      kind: 'escalate',
+      reason: 'scope adds a slice',
+    });
+  });
+
+  it('refuses `unparseable-run` for output holding only blank lines', () => {
+    expect(unblockOutcome('\n \r\n\t\n')).toEqual({ kind: 'refused', why: 'unparseable-run' });
+  });
+
   it('refuses `unparseable-run` for empty output', () => {
     expect(unblockOutcome('')).toEqual({ kind: 'refused', why: 'unparseable-run' });
   });
