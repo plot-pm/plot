@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2980
@@ -22,6 +22,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-pulse-log-runs-the-walk`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-scan-script-is-a-launcher`
 - **Started:** 2026-11-01, Jan Wloka, `feature/the-last-scan-modes-run-the-walk`
+- **Delivered:** 2026-11-03
 
 ## Changelog
 

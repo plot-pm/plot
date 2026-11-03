@@ -30,7 +30,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 
 ### Should Have
 
-- [ ] [the-plan-walk-moves-into-the] The plan walk moves into the domain and `plot-fleet-scan.sh` becomes a launcher (#2980) <!-- pr: #2981, branch: feature/scan-once-walks-in-process -->
+- [x] [the-plan-walk-moves-into-the] The plan walk moves into the domain and `plot-fleet-scan.sh` becomes a launcher (#2980) <!-- pr: #2981, branch: feature/scan-once-walks-in-process -->
 - [x] [the-commit-gates-match-only-the] The commit gates read every commit form, and a replay or merge in progress passes (#2974) <!-- pr: #2984, branch: feature/replay-aware-commit-gates -->
 - [ ] [every-plan-reference-shows-its-issue] Every plan reference on the board shows its issue prefix and opens the plan (#2993) <!-- pr: #2994, branch: feature/a-plan-reference-is-decided-once -->
 - [x] [an-issue-shows-its-plan-s] An issue shows its plan's state on every surface: lanes read the default branch, released issues carry their label, finding tickets close when settled, one plan comment, a slice row reads its head's checks (#2997) <!-- pr: #2998 -->
