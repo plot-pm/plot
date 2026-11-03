@@ -151,6 +151,23 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
     ['release', 'curl -X POST http://localhost:4000/api/release'],
     ['release-approve route', 'curl -X POST http://localhost:4000/api/release-approve'],
     ['restart', 'curl -X POST http://localhost:4000/api/restart'],
+    // The same POST written the other ways an agent writes it. Each of these
+    // passed the gate while only the bare `-X POST` form was read.
+    ['a quoted URL', 'curl -X POST "http://localhost:4000/api/release"'],
+    ['a quoted URL and method', "curl -X 'POST' 'http://localhost:4000/api/release-approve'"],
+    ['a grouped short option', 'curl -sXPOST http://localhost:4000/api/release'],
+    ['a short option group ending at X', 'curl -sX POST http://localhost:4000/api/restart'],
+    ['--request=POST', 'curl --request=POST http://localhost:4000/api/release'],
+    ['a body-implied POST', 'curl -d \'{"slug":"x","version":"1.2.3"}\' http://localhost:4000/api/release'],
+    ['--data-raw', 'curl --data-raw slug=x http://localhost:4000/api/release-approve'],
+    ['--json', 'curl --json \'{"slug":"x"}\' http://localhost:4000/api/release'],
+    ['a form upload', 'curl -F slug=x http://localhost:4000/api/restart'],
+    ['wget --post-data', 'wget --post-data=slug=x http://localhost:4000/api/release'],
+    ['wget --method=POST', 'wget --method=POST http://localhost:4000/api/restart'],
+    ['wget --method POST', 'wget --method POST http://localhost:4000/api/release-approve'],
+    ['httpie with a method', 'http POST :4000/api/release'],
+    ['the https binary', 'https POST localhost:4000/api/release-approve'],
+    ['httpie body items', 'http :4000/api/release slug=x version=1.2.3'],
   ] as const;
 
   it.each(CASES)('refuses %s from the main checkout with a fresh receipt present, naming the board button', async (_label, command) => {
@@ -221,6 +238,19 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
     ['GET on the release route', 'curl http://localhost:4000/api/release'],
     ['explicit GET on restart', 'curl -X GET http://localhost:4000/api/restart'],
     ['POST to a different route', 'curl -X POST http://localhost:4000/api/dispatch'],
+    // A quoted GET, and the per-plan poll `skills/plot-release/SKILL.md:487`
+    // tells the agent to run while a release finishes.
+    ['a quoted GET', 'curl "http://localhost:4000/api/release"'],
+    ['the release poll', 'curl -s http://localhost:4000/api/release/my-slug'],
+    ['a quoted release poll', 'curl "http://localhost:4000/api/release/my-slug"'],
+    ['httpie polling the release', 'http GET :4000/api/release/my-slug'],
+    // An explicit method wins over one a body flag implies, as it does in curl.
+    ['a body flag an explicit GET overrides', 'curl -d slug=x -X GET http://localhost:4000/api/release'],
+    ['wget with an explicit GET', 'wget --method=GET http://localhost:4000/api/release'],
+    // httpie items that send no body: a header and a query parameter.
+    ['httpie sending only a header', 'http :4000/api/release X-Token:abc'],
+    ['httpie sending only a query parameter', 'http :4000/api/release q==1'],
+    ['a route the name only prefixes', 'curl -X POST http://localhost:4000/api/release2'],
   ])("keeps today's allow answer for %s", async (_label, command) => {
     const { r } = readings(MAIN);
     expect((await ask(r, command)).code).toBe(EXIT.allow);
