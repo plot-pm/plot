@@ -67,7 +67,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 `);if(i<0)throw new Error("expected two lines: <previous>\\n<incoming>");let o=t.slice(0,i),e=t.slice(i+1),n=Zd(e);if(n===null)throw new Error("the incoming reading could not be read");let a=Zd(o),c=Td(o),s=o.trim()!=="",u=c===null||r-c<0||r-c>Jf,d=a!==null&&!u,p=Ou(d?a:null,n,d?c:null,s);return`${Mf(p,r).join(`
 `)}
 `},Bf=t=>Array.isArray(t)?t.length>0:typeof t=="string"&&t!=="",xu=(t,r)=>{try{let i=JSON.parse(t),o=["ages","approvedAt","ideaPlans","branchUrlBase"].some(e=>Bf(i[e]));return Dd({bridgeAt:Td(t),carriesTimerFacts:o,now:r})}catch{return!1}},Ed=(t,r=o=>process.stdout.write(o),i=Date.now())=>{try{return r(Nd(t,i)),0}catch(o){return process.stderr.write(`plot-delta: ${o.message}
-`),2}};import{existsSync as Wf,mkdirSync as d$,readFileSync as Kf,realpathSync as Gf,renameSync as Xf,writeFileSync as qf}from"node:fs";var Yf=(t,r)=>{let i=t.split(`
+`),2}};import{existsSync as Wf,mkdirSync as d$,readFileSync as Kf,realpathSync as Gf,renameSync as Xf,unlinkSync as m$,writeFileSync as qf}from"node:fs";var Yf=(t,r)=>{let i=t.split(`
 `),o=i.findIndex(e=>e.startsWith("## Notes"));return o<0?`${t}
 ## Notes
 
