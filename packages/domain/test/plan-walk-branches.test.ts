@@ -3,13 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hostFixture } from '../src/adapters/host/host-fixture.js';
 import { planRecord } from '../src/adapters/plan-store/plan-store-fixture.js';
 import { refsFixture } from '../src/adapters/refs/refs-fixture.js';
-import { failed, isAnswered } from '../src/port-result.js';
+import { answered, failed, isAnswered } from '../src/port-result.js';
 import type { Host } from '../src/ports/host.js';
 import type { Refs } from '../src/ports/refs.js';
 import type { PlanRecordBranch } from '../src/ports/plan-store.js';
 import { branchState } from '../src/rules/branch-state.js';
+import { allSlicesConfirmed } from '../src/rules/deliverable.js';
+import { FleetReadingSchema } from '../src/entities/fleet.js';
 import { readCarriedPrStates } from '../src/rules/scan-listing.js';
 import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
+import { assemblePlanWalk, fleetReading } from '../src/workflows/plan-walk-assembly.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
 
 const INPUT: BranchStageInput = { mainBranch: 'main', planDir: 'docs/plans/' };
@@ -539,6 +542,77 @@ describe('readBranchReadings — a subject refused for age, and a delivery candi
       'no-cache',
       'no-cache',
     ]);
+  });
+});
+
+describe('readBranchReadings — a subject-proven branch reads the host merge (#3055)', () => {
+  const merged = { number: 7, repo: '', head: 'feature/gone', base: 'main', state: 'MERGED', mergedAt: '2026-11-03T11:17:27Z', mergeCommit: '', draft: false, mergeable: 'unknown', review: 'none', checks: 'none', failingChecks: [], url: '', author: '' } as never;
+  // A complete listing that lacks the merged branch's row, as a reused listing does.
+  const lacking = () => readCarriedPrStates('feature_other\tMERGED\t-\t-\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n')!;
+  const asking = (prs: never[] = []) => {
+    const asked: string[] = [];
+    const inner = hostFixture({ backend: 'github', prs });
+    const host: Host = { ...inner, prState: async (ref) => (asked.push(String(ref)), inner.prState(ref)) };
+    return { host, asked };
+  };
+  const stage = async (host: Host, input: Partial<BranchStageInput>) => {
+    const estate = estateOf(line('feature/gone'));
+    const answer = await readBranchReadings(world(), host, estate, { ...INPUT, prs: { kind: 'listed', listing: lacking() }, ...input });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    return { estate, stage: answer.value };
+  };
+  const pulseOf = (estate: Estate, stage: BranchStageReadings) => {
+    const assembled = assemblePlanWalk(
+      { estate: answered(estate), branches: answered(stage), desks: answered({ mainSha: 'm1', desks: [] }) },
+      { slug: '', offer: false },
+    );
+    if (!assembled.ok) throw new Error('assemblePlanWalk should answer');
+    const header = { main: 'main', readRef: 'm1', localHead: 'm1', fetchFailed: false, fetchError: '', planDir: 'docs/plans/', host: 'ok', mergeDetect: 'unaskable', nowSeconds: 1000 };
+    return FleetReadingSchema.parse(fleetReading(assembled.value, header as never));
+  };
+
+  it('reads MERGED from the PR index where the listing lacks the row, and the plan reads deliverable', async () => {
+    const { host, asked } = asking();
+    const { estate, stage: out } = await stage(host, { indexMerged: new Set(['feature/gone']) });
+    expect(asked).toEqual([]);
+    expect(out.branches[0]!.readings).toMatchObject({ mergeSubjectFound: true, pr: 'MERGED' });
+    const pulse = pulseOf(estate, out);
+    expect(pulse.plans[0]!.slices[0]!.branches[0]!.evidence).toBeUndefined();
+    expect(allSlicesConfirmed({ file: PLAN }, pulse, true)).toBe('merged');
+  });
+
+  it('asks the host for a candidate\'s subject-proven branch even where the listing is complete', async () => {
+    const { host, asked } = asking([merged]);
+    const { estate, stage: out } = await stage(host, { askAbsent: true });
+    expect(asked).toEqual(['feature/gone']);
+    expect(out.branches[0]!.readings.pr).toBe('MERGED');
+    expect(allSlicesConfirmed({ file: PLAN }, pulseOf(estate, out), true)).toBe('merged');
+  });
+
+  it('keeps the subject evidence where neither the index nor the host confirms the merge', async () => {
+    const { host, asked } = asking();
+    const { estate, stage: out } = await stage(host, { indexMerged: new Set(['feature/other']) });
+    expect(asked).toEqual([]);
+    expect(out.branches[0]!.readings.pr).toBe('none');
+    const pulse = pulseOf(estate, out);
+    expect(pulse.plans[0]!.slices[0]!.branches[0]!.evidence).toBe('subject');
+    expect(allSlicesConfirmed({ file: PLAN }, pulse, true)).toBe('unknown');
+    const silent = asking();
+    const unasked = await stage(silent.host, { askAbsent: true });
+    expect(silent.asked).toEqual(['feature/gone']);
+    expect(unasked.stage.branches[0]!.readings.pr).toBe('none');
+    expect(pulseOf(unasked.estate, unasked.stage).plans[0]!.slices[0]!.branches[0]!.evidence).toBe('subject');
+  });
+
+  it('never reads the index for a branch with a ref, one no subject proves, or one with an open row', async () => {
+    const { host } = asking();
+    const index = new Set(['feature/here', 'feature/gone', 'feature/quiet']);
+    const withRef = await readBranchReadings(world(), host, estateOf(line('feature/here'), line('feature/quiet')), { ...INPUT, prs: { kind: 'listed', listing: lacking() }, indexMerged: index });
+    if (!isAnswered(withRef)) throw new Error('readBranchReadings should answer');
+    expect(withRef.value.branches.map((b) => b.readings.pr)).toEqual(['none', 'none']);
+    const open = readCarriedPrStates('feature_gone\tOPEN\t-\t-\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n')!;
+    const reopened = await stage(host, { indexMerged: index, prs: { kind: 'listed', listing: open } });
+    expect(reopened.stage.branches[0]!.readings.pr).toBe('OPEN');
   });
 });
 

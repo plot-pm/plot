@@ -15,6 +15,8 @@ import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
+import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import { indexMergedHeads } from '@plot-pm/domain/rules/known-pr';
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
 import {
@@ -158,6 +160,12 @@ export interface WalkPorts {
   processes: Processes;
   /** Absolute path of `plot-plan-meta.sh`; absent, no parse is cached. */
   parser?: string;
+  /**
+   * The PR index's rows for the configured backend, read from the file and
+   * never from the host; empty where no index is held. Absent, the walk
+   * reads no index.
+   */
+  prIndexRows?: () => Promise<readonly PrIndexRow[]>;
 }
 
 /** The pulse and the five facts read beside it. */
@@ -660,7 +668,9 @@ const shortSha = async (refs: Refs, ref: string): Promise<string> => {
  * carried in the reading as `fetch_failed` and does not stop the walk. Every
  * read is cold: no stage's answer is kept between beats.
  *
- * Reads PR states from `listing` and never calls `Host.prList`. A listing that
+ * Reads PR states from `listing` and never calls `Host.prList`. Reads the PR
+ * index's merged rows through `walk.prIndexRows`, which confirm a refless
+ * branch a merge subject or a landed commit proves. A listing that
  * {@link readCarriedPrStates} refuses, the empty one included, reads every PR
  * as `unreadable` with `hostReach` `failed`. The summary's `host` is the
  * branch stage's `hostReach`. After assembly, reads the conflicts of each
@@ -729,11 +739,14 @@ export const walkOnce = async (
 
   const carried = readCarriedPrStates(listing);
   const prs: BranchStagePrs = carried === null ? { kind: 'unread', said: listingSaid } : { kind: 'listed', listing: carried };
+  // A reused listing can lack a PR merged since it was read; the index's
+  // MERGED rows confirm a subject-proven branch, and its silence decides nothing.
+  const indexMerged = indexMergedHeads(walk.prIndexRows === undefined ? [] : await walk.prIndexRows());
   const estate = await readEstate(refs, plansAt, {
     mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
   const branches = estate.ok
-    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs })
+    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged })
     : estate;
   const desks = branches.ok
     ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
