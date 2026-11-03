@@ -304,13 +304,13 @@ test('the scan leaves no temp directory behind', () => {
   }
 });
 
-test('the scan removes its host-state cache too, and leaves nothing in TMPDIR', () => {
-  // THE CACHE THE REF TRAP REPLACED. The host-state cache had its own
-  // `trap … EXIT` and the `REF_TMP` trap in the same shell replaced it, so every
-  // scan that asked the host left one `tmp.*` directory behind — measured
-  // 2026-09-30, about 50 in six minutes, each holding ~955 files. A stub `gh`
-  // records what TMPDIR holds while the scan runs, which proves the cache was
-  // made under TMPDIR and under its `plot-` name before the exit removed it.
+test('the scan asks the host and leaves nothing in TMPDIR', () => {
+  // THE CACHE THE REF TRAP REPLACED. The shell scan's host-state cache had its
+  // own `trap … EXIT` and the `REF_TMP` trap in the same shell replaced it, so
+  // every scan that asked the host left one `tmp.*` directory behind — measured
+  // 2026-09-30, about 50 in six minutes, each holding ~955 files. The domain
+  // walk holds its host answers in memory. A stub `gh` records that the host
+  // was asked, and TMPDIR must be empty at exit.
   const priv = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-hoststate-')));
   const tmpHome = path.join(priv, 'tmp');
   const bin = path.join(priv, 'bin');
@@ -328,9 +328,7 @@ test('the scan removes its host-state cache too, and leaves nothing in TMPDIR', 
       encoding: 'utf8', cwd: A,
       env: { ...process.env, TMPDIR: tmpHome, PLOT_HOST: 'github', PATH: `${bin}:${process.env.PATH}` },
     });
-    const during = fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8') : '';
-    assert.match(during, /^plot-fleet-host-state\.[A-Za-z0-9]{6}$/m,
-      `the host was asked while the cache existed under TMPDIR:\n${during}`);
+    assert.ok(fs.existsSync(seen), 'the host must have been asked, or this proves nothing');
     assert.deepEqual(fs.readdirSync(tmpHome), [], 'every entry the scan made is gone at exit');
   } finally {
     fs.rmSync(priv, { recursive: true, force: true });

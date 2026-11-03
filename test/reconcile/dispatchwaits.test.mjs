@@ -119,6 +119,9 @@ function ghShim({ prereq = 'bug/the-prerequisite', state = null, unreachable = f
     + answer
     + '    *) echo "no pull requests found" >&2; exit 1 ;;\n'
     + '  esac\n'
+    // One answer per call, as `gh` prints one: falling through to the `{}`
+    // below would append a second JSON document to the PR the host named.
+    + '  exit 0\n'
     + 'fi\n'
     + 'echo "{}"\n');
   fs.chmodSync(path.join(dir, 'gh'), 0o755);
@@ -361,6 +364,9 @@ test('waits: a branch declaring nothing is asked nothing', () => {
     + '    feature/dependent) echo "no pull requests found" >&2; exit 1 ;;\n'
     + '    *) echo "gh must not be asked about a prerequisite: $3" >&2; exit 9 ;;\n'
     + '  esac\n'
+    // One answer per call, as `gh` prints one: falling through to the `{}`
+    // below would append a second JSON document to the PR the host named.
+    + '  exit 0\n'
     + 'fi\n'
     + 'echo "{}"\n');
   fs.chmodSync(path.join(dir, 'gh'), 0o755);
@@ -395,6 +401,9 @@ const ghShimMany = (answers) => {
     + arms
     + '    *) echo "no pull requests found" >&2; exit 1 ;;\n'
     + '  esac\n'
+    // One answer per call, as `gh` prints one: falling through to the `{}`
+    // below would append a second JSON document to the PR the host named.
+    + '  exit 0\n'
     + 'fi\n'
     + 'echo "{}"\n');
   fs.chmodSync(path.join(dir, 'gh'), 0o755);

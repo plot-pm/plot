@@ -541,11 +541,11 @@ test('a backend with no form proves nothing, and says so', () => {
   assert.match(scanText(fx), /merge_detect=none/);
 });
 
-test('a missing bundle answers unaskable, and every branch goes to the host', () => {
-  // THE FOOTER WORD FOR *THE RULE COULD NOT BE ASKED*. On GitHub this is worse
-  // than before this plan, and the plan says so: the shell regex that answered
-  // is removed, so a GitHub estate loses its subject proof while the bundle
-  // cannot answer. Reported rather than hidden is the whole of the contract.
+test('the subject rule needs no bundle: the walk asks it in process', () => {
+  // THE SHELL SCAN ASKED `plot-merge-subject.mjs` in a child process, and a
+  // missing bundle read `merge_detect=unaskable` with every branch sent to the
+  // host. The domain walk calls the rule in process, so a `node` that refuses
+  // that bundle changes nothing: the subject still proves the branch.
   const fx = makeRepo({ backend: 'github', owner: 'acme' });
   const { repo, bin } = fx;
   addPlan(repo, '2026-10-01-nobundle.md', {
@@ -562,11 +562,11 @@ exec ${JSON.stringify(realNode)} "$@"
 `, { mode: 0o755 });
 
   const text = scanText(fx);
-  assert.match(text, /merge_detect=unaskable/);
-  assert.notEqual(
+  assert.match(text, /merge_detect=pr-merge/);
+  assert.equal(
     branchOf(scanJson(fx), '2026-10-01-nobundle.md', 'bug/unaskable')?.state,
     'merged',
-    'with no rule to ask, the branch falls through to the host as it did before',
+    'the rule answers in process, so the subject still proves the branch',
   );
 });
 

@@ -467,9 +467,12 @@ test('a plain slug dispatch still restarts nothing: dispatched=0 on a stalled br
 test('plot-fleet-scan.sh --next still offers only open branches', () => {
   // The `open`-only rule is Plot's lock: it is what stops two workers claiming
   // one branch. This plan adds a second question rather than widening the first.
-  const scan = fs.readFileSync(path.join(scripts, 'plot-fleet-scan.sh'), 'utf8');
-  assert.match(scan, /\[ "\$verdict" = "eligible" \] && \[ "\$st" = "open" \]/,
-    'the claimable[] condition must still require st = open');
+  // The scan is a launcher over the domain walk, which offers a branch only where
+  // `isClaimable` admits it, so the condition is read where it now lives.
+  const rule = fs.readFileSync(path.join(scripts, '..', '..', '..',
+    'packages', 'domain', 'src', 'rules', 'eligible.ts'), 'utf8');
+  assert.match(rule, /verdict === 'eligible' && state === 'open' && held === ''/,
+    'the claimable condition must still require state open');
 });
 
 test('--restart refuses a branch no plan or worktree holds, naming the refusal', () => {

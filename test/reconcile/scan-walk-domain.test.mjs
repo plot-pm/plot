@@ -157,10 +157,12 @@ test('scan-walk: --stream prints the first plan before the walk has read the lat
   const held = path.join(gateDir, 'held');
   const gitBin = path.join(gateDir, 'bin');
   fs.mkdirSync(gitBin);
-  // `git log main..origin/bug/already-claimed` is the later plan's branch read; it blocks until the gate file exists.
+  // The walk reads a branch's commits as `git log <main oid>..<tip oid>`; the
+  // later plan's branch read blocks until the gate file exists.
+  const tip = execFileSync(realGit, ['rev-parse', 'origin/bug/already-claimed'], { encoding: 'utf8', cwd: repo }).trim();
   fs.writeFileSync(
     path.join(gitBin, 'git'),
-    `#!/usr/bin/env bash\ncase " $* " in *" log "*"origin/bug/already-claimed"*) : > ${JSON.stringify(held)}; for _ in $(seq 1 600); do [ -e ${JSON.stringify(gate)} ] && break; sleep 0.1; done ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`,
+    `#!/usr/bin/env bash\ncase " $* " in *" log "*"..${tip}"*) : > ${JSON.stringify(held)}; for _ in $(seq 1 600); do [ -e ${JSON.stringify(gate)} ] && break; sleep 0.1; done ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`,
     { mode: 0o755 },
   );
   const child = spawn('bash', [scan, '--offline', '--stream'], {
@@ -192,7 +194,9 @@ test('scan-walk: --stream prints no reading line when the walk fails', () => {
   const shim = path.join(broken, 'bin');
   fs.mkdirSync(shim);
   const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
-  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash\ncase " $* " in *" log "*"origin/bug/already-claimed"*) exit 128 ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
+  // The walk reads a branch's commits by oid, `git log <main oid>..<tip oid>`.
+  const tip = execFileSync(realGit, ['rev-parse', 'origin/bug/already-claimed'], { encoding: 'utf8', cwd: repo }).trim();
+  fs.writeFileSync(path.join(shim, 'git'), `#!/usr/bin/env bash\ncase " $* " in *" log "*"..${tip}"*) exit 128 ;; esac\nexec ${JSON.stringify(realGit)} "$@"\n`, { mode: 0o755 });
   const r = spawnSync('bash', [scan, '--offline', '--stream'], { encoding: 'utf8', cwd: repo, env: { ...env(), PLOT_SCAN_RECORD: '0', PATH: `${shim}${path.delimiter}${binDir}${path.delimiter}${process.env.PATH}` } });
   assert.notEqual(r.status, 0);
   assert.ok(!r.stdout.includes('"kind":"reading"'), r.stdout);

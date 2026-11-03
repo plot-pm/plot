@@ -2664,8 +2664,11 @@ test('fleet: the scan does not retry or wait on a lock', () => {
   //
   // Asserted by COUNTING the status calls rather than by timing: a timing
   // assertion cannot tell a retry that happened to be fast from no retry at all,
-  // and it would be the flakiest test in the file. Exactly one `git status` per
-  // worktree, lock or no lock.
+  // and it would be the flakiest test in the file. A retry repeats the same
+  // call, so no `git status` argv may appear twice for the worktree, lock or no
+  // lock. The domain walk reads the tree twice on purpose and with different
+  // arguments: `--porcelain` for the dirty paths and `--porcelain -uall` for
+  // the quiet time, which must see a file inside a new directory.
   const f = makeRepo('plot-fleet-noretry-', ONE_WAVE('feature/held'));
   f.work('feature/held', 'h.txt');
   f.push('-u', 'origin', 'feature/held');
@@ -2694,8 +2697,9 @@ exec ${JSON.stringify(realGit)} "$@"
 
   const statusCalls = fs.readFileSync(argvLog, 'utf8').split('\n')
     .filter((l) => l.startsWith('-C ') && l.includes(' status ') && l.includes(wt));
-  assert.equal(statusCalls.length, 1,
-    `a locked worktree must be asked ONCE and reported, saw ${statusCalls.length} status calls`);
+  assert.ok(statusCalls.length > 0, 'the locked worktree must still be read');
+  assert.equal(new Set(statusCalls).size, statusCalls.length,
+    `a locked worktree must be asked each question ONCE and reported, saw: ${statusCalls.join(' | ')}`);
 
   fs.rmSync(shim, { recursive: true, force: true });
   f.cleanup();
@@ -4274,11 +4278,11 @@ test('changed_ago: the answer is a MEASUREMENT, never a verdict', () => {
 //   * the plan was edited         -> its branches' answers are invalidated
 //   * main moved                  -> the merge evidence is re-derived
 //
-// It never touches disk and never outlives the process. The scan receives it in
-// the ENVIRONMENT and reports what it learned on STDERR, so the board — which
-// is the only long-lived process in the system — can hold the map across
-// pulses. A file would be a second source of truth about a repo whose only
-// source of truth is git (Manifesto Principle 1).
+// The shell scan held that map in `PLOT_TERMINAL_CACHE` and reported it on
+// stderr. The domain walk keeps none: fleetd carries the PR listing between
+// beats instead, and a whole listing answers a terminal branch with no
+// per-branch call. The tests below pin the cost and the invalidations through
+// that listing and through the per-branch call itself.
 
 /**
  * Run the scan with a terminal cache in the environment, returning what it
@@ -4300,12 +4304,12 @@ case "$1" in
 esac
 `;
 
-function scanWithCache(f, cache, host = MERGED_HOST) {
+function scanWithCache(f, cache, host = MERGED_HOST, extraEnv = {}) {
   const h = hostShim(host);
   const calls = path.join(h.dir, 'calls.txt');
   const res = spawnSync('bash', [h.scan], {
     encoding: 'utf8', cwd: f.dir,
-    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_TERMINAL_CACHE: cache ?? '' },
+    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_TERMINAL_CACHE: cache ?? '', ...extraEnv },
   });
   const ops = fs.existsSync(calls)
     ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
@@ -4334,27 +4338,28 @@ function makeTerminalRepo(prefix, n) {
   return f;
 }
 
-test('terminal: a merged branch costs one host call across many pulses', () => {
+test('terminal: a merged branch costs one host call per pulse, and none once a listing is carried', () => {
   // THE CLAIM, as a count rather than a timing — a timing assertion on CI is a
   // flake, and the count is what the plan actually promises.
   //
-  // Three pulses over the same terminal branches. The first pays; the second
-  // and third must pay NOTHING, because nothing about a merged branch can have
-  // changed. Against a scan with no cache all three cost the same, which is the
-  // defect.
+  // The domain walk keeps no terminal map in the environment. What carries a
+  // terminal answer from one pulse to the next is the PR listing fleetd holds
+  // and hands back as `PLOT_PR_LISTING`: a whole listing naming the merged
+  // branches answers them, and the walk asks the host nothing per branch. A
+  // cold scan with no listing pays once per terminal branch and never twice.
   const f = makeTerminalRepo('plot-fleet-term-once-', 4);
 
   const cold = scanWithCache(f, null);
-  assert.equal(cold.asked, 4, `a cold scan asks about each terminal branch, saw ${cold.asked}`);
-  assert.equal(cold.learned.length, 4,
-    `a cold scan must report what it learned, saw ${cold.learned.length}`);
+  assert.equal(cold.asked, 4, `a cold scan asks about each terminal branch once, saw ${cold.asked}`);
 
-  // Pulses two and three, each handed what the one before it learned.
-  const warm = scanWithCache(f, cold.learned.join('\n'));
+  const listing = [
+    ...Array.from({ length: 4 }, (_, i) => `feature_b${i}\tMERGED\t-\t-`),
+    '.branches\t4\t-\t-', '.list-complete\t1\t-\t-', '.list-arrived\t1\t-\t-',
+  ].join('\n');
+  const warm = scanWithCache(f, null, MERGED_HOST, { PLOT_PR_LISTING: listing });
   assert.equal(warm.asked, 0,
-    `a warm pulse must ask nothing, saw ${warm.asked}: ${warm.ops.join(',')}`);
-  const warm2 = scanWithCache(f, warm.learned.join('\n'));
-  assert.equal(warm2.asked, 0, `the cache must survive a pulse that used it, saw ${warm2.asked}`);
+    `a pulse handed a whole listing must ask nothing per branch, saw ${warm.asked}: ${warm.ops.join(',')}`);
+  assert.equal(warm.out, cold.out, 'and it must render exactly what the cold scan did');
 
   f.cleanup();
 });
@@ -4428,13 +4433,12 @@ test('terminal: an edited plan invalidates its branches cached answers', () => {
   f.cleanup();
 });
 
-test('terminal: a live branch is never cached', () => {
+test('terminal: a live branch is never asked per branch', () => {
   // ASSERTED RATHER THAN ASSUMED, as the plan requires. A live branch's state
-  // is the thing the board exists to watch change, and a cached `open` is a
-  // board that stops reporting the only rows anybody is looking at.
-  //
-  // Two live shapes that both have a ref: one in flight, one claimed. Neither
-  // may appear in what the scan reports as learned.
+  // is the thing the board exists to watch change, and an answer fixed by a
+  // per-branch host call is a board that stops reporting the only rows anybody
+  // is looking at. The per-branch call is reached only by a branch with no ref,
+  // so a live branch with a ref answers from the listing and git alone.
   const f = makeRepo('plot-fleet-term-live-',
     '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
     '- `feature/live` — the work\n- `feature/landed` — the work\n');
@@ -4448,11 +4452,17 @@ test('terminal: a live branch is never cached', () => {
   git(f.dir, 'checkout', '-q', 'main');
   git(f.dir, 'fetch', '-q', '--prune', 'origin');
 
-  const cold = scanWithCache(f, null);
-  assert.ok(cold.learned.some((l) => l.includes('feature/landed')),
-    'the terminal branch is what the cache is for');
-  assert.ok(!cold.learned.some((l) => l.includes('feature/live')),
-    `a live branch must never be cached, saw: ${cold.learned.join(' | ')}`);
+  const asked = [];
+  const host = MERGED_HOST.replace('printf \'%s\\n\' "$1" >> "$PLOT_TEST_CALLS"',
+    'printf \'%s\\n\' "$1" >> "$PLOT_TEST_CALLS"; [ "$1" = pr-state ] && printf \'%s\\n\' "$2" >> "$PLOT_TEST_CALLS.args"');
+  assert.notEqual(host, MERGED_HOST, 'the stub must record which branch was asked');
+  const h = hostShim(host);
+  const calls = path.join(h.dir, 'calls.txt');
+  spawnSync('bash', [h.scan], { encoding: 'utf8', cwd: f.dir, env: { ...process.env, PLOT_TEST_CALLS: calls } });
+  if (fs.existsSync(`${calls}.args`)) asked.push(...fs.readFileSync(`${calls}.args`, 'utf8').split('\n').filter(Boolean));
+  h.cleanup();
+  assert.deepEqual(asked, ['feature/landed'],
+    `only the terminal branch reaches the per-branch call, saw: ${asked.join(' | ')}`);
 
   f.cleanup();
 });
@@ -4811,11 +4821,11 @@ esac
 // `--state` returns the rich rows to both calls and certifies a build that has
 // lost every rollup.
 //
-// The assertions read the PARSED CACHE, not the call shape. An open PR sits in
-// both payloads, both rows rank 1 in the dedup, and a whole-line `sort` keeps
-// the plain row: the rollup is lost for every open PR while every call looks
-// right. The shim copy of the scan copies its cache out on exit instead of
-// only deleting it, so the test can read the line `pr_ready` reads.
+// The assertions read the PARSED LISTING, not the call shape. An open PR sits in
+// both payloads, both rows rank first in the dedup, and a fold that kept the
+// plain row would lose the rollup for every open PR while every call looks
+// right. The scan reports the listing it held on stderr as `listing:` lines,
+// which is what fleetd carries to the next scan, so the test reads those.
 const RICH_OPEN_ROW = (n, head, checks) =>
   `{"number":${n},"title":"t","state":"OPEN","head":"${head}","draft":false,"checks":"${checks}","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}`;
 const PLAIN_ROW = (n, state, head) =>
@@ -4845,33 +4855,28 @@ ${all.map((l) => `        echo '${l}'`).join('\n')}
 esac
 `;
 
-// The call that fills the cache, as the scan's top level makes it. The shim
-// copy copies the cache out immediately after it: the cache's own EXIT trap
-// is not a reliable hook, since a later `trap … EXIT` in the scan replaces it.
-const PREFILL_CALL = '\nprefill_pr_states\n';
-
 // Run the scan against a state-aware host, and return its output, the host
-// calls it made, and the cache it parsed (file name -> contents).
+// calls it made, and the listing it reported (branch key -> `STATE<TAB>checks<TAB>draft`,
+// an absent word empty, plus the `.list-arrived` and `.list-complete` markers).
 const scanWithHostCache = (f, host, args = ['p'], extraEnv = {}) => {
   const h = hostShim(host);
-  const src = fs.readFileSync(h.scan, 'utf8');
-  assert.equal(src.split(PREFILL_CALL).length, 2,
-    'the prefill call site changed; this helper can no longer read the cache');
-  const copy = path.join(h.dir, 'cache-copy');
-  fs.mkdirSync(copy);
-  fs.writeFileSync(h.scan, src.replace(PREFILL_CALL,
-    '\nprefill_pr_states\n[ -n "$HOST_STATE_CACHE" ] && cp -R "$HOST_STATE_CACHE"/. "$PLOT_TEST_CACHE_COPY"/\n'));
   const calls = path.join(h.dir, 'calls.txt');
-  const out = execFileSync('bash', [h.scan, ...args], {
+  const run = spawnSync('bash', [h.scan, ...args], {
     encoding: 'utf8', cwd: f.dir,
-    env: { ...process.env, PLOT_TEST_CALLS: calls, PLOT_TEST_CACHE_COPY: copy, ...extraEnv },
+    env: { ...process.env, PLOT_TEST_CALLS: calls, ...extraEnv },
   });
+  assert.equal(run.status, 0, `the scan failed: ${run.stderr}`);
   const calls_ = fs.existsSync(calls)
     ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
-  const cache = Object.fromEntries(fs.readdirSync(copy)
-    .map((n) => [n, fs.readFileSync(path.join(copy, n), 'utf8')]));
+  const cache = Object.fromEntries(run.stderr.split('\n')
+    .filter((l) => l.startsWith('listing: ') && !l.startsWith('listing: .branches\t'))
+    .map((l) => {
+      const [key, state, checks, draft] = l.slice('listing: '.length).split('\t');
+      const word = (w) => (w === '-' ? '' : w);
+      return key.startsWith('.') ? [key, '1'] : [key, `${state}\t${word(checks)}\t${word(draft)}`];
+    }));
   h.cleanup();
-  return { out, calls: calls_, cache };
+  return { out: run.stdout, calls: calls_, cache };
 };
 
 const TWO_WAVES_OPEN_AND_LANDED =
