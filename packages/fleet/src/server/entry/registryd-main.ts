@@ -2823,6 +2823,13 @@ export const run = async (
               agents: agentsFs({ repoRoot, scriptDir: scriptsDir }),
               processes: processesShell({ repoRoot, scriptDir: scriptsDir }),
               parser: planParserPath({ repoRoot, scriptDir: scriptsDir }),
+              // THE STORE IS KEYED BY THE BACKEND WORD; a file read, no host request.
+              prIndexRows: async () => {
+                const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+                if (!backend.ok) return [];
+                const held = await prIndexFile({ cwd: repoRoot }).read(backend.value);
+                return held.ok && held.value !== null ? held.value.rows : [];
+              },
             },
           },
           fleetStateFile({ repoRoot }),

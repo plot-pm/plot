@@ -98,6 +98,14 @@ export interface BranchStageInput {
   askAbsent?: boolean;
   /** Under `askAbsent`, asks every name the list omits even where the list is complete. */
   askAlways?: boolean;
+  /**
+   * The heads the PR index holds a merged, non-draft row for. A branch with no
+   * remote ref that a merge subject or a landed commit proves reads `pr`
+   * `MERGED` where its head is in the set and no `OPEN` row names it. A head
+   * absent from the set changes no reading: the index answers `MERGED` and
+   * never `none`. Absent, no branch reads from the index.
+   */
+  indexMerged?: ReadonlySet<string>;
   /** How many pull requests each host list call asks for; {@link PR_LIST_LIMIT} where absent. */
   listLimit?: number;
 }
@@ -235,6 +243,10 @@ const readingOfPr = (pr: Pr | null): PrReading => {
  * A PR LISTING THE CALLER HOLDS REPLACES THE HOST CALL. With `input.prs`
  * the stage calls no `Host.prList`; see {@link BranchStageInput.prs}.
  *
+ * THE PR INDEX CONFIRMS A PROVEN LANDING. A refless branch that a merge
+ * subject or a landed commit proves reads `MERGED` where
+ * {@link BranchStageInput.indexMerged} holds its head; see that field.
+ *
  * Conflicts are read after assembly, by {@link readBranchConflicts}: which
  * branches are asked depends on their assembled state.
  *
@@ -363,10 +375,7 @@ export const readBranchReadings = async (
   // merge. Each name is asked once per walk; a failed ask reads `unreadable`.
   const asked = new Map<string, PrReading>();
   const mayAsk = input.askAbsent === true && !offline && backend !== 'none';
-  const askedPrFor = async (branch: string): Promise<PrReading> => {
-    const held = heldPr(branch);
-    if (held !== undefined) return held;
-    if (!mayAsk || (listed && prListComplete && input.askAlways !== true)) return prFor(branch);
+  const askHost = async (branch: string): Promise<PrReading> => {
     const known = asked.get(branch);
     if (known !== undefined) return known;
     const answer = await host.prState(branch);
@@ -374,6 +383,13 @@ export const readBranchReadings = async (
     asked.set(branch, reading);
     return reading;
   };
+  const askedPrFor = async (branch: string): Promise<PrReading> => {
+    const held = heldPr(branch);
+    if (held !== undefined) return held;
+    if (!mayAsk || (listed && prListComplete && input.askAlways !== true)) return prFor(branch);
+    return askHost(branch);
+  };
+  const indexMerged = input.indexMerged ?? new Set<string>();
 
   const live = estate.plans.filter((p) => !SKIPPED_PHASES.has(p.record.phase));
   const sliceNames = namedSlices(
@@ -467,7 +483,11 @@ export const readBranchReadings = async (
         }
         // A branch with a ref answers from the list alone; a merge subject or a
         // landed commit already proves a refless one, so neither is asked.
-        const pr = refTip === null && !proven && !commitsLanded ? await askedPrFor(line.branch) : prFor(line.branch);
+        const listedPr = refTip === null && !proven && !commitsLanded ? await askedPrFor(line.branch) : prFor(line.branch);
+        // The index confirms a landing a subject or a named commit proves, with
+        // a terminal answer only: a head it does not hold keeps the list's word.
+        const pr: PrReading =
+          refTip === null && (proven || commitsLanded) && listedPr !== 'OPEN' && indexMerged.has(line.branch) ? 'MERGED' : listedPr;
         branches.push({
           plan: record.file,
           branch: line.branch,
@@ -495,13 +515,15 @@ export const readBranchReadings = async (
     // approved plan whose every non-deferred branch reads merged is next
     // delivered, and a delivery is refused while a subject alone proves a
     // branch. Asked only where the list arrived; a refused host is not asked.
+    // A complete list that omits the branch is asked too: its `none` cannot
+    // confirm a landing.
     if (record.phase === 'approved' && listed && mayAsk) {
       const own = branches.slice(planStart);
       const candidate = own.every((b) => b.readings.deferredByPlan || branchState({ ...b.readings, waits: [] }) === 'merged');
       for (let i = planStart; candidate && i < branches.length; i += 1) {
         const b = branches[i]!;
         if (!b.readings.mergeSubjectFound || b.readings.pr === 'MERGED') continue;
-        branches[i] = { ...b, readings: { ...b.readings, pr: await askedPrFor(b.branch) } };
+        branches[i] = { ...b, readings: { ...b.readings, pr: await askHost(b.branch) } };
       }
     }
     if (input.onPlan !== undefined) await input.onPlan(record.file, branches.slice(planStart));
