@@ -25,6 +25,7 @@ import {
   type PlanPrFound,
   type PlanPrReadings,
 } from '@plot-pm/domain/rules/plan-pr';
+import { openPrsOf, unreadPrsLine, type UnreadPr } from './open-prs.js';
 import { approvalArm } from '@plot-pm/domain/rules/approval-arm';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
 import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-membership';
@@ -316,50 +317,15 @@ const readPlanAt = async (ctx: Context, ref: string, file: string): Promise<Plan
   }
 };
 
-/** Whether git holds a commit. */
-const holdsCommit = async (ctx: Context, sha: string): Promise<boolean> =>
-  sha !== '' && (await ctx.refs.resolve(`${sha}^{commit}`)).ok;
-
 /** The words a host refusal printed, or the adapter's default sentence. */
 const hostSaid = (ctx: Context): string => {
   const said = ctx.host.lastRefusal()?.said ?? '';
   return said !== '' ? said : 'The host adapter gave no reason.';
 };
 
-/**
- * The open PRs, each with the paths its head changes against its merge base
- * with the default branch.
- *
- * ONE HOST CALL: `pr-list --state open --limit 100`, which names every open
- * PR's head branch and head commit. The heads git does not hold are fetched
- * in ONE `git fetch`. Whether a head changes the plan file is then a git
- * question, which spends no host quota. A PR from a fork, or whose head
- * commit git cannot resolve after the fetch, is skipped: it is never read at
- * `origin/<head>`, which may not be the commit the merge would be pinned to.
- *
- * @throws Refused where the host cannot list its open PRs.
- */
-const openPrsOf = async (ctx: Context): Promise<OpenPr[]> => {
-  const listed = await ctx.host.prList('open', PRS_LISTED);
-  if (!listed.ok) {
-    throw new Refused(`the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
-  }
-  const own = listed.value.filter((pr) => pr.repo === '' && pr.head !== '' && (pr.headSha ?? '') !== '');
-  const missing: string[] = [];
-  for (const pr of own) {
-    if (!(await holdsCommit(ctx, pr.headSha ?? ''))) missing.push(pr.head);
-  }
-  if (missing.length > 0) await ctx.trees.fetch(ctx.repoRoot, missing);
-  const open: OpenPr[] = [];
-  for (const pr of own) {
-    const headSha = pr.headSha ?? '';
-    if (!(await holdsCommit(ctx, headSha))) continue;
-    const changed = await ctx.refs.changedFiles(headSha);
-    if (!changed.ok) continue;
-    open.push({ number: pr.number, head: pr.head, draft: pr.draft, headSha, changed: changed.value });
-  }
-  return open;
-};
+/** The refusal this entry throws when `pr-list` cannot list the open PRs. */
+const refuseOpenList = (ctx: Context): Refused =>
+  new Refused(`the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
 
 /**
  * Asks `planPrOf` until it answers, reading each reading it names.
@@ -372,6 +338,7 @@ const choosePlanPr = async (
   readings: PlanPrReadings,
   main: string,
   file: string,
+  onUnread: (unread: readonly UnreadPr[]) => void,
 ): Promise<PlanPrFound | undefined> => {
   let current = readings;
   for (;;) {
@@ -388,9 +355,12 @@ const choosePlanPr = async (
         current = { ...current, named };
         break;
       }
-      case 'open':
-        current = { ...current, open: await openPrsOf(ctx) };
+      case 'open': {
+        const reading = await openPrsOf(ctx, () => refuseOpenList(ctx));
+        onUnread(reading.unread);
+        current = { ...current, open: reading.open };
         break;
+      }
       case 'addition': {
         const added = await ctx.refs.firstParentAddition(`origin/${main}`, file);
         const sha = added.ok ? added.value : '';
@@ -435,6 +405,8 @@ interface RemotePlan {
  * Finds a plan the checkout does not hold: on `origin/<main>` first, then at
  * the head of the first open PR that changes it.
  *
+ * @param onUnread - told the own-repo open rows that could not be read, where
+ *   the open PRs were listed at all.
  * @returns the plan and where it came from, or undefined where neither holds
  *   it.
  */
@@ -444,12 +416,14 @@ const remotePlanOf = async (
   main: string,
   slug: string,
   mainPlans: readonly string[],
+  onUnread: (unread: readonly UnreadPr[]) => void,
 ): Promise<RemotePlan | undefined> => {
   const onMain = mainPlans.find((file) => namesPlan(slug, file));
   if (onMain !== undefined) {
     return { file: onMain, record: await readPlanAt(ctx, `origin/${main}`, onMain), source: `origin/${main}` };
   }
-  const open = await openPrsOf(ctx);
+  const { open, unread } = await openPrsOf(ctx, () => refuseOpenList(ctx));
+  onUnread(unread);
   const [first] = planPrsCarrying(slug, dirs.planDir, open);
   if (first === undefined) return undefined;
   return {
@@ -531,6 +505,8 @@ interface RefusalContext {
   review: string;
   prBranch: string;
   prNumber: number;
+  /** The own-repo open rows that could not be read while looking for the plan. */
+  unreadOpen: readonly UnreadPr[];
 }
 
 /**
@@ -542,8 +518,11 @@ interface RefusalContext {
 const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext): string => {
   const { slug, planFile, phase, review } = c;
   switch (reason) {
-    case 'plan-not-found':
-      return `no plan found for '${slug}' — looked in ${c.dirs.activeDir} and ${c.dirs.planDir}, on the default branch as fetched, and on the heads of the open PRs.\n  Check the slug: ls ${c.dirs.planDir} | grep -i '${slug}'\n  Or create the plan first: /plot-idea`;
+    case 'plan-not-found': {
+      const unread = unreadPrsLine(c.unreadOpen);
+      const unreadLine = unread === '' ? '' : `\n  ${unread}`;
+      return `no plan found for '${slug}' — looked in ${c.dirs.activeDir} and ${c.dirs.planDir}, on the default branch as fetched, and on the heads of the open PRs.${unreadLine}\n  Check the slug: ls ${c.dirs.planDir} | grep -i '${slug}'\n  Or create the plan first: /plot-idea`;
+    }
     case 'plan-unparseable':
       return `cannot parse '${planFile}' — refusing rather than guessing.\n  See what the parser reads: ${c.scriptDir}/plot-plan-meta.sh ${planFile}\n  A plan needs a '## Status' section with a 'State:' field.`;
     case 'state-terminal':
@@ -884,11 +863,12 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   const inCheckout = planFile !== '';
   let plan: PlanRecord | undefined;
   let listedOpen: readonly OpenPr[] | undefined;
+  let unreadOpen: readonly UnreadPr[] = [];
   if (planFile !== '') {
     const read = await ctx.planStore.readPlan(planFile);
     plan = read.ok ? read.value : undefined;
   } else {
-    const remote = await remotePlanOf(ctx, dirs, main, slug, await plansOnMain());
+    const remote = await remotePlanOf(ctx, dirs, main, slug, await plansOnMain(), (unread) => { unreadOpen = unread; });
     if (remote !== undefined) {
       planFile = remote.file;
       plan = remote.record;
@@ -936,6 +916,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
           { slug, planDir: dirs.planDir, onMain, ...(listedOpen === undefined ? {} : { open: listedOpen }) },
           main,
           realFile,
+          (unread) => { unreadOpen = unread; },
         );
         if (found !== undefined) {
           pr = { number: found.number, state: found.state, draft: found.draft, headSha: found.headSha || undefined };
@@ -1007,7 +988,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         : `${verdict.detail}\n  Name the reviewer: plot-approve.mjs --spike --who <handle> ${slug}`);
     }
     throw new Refused(refusalText(verdict.reason, verdict.detail, {
-      slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number,
+      slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number, unreadOpen,
     }));
   }
   if (hostRefusal !== undefined) throw hostRefusal;

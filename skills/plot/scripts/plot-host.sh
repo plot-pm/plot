@@ -635,7 +635,7 @@
 #   - no auto-merge / merge queues — pr-merge merges immediately or fails
 #   - "closed" state is Bitbucket's DECLINED (normalized to CLOSED here)
 #   - pr-state by BRANCH resolves via pr-list filtering (one extra call)
-#   - draft flag support depends on the bb CLI version (--draft / --ready)
+#   - draft flag support: `bb pr create --draft`, `bb pr edit <n> --ready`
 # Small-model consumption: structured output, no interpretation, exit 0 with
 # state NONE rather than nonzero on lookup misses.
 
@@ -4457,14 +4457,13 @@ case "$op" in
     # the second; reaching for `gh` there would put a second host caller in the
     # estate.
     #
-    # Bitbucket's support depends on the bb CLI version (see the caveat list at
-    # the top of this file, which already names `--draft`/`--ready`), so a
-    # failure here surfaces as the CLI's own message rather than being
-    # swallowed: the caller must be able to tell *the host refused* from *the
-    # PR is now ready or closed*.
+    # Bitbucket runs `bb pr edit <n> --ready` (see the caveat list at the top of
+    # this file), so a failure here surfaces as the CLI's own message rather
+    # than being swallowed: the caller must be able to tell *the host refused*
+    # from *the PR is now ready or closed*.
     num="${1:?$op needs a PR number}"
     if [ "$op" = "pr-ready" ] && [ "$cli" = "bb" ]; then
-      bb pr update "$num" --ready
+      bb pr edit "$num" --ready
     else
       "$cli" pr "${op#pr-}" "$num"
     fi
@@ -4976,7 +4975,7 @@ case "$op" in
         fi
       else
         pr_list_states bitbucket "$limit" "$bb_states" \
-          '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,author:(.author.nickname // "")}' \
+          '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),base:(.destination.branch.name // "")}' \
           "${bb_cmd[@]}" || exit $?
       fi
     fi
