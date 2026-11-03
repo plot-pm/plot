@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2993, #3040
@@ -19,6 +19,7 @@
 - **Started:** 2026-11-02, Jan Wloka, `feature/a-ticket-row-names-its-plan`
 - **Started:** 2026-11-03, Jan Wloka, `feature/the-fleet-payload-indexes-its-plans`
 - **Delivered:** 2026-11-03
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

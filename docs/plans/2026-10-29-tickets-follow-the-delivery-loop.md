@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2905
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-30, Jan Wloka, `feature/merged-slices-update-the-comment`
 - **Started:** 2026-10-30, Jan Wloka, `feature/jira-moves-at-approve`
 - **Delivered:** 2026-10-30
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

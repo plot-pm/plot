@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2904
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-starts-main-repair`
 - **Started:** 2026-10-31, Jan Wloka, `feature/a-red-main-is-reverted`
 - **Delivered:** 2026-10-31
+- **Released:** 2026-11-03, v2.30.0
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)

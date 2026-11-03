@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3010
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `bug/a-stop-that-lands-with-the-child-s-exit-still-stops`
 - **Started:** 2026-11-01, Jan Wloka, `bug/the-group-stop-test-tells-a-slow-stop-from-a-survivor`
 - **Delivered:** 2026-11-02
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

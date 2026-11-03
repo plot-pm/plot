@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2999
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `feature/a-sprint-member-names-its-sprint`
 - **Started:** 2026-11-02, Jan Wloka, `bug/the-delivery-loop-sprint-is-repaired`
 - **Delivered:** 2026-11-02
+- **Released:** 2026-11-03, v2.30.0
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches

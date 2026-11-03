@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** delivery-loop
 - **Issue:** #2898
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-30, Jan Wloka, `feature/role-agent-definitions`
 - **Started:** 2026-10-30, Jan Wloka, `feature/role-agents-start-detached`
 - **Delivered:** 2026-10-30
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

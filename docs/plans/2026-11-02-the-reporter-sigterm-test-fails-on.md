@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3033
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-02, Jan Wloka, plan-PR #3039 merged
 - **Started:** 2026-11-02, Jan Wloka, `bug/the-reporter-sigterm-test-fails-on`
 - **Delivered:** 2026-11-02
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

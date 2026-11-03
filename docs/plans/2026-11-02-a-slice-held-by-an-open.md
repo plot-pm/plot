@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #3049
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-02, Jan Wloka, `feature/dispatch-refuses-a-plan-with-nothing-startable`
 - **Started:** 2026-11-02, Jan Wloka, `feature/a-held-slice-reads-as-waiting`
 - **Delivered:** 2026-11-03
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

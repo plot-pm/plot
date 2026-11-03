@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #3017
@@ -17,6 +17,7 @@
 - **Started:** 2026-11-02, Jan Wloka, `feature/the-board-reads-git-through-cached-refs`
 - **Started:** 2026-11-02, Jan Wloka, `feature/the-board-parses-a-plan-once-per-blob`
 - **Delivered:** 2026-11-02
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

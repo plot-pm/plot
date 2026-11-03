@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2901
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-answer-record`
 - **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-answers-a-question`
 - **Delivered:** 2026-10-31
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2900
@@ -19,6 +19,7 @@
 - **Started:** 2026-10-30, Jan Wloka, `feature/the-review-run-is-locked`
 - **Started:** 2026-10-30, Jan Wloka, `feature/fleetd-reviews-slice-prs`
 - **Delivered:** 2026-10-30
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

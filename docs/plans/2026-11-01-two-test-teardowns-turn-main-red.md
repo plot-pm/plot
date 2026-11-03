@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3006
@@ -12,6 +12,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `bug/a-stopped-process-leaves-no-plan-stage-directory`
 - **Started:** 2026-11-01, Jan Wloka, `bug/the-continuation-tests-remove-desks-after-the-last-write`
 - **Delivered:** 2026-11-01
+- **Released:** 2026-11-03, v2.30.0
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** delivery-loop
 - **Issue:** #3024
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-01, Jan Wloka, `bug/the-agent-reporter-waits-without-a-poll`
 - **Started:** 2026-11-02, Jan Wloka, `bug/the-agent-monitor-reads-its-pid-with-a-builtin`
 - **Delivered:** 2026-11-02
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

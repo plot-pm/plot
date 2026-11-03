@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #2974
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-31, Jan Wloka, `feature/replay-aware-commit-gates`
 - **Started:** 2026-10-31, Jan Wloka, `feature/the-commit-gates-match-only-the`
 - **Delivered:** 2026-11-01
+- **Released:** 2026-11-03, v2.30.0
 
 ## Changelog
 

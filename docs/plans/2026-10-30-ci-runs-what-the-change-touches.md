@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Story:** the-fleet-delivers-a-scope-alone
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-30, Jan Wloka, plan-PR #2944 merged
 - **Started:** 2026-10-30, Jan Wloka, `feature/ci-selection-rule`
 - **Delivered:** 2026-10-30
+- **Released:** 2026-11-03, v2.30.0
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
