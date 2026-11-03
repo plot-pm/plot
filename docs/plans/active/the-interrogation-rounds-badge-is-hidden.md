@@ -1,0 +1,1 @@
+../2026-11-03-the-interrogation-rounds-badge-is-hidden.md
