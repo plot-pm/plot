@@ -66,8 +66,14 @@ export interface AssembledBranch {
   claimed: string;
   /** Whether {@link isClaimable} admits the branch under its slice's verdict. */
   claimable: boolean;
-  /** Whether the host's PR list, rather than the merge subject alone, confirms a merge. */
+  /**
+   * Whether the host confirms the merge, rather than the merge subject alone:
+   * read for a delivery candidate only, an approved plan whose every
+   * non-deferred branch is merged, since only a delivery reads the difference.
+   */
   hostConfirmed: boolean;
+  /** Whether a merge subject naming the branch was refused because it predates the plan. */
+  subjectIgnored: boolean;
   /** Whether a merge subject proved the merge. */
   bySubject: boolean;
   /** The desk reading for the branch; `null` where no worktree here holds it. */
@@ -76,6 +82,8 @@ export interface AssembledBranch {
   refHeld: boolean;
   /** Paths the branch changed against the default branch. */
   changedPaths: readonly string[];
+  /** Commits on the local branch its remote ref does not hold, read from refs. */
+  localAhead: number;
 }
 
 /** One slice with its verdict. */
@@ -144,6 +152,8 @@ export interface AssemblySummary {
   waiting: number;
   /** Branches in state `blocked`. */
   prereqMissing: number;
+  /** Branches whose merge subject was refused because it predates the plan. */
+  subjectPredatesPlan: number;
 }
 
 /**
@@ -285,6 +295,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
   let takenInEligible = 0;
   const summary: AssemblySummary = {
     plans: 0, sliceCount: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0, waiting: 0, prereqMissing: 0,
+    subjectPredatesPlan: 0,
   };
 
   const add: PlanWalkAssembler['add'] = (record, readingOf, deskOf) => {
@@ -304,6 +315,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
       return branchState({ ...f!.readings, waits });
     });
 
+    const candidate = record.phase === 'approved' && lines.every(({ line }, i) => line.deferred || states[i] === 'merged');
     const degraded: string[][] = record.slices.map(() => []);
     const sliceReadings: SliceReadings[] = record.slices.map((_slice, s) => {
       const own = lines.flatMap((l, i) => (l.sliceIndex === s ? [i] : []));
@@ -351,16 +363,19 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
           waitsOn: l.line.waitsOn,
           claimed: l.line.claimed,
           claimable: isFree,
-          hostConfirmed: f.readings.pr === 'MERGED',
+          hostConfirmed: candidate && f.readings.pr === 'MERGED',
+          subjectIgnored: f.subjectPredatesPlan === true,
           bySubject: f.readings.mergeSubjectFound,
           desk: deskReading,
           refHeld: f.readings.refTip !== null,
           changedPaths: f.changedPaths,
+          localAhead: f.localAhead ?? 0,
         };
         if (state === 'waiting') summary.waiting += 1;
         if (state === 'blocked') summary.prereqMissing += 1;
         if (state === 'deferred') summary.deferred += 1;
         if (state === 'claimed') summary.claimed += 1;
+        if (assembled.subjectIgnored) summary.subjectPredatesPlan += 1;
         return [assembled];
       });
       summary.branches += branches.length;
@@ -481,9 +496,11 @@ const branchRow = (
   const dirty = desk === null || desk.dirty === 'unknown' ? [] : desk.dirty;
   const conflicting = conflicts.get(b.branch);
   const quiet = desk?.quietSeconds ?? null;
-  const unpushed = desk === null || desk.unpushed === 'unknown' ? 0 : desk.unpushed.length;
+  // A desk counts the commits on its own HEAD; a branch no worktree holds is counted from refs.
+  const unpushed = desk === null ? b.localAhead : desk.unpushed === 'unknown' ? 0 : desk.unpushed.length;
   const row: Record<string, unknown> = { branch: b.branch, state: b.state, own_state: b.ownState, deferred: b.deferred };
   if (b.state === 'merged' && b.bySubject && !b.hostConfirmed) row.evidence = 'subject';
+  if (b.subjectIgnored) row.subjectIgnored = 'predates-plan';
   return {
     ...row,
     deferred_reason: b.deferredReason,

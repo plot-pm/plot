@@ -22,8 +22,8 @@ export interface DeskReading {
    */
   unpushed: readonly string[] | 'unknown';
   /**
-   * Seconds since the newest thing in the desk's tree changed, or `null` where
-   * there is nothing to read. A raw, wall-clock-dependent value: no rule
+   * Seconds since the newest thing in the desk's tree or its worker log
+   * changed, or `null` where there is nothing to read. A raw, wall-clock-dependent value: no rule
    * decides from it here.
    */
   quietSeconds: number | null;
@@ -89,15 +89,19 @@ export const readDeskReadings = async (
 
   const read = await Promise.all(
     [...wanted].map(async ([branch, { worktree, hasPr }]): Promise<DeskReading | null> => {
-      const [desk, process, locked, unpushed, quiet, dirty] = await Promise.all([
+      const [desk, process, locked, unpushed, quiet, dirty, logQuiet] = await Promise.all([
         agents.desk(worktree),
         processes.workerState(worktree, hasPr),
         trees.locked(worktree),
         trees.unpushedCommits(worktree, []),
         trees.quietSeconds(worktree),
         trees.dirtyPaths(worktree),
+        trees.logQuietSeconds === undefined ? Promise.resolve(answered<number | null>(null)) : trees.logQuietSeconds(worktree),
       ]);
       if (!desk.ok || !process.ok || !locked.ok || !quiet.ok) return null;
+      // The worker log is evidence of work as well: the quieter of the two readings loses.
+      const log = logQuiet.ok ? logQuiet.value : null;
+      const quietSeconds = quiet.value === null ? log : log === null ? quiet.value : Math.min(quiet.value, log);
       return {
         branch,
         worktree,
@@ -105,7 +109,7 @@ export const readDeskReadings = async (
         process: process.value,
         locked: locked.value,
         unpushed: unpushed.ok ? unpushed.value : 'unknown',
-        quietSeconds: quiet.value,
+        quietSeconds,
         dirty: dirty.ok ? dirty.value : 'unknown',
       };
     }),

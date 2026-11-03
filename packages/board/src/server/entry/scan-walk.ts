@@ -10,9 +10,12 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { shellContext } from '@plot-pm/domain/adapters/scripts';
+import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { logToPlan, pulseLine, recordBridge, type PulseCounts } from './pulse-log.js';
-import { readCarriedPrStates, renderListingReport } from '@plot-pm/domain/rules/scan-listing';
+import { foldPulseListing, readCarriedPrStates, renderListingReport, type PulseListingCall, type PulseListingVerdict } from '@plot-pm/domain/rules/scan-listing';
+import type { HostReach } from '@plot-pm/domain/rules/branch-state';
+import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Host } from '@plot-pm/domain/ports/host';
 import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type ConflictCandidate } from '@plot-pm/domain/workflows/plan-walk-branches';
 import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
@@ -31,7 +34,7 @@ import {
   type FleetReadingHeader,
 } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import { planReport, reportBanner, reportFooter, reportNotes, type ReportContext } from '@plot-pm/domain/workflows/plan-walk-report';
-import type { BranchReading, BranchStageReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
+import type { BranchReading, BranchStageInput, BranchStageReadings } from '@plot-pm/domain/workflows/plan-walk-branches';
 import type { DeskReading } from '@plot-pm/domain/workflows/plan-walk-desks';
 
 /**
@@ -71,6 +74,27 @@ const unaskedHost = (host: Host): Host =>
         : Reflect.get(target, name, receiver),
   });
 
+/** The `pr-list --limit` each listing call asks with where `PLOT_PR_LIST_LIMIT` names none. */
+const PR_LIST_LIMIT = 3000;
+
+/**
+ * Asks one `pr-list` call of the scan's own listing read.
+ *
+ * @param scripts - the one place `plot-host.sh` is invoked.
+ * @param args - the `pr-list` arguments.
+ * @returns the call's answer, stdout and what the host said.
+ */
+const askPrList = async (scripts: Scripts, args: readonly string[]): Promise<PulseListingCall> => {
+  const said = await scripts.hostSaid(['pr-list', ...args]);
+  if (said.answer === 'answered') return { answer: 'answered', stdout: said.stdout, said: said.stderr };
+  if (said.answer === 'partial') return { answer: 'partial', stdout: said.stdout, said: said.said };
+  return { answer: said.answer, stdout: '', said: said.said };
+};
+
+/** The branch rule's reach for a listing verdict that yielded no rows. */
+const reachOf = (verdict: PulseListingVerdict): HostReach =>
+  verdict === 'unasked' || verdict === 'secondary' || verdict === 'throttled' ? verdict : 'failed';
+
 /** Reads the desks of one plan's branches. */
 type DeskReader = (branches: readonly BranchReading[]) => Promise<readonly DeskReading[] | null>;
 
@@ -99,8 +123,9 @@ const branchesOf = (plans: readonly { slices: readonly { branches: readonly Conf
  * @param root - the repository root, for the bridge.
  * @returns the exit code.
  */
-/** The summary's host word: `unasked` where the caller asked no host, otherwise how far the PR list reached. */
-const hostWord = (header: FleetReadingHeader, stage: BranchStageReadings): string => (header.host === 'unasked' ? 'unasked' : stage.hostReach);
+/** The summary's host word: `unasked` where the caller asked no host, `partial` where only some list states answered, otherwise how far the PR list reached. */
+const hostWord = (header: FleetReadingHeader, stage: BranchStageReadings): string =>
+  header.host === 'unasked' || header.host === 'partial' ? header.host : stage.hostReach;
 
 const runStream = async (
   estate: Parameters<typeof chosenPlans>[0],
@@ -193,7 +218,10 @@ const main = async (): Promise<number> => {
     return 0;
   }
 
-  const realHost = hostShell(context);
+  const shellHost = hostShell(context);
+  // The backend is read once, however many readers ask for it.
+  let backendRead: ReturnType<Host['backend']> | null = null;
+  const realHost: Host = { ...shellHost, backend: () => (backendRead ??= shellHost.backend()) };
   // `--loose` is verified against a host and reads as strict where none is configured or the scan asked none.
   const backend = loose && offline !== '1' ? await realHost.backend() : null;
   const looseVerifiable = backend !== null && backend.ok && backend.value !== '' && backend.value !== 'none' ? '1' : '0';
@@ -215,11 +243,46 @@ const main = async (): Promise<number> => {
   if (mode === 'stream') process.on('exit', () => spent > 0 && process.stderr.write(`spend: ${spent}\n`));
   // A carried listing is a full answer or it is not used: a value with no `.list-arrived` line is refused and the host is asked.
   const carried = readCarriedPrStates(process.env.PLOT_PR_LISTING ?? '');
-  const stageInput = {
+  // The shell scan's two knobs: `PLOT_PR_LIST_LIMIT` sizes each list call, and
+  // `PLOT_SCAN_ASK_ALWAYS=1` asks every name the list omits even where it is whole.
+  const limitWord = process.env.PLOT_PR_LIST_LIMIT ?? '';
+  const listLimit = /^[1-9]\d*$/.test(limitWord) ? Number(limitWord) : PR_LIST_LIMIT;
+  const asksHost = !(offline === '1' && !offer);
+  // With no carried listing the scan reads its own: `--state open --rich`, then
+  // `--state settled`, both naming the branches the remote tracks, and the
+  // second only where the first answered.
+  let listingVerdict: PulseListingVerdict | null = null;
+  let prs: BranchStageInput['prs'];
+  if (carried !== null && asksHost) {
+    prs = { kind: 'listed', listing: carried };
+  } else if (asksHost && estate.ok) {
+    const backendWord = await realHost.backend();
+    if (!backendWord.ok || backendWord.value !== 'none') {
+      const scripts = scriptsShell(context);
+      const tracked = await refs.listBranches(true);
+      const branchArgs = (tracked.ok ? tracked.value : []).flatMap((b) => ['--branch', b]);
+      const limitArgs = ['--limit', String(listLimit)];
+      const open = await askPrList(scripts, ['--state', 'open', ...limitArgs, '--rich', ...branchArgs]);
+      spent += 1;
+      const openVerdict = foldPulseListing(open, null, listLimit).verdict;
+      const settled = openVerdict === 'ok' || openVerdict === 'partial' ? await askPrList(scripts, ['--state', 'settled', ...limitArgs, ...branchArgs]) : null;
+      if (settled !== null) spent += 1;
+      const folded = foldPulseListing(open, settled, listLimit);
+      listingVerdict = folded.verdict;
+      prs = folded.listing !== null
+        ? { kind: 'listed', listing: folded.listing }
+        : { kind: 'unread', said: folded.said, reach: reachOf(folded.verdict) };
+    }
+  }
+  const stageInput: BranchStageInput = {
     mainBranch,
     planDir,
     loose: loose && looseVerifiable === '1',
-    ...(carried === null || (offline === '1' && !offer) ? {} : { prs: { kind: 'listed' as const, listing: carried } }),
+    offline: offline === '1' && !offer,
+    askAbsent: true,
+    askAlways: process.env.PLOT_SCAN_ASK_ALWAYS === '1',
+    listLimit,
+    ...(prs === undefined ? {} : { prs }),
   };
   const reportListing = (stage: BranchStageReadings): void => {
     if (stage.listing !== undefined) process.stderr.write(renderListingReport(stage.listing.rows, stage.listing.tracked, stage.listing.complete));
@@ -231,7 +294,7 @@ const main = async (): Promise<number> => {
     fetchFailed: fetchFailed === '1',
     fetchError,
     planDir,
-    host: offline === '1' ? 'unasked' : 'ok',
+    host: offline === '1' ? 'unasked' : listingVerdict === 'partial' ? 'partial' : 'ok',
     mergeDetect: 'unaskable',
     nowSeconds: Math.floor(Date.now() / 1000),
     ...(estate.ok ? { planSource: estate.value.source ?? 'ref' } : {}),
@@ -308,7 +371,7 @@ const main = async (): Promise<number> => {
       offline: offline === '1',
       planSource: read.planSource ?? 'ref',
       mergeScanLimit: mergeWalkLimit(),
-      subjectPredatesPlan: 0,
+      subjectPredatesPlan: assembly.summary.subjectPredatesPlan,
     };
     let out = reportBanner(read, report);
     if (assembly.plans.length === 0) out += `No plans found in ${planDir}.\n`;

@@ -162,6 +162,18 @@ export interface Trees {
   quietSeconds(path: string): Promise<PortResult<number | null>>;
 
   /**
+   * Seconds since the desk's worker log `.plot-worker.log` was last written.
+   *
+   * The one record {@link quietSeconds} leaves out, read on its own: a worker
+   * inside a long test run writes no tracked file while its log still moves.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns the seconds, never negative; null where the log does not exist
+   *   or cannot be read.
+   */
+  logQuietSeconds?(path: string): Promise<PortResult<number | null>>;
+
+  /**
    * Whether the branch carries work the agent committed.
    *
    * Counts commits that touched a file between the local `origin/<default>`

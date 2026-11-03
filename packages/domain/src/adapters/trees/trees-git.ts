@@ -410,6 +410,15 @@ export const treesGit = (context: ShellContext): Trees => {
       return answered<number | null>(Math.max(0, Math.floor(Date.now() / 1000) - newest));
     },
 
+    logQuietSeconds: async (path) => {
+      try {
+        const seconds = Math.floor(statSync(join(path, '.plot-worker.log')).mtimeMs / 1000);
+        return answered<number | null>(Math.max(0, Math.floor(Date.now() / 1000) - seconds));
+      } catch {
+        return answered<number | null>(null);
+      }
+    },
+
     // THE SHELL'S `plot_worker_has_commits`. The `-- .` pathspec keeps only
     // commits that touched a file, so the empty claim commit never counts. No
     // fetch: with no local `origin/<default>` ref the question is unanswerable.

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  encodeListingKey, foldScanListing, parseScanListingRows, readCarriedPrStates, renderListingReport, renderScanListing, scanListingWindowFor,
+  encodeListingKey, foldPulseListing, foldScanListing, pulseListingVerdict, parseScanListingRows, readCarriedPrStates, renderListingReport, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingRow,
 } from '../src/rules/scan-listing.js';
 
@@ -304,6 +304,11 @@ describe('readCarriedPrStates rows', () => {
       { key: 'feature_b', state: 'MERGED', checks: '-', draft: '-' },
     ]);
   });
+
+  it('reads an empty checks or draft word as a dash', () => {
+    const read = readCarriedPrStates('feature_a\tOPEN\t\t\n.list-arrived\t1\t-\t-\n');
+    expect(read!.rows).toEqual([{ key: 'feature_a', state: 'OPEN', checks: '-', draft: '-' }]);
+  });
 });
 
 describe('renderListingReport', () => {
@@ -322,6 +327,34 @@ describe('renderListingReport', () => {
     );
   });
 
+  it('prints a dash for an empty word, and keeps rows with one key in their order', () => {
+    const odd = [
+      { key: 'feature_c', state: 'OPEN', checks: '', draft: '' },
+      { key: 'feature_a', state: 'OPEN', checks: 'green', draft: 'false' },
+      { key: 'feature_c', state: 'MERGED', checks: '-', draft: '-' },
+    ];
+    expect(renderListingReport(odd, 3, false)).toBe(
+      'listing: .branches\t3\t-\t-\n'
+      + 'listing: feature_a\tOPEN\tgreen\tfalse\n'
+      + 'listing: feature_c\tOPEN\t-\t-\n'
+      + 'listing: feature_c\tMERGED\t-\t-\n'
+      + 'listing: .list-arrived\t1\t-\t-\n',
+    );
+  });
+
+  it('keeps rows already in key order, and two rows with one key, as they came', () => {
+    const ordered = [
+      { key: 'feature_a', state: 'OPEN', checks: '-', draft: '-' },
+      { key: 'feature_b', state: 'OPEN', checks: '-', draft: '-' },
+      { key: 'feature_b', state: 'CLOSED', checks: '-', draft: '-' },
+    ];
+    expect(renderListingReport(ordered, 2, false).split('\n').slice(1, 4)).toEqual([
+      'listing: feature_a\tOPEN\t-\t-',
+      'listing: feature_b\tOPEN\t-\t-',
+      'listing: feature_b\tCLOSED\t-\t-',
+    ]);
+  });
+
   it('omits .list-complete for a cut listing', () => {
     expect(renderListingReport(rows, 2, false)).not.toContain('.list-complete');
   });
@@ -331,5 +364,58 @@ describe('renderListingReport', () => {
     const read = readCarriedPrStates(text);
     expect(read?.complete).toBe(true);
     expect(read?.rows.map((r) => r.key).sort()).toEqual(['feature_a', 'feature_b']);
+  });
+});
+
+describe('the scan\'s own listing read', () => {
+  const rich = (head: string, state: string, checks = 'green') => JSON.stringify({ number: 1, state, head, draft: false, checks });
+  const plain = (head: string, state: string) => JSON.stringify({ number: 2, state, head });
+  const ok = (stdout: string, said = '') => ({ answer: 'answered' as const, stdout, said });
+  const whole = (state: string) => `plot-host: github pr-list state=${state} page complete (1 rows below requested limit 9) — this page holds every pull request the host has in this state`;
+
+  it('names each refusal by what the host said', () => {
+    expect(pulseListingVerdict(ok(''))).toBe('ok');
+    expect(pulseListingVerdict({ answer: 'partial', stdout: '', said: 'x' })).toBe('partial');
+    expect(pulseListingVerdict({ answer: 'unaskable', stdout: '', said: 'x' })).toBe('unasked');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'API rate limit exceeded' })).toBe('throttled');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'secondary rate limit' })).toBe('secondary');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'gh auth login required' })).toBe('unasked');
+    expect(pulseListingVerdict({ answer: 'failed', stdout: '', said: 'HTTP 503' })).toBe('failed');
+  });
+
+  it('keeps the open row with its rollup, drops the settled OPEN rows, and ranks merged over closed', () => {
+    const open = ok([rich('feature/a', 'OPEN'), '{}', 'not json', ''].join('\n'));
+    const settled = ok([plain('feature/a', 'OPEN'), plain('feature/b', 'CLOSED'), plain('feature/b', 'MERGED'), plain('feature/b', 'CLOSED')].join('\n'));
+    const read = foldPulseListing(open, settled, 9);
+    expect(read.verdict).toBe('ok');
+    expect(read.listing!.rows).toEqual([
+      { key: 'feature_a', state: 'OPEN', checks: 'green', draft: 'false' },
+      { key: 'feature_b', state: 'MERGED', checks: '-', draft: '-' },
+    ]);
+    expect(read.listing!.complete).toBe(true);
+  });
+
+  it('licenses completeness by both claims or by the row count, never by a page at its limit', () => {
+    const one = (said = '') => ok(plain('feature/b', 'MERGED'), said);
+    expect(foldPulseListing(ok(rich('feature/a', 'OPEN')), one(), 1).listing!.complete).toBe(false);
+    expect(foldPulseListing(ok(rich('feature/a', 'OPEN'), whole('open')), one(whole('all')), 1).listing!.complete).toBe(true);
+    expect(foldPulseListing(ok(rich('feature/a', 'OPEN')), one(whole('all')), 1).listing!.complete).toBe(false);
+    expect(foldPulseListing(ok(''), ok(''), 9).listing!.complete).toBe(false);
+    expect(foldPulseListing(ok('', 'plot-host: pr-list sweep complete'), ok('', 'plot-host: pr-list sweep complete'), 9).listing!.complete).toBe(true);
+  });
+
+  it('keeps the rows of a partial answer but never calls it complete', () => {
+    const read = foldPulseListing({ answer: 'partial', stdout: rich('feature/a', 'OPEN'), said: 'one state failed' }, ok(plain('feature/b', 'MERGED')), 9);
+    expect(read.verdict).toBe('partial');
+    expect(read.listing!.states.get('feature_a')).toBe('OPEN');
+    expect(read.listing!.complete).toBe(false);
+  });
+
+  it('yields no listing and the worse verdict where a call is refused, with what that call said', () => {
+    const refused = foldPulseListing({ answer: 'failed', stdout: '', said: 'API rate limit exceeded' }, null, 9);
+    expect(refused).toEqual({ verdict: 'throttled', listing: null, said: 'API rate limit exceeded' });
+    const second = foldPulseListing(ok(rich('feature/a', 'OPEN')), { answer: 'failed', stdout: '', said: 'HTTP 503' }, 9);
+    expect(second).toEqual({ verdict: 'failed', listing: null, said: 'HTTP 503' });
+    expect(foldPulseListing(ok(''), null, 9)).toEqual({ verdict: 'ok', listing: null, said: '' });
   });
 });
