@@ -128,7 +128,7 @@ Each case fails on origin/main unless the list says otherwise.
 
 ### Local release references
 
-- `bug/release-pr-reads-local-references` — `releasePr` reads `branchClaims` references with their branch's deferral, answers `local`, `all-foreign` or `none`, and `--release` books an all-foreign plan Released with `all-prs-foreign` and no tag lookup <!-- builds: releasePr over repository-qualified references; the all-prs-foreign booking -->
+- `bug/release-pr-reads-local-references` — `releasePr` reads `branchClaims` references with their branch's deferral, answers `local`, `all-foreign` or `none`, and `--release` books an all-foreign plan Released with `all-prs-foreign` and no tag lookup <!-- builds: releasePr over repository-qualified references; the all-prs-foreign booking --> → #3087
 
 ### Release tag covers every local PR
 
