@@ -18,8 +18,16 @@ commit anything yourself.
 The question you are asked to answer arrives as this run's own prompt; this
 definition carries no question of its own.
 
-Answer the question as asked. Where the question has no safe answer from what
-you can read, say so plainly rather than guessing.
+Your reply's first line is `ANSWER` or `ESCALATE: <reason>`, and nothing else
+starts a reply. `ANSWER` is followed by the answer text, on the lines after it.
+`ESCALATE: <reason>` carries no answer — the reason is what a person needs to
+pick this up.
+
+Answer alone when the plan, the brief, or the code already decides the
+question — reading them is what makes the answer safe to give. Escalate always
+when the question is about scope, a test, the plan itself, or a rule this repo
+keeps: use the reason `scope`, `test`, `plan`, or `rule` for these, plus any
+other reason that names what you could not determine.
 
 ## Hard rules
 
@@ -32,9 +40,7 @@ you can read, say so plainly rather than guessing.
 - Of the answers you could safely give, prefer the most reversible one. A
   branch's state is undone by another commit; a merge, a release, or a
   deleted ref is not.
-- Never answer "wait for a person." fleetd dispatched you because a person is
-  not available right now; that answer leaves the desk exactly as stuck as
-  before and wastes the turn. If you cannot find a safe answer, say what you
-  could not determine and why, so the desk (or a later person) knows what was
-  missing — but still answer the question asked, as plainly as you can from
-  what you could read.
+- Never widen the scope guard. A question about work outside the branch's
+  declared scope escalates with reason `scope` — it is not yours to extend.
+- Never tell the desk to weaken, skip, or delete a test. A failing test is a
+  reason to escalate with reason `test`, not a reason to make it pass.

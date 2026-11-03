@@ -8,6 +8,8 @@ const reading = (over: Partial<UnblockerDueReading> = {}): UnblockerDueReading =
   deskDead: { dead: false, why: 'waiting' },
   liveFixer: false,
   recordedOutcomes: [],
+  startedCount: 0,
+  answerCap: 2,
   ...over,
 });
 
@@ -50,6 +52,23 @@ describe('unblockerDue', () => {
       });
     },
   );
+
+  it('refuses answer-cap once startedCount reaches the cap', () => {
+    expect(unblockerDue(reading({ startedCount: 2, answerCap: 2 }))).toEqual({
+      start: false,
+      why: 'answer-cap',
+    });
+  });
+
+  it('starts when startedCount is still under the cap', () => {
+    expect(unblockerDue(reading({ startedCount: 1, answerCap: 2 }))).toEqual({ start: true });
+  });
+
+  it('checks already-recorded before answer-cap', () => {
+    expect(
+      unblockerDue(reading({ recordedOutcomes: ['failed'], startedCount: 2, answerCap: 2 })),
+    ).toEqual({ start: false, why: 'already-recorded' });
+  });
 
   it('checks deskDead before the marker tag', () => {
     expect(

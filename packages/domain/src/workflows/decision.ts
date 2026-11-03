@@ -723,6 +723,13 @@ export interface UnblockWrite {
   readonly branch: string;
   /** The marker's modification time, ISO-8601 — half the answer record's key. */
   readonly askedAt: string;
+  /**
+   * Set once `unblockerDue` refused `answer-cap` for this desk's oldest
+   * waiting marker. The applier records `escalated answer-cap` for this key
+   * and calls neither `run` nor `start` — the desk already spent its
+   * `Correction budget`, so no run is due.
+   */
+  readonly refused?: 'answer-cap';
 }
 
 /** Writes a build finding line, in the shape the BuildMonitor writes today. */

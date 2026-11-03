@@ -21,12 +21,16 @@ export interface UnblockerDueReading {
   liveFixer: boolean;
   /** The outcomes already recorded for this marker's `(worktree, askedAt)` key, in any order. */
   recordedOutcomes: readonly string[];
+  /** How many `started` rows this desk's whole answer record already holds, any question. */
+  startedCount: number;
+  /** The `Correction budget` config value — the most `started` rows a desk may ever reach. */
+  answerCap: number;
 }
 
 /** Whether an unblocker should start on a desk, and why not when it should not. */
 export type UnblockerDueAnswer =
   | { start: true }
-  | { start: false; why: 'no-marker' | 'not-waiting' | 'tagged-marker' | 'live-fixer' | 'already-recorded' };
+  | { start: false; why: 'no-marker' | 'not-waiting' | 'tagged-marker' | 'live-fixer' | 'already-recorded' | 'answer-cap' };
 
 /**
  * Whether fleetd should start an `unblocker` run against one desk's question.
@@ -55,9 +59,15 @@ export type UnblockerDueAnswer =
  * genuinely new question gets a new `askedAt` from its own marker, which is a
  * new key with no recorded rows.
  *
+ * **`answer-cap` IS CHECKED LAST, AND IT IS A WHOLE-DESK COUNT.** Unlike
+ * `already-recorded`, which is scoped to this one question's key, `started`
+ * rows are counted across every question this desk has ever asked — a desk
+ * that spends its whole budget across several different questions is capped
+ * the same as one that spent it on a single retried question.
+ *
  * @param reading - the desk's marker, its `deskDead` answer, whether an
- *   unblocker already runs there, and the outcomes already recorded for this
- *   marker's key.
+ *   unblocker already runs there, the outcomes already recorded for this
+ *   marker's key, and the desk's whole-record `started` count against its cap.
  * @returns `{ start: true }`, or `{ start: false, why }`.
  */
 export const unblockerDue = (reading: UnblockerDueReading): UnblockerDueAnswer => {
@@ -66,5 +76,6 @@ export const unblockerDue = (reading: UnblockerDueReading): UnblockerDueAnswer =
   if (reading.marker.author !== undefined) return { start: false, why: 'tagged-marker' };
   if (reading.liveFixer) return { start: false, why: 'live-fixer' };
   if (reading.recordedOutcomes.length > 0) return { start: false, why: 'already-recorded' };
+  if (reading.startedCount >= reading.answerCap) return { start: false, why: 'answer-cap' };
   return { start: true };
 };

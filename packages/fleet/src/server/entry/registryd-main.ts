@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +47,7 @@ import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
-import type { NotifyWrite, IdleNotifyWrite } from '@plot-pm/domain/workflows/decision';
+import type { NotifyWrite, IdleNotifyWrite, UnblockWrite } from '@plot-pm/domain/workflows/decision';
 import {
   parseQuestionEscalation,
   DEFAULT_QUESTION_ESCALATION,
@@ -77,6 +78,9 @@ import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects'
 import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
 import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
+import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
+import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
+import { roleCommand, roleAgentsJson, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
@@ -101,6 +105,8 @@ import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading } from '../../shared/worker-question.js';
+import { mainCheckout } from '../../shared/main-checkout.js';
+import { deskDeadFromWorkerState } from '../../shared/auto-fixer.js';
 import {
   appendEscalation,
   escalationMemory,
@@ -144,6 +150,10 @@ import {
   type TickSpend,
   type EscalationWorld,
   type SliceIdleReader,
+  type UnblockWorld,
+  type UnblockPorts,
+  applyUnblockDecisions,
+  unblockLines,
 } from './registryd.js';
 import { gatherReadingsAndRelease } from '../../shared/release-claim-reader.js';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
@@ -1190,6 +1200,155 @@ export const idleWorldForRepo = (
     );
   },
 });
+
+/** The `## Plot Config` key naming the most `started` answer rows a desk may ever reach. */
+export const CORRECTION_BUDGET_KEY = 'Correction budget';
+
+/** The turn limit `roleCommand` enforces for the unblocker, read from its own frontmatter rather than hardcoded. */
+const unblockerMaxTurns = (text: string): number => {
+  const match = /^maxTurns:\s*(\d+)\s*$/m.exec(text);
+  return match ? Number(match[1]) : 0;
+};
+
+/**
+ * What the tick reads to decide whether fleetd should answer a desk's own
+ * question: the marker, the desk's liveness (through `Processes.workerState`,
+ * the same reading {@link deskDeadFromWorkerState} translates for the fixer),
+ * the answer record's outcomes and `started` count for that desk, and the
+ * configured `Correction budget`.
+ *
+ * **`liveFixer` ALWAYS ANSWERS `false`.** The unblocker's own `run` port
+ * (`unblockPortsFor`, below) awaits the role run to its end rather than
+ * detaching it, and `run()`'s own tick loop awaits `applyUnblockDecisions` in
+ * full before its next tick starts — so there is never a second tick whose
+ * apply step could observe a still-running first one. The fleet-wide
+ * one-run-at-a-time gate in `unblockWrites` therefore never fires in
+ * production; `already-recorded` is what actually bounds a desk whose
+ * `started` row has no terminal follow-up yet.
+ *
+ * @param repoRoot - the repository root.
+ * @param scriptsDir - where the helper scripts are.
+ * @returns the world the tick's unblock pass reads through.
+ */
+export const unblockWorldForRepo = (repoRoot: string, scriptsDir: string): UnblockWorld => {
+  const processes = processesShell({ repoRoot, scriptDir: scriptsDir });
+  const record = answerRecordFile({ cwd: repoRoot });
+  return {
+    marker: (worktree) => markerReading(worktree),
+    deskDead: async (worktree) => {
+      const state = await processes.workerState(worktree, true);
+      return state.ok ? deskDeadFromWorkerState(state.value.state) : { dead: false, why: 'unread' };
+    },
+    liveFixer: async () => false,
+    recordedOutcomes: async (worktree, askedAt) => {
+      const rows = await record.rowsFor(worktree, askedAt);
+      return rows.ok ? rows.value.map((row) => row.outcome) : [];
+    },
+    startedCount: async (worktree) => {
+      const rows = await record.rowsForDesk(worktree);
+      return rows.ok ? rows.value.filter((row) => row.outcome === 'started').length : 0;
+    },
+    answerCap: async () => {
+      const value = Number(await readConfigAsync({ repoRoot, scriptsDir }, CORRECTION_BUDGET_KEY, '2'));
+      return Number.isInteger(value) && value >= 0 ? value : 2;
+    },
+  };
+};
+
+/**
+ * Builds the {@link UnblockPorts} {@link applyUnblockDecisions} acts through
+ * in production.
+ *
+ * Extracted from `run()`, matching {@link freshAgentPortsFor} and
+ * {@link unblockWorldForRepo}, so a test can call this factory directly
+ * rather than asserting on the daemon's whole process wiring — the first
+ * "Done when" assertion in the plan's wave: a test that injects the
+ * dependency cannot prove the production wiring; a test that calls this
+ * builder can.
+ *
+ * **`run` AWAITS THE ROLE TO ITS END.** Unlike the fixer's detached
+ * `agentRun.run(...).then(...)` (which resolves early, on `onStarted`), the
+ * unblocker answers a question synchronously within one tick: this reads the
+ * run's `finalText` from the awaited result and hands it back as `output`
+ * unparsed — the caller (`applyUnblockDecisions`) parses it with
+ * `unblockOutcome`.
+ *
+ * @param deps.repoRoot - the repository root.
+ * @param deps.scriptsDir - where the helper scripts are.
+ * @param deps.boardOpts - `{ repoRoot, scriptsDir }`, read for `Worker command`.
+ * @param deps.readRoleFile - reads the `unblocker` role's `.claude/agents/unblocker.md`
+ *   definition from the main checkout; real `fs` by default.
+ * @returns the ports {@link applyUnblockDecisions} acts through.
+ */
+export const unblockPortsFor = (deps: {
+  repoRoot: string;
+  scriptsDir: string;
+  boardOpts: { repoRoot: string; scriptsDir: string };
+  readRoleFile?: (main: string, role: string) => string | null;
+}): UnblockPorts => {
+  const record = answerRecordFile({ cwd: deps.repoRoot });
+  const readRoleFile =
+    deps.readRoleFile ?? ((main: string, role: string) => fileOrNull(join(main, '.claude', 'agents', `${role}.md`)));
+  return {
+    record,
+    now: () => new Date(),
+    question: async (worktree) => (await markerReading(worktree))?.firstLine ?? '',
+    run: async ({ worktree, branch, question }) => {
+      const main = mainCheckout(deps.repoRoot);
+      const text = readRoleFile(main, 'unblocker');
+      if (text === null) return { ok: false, detail: `no .claude/agents/unblocker.md in ${main}` };
+      const agentsJson = roleAgentsJson('unblocker', text);
+      if (agentsJson.read === 'refused') return { ok: false, detail: agentsJson.why };
+      const agentsFile = join(deps.repoRoot, '.plot', 'state', 'unblocker.agents.json');
+      mkdirSync(dirname(agentsFile), { recursive: true });
+      writeFileSync(agentsFile, agentsJson.json, 'utf8');
+      const roleAgent: RoleAgentRef = { name: 'unblocker', agentsFile, settingsFile: join(main, '.claude', 'settings', 'unblocker.json') };
+      const command = roleCommand(roleAgent, unblockerMaxTurns(text));
+      if (command.read === 'refused') return { ok: false, detail: command.why };
+      const logFile = join(deps.repoRoot, '.plot', 'state', 'unblocker.log');
+      const run = agentRunCommand({
+        boundedRun: boundedRunProcess(processesShell({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir })),
+        fragment: command.command,
+        limitPatterns: undefined,
+        now: () => Date.now(),
+      });
+      const result = await run.run({
+        worktree,
+        prompt: question,
+        resumeId: '',
+        role: 'unblocker',
+        roleAgent,
+        harness: '',
+        model: '',
+        effort: '',
+        maxTurns: 0,
+        maxSpendUsd: 0,
+        boundSeconds: 0,
+        contextWindow: 0,
+        capabilities: [],
+        env: { PLOT_ROLE_GATE: join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs'), PLOT_ROLE_BRANCH: branch },
+        logFile,
+      });
+      if (!result.ok) return { ok: false, detail: result.why };
+      return { ok: true, output: result.value.finalText ?? '' };
+    },
+    start: async ({ branch, worktree, answer, expectedAskedAt, beforeStart }) => {
+      const base = await refsGit({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir }).defaultBranch();
+      return continueOnDesk({
+        opts: deps.boardOpts,
+        caller: 'fleetd',
+        branch,
+        worktree,
+        main: base.ok ? base.value : '',
+        previousPid: '',
+        answer,
+        expectedAskedAt,
+        author: 'unblocker',
+        beforeStart,
+      });
+    },
+  };
+};
 
 /**
  * How many desks one tick is willing to cut.
@@ -2672,6 +2831,11 @@ export const run = async (
     runLog: freshAgentRunLog,
   });
 
+  // `--once` BUILDS NO UNBLOCK WORLD either, matching `idle` above: a one-shot
+  // tick answers nothing a person is waiting on.
+  const unblock = args.once ? undefined : unblockWorldForRepo(repoRoot, scriptsDir);
+  const unblockPorts: UnblockPorts = unblockPortsFor({ repoRoot, scriptsDir, boardOpts });
+
   // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and
   // must neither delay a supervision tick nor start a second scan. `--once`
   // runs one tick and no scan.
@@ -2944,6 +3108,9 @@ export const run = async (
         // ABSENT UNDER `--once` (see where `idle` is built above), so a
         // one-shot tick decides nothing about idle slices either.
         idle,
+        // ABSENT UNDER `--once`, same as `idle`: a one-shot tick answers no
+        // desk's own question.
+        unblock,
       });
     } catch (err) {
       // STDERR, AND THE ERROR'S OWN TEXT. `registryd.err` being empty on both
@@ -3189,6 +3356,17 @@ export const run = async (
         write,
         warn,
       );
+      // GATED THE SAME WAY: THE UNBLOCKER'S `run` STARTS A ROLE PROCESS, the
+      // same kind of act `startFreshAgents` and `startNothingDoneReleases`
+      // gate on `--start-agents`, and an incomplete tick's `unblock` writes
+      // are built from the same untrusted `report.trees`.
+      const unblockWritesThisTick = report.decision.writes.filter(
+        (item): item is UnblockWrite => item.kind === 'unblock',
+      );
+      if (unblockWritesThisTick.length > 0) {
+        const applied = await applyUnblockDecisions(unblockWritesThisTick, unblockPorts);
+        for (const { line, error } of unblockLines(applied)) (error ? warn : write)(`${line}\n`);
+      }
     }
     if (args.sweepTemp) await sweepTempIfDue(tempSweep, Date.now(), write, warn);
 

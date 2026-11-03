@@ -27,7 +27,7 @@
 import type { BoardStatus } from './default-branch.js';
 
 /** The number every unattended spawn's environment carries today. */
-export const SPAWN_CONTRACT = 2;
+export const SPAWN_CONTRACT = 3;
 
 /** The variable an unattended spawn's environment carries {@link SPAWN_CONTRACT} in. */
 export const SPAWN_CONTRACT_ENV = 'PLOT_SPAWN_CONTRACT';
@@ -280,7 +280,10 @@ export const SPAWN_CONTRACT_SHAPE: readonly SpawnContractVariableShape[] = [
   },
   {
     name: 'PLOT_ROLE_BRANCH',
-    setters: ['packages/fleet/src/shared/auto-fixer.ts'],
+    setters: [
+      'packages/fleet/src/server/entry/registryd-main.ts',
+      'packages/fleet/src/shared/auto-fixer.ts',
+    ],
   },
   {
     name: 'PLOT_UNATTENDED',
