@@ -41,7 +41,7 @@ The ten plans of the story [the-fleet-delivers-a-scope-alone](../stories/the-fle
 - [x] [the-agent-reporter-starts-a-sleep] The agent reporter waits on a FIFO without a poll, and the AgentMonitor reads its pid with a builtin (#3024) <!-- pr: #3025 -->
 - [x] [fleetd-s-fixer-and-main-repair] fleetd's fixer runs bounded, the role command passes the agents JSON, and a failed role start spends no attempt (#3028) <!-- pr: #3029 -->
 - [x] [the-reporter-sigterm-test-fails-on] The agent reporter ignores SIGTERM before it forks, so a group stop no longer loses its report (#3033) <!-- pr: #3039 -->
-- [ ] [a-slice-held-by-an-open] A slice held by an open wait reads as waiting: no brief or dispatch for a held branch, and the dispatch controller refuses a plan with nothing startable (#3049) <!-- pr: #3050, branch: feature/a-held-slice-reads-as-waiting -->
+- [x] [a-slice-held-by-an-open] A slice held by an open wait reads as waiting: no brief or dispatch for a held branch, and the dispatch controller refuses a plan with nothing startable (#3049) <!-- pr: #3050, branch: feature/a-held-slice-reads-as-waiting -->
 
 ### Could Have
 

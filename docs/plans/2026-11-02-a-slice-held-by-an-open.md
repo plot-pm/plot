@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-loop
 - **Issue:** #3049
@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-02, Jan Wloka, plan-PR #3050 merged
 - **Started:** 2026-11-02, Jan Wloka, `feature/dispatch-refuses-a-plan-with-nothing-startable`
 - **Started:** 2026-11-02, Jan Wloka, `feature/a-held-slice-reads-as-waiting`
+- **Delivered:** 2026-11-03
 
 ## Changelog
 
