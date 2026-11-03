@@ -130,7 +130,7 @@ Each test fails on `origin/main` at `f10abe5a4`.
 
 ### Agent tool calls
 
-- `feature/the-gate-refuses-release-approve` — the controller gate refuses `plot-ask.mjs release-approve` and a `curl` to `POST /api/release`, `/api/release-approve` and `/api/restart` from any agent tool call, before the linked-worktree return, with no receipt escape <!-- builds: release-approve as a gated action; a board-route match in controllerInvocation -->
+- `feature/the-gate-refuses-release-approve` — the controller gate refuses `plot-ask.mjs release-approve` and a `curl` to `POST /api/release`, `/api/release-approve` and `/api/restart` from any agent tool call, before the linked-worktree return, with no receipt escape <!-- builds: release-approve as a gated action; a board-route match in controllerInvocation --> → #3083
 
 ### One caller rule
 
