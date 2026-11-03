@@ -126,7 +126,7 @@ The code slice builds and its tests pass with no App installed. The live proof n
 
 ### Merge as the Merger app
 
-- `feature/fleetd-merges-as-the-merger-app` — `mergeIdentity` in the domain, the `plot-merger-token.mjs --check` mode and its adapter, the `SlicePrNextReadings` change, the merge records, and the changes in *Tests* and *Docs and comments* above. Buildable and testable with no App installed; the live proof runs after the person-steps. <!-- builds: the merger-identity rule, the --check reading and the merge records -->
+- `feature/fleetd-merges-as-the-merger-app` — `mergeIdentity` in the domain, the `plot-merger-token.mjs --check` mode and its adapter, the `SlicePrNextReadings` change, the merge records, and the changes in *Tests* and *Docs and comments* above. Buildable and testable with no App installed; the live proof runs after the person-steps. <!-- builds: the merger-identity rule, the --check reading and the merge records --> → #3085
 
 ## Notes
 
