@@ -82,7 +82,7 @@ Existing tests:
 
 ### Release finish refuses another sprint
 
-- `bug/release-finish-refuses-another-sprint` — `releaseFinish` refuses `release-scope-mismatch` when the one active sprint's `Release:` names a different version than the tag <!-- builds: a release-finish refusal that keeps a re-run off the next sprint -->
+- `bug/release-finish-refuses-another-sprint` — `releaseFinish` refuses `release-scope-mismatch` when the one active sprint's `Release:` names a different version than the tag <!-- builds: a release-finish refusal that keeps a re-run off the next sprint --> → #3079
 
 ### Tracker step
 
