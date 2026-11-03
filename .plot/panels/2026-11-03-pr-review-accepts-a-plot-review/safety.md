@@ -15,7 +15,7 @@ The defect is real and the direction is right. As written, the plan closes one o
 
 ### F2 (HIGH): the writer check does not stop an agent that writes as the App
 
-- `plot-host.sh commit-status` mints an installation token from the key that `Review app` names (`plot-host.sh:572-604`, `:6047-6050`). The key file is `/Users/jwloka/.config/plot/plot-review.5317669.private-key.pem`, mode 0600, owned by the operator. Fleet desks and the master agent run as that user.
+- `plot-host.sh commit-status` mints an installation token from the key that `Review app` names (`plot-host.sh:572-604`, `:6047-6050`). The key file is `<key path from ## Plot Config>`, mode 0600, owned by the operator. Fleet desks and the master agent run as that user.
 - Any agent can therefore run `plot-host.sh commit-status <sha> success plot/review ...` and the status arrives as `plot-review[bot]`. The writer check accepts it. `controller-gate.ts` holds no refusal for `commit-status` or `plot-commit-status.mjs` (grep returned nothing).
 - The fix stops the one-call `gh api` forgery named in the issue. It does not stop a forgery through Plot's own writer. The plan must state this boundary. A person decides whether a gate on `commit-status` with context `plot/review` outside `plot-review.mjs` belongs in this slice or in a follow-up issue.
 
@@ -91,6 +91,6 @@ The defect is real and the direction is right. As written, the plan closes one o
 
 ## What I ran and what I only read
 
-Ran (read-only): `gh issue view 3072`; `git grep` over origin/main for `pr-review`, `prReview`, `plotReview`, `bypass`, `commit-status`, `mergeAt`; `git show` of `plot-host.sh`, `review.ts`, `ports/host.ts`, `bitbucket-pr-reading.ts`, `slice-pr-next.ts`, `revert-start-world.ts`, `auto-merge.ts`; `gh api repos/plot-pm/plot/rulesets/<id>` (bypass actors and required checks); `gh api repos/plot-pm/plot/commits/<head of the newest merged PR>/statuses` (creator fields of `plot/review`); `ls -l /Users/jwloka/.config/plot/`.
+Ran (read-only): `gh issue view 3072`; `git grep` over origin/main for `pr-review`, `prReview`, `plotReview`, `bypass`, `commit-status`, `mergeAt`; `git show` of `plot-host.sh`, `review.ts`, `ports/host.ts`, `bitbucket-pr-reading.ts`, `slice-pr-next.ts`, `revert-start-world.ts`, `auto-merge.ts`; `gh api repos/plot-pm/plot/rulesets/<id>` (bypass actors and required checks); `gh api repos/plot-pm/plot/commits/<head of the newest merged PR>/statuses` (creator fields of `plot/review`); `ls -l` of `<key path from ## Plot Config>`.
 
 Only read, not executed: the claim that `gh pr list --json statusCheckRollup` carries no creator, the claim that Bitbucket status objects carry no creator, and the identity behind integration 5173644. I posted no status, ran no test suite, and wrote nothing to the host.
