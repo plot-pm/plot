@@ -1,3 +1,4 @@
+import { asksMergerApp } from '../adapters/host/merger-backend.js';
 import type { HostBackend } from '../ports/host.js';
 
 /** The `Merger app` key as the adapter reads it. */
@@ -17,19 +18,20 @@ export type MergeIdentity = { identity: 'app' | 'host' } | { identity: 'hold'; r
  * Decides who a merge runs as, from the host backend and the `Merger app`
  * reading alone.
  *
- * On GitHub, only a `usable` reading answers `app`; every other reading holds
- * by name instead of falling back to the signed-in identity — a hold a
- * failed read cannot read past (#3063's Motivation: a malformed key used to
- * read as "declared", so the merge was tried and refused by the host with no
- * named reason). Every other backend answers `host` without consulting the
- * reading at all, so Bitbucket keeps merging as the `bb` identity unchanged.
+ * On the backend {@link asksMergerApp} answers true for, only a `usable`
+ * reading answers `app`; every other reading holds by name instead of
+ * falling back to the signed-in identity — a hold a failed read cannot read
+ * past (#3063's Motivation: a malformed key used to read as "declared", so
+ * the merge was tried and refused by the host with no named reason). Every
+ * other backend answers `host` without consulting the reading at all, so
+ * Bitbucket keeps merging as the `bb` identity unchanged.
  *
  * @param backend - the host backend, from `Host.backend()`.
  * @param mergerApp - the `Merger app` reading; absent reads as `unread`.
  * @returns `app`, `host`, or a named hold.
  */
 export const mergeIdentity = (backend: HostBackend, mergerApp: MergerAppReading | undefined): MergeIdentity => {
-  if (backend !== 'github') return { identity: 'host' };
+  if (!asksMergerApp(backend)) return { identity: 'host' };
   const reading = mergerApp ?? { read: 'unread' };
   switch (reading.read) {
     case 'usable':
