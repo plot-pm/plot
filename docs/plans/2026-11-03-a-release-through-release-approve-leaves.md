@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3071 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/release-finish-refuses-another-sprint`
+- **Started:** 2026-11-03, Jan Wloka, `bug/release-approve-tells-its-tracker`
 
 ## Changelog
 
