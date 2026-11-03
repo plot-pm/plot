@@ -20,7 +20,6 @@
 - fleetd reviews the release PR's head in this repository: `Auto-review: true` is set in `## Plot Config`, and a release review that the switch skips is logged as skipped.
 - `plot-ask.mjs release-approve` refuses `checks-missing` when the required `validate` check has no success on the pinned head in what GitHub counts, and the board's release stage reads the same rule, so it never shows `ready` while the merge refuses.
 - `plot-ask.mjs release-approve` refuses `release-head-foreign` when the release head changes more than the changesets version step writes.
-- The release PR reports `validate` on its head with no person approving a CI run, through a mechanism chosen from a measurement on the next release head.
 
 Board impact: the release row changes. Its stage reads the new checks rule, so a head whose `validate` GitHub does not count reads `preparing`, not `ready`, and a foreign head shows the hold `release-head-foreign`. The row's shape is unchanged.
 
@@ -52,7 +51,7 @@ The review gap has a measured cause. `registryd-main.ts:3070` passes `readAutoRe
 Taken by the person (jwloka) on 2026-11-03:
 
 1. **`Auto-review: true` in this repository's `## Plot Config`.** It starts the release review and also turns on fleetd's review of every slice PR, which the sprint goal needs. The `release preparing: review` log line names a skipped review as skipped, with a run-log outcome and a test.
-2. **Measure first for CI.** Plot's own guard is built now. The CI mechanism is chosen from a measurement on the next release head (see CI Measurement). No mechanism is chosen before that record exists.
+2. **Measure first for CI.** Plot's own guard is built here. The measurement and the CI mechanism are plan #3076 (issue #3073), which starts after release 2.30.1; the controller-approves-the-held-run option is dropped there.
 3. **Provenance check.** `release-approve` refuses `release-head-foreign` when the head changes more than the changesets version step writes. No branch protection or ruleset change.
 
 ### Scope
@@ -82,35 +81,13 @@ The review waits on CI. `release-prepare.ts:256-260` returns `none('checks-…')
 
 Anything else refuses `release-head-foreign`, naming the first foreign path. The same rule holds the release review start, so fleetd starts no unattended review on a foreign head, and the board's release stage shows the hold.
 
-**CI.** The first step is the measurement below. The mechanism is chosen after it, from these options:
-
-- **Plot reads the dispatched check.** If the ruleset accepts a green dispatched `validate` alone, the fix is in Plot's reader only: "what GitHub counts" widens to the head's check runs named `validate` from integration 15368. No workflow, token or approval changes. Cost: one host read per `release-approve`; nothing else.
-- **Status relay from `dispatch-ci`.** A job waits for the dispatched run and copies the `validate` job's conclusion to the head as a commit status. Cost and constraints: `statuses: write` in its own job, with no checkout and no install; the run is found by event `workflow_dispatch`, path `.github/workflows/ci.yml`, `head_sha` equal to `needs.release.outputs.head_sha` and actor `github-actions[bot]`, and zero or two matches fail the job; it writes only `success` or `failure`, only after the run completes, and a timeout fails the job with no status. A `GITHUB_TOKEN` status carries integration 15368, so the relay's logic becomes the whole required check. The run's own SHA pin (`ci.yml:112-127`) lives on the unprotected branch it tests, so the relay must not trust it and compares the SHA itself.
-- **A non-bypass token for the release PR.** The release PR is opened by an identity whose `pull_request` run GitHub does not hold. Constraints: never a ruleset bypass actor (the `plot-build` App, integration 5173644, is one, `build-bundles.yml:4-6`), never in the `release` job's environment where `pnpm install` and `pnpm run version` run (`release.yml:46-49`), any new `uses:` step SHA-pinned. Cost: a new App and secret; whether an App-authored PR is still held is unmeasured.
-- **A controller approves the held run.** A `Build` port write in a TypeScript connector, called from `releaseApproveAt` only (never fleetd), pinned to workflow `CI`, event `pull_request`, branch `changeset-release/main`, the base repository and the head SHA, `unaskable` on Bitbucket and Jenkins, and run only after the provenance check passes. Costs: it spends the person's `gh` token on a run nobody read, and the approved run takes 12 to 20 minutes (14:47:31Z to 15:00:00Z on 2.30.0), so `release-approve` refuses a new `checks-pending` after the approval and the person calls it again.
-
-Every option keeps `validate` required in the ruleset and writes the check under the Actions app identity (integration 15368).
-
-### CI Measurement
-
-A person runs this on the next `changeset-release/main` head (the 2.30.1 release) and records the result here before the CI slice starts:
-
-1. Wait until the dispatched run's `validate` reads `success` on the head.
-2. Do not approve the held `pull_request` run.
-3. Run `plot-ask.mjs release-approve <pr> <sha>`.
-4. Record Plot's answer (the refusal name, or the merge) and GitHub's answer (the merge, or the host's refusal text), with timestamps and the PR's rollup at that moment.
-
-Outcome A, GitHub merges: the CI slice is "Plot reads the dispatched check". Outcome B, GitHub refuses: the person chooses between the relay, the non-bypass token and the controller approval.
-
-Record:
-
-- [ ] not yet run
+**CI.** The measurement on the 2.30.1 release head and the mechanism it selects are plan #3076 (issue #3073). This plan builds only Plot's own guard (`checks-missing`, `release-head-foreign`) and the review switch.
 
 ### Open Questions
 
 - [x] Why did fleetd not start a review of #2934's head? `Auto-review` is absent from this repository's config (Decision 1).
 - [x] Does the 2.29.1 run show the same `action_required` hold as 2.30.0? Yes: `pull_request` run `40874720456` was held until 13:08:40Z, and 2.29.0 shows the same hold.
-- [ ] Does the ruleset accept a green dispatched `validate` alone? Answered by the CI Measurement.
+- [x] Does the ruleset accept a green dispatched `validate` alone? Moved to plan #3076 (issue #3073), which measures it on the 2.30.1 release head.
 - [ ] Where do the required check names come from: the ruleset's required status checks read through `plot-host.sh` on GitHub, or a config key? The guard slice decides and states it; a ruleset read is a new connector op and pays the shell-lines ratchet.
 
 ### Tests
@@ -137,30 +114,27 @@ The provenance slice:
 - The same file, control: "a head holding only the version step's changes passes".
 - `packages/domain/test/release-prepare.test.ts`: "a foreign release head holds the review start and the stage". Today the review starts.
 
-The CI slice: tests follow the chosen mechanism. "Plot reads the dispatched check" adds "a head whose only validate is a dispatched check run passes the checks rule". The relay, the token and the approval each need a recorded measurement on a live head, because no local suite reads workflow files or the ruleset.
+The CI mechanism's tests, including "a head whose only validate is a dispatched check run passes the checks rule", are plan #3076's.
 
 ### Docs and comments
 
-- `.github/workflows/ci.yml:30-33` says the dispatched run makes "the required check report". The rollup did not show it on 2.30.0. The CI slice corrects it with the measured outcome.
-- `.github/workflows/release.yml:141-159`, the `dispatch-ci` header comment, states the same belief. The CI slice corrects it.
+- `.github/workflows/ci.yml:30-33` and `.github/workflows/release.yml:141-159` (the `dispatch-ci` header comment) state that the dispatched run makes the required check report. Plan #3076 corrects both with the measured outcome.
 - `AGENTS.md` follows the `CLAUDE.md` config change through `./scripts/check-agents-md.sh --write`.
 
 ### Live proof
 
 The person (jwloka) watches the first release after delivery and records in this plan, from the Actions and statuses APIs:
 
-- every workflow run on the release head has a `triggering_actor` that is not a person, and no `pull_request` run has a person-started `run_attempt` above 1;
-- `validate` and `plot/review` exist on the head before the `release-approve` call;
 - the run log carries a `release-review` line with outcome `moved` for that head;
 - the `release-approve` receipt is the only person action between the head's force-push and the merge.
 
-The CI slice is delivered only after this record exists.
+On the 2.30.1 release a person still approves the held CI run once; that approval is recorded as an intervention in the sprint notes and does not fail this proof. Plan #3076's live proof covers the CI run.
 
 ## Slices
 
 ### Review switched on
 
-- `feature/the-release-review-is-switched-on` — set `Auto-review: true`, regenerate `AGENTS.md`, and log a skipped release review as skipped
+- `feature/the-release-review-is-switched-on` — set `Auto-review: true`, regenerate `AGENTS.md`, and log a skipped release review as skipped <!-- waits: bug/a-high-gets-its-own-fixer-attempts -->
 
 ### Release guard
 
@@ -172,4 +146,4 @@ The CI slice is delivered only after this record exists.
 - Issue: https://github.com/plot-pm/plot/issues/3065. Refs #2907, #2934, #2810.
 - Created unattended from the issue. Review channel `pr` and implementation `own branches` follow the repo's `Plan PRs: required`. The plan stays in Draft.
 - Panel round 1: `.plot/panels/2026-11-03-the-release-pr-needs-a-person/panel.md`.
-- The CI mechanism is not a slice of this plan (decided 2026-11-03). Its measurement needs a live release head, and release 2.30.1 cannot be cut while this plan is unfinished, so a CI slice here would hold the release it needs. The measurement and the mechanism move to #3073; the `### CI Measurement` procedure above is its starting point.
+- The CI mechanism is not a slice of this plan (decided 2026-11-03). Its measurement needs a live release head, and release 2.30.1 cannot be cut while this plan is unfinished, so a CI slice here would hold the release it needs. The measurement and the mechanism move to #3073, planned as plan PR #3076.
