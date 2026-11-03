@@ -135,7 +135,7 @@ Each test fails on `origin/main` at `f10abe5a4`.
 
 ### One caller rule
 
-- `feature/one-rule-reads-the-caller` — one pure `callerOf` maps the environment to a `Caller`, and all eight entrances call it; no answer changes <!-- builds: callerOf rule -->
+- `feature/one-rule-reads-the-caller` — one pure `callerOf` maps the environment to a `Caller`, and all eight entrances call it; no answer changes <!-- builds: callerOf rule --> → #3103
 
 ### Passkey release approval
 
