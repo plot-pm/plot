@@ -102,9 +102,11 @@ describe('a live agent outranks the branch state', () => {
 describe('the wip tail still answers for wip', () => {
   it('a wip branch with commits, no PR and no worker still reads abandoned', () => {
     // The control: a tail guard that swallowed `wip` itself would pass every
-    // assertion above.
+    // assertion above. `abandoned` is QUIET, not WAITING ON YOU, since
+    // `quietPlacement` moved it there — the group this once asserted predates
+    // that move.
     const r = classifyBranch({ state: 'wip', ageMinutes: 5000 });
-    expect(r.group).toBe('waiting-on-you');
+    expect(r.group).toBe('quiet');
     expect(r.note).toContain('no PR ever opened');
   });
 });
