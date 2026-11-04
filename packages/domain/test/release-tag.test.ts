@@ -150,4 +150,22 @@ describe('releaseTag', () => {
     const result = releaseTag({ prs: [pr60, pr50], wantedVersion: '2.10.0' });
     expect(result).toEqual({ outcome: 'resolved', tag: 'v2.10.0' });
   });
+
+  // The two tests above always list the later-mergedAt row SECOND, so the
+  // reduce's "the earlier element is still the latest" branch never runs.
+  // Reversing the order here is what exercises it.
+  it('picks the later mergedAt even when it is the first element in the reading', () => {
+    const pr50 = prRow({ number: 50, mergeCommit: 'sha50', mergedAt: '2026-09-02T00:00:00Z', containingTags: ['v2.10.0'] });
+    const pr60 = prRow({ number: 60, mergeCommit: 'sha60', mergedAt: '2026-09-01T00:00:00Z', containingTags: ['v2.10.0'] });
+    const result = releaseTag({ prs: [pr50, pr60], wantedVersion: '2.10.0' });
+    expect(result).toEqual({ outcome: 'resolved', tag: 'v2.10.0' });
+  });
+
+  it('refuses tag-misses-pr naming "none" when the missing PR has no containing tag at all', () => {
+    const pr60 = prRow({ number: 60, mergeCommit: 'sha60', mergedAt: '2026-09-01T00:00:00Z', containingTags: [] });
+    const pr50 = prRow({ number: 50, mergeCommit: 'sha50', mergedAt: '2026-09-02T00:00:00Z', containingTags: ['v2.10.0'] });
+    const result = releaseTag({ prs: [pr60, pr50], wantedVersion: '2.10.0' });
+    expect(result).toMatchObject({ outcome: 'refused', reason: 'tag-misses-pr' });
+    expect((result as { detail: string }).detail).toContain('none');
+  });
 });
