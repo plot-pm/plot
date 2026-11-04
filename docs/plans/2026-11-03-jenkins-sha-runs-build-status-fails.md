@@ -115,7 +115,7 @@ None.
 
 ### Jenkins sha read through jen
 
-- `feature/jenkins-sha-runs-through-jen` — in `jenkins_sha_runs`, read through `jen -I "$slug" api` only, bounded to 30 s in the `jen()` wrapper; remove the outer slot bracket, `jenkins_resolve_host`, `jenkins_rest_credential` and the credential refusals; name the slug and `jen`'s `error:` line in the refusal; rewrite the comment sites in the table above, including the Jenkins notice alternative in `pr-status.ts`; migrate the host tests as listed <!-- builds: jenkins_sha_runs reads through jen api -->
+- `feature/jenkins-sha-runs-through-jen` — in `jenkins_sha_runs`, read through `jen -I "$slug" api` only, bounded to 30 s in the `jen()` wrapper; remove the outer slot bracket, `jenkins_resolve_host`, `jenkins_rest_credential` and the credential refusals; name the slug and `jen`'s `error:` line in the refusal; rewrite the comment sites in the table above, including the Jenkins notice alternative in `pr-status.ts`; migrate the host tests as listed <!-- builds: jenkins_sha_runs reads through jen api --> → #3148
 
 ## Notes
 
