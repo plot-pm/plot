@@ -693,6 +693,35 @@ test('--stop refuses when the serving checkout cannot be determined', () => {
   assert.equal(fs.existsSync(marker), true);
 });
 
+// A BUNDLE THAT CANNOT BE ASKED REFUSES, at the `--stop` read as well as at
+// the migration's. The decision runs through a command substitution, which
+// keeps only stdout: a broken install returns 1 having written to stderr only,
+// so a test on the WORD alone reads that empty answer as permission and boots
+// out whatever holds the label — the very bug the cases above close. The label
+// is held for ANOTHER checkout in both cases, so an unload here is the bug.
+for (const [name, rule] of [
+  ['its bundle is missing', 'missing'],
+  ['its bundle exits non-zero without answering', 'silent'],
+]) {
+  test(`--stop refuses when ${name}, and unloads nothing`, () => {
+    const other = fs.realpathSync(scratch(`plot-fleetctl-stopbroken-${rule}-`));
+    const { root, box, ctl, fleetLabel, guardBin } = sandbox(`stopbroken${rule}`);
+    const marker = armedMarker(root);
+    const bundle = path.join(path.dirname(ctl), 'board', 'plot-old-label.mjs');
+    if (rule === 'missing') fs.rmSync(bundle);
+    else fs.writeFileSync(bundle, 'process.exit(3);\n');
+    const calls = holdLabel(box, guardBin, other);
+    const r = run(ctl, ['--stop'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /broken or partial installation of Plot/, r.out);
+    assert.deepEqual(launchctlCalls(calls), [],
+      `a broken old-label bundle was read as permission to unload another checkout's supervisor:\n${r.out}`);
+    assert.equal(fs.existsSync(marker), true, 'the start marker was removed on a refused stop');
+    assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-stopped.json')), false,
+      'a stop record was written although the rule could not be asked');
+  });
+}
+
 test("--stop's refusal lists this checkout's own ready-to-stop supervisor, not a blank report", () => {
   // `plot_processes_block`'s comparison-root mode is what the refusal falls
   // back on: a person stopped by the owner check still needs the command for

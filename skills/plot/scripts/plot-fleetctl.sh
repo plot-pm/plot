@@ -624,6 +624,19 @@ old_label_action() {
   broken_install "the old-label rule at $rule gave no answer" "  node on PATH: $(command -v node || echo none)\n"
 }
 
+# TRUE WHEN THE VERB MUST NOT PROCEED — the one reading every caller that only
+# needs a yes/no takes, with the same arguments as `old_label_action`. It is
+# true both when the bundle answers `refuse` and when the bundle CANNOT BE
+# ASKED, because a command substitution keeps only stdout: a broken install
+# returns 1 with an empty stdout, and a bare `[ "$(old_label_action ...)" =
+# refuse ]` reads that empty word as permission to act. Callers that need the
+# word itself (`retire_old_label`) still read it off the assignment.
+old_label_refuses() {
+  local action
+  action=$(old_label_action "$@") || return 0
+  [ "$action" = refuse ]
+}
+
 # Retires a supervisor loaded under the old default label, for `--start`'s
 # migration and for `--stop`. Only one serving THIS checkout is touched: it is
 # unloaded through `unload_supervisor`, and its unit file and the start marker
@@ -1111,10 +1124,13 @@ if [ "$mode" = "start" ]; then
   # ONLY `this <dir>` REFUSES for the default label. A default-label
   # supervisor serving another checkout, or one whose checkout cannot be read,
   # does not block this checkout's own label. Both ask the bundle through
-  # `old_label_action`, which prints the refusal text itself (on stderr) —
-  # this arm only reads the word back.
-  [ "$(old_label_action start)" != refuse ] || exit 1
-  [ "$LABEL" = com.plot-pm.fleetd ] || { [ "$(LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_action start-default)" != refuse ] || exit 1; }
+  # `old_label_refuses`, which prints the refusal text itself (on stderr) —
+  # this arm only reads the verdict back.
+  # A BUNDLE THAT CANNOT BE ASKED REFUSES TOO — `old_label_refuses` is true on
+  # a broken install as well as on a `refuse` word, so neither arm can load a
+  # second supervisor over this estate on an empty answer.
+  ! old_label_refuses start || exit 1
+  [ "$LABEL" = com.plot-pm.fleetd ] || { ! LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_refuses start-default || exit 1; }
 
   # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
   # prompt file in a scratch desk, through `plot-write-probe.mjs`
@@ -1265,8 +1281,11 @@ if [ "$mode" = "stop" ]; then
   # `--start` loaded it from. `another`/`unknown` REFUSE here: nothing is
   # signalled, no stop record is written, nothing is unloaded, and the start
   # marker is kept — the run this refusal stops is not this checkout's to end.
+  # A BUNDLE THAT CANNOT BE ASKED REFUSES TOO, through `old_label_refuses`: on
+  # an empty answer the unload below would boot out whatever holds the label,
+  # which is the bug this read exists to prevent.
   stop_root=$(plot_repo_root)
-  if [ "$(old_label_action stop "$stop_root")" = refuse ]; then
+  if old_label_refuses stop "$stop_root"; then
     plot_processes_block "" "$stop_root"
     exit 1
   fi
@@ -1387,7 +1406,9 @@ EOF
     # `unknown` refuses the UNLOAD ALONE: `sup_unconfirmed=1` rather than a
     # bare exit, so the agent summary below still prints and the stopped
     # agents are not hidden behind a refusal that is only about the supervisor.
-    if [ "$(old_label_action stop "$stop_root")" = refuse ]; then
+    # A BUNDLE THAT CANNOT BE ASKED REFUSES THE UNLOAD ALONE here, for the same
+    # reason an `another`/`unknown` answer does.
+    if old_label_refuses stop "$stop_root"; then
       sup_unconfirmed=1
     elif unload_supervisor; then
       echo "  supervisor unloaded"
