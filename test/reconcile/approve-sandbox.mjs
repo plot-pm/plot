@@ -66,3 +66,44 @@ export const makeApproveSandbox = ({
 
   return { tmp, origin, repo };
 };
+
+/**
+ * Pushes a real plan-PR head that carries the plan file, and returns its
+ * full sha for a stubbed host to name as the plan PR's head.
+ *
+ * `plot-approve.sh` reads the plan at the plan PR's head: git must hold that
+ * head, the head must change the plan file against its merge base with
+ * `main`, and the checkout's copy must equal the head's copy. The sandbox
+ * commits the plan straight onto `main`, so this helper appends one marker
+ * comment to the plan twice: once as a new `main` commit, which the checkout
+ * then holds, and once as a sibling commit on the old `main` tip, pushed as
+ * `branch`. Both commits hold the same text, and the head still diffs as
+ * changing the plan.
+ *
+ * @param tmp the sandbox directory; the scratch worktree is created inside it.
+ * @param repo the sandbox clone.
+ * @param planRel plan file path relative to the repo root.
+ * @param branch the plan PR's head branch, `idea/<slug>` unless the plan is `Impl: same branch`.
+ * @param label text of the marker comment.
+ * @returns the full sha of the pushed head.
+ */
+export const pushPlanHead = ({ tmp, repo, planRel, branch, label = 'plan head' }) => {
+  const parent = git(repo, 'rev-parse', 'main').trim();
+  const marked = `${fs.readFileSync(path.join(repo, planRel), 'utf8')}<!-- ${label} -->\n`;
+
+  fs.writeFileSync(path.join(repo, planRel), marked);
+  git(repo, 'commit', '-qam', `plan on main (${label})`);
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  const scratch = fs.mkdtempSync(path.join(tmp, 'plan-head-'));
+  try {
+    git(repo, 'worktree', 'add', '-q', '--detach', scratch, parent);
+    fs.writeFileSync(path.join(scratch, planRel), marked);
+    git(scratch, 'commit', '-qam', `plan head (${label})`);
+    const sha = git(scratch, 'rev-parse', 'HEAD').trim();
+    git(scratch, 'push', '-qf', 'origin', `${sha}:refs/heads/${branch}`);
+    return sha;
+  } finally {
+    git(repo, 'worktree', 'remove', '-f', scratch);
+  }
+};

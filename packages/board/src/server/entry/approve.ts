@@ -787,6 +787,26 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   let inSession = review === 'in-session';
   let sameBranch = !inSession && impl === 'same-branch';
 
+  // A plan absent from the checkout that the default branch holds under
+  // `Review: in-session` has no PR, so its copy on `origin/<main>` is the
+  // record, as the checkout copy is for a plan in the checkout, and no host
+  // call is made.
+  if (!inCheckout) {
+    const onMainFile = (await plansOnMain()).find((f) => namesPlan(slug, f));
+    const onMainPlan = onMainFile === undefined ? undefined : await readPlanAt(ctx, `origin/${main}`, onMainFile);
+    if (onMainFile !== undefined && onMainPlan?.review === 'in-session') {
+      plan = onMainPlan;
+      planFile = onMainFile;
+      phase = plan.phase ?? '';
+      review = plan.review ?? '';
+      impl = plan.impl ?? '';
+      sprint = plan.sprint ?? '';
+      inSession = true;
+      sameBranch = false;
+      write(`step: plan ${onMainFile} is not in this checkout — read it from origin/${main}\n`);
+    }
+  }
+
   // The PR is read only for a plan that carries one. A host that cannot answer
   // is held until the domain has judged the phase and the review channel, so
   // those refusals keep their precedence over it.
@@ -810,7 +830,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     const resolved = await ctx.refs.resolve(`${sha}:${file}`);
     return resolved.ok ? resolved.value : '';
   };
-  if (!inCheckout || !inSession) {
+  if (plan === undefined || !inSession) {
     try {
       if (inCheckout && sameBranch) {
         pr = await readPlanPr(ctx, prBranch);

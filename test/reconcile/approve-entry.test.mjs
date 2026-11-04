@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { makeApproveSandbox } from './approve-sandbox.mjs';
+import { makeApproveSandbox, pushPlanHead } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -104,9 +104,15 @@ beforeEach(() => {
 const setHost = (s) => fs.writeFileSync(statePath, JSON.stringify(s));
 const hostCalls = () => (fs.existsSync(callsPath) ? fs.readFileSync(callsPath, 'utf8') : '');
 
-/** A sandbox with a real bare origin, the plan on main, and the host stub at an open PR. */
-const makeRepo = (planBody, host = { number: 42, state: 'OPEN', draft: false }) => {
-  const { repo, origin } = makeApproveSandbox({
+/**
+ * A sandbox with a real bare origin, the plan on main, and the host stub at an open PR.
+ *
+ * An OPEN PR gets a real head on origin that carries the plan, because the
+ * approval reads the plan at that head; `headBranch` names the branch it is
+ * pushed to.
+ */
+const makeRepo = (planBody, host = { number: 42, state: 'OPEN', draft: false }, { headBranch = 'idea/approve-me' } = {}) => {
+  const { tmp, repo, origin } = makeApproveSandbox({
     prefix: 'plot-approve-entry-',
     claudeMd: '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **People:** jwloka = Jan Wloka\n',
     planRel: PLAN_REL,
@@ -115,7 +121,10 @@ const makeRepo = (planBody, host = { number: 42, state: 'OPEN', draft: false }) 
   });
   track(path.dirname(origin));
   // A PR on GitHub always names its head; pr-merge pins the merge to it.
-  setHost({ headRefOid: '0123456789abcdef0123456789abcdef01234567', ...host });
+  const headRefOid = host.state === 'OPEN'
+    ? pushPlanHead({ tmp, repo, planRel: PLAN_REL, branch: headBranch })
+    : '0123456789abcdef0123456789abcdef01234567';
+  setHost({ headRefOid, ...host });
   return { repo, origin };
 };
 
@@ -332,8 +341,8 @@ test('approve entry: a completed approval leaves the state receipt the gate read
 });
 
 test('approve entry: the merge is pinned to the head the approval read', () => {
-  const head = 'a'.repeat(40);
-  const { repo } = makeRepo(PLAN(), { number: 42, state: 'OPEN', draft: false, headRefOid: head });
+  const { repo } = makeRepo(PLAN(), { number: 42, state: 'OPEN', draft: false });
+  const head = JSON.parse(fs.readFileSync(statePath, 'utf8')).headRefOid;
   const r = approve(repo);
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   const merge = mutatingCalls().filter((l) => l.startsWith('gh pr merge'));
@@ -376,7 +385,7 @@ test('approve entry: an approval through a booking worktree excludes the desk ro
 
 test('approve entry: a same-branch approval commits the sprint file it annotated and nothing else in the sprint directory', () => {
   const body = PLAN().replace('**Sprint:**', '**Sprint:** s1').replace('**Impl:** own branches', '**Impl:** same branch');
-  const { repo } = makeRepo(body, { number: 42, state: 'OPEN', draft: false });
+  const { repo } = makeRepo(body, { number: 42, state: 'OPEN', draft: false }, { headBranch: 'approve-me' });
   fs.mkdirSync(path.join(repo, 'docs', 'sprints'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'docs', 'sprints', 's1.md'), '# s1\n\n### Must Have\n\n- [ ] [approve-me] the plan\n');
   git(repo, 'add', '-A');
