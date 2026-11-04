@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import type { Caller, DeskMonitors, FleetReading } from '@plot-pm/domain';
+import { callerOf, type Caller, type DeskMonitors, type FleetReading } from '@plot-pm/domain';
 import { continueBranch } from '../../shared/continue-command.js';
 import { ANSWER_MAX } from '../../shared/continuation.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
@@ -115,7 +115,7 @@ export const run = async (
     branch,
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.
-    caller: deps.caller ?? (process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person'),
+    caller: deps.caller ?? callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
     answer,
     questionKey,
     author: who,

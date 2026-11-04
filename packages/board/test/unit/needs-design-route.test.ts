@@ -10,7 +10,14 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import type { Detached } from '@plot-pm/domain';
+import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
+import { planStoreFixture } from '@plot-pm/domain/adapters/plan-store/plan-store-fixture';
+import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
+import type { PortResult } from '@plot-pm/domain';
+import type { Scripts } from '@plot-pm/domain/ports/scripts';
+import type { Trees } from '@plot-pm/domain/ports/trees';
 import { handleNeedsDesign } from '../../src/server/needs-design.js';
+import { perform, type Context } from '../../src/server/entry/needs-design.js';
 import { rmTree } from '../helpers.mjs';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
@@ -110,5 +117,58 @@ describe('plot-needs-design.mjs under PLOT_UNATTENDED=1', () => {
     });
     assert.equal(run.status, 1);
     assert.match(run.stderr, /a person moves a plan to Design/);
+  });
+});
+
+describe('perform — an open PR the host named with no head commit is named, not silently dropped', () => {
+  const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
+  const SLUG = 'a-plan';
+
+  /** A `Scripts` stub answering only the `## Plot Config` keys this path reaches. */
+  const scriptsStub = (): Scripts => ({
+    config: async (key, fallback) => answered(({
+      'Plan directory': 'docs/plans/',
+      'Active index': 'docs/plans/active/',
+    })[key] ?? fallback),
+  } as unknown as Scripts);
+
+  /** A `Trees` stub: `originHead` answers so `resolveMain` never asks the host. */
+  const treesStub = (): Trees => ({
+    originHead: async () => answered('main'),
+    fetch: async () => answered(undefined),
+    userName: async () => answered('jwloka'),
+  } as unknown as Trees);
+
+  /** A plan not in the checkout and not on the default branch; the only open PR is own-repo but carries no `headSha` — the shape that previously made `openPrsOf` drop it and report "no plan found". */
+  const ctxUnreadOpenPr = (): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostFixture({
+      prs: [{
+        number: 975, repo: '', head: `idea/batch-${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+        draft: false, mergeable: 'unknown', review: 'none', checks: 'unknown', failingChecks: [],
+        url: '', author: '',
+      }],
+    }),
+    planStore: planStoreFixture({ files: {} }),
+    refs: refsFixture(),
+    scripts: scriptsStub(),
+    trees: treesStub(),
+  });
+
+  it('names the unread PR in the plan-not-found refusal', async () => {
+    const ctx = ctxUnreadOpenPr();
+
+    let message = '';
+    try {
+      await perform(ctx, { who: 'jwloka', slug: SLUG, channel: 'board' }, () => {}, () => {});
+      assert.fail('expected perform() to throw Refused');
+    } catch (err) {
+      message = (err as Error).message;
+    }
+
+    assert.match(message, /no plan found/);
+    assert.match(message, /#975/);
+    assert.match(message, /the host named no head commit/);
   });
 });

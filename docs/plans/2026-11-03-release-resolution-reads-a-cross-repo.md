@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3082 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/release-pr-reads-local-references`
 - **Started:** 2026-11-04, Jan Wloka, `bug/release-tag-contains-every-local-pr`
+- **Started:** 2026-11-04, Jan Wloka, `bug/scan-release-asks-the-domain`
 
 ## Changelog
 
@@ -133,11 +134,11 @@ Each case fails on origin/main unless the list says otherwise.
 
 ### Release tag covers every local PR
 
-- `bug/release-tag-contains-every-local-pr` — `--release` resolves the tag from the local PR that merged last by `mergedAt`, and refuses `tag-misses-pr` when that tag does not contain every non-deferred local PR's merge commit <!-- builds: releaseTag over every local PR --> <!-- waits: bug/release-pr-reads-local-references -->
+- `bug/release-tag-contains-every-local-pr` — `--release` resolves the tag from the local PR that merged last by `mergedAt`, and refuses `tag-misses-pr` when that tag does not contain every non-deferred local PR's merge commit <!-- builds: releaseTag over every local PR --> <!-- waits: bug/release-pr-reads-local-references --> → #3108
 
 ### Scan asks the release rule
 
-- `bug/scan-release-asks-the-domain` — scan section 6 asks `releasePr` and `releaseTag` through one `plot-release-chain.mjs` call per sweep, reports an all-foreign plan with its own finding, and drops its shell copy of the rule <!-- builds: a batched release verb on plot-release-chain.mjs; section 6 without last_pr --> <!-- waits: bug/release-tag-contains-every-local-pr -->
+- `bug/scan-release-asks-the-domain` — scan section 6 asks `releasePr` and `releaseTag` through one `plot-release-chain.mjs` call per sweep, reports an all-foreign plan with its own finding, and drops its shell copy of the rule <!-- builds: a batched release verb on plot-release-chain.mjs; section 6 without last_pr --> <!-- waits: bug/release-tag-contains-every-local-pr --> → #3111
 
 ## Notes
 

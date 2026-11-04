@@ -311,10 +311,10 @@ async function handleRequest(
     // day from the prompt. What is gone is the claim that no such route could
     // exist; the refusals that remain are CONDITIONAL and name their key.
     { path: '/api/story', verb: 'creating a story', handle: handleStory },
-    // POST /api/interrogate — a Draft plan is sent to /plot-panel.
+    // POST /api/interrogate — a Draft or Design plan is sent to /plot-panel.
     //
     // The same class of route as /api/idea and the same binding: it spawns
-    // a plot agent. SLUG-scoped and Draft-only, and it refuses while a panel for
+    // a plot agent. SLUG-scoped and Draft-and-Design-only, and it refuses while a panel for
     // the same plan is still running. It writes nothing to the plan: the skill
     // records the verdicts, `panel.md` and the `Rounds:` increment.
     { path: '/api/interrogate', verb: 'interrogating a plan', handle: handleInterrogate },

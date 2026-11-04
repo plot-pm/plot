@@ -2319,6 +2319,10 @@ before(() => {
   w('plans/2026-04-04-approved.md', plan('Approved plan', 'Approved', '- **Rounds:** 3\n'));
   // Draft with a round and NEVER amended after it — the healthy case.
   w('plans/2026-04-05-current.md', plan('Current', 'Draft', '- **Rounds:** 1\n'));
+  // DESIGN, records a round, amended later — the other half of the finding.
+  // A plan past Draft but not yet Approved is still in scope: the badge the
+  // questioning feeds shows on a Design card too.
+  w('plans/2026-04-06-design-round.md', plan('Design round', 'Design', '- **Rounds:** 1\n'));
 
   fs.mkdirSync(path.join(srRepo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(srRepo, 'plans', 'delivered'), { recursive: true });
@@ -2328,6 +2332,7 @@ before(() => {
     ['never-questioned.md', '../2026-04-03-never-questioned.md'],
     ['approved.md', '../2026-04-04-approved.md'],
     ['current.md', '../2026-04-05-current.md'],
+    ['design-round.md', '../2026-04-06-design-round.md'],
   ]) fs.symlinkSync(target, path.join(srRepo, 'plans', 'active', link));
 
   git(srRepo, 'add', '-A');
@@ -2348,6 +2353,7 @@ before(() => {
   bump('plans/2026-04-02-zero-round.md');
   bump('plans/2026-04-03-never-questioned.md');
   bump('plans/2026-04-04-approved.md');
+  bump('plans/2026-04-06-design-round.md');
   execFileSync('git', ['commit', '-qam', 'amend the plans'], {
     cwd: srRepo,
     env: {
@@ -2382,6 +2388,13 @@ test('scan: section 15 treats `Rounds: 0` as a recorded value, not as absence', 
   assert.match(srSections['15'], /2026-04-02-zero-round\.md — records round 0 \(last written in [0-9a-f]+\)/);
 });
 
+test('scan: section 15 reports a Design plan amended since its recorded round', () => {
+  // The other half of the finding: a plan past Draft but not yet Approved is
+  // still in scope, because the badge the questioning feeds shows on a
+  // Design card too.
+  assert.match(srSections['15'], /2026-04-06-design-round\.md — records round 1 \(last written in [0-9a-f]+\), amended since in [0-9a-f]+/);
+});
+
 test('scan: section 15 is silent for a plan with no Rounds: field', () => {
   // THE HALF A CARELESS IMPLEMENTATION GETS WRONG. This plan was amended in the
   // same commit as the two reported above, so only the missing round separates
@@ -2401,13 +2414,14 @@ test('scan: section 15 is silent for a Draft plan untouched since its round', ()
 });
 
 test('scan: section 15 footer counter matches the number of findings', () => {
-  // Two findings: the round-2 plan and the round-0 plan. The counter must be
-  // wired to the same variable the body increments — a footer wired to a
-  // different variable is a bug no single-finding assertion above can see.
+  // Three findings: the round-2 Draft plan, the round-0 Draft plan, and the
+  // round-1 Design plan. The counter must be wired to the same variable the
+  // body increments — a footer wired to a different variable is a bug no
+  // single-finding assertion above can see.
   const bodyFindings = srSections['15'].split('\n').filter((l) => l.includes('records round ')).length;
-  assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
+  assert.equal(bodyFindings, 3, `expected 3 body findings, got ${bodyFindings}`);
   const footer = srReport.trim().split('\n').at(-1);
-  assert.match(footer, /\brounds_drift=2\b/);
+  assert.match(footer, /\brounds_drift=3\b/);
 });
 
 test('scan: a stale round leaves attention= unchanged — the section does NOT gate', () => {

@@ -1031,13 +1031,16 @@ test('host: pr-merge bitbucket refuses with no --match-head, and calls no bb', (
   assert.equal(argvOf(stubs.bbArgv), null, 'nothing reached bb');
 });
 
-test('host: pr-list bitbucket flattens to number/title/state/head', () => {
+test('host: pr-list bitbucket flattens to number/title/state/head/headSha/draft', () => {
   const stubs = makeStubs({
-    bbJson: '[{"id":3,"title":"A","state":"OPEN","source":{"branch":{"name":"feature/a"}}}]',
+    bbJson: '[{"id":3,"title":"A","state":"OPEN","draft":true,"source":{"branch":{"name":"feature/a"},"commit":{"hash":"0123456789ab"}}}]',
   });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   // `author` is `""` where the host names none; this payload carries no author.
-  assert.deepEqual(out, { number: 3, title: 'A', state: 'OPEN', head: 'feature/a', author: '' });
+  assert.deepEqual(out, {
+    number: 3, title: 'A', state: 'OPEN', head: 'feature/a', draft: true, url: '', updatedAt: '',
+    headSha: '0123456789ab', mergedAt: '', author: '', base: '',
+  });
   assert.deepEqual(argvOf(stubs.bbArgv), ['api', '/repositories/{ws}/{repo}/pullrequests?state=OPEN&pagelen=50']);
 });
 
@@ -1100,6 +1103,32 @@ test('host: pr-body github maps to gh pr edit --body', () => {
   const stubs = makeStubs();
   run(['pr-body', '4', '--body', 'new text'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'edit', '4', '--body', 'new text']);
+});
+
+// `bb pr update --ready` does not exist on any shipped bb version (#3089);
+// `bb pr edit <n> --ready` does. A stub that exits 1 on `pr update` and 0 on
+// `pr edit <n> --ready` proves the adapter sends the call that works, not
+// just that it sends a well-formed one.
+test('host: pr-ready maps to bb pr edit <n> --ready, not bb pr update', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-pr-ready-')));
+  offlineGit(dir);
+  const argvFile = path.join(dir, 'bb.argv');
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "${argvFile}"
+if [[ "$1" == "pr" && "$2" == "update" ]]; then
+  echo "unknown pr command: update" >&2
+  exit 1
+fi
+exit 0
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  const stubs = { dir, bbArgv: argvFile };
+  const res = execFileSync('bash', [adapter, 'pr-ready', '4'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res, '');
+  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'edit', '4', '--ready']);
 });
 
 test('host: pr-close maps to gh pr close on github and bb pr close on bitbucket', () => {
@@ -3224,6 +3253,78 @@ test('host: pr-list bitbucket without jenkins is unchanged by the bind path', ()
   const rows = rowsByHead(res.stdout);
   assert.equal(rows.get('feature/red').checks, 'unknown');
   assert.equal(rows.get('feature/red').checksSha, undefined, 'the plain Bitbucket arm emits no checksSha field');
+});
+
+// Every `pr-list` arm, both backends, must carry `head`, `headSha` and
+// `draft` on its rows — the contract the plain Bitbucket arm broke (#3089).
+// Pinned per arm so a future regression on any one of the five fails here
+// rather than surfacing as a silent "plan not found" three layers up.
+test('host: pr-list every arm on both backends carries head, headSha and draft', () => {
+  // GitHub plain
+  {
+    const stubs = makeStubs({
+      ghJson: JSON.stringify([{
+        number: 7, title: 't', state: 'OPEN', headRefName: 'feature/gh-plain', isDraft: true,
+        url: 'https://example.test/pr/7', updatedAt: '', headRefOid: 'ghplainsha', mergedAt: '',
+      }]),
+    });
+    const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
+    assert.equal(out.head, 'feature/gh-plain');
+    assert.equal(out.headSha, 'ghplainsha');
+    assert.equal(out.draft, true);
+  }
+  // GitHub rich (no Jenkins)
+  {
+    const stubs = makeStubs({
+      ghJson: JSON.stringify([{
+        number: 8, title: 't', state: 'OPEN', headRefName: 'feature/gh-rich', isDraft: false,
+        statusCheckRollup: [], mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+        url: 'https://example.test/pr/8', headRefOid: 'ghrichsha',
+      }]),
+    });
+    const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs }));
+    assert.equal(out.head, 'feature/gh-rich');
+    assert.equal(out.headSha, 'ghrichsha');
+    assert.equal(out.draft, false);
+  }
+  // Bitbucket plain
+  {
+    const stubs = makeStubs({
+      bbJson: JSON.stringify([{
+        id: 9, title: 't', state: 'OPEN', draft: true,
+        source: { branch: { name: 'feature/bb-plain' }, commit: { hash: 'bbplainsha12' } },
+      }]),
+    });
+    const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+    assert.equal(out.head, 'feature/bb-plain');
+    assert.equal(out.headSha, 'bbplainsha12');
+    assert.equal(out.draft, true);
+  }
+  // Bitbucket rich, without Jenkins
+  {
+    const stubs = makeStubs({
+      bbJson: JSON.stringify([{
+        id: 10, title: 't', state: 'OPEN', draft: false,
+        source: { branch: { name: 'feature/bb-rich' }, commit: { hash: 'bbrichsha123' } },
+        links: { html: { href: 'https://example.test/pr/10' } },
+      }]),
+    });
+    const out = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+    assert.equal(out.head, 'feature/bb-rich');
+    assert.equal(out.headSha, 'bbrichsha123');
+    assert.equal(out.draft, false);
+  }
+  // Bitbucket rich, with Jenkins
+  {
+    const { rows } = runBbJenkinsPrList({
+      rows: [{ id: 11, head: 'feature/bb-jenkins', sha: BB_SHORT }],
+      build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'),
+    });
+    const row = rows.get('feature/bb-jenkins');
+    assert.equal(row.head, 'feature/bb-jenkins');
+    assert.equal(row.headSha, BB_SHORT);
+    assert.equal(row.draft, false);
+  }
 });
 
 test('host: pr-list bitbucket under jenkins reads unknown, never a stale colour, for rows past the lookup cap', () => {

@@ -97,8 +97,7 @@ Slice 2:
 
 - A `continue` with no author writes `author=unknown`. On `origin/main` it writes `unblocker`.
 - `plot-continue-command.mjs --who jwloka` and the board route with `author: "jwloka"` write `author=jwloka`.
-- A second `continue` on a key that holds an `answered` row starts its agent and appends nothing. On `origin/main` it appends a second row.
-- A `fresh` fleetd restart on an answered key whose agent left `PLOT-BLOCKED` behind still starts. A refusal here would close every route out of that desk.
+- A second `continue` on a key that holds an `answered` row refuses `already-answered` and appends nothing. On `origin/main` it appends a second row.
 
 Slice 3:
 
@@ -113,7 +112,7 @@ Slice 3:
 
 ### The record names its author
 
-- `bug/an-answer-records-its-true-author` — `continue` records the caller's handle or `unknown`, never a default `unblocker`; the board route and `plot-continue-command.mjs --who` pass it; a second answer on one question key appends no second row and still starts <!-- builds: answer author, one row per question key -->
+- `bug/an-answer-records-its-true-author` — `continue` records the caller's handle or `unknown`, never a default `unblocker`; the board route and `plot-continue-command.mjs --who` pass it; a second answer on one question key refuses `already-answered` <!-- builds: answer author, already-answered refusal --> → #3109
 
 ### An escalation reaches the issue
 

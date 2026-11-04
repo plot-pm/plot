@@ -13,6 +13,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { fleetdStartFile } from '@plot-pm/domain/adapters';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
+import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt, nameRepairPrAt, type MergePorts } from './merge.js';
 import { releaseApproveAt } from './release-approve.js';
@@ -153,7 +154,7 @@ const mergePortsFor = async (opts: BuildBoardOptions): Promise<MergePorts> => {
     checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.
-    caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
+    caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
   };
 };
 
@@ -258,7 +259,7 @@ export const run = async (
         refs: estate.refs,
         defaultBranch: estate.defaultBranch,
         repair: repairRecordFile(opts.repoRoot),
-        caller: process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person',
+        caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
       },
       Number(pr),
     );

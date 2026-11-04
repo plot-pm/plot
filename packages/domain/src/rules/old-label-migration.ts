@@ -58,3 +58,36 @@ export const oldLabelAction = (reading: OldLabelReading, verb: OldLabelVerb): Ol
       return 'refuse';
   }
 };
+
+/**
+ * Which `plot-fleetctl.sh` verb asks `labelAction`: `start` for the configured
+ * label, `start-default` for the default label when a `Fleet label` moved
+ * `$LABEL` away from it, `stop` for `--stop`.
+ */
+export type LabelVerb = 'start' | 'start-default' | 'stop';
+
+/** Whether the caller may act on the resolved label's job. */
+export type LabelDecision = 'proceed' | 'refuse';
+
+/**
+ * Decides whether `plot-fleetctl.sh` may act on the job loaded under the
+ * resolved label, given which checkout it serves and which verb asks.
+ *
+ * `start` and `start-default` answer the same as today's `refuse_label`,
+ * moved rather than changed: a job already loaded under the exact label is
+ * always a conflict for `--start`, but the default label only conflicts with
+ * `--start` itself (a job serving this checkout, or an unreadable one, might
+ * be `--start`'s own prior run under the label it is about to move away
+ * from); it never blocks starting under a different, explicit label.
+ * `stop` is the new behaviour this rule exists for: unloading is safe only
+ * when the job is confirmed to serve this checkout.
+ *
+ * @param reading - which checkout the job serves.
+ * @param verb - which verb asks.
+ * @returns `proceed` or `refuse`.
+ */
+export const labelAction = (reading: OldLabelReading, verb: LabelVerb): LabelDecision => {
+  if (verb === 'start') return 'refuse';
+  if (verb === 'start-default') return reading.kind === 'this' ? 'refuse' : 'proceed';
+  return reading.kind === 'this' ? 'proceed' : 'refuse';
+};

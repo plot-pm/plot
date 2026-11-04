@@ -28,12 +28,12 @@ describe('cardControls', () => {
     }
   });
 
-  it.each(STATES)('roundsBadge holds on draft only: %s', (state) => {
-    const draft = state === 'draft';
+  it.each([...STATES, 'rejected', 'superseded', 'none'])('roundsBadge holds on draft and design: %s', (state) => {
+    const under = state === 'draft' || state === 'design';
     for (const status of STATUSES) {
       for (const started of [false, true]) {
         const actual = cardControls({ state, status, started });
-        expect(actual.roundsBadge).toBe(draft);
+        expect(actual.roundsBadge).toBe(under);
       }
     }
   });
@@ -53,9 +53,9 @@ describe('cardControls', () => {
     expect(cardControls({ state: 'approved', status, started: true }).readyToStart).toBe(false);
   });
 
-  it('offers Approve and Interrogate on a Design plan, and not the rounds badge', () => {
+  it('offers Approve, Interrogate and the rounds badge on a Design plan', () => {
     expect(cardControls({ state: 'design', status: 'open', started: false })).toEqual({
-      approve: true, needsDesign: false, interrogate: true, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
+      approve: true, needsDesign: false, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
     });
   });
 

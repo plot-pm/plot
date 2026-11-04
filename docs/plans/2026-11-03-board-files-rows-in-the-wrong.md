@@ -166,7 +166,7 @@ None. The panel round closed the four earlier questions; the sections above give
 
 ### Quiet placement
 
-- `feature/board-files-rows-in-the-wrong` — `quietPlacement` answers `quiet` for `abandoned` and `orphaned-claim`; delete `quietNeedsPerson`; the orphaned-claim arm reads `quietPlacement`; `withHandOver` reads the orphaned claim in QUIET and clears `quietKind` on the rows it rewrites; `offersOpen` covers both kinds in QUIET; `stateStatus` reads `quietKind` before `startability` only on a QUIET row; `startableNote` keeps the note of a QUIET row with a `quietKind`; add the QuietKind invariant with its Draft-plan exception, the hand-over, menu, status-word and note cases and their guards and the mock row; flip the listed assertions and the QUIET doc table.
+- `feature/board-files-rows-in-the-wrong` — `quietPlacement` answers `quiet` for `abandoned` and `orphaned-claim`; delete `quietNeedsPerson`; the orphaned-claim arm reads `quietPlacement`; `withHandOver` reads the orphaned claim in QUIET and clears `quietKind` on the rows it rewrites; `offersOpen` covers both kinds in QUIET; `stateStatus` reads `quietKind` before `startability` only on a QUIET row; `startableNote` keeps the note of a QUIET row with a `quietKind`; add the QuietKind invariant with its Draft-plan exception, the hand-over, menu, status-word and note cases and their guards and the mock row; flip the listed assertions and the QUIET doc table. → #3110
 
 ### Claims without a worker
 

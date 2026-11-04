@@ -14,6 +14,7 @@ import {
 import { withPhase, withRecord, withSection } from '@plot-pm/domain/workflows/rendering';
 import type { Write } from '@plot-pm/domain/workflows/decision';
 import { isPlanFile, planPrsCarrying, type OpenPr } from '@plot-pm/domain/rules/plan-pr';
+import { openPrsOf, unreadPrsLine, type UnreadPr } from './open-prs.js';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
   commitAndPush,
@@ -68,7 +69,7 @@ const USAGE = [
 ].join('\n');
 
 /** What the command line asked for. */
-interface Args {
+export interface Args {
   who: string;
   slug: string;
   channel: 'board' | 'cli';
@@ -97,7 +98,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
 };
 
 /** The ports and paths this entry needs. */
-interface Context {
+export interface Context {
   repoRoot: string;
   scriptDir: string;
   host: Host;
@@ -160,45 +161,15 @@ const readPlanAt = async (ctx: Context, ref: string, file: string): Promise<Plan
   }
 };
 
-/** Whether git holds a commit. */
-const holdsCommit = async (ctx: Context, sha: string): Promise<boolean> =>
-  sha !== '' && (await ctx.refs.resolve(`${sha}^{commit}`)).ok;
-
 /** The words a host refusal printed, or the adapter's default sentence. */
 const hostSaid = (ctx: Context): string => {
   const said = ctx.host.lastRefusal()?.said ?? '';
   return said !== '' ? said : 'The host adapter gave no reason.';
 };
 
-/** How many open PRs the lookup lists at most. */
-const PRS_LISTED = 100;
-
-/**
- * The open PRs, each with the paths its head changes against its merge base.
- *
- * @throws Refused where the host cannot list its open PRs.
- */
-const openPrsOf = async (ctx: Context): Promise<OpenPr[]> => {
-  const listed = await ctx.host.prList('open', PRS_LISTED);
-  if (!listed.ok) {
-    throw new Refused(`the host could not list its open PRs to find the plan PR (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan is unchanged. Re-run once the host answers.`);
-  }
-  const own = listed.value.filter((pr) => pr.repo === '' && pr.head !== '' && (pr.headSha ?? '') !== '');
-  const missing: string[] = [];
-  for (const pr of own) {
-    if (!(await holdsCommit(ctx, pr.headSha ?? ''))) missing.push(pr.head);
-  }
-  if (missing.length > 0) await ctx.trees.fetch(ctx.repoRoot, missing);
-  const open: OpenPr[] = [];
-  for (const pr of own) {
-    const headSha = pr.headSha ?? '';
-    if (!(await holdsCommit(ctx, headSha))) continue;
-    const changed = await ctx.refs.changedFiles(headSha);
-    if (!changed.ok) continue;
-    open.push({ number: pr.number, head: pr.head, draft: pr.draft, headSha, changed: changed.value });
-  }
-  return open;
-};
+/** The refusal this entry throws when `pr-list` cannot list the open PRs. */
+const refuseOpenList = (ctx: Context): Refused =>
+  new Refused(`the host could not list its open PRs to find the plan PR (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan is unchanged. Re-run once the host answers.`);
 
 /** The plan files directly under the plan directory at one revision. */
 const planFilesAt = async (ctx: Context, dirs: Dirs, ref: string): Promise<string[]> => {
@@ -230,7 +201,8 @@ const planPrOf = async (ctx: Context, dirs: Dirs, slug: string, open?: readonly 
   }
   const named = lookup.value;
   if (named !== null && named.state === 'OPEN') return { number: named.number, state: 'OPEN', head: branch };
-  const [first] = planPrsCarrying(slug, dirs.planDir, open ?? (await openPrsOf(ctx)));
+  const resolvedOpen = open ?? (await openPrsOf(ctx, () => refuseOpenList(ctx))).open;
+  const [first] = planPrsCarrying(slug, dirs.planDir, resolvedOpen);
   if (first !== undefined) return { number: first.pr.number, state: 'OPEN', head: first.pr.head };
   if (named !== null && (named.state === 'CLOSED' || named.state === 'MERGED')) {
     return { number: named.number, state: named.state, head: branch };
@@ -360,7 +332,7 @@ export const run = async (
 };
 
 /** The move itself; a `Refused` thrown here becomes a refusal on stderr. */
-const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer): Promise<number> => {
+export const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer): Promise<number> => {
   const { slug } = args;
   const dirs: Dirs = {
     planDir: await configured(ctx.scripts, 'Plan directory', 'docs/plans/'),
@@ -375,6 +347,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   let plan: PlanRecord | undefined;
   let planText = '';
   let listedOpen: readonly OpenPr[] | undefined;
+  let unreadOpen: readonly UnreadPr[] = [];
   if (planFile !== '') {
     const read = await ctx.planStore.readPlan(planFile);
     plan = read.ok ? read.value : undefined;
@@ -390,7 +363,9 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
       planText = read?.text ?? '';
       write(`step: plan ${planFile} is not in this checkout — read it from origin/${main}\n`);
     } else {
-      listedOpen = await openPrsOf(ctx);
+      const reading = await openPrsOf(ctx, () => refuseOpenList(ctx));
+      listedOpen = reading.open;
+      unreadOpen = reading.unread;
       const [first] = planPrsCarrying(slug, dirs.planDir, listedOpen);
       if (first !== undefined) {
         planFile = first.file;
@@ -425,7 +400,9 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   const who = args.who.trim() || (userName.ok ? userName.value.trim() : '');
   const verdict = planNeedsDesign(readings, { on: today, who, channel: args.channel });
   if (verdict.outcome === 'refused') {
-    throw new Refused(`${verdict.detail}\n  Nothing was written; the plan is unchanged.`);
+    const unread = verdict.reason === 'plan-not-found' ? unreadPrsLine(unreadOpen) : '';
+    const detail = unread === '' ? verdict.detail : `${verdict.detail}\n  ${unread}`;
+    throw new Refused(`${detail}\n  Nothing was written; the plan is unchanged.`);
   }
   const detail: NeedsDesignDetail = verdict.detail;
   write(`step: plan ${planFile} — phase=${readings.phase} review=${review} impl=${impl} target=${detail.target}\n`);

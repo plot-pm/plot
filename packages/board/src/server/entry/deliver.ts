@@ -8,7 +8,7 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { prIndexFile } from '@plot-pm/domain/adapters/pr-index/pr-index-file';
-import type { Caller, Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
+import { callerOf, type Caller, type Host, type PlanStore, type Refs, type Scripts, type Trees } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import {
   deliver,
@@ -756,7 +756,7 @@ export const runRelease = async (
   // itself is the domain's — `bookRelease` passes this straight to `release`,
   // which checks it before anything else, including whether a version or a
   // merged PR exists.
-  const caller: Caller = process.env.PLOT_UNATTENDED === '1' ? 'unattended' : 'person';
+  const caller: Caller = callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' });
   if (caller === 'unattended') {
     warn('plot-deliver: unattended: a release needs a person. An unattended caller does not finish one, and fleetd gets no exception here.\n');
     return 1;
@@ -819,19 +819,32 @@ export const runRelease = async (
     tag = normalizeVersion(args.releaseVersion);
     tagDate = localDate();
   } else {
-    // `prResult.outcome === 'local'` — the first local PR number, as today:
-    // tag resolution still reads a single PR's merge commit; wave 2 widens
-    // this to every local number.
-    const lastPr = String(prResult.numbers[prResult.numbers.length - 1]);
-    const prState = await ctx.host.prState(Number(lastPr));
-    const mergeCommit = prState.ok && prState.value !== null ? prState.value.mergeCommit : '';
-    if (mergeCommit === '') {
-      throw new Refused(`plan '${args.slug}''s last PR (#${lastPr}) carries no mergeCommit — it may not have merged, or the host could not answer.\n  Nothing was written. Verify #${lastPr} merged, then re-run.`);
+    // `prResult.outcome === 'local'` — one `prState` call per local PR
+    // number (not just the highest), so the tag can be checked against
+    // every one of them rather than just whichever merged last by number.
+    const prs = await Promise.all(
+      prResult.numbers.map(async (number) => {
+        const prState = await ctx.host.prState(number);
+        const mergeCommit = prState.ok && prState.value !== null ? prState.value.mergeCommit : '';
+        const mergedAt = prState.ok && prState.value !== null ? prState.value.mergedAt ?? '' : '';
+        return { number, mergeCommit, mergedAt };
+      }),
+    );
+
+    const noCommit = prs.find((pr) => pr.mergeCommit === '');
+    if (noCommit !== undefined) {
+      throw new Refused(`plan '${args.slug}''s last PR (#${noCommit.number}) carries no mergeCommit — it may not have merged, or the host could not answer.\n  Nothing was written. Verify #${noCommit.number} merged, then re-run.`);
     }
 
-    const tagsResult = await ctx.refs.tagsContaining(mergeCommit);
-    const containingTags = tagsResult.ok ? tagsResult.value : [];
-    const resolved = releaseTag({ lastPr, mergeCommit, containingTags, wantedVersion: args.releaseVersion });
+    const prRows = await Promise.all(
+      prs.map(async (pr) => {
+        const tagsResult = await ctx.refs.tagsContaining(pr.mergeCommit);
+        const containingTags = tagsResult.ok ? tagsResult.value : [];
+        return { ...pr, containingTags };
+      }),
+    );
+
+    const resolved = releaseTag({ prs: prRows, wantedVersion: args.releaseVersion });
     if (resolved.outcome === 'refused') {
       throw new Refused(`plan '${args.slug}' ${resolved.detail}\n  Nothing was written.`);
     }
@@ -842,7 +855,8 @@ export const runRelease = async (
     }
     tag = resolved.tag;
     tagDate = tagDateResult.value;
-    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr} merged ${mergeCommit}, shipped in ${tag} (${tagDate})\n`);
+    const lastPr = prRows.reduce((latest, pr) => (pr.mergedAt > latest.mergedAt ? pr : latest));
+    write(`step: plan ${planFile} — phase=${plan.phase} PR #${lastPr.number} merged ${lastPr.mergeCommit}, shipped in ${tag} (${tagDate})\n`);
   }
 
   const who = args.who || process.env.PLOT_DELIVER_WHO || (await gitUserName(ctx.repoRoot));
