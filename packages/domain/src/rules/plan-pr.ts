@@ -183,6 +183,24 @@ export const planPrsCarrying = (
   });
 
 /**
+ * Whether a merged PR's head is the commit a merge brought in: equal, or a
+ * case-insensitive prefix of it with at least 7 hex characters.
+ *
+ * A squash-merged head may not be held locally, so this stays a string
+ * comparison rather than resolving either sha through git.
+ *
+ * @param headSha - the head the host reported for a merged PR; `''` where it named none.
+ * @param secondParent - the merge's second-parent sha.
+ * @returns true where `headSha` names the same commit as `secondParent`.
+ */
+const shaMatches = (headSha: string, secondParent: string): boolean => {
+  if (headSha === '' || secondParent === '') return false;
+  if (headSha === secondParent) return true;
+  if (headSha.length < 7) return false;
+  return secondParent.toLowerCase().startsWith(headSha.toLowerCase());
+};
+
+/**
  * Finds the plan PR: the PR that adds or changes the plan file.
  *
  * The order is the reading order, and the answer names the next reading where
@@ -238,7 +256,7 @@ export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
   if (addition === undefined) return { outcome: 'ask', ask: 'addition' };
   if (addition.sha === '' || addition.secondParent === '') return { outcome: 'none' };
   if (readings.merged === undefined) return { outcome: 'ask', ask: 'merged' };
-  const candidate = readings.merged.find((pr) => pr.headSha === addition.secondParent);
+  const candidate = readings.merged.find((pr) => shaMatches(pr.headSha, addition.secondParent));
   if (candidate === undefined) return { outcome: 'none' };
   const { confirmed } = readings;
   if (confirmed === undefined) return { outcome: 'ask', ask: 'confirm', number: candidate.number };

@@ -4,6 +4,7 @@ import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters/plan-stor
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
 import type { CommitStatusWrite, Host, HostRefusal } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
+import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { perform, Refused, type Context } from '../../src/server/entry/approve.js';
@@ -351,5 +352,106 @@ describe('approve perform — a refused open-PR listing is reported as a host re
 
     expect(message).toContain('under no slice heading');
     expect(message).not.toContain('the host could not list its open PRs');
+  });
+});
+
+describe('approve perform — a plan found only on an open PR (the Bitbucket plain-arm shape)', () => {
+  const PLAN_FILE = `docs/plans/${SLUG}.md`;
+  const SHORT_SHA = 'c0ffeec0ffee';
+  const FULL_SHA = `${SHORT_SHA}${'0'.repeat(40 - SHORT_SHA.length)}`;
+  const PLAN_TEXT = '# P\n\n## Status\n\n- **State:** Draft\n- **Review:** pr\n- **Impl:** own branches\n';
+
+  /**
+   * `readPlanAt` writes the shown text to a scratch path it names itself
+   * (a random temp directory plus the file's basename) and reads it back
+   * through `planStore.readPlan`. A fixture keyed by the real plan path
+   * cannot predict that scratch path, so this wraps the base fixture's
+   * store to resolve any path by basename against the one registered plan.
+   */
+  const planStoreResolvingByBasename = (plan: ReturnType<typeof planRecord>): PlanStore => {
+    const base = planStoreFixture({ files: {} });
+    const basename = plan.file.slice(plan.file.lastIndexOf('/') + 1);
+    return {
+      ...base,
+      readPlan: async (file) => (file.endsWith(`/${basename}`) || file === basename ? answered(plan) : base.readPlan(file)),
+    };
+  };
+
+  /** A plan not in the checkout and not on the default branch, found only on the head of an open PR whose host-reported `headSha` is a short (12-hex) sha — the shape a Bitbucket `pr-list` row names. */
+  const ctxOpenPrOnly = (calls: string[][]): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostFixture({
+      prs: [{
+        number: 975, repo: '', head: `idea/batch-${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+        draft: true, mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [],
+        url: '', author: '', headSha: SHORT_SHA,
+      }],
+    }),
+    planStore: planStoreResolvingByBasename(planRecord({
+      file: PLAN_FILE, phase: 'draft', review: 'pr', impl: 'own-branches', branches: ['feature/one'],
+    })),
+    refs: refsFixture({
+      shas: { [`${SHORT_SHA}^{commit}`]: FULL_SHA },
+      changedFiles: { [FULL_SHA]: [PLAN_FILE] },
+      files: { [`${FULL_SHA}:${PLAN_FILE}`]: PLAN_TEXT },
+    }),
+    scripts: scriptsStub(calls),
+    trees: treesStub(),
+  });
+
+  it('resolves a short headSha to the full sha, finds the plan, and pins the merge to the full sha', async () => {
+    const calls: string[][] = [];
+    const ctx = ctxOpenPrOnly(calls);
+
+    await expect(perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {})).rejects.toThrow(Refused);
+
+    const readyCallIndex = calls.findIndex((args) => args[0] === 'pr-ready');
+    expect(readyCallIndex).toBeGreaterThanOrEqual(0);
+    expect(calls[readyCallIndex]).toContain(String(975));
+
+    const mergeCallIndex = calls.findIndex((args) => args[0] === 'pr-merge');
+    expect(mergeCallIndex).toBeGreaterThanOrEqual(0);
+    expect(calls[mergeCallIndex]).toContain(String(975));
+    const matchHeadIndex = calls[mergeCallIndex].indexOf('--match-head');
+    expect(matchHeadIndex).toBeGreaterThanOrEqual(0);
+    expect(calls[mergeCallIndex][matchHeadIndex + 1]).toBe(FULL_SHA);
+  });
+});
+
+describe('approve perform — an open PR the host named with no head commit is named, not silently dropped', () => {
+  /** A plan not in the checkout and not on the default branch; the only open PR is own-repo but carries no `headSha` — the shape that previously made `openPrsOf` drop it and report "no plan found". */
+  const ctxUnreadOpenPr = (calls: string[][]): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostFixture({
+      prs: [{
+        number: 975, repo: '', head: `idea/batch-${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+        draft: false, mergeable: 'unknown', review: 'none', checks: 'unknown', failingChecks: [],
+        url: '', author: '',
+      }],
+    }),
+    planStore: planStoreFixture({ files: {} }),
+    refs: refsFixture(),
+    scripts: scriptsStub(calls),
+    trees: treesStub(),
+  });
+
+  it('names the unread PR in the plan-not-found refusal', async () => {
+    const calls: string[][] = [];
+    const ctx = ctxUnreadOpenPr(calls);
+
+    let message = '';
+    try {
+      await perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {});
+      expect.fail('expected perform() to throw Refused');
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      message = (err as Error).message;
+    }
+
+    expect(message).toContain('no plan found');
+    expect(message).toContain('#975');
+    expect(message).toContain('the host named no head commit');
   });
 });

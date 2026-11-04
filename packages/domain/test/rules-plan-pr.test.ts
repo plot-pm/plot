@@ -134,6 +134,28 @@ describe('planPrOf — a plan the default branch holds', () => {
     expect(planPrOf(landed({ merged: [{ number: 70, headSha: 'other' }] }))).toEqual({ outcome: 'none' });
   });
 
+  it('answers none where a merged PR names no head at all', () => {
+    expect(planPrOf(landed({ merged: [{ number: 70, headSha: '' }] }))).toEqual({ outcome: 'none' });
+  });
+
+  it('takes a case-insensitive prefix of at least 7 hex characters as the same head', () => {
+    const readings = landed({
+      addition: { sha: 'm', secondParent: '0123456789abcdef' },
+      merged: [{ number: 70, headSha: 'other' }, { number: 81, headSha: '0123456789AB' }],
+      confirmed: undefined,
+    });
+    expect(planPrOf(readings)).toEqual({ outcome: 'ask', ask: 'confirm', number: 81 });
+  });
+
+  it('answers none where a merged head is shorter than 7 hex characters', () => {
+    const readings = landed({
+      addition: { sha: 'm', secondParent: '0123456789abcdef' },
+      merged: [{ number: 81, headSha: '012345' }],
+      confirmed: undefined,
+    });
+    expect(planPrOf(readings)).toEqual({ outcome: 'none' });
+  });
+
   it('answers the merged PR the host confirms at that merge commit', () => {
     expect(planPrOf(landed())).toEqual({
       outcome: 'found', number: 77, state: 'MERGED', draft: false, headSha: 'h', branch: '', rivals: [], carried: [],
