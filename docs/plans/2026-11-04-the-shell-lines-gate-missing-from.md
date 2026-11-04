@@ -32,7 +32,7 @@ The gate reads `origin/<default>` through `git merge-base`, so a local run needs
 
 ### Open Questions
 
-- [ ] `scripts/check-plan-routes.sh` and `scripts/check-sprint-members.sh` are also absent from `CLAUDE.md`. Does either run in CI? If so, does it join this entry, or does a separate plan cover it?
+- [ ] `scripts/check-plan-routes.sh` and `scripts/check-sprint-members.sh` are also absent from `CLAUDE.md`. Both run in CI (`ci.yml` lines 1060 and 1681). Do they join this entry, or does a separate plan cover them?
 - [ ] Should a test assert that every gate CI runs from `scripts/check-*.sh` appears in `Local checks`, so the list cannot drift again? A grep cannot tell a CI-only gate by intent from an omission, so this may stay a rule.
 
 ## Slices
