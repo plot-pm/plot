@@ -1112,10 +1112,7 @@ if [ "$mode" = "start" ]; then
   # `old_label_action`, which prints the refusal text itself (on stderr) —
   # this arm only reads the word back.
   [ "$(old_label_action start)" != refuse ] || exit 1
-  [ "$LABEL" = com.plot-pm.fleetd ] || {
-    default_action=$(LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd; old_label_action start-default)
-    [ "$default_action" != refuse ] || exit 1
-  }
+  [ "$LABEL" = com.plot-pm.fleetd ] || { [ "$(LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_action start-default)" != refuse ] || exit 1; }
 
   # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
   # prompt file in a scratch desk, through `plot-write-probe.mjs`
