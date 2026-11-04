@@ -133,7 +133,7 @@ Each case fails on origin/main unless the list says otherwise.
 
 ### Release tag covers every local PR
 
-- `bug/release-tag-contains-every-local-pr` — `--release` resolves the tag from the local PR that merged last by `mergedAt`, and refuses `tag-misses-pr` when that tag does not contain every non-deferred local PR's merge commit <!-- builds: releaseTag over every local PR --> <!-- waits: bug/release-pr-reads-local-references -->
+- `bug/release-tag-contains-every-local-pr` — `--release` resolves the tag from the local PR that merged last by `mergedAt`, and refuses `tag-misses-pr` when that tag does not contain every non-deferred local PR's merge commit <!-- builds: releaseTag over every local PR --> <!-- waits: bug/release-pr-reads-local-references --> → #3108
 
 ### Scan asks the release rule
 
