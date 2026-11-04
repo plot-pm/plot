@@ -21,7 +21,7 @@ Round 1, 2026-11-04. Four jurors: layering, safety, testability, seams. Verdict:
 ## Shared blind spots
 
 - **No juror counted the offset.** Three jurors say the shell grows and the plan does not pay, and none measured a candidate. The moderation counted with the gate's own awk on `e54e53815`: refusal +6, `running_major` inlined -5, `home_short` inlined -3, net -2. The obvious candidate, `pinned_major`, fails: `fleetctl.test.mjs:380` and `:389` source the script and call it.
-- **No juror checked that `--stop` reaches the dispatch stub in the sandbox.** The arm first asks `old_label_refuses` (`:1287`), which refuses when the serving checkout cannot be read. The plan therefore builds case 1 from the `:583` sandbox (`stubUnload` with `workdir: root`, `fakeHome` with a unit) and the `:426` desk, and requires the case to fail on `origin/main` before the fix is written.
+- **No juror checked that `--stop` reaches the dispatch stub in the sandbox.** The arm first asks `old_label_refuses` (`:1288`), which refuses when the serving checkout cannot be read. The plan therefore builds case 1 from the `:583` sandbox (`stubUnload` with `workdir: root`, `fakeHome` with a unit) and the `:426` desk, and requires the case to fail on `origin/main` before the fix is written.
 - **The changeset bumps.** Seams names `plot-fleet: patch` only. The script lives under `skills/plot/`, so the plan bumps `plot: patch` too.
 
 ## Juror claims checked
