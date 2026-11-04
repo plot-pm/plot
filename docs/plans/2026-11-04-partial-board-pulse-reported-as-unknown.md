@@ -6,7 +6,7 @@
 
 - **State:** Draft
 - **Type:** feature
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Sprint:** follow-ups-2-30-1
 - **Issue:** #3118
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
