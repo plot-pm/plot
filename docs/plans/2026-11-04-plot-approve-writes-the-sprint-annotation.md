@@ -97,7 +97,7 @@ The slice adds one changeset, `.changeset/plot-approve-writes-the-sprint-annotat
 
 ### Tracker
 
-The slice writes nothing to the tracker. The PR body names `0ef7e8a2b` as the board-path fix and this slice as the domain-wide fix, and carries `Fixes #2532`, so the issue closes when the PR merges.
+The slice writes nothing to the tracker. The PR body names `0ef7e8a2b` as the board-path fix and this slice as the domain-wide fix, and carries `Refs #2532`. The issue follows the plan phase, so the delivery closes it.
 
 ### Seam with PR #3112
 
