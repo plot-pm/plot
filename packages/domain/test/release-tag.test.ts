@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { releasePr, releaseTag, type ReleasePrRow } from '../src/rules/release-tag.js';
+import { releasePr, releaseTag, type ReleasePrRow, type ReleaseTagPrRow } from '../src/rules/release-tag.js';
 
 const row = (repo: string, number: number, deferred = false): ReleasePrRow => ({
   reference: { repo, number },
@@ -58,10 +58,16 @@ describe('releasePr', () => {
   });
 });
 
-const BASE = {
-  lastPr: '1200',
+const prRow = (overrides: Partial<ReleaseTagPrRow> = {}): ReleaseTagPrRow => ({
+  number: 1200,
   mergeCommit: 'abc123',
+  mergedAt: '2026-09-01T00:00:00Z',
   containingTags: ['v2.9.0', 'v2.10.0'],
+  ...overrides,
+});
+
+const BASE = {
+  prs: [prRow()],
   wantedVersion: '2.9.0',
 };
 
@@ -85,18 +91,18 @@ describe('releaseTag', () => {
   });
 
   it('refuses no-merge-commit when the plan names no PR', () => {
-    const result = releaseTag({ ...BASE, lastPr: '', mergeCommit: '' });
+    const result = releaseTag({ ...BASE, prs: [] });
     expect(result).toMatchObject({ outcome: 'refused', reason: 'no-merge-commit' });
   });
 
   it('refuses no-merge-commit when the PR carries no mergeCommit', () => {
-    const result = releaseTag({ ...BASE, mergeCommit: '' });
+    const result = releaseTag({ ...BASE, prs: [prRow({ mergeCommit: '' })] });
     expect(result).toMatchObject({ outcome: 'refused', reason: 'no-merge-commit' });
     expect((result as { detail: string }).detail).toContain('#1200');
   });
 
   it('refuses no-tag when nothing contains the merge commit', () => {
-    const result = releaseTag({ ...BASE, containingTags: [] });
+    const result = releaseTag({ ...BASE, prs: [prRow({ containingTags: [] })] });
     expect(result).toMatchObject({ outcome: 'refused', reason: 'no-tag' });
   });
 
@@ -119,7 +125,29 @@ describe('releaseTag', () => {
   // it an intentionally mis-ordered list and confirming the FIRST ELEMENT,
   // not the lowest version, decides.
   it('trusts the reading is already sorted — the first element decides, not the lowest version', () => {
-    const result = releaseTag({ ...BASE, containingTags: ['v2.10.0', 'v2.9.0'], wantedVersion: '2.9.0' });
+    const result = releaseTag({ ...BASE, prs: [prRow({ containingTags: ['v2.10.0', 'v2.9.0'] })] });
     expect(result).toMatchObject({ outcome: 'refused', reason: 'tag-mismatch' });
+  });
+
+  // THE CASE PICKING THE TAG BY PR NUMBER, RATHER THAN mergedAt, WOULD PASS
+  // SILENTLY: #60 is the higher number but merged FIRST; #50 merged LAST, so
+  // the tag must be resolved from #50 — picking by number would have resolved
+  // from #60 instead, reproducing the same-repo version of the defect wave 1
+  // fixed cross-repo. #50's own tag (v2.10.0) does not contain #60's commit,
+  // so the release must refuse tag-misses-pr naming #60 — the PR missing from
+  // the tag that WAS correctly resolved from the latest merge.
+  it('refuses tag-misses-pr naming the other local PR missing from the tag resolved by mergedAt', () => {
+    const pr60 = prRow({ number: 60, mergeCommit: 'sha60', mergedAt: '2026-09-01T00:00:00Z', containingTags: ['v2.9.0'] });
+    const pr50 = prRow({ number: 50, mergeCommit: 'sha50', mergedAt: '2026-09-02T00:00:00Z', containingTags: ['v2.10.0'] });
+    const result = releaseTag({ prs: [pr60, pr50], wantedVersion: '2.10.0' });
+    expect(result).toMatchObject({ outcome: 'refused', reason: 'tag-misses-pr' });
+    expect((result as { detail: string }).detail).toContain('#60');
+  });
+
+  it('resolves normally when both PRs merged and the tag contains both, picking the later mergedAt', () => {
+    const pr60 = prRow({ number: 60, mergeCommit: 'sha60', mergedAt: '2026-09-01T00:00:00Z', containingTags: ['v2.10.0'] });
+    const pr50 = prRow({ number: 50, mergeCommit: 'sha50', mergedAt: '2026-09-02T00:00:00Z', containingTags: ['v2.10.0'] });
+    const result = releaseTag({ prs: [pr60, pr50], wantedVersion: '2.10.0' });
+    expect(result).toEqual({ outcome: 'resolved', tag: 'v2.10.0' });
   });
 });
