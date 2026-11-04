@@ -383,6 +383,10 @@ plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's comma
   local orph cwd serves inst full suffix label owner lc="" lc_read=0 line seg noisy=0 lsof_until=$((SECONDS + 2))
   kernel=$(uname -s 2>/dev/null)
   here=$(cd "${cmd_root:-$repo_root}" && pwd -P)
+  # A candidate path serves the checkout this call is ASKING ABOUT: `$here`
+  # always, plus `$repo_root` too in the no-`cmd_root` (plain `--status`) mode,
+  # where either spelling of this checkout is accepted.
+  matches_cmd_root() { [ "$1" = "$here" ] || { [ -z "$cmd_root" ] && [ "$1" = "$repo_root" ]; }; }
   while IFS=$'\t' read -r tag pid ppid uid kind a0 path; do
     case "$tag" in
       S) verified+="S"$'\t'"$pid"$'\n' ;;
@@ -411,9 +415,7 @@ plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's comma
       owner=$(id -un "$uid" 2>/dev/null) || owner=$uid
       [ -n "$owner" ] || owner=$uid
       serves="cannot determine (owner $owner)"
-    elif [ -z "$cmd_root" ] && { [ "$cwd" = "$repo_root" ] || [ "$cwd" = "$here" ]; }; then
-      serves="THIS repository"
-    elif [ -n "$cmd_root" ] && [ "$cwd" = "$here" ]; then
+    elif matches_cmd_root "$cwd"; then
       serves="THIS repository"
     else
       serves=$cwd
@@ -440,7 +442,7 @@ plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's comma
     esac
     if [ -n "$matched" ]; then
       full=${full%"$matched"}
-      if { [ -z "$cmd_root" ] && { [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; }; } || { [ -n "$cmd_root" ] && [ "$full" = "$here" ]; }; then
+      if matches_cmd_root "$full"; then
         inst="THIS repository"
       else
         inst=$(home_short "$full")
