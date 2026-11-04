@@ -1,0 +1,1 @@
+../2026-11-04-controller-gate-refuses-read-only-commands.md
