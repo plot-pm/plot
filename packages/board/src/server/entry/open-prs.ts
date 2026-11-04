@@ -1,5 +1,5 @@
 import type { Host, Refs, Trees } from '@plot-pm/domain';
-import type { OpenPr } from '@plot-pm/domain/rules/plan-pr';
+import { planPrOf, type NamedPr, type OpenPr, type PlanPrFound, type PlanPrReadings, type PlanPrRefusal } from '@plot-pm/domain/rules/plan-pr';
 
 /** How many open PRs a listing reads at most. */
 export const PRS_LISTED = 100;
@@ -110,4 +110,111 @@ export const openPrsOf = async (
     open.push({ number: pr.number, head: pr.head, draft: pr.draft, headSha, changed: changed.value });
   }
   return { open, unread };
+};
+
+/**
+ * Reads a PR's head: fetches `branch` when git does not already hold the
+ * host's reported sha, resolves it to the full oid, and reads the files it
+ * changes against the default branch.
+ *
+ * This is `planPrOf`'s `named-head` reading: the one answer that serves the
+ * record read, the `plot/review` status write and the merge's `--match-head`
+ * pin, so none of the three can land on a sha a later push has moved past.
+ *
+ * @param branch - the PR's head branch.
+ * @param askedSha - the sha the host reported for it; `''` where it named none.
+ * @returns the full sha and its changed files, or `null` where git does not
+ *   hold the commit after fetching.
+ */
+export const readHeadOf = async (
+  ctx: OpenPrsContext,
+  branch: string,
+  askedSha: string,
+): Promise<{ sha: string; changed: readonly string[] } | null> => {
+  if (askedSha !== '' && !(await holdsCommit(ctx, askedSha))) await ctx.trees.fetch(ctx.repoRoot, branch);
+  const sha = await resolvedCommit(ctx, askedSha !== '' ? askedSha : branch);
+  if (sha === '') return null;
+  const changed = await ctx.refs.changedFiles(sha);
+  if (!changed.ok) return null;
+  return { sha, changed: changed.value };
+};
+
+/**
+ * Asks {@link planPrOf} until it answers, reading each reading it names.
+ *
+ * Host refusals throw, and the caller holds them until the domain has judged
+ * the phase and the review channel.
+ *
+ * @param onUnread - told the own-repo open rows that could not be read, where
+ *   the open PRs were listed at all.
+ * @param refuseOnHostFailure - the message to refuse with when a host call
+ *   fails; named by the caller, because each controller's repair text differs.
+ * @returns the PR {@link planPrOf} found, its own refusal passed through
+ *   unevaluated, or `undefined` where the plan has no PR to find.
+ */
+export const choosePlanPr = async (
+  ctx: OpenPrsContext,
+  readings: PlanPrReadings,
+  main: string,
+  file: string,
+  onUnread: (unread: readonly UnreadPr[]) => void,
+  refuseOnHostFailure: (detail: string) => Error,
+): Promise<PlanPrFound | PlanPrRefusal | undefined> => {
+  let current = readings;
+  for (;;) {
+    const answer = planPrOf(current);
+    if (answer.outcome === 'none') return undefined;
+    if (answer.outcome === 'found') return answer;
+    if (answer.outcome === 'refused') return answer;
+    switch (answer.ask) {
+      case 'named': {
+        const lookup = await ctx.host.prState(`idea/${current.slug}`);
+        if (!lookup.ok) throw refuseOnHostFailure(`the host could not be asked for the PR of 'idea/${current.slug}' (plot-host.sh pr-state refused the call).`);
+        const pr = lookup.value;
+        const named: NamedPr | null = pr !== null && (pr.state === 'MERGED' || pr.state === 'OPEN' || pr.state === 'CLOSED')
+          ? { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha }
+          : null;
+        current = { ...current, named };
+        break;
+      }
+      case 'named-head': {
+        if (current.named === undefined || current.named === null) throw refuseOnHostFailure('the named PR vanished between readings.');
+        const head = await readHeadOf(ctx, `idea/${current.slug}`, current.named.headSha ?? '');
+        current = { ...current, namedHead: head };
+        break;
+      }
+      case 'open': {
+        const reading = await openPrsOf(ctx, () => refuseOnHostFailure("the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call)."));
+        onUnread(reading.unread);
+        current = { ...current, open: reading.open };
+        break;
+      }
+      case 'addition': {
+        const added = await ctx.refs.firstParentAddition(`origin/${main}`, file);
+        const sha = added.ok ? added.value : '';
+        const second = sha === '' ? undefined : await ctx.refs.resolve(`${sha}^2`);
+        current = { ...current, addition: { sha, secondParent: second?.ok ? second.value : '' } };
+        break;
+      }
+      case 'merged': {
+        const listed = await ctx.host.prList('merged', PRS_LISTED);
+        if (!listed.ok) {
+          throw refuseOnHostFailure("the host could not list its merged PRs to find the one that brought the plan onto the default branch (plot-host.sh pr-list refused the call).");
+        }
+        current = { ...current, merged: listed.value.map((pr) => ({ number: pr.number, headSha: pr.headSha ?? '' })) };
+        break;
+      }
+      case 'confirm': {
+        const asked = await ctx.host.prState(answer.number);
+        if (!asked.ok) {
+          throw refuseOnHostFailure(`the host could not be asked for PR #${answer.number} (plot-host.sh pr-state refused the call).`);
+        }
+        current = {
+          ...current,
+          confirmed: asked.value === null ? null : { state: asked.value.state, mergeCommit: asked.value.mergeCommit },
+        };
+        break;
+      }
+    }
+  }
 };

@@ -14,6 +14,7 @@ import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
 import { planStoreFixture } from '@plot-pm/domain/adapters/plan-store/plan-store-fixture';
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
 import type { PortResult } from '@plot-pm/domain';
+import type { PlanStore, PlanRecord } from '@plot-pm/domain/ports/plan-store';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { handleNeedsDesign } from '../../src/server/needs-design.js';
@@ -170,5 +171,113 @@ describe('perform — an open PR the host named with no head commit is named, no
     assert.match(message, /no plan found/);
     assert.match(message, /#975/);
     assert.match(message, /the host named no head commit/);
+  });
+});
+
+describe('perform — two open PRs changing the plan file', () => {
+  const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
+  const SLUG = 'a-plan';
+  const PLAN_FILE = `docs/plans/${SLUG}.md`;
+  const HEAD = 'a'.repeat(40);
+  const RIVAL_HEAD = 'b'.repeat(40);
+  const PLAN_TEXT = '# P\n\n## Status\n\n- **State:** Draft\n- **Review:** pr\n- **Impl:** own branches\n';
+  const RIVAL_TEXT = '# P (rival copy)\n\n## Status\n\n- **State:** Draft\n- **Review:** pr\n- **Impl:** own branches\n';
+
+  /** A `Scripts` stub answering only the `## Plot Config` keys this path reaches. */
+  const scriptsStub = (): Scripts => ({
+    config: async (key, fallback) => answered(({
+      'Plan directory': 'docs/plans/',
+      'Active index': 'docs/plans/active/',
+    })[key] ?? fallback),
+  } as unknown as Scripts);
+
+  /** A `Trees` stub: `originHead` answers so `resolveMain` never asks the host. */
+  const treesStub = (): Trees => ({
+    originHead: async () => answered('main'),
+    fetch: async () => answered(undefined),
+    userName: async () => answered('jwloka'),
+  } as unknown as Trees);
+
+  /**
+   * `readPlanAt` writes the shown text to a scratch path it names itself (a
+   * random temp directory plus the file's basename) and reads it back through
+   * `planStore.readPlan`. A fixture keyed by the real plan path cannot predict
+   * that scratch path, so this resolves any path by basename instead.
+   */
+  const planStoreResolvingByBasename = (plan: PlanRecord): PlanStore => {
+    const base = planStoreFixture({ files: {} });
+    const basename = plan.file.slice(plan.file.lastIndexOf('/') + 1);
+    return {
+      ...base,
+      readPlan: async (file) => (file.endsWith(`/${basename}`) || file === basename ? answered(plan) : base.readPlan(file)),
+    };
+  };
+
+  const planRecordFor = (file: string): PlanRecord => ({
+    file,
+    format: 'canonical',
+    phase: 'draft',
+    phaseRaw: 'Draft',
+    type: '',
+    title: '',
+    sprint: '',
+    story: '',
+    assignee: '',
+    branches: [],
+    prs: [],
+    deferredPrs: [],
+    slices: [],
+    review: 'pr',
+    impl: 'own-branches',
+    approvedRaw: '',
+    spikeApprovedRaw: '',
+    deliveredRaw: '',
+    releasedRaw: '',
+    startedRaw: [],
+    rejectedRaw: '',
+    unreadBranchItems: [],
+  });
+
+  /** No `idea/<slug>` PR; two open PRs each add the plan file (the open route), with differing copies. */
+  const ctxTwoOpenPrs = (): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostFixture({
+      prs: [
+        {
+          number: 50, repo: '', head: `idea/batch-${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+          draft: false, mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [],
+          url: '', author: '', headSha: HEAD,
+        },
+        {
+          number: 51, repo: '', head: `idea/batch2-${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+          draft: false, mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [],
+          url: '', author: '', headSha: RIVAL_HEAD,
+        },
+      ],
+    }),
+    planStore: planStoreResolvingByBasename(planRecordFor(PLAN_FILE)),
+    refs: refsFixture({
+      shas: { [`${HEAD}^{commit}`]: HEAD, [`${RIVAL_HEAD}^{commit}`]: RIVAL_HEAD },
+      changedFiles: { [HEAD]: [PLAN_FILE], [RIVAL_HEAD]: [PLAN_FILE] },
+      files: { [`${HEAD}:${PLAN_FILE}`]: PLAN_TEXT, [`${RIVAL_HEAD}:${PLAN_FILE}`]: RIVAL_TEXT },
+    }),
+    scripts: scriptsStub(),
+    trees: treesStub(),
+  });
+
+  it('refuses pr-copies-differ, naming the rival', async () => {
+    const ctx = ctxTwoOpenPrs();
+
+    let message = '';
+    try {
+      await perform(ctx, { who: 'jwloka', slug: SLUG, channel: 'board' }, () => {}, () => {});
+      assert.fail('expected perform() to throw Refused');
+    } catch (err) {
+      message = (err as Error).message;
+    }
+
+    assert.match(message, /differs between the plan PR/);
+    assert.match(message, /#51/);
   });
 });

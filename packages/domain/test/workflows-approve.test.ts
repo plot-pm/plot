@@ -447,14 +447,66 @@ describe('approve — a batch PR carrying several plans', () => {
   });
 
   it('refuses a plan two open PRs both change, before any write', () => {
-    const out = approve(ready({ pr: { ...batch, rivals: [1609] } }), on());
+    const rival = { number: 1609, file: 'docs/plans/2026-10-12-the-board-has-three-tabs.md', blob: 'riv' };
+    const out = approve(ready({ pr: { ...batch, rivals: [rival] } }), on());
     expect(refused(out) && out.reason).toBe('pr-ambiguous');
     expect(refused(out) && out.detail).toContain('#1608, #1609');
   });
 
   it('keeps the review refusals ahead of the ambiguity', () => {
-    const out = approve(ready({ review: 'ballot', pr: { ...batch, rivals: [1609] } }), on());
+    const rival = { number: 1609, file: 'docs/plans/2026-10-12-the-board-has-three-tabs.md', blob: 'riv' };
+    const out = approve(ready({ review: 'ballot', pr: { ...batch, rivals: [rival] } }), on());
     expect(refused(out) && out.reason).toBe('review-human');
+  });
+
+  it('proceeds silently on the named route when a rival carries an identical blob', () => {
+    const rival = { number: 1609, file: 'docs/plans/2026-08-30-a-plan.md', blob: 'same' };
+    const out = approve(ready({ pr: { ...batch, route: 'named' as const, blob: 'same', rivals: [rival] } }), on());
+    expect(decided(out)).toBe(true);
+  });
+
+  it('refuses pr-copies-differ on the named route when a rival carries a different blob', () => {
+    const rival = { number: 1609, file: 'docs/plans/2026-08-30-a-plan.md', blob: 'other' };
+    const out = approve(ready({ pr: { ...batch, route: 'named' as const, blob: 'same', rivals: [rival] } }), on());
+    expect(refused(out) && out.reason).toBe('pr-copies-differ');
+    expect(refused(out) && out.detail).toContain('#1608');
+    expect(refused(out) && out.detail).toContain('#1609');
+  });
+});
+
+describe('approve — the plan-pr rule\'s own refusal passes through', () => {
+  it('refuses pr-head-unheld ahead of plan-not-found', () => {
+    const out = approve(ready({ file: '', pr: { number: 6, state: 'OPEN', draft: true, branch: 'idea/a-plan', refused: 'pr-head-unheld' } }), on());
+    expect(refused(out) && out.reason).toBe('pr-head-unheld');
+  });
+
+  it('refuses pr-carries-no-plan ahead of plan-not-found', () => {
+    const out = approve(ready({ file: '', pr: { number: 6, state: 'OPEN', draft: true, branch: 'idea/a-plan', refused: 'pr-carries-no-plan' } }), on());
+    expect(refused(out) && out.reason).toBe('pr-carries-no-plan');
+  });
+
+  it('refuses pr-closed ahead of plan-not-found when a CLOSED named PR carries no file', () => {
+    const out = approve(ready({ file: '', pr: { number: 6, state: 'CLOSED', draft: false, branch: 'idea/a-plan' } }), on());
+    expect(refused(out) && out.reason).toBe('pr-closed');
+  });
+});
+
+describe('approve — a checkout copy that differs from the PR head', () => {
+  it('refuses checkout-copy-differs rather than approving either copy', () => {
+    const out = approve(
+      ready({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'idea/a-plan', copies: { checkout: 'local text', head: 'pr text' } } }),
+      on(),
+    );
+    expect(refused(out) && out.reason).toBe('checkout-copy-differs');
+    expect(refused(out) && out.detail).toContain('#42');
+  });
+
+  it('decides where the checkout copy and the PR head agree', () => {
+    const out = approve(
+      ready({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'idea/a-plan', copies: { checkout: 'same text', head: 'same text' } } }),
+      on(),
+    );
+    expect(decided(out)).toBe(true);
   });
 });
 

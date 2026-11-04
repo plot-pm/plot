@@ -13,8 +13,8 @@ import {
 } from '@plot-pm/domain/workflows/needs-design';
 import { withPhase, withRecord, withSection } from '@plot-pm/domain/workflows/rendering';
 import type { Write } from '@plot-pm/domain/workflows/decision';
-import { isPlanFile, planPrsCarrying, type OpenPr } from '@plot-pm/domain/rules/plan-pr';
-import { openPrsOf, unreadPrsLine, type UnreadPr } from './open-prs.js';
+import { isPlanFile, namesPlan, type PlanPrRefusal } from '@plot-pm/domain/rules/plan-pr';
+import { choosePlanPr, unreadPrsLine, type UnreadPr } from './open-prs.js';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
   commitAndPush,
@@ -126,7 +126,7 @@ const findPlanFile = async (planStore: PlanStore, dirs: Dirs, slug: string): Pro
   const held = await planStore.readText(active);
   if (held.ok && held.value !== null) return active;
   const listed = await planStore.listDir(dirs.planDir);
-  const hit = (listed.ok ? listed.value : []).filter((name) => name.endsWith(`${slug}.md`)).sort()[0];
+  const hit = (listed.ok ? listed.value : []).filter((name) => namesPlan(slug, name)).sort()[0];
   return hit === undefined ? '' : `${dirs.planDir}${hit}`;
 };
 
@@ -187,27 +187,10 @@ interface PlanPr {
   head: string;
 }
 
-/**
- * Finds the plan PR: `idea/<slug>` first, then the first open PR that changes
- * the plan file.
- *
- * @throws Refused where the host cannot answer.
- */
-const planPrOf = async (ctx: Context, dirs: Dirs, slug: string, open?: readonly OpenPr[]): Promise<PlanPr> => {
-  const branch = `idea/${slug}`;
-  const lookup = await ctx.host.prState(branch);
-  if (!lookup.ok) {
-    throw new Refused(`the host could not be asked for the PR of '${branch}' (plot-host.sh pr-state refused the call).\n  ${hostSaid(ctx)}\n  The plan is unchanged. Re-run once the host answers.`);
-  }
-  const named = lookup.value;
-  if (named !== null && named.state === 'OPEN') return { number: named.number, state: 'OPEN', head: branch };
-  const resolvedOpen = open ?? (await openPrsOf(ctx, () => refuseOpenList(ctx))).open;
-  const [first] = planPrsCarrying(slug, dirs.planDir, resolvedOpen);
-  if (first !== undefined) return { number: first.pr.number, state: 'OPEN', head: first.pr.head };
-  if (named !== null && (named.state === 'CLOSED' || named.state === 'MERGED')) {
-    return { number: named.number, state: named.state, head: branch };
-  }
-  return { number: 0, state: 'NONE', head: '' };
+/** Resolves a plan file's git blob ID at a revision; `''` where git cannot read it. */
+const blobAt = async (ctx: Context, sha: string, file: string): Promise<string> => {
+  const resolved = await ctx.refs.resolve(`${sha}:${file}`);
+  return resolved.ok ? resolved.value : '';
 };
 
 /** The decision's plan edits, applied to one text. */
@@ -342,47 +325,87 @@ export const perform = async (ctx: Context, args: Args, write: Printer, _warn: P
 
   // A plan on an unmerged plan PR is absent from the default branch's checkout,
   // which is where the board runs this: read it from the default branch as
-  // fetched, or from the head of the open PR that changes it.
+  // fetched, or from the head of the plan PR `choosePlanPr` names.
   let planFile = await findPlanFile(ctx.planStore, dirs, slug);
+  const inCheckout = planFile !== '';
   let plan: PlanRecord | undefined;
   let planText = '';
-  let listedOpen: readonly OpenPr[] | undefined;
   let unreadOpen: readonly UnreadPr[] = [];
-  if (planFile !== '') {
+  if (inCheckout) {
     const read = await ctx.planStore.readPlan(planFile);
     plan = read.ok ? read.value : undefined;
     const held = await ctx.planStore.readText(planFile);
     planText = held.ok && held.value !== null ? held.value : '';
-  } else {
-    await ctx.trees.fetch(ctx.repoRoot, main);
-    const onMain = (await planFilesAt(ctx, dirs, `origin/${main}`)).find((file) => file.endsWith(`${slug}.md`));
-    if (onMain !== undefined) {
-      planFile = onMain;
-      const read = await readPlanAt(ctx, `origin/${main}`, onMain);
-      plan = read?.plan;
-      planText = read?.text ?? '';
-      write(`step: plan ${planFile} is not in this checkout — read it from origin/${main}\n`);
-    } else {
-      const reading = await openPrsOf(ctx, () => refuseOpenList(ctx));
-      listedOpen = reading.open;
-      unreadOpen = reading.unread;
-      const [first] = planPrsCarrying(slug, dirs.planDir, listedOpen);
-      if (first !== undefined) {
-        planFile = first.file;
-        const read = await readPlanAt(ctx, first.pr.headSha, first.file);
-        plan = read?.plan;
-        planText = read?.text ?? '';
-        write(`step: plan ${planFile} is not in this checkout — read it from PR #${first.pr.number} (${first.pr.head})\n`);
-      }
-    }
   }
 
   const review = plan?.review ?? '';
   const impl = plan?.impl ?? '';
   const asksPr = review === 'pr' || review === 'none' || review === 'NONE' || review === '';
   let pr: PlanPr = { number: 0, state: 'NONE', head: '' };
-  if (plan !== undefined && asksPr && impl !== 'same-branch') {
-    pr = await planPrOf(ctx, dirs, slug, listedOpen);
+  let prRoute: 'named' | 'open' | 'merged' | undefined;
+  let prBlob = '';
+  let prRivals: readonly { number: number; file: string; blob: string }[] = [];
+  let prRefused: PlanPrRefusal['reason'] | undefined;
+  let copies: { checkout: string; head: string } | undefined;
+  let prHeadSha = '';
+
+  if ((plan === undefined || asksPr) && impl !== 'same-branch') {
+    await ctx.trees.fetch(ctx.repoRoot, main);
+    const realFile = inCheckout ? realPlanPath(ctx.repoRoot, planFile) ?? planFile : '';
+    const onMain = inCheckout
+      ? (await planFilesAt(ctx, dirs, `origin/${main}`)).includes(realFile)
+      : (await planFilesAt(ctx, dirs, `origin/${main}`)).some((f) => namesPlan(slug, f));
+    const found = await choosePlanPr(
+      ctx,
+      { slug, planDir: dirs.planDir, onMain },
+      main,
+      realFile,
+      (unread) => { unreadOpen = unread; },
+      () => refuseOpenList(ctx),
+    );
+    if (found !== undefined && found.outcome === 'refused') {
+      prRefused = found.reason;
+      pr = { number: found.number, state: 'OPEN', head: '' };
+    } else if (found !== undefined) {
+      pr = { number: found.number, state: found.state, head: found.branch };
+      prRoute = found.route;
+      const readFile = found.read.at === 'head'
+        ? found.read.file
+        : realFile || (await planFilesAt(ctx, dirs, `origin/${main}`)).find((f) => namesPlan(slug, f)) || '';
+      const readSha = found.read.at === 'head' ? found.read.sha : `origin/${main}`;
+      if (found.read.at === 'head') prHeadSha = found.read.sha;
+      prBlob = await blobAt(ctx, readSha, readFile);
+      prRivals = await Promise.all(
+        found.rivals.map(async (rival) => ({ number: rival.number, file: rival.file, blob: await blobAt(ctx, rival.sha, rival.file) })),
+      );
+      if (!inCheckout) {
+        const read = await readPlanAt(ctx, readSha, readFile);
+        plan = read?.plan;
+        planFile = readFile;
+        planText = read?.text ?? '';
+        write(
+          found.read.at === 'head'
+            ? `step: plan ${readFile} is not in this checkout — read it from PR #${found.number} (${found.branch})\n`
+            : `step: plan ${readFile} is not in this checkout — read it from origin/${main}\n`,
+        );
+      } else if (found.read.at === 'head') {
+        const checkoutText = await ctx.planStore.readText(path.join(ctx.repoRoot, realFile));
+        const headShown = await ctx.refs.showFile(readSha, readFile);
+        if (checkoutText.ok && checkoutText.value !== null && headShown.ok) {
+          copies = { checkout: checkoutText.value, head: headShown.value };
+        }
+      }
+    } else if (!inCheckout && onMain) {
+      // No PR carries the plan at all — it reached the default branch by a
+      // direct push or a squash merge `planPrOf` cannot trace to a PR. It is
+      // still read, from `origin/<main>`, with no PR to write onto.
+      const readFile = (await planFilesAt(ctx, dirs, `origin/${main}`)).find((f) => namesPlan(slug, f)) ?? '';
+      const read = await readPlanAt(ctx, `origin/${main}`, readFile);
+      plan = read?.plan;
+      planFile = readFile;
+      planText = read?.text ?? '';
+      write(`step: plan ${readFile} is not in this checkout — read it from origin/${main}\n`);
+    }
   }
 
   const readings: NeedsDesignReadings = {
@@ -390,10 +413,19 @@ export const perform = async (ctx: Context, args: Args, write: Printer, _warn: P
     file: planFile,
     parsed: plan !== undefined,
     phase: plan?.phase ?? '',
-    review: review === 'none' ? 'NONE' : review,
-    impl,
+    review: (plan?.review ?? review) === 'none' ? 'NONE' : (plan?.review ?? review),
+    impl: plan?.impl ?? impl,
     spec: specOf(planText),
-    pr,
+    pr: {
+      number: pr.number,
+      state: pr.state,
+      head: pr.head,
+      rivals: prRivals,
+      ...(prRoute === undefined ? {} : { route: prRoute }),
+      ...(prBlob === '' ? {} : { blob: prBlob }),
+      ...(prRefused === undefined ? {} : { refused: prRefused }),
+      ...(copies === undefined ? {} : { copies }),
+    },
   };
   const today = localDate();
   const userName = await ctx.trees.userName(ctx.repoRoot);
@@ -430,7 +462,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, _warn: P
   const tmpwt = path.join(deskRoot(deskReading), `.plot-needs-design-${slug}.${process.pid}`);
 
   if (detail.target === 'plan-pr') {
-    return bookOnPlanPr(ctx, { tmpwt, rel, head: detail.branch, writes: verdict.writes, who, message }, write);
+    return bookOnPlanPr(ctx, { tmpwt, rel, head: detail.branch, readSha: prHeadSha, writes: verdict.writes, who, message }, write);
   }
 
   await ctx.trees.fetch(ctx.repoRoot, main);
@@ -474,17 +506,23 @@ export const perform = async (ctx: Context, args: Args, write: Printer, _warn: P
  *
  * A local branch of the head's name is reset onto `origin/<head>` by the
  * worktree add, so one that differs from the remote refuses first: its commits
- * are not this command's to discard.
+ * are not this command's to discard. Where the record was read at the PR's own
+ * head, a fresh fetch that resolves `origin/<head>` to a different sha means a
+ * push landed between that read and this write — the copy judged above may no
+ * longer be what the PR carries, so this refuses rather than writing onto it.
  */
 const bookOnPlanPr = async (
   ctx: Context,
-  flow: { tmpwt: string; rel: string; head: string; writes: readonly Write[]; who: string; message: string },
+  flow: { tmpwt: string; rel: string; head: string; readSha: string; writes: readonly Write[]; who: string; message: string },
   write: Printer,
 ): Promise<number> => {
   const { tmpwt, head } = flow;
   await ctx.trees.fetch(ctx.repoRoot, head);
   const remote = await ctx.refs.resolve(`refs/remotes/origin/${head}`);
   if (!remote.ok) throw new Refused(`origin/${head} is not fetched — cannot write onto the plan PR's branch.\n  Nothing was written.`);
+  if (flow.readSha !== '' && remote.value !== flow.readSha) {
+    throw new Refused(`origin/${head} moved since the plan was read. Nothing was written; re-run.`);
+  }
   const local = await ctx.refs.resolve(`refs/heads/${head}`);
   const hadLocal = local.ok;
   if (local.ok && local.value !== remote.value) {

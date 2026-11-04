@@ -32,7 +32,11 @@ export type ApproveRefusal =
   | 'slices-unpushed'
   | 'pr-closed'
   | 'pr-absent'
-  | 'pr-ambiguous';
+  | 'pr-ambiguous'
+  | 'pr-copies-differ'
+  | 'pr-head-unheld'
+  | 'pr-carries-no-plan'
+  | 'checkout-copy-differs';
 
 /** What `approve` reads about the plan it would approve. */
 export interface ApproveReadings {
@@ -105,16 +109,32 @@ export interface ApprovePrReading {
   /** The branch the PR belongs to. */
   branch: string;
   /**
-   * The other open PRs that also add or change the plan file.
+   * The other open PRs that also add or change the plan file, each with its
+   * own plan file path and the git blob ID of its copy there.
    *
    * Absent or empty where the PR is the only one.
    */
-  rivals?: readonly number[];
+  rivals?: readonly { number: number; file: string; blob: string }[];
   /**
    * The other plan files the PR adds or changes, which its merge lands on the
    * default branch unapproved. Absent or empty for a PR carrying one plan.
    */
   carried?: readonly string[];
+  /** Which routing rule named this PR: `planPrOf`'s `route`. */
+  route?: 'named' | 'open' | 'merged';
+  /** The plan file's git blob ID at the sha the record was read at. */
+  blob?: string;
+  /**
+   * The rule's own refusal, passed through unevaluated: `pr-head-unheld` or
+   * `pr-carries-no-plan`, naming the PR `number` already carries.
+   */
+  refused?: 'pr-head-unheld' | 'pr-carries-no-plan';
+  /**
+   * The checkout's text and the PR head's text, where both were read for
+   * comparison. Absent where the plan is not in the checkout, or the PR was
+   * read at the default branch rather than at its own head.
+   */
+  copies?: { checkout: string; head: string };
 }
 
 /** What `approve` records beyond the plan. */
@@ -192,7 +212,9 @@ export interface ApproveDetail {
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
  *   `state-unreadable`, `state-wrong`, `slice-unnamed`, `review-human`,
  *   `reviewer-undeclared`, `review-unrecognised`, `spike-unmerged`,
- *   `slices-unpushed`, `pr-closed`, `pr-absent` or `pr-ambiguous`.
+ *   `slices-unpushed`, `pr-closed`, `pr-absent`, `pr-ambiguous`,
+ *   `pr-copies-differ`, `pr-head-unheld`, `pr-carries-no-plan` or
+ *   `checkout-copy-differs`.
  */
 export const approve = (
   readings: ApproveReadings,
@@ -201,6 +223,22 @@ export const approve = (
   const { slug } = readings;
   const no = (reason: ApproveRefusal, detail: string) => refuse('approve', reason, detail);
 
+  // The rule's own refusal is returned first: the record cannot be read at
+  // all in that case, so there is nothing to parse or judge the phase of yet.
+  if (readings.pr.refused !== undefined) {
+    return no(
+      readings.pr.refused,
+      readings.pr.refused === 'pr-head-unheld'
+        ? `git does not hold the head of the plan PR for '${slug}' (#${readings.pr.number}) — fetch 'idea/${slug}' and re-run.`
+        : `the plan PR for '${slug}' (#${readings.pr.number}) does not change the plan file.`,
+    );
+  }
+  if (readings.file === '' && readings.pr.state === 'CLOSED') {
+    return no(
+      'pr-closed',
+      `the plan PR for '${slug}' (#${readings.pr.number}) is closed. Reopen it or create a new one.`,
+    );
+  }
   if (readings.file === '') {
     return no('plan-not-found', `no plan found for '${slug}'.`);
   }
@@ -322,11 +360,28 @@ export const approve = (
           `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
         );
     }
-    // Merging is irreversible, so a plan two open PRs both change is refused
-    // rather than approved through whichever the host listed first.
+    const copies = readings.pr.copies;
+    if (copies !== undefined && copies.checkout !== copies.head) {
+      return no(
+        'checkout-copy-differs',
+        `the plan in the checkout differs from the plan PR's head (#${readings.pr.number}) — push or discard the local edits.`,
+      );
+    }
+    // Merging is irreversible, so a rival with a differing copy is refused
+    // rather than approved through whichever the host listed first. On the
+    // named route an IDENTICAL rival proceeds silently: the named PR already
+    // settled which copy is read.
     const rivals = readings.pr.rivals ?? [];
-    if (rivals.length > 0) {
-      const all = [readings.pr.number, ...rivals].map((n) => `#${n}`).join(', ');
+    const differing = readings.pr.route === 'named' ? rivals.filter((rival) => rival.blob !== readings.pr.blob) : rivals;
+    if (differing.length > 0) {
+      if (readings.pr.route === 'named') {
+        const names = differing.map((rival) => `#${rival.number}`).join(', ');
+        return no(
+          'pr-copies-differ',
+          `the plan file of '${slug}' differs between the plan PR (#${readings.pr.number}) and ${names} — close the PR that should not carry the plan.`,
+        );
+      }
+      const all = [readings.pr.number, ...differing.map((rival) => rival.number)].map((n) => `#${n}`).join(', ');
       return no(
         'pr-ambiguous',
         `the plan file of '${slug}' is changed by more than one open PR (${all}) — refusing rather than choosing one to merge.`,
@@ -455,6 +510,20 @@ export const approveSpike = (
   const { slug } = readings;
   const no = (reason: ApproveRefusal, detail: string) => refuse('approve', reason, detail);
 
+  if (readings.pr.refused !== undefined) {
+    return no(
+      readings.pr.refused,
+      readings.pr.refused === 'pr-head-unheld'
+        ? `git does not hold the head of the plan PR for '${slug}' (#${readings.pr.number}) — fetch 'idea/${slug}' and re-run.`
+        : `the plan PR for '${slug}' (#${readings.pr.number}) does not change the plan file.`,
+    );
+  }
+  if (readings.file === '' && readings.pr.state === 'CLOSED') {
+    return no(
+      'pr-closed',
+      `the plan PR for '${slug}' (#${readings.pr.number}) is closed. Reopen it or create a new one.`,
+    );
+  }
   if (readings.file === '') return no('plan-not-found', `no plan found for '${slug}'.`);
   if (!readings.parsed) {
     return no('plan-unparseable', `cannot parse '${readings.file}' — refusing rather than guessing.`);
@@ -501,9 +570,24 @@ export const approveSpike = (
           `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
         );
     }
+    const copies = readings.pr.copies;
+    if (copies !== undefined && copies.checkout !== copies.head) {
+      return no(
+        'checkout-copy-differs',
+        `the plan in the checkout differs from the plan PR's head (#${readings.pr.number}) — push or discard the local edits.`,
+      );
+    }
     const rivals = readings.pr.rivals ?? [];
-    if (rivals.length > 0) {
-      const all = [readings.pr.number, ...rivals].map((n) => `#${n}`).join(', ');
+    const differing = readings.pr.route === 'named' ? rivals.filter((rival) => rival.blob !== readings.pr.blob) : rivals;
+    if (differing.length > 0) {
+      if (readings.pr.route === 'named') {
+        const names = differing.map((rival) => `#${rival.number}`).join(', ');
+        return no(
+          'pr-copies-differ',
+          `the plan file of '${slug}' differs between the plan PR (#${readings.pr.number}) and ${names} — close the PR that should not carry the plan.`,
+        );
+      }
+      const all = [readings.pr.number, ...differing.map((rival) => rival.number)].map((n) => `#${n}`).join(', ');
       return no(
         'pr-ambiguous',
         `the plan file of '${slug}' is changed by more than one open PR (${all}) — refusing rather than choosing one to merge.`,

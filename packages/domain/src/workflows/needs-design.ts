@@ -39,7 +39,11 @@ export type NeedsDesignRefusal =
   | 'state-wrong'
   | 'review-human'
   | 'review-unrecognised'
-  | 'plan-pr-absent';
+  | 'plan-pr-absent'
+  | 'pr-copies-differ'
+  | 'pr-head-unheld'
+  | 'pr-carries-no-plan'
+  | 'checkout-copy-differs';
 
 /** What the host answered about the plan PR. */
 export interface NeedsDesignPrReading {
@@ -49,6 +53,28 @@ export interface NeedsDesignPrReading {
   state: 'MERGED' | 'OPEN' | 'CLOSED' | 'NONE';
   /** The PR's head branch, or `''` where the host holds no PR. */
   head: string;
+  /**
+   * The other open PRs that also add or change the plan file, each with its
+   * own plan file path and the git blob ID of its copy there.
+   *
+   * Absent or empty where the PR is the only one.
+   */
+  rivals?: readonly { number: number; file: string; blob: string }[];
+  /** Which routing rule named this PR: `planPrOf`'s `route`. */
+  route?: 'named' | 'open' | 'merged';
+  /** The plan file's git blob ID at the sha the record was read at. */
+  blob?: string;
+  /**
+   * The rule's own refusal, passed through unevaluated: `pr-head-unheld` or
+   * `pr-carries-no-plan`, naming the PR `number` already carries.
+   */
+  refused?: 'pr-head-unheld' | 'pr-carries-no-plan';
+  /**
+   * The checkout's text and the PR head's text, where both were read for
+   * comparison. Absent where the plan is not in the checkout, or the PR was
+   * read at the default branch rather than at its own head.
+   */
+  copies?: { checkout: string; head: string };
 }
 
 /** What `planNeedsDesign` reads about the plan it would move. */
@@ -107,8 +133,9 @@ export interface NeedsDesignDetail {
  * @param input - the date, person and channel to record.
  * @returns a decision naming every write, or a refusal naming the rule that
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
- *   `state-unreadable`, `state-wrong`, `review-human`, `review-unrecognised`
- *   or `plan-pr-absent`.
+ *   `state-unreadable`, `state-wrong`, `review-human`, `review-unrecognised`,
+ *   `plan-pr-absent`, `pr-copies-differ`, `pr-head-unheld`,
+ *   `pr-carries-no-plan` or `checkout-copy-differs`.
  */
 export const planNeedsDesign = (
   readings: NeedsDesignReadings,
@@ -117,6 +144,22 @@ export const planNeedsDesign = (
   const { slug, file } = readings;
   const no = (reason: NeedsDesignRefusal, detail: string) => refuse('needs-design', reason, detail);
 
+  // The rule's own refusal is returned first: the record cannot be read at
+  // all in that case, so there is nothing to parse or judge the phase of yet.
+  if (readings.pr.refused !== undefined) {
+    return no(
+      readings.pr.refused,
+      readings.pr.refused === 'pr-head-unheld'
+        ? `git does not hold the head of the plan PR for '${slug}' (#${readings.pr.number}) — fetch 'idea/${slug}' and re-run.`
+        : `the plan PR for '${slug}' (#${readings.pr.number}) does not change the plan file.`,
+    );
+  }
+  if (file === '' && readings.pr.state === 'CLOSED') {
+    return no(
+      'plan-pr-absent',
+      `plan '${slug}' declares 'Review: pr' and its plan PR #${readings.pr.number} is closed, not open — refusing rather than writing Design onto the default branch.`,
+    );
+  }
   if (file === '') return no('plan-not-found', `no plan found for '${slug}'.`);
   if (!readings.parsed) {
     return no('plan-unparseable', `cannot parse '${file}' — refusing rather than guessing.`);
@@ -129,6 +172,25 @@ export const planNeedsDesign = (
   );
   if (isRefusal(verdict)) {
     return no(verdict.reason as NeedsDesignRefusal, verdict.detail);
+  }
+
+  const copies = readings.pr.copies;
+  if (copies !== undefined && copies.checkout !== copies.head) {
+    return no(
+      'checkout-copy-differs',
+      `the plan in the checkout differs from the plan PR's head (#${readings.pr.number}) — push or discard the local edits.`,
+    );
+  }
+  // Needs-design writes a commit, never a merge, so there is no PR to choose
+  // between: a rival with a differing copy refuses on either route, unlike
+  // `approve`'s open route, which would otherwise pick one to merge.
+  const differing = (readings.pr.rivals ?? []).filter((rival) => rival.blob !== readings.pr.blob);
+  if (differing.length > 0) {
+    const names = differing.map((rival) => `#${rival.number}`).join(', ');
+    return no(
+      'pr-copies-differ',
+      `the plan file of '${slug}' differs between the plan PR (#${readings.pr.number}) and ${names} — close the PR that should not carry the plan.`,
+    );
   }
 
   const sameBranch = readings.impl === 'same-branch';

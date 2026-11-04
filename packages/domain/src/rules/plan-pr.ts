@@ -72,6 +72,11 @@ export interface PlanPrReadings {
   onMain: boolean;
   /** The PR of `idea/<slug>`; null where the host holds none. */
   named?: NamedPr | null;
+  /**
+   * The named PR's head, resolved to a full sha, with the files it changes.
+   * Read only where `named` is OPEN; null where git does not hold the head.
+   */
+  namedHead?: { sha: string; changed: readonly string[] } | null;
   /** The open PRs, each with the paths its head changes. */
   open?: readonly OpenPr[];
   /** The commit that brought the plan file onto the default branch. */
@@ -95,19 +100,26 @@ export interface PlanPrFound {
   headSha: string;
   /** The PR's branch; `''` where the answer did not name it. */
   branch: string;
-  /** The other open PRs that also change the plan file. */
-  rivals: readonly number[];
+  /** The other open PRs that also change the plan file, with their head sha and the plan file they carry it at. */
+  rivals: readonly { number: number; sha: string; file: string }[];
   /** The other plan files the PR changes, which its merge lands unapproved. */
   carried: readonly string[];
+  /** Which routing rule answered. */
+  route: 'named' | 'open' | 'merged';
+  /** Where the plan file was read: at the PR's own head, or at the default branch's tip. */
+  read: { at: 'head'; sha: string; file: string } | { at: 'default' };
 }
 
 /** The reading {@link planPrOf} needs next. */
 export type PlanPrAsk =
-  | { outcome: 'ask'; ask: 'named' | 'open' | 'addition' | 'merged' }
+  | { outcome: 'ask'; ask: 'named' | 'named-head' | 'open' | 'addition' | 'merged' }
   | { outcome: 'ask'; ask: 'confirm'; number: number };
 
+/** Why {@link planPrOf} refused, naming the PR it refused about. */
+export type PlanPrRefusal = { outcome: 'refused'; reason: 'pr-head-unheld' | 'pr-carries-no-plan'; number: number };
+
 /** The answer of {@link planPrOf}. */
-export type PlanPrAnswer = PlanPrFound | PlanPrAsk | { outcome: 'none' };
+export type PlanPrAnswer = PlanPrFound | PlanPrAsk | PlanPrRefusal | { outcome: 'none' };
 
 /** One open PR that changes the plan a slug names. */
 export interface PlanPrMatch {
@@ -201,29 +213,40 @@ const shaMatches = (headSha: string, secondParent: string): boolean => {
 };
 
 /**
- * Finds the plan PR: the PR that adds or changes the plan file.
+ * Finds the plan PR: the PR that adds or changes the plan file, and the one
+ * copy of it that reading, writing and merging must all agree on.
  *
  * The order is the reading order, and the answer names the next reading where
  * it needs one:
  *
  * 1. The PR of `idea/<slug>`, the single-plan shape, wins where the host holds
- *    one, in any state.
- * 2. Where the default branch does not hold the plan file, the open PRs that
- *    change it against their merge base: the first is the plan PR, the others
- *    are rivals.
+ *    one, in any state. A MERGED or CLOSED one reads the default branch, as
+ *    before. An OPEN one is read at its own head: the next reading is that
+ *    head's full sha and the files it changes (`named-head`), which refuses
+ *    `pr-head-unheld` where git does not hold the commit, and
+ *    `pr-carries-no-plan` where the head's changed files name no plan this
+ *    slug matches. Only once the named PR's own copy is settled does it ask
+ *    for the open PRs, to name any other PR carrying the same file as a
+ *    rival — a rival is named with its own head sha and the plan file it
+ *    carries there, so a caller can tell an identical copy from a differing
+ *    one without a second round of reading.
+ * 2. Where no named PR exists and the default branch does not hold the plan
+ *    file, the open PRs that change it against their merge base: the first
+ *    is the plan PR, read at its own head; the others are rivals.
  * 3. Where the default branch holds it, an open PR is never the plan PR. The
  *    plan PR is the merged PR whose head is the second parent of the merge
  *    that added the file, and the host confirms it MERGED at that merge
  *    commit. A file that arrived by squash or by a direct push has no such
- *    merge.
+ *    merge. Read at the default branch's tip, as before.
  *
  * @param readings - what has been read so far.
- * @returns the plan PR, the reading needed next, or `none`.
+ * @returns the plan PR with its route and where it was read, the reading
+ *   needed next, a refusal naming the PR it is about, or `none`.
  */
 export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
   const { named } = readings;
   if (named === undefined) return { outcome: 'ask', ask: 'named' };
-  if (named !== null) {
+  if (named !== null && named.state !== 'OPEN') {
     return {
       outcome: 'found',
       number: named.number,
@@ -233,6 +256,32 @@ export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
       branch: '',
       rivals: [],
       carried: [],
+      route: 'named',
+      read: { at: 'default' },
+    };
+  }
+  if (named !== null) {
+    const { namedHead } = readings;
+    if (namedHead === undefined) return { outcome: 'ask', ask: 'named-head' };
+    if (namedHead === null) return { outcome: 'refused', reason: 'pr-head-unheld', number: named.number };
+    const plans = namedHead.changed.filter((path) => isPlanFile(readings.planDir, path)).sort();
+    const file = plans.find((path) => namesPlan(readings.slug, path));
+    if (file === undefined) return { outcome: 'refused', reason: 'pr-carries-no-plan', number: named.number };
+    if (readings.open === undefined) return { outcome: 'ask', ask: 'open' };
+    const rivals = planPrsCarrying(readings.slug, readings.planDir, readings.open)
+      .filter((match) => match.pr.number !== named.number)
+      .map((match) => ({ number: match.pr.number, sha: match.pr.headSha, file: match.file }));
+    return {
+      outcome: 'found',
+      number: named.number,
+      state: 'OPEN',
+      draft: named.draft,
+      headSha: namedHead.sha,
+      branch: `idea/${readings.slug}`,
+      rivals,
+      carried: plans.filter((path) => path !== file),
+      route: 'named',
+      read: { at: 'head', sha: namedHead.sha, file },
     };
   }
 
@@ -247,8 +296,10 @@ export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
       draft: first.pr.draft,
       headSha: first.pr.headSha,
       branch: first.pr.head,
-      rivals: others.map((match) => match.pr.number),
+      rivals: others.map((match) => ({ number: match.pr.number, sha: match.pr.headSha, file: match.file })),
       carried: first.carried,
+      route: 'open',
+      read: { at: 'head', sha: first.pr.headSha, file: first.file },
     };
   }
 
@@ -271,5 +322,7 @@ export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
     branch: '',
     rivals: [],
     carried: [],
+    route: 'merged',
+    read: { at: 'default' },
   };
 };

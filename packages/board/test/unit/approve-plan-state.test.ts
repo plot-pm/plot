@@ -164,12 +164,17 @@ describe('an approval reflects the approved plan on its issue', () => {
   it('links the plan PR on an `Impl: same branch` approval, whose plan is not on main', async () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-approve-plan-state-')));
     roots.push(root);
+    const origin = path.join(root, 'origin.git');
     const repo = path.join(root, 'repo');
+    git(root, 'init', '-q', '--bare', '-b', 'main', origin);
     git(root, 'init', '-q', '-b', 'main', repo);
     ownIdentity(repo);
     writeFileSync(path.join(repo, 'CLAUDE.md'), CONFIG);
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'init');
+    git(repo, 'remote', 'add', 'origin', origin);
+    git(repo, 'push', '-q', 'origin', 'main');
+    git(repo, 'remote', 'set-head', 'origin', 'main');
     git(repo, 'checkout', '-q', '-b', `feature/${SLUG}`);
     mkdirSync(path.join(repo, 'docs/plans'), { recursive: true });
     writeFileSync(path.join(repo, PLAN), planBody('pr', 'same branch'));
@@ -180,11 +185,12 @@ describe('an approval reflects the approved plan on its issue', () => {
     const out: string[] = [];
     const err: string[] = [];
     const ctx = ctxOver(repo, calls, WRITTEN);
+    const headSha = git(repo, 'rev-parse', `feature/${SLUG}`).trim();
     ctx.host = hostFixture({
       prs: [{
         number: 9, repo: '', head: `feature/${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
         draft: false, mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [],
-        url: 'https://github.com/o/r/pull/9', author: '', headSha: 'a'.repeat(40),
+        url: 'https://github.com/o/r/pull/9', author: '', headSha,
       }],
     });
     const code = await perform(ctx, { dryRun: false, spike: false, who: 'jw', slug: SLUG }, (s) => out.push(s), (s) => err.push(s));
