@@ -370,13 +370,14 @@ home_short() {
 # of an adopting repository, so it is silent. Never prints a line starting
 # with `summary:`, which is the board's contract.
 #
-# A SECOND MODE, for `--stop`'s first refusal: $2, a comparison root, asks for
-# ready `PLOT_FLEET_LABEL=<label> --stop` lines instead — one per supervisor
-# row that serves THAT root, so a refused `--stop` can still point at the
-# checkout(s) it may stop. A Linux row with a `unit <name>` label (no
-# `launchctl`-style bare label) prints no command, because `PLOT_FLEET_LABEL`
-# selects by label and a systemd unit name is not one. Prints "no supervisor
-# serving this checkout was found" when the comparison root matches none.
+# A SECOND MODE, for `--stop`'s first refusal: $2, a comparison root, prints
+# its own header plus ready `PLOT_FLEET_LABEL=<label> plot-fleetctl.sh --stop`
+# lines — one per supervisor row that serves THAT root, so a refused `--stop`
+# can still point at the checkout(s) it may stop. A Linux row with a
+# `unit <name>` label (no `launchctl`-style bare label) prints no command,
+# because `PLOT_FLEET_LABEL` selects by label and a systemd unit name is not
+# one. Prints "no supervisor serving this checkout was found" when the
+# comparison root matches none.
 plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's command-line mode
   local skip="${1:-}" cmd_root="${2:-}" kernel here tag pid ppid uid kind a0 path verified="" top rows=""
   local orph cwd serves inst full suffix label owner lc="" lc_read=0 line seg noisy=0 lsof_until=$((SECONDS + 2))
@@ -463,12 +464,8 @@ plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's comma
     rows+="$kind"$'\t'"$pid"$'\t'"$orph"$'\t'"$serves"$'\t'"$inst"$'\t'"$label"$'\n'
   done <<< "$top"
   if [ -n "$cmd_root" ]; then
-    printf '%s' "$rows" | awk -F'\t' -v label="$LABEL" '
-      $1 == "supervisor" && $4 == "THIS repository" {
-        n++
-        if ($6 !~ /^unit /) print "    PLOT_FLEET_LABEL=" label " --stop"
-      }
-      END { if (n == 0) print "  no supervisor serving this checkout was found" }'
+    echo "  this checkout's own supervisor(s), if any, may still be stopped:"
+    printf '%s' "$rows" | awk -F'\t' -v label="$LABEL" '$1 == "supervisor" && $4 == "THIS repository" { n++; if ($6 !~ /^unit /) print "    PLOT_FLEET_LABEL=" label " plot-fleetctl.sh --stop" } END { if (n == 0) print "  no supervisor serving this checkout was found" }'
     return 0
   fi
   [ "$noisy" = 1 ] || return 0
@@ -1271,7 +1268,6 @@ if [ "$mode" = "stop" ]; then
   # marker is kept — the run this refusal stops is not this checkout's to end.
   stop_root=$(plot_repo_root)
   if [ "$(old_label_action stop "$stop_root")" = refuse ]; then
-    echo "  this checkout's own supervisor(s), if any, may still be stopped:"
     plot_processes_block "" "$stop_root"
     exit 1
   fi
