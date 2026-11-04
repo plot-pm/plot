@@ -75,18 +75,15 @@ export const newestPerSha = (runs: readonly WorkflowShaRun[]): WorkflowShaRun[] 
  * repository whose instance is unset has not been asked, which is not the same
  * as a branch that has never built.
  *
- * `runForSha` ASKS JENKINS' REST API, and the transport is the whole story.
- * `jen` answers build history and never a commit — measured 2026-09-10, a
- * build entry carries `id`, `status`, timings and stages, and a search of the
- * whole payload for `sha|commit|revision|scm` matches nothing. Jenkins' own
- * REST API answers it at `actions[].lastBuiltRevision.SHA1`, and
- * `plot-host.sh` reaches that since 2026-09-11.
+ * `runForSha` ASKS JENKINS' REST API THROUGH `jen api`. `jen build list`
+ * answers build history and never a commit — measured 2026-09-10, a build
+ * entry carries `id`, `status`, timings and stages, and a search of the whole
+ * payload for `sha|commit|revision|scm` matches nothing. Jenkins' own REST API
+ * answers it at `actions[].lastBuiltRevision.SHA1`, and `jen api <path>`
+ * reaches it with the instance's own auth headers, proxy included.
  *
- * THE CREDENTIAL IS NOT THE KEYCLOAK BEARER. Jenkins takes basic auth with an
- * API token, which `jen` stores in the login keychain; the bearer from `jen
- * auth token` gets an HTML login redirect. A machine with no keychain entry
- * answers `unaskable`, which is *this connector cannot be asked* rather than
- * *this branch has never built*.
+ * A MACHINE WHERE `jen` CANNOT AUTHENTICATE ANSWERS `unaskable`, which is
+ * *this connector cannot be asked* rather than *this branch has never built*.
  *
  * IT INHERITS THE GITHUB ARM'S MATCH RULE rather than inventing one: only the
  * asked-for sha, never another build's. A caller handed the wrong build's
