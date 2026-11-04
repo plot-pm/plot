@@ -53,9 +53,12 @@ function run(args, { cwd = repo, expectFail = false } = {}) {
 before(() => {
   stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-release-stub-'));
   // `gh pr view <N> --json number,state,isDraft,url,mergeCommit` is the one
-  // call this arm makes to the host. The mergeCommit SHA travels in through
-  // GH_STUB_SHA, set per test to the real commit the test repo's merge
-  // produced, since `git tag --contains` needs a real reachable commit.
+  // call this arm makes to the host, once per local PR number. The answer for
+  // a given number comes from GH_STUB_SHA_<N> / GH_STUB_MERGED_AT_<N> when
+  // set, falling back to the un-suffixed GH_STUB_SHA / GH_STUB_MERGED_AT so
+  // every existing single-PR test keeps working unchanged. Both travel in as
+  // real values the test repo can tag and date, since `git tag --contains`
+  // needs a real reachable commit.
   fs.writeFileSync(path.join(stubDir, 'gh'), `#!/usr/bin/env bash
 exec node "${stubDir}/gh.mjs" "$@"
 `);
@@ -65,12 +68,15 @@ import fs from 'node:fs';
 const argv = process.argv.slice(2);
 if (process.env.GH_STUB_CALL_LOG) fs.appendFileSync(process.env.GH_STUB_CALL_LOG, argv.join(' ') + '\\n');
 if (argv[0] === 'pr' && argv[1] === 'view') {
-  const closed = (process.env.GH_STUB_CLOSED || '').split(',').includes(argv[2]);
-  const sha = closed ? '' : process.env.GH_STUB_SHA || '';
+  const n = argv[2];
+  const closed = (process.env.GH_STUB_CLOSED || '').split(',').includes(n);
+  const sha = closed ? '' : (process.env['GH_STUB_SHA_' + n] || process.env.GH_STUB_SHA || '');
+  const mergedAt = closed ? null : (process.env['GH_STUB_MERGED_AT_' + n] || process.env.GH_STUB_MERGED_AT || null);
   process.stdout.write(JSON.stringify({
-    number: Number(argv[2]), state: closed ? 'CLOSED' : 'MERGED', isDraft: false,
-    url: 'https://example.invalid/pr/' + argv[2],
+    number: Number(n), state: closed ? 'CLOSED' : 'MERGED', isDraft: false,
+    url: 'https://example.invalid/pr/' + n,
     mergeCommit: sha ? { oid: sha } : null,
+    mergedAt,
   }));
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
   process.stdout.write('main');
@@ -406,6 +412,53 @@ test('release: a deferred foreign reference equal to the shipped local PR is dro
   assert.match(r.out, /PR #33 merged/, `must resolve the local, non-deferred PR:\n${r.out}`);
   refreshMain();
   assert.match(planOnMain(), /- \*\*Released:\*\* .*v0\.1\.0/);
+});
+
+// THE CASE PICKING THE TAG BY PR NUMBER, RATHER THAN mergedAt, WOULD PASS
+// SILENTLY, ONE LEVEL DOWN FROM #3081: #60 and #50 are two SIBLING branches
+// off the same base, each shipping to its own tag (v2.9.0 for #60, v2.10.0
+// for #50) — neither commit is an ancestor of the other, so a tag can
+// legitimately contain one and not the other. #60 merged first, #50 merged
+// last. Resolving from the latest mergedAt (#50, tag v2.10.0) and then
+// checking #60's commit against THAT tag is what catches #60 missing from
+// it; resolving by number would have picked #60's own tag (v2.9.0) instead
+// and never noticed #50 was absent from it the other way round.
+test('release: two local PRs on sibling branches, the lower-numbered one merged last — refuses tag-misses-pr, writing nothing', () => {
+  const { shippedSha: base } = makeRepo(DEFERRED_PLAN(`### Shipped
+- \`feature/alpha\` — the work → #60
+- \`feature/beta\` — the rest → #50
+`));
+
+  git(repo, 'checkout', '-q', '-b', 'br60', base);
+  fs.writeFileSync(path.join(repo, 'f60.txt'), 'feature 60');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'ship feature 60');
+  const sha60 = git(repo, 'rev-parse', 'HEAD').trim();
+  git(repo, 'push', '-q', 'origin', 'br60');
+  tag('v2.9.0', sha60);
+
+  git(repo, 'checkout', '-q', '-b', 'br50', base);
+  fs.writeFileSync(path.join(repo, 'f50.txt'), 'feature 50');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'ship feature 50');
+  const sha50 = git(repo, 'rev-parse', 'HEAD').trim();
+  git(repo, 'push', '-q', 'origin', 'br50');
+  tag('v2.10.0', sha50);
+
+  git(repo, 'checkout', '-q', 'main');
+
+  process.env['GH_STUB_SHA_60'] = sha60;
+  process.env['GH_STUB_MERGED_AT_60'] = '2026-09-01T00:00:00Z';
+  process.env['GH_STUB_SHA_50'] = sha50;
+  process.env['GH_STUB_MERGED_AT_50'] = '2026-09-02T00:00:00Z';
+
+  const r = run(['--release', '2.10.0', 'release-me'], { expectFail: true });
+  assert.match(r.err, /tag-misses-pr|does not contain PR #60/i, `must name the gate:\n${r.err}`);
+  assert.match(r.err, /#60/, `must name the missing PR:\n${r.err}`);
+  assert.equal(git(repo, 'status', '--porcelain').trim(), '');
+  refreshMain();
+  assert.doesNotMatch(planOnMain(), /\*\*Phase:\*\* Released/, 'phase must not flip');
+  assert.doesNotMatch(planOnMain(), /\*\*Released:\*\* \S/, 'no Released: value must be written');
 });
 
 test('release: an all-foreign plan books Released with all-prs-foreign, asking the host nothing', () => {
