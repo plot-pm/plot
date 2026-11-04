@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
+import { BOARD_ANSWER_AUTHOR } from '../../contract/schema.js';
 
 /**
  * The control that answers a stopped agent — **named as a continuation, and the
@@ -126,7 +127,7 @@ export function ContinueWithAnAnswer({
     fetcher('/api/continue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ branch, answer }),
+      body: JSON.stringify({ branch, answer, author: BOARD_ANSWER_AUTHOR }),
     })
       .then(async (res) => {
         const body = (await res.json()) as

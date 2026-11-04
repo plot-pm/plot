@@ -22,9 +22,10 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * desk. The new agent has a new pid.
  *
  * `--who <handle>` names who is giving this answer, read before the
- * positional triple and recorded as the `answered` row's `author`. Omitted,
- * today's behaviour is unchanged: no author is passed, which `continueOnDesk`
- * now reads as `unknown` rather than `unblocker`.
+ * positional triple and recorded as the `answered` row's `author`. A missing,
+ * empty or blank handle after `--who` is a usage error. Without `--who`, no
+ * author is passed and `continueOnDesk` records `unknown`. The handle is
+ * asserted by the caller and not verified.
  *
  * The optional third positional argument is the `askedAt` of the question
  * this answer targets. Given, a desk whose marker has moved on refuses
@@ -84,7 +85,7 @@ export const run = async (
   const rest = argv[0] === '--who' ? argv.slice(2) : argv;
   const [branch, given, questionKey, ...extra] = rest;
   if (
-    (argv[0] === '--who' && who === undefined) ||
+    (argv[0] === '--who' && (who === undefined || who.trim() === '')) ||
     branch === undefined ||
     branch === '' ||
     given === undefined ||

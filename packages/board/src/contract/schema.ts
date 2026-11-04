@@ -5195,3 +5195,11 @@ export const TransitionResultSchema = z.object({
   reason: z.string(),
 });
 export type TransitionResult = z.infer<typeof TransitionResultSchema>;
+
+/**
+ * The `author` the board's continue control sends, and the author
+ * `POST /api/continue` records when a request names none. The board holds no
+ * session and no config key names its operator, so it names the channel the
+ * answer came through rather than a person.
+ */
+export const BOARD_ANSWER_AUTHOR = 'board';

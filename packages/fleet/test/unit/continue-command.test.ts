@@ -73,6 +73,12 @@ describe('the continue entry', () => {
     expect(await run(['--who'], '/nonexistent', '/nonexistent', {}, () => {}, (s) => warned.push(s))).toBe(2);
     expect(warned.join('')).toContain('usage: plot-continue-command.mjs');
   });
+
+  it.each(['', '   '])('exits 2 for --who %j before reading any pulse', async (handle) => {
+    const warned: string[] = [];
+    expect(await run(['--who', handle, 'feature/x', 'an answer'], '/nonexistent', '/nonexistent', {}, () => {}, (s) => warned.push(s))).toBe(2);
+    expect(warned.join('')).toContain('usage: plot-continue-command.mjs');
+  });
 });
 
 describe('the continue entry maps PLOT_UNATTENDED to the caller', () => {
