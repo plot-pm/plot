@@ -235,26 +235,17 @@ supervisor_bundle_path() { case "$(platform)" in
 # does not hold, a job in another user's domain, or a hand-written unit without
 # the key. Reading any of them as *this repository* would invite an overwrite of
 # a supervisor that is not this checkout's.
-supervisor_checkout() {
-  local served here there
+supervisor_checkout() { # $1=root to compare against, default $repo_root
+  local served here there root="${1:-$repo_root}"
   served=$(supervisor_workdir)
   [ -n "$served" ] || { echo unknown; return 0; }
-  here=$(cd "$repo_root" && pwd -P)
+  here=$(cd "$root" && pwd -P)
   there=$(cd "$served" 2>/dev/null && pwd -P) || there="$served"
   if [ "$here" = "$there" ]; then
     printf 'this %s\n' "$served"
   else
     printf 'another %s\n' "$served"
   fi
-}
-
-# The `--status` line for `supervisor_checkout`'s answer.
-serves_line() { # $1=the answer
-  case "$1" in
-    this\ *)    echo "  serves:  THIS repository (${1#this })" ;;
-    another\ *) echo "  serves:  ANOTHER checkout (${1#another }) — this repository is $repo_root" ;;
-    *)          echo "  serves:  cannot determine — $(platform) names no working directory for $LABEL" ;;
-  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -378,11 +369,24 @@ home_short() {
 # orphaned — a foreign installation serving this checkout is the normal shape
 # of an adopting repository, so it is silent. Never prints a line starting
 # with `summary:`, which is the board's contract.
-plot_processes_block() { # $1=pid to skip
-  local skip="${1:-}" kernel here tag pid ppid uid kind a0 path verified="" top rows=""
+#
+# A SECOND MODE, for `--stop`'s first refusal: $2, a comparison root, prints
+# its own header plus ready `PLOT_FLEET_LABEL=<label> plot-fleetctl.sh --stop`
+# lines — one per supervisor row that serves THAT root, so a refused `--stop`
+# can still point at the checkout(s) it may stop. A Linux row with a
+# `unit <name>` label (no `launchctl`-style bare label) prints no command,
+# because `PLOT_FLEET_LABEL` selects by label and a systemd unit name is not
+# one. Prints "no supervisor serving this checkout was found" when the
+# comparison root matches none.
+plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's command-line mode
+  local skip="${1:-}" cmd_root="${2:-}" kernel here tag pid ppid uid kind a0 path verified="" top rows=""
   local orph cwd serves inst full suffix label owner lc="" lc_read=0 line seg noisy=0 lsof_until=$((SECONDS + 2))
   kernel=$(uname -s 2>/dev/null)
-  here=$(cd "$repo_root" && pwd -P)
+  here=$(cd "${cmd_root:-$repo_root}" && pwd -P)
+  # A candidate path serves the checkout this call is ASKING ABOUT: `$here`
+  # always, plus `$repo_root` too in the no-`cmd_root` (plain `--status`) mode,
+  # where either spelling of this checkout is accepted.
+  matches_cmd_root() { [ "$1" = "$here" ] || { [ -z "$cmd_root" ] && [ "$1" = "$repo_root" ]; }; }
   while IFS=$'\t' read -r tag pid ppid uid kind a0 path; do
     case "$tag" in
       S) verified+="S"$'\t'"$pid"$'\n' ;;
@@ -411,7 +415,7 @@ plot_processes_block() { # $1=pid to skip
       owner=$(id -un "$uid" 2>/dev/null) || owner=$uid
       [ -n "$owner" ] || owner=$uid
       serves="cannot determine (owner $owner)"
-    elif [ "$cwd" = "$repo_root" ] || [ "$cwd" = "$here" ]; then
+    elif matches_cmd_root "$cwd"; then
       serves="THIS repository"
     else
       serves=$cwd
@@ -438,7 +442,7 @@ plot_processes_block() { # $1=pid to skip
     esac
     if [ -n "$matched" ]; then
       full=${full%"$matched"}
-      if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
+      if matches_cmd_root "$full"; then
         inst="THIS repository"
       else
         inst=$(home_short "$full")
@@ -461,6 +465,11 @@ plot_processes_block() { # $1=pid to skip
     [ "$kind" = scan ] && [ "$orph" = 1 ] && noisy=1
     rows+="$kind"$'\t'"$pid"$'\t'"$orph"$'\t'"$serves"$'\t'"$inst"$'\t'"$label"$'\n'
   done <<< "$top"
+  if [ -n "$cmd_root" ]; then
+    echo "  this checkout's own supervisor(s), if any, may still be stopped:"
+    printf '%s' "$rows" | awk -F'\t' -v label="$LABEL" '$1 == "supervisor" && $4 == "THIS repository" { n++; if ($6 !~ /^unit /) print "    PLOT_FLEET_LABEL=" label " plot-fleetctl.sh --stop" } END { if (n == 0) print "  no supervisor serving this checkout was found" }'
+    return 0
+  fi
   [ "$noisy" = 1 ] || return 0
   echo ""
   echo "plot processes on this machine:"
@@ -597,19 +606,35 @@ broken_install() {
   return 1
 }
 
-# THE OLD DEFAULT LABEL. `com.plot-pm.registryd` was the default before the
-# rename to `com.plot-pm.fleetd`, and a unit installed under it keeps running
-# under it. The caller sets LABEL and UNIT_NAME to the old label's, and only
-# under the new default: a custom label never asks. Prints what the old-label
-# rule answers verb $1 (`retire` or `status`) for the loaded job, or nothing
-# when none is loaded. Returns 1 after naming the bundle when the rule cannot
-# be asked.
+# THE ONE SHARED CALLER FOR EVERY VERB the bundle at `board/plot-old-label.mjs`
+# answers: `retire`/`status` (the old-label migration, `com.plot-pm.registryd`)
+# and `start`/`start-default`/`stop`/`serves` (this label's own job). $1 is the
+# verb; $2 is the root to compare `supervisor_checkout` against, default
+# `$repo_root` — `--stop` passes `plot_repo_root` instead (see below). Prints
+# the bundle's word on stdout, or nothing when no job is loaded under `$LABEL`.
+# A `start`/`start-default`/`stop` refusal's explanatory text is the bundle's
+# OWN stderr write, passed through rather than suppressed — this caller only
+# reads the word back. Returns 1 after naming the bundle when the rule cannot
+# be asked at all — a failed call is never read as `proceed`.
 old_label_action() {
-  local rule="$script_dir/board/plot-old-label.mjs"
+  local rule="$script_dir/board/plot-old-label.mjs" verb="$1" root="${2:-$repo_root}"
   supervisor_loaded || return 0
-  supervisor_checkout | node "$rule" "$1" 2>/dev/null && return 0
+  supervisor_checkout "$root" | node "$rule" "$verb" "$LABEL" "$(platform)" "$(read_cmd)" "$root" && return 0
   [ -f "$rule" ] || { broken_install "no old-label rule at $rule"; return 1; }
   broken_install "the old-label rule at $rule gave no answer" "  node on PATH: $(command -v node || echo none)\n"
+}
+
+# TRUE WHEN THE VERB MUST NOT PROCEED — the one reading every caller that only
+# needs a yes/no takes, with the same arguments as `old_label_action`. It is
+# true both when the bundle answers `refuse` and when the bundle CANNOT BE
+# ASKED, because a command substitution keeps only stdout: a broken install
+# returns 1 with an empty stdout, and a bare `[ "$(old_label_action ...)" =
+# refuse ]` reads that empty word as permission to act. Callers that need the
+# word itself (`retire_old_label`) still read it off the assignment.
+old_label_refuses() {
+  local action
+  action=$(old_label_action "$@") || return 0
+  [ "$action" = refuse ]
 }
 
 # Retires a supervisor loaded under the old default label, for `--start`'s
@@ -816,7 +841,7 @@ if [ "$mode" = "status" ]; then
     install_state=running
     echo "supervisor: running (pid $sup_pid) — $LABEL"
     [ -z "$old_note" ] || echo "$old_note"
-    serves_line "$(supervisor_checkout)"
+    old_label_action serves
     # A pid is not a tick: measured 2026-09-23, this arm printed `running`
     # over a 25-hour-old log. The age is evidence and the state word stays.
     [ -z "$tick_age" ] || echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
@@ -849,7 +874,7 @@ if [ "$mode" = "status" ]; then
     install_state="loaded-not-running"
     printf 'supervisor: LOADED, NOT RUNNING (%s) — %s holds the label and no process is behind it\n  label:   loaded\n  process: absent\n' "$LABEL" "$(platform)"
     [ -z "$old_note" ] || echo "$old_note"
-    serves_line "$(supervisor_checkout)"
+    old_label_action serves
     # THE TICK AGE IS EVIDENCE AND NEVER THE VERDICT. A log's mtime says when
     # the daemon last wrote, and a healthy supervisor between ticks has not
     # written for up to 60 s — so a reader gets the number and this derives
@@ -1098,15 +1123,14 @@ if [ "$mode" = "start" ]; then
   #
   # ONLY `this <dir>` REFUSES for the default label. A default-label
   # supervisor serving another checkout, or one whose checkout cannot be read,
-  # does not block this checkout's own label.
-  refuse_label() { case "$2" in # $1=the label this refusal names $2=supervisor_checkout's answer for it
-      this\ *) printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$1" "${2#this }" >&2 ;;
-      another\ *) printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$1" "${2#another }" "$repo_root" >&2 ;;
-      *) printf "plot-fleetctl: '%s' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout's.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n" "$1" "$plat" "$(read_cmd)" >&2 ;;
-  esac; }
-  supervisor_loaded && refuse_label "$LABEL" "$(supervisor_checkout)" && exit 1
-  [ "$LABEL" = com.plot-pm.fleetd ] || default_served=$(LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd; supervisor_loaded && supervisor_checkout)
-  case "${default_served:-}" in this\ *) refuse_label com.plot-pm.fleetd "$default_served"; exit 1 ;; esac
+  # does not block this checkout's own label. Both ask the bundle through
+  # `old_label_refuses`, which prints the refusal text itself (on stderr) —
+  # this arm only reads the verdict back.
+  # A BUNDLE THAT CANNOT BE ASKED REFUSES TOO — `old_label_refuses` is true on
+  # a broken install as well as on a `refuse` word, so neither arm can load a
+  # second supervisor over this estate on an empty answer.
+  ! old_label_refuses start || exit 1
+  [ "$LABEL" = com.plot-pm.fleetd ] || { ! LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_refuses start-default || exit 1; }
 
   # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
   # prompt file in a scratch desk, through `plot-write-probe.mjs`
@@ -1251,6 +1275,20 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$mode" = "stop" ]; then
   resolve_wt_root
+  # THE OWNER IS READ BEFORE ANYTHING ELSE, against `plot_repo_root` rather
+  # than `$repo_root` — the supervisor always serves the MAIN checkout, never
+  # a desk, so a `--stop` run from a desk must compare against the same root
+  # `--start` loaded it from. `another`/`unknown` REFUSE here: nothing is
+  # signalled, no stop record is written, nothing is unloaded, and the start
+  # marker is kept — the run this refusal stops is not this checkout's to end.
+  # A BUNDLE THAT CANNOT BE ASKED REFUSES TOO, through `old_label_refuses`: on
+  # an empty answer the unload below would boot out whatever holds the label,
+  # which is the bug this read exists to prevent.
+  stop_root=$(plot_repo_root)
+  if old_label_refuses stop "$stop_root"; then
+    plot_processes_block "" "$stop_root"
+    exit 1
+  fi
   branches="" detached="" n=0 n_detached=0
   for wt in "$wt_root"/"$wt_prefix"*; do
     [ -d "$wt" ] || continue
@@ -1360,7 +1398,19 @@ EOF
     #
     # THE POLL IS `unload_supervisor`, shared with the old label's migration
     # and its `--stop` below.
-    if unload_supervisor; then
+    #
+    # THE OWNER IS READ AGAIN, RIGHT HERE — closing the race the first read
+    # left open. The agent-stop loop above can run for up to `--wait` seconds
+    # per branch, and another process's `--start` can load this exact label
+    # for a different checkout while that loop runs. A second `another`/
+    # `unknown` refuses the UNLOAD ALONE: `sup_unconfirmed=1` rather than a
+    # bare exit, so the agent summary below still prints and the stopped
+    # agents are not hidden behind a refusal that is only about the supervisor.
+    # A BUNDLE THAT CANNOT BE ASKED REFUSES THE UNLOAD ALONE here, for the same
+    # reason an `another`/`unknown` answer does.
+    if old_label_refuses stop "$stop_root"; then
+      sup_unconfirmed=1
+    elif unload_supervisor; then
       echo "  supervisor unloaded"
       # THE MARKER GOES WITH THE SUPERVISOR, and only once it is actually gone.
       # It records that a `--start` finished; a deliberate stop ends the run it

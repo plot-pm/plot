@@ -76,7 +76,7 @@ launchctl bootout "gui/$(id -u)/com.plot-pm.fleetd"
 PLOT_FLEET_LABEL=com.plot-pm.fleetd.other-repo skills/plot/scripts/plot-fleetctl.sh --start
 ```
 
-`--start` fills the label into the plist and names the file after it. Set the same variable for `--status` and `--stop` in that checkout — or declare a `Fleet label` key in that checkout's `## Plot Config` instead, read whenever the variable is unset, so `--status` and `--stop` resolve the same label with no variable to remember to set each time.
+`--start` fills the label into the plist and names the file after it. Set the same variable for `--status` and `--stop` in that checkout — or declare a `Fleet label` key in that checkout's `## Plot Config` instead, read whenever the variable is unset, so `--status` and `--stop` resolve the same label with no variable to remember to set each time. Two checkouts that share a label by mistake are still told apart at `--stop`: it reads which checkout the loaded job serves and refuses to unload one that is not this checkout's, rather than booting out whatever the label happened to resolve to.
 
 **An installed unit does not update itself.** A unit installed before `__LABEL__` existed keeps the label it was loaded under, and `--stop` under a new override cannot find it. Boot it out by its old label, remove its file, and start again under the override:
 

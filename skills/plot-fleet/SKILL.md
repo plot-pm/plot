@@ -175,6 +175,15 @@ user rather than working around it.
 | a unit with that label is already loaded | the refusal names the checkout the loaded job serves: **this** repository → `--stop`, then `--start`; **another** checkout (named by path) → give this checkout its own label and leave that one running (`PLOT_FLEET_LABEL`, or the `Fleet label` config key); **cannot determine** → read the job with `launchctl print` before stopping anything |
 | the configured `Worker command` was refused every write it tried | fix the worker command's permissions, then run `--start` again — a dispatched agent under the same command would meet the same refusal |
 
+**`--stop` has its own refusal over the same reading, worded differently.**
+`--start`'s table above is about a CONFLICT before loading a new job; `--stop`'s
+is about an UNLOAD that would end work that is not this checkout's. Reading
+**another** checkout → run `--stop` there instead, or give this checkout its own
+label; reading **cannot determine** → read the job by hand before stopping it.
+Either refusal leaves the job loaded, signals no agent, writes no stop record,
+and keeps the start marker — the run it would have ended is not this
+checkout's to end. See step 5.
+
 **The node refusal is the one that is easiest to talk past, and must not be.**
 The unit bakes `$NODE` in **permanently**. Measured 2026-09-05: `command -v
 node` on the operator's machine answered 26.7.0 against a repo pinned to 24, so
@@ -227,6 +236,20 @@ discards its work"* — and a fleet stop that signalled everything itself would 
 a second, laxer rule for the same act. Naming each branch in turn is not
 guessing: the fleet knows which agents it has, so every call is as specific as
 the one an operator would type.
+
+**Before any of that, `--stop` checks whose supervisor it is about to unload.**
+The resolved label (`PLOT_FLEET_LABEL`, or the `Fleet label` config key) can be
+shared by two checkouts on one machine, so `--stop` reads which checkout the
+loaded job serves against this checkout's main root — never the desk it may be
+running from — before touching anything. A job serving **another** checkout or
+one it cannot read refuses outright: no agent is signalled, no stop record is
+written, the start marker stays, and the refusal lists this checkout's own
+ready-to-stop supervisors so the right command is one copy away. The run exits
+1. A job serving **this** checkout proceeds to the agent-stop loop below. The
+same check runs a second time immediately before the unload itself, closing
+the window the loop leaves open — another process could load a conflicting job
+while the agents were being signalled. A refusal on that second read only
+cancels the unload; it does not hide the agent-stop summary that already ran.
 
 **It reports each branch as it goes, and that is a requirement.** A fleet stop
 is the slowest thing this command does — one signal per agent, each waited on —
