@@ -126,7 +126,7 @@ None. The operator decided the panel's questions on 2026-11-03:
 
 ### Stop refuses a foreign supervisor
 
-- `bug/plot-fleetctl-stop-unloads-another-checkout` — add `labelAction` beside `oldLabelAction`, carry its verbs and the refusal and `serves` text in `plot-old-label.mjs`, replace `refuse_label` and `serves_line` with calls through the shared shell caller, and make `--stop` read the owner before the agent loop and again before `unload_supervisor`.
+- `bug/plot-fleetctl-stop-unloads-another-checkout` — add `labelAction` beside `oldLabelAction`, carry its verbs and the refusal and `serves` text in `plot-old-label.mjs`, replace `refuse_label` and `serves_line` with calls through the shared shell caller, and make `--stop` read the owner before the agent loop and again before `unload_supervisor`. → #3107
 
 **Domain tests.** `packages/domain/test/old-label-migration.test.ts` gets one case per cell of the table above (nine), so the domain keeps its 100% coverage gate.
 
