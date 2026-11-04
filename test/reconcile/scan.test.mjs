@@ -4727,6 +4727,224 @@ test('scan: a chain deeper than the bound ends too-deep, never a loop', () => {
   assert.equal(plan101Hops.length, 15, `five host calls per plan, three plans:\n${argv}`);
 });
 
+// --- Section 6 asks `releasePr`/`releaseTag`, not the highest PR number -----
+//
+// The defect this slice fixes: the old shell picked `${prs##*,}` — the
+// HIGHEST-NUMBERED PR a plan names — to ask about. A plan whose branches list
+// a local PR and a foreign one, in either order, must resolve through the
+// local PR alone; a plan with only foreign PRs must report them by name and
+// ask the host nothing; and two local PRs merged out of number order must be
+// read by MERGE TIME; `plot-release-chain.mjs release <plan-file>` is the one
+// call that owns all three answers now, read the same way `--release` reads
+// them (`releasePr` then `releaseTag`).
+//
+// Each test writes its own one-off plan beside the three `s6Repo` fixtures,
+// cleans it up in `finally`, and restores the stub's `gh` with ITS OWN
+// mergeCommit per PR number — `makeSection6Stub` answers every PR with the
+// SAME sha, which cannot tell two merge commits apart.
+
+/**
+ * A `gh` stub keyed by PR number: `answers` maps a PR number to the fields
+ * `pr view <n>` should carry (`mergeCommit`, `mergedAt`, `base`), and a PR
+ * number absent from the map fails the test outright — a cross-repo test
+ * whose own assertion is "this PR is never asked" must not have a fallback
+ * arm that would silently answer it anyway.
+ */
+function makeNumberedStub(dir, answers) {
+  const argvLog = path.join(dir, 'gh.argv');
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const answers = ${JSON.stringify(answers)};
+const argv = process.argv.slice(2).join(' ');
+fs.appendFileSync(${JSON.stringify(argvLog)}, argv + '\\n');
+if (argv.includes('pr view')) {
+  const n = argv.match(/pr view (\\d+)/)[1];
+  const a = answers[n];
+  if (!a) { process.stderr.write('unexpected pr view ' + n); process.exit(1); }
+  process.stdout.write(JSON.stringify({
+    number: Number(n), state: 'MERGED', isDraft: false, url: 'u',
+    mergeCommit: { oid: a.mergeCommit }, baseRefName: a.base ?? 'main', mergedAt: a.mergedAt,
+  }));
+} else {
+  process.stdout.write('[]');
+}
+`);
+  fs.chmodSync(path.join(dir, 'gh'), 0o755);
+  return argvLog;
+}
+
+function runSection6With(answers) {
+  const bin = scratch('plot-scan-s6-numbered-');
+  const argvLog = makeNumberedStub(bin, answers);
+  const out = execFileSync('bash', [scan, '--no-fetch'], {
+    encoding: 'utf8',
+    cwd: s6Repo,
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  return { out, argv: fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8') : '' };
+}
+
+/** Writes a plan into `s6Repo`, not the unrelated top-of-file `repo` the global `write()` targets. */
+function s6Write(rel, content) {
+  const p = path.join(s6Repo, rel);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, content);
+}
+
+test('scan: a two-repo plan resolves via its local PR alone, never asking about the foreign one', () => {
+  s6Write('plans/2026-03-07-mixed.md', ['# mixed', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### mixed (Branch: bug/mixed)', '',
+    '- `bug/mixed` → #33', '- `bug/mixed-foreign` → other/repo#280', ''].join('\n'));
+  try {
+    const { out, argv } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      33: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    assert.match(sections['6'], /2026-03-07-mixed\.md — shipped in v9\.0\.0/,
+      `a mixed local+foreign plan must resolve through its local PR:\n${sections['6']}`);
+    const asked = argv.split('\n').filter((l) => /\bpr view\b/.test(l)).map((l) => l.match(/pr view (\d+)/)?.[1]);
+    assert.ok(asked.includes('33'), `the local PR must be asked:\n${argv}`);
+    assert.ok(!asked.includes('280'), `the foreign PR must never be asked:\n${argv}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-07-mixed.md'), { force: true });
+  }
+});
+
+test('scan: the same two-repo plan resolves via its local PR on Bitbucket too', () => {
+  s6Write('plans/2026-03-08-mixed-bb.md', ['# mixed bb', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### mixed-bb (Branch: bug/mixed-bb)', '',
+    '- `bug/mixed-bb` → #34', '- `bug/mixed-bb-foreign` → other/repo#281', ''].join('\n'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-bb3-'));
+  const argvLog = path.join(dir, 'bb.argv');
+  fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+case "$*" in
+  *"pr view 34"*)
+    printf '%s' '{"id":34,"state":"MERGED","links":{"html":{"href":"u"}},"source":{"branch":{"name":"x"},"commit":{"hash":"x"}},"destination":{"branch":{"name":"main"}},"merge_commit":{"hash":"${s6Sha}"}}' ;;
+  *"pr view "*)
+    n=$(printf '%s' "$*" | sed -E 's/.*pr view ([0-9]+).*/\\1/')
+    printf '%s' "{\\"id\\":$n,\\"state\\":\\"MERGED\\",\\"links\\":{\\"html\\":{\\"href\\":\\"u\\"}},\\"source\\":{\\"branch\\":{\\"name\\":\\"x\\"},\\"commit\\":{\\"hash\\":\\"x\\"}},\\"destination\\":{\\"branch\\":{\\"name\\":\\"main\\"}},\\"merge_commit\\":{\\"hash\\":\\"${s6Sha}\\"}}" ;;
+  *"api "*"/pullrequests?state="*) printf '%s' '{"values":[]}' ;;
+  *) printf '%s' '[]' ;;
+esac
+exit 0
+`);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+  const saved = execFileSync('git', ['-C', s6Repo, 'remote', 'get-url', 'origin'],
+    { encoding: 'utf8' }).trim();
+  git(s6Repo, 'remote', 'set-url', 'origin', 'https://bitbucket.org/plot-pm/fixture.git');
+  let out;
+  let argv;
+  try {
+    out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8',
+      cwd: s6Repo,
+      env: { ...process.env, PLOT_BB_SKIP_CAP_CHECK: '1', PATH: `${dir}:${process.env.PATH}` },
+    });
+    argv = fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8') : '';
+  } finally {
+    git(s6Repo, 'remote', 'set-url', 'origin', saved);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-08-mixed-bb.md'), { force: true });
+  }
+  const sections = splitSections(out);
+  assert.match(sections['6'], /2026-03-08-mixed-bb\.md — shipped in v9\.0\.0/,
+    `the same resolution must hold on Bitbucket:\n${sections['6']}`);
+  const asked = argv.split('\n').filter((l) => /\bpr view\b/.test(l)).map((l) => l.match(/pr view (\d+)/)?.[1]);
+  assert.ok(asked.includes('34'), `the local PR must be asked on Bitbucket:\n${argv}`);
+  assert.ok(!asked.includes('281'), `the foreign PR must never be asked on Bitbucket:\n${argv}`);
+});
+
+test('scan: an all-foreign plan reports the foreign repositories, never "add → #N"', () => {
+  s6Write('plans/2026-03-09-foreign.md', ['# foreign', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### foreign (Branch: bug/foreign-only)', '',
+    '- `bug/foreign-only` → other/repo#280', ''].join('\n'));
+  try {
+    const { out, argv } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    assert.match(sections['6'], /2026-03-09-foreign\.md — shipped in other repositories: other\/repo/,
+      `an all-foreign plan must name the foreign repositories:\n${sections['6']}`);
+    assert.doesNotMatch(sections['6'].split('\n').find((l) => /2026-03-09-foreign\.md/.test(l)) ?? '',
+      /add → #N/, 'an all-foreign finding must never read as "no PR annotation"');
+    const asked = argv.split('\n').filter((l) => /\bpr view\b/.test(l)).map((l) => l.match(/pr view (\d+)/)?.[1]);
+    assert.ok(!asked.includes('280'), `an all-foreign plan must cost no host call for its own PR:\n${argv}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-09-foreign.md'), { force: true });
+  }
+});
+
+test('scan: a deferred highest-numbered PR does not out-rank the one that shipped', () => {
+  // The defect by construction: `${prs##*,}` picks the highest PR NUMBER.
+  // #110 is higher than #105 and lists last, but #110's branch is deferred —
+  // dropped before `releasePr` ever compares numbers — so #105 is the plan's
+  // only shipped PR and must be the one section 6 names.
+  s6Write('plans/2026-03-10-deferred.md', ['# deferred', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### shipped (Branch: bug/deferred-shipped, PR: #105)', '',
+    '- `bug/deferred-shipped` — the slice → #105', '',
+    '### parked (Branch: bug/deferred-parked, PR: #110)', '',
+    '- `bug/deferred-parked` <!-- deferred --> — the slice → #110', ''].join('\n'));
+  try {
+    const { out, argv } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      105: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    assert.match(sections['6'], /2026-03-10-deferred\.md — shipped in v9\.0\.0/,
+      `a plan with one shipped and one deferred PR must resolve via the shipped one:\n${sections['6']}`);
+    const asked = argv.split('\n').filter((l) => /\bpr view\b/.test(l)).map((l) => l.match(/pr view (\d+)/)?.[1]);
+    assert.ok(asked.includes('105'), `the shipped PR must be asked:\n${argv}`);
+    assert.ok(!asked.includes('110'), `the deferred, higher-numbered PR must never be asked:\n${argv}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-10-deferred.md'), { force: true });
+  }
+});
+
+test('scan: PR #60 merged before #50 but the tag misses #60 reports tag-misses-pr', () => {
+  // Two LOCAL PRs on one plan, read by MERGE TIME rather than PR number.
+  // #60 merged FIRST, onto a commit this clone holds but no tag contains.
+  // #50 merged LAST, onto s6Sha — tagged v9.0.0 in `before()`. `releaseTag`
+  // takes the LAST-MERGED row (#50) to pick the wanted tag (v9.0.0, the only
+  // one it finds), then checks every OTHER row against it: #60's commit is
+  // not in v9.0.0, so the plan has shipped only in part — the cross-PR guard
+  // must name that rather than reporting a clean "shipped in v9.0.0".
+  const tree = git(s6Repo, 'rev-parse', 'HEAD^{tree}').trim();
+  const untaggedSha = git(s6Repo, 'commit-tree', tree, '-p', 'HEAD', '-m', 'pr 60 merge commit').trim();
+  s6Write('plans/2026-03-11-outoforder.md', ['# outoforder', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### first (Branch: bug/outoforder-first, PR: #60)', '',
+    '- `bug/outoforder-first` — the slice → #60', '',
+    '### second (Branch: bug/outoforder-second, PR: #50)', '',
+    '- `bug/outoforder-second` — the slice → #50', ''].join('\n'));
+  try {
+    const { out } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      60: { mergeCommit: untaggedSha, mergedAt: '2026-03-01T00:00:00Z' },
+      50: { mergeCommit: s6Sha, mergedAt: '2026-03-02T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    assert.match(sections['6'],
+      new RegExp(`2026-03-11-outoforder\\.md — delivered, tag 'v9\\.0\\.0' does not contain PR #60's merge commit \\(${untaggedSha}\\)`),
+      `two local PRs merged out of number order, one tag missing the other, must report tag-misses-pr by its detail text:\n${sections['6']}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-11-outoforder.md'), { force: true });
+  }
+});
+
 // --- Section 23: a finished plan whose issue is still open ------------------
 //
 // THE FIXTURE NEEDS A TRACKER, so it takes section 20's shape: the scripts are

@@ -3478,56 +3478,36 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
     continue
   fi
 
-  last_pr="${prs##*,}"
-  pr_state_row=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null)
-  sha=$(jq -r '.mergeCommit // empty' <<<"$pr_state_row" 2>/dev/null)
-  # No grep fallback. An earlier draft searched commit messages for "#N", which
-  # matched any commit MENTIONING the PR rather than its merge — and reported
-  # v2.2.0 for a plan that shipped in v1.7.0. A wrong version in a transition
-  # record is a claim nobody re-checks, so an unanswerable case says so instead.
-  #
-  # A SHA THIS REPOSITORY DOES NOT HOLD IS NOT AN UNRELEASED PLAN, and until
-  # 2026-09-18 it read as one. `git tag --contains <unknown-sha>` prints
-  # `error: no such commit` and the rc of the PIPELINE is `head`'s — measured 0
-  # — so the failure reached the `continue` below whose comment says the plan is
-  # simply not released yet. Silence, in the one section written so that
-  # "cannot tell" and "nothing wrong" cannot look the same.
-  #
-  # `cat-file -e` IS ASKED SEPARATELY because its exit code is readable where
-  # the pipeline's is not. A sha in the clone takes the DIRECT PATH: the tag
-  # that contains it is the exact answer, whatever branch the PR merged into.
-  #
-  # AN EMPTY OR ABSENT SHA GOES TO `plot-release-chain.mjs`, which prints the
-  # whole verdict. Three populations arrive there — `--no-fetch` with PRs on, a
-  # merge commit outside the local refspec or a shallow clone, and a merge
-  # commit on a branch no clone holds. Measured 2026-10-21 against
-  # ewz-kus-portal (Bitbucket): PRs #3488–#3490 merged into
-  # `feature/ewzkus-3518-sammelrechnungen`, deleted later; that branch's own
-  # PR #3491 merged into `develop` as `651cb9be3724`, in v5.23.2213. Where the
-  # PR merged into a non-default branch, the bundle follows that branch's
-  # merged PRs onward and accepts a hop only when its merge commit contains
-  # the previous commit, or when it is the one PR that can have carried it.
-  # Every other case — including a host that did not answer — is a named
-  # "cannot tell" or "cannot resolve", never silence. `PR_SOURCE` picks advice
-  # the operator can run: `gh`, `bb`, or the adapter.
-  if [ -z "$sha" ] || ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
-    chain=$(node "$script_dir/board/plot-release-chain.mjs" resolve "$last_pr" "$MAIN" "$PR_SOURCE" "$((1 - do_fetch))" <<<"$pr_state_row")
-    IFS=$'\t' read -r chain_verb tag <<<"$chain"
-    case "$chain_verb" in
-      unreleased) continue ;;
-      shipped) ;;
-      *) unrel_out+="  $base — ${tag:-delivered, PR #$last_pr → cannot tell (plot-release-chain.mjs gave no answer)}\n"; n_unrel=$((n_unrel + 1)); continue ;;
-    esac
-  else
-    tag=$(git tag --contains "$sha" 2>/dev/null \
-          | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
-  fi
-  [ -n "$tag" ] || continue   # genuinely not released yet — nothing to report
-
-  slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-  unrel_out+="  $base — shipped in $tag, plan still Delivered\n"
-  unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
-  n_unrel=$((n_unrel + 1))
+  # ONE CALL OWNS THE WHOLE DECISION — which local PR to ask about, whether
+  # the plan is all-foreign, and which tag (if any) contains it — the same
+  # `releasePr`/`releaseTag` domain rules `--release` reads, read the same way.
+  # No `last_pr="${prs##*,}"`, no direct `cat-file -e`/`git tag --contains`
+  # shortcut, no `resolve` fallback here: the bundle already takes the direct
+  # path with no extra host call where the merge commit is in this clone, and
+  # falls to the chain walk itself otherwise. The PR LIST stays shell-only
+  # for the `no PR annotation` arm above; everything past it comes from the
+  # plan file the bundle reads itself, through the one parser that owns the
+  # plan format.
+  release=$(node "$script_dir/board/plot-release-chain.mjs" release "$f" "$MAIN" "$PR_SOURCE" "$((1 - do_fetch))")
+  IFS=$'\t' read -r release_verb release_detail <<<"$release"
+  case "$release_verb" in
+    unreleased|none) continue ;;  # genuinely not released yet — nothing to report
+    shipped)
+      slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+      unrel_out+="  $base — shipped in $release_detail, plan still Delivered\n"
+      unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
+      n_unrel=$((n_unrel + 1))
+      ;;
+    all-foreign)
+      unrel_out+="  $base — shipped in other repositories: $release_detail\n"
+      unrel_out+="    consider: /plot-release\n"
+      n_unrel=$((n_unrel + 1))
+      ;;
+    *)
+      unrel_out+="  $base — ${release_detail:-delivered, cannot tell (plot-release-chain.mjs gave no answer)}\n"
+      n_unrel=$((n_unrel + 1))
+      ;;
+  esac
 done <<< "$plan_rows"
 [ -n "$unrel_out" ] && printf '%b' "$unrel_out" || echo "  (none)"
 # SILENCE WOULD BE THE WORSE BUG. An empty section reads as "nothing to report",

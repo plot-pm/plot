@@ -1,10 +1,14 @@
 // THROUGH THE NARROW PATHS, not the package root, for the reason
 // `agent-settings.ts` gives: the root import bundles every entity and rule.
 import { releaseChainStep, type ReleaseChainHop, type ReleaseChainStep } from '@plot-pm/domain/rules/release-chain';
+import { releasePr, releaseTag, type ReleasePrRow, type ReleaseTagPrRow } from '@plot-pm/domain/rules/release-tag';
+import { branchClaims } from '@plot-pm/domain/rules/cross-repo-reference';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
+import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -141,6 +145,101 @@ export const resolveRelease = async (
   }
 };
 
+/** The ports a plan's release resolution reads — `releasePr`/`releaseTag`'s readings, plus {@link resolveRelease}'s walk for the cases the direct tag lookup cannot tell apart from a shallow clone. */
+export interface ReleasePorts {
+  readonly planStore: Pick<PlanStore, 'readPlan' | 'readText'>;
+  readonly host: Pick<Host, 'prState'> & ResolvePorts['host'];
+  readonly refs: Pick<Refs, 'tagsContaining'> & ResolvePorts['refs'];
+}
+
+/**
+ * Resolves section 6's question for one delivered plan — `releasePr` then
+ * `releaseTag`, read the same way `--release` reads them, instead of the
+ * shell's own `last_pr="${prs##*,}"`.
+ *
+ * Every non-deferred local PR {@link releasePr} names is asked for its merge
+ * commit and `mergedAt`; a plan with no local PR to ask about never reaches
+ * {@link Host.prState} at all — `all-foreign` and `none` both answer for free.
+ * Where the last-merged local PR's merge commit is empty or missing from this
+ * clone, the walk {@link resolveRelease} already owns (a PR merged into a
+ * non-default branch, or a Bitbucket merge commit no ref ever carried) answers
+ * instead — the direct tag lookup cannot tell those two cases apart from a
+ * shallow clone, and the walk already names each one correctly.
+ *
+ * @param input - the plan file to read, the repository's default branch, the scan's PR source, and whether it skipped `git fetch`.
+ * @param ports - the plan store, host and refs ports this reads.
+ * @param warn - where a host refusal's own words go, same as {@link resolveRelease}.
+ * @returns the output line, without its newline — `shipped\t...`, `unreleased`, `all-foreign\t...`, `none`, or `finding\t...`.
+ */
+export const resolvePlanRelease = async (
+  input: { readonly planFile: string; readonly defaultBranch: string; readonly prSource: string; readonly noFetch: boolean },
+  ports: ReleasePorts,
+  warn: (s: string) => void,
+): Promise<string> => {
+  const { planFile, defaultBranch, prSource, noFetch } = input;
+  const parsed = await ports.planStore.readPlan(planFile);
+  const text = await ports.planStore.readText(planFile);
+  const deferredBranches = new Set(
+    parsed.ok ? parsed.value.slices.flatMap((slice) => slice.branches).filter((b) => b.deferred).map((b) => b.branch) : [],
+  );
+  const prRows: readonly ReleasePrRow[] =
+    text.ok && text.value !== null
+      ? branchClaims(text.value).map((claim) => ({ reference: claim.reference, deferred: deferredBranches.has(claim.branch) }))
+      : [];
+  const prResult = releasePr(prRows);
+
+  if (prResult.outcome === 'none') return 'none';
+  if (prResult.outcome === 'all-foreign') return `all-foreign\t${prResult.repos.join(',')}`;
+
+  const prs = await Promise.all(
+    prResult.numbers.map(async (number) => {
+      const state = await ports.host.prState(number);
+      const pr = state.ok ? state.value : null;
+      return {
+        number,
+        mergeCommit: pr?.mergeCommit ?? '',
+        mergedAt: pr?.mergedAt ?? '',
+        base: pr?.base ?? '',
+      };
+    }),
+  );
+
+  const lastPr = prs.reduce((latest, pr) => (pr.mergedAt > latest.mergedAt ? pr : latest));
+
+  // THE DIRECT PATH, kept exactly where it always lived — a merge commit
+  // already in this clone resolves its tag with no host call beyond the
+  // `prState` reads above, which `releasePr`'s local outcome already needs.
+  if (lastPr.mergeCommit === '') {
+    return resolveRelease(
+      { pr: String(lastPr.number), mergeCommit: '', mergedAt: lastPr.mergedAt, base: lastPr.base, defaultBranch, prSource, noFetch },
+      ports,
+      warn,
+    );
+  }
+  const lastTags = await ports.refs.tagsContaining(lastPr.mergeCommit);
+  if (!lastTags.ok) {
+    return resolveRelease(
+      { pr: String(lastPr.number), mergeCommit: lastPr.mergeCommit, mergedAt: lastPr.mergedAt, base: lastPr.base, defaultBranch, prSource, noFetch },
+      ports,
+      warn,
+    );
+  }
+  const firstTag = lastTags.value[0];
+  if (firstTag === undefined) return 'unreleased';
+
+  const prRowsForTag: ReleaseTagPrRow[] = await Promise.all(
+    prs.map(async (pr) => {
+      if (pr.number === lastPr.number) return { ...pr, containingTags: lastTags.value };
+      const tags = await ports.refs.tagsContaining(pr.mergeCommit);
+      return { ...pr, containingTags: tags.ok ? tags.value : [] };
+    }),
+  );
+
+  const resolved = releaseTag({ prs: prRowsForTag, wantedVersion: firstTag });
+  if (resolved.outcome === 'resolved') return `shipped\t${resolved.tag}`;
+  return `finding\tdelivered, ${resolved.detail}`;
+};
+
 /**
  * Parses the `pr-state` row.
  *
@@ -160,12 +259,16 @@ export const parseRow = (stdin: string): { mergeCommit: string; mergedAt: string
   }
 };
 
+const USAGE =
+  'plot-release-chain: usage: plot-release-chain.mjs resolve <pr> <default-branch> <pr-source> <no-fetch: 0|1> < pr-state-row\n' +
+  '                 or: plot-release-chain.mjs release <plan-file> <default-branch> <pr-source> <no-fetch: 0|1>\n';
+
 /**
  * Answers the verb.
  *
  * @param argv - the arguments after the script name.
- * @param stdin - the `pr-state` row.
- * @param ports - the host and refs ports the walk reads.
+ * @param stdin - the `pr-state` row, read only by `resolve`.
+ * @param ports - the host, refs and plan-store ports either verb reads.
  * @param write - where the answer goes.
  * @param warn - where a usage refusal and a host refusal go.
  * @returns the process exit code.
@@ -173,19 +276,20 @@ export const parseRow = (stdin: string): { mergeCommit: string; mergedAt: string
 export const run = async (
   argv: readonly string[],
   stdin: string,
-  ports: ResolvePorts,
+  ports: ReleasePorts,
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
-  const [verb, pr, defaultBranch, prSource = '', noFetchArg = ''] = argv;
-  if (verb !== 'resolve' || pr === undefined || defaultBranch === undefined) {
-    warn(
-      'plot-release-chain: usage: plot-release-chain.mjs resolve <pr> <default-branch> <pr-source> <no-fetch: 0|1> < pr-state-row\n',
-    );
+  const [verb, target, defaultBranch, prSource = '', noFetchArg = ''] = argv;
+  if (target === undefined || defaultBranch === undefined || (verb !== 'resolve' && verb !== 'release')) {
+    warn(USAGE);
     return EXIT.usage;
   }
   const noFetch = noFetchArg === '1' || noFetchArg === 'true';
-  const line = await resolveRelease({ pr, defaultBranch, prSource, noFetch, ...parseRow(stdin) }, ports, warn);
+  const line =
+    verb === 'resolve'
+      ? await resolveRelease({ pr: target, defaultBranch, prSource, noFetch, ...parseRow(stdin) }, ports, warn)
+      : await resolvePlanRelease({ planFile: target, defaultBranch, prSource, noFetch }, ports, warn);
   write(`${line}\n`);
   return EXIT.ok;
 };
@@ -200,8 +304,20 @@ export const run = async (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const context = { repoRoot: process.cwd(), scriptDir };
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  const stdin = Buffer.concat(chunks).toString('utf8');
-  void endEntry(await run(process.argv.slice(2), stdin, { host: hostShell(context), refs: refsGit(context) }));
+  // Read only for `resolve` — `release` takes a plan file on argv and never
+  // reads stdin, so a caller that does not redirect it (unlike `resolve`'s
+  // `<<<"$pr_state_row"`) must not block this process waiting for EOF.
+  let stdin = '';
+  if (process.argv[2] === 'resolve') {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    stdin = Buffer.concat(chunks).toString('utf8');
+  }
+  void endEntry(
+    await run(process.argv.slice(2), stdin, {
+      host: hostShell(context),
+      refs: refsGit(context),
+      planStore: planStoreShell(context),
+    }),
+  );
 }
