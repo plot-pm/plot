@@ -531,7 +531,7 @@ describe('board: a card carries its interrogation round, or carries nothing', ()
     assert.equal('rounds' in card, false);
   });
 
-  it('still carries the count on a non-Draft card — the BADGE is what is Draft-only', async () => {
+  it('still carries the count on a non-Draft, non-Design card — the BADGE is what is Draft-and-Design-only', async () => {
     // The server reports what the plan records; whether to SHOW it is a display
     // decision (roundsBadgeText), kept on the client where the other badge
     // rules live. Splitting it the other way would put a display rule in the

@@ -11,13 +11,14 @@ import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './id
 import { PlanMetaSchema } from '../contract/schema.js';
 
 /**
- * Interrogating a Draft plan: `POST /api/interrogate` runs the configured
- * `Interrogate command` with a prompt asking for `/challenge-the-plan <plan path>`.
+ * Interrogating a Draft or Design plan: `POST /api/interrogate` runs the
+ * configured `Interrogate command` with a prompt asking for
+ * `/challenge-the-plan <plan path>`.
  *
- * The shape is `reslice.ts`'s: slug-scoped, Draft-only, a plot agent started
- * through the `agentRun` port and answered 202, and a slug-keyed status
- * read-back. The guards are imported from `dispatch.ts` and `idea.ts`, not
- * copied.
+ * The shape is `reslice.ts`'s: slug-scoped, Draft-and-Design-only, a plot
+ * agent started through the `agentRun` port and answered 202, and a
+ * slug-keyed status read-back. The guards are imported from `dispatch.ts` and
+ * `idea.ts`, not copied.
  *
  * Under `Plan PRs: required` a Draft plan exists only on its `idea/<slug>`
  * branch until that PR merges, so the route asks the `host` port for it
@@ -85,7 +86,7 @@ export type InterrogateRefusal =
   | 'no-interrogate-command'
   /** The plan could not be found or its phase could not be read. */
   | 'plan-unreadable'
-  /** The plan is past Draft. */
+  /** The plan is past Design. */
   | 'not-a-draft'
   /** A panel for this plan is still running. */
   | 'already-running';
@@ -182,8 +183,8 @@ const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: string): 
 /**
  * The prompt handed to the runner. It names `/challenge-the-plan` and the plan,
  * and nothing else: no lenses, no commitment, no rubric. `/challenge-the-plan`
- * is the Draft-plan caller of `/plot-panel` and supplies all four of its
- * parameters; under `PLOT_UNATTENDED=1` it runs the panel rather than the
+ * is the Draft-or-Design-plan caller of `/plot-panel` and supplies all four of
+ * its parameters; under `PLOT_UNATTENDED=1` it runs the panel rather than the
  * interview. Naming `/plot-panel` directly supplies only the subject, and an
  * unattended panel refuses when a parameter is missing.
  *
@@ -193,7 +194,7 @@ export const composeInterrogatePrompt = (planPath: string): string =>
   [
     `/challenge-the-plan ${planPath}`,
     '',
-    `Run /challenge-the-plan on the Draft plan at ${planPath}, unattended, and follow`,
+    `Run /challenge-the-plan on the plan at ${planPath}, unattended, and follow`,
     'the skill to its end, including recording the round in the plan. Act on no',
     'verdict: approve nothing, reject nothing, and change no phase.',
     '',
@@ -317,7 +318,7 @@ export interface InterrogateDeps {
  * | 403 | — | the request is cross-origin |
  * | 409 | `no-interrogate-command` | the key is absent or `none` |
  * | 409 | `plan-unreadable` | the plan or its phase cannot be read |
- * | 409 | `not-a-draft` | the plan is past Draft |
+ * | 409 | `not-a-draft` | the plan is past Design |
  * | 409 | `already-running` | a panel for this slug is still running |
  *
  * The localhost binding is enforced in the router for every write route
@@ -429,11 +430,11 @@ export const handleInterrogate = async (
     );
     return;
   }
-  if (phase !== 'draft') {
+  if (phase !== 'draft' && phase !== 'design') {
     refuse(
       'not-a-draft',
       slug,
-      `plan \`${slug}\` is ${phase}, not draft — a panel on a plan past Draft changes nothing the lifecycle reads`,
+      `plan \`${slug}\` is ${phase}, past Design — a panel on a plan past Design changes nothing the lifecycle reads`,
     );
     return;
   }

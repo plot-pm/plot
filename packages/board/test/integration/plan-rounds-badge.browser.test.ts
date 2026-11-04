@@ -180,8 +180,8 @@ describe('the rounds ride beside the phase', () => {
     try {
       await expect.poll(() => planRow(page, 'shipped').count(), { timeout: 10_000 })
         .toBeGreaterThan(0);
-      // `roundsBadgeText` gates on `isDraft` — phase === 'Discovery' — and this
-      // plan is in Testing with `rounds: 3`. The badge is a DISCOVERY-phase
+      // `roundsBadgeText` gates on `controls.roundsBadge` — and this
+      // plan is in Testing with `rounds: 3`. The badge is a Draft-or-Design
       // reading: it says how far the thinking got while the thinking is the
       // work. Once a plan is being built, its rounds are history.
       //

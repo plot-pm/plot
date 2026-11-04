@@ -209,9 +209,9 @@ export function costBadgeDetail(card: Card): string {
 /**
  * The interrogation badge's text, or "" when there is nothing to say.
  *
- * **Draft only.** Past Draft the count is history: approval settled the
- * question it measures. Reads `controls.roundsBadge`, which the server decides
- * from the plan's state: `draft` qualifies and `design` does not.
+ * **Draft and Design.** Past Design the count is history: approval settled
+ * the question it measures. Reads `controls.roundsBadge`, which the server decides
+ * from the plan's state: `draft` and `design` qualify.
  *
  * **Absent and 0 are two statements, and both render.** `undefined` means no
  * interrogation is recorded, and the badge says `not interrogated`; a recorded
@@ -433,7 +433,7 @@ export function PlanCard({
         {card.sliceSummary && card.sliceSummary.branches > 0 && sliceBadgeText(card.sliceSummary) && (
           <Badge variant="neutral">{sliceBadgeText(card.sliceSummary)}</Badge>
         )}
-        {/* How hard this plan has been questioned — a Discovery-column answer to
+        {/* How hard this plan has been questioned — a Draft-or-Design answer to
             "has anyone pushed on this yet?". A plan recording no round is
             marked `not interrogated` in an outlined badge; a recorded 0 is the
             filled `0 rounds`. The two must never look alike. */}

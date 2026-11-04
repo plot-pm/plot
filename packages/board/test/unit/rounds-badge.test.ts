@@ -8,7 +8,7 @@ import { controlsFor } from '../fixtures/card-controls.js';
 // count and a settled plan both render no badge, for different reasons.
 
 // The controls come from the column's plan state through `cardControls`, the
-// rule the server calls: a Draft card carries the badge and a Design card does not.
+// rule the server calls: a Draft card and a Design card both carry the badge.
 const card = (over: Partial<Card> = {}): Card => {
   const phase = over.phase ?? 'Discovery';
   return {
@@ -51,16 +51,19 @@ describe('roundsBadgeText', () => {
     expect(roundsBadgeText(card({ rounds: 0 }))).toBe('0 rounds');
   });
 
-  it('appears only on Draft cards', () => {
-    // Past Discovery the count is history: the design question it answers was
+  it('appears on Draft and Design cards, and nowhere past Design', () => {
+    // Past Design the count is history: the design question it answers was
     // settled by approval, and a number nobody acts on is the crowding this
     // board keeps removing.
-    for (const phase of ['Design', 'Development', 'Testing', 'Released'] as const) {
+    for (const phase of ['Development', 'Testing', 'Released'] as const) {
       expect(roundsBadgeText(card({ phase, rounds: 3 }))).toBe('');
       expect(roundsBadgeText(card({ phase }))).toBe('');
     }
-    // …and every Draft card with a count does carry it.
+    // …and every Draft or Design card with a count does carry it.
     expect(roundsBadgeText(card({ phase: 'Discovery', rounds: 3 }))).toBe('3 rounds');
+    expect(roundsBadgeText(card({ phase: 'Design', rounds: 3 }))).toBe('3 rounds');
+    // …and a plan recording none still shows `not interrogated` in Design.
+    expect(roundsBadgeText(card({ phase: 'Design' }))).toBe('not interrogated');
   });
 
   it('says "1 round", not "1 rounds"', () => {

@@ -145,7 +145,7 @@ describe('the four refusals', () => {
     assert.equal(fs.existsSync(interrogatePromptPath(dir, SLUG)), false, 'nothing is written on a refusal');
   });
 
-  it('refuses a plan past Draft, and one whose phase cannot be read', async () => {
+  it('refuses a plan past Design, and one whose phase cannot be read', async () => {
     const dir = repo();
     draftPlan(dir);
     for (const phase of ['approved', 'delivered', 'released']) {
@@ -156,6 +156,14 @@ describe('the four refusals', () => {
     }
     const unreadable = await post({ repoRoot: dir, phase: () => null });
     assert.equal(refusal(unreadable), 'plan-unreadable');
+  });
+
+  it('admits a Design plan the same way as a Draft plan', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({ repoRoot: dir, phase: () => 'design' });
+    assert.equal(got.status, 202);
+    await boardRunsSettled();
   });
 
   it('refuses a second panel while the first is running', async () => {
