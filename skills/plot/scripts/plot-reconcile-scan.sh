@@ -3491,7 +3491,21 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   release=$(node "$script_dir/board/plot-release-chain.mjs" release "$f" "$MAIN" "$PR_SOURCE" "$((1 - do_fetch))")
   IFS=$'\t' read -r release_verb release_detail <<<"$release"
   case "$release_verb" in
-    unreleased|none) continue ;;  # genuinely not released yet — nothing to report
+    unreleased) continue ;;  # genuinely not released yet — nothing to report
+    none)
+      # NOT THE SAME ANSWER AS `unreleased`, and the `-z "$prs"` guard above
+      # cannot have caught it: `plot-plan-meta.sh` puts deferred PRs IN `prs`
+      # (`deferred_prs` is a subset of it), so a plan whose only annotation
+      # sits on a deferred branch arrives here with `prs` non-empty. A
+      # non-deferred branch whose claim lines name no PR reaches it too, even
+      # where another branch names one. `/plot-release` refuses both outright
+      # — "the version cannot be resolved from a merge commit that does not
+      # exist" — so reporting nothing here hides a plan that cannot be
+      # released, which is this section's own stated defect.
+      unrel_out+="  $base — delivered, but no → #N annotation on a slice that was not deferred → cannot resolve a version\n"
+      unrel_out+="    inspect: add → #N to a non-deferred branch in its Branches section, then re-run\n"
+      n_unrel=$((n_unrel + 1))
+      ;;
     shipped)
       slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
       unrel_out+="  $base — shipped in $release_detail, plan still Delivered\n"

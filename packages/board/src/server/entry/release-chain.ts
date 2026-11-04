@@ -160,11 +160,17 @@ export interface ReleasePorts {
  * Every non-deferred local PR {@link releasePr} names is asked for its merge
  * commit and `mergedAt`; a plan with no local PR to ask about never reaches
  * {@link Host.prState} at all — `all-foreign` and `none` both answer for free.
- * Where the last-merged local PR's merge commit is empty or missing from this
- * clone, the walk {@link resolveRelease} already owns (a PR merged into a
- * non-default branch, or a Bitbucket merge commit no ref ever carried) answers
- * instead — the direct tag lookup cannot tell those two cases apart from a
- * shallow clone, and the walk already names each one correctly.
+ * Where ANY of those PRs carries no merge commit, the walk
+ * {@link resolveRelease} already owns (a PR merged into a non-default branch,
+ * or a Bitbucket merge commit no ref ever carried) answers instead — the
+ * direct tag lookup cannot tell those two cases apart from a shallow clone,
+ * and the walk already names each one correctly. That check precedes every
+ * tag lookup, the order `runRelease` reads these in: a tag found for the
+ * last-merged PR must not answer for a plan whose sibling PR is unresolved.
+ *
+ * `none` is the caller's to report, not to skip: {@link releasePr} answers it
+ * for a plan whose every PR is deferred and for a non-deferred branch naming
+ * none, and `/plot-release` refuses both. It is not `unreleased`.
  *
  * @param input - the plan file to read, the repository's default branch, the scan's PR source, and whether it skipped `git fetch`.
  * @param ports - the plan store, host and refs ports this reads.
@@ -206,12 +212,25 @@ export const resolvePlanRelease = async (
 
   const lastPr = prs.reduce((latest, pr) => (pr.mergedAt > latest.mergedAt ? pr : latest));
 
-  // THE DIRECT PATH, kept exactly where it always lived — a merge commit
-  // already in this clone resolves its tag with no host call beyond the
-  // `prState` reads above, which `releasePr`'s local outcome already needs.
-  if (lastPr.mergeCommit === '') {
+  // EVERY PR IS CHECKED FOR A MERGE COMMIT BEFORE ANY TAG IS LOOKED UP, the
+  // order `runRelease` reads these in (deliver.ts: `prs.find(mergeCommit ===
+  // '')` precedes every `tagsContaining`). Asking for a tag first lets the
+  // weaker answer win: `unreleased` is reportable as "nothing wrong yet",
+  // while an unanswered merge commit is "cannot tell", and a plan whose
+  // sibling PR the host could not answer for would read as the former.
+  // `tagsContaining('')` is also not a question git can answer — `git tag
+  // --contains ''` exits non-zero, and the resulting `[]` is
+  // indistinguishable from "a real commit no tag contains".
+  const noCommit = prs.find((pr) => pr.mergeCommit === '');
+  if (noCommit !== undefined) {
+    // THE DIRECT PATH, kept exactly where it always lived — a merge commit
+    // already in this clone resolves its tag with no host call beyond the
+    // `prState` reads above, which `releasePr`'s local outcome already needs.
+    // The walk is handed the PR THAT CARRIES NO COMMIT, not whichever merged
+    // last: a reader sent to verify a PR number must be sent to the one the
+    // host could not answer for.
     return resolveRelease(
-      { pr: String(lastPr.number), mergeCommit: '', mergedAt: lastPr.mergedAt, base: lastPr.base, defaultBranch, prSource, noFetch },
+      { pr: String(noCommit.number), mergeCommit: '', mergedAt: noCommit.mergedAt, base: noCommit.base, defaultBranch, prSource, noFetch },
       ports,
       warn,
     );

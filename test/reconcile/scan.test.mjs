@@ -4945,6 +4945,106 @@ test('scan: PR #60 merged before #50 but the tag misses #60 reports tag-misses-p
   }
 });
 
+test('scan: a plan whose only PR sits on a deferred branch is unresolvable, not silent', () => {
+  // THE `-z "$prs"` GUARD CANNOT CATCH THIS. `plot-plan-meta.sh` documents
+  // `deferred_prs` as a subset of `prs`, so #120 is in `prs`, the guard
+  // passes, and `releasePr` then drops the only row it has — answering
+  // `none`. Reporting nothing would hide a plan `/plot-release` refuses
+  // outright, which is the one failure this section exists to prevent.
+  s6Write('plans/2026-03-12-alldeferred.md', ['# alldeferred', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### parked (Branch: bug/alldeferred-parked, PR: #120)', '',
+    '- `bug/alldeferred-parked` <!-- deferred --> — the slice → #120', ''].join('\n'));
+  try {
+    const { out, argv } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    assert.match(sections['6'], /2026-03-12-alldeferred\.md — delivered, but no → #N annotation on a slice that was not deferred/,
+      `a plan whose every PR is deferred must be reported, not continued past:\n${sections['6']}`);
+    assert.match(sections['6'], /inspect: add → #N to a non-deferred branch/,
+      `the finding must carry the repair that makes the plan releasable:\n${sections['6']}`);
+    // `none` costs no host call — the stub fails outright on an unexpected
+    // number, so asking about #120 would fail the run rather than pass quietly.
+    const asked = argv.split('\n').filter((l) => /\bpr view\b/.test(l)).map((l) => l.match(/pr view (\d+)/)?.[1]);
+    assert.ok(!asked.includes('120'), `a deferred-only plan must cost no host call:\n${argv}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-12-alldeferred.md'), { force: true });
+  }
+});
+
+test('scan: a non-last PR with no merge commit is reported, never as cleanly shipped', () => {
+  // THE EMPTY MERGE COMMIT IS NOT THE LAST-MERGED PR. #70 merged last and
+  // carries s6Sha (tagged v9.0.0); #71 merged first and the host answered no
+  // merge commit for it. Asking for a tag before checking every PR let the
+  // tag lookup win: #70's v9.0.0 made the plan read `shipped in v9.0.0`,
+  // while `tagsContaining('')` for #71 quietly produced `[]`, which is
+  // indistinguishable from "a real commit no tag contains". The finding must
+  // name #71 — the PR the host could not answer for — not #70.
+  s6Write('plans/2026-03-13-nocommit.md', ['# nocommit', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### shipped (Branch: bug/nocommit-shipped, PR: #70)', '',
+    '- `bug/nocommit-shipped` — the slice → #70', '',
+    '### unanswered (Branch: bug/nocommit-unanswered, PR: #71)', '',
+    '- `bug/nocommit-unanswered` — the slice → #71', ''].join('\n'));
+  try {
+    const { out } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      70: { mergeCommit: s6Sha, mergedAt: '2026-03-02T00:00:00Z' },
+      71: { mergeCommit: '', mergedAt: '2026-03-01T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    const line = sections['6'].split('\n').find((l) => /2026-03-13-nocommit\.md/.test(l)) ?? '';
+    assert.doesNotMatch(line, /shipped in v9\.0\.0/,
+      `a plan with an unanswered merge commit must never read as cleanly shipped:\n${sections['6']}`);
+    assert.match(line, /no merge commit/,
+      `the finding must say the merge commit is missing:\n${sections['6']}`);
+    assert.match(line, /#71/,
+      `the finding must name the PR that carries no merge commit:\n${sections['6']}`);
+    assert.doesNotMatch(line, /#70\b/,
+      `the finding must not send a reader to verify the PR that DID answer:\n${sections['6']}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-13-nocommit.md'), { force: true });
+  }
+});
+
+test('scan: an untagged last PR with an empty-commit sibling is not reported as unreleased', () => {
+  // THE WORSE HALF OF THE SAME ORDERING DEFECT. #80 merged last onto a commit
+  // this clone holds but no tag contains, so the tag lookup answered
+  // `unreleased` — "genuinely not released yet, nothing to report" — and the
+  // section continued past a plan whose #81 the host could not answer for at
+  // all. A release state that is genuinely unknown must not read as known.
+  const tree = git(s6Repo, 'rev-parse', 'HEAD^{tree}').trim();
+  const untaggedSha = git(s6Repo, 'commit-tree', tree, '-p', 'HEAD', '-m', 'pr 80 merge commit').trim();
+  s6Write('plans/2026-03-14-untagged.md', ['# untagged', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### last (Branch: bug/untagged-last, PR: #80)', '',
+    '- `bug/untagged-last` — the slice → #80', '',
+    '### unanswered (Branch: bug/untagged-unanswered, PR: #81)', '',
+    '- `bug/untagged-unanswered` — the slice → #81', ''].join('\n'));
+  try {
+    const { out } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      80: { mergeCommit: untaggedSha, mergedAt: '2026-03-02T00:00:00Z' },
+      81: { mergeCommit: '', mergedAt: '2026-03-01T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    const line = sections['6'].split('\n').find((l) => /2026-03-14-untagged\.md/.test(l)) ?? '';
+    assert.notStrictEqual(line, '',
+      `an untagged plan with an unanswered sibling must be reported, not silently unreleased:\n${sections['6']}`);
+    assert.match(line, /#81/,
+      `the finding must name the PR the host could not answer for:\n${sections['6']}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-14-untagged.md'), { force: true });
+  }
+});
+
 // --- Section 23: a finished plan whose issue is still open ------------------
 //
 // THE FIXTURE NEEDS A TRACKER, so it takes section 20's shape: the scripts are
