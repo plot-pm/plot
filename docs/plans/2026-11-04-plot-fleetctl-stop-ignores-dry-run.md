@@ -128,7 +128,7 @@ No board type changes, so `pnpm run typecheck` is not required. `test:e2e` is CI
 
 ### Refuse dry-run outside start
 
-- `feature/plot-fleetctl-stop-ignores-dry-run` — refuse `--dry-run` with any mode but `--start` after the mode-required line; fix the `-h` range; inline `running_major` and `home_short` to keep the shell count from growing; four new cases in `test/reconcile/fleetctl.test.mjs`; `--dry-run` row in `skills/plot-fleet/SKILL.md`; changeset <!-- builds: a mode check for --dry-run in plot-fleetctl.sh -->
+- `feature/plot-fleetctl-stop-ignores-dry-run` — refuse `--dry-run` with any mode but `--start` after the mode-required line; fix the `-h` range; inline `running_major` and `home_short` to keep the shell count from growing; four new cases in `test/reconcile/fleetctl.test.mjs`; `--dry-run` row in `skills/plot-fleet/SKILL.md`; changeset <!-- builds: a mode check for --dry-run in plot-fleetctl.sh --> → #3147
 
 ## Notes
 
