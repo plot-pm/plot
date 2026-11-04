@@ -348,22 +348,27 @@ describe('the twelve rules that HOLD — asserted over fixtures', () => {
   // with a PR does not reach the fallthrough at all: the PR arm answers it
   // first. There is therefore no input for which these two rules still hold,
   // which is why they are restated rather than re-fixtured.
-  it('a stale wip branch with no PR is ABANDONED, not quiet (was: QUIET ⇒ state wip)', () => {
+  //
+  // OPERATOR DECISION B (2026-11-03) MOVES BOTH AGAIN, from WAITING ON YOU to
+  // QUIET — reversing #1758/#1902 deliberately. The errand (revive it, or drop
+  // it) is real, but it is not the kind of "waiting on you" a live PR or a
+  // review request is; the kind word and the note survive the move unchanged.
+  it('a stale wip branch with no PR is ABANDONED, filed under QUIET (was: QUIET ⇒ state wip)', () => {
     const row = { state: 'wip' as const, verdict: 'eligible', phase: PHASE.Development, ageMinutes: QUIET + 1 };
-    expect(section(row)).toBe('waiting-on-you');
+    expect(section(row)).toBe('quiet');
     // AND IT SAYS WHICH KIND. The group alone would put it beside a failing
     // review; the sentence is what separates revive-or-drop from merge-it.
     expect(classify('wip', 'eligible', QUIET + 1, QUIET, null, false, 0, PHASE.Development, 'elsewhere').note)
       .toMatch(/commits, no PR ever opened/);
   });
 
-  it('a stale claim is an ORPHANED CLAIM, not quiet (was: QUIET ⇒ phase Development)', () => {
+  it('a stale claim is an ORPHANED CLAIM, filed under QUIET (was: QUIET ⇒ phase Development)', () => {
     // The second population the fallthrough held. `state === 'claimed'` IS the
     // empty-claim reading — the scan answers that word only for a branch whose
     // commits beyond main are all empty `plot: claim` markers — and the board
     // borrows the sweep's own word for it, so a reader who meets one here finds
     // the same thing in `plot-reap.sh --dry-run`.
-    expect(section({ state: 'claimed', verdict: 'eligible', phase: PHASE.Development, ageMinutes: QUIET + 1 })).toBe('waiting-on-you');
+    expect(section({ state: 'claimed', verdict: 'eligible', phase: PHASE.Development, ageMinutes: QUIET + 1 })).toBe('quiet');
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0, PHASE.Development, 'elsewhere').note)
       .toMatch(/claimed, no work committed/);
   });
@@ -625,5 +630,85 @@ describe('the two empty sections are reachable but uncounted', () => {
       state: 'wip', verdict: 'eligible', phase: PHASE.Development, worker: 'elsewhere',
       ageMinutes: 3, pr: pr({ checks: 'pending', mergeable: 'mergeable' }),
     })).toBe('waiting-on-machine');
+  });
+});
+
+// =============================================================================
+// THE QUIET-KIND INVARIANT — OPERATOR DECISION B (2026-11-03).
+//
+// No PR-less abandoned/orphaned-claim row sits in WAITING ON YOU. Both kinds
+// moved to QUIET, reversing #1758/#1902 deliberately: the errand (revive it, or
+// drop it) is real, but it is not the kind of "waiting on you" a live PR or a
+// review request is.
+//
+// THE ONE EXCEPTION IS A DRAFT PLAN'S OWN ROW, and it is an exception to
+// REACHING quietKind at all, not an exception carved out of QUIET afterwards.
+// `draftPlacement` runs before the quiet-window check for a claimed/wip branch
+// and answers `waiting-on-you` outright when the branch is fresh or carries
+// local activity — in which case it never reaches `quietKind` abandoned or
+// orphaned-claim in the first place. Only a stale, no-local-activity Draft row
+// falls through past `draftPlacement` into the ordinary quiet fallthrough. So
+// the exception below is decided from the fixture's OWN age/local inputs
+// (fresh tip, local activity) — never from the row's note — exactly as the
+// brief asks.
+// =============================================================================
+
+describe('the quiet-kind invariant — no PR-less abandoned/orphaned-claim row waits on you', () => {
+  it('a stale, no-local-activity Draft claim or wip branch still falls to QUIET', () => {
+    // The Draft exception is gated on fresh-or-local; neither holds here, so
+    // `draftPlacement` answers null and the row falls through to the ordinary
+    // quiet fallthrough same as an approved plan's would.
+    const staleClaim = section({ state: 'claimed', verdict: 'unapproved', phase: PHASE.Discovery, ageMinutes: QUIET + 1 });
+    const staleWip = section({ state: 'wip', verdict: 'unapproved', phase: PHASE.Discovery, ageMinutes: QUIET + 1 });
+    expect(staleClaim).toBe('quiet');
+    expect(staleWip).toBe('quiet');
+  });
+
+  it('a Draft claim or wip branch with a FRESH tip is the exception — WAITING ON YOU, no quietKind reached', () => {
+    // Fresh tip (inside the quiet window) is one of the two gates
+    // `draftPlacement` checks before quiet is ever considered — decided from
+    // the fixture's own age input, not from any note the row carries.
+    const freshClaim = classify('claimed', 'unapproved', 5, QUIET, null, false, 0, PHASE.Discovery, 'elsewhere');
+    const freshWip = classify('wip', 'unapproved', 5, QUIET, null, false, 0, PHASE.Discovery, 'elsewhere');
+    expect(freshClaim.group).toBe('waiting-on-you');
+    expect(freshWip.group).toBe('waiting-on-you');
+  });
+
+  it('a Draft claim or wip branch with LOCAL ACTIVITY is the exception — WAITING ON YOU, even stale', () => {
+    // Local activity is the other gate: a stale tip (past the quiet window)
+    // still answers waiting-on-you when localDirty is true — decided from the
+    // fixture's own local-activity input, not from any note.
+    const localClaim = classify('claimed', 'unapproved', QUIET + 1, QUIET, null, true, 0, PHASE.Discovery, 'elsewhere');
+    const localWip = classify('wip', 'unapproved', QUIET + 1, QUIET, null, true, 0, PHASE.Discovery, 'elsewhere');
+    expect(localClaim.group).toBe('waiting-on-you');
+    expect(localWip.group).toBe('waiting-on-you');
+  });
+
+  it('the cross-product carries no PR-less abandoned/orphaned-claim note under waiting-on-you', () => {
+    // The invariant stated as a search over the full totality cross-product
+    // from this file's first section, rather than over hand-picked fixtures
+    // alone. `classify`'s return carries no `quietKind` field — that word is
+    // assigned a layer up, in row-building — so the note text is the
+    // abandoned/orphaned-claim signal available at this layer, and it is
+    // exactly the text the two fixture tests above pin: *"commits, no PR ever
+    // opened"* (abandoned) and *"claimed, no work committed"* (orphaned
+    // claim). Whatever `classify` yields, past the quiet window with no PR,
+    // neither note may coincide with waiting-on-you.
+    const CROSS_PRODUCT: { state: BranchState; verdict: string; phase: string; worker: WorkerState }[] = [];
+    for (const state of STATES) {
+      for (const verdict of VERDICTS) {
+        for (const phase of SCAN_PHASES) {
+          for (const worker of WORKERS) {
+            CROSS_PRODUCT.push({ state, verdict, phase, worker });
+          }
+        }
+      }
+    }
+    const violators = CROSS_PRODUCT.filter((row) => {
+      const result = classify(row.state, row.verdict, QUIET + 1, QUIET, null, false, 0, row.phase, row.worker);
+      const isAbandonedOrOrphaned = /commits, no PR ever opened|claimed, no work committed/.test(result.note);
+      return result.group === 'waiting-on-you' && isAbandonedOrOrphaned;
+    });
+    expect(violators).toEqual([]);
   });
 });

@@ -83,15 +83,15 @@ describe('row placement (real browser renders the shipped artifact)', () => {
       over: { fleet: buildFleet({ ...envelope(), ...over }) as Fleet },
     });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
     const toggle = page.locator('[data-group-toggle="quiet"]');
     if (await toggle.count()) {
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
     }
+    await expandAgentFolds(page);
     return page;
   };
 
-  it('shows a quiet-kind row under Quiet, not under Waiting on you', async () => {
+  it('shows a quiet-kind row under Quiet, including an abandoned one', async () => {
     const page = await open({
       rows: [
         buildRow({
@@ -99,7 +99,7 @@ describe('row placement (real browser renders the shipped artifact)', () => {
           ageMinutes: 60 * 24 * 40, note: 'nobody is on it — last commit 40 days ago', quietKind: 'quiet',
         }),
         buildRow({
-          branch: 'feature/left-behind', plan: 'garden', wave: 'left-behind-slice', state: 'wip', group: 'waiting-on-you',
+          branch: 'feature/left-behind', plan: 'garden', wave: 'left-behind-slice', state: 'wip', group: 'quiet',
           ageMinutes: 60 * 24 * 126, note: 'commits, no PR ever opened — last commit 126 days ago',
           quietKind: 'abandoned',
         }),
@@ -108,7 +108,9 @@ describe('row placement (real browser renders the shipped artifact)', () => {
     try {
       await expect.poll(() => group(page, 'Quiet').locator('[data-branch="feature/nobody-here"]').count()).toBe(1);
       expect(await group(page, 'Waiting on you').locator('[data-branch="feature/nobody-here"]').count()).toBe(0);
-      expect(await group(page, 'Waiting on you').locator('[data-branch="feature/left-behind"]').count()).toBe(1);
+      // Operator decision B (2026-11-03) moved abandoned into QUIET too.
+      expect(await group(page, 'Quiet').locator('[data-branch="feature/left-behind"]').count()).toBe(1);
+      expect(await group(page, 'Waiting on you').locator('[data-branch="feature/left-behind"]').count()).toBe(0);
     } finally {
       await page.close();
     }

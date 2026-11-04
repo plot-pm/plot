@@ -266,7 +266,7 @@ describe('classify', () => {
     // empty claim markers — so the rule names it, and the age follows the
     // state instead of standing in for it.
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET);
-    expect(r.group).toBe('waiting-on-you');
+    expect(r.group).toBe('quiet');
     expect(r.note).toMatch(/claimed, no work committed/);
     expect(r.note).toMatch(/claimed 31 min ago/);
   });
@@ -277,7 +277,7 @@ describe('classify', () => {
   // simply omits the duration.
   it('still names the kind when a claim has no age', () => {
     const r = classify('claimed', 'eligible', null, QUIET);
-    expect(r.group).toBe('waiting-on-you');
+    expect(r.group).toBe('quiet');
     expect(r.note).toMatch(/claimed, no work committed/);
   });
 
@@ -288,7 +288,7 @@ describe('classify', () => {
   it('puts a recent commit without a known worker into not-started, stale to abandoned', () => {
     expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
     const stale = classify('wip', 'eligible', 200, QUIET);
-    expect(stale.group).toBe('waiting-on-you');
+    expect(stale.group).toBe('quiet');
     expect(stale.note).toMatch(/commits, no PR ever opened/);
   });
 
@@ -296,7 +296,7 @@ describe('classify', () => {
     // The default is a guess; a repo whose agents think for an hour raises it.
     // The window still decides WHEN the row stops reading as freshly touched;
     // what changed is what it reads as afterwards.
-    expect(classify('wip', 'eligible', 45, 30).group).toBe('waiting-on-you');
+    expect(classify('wip', 'eligible', 45, 30).group).toBe('quiet');
     expect(classify('wip', 'eligible', 45, 60).group).toBe('not-started');
   });
 
@@ -305,7 +305,7 @@ describe('classify', () => {
     // kind is read from the branch rather than the clock, so an unknown age
     // costs the duration and not the state.
     const r = classify('wip', 'eligible', null, QUIET);
-    expect(r.group).toBe('waiting-on-you');
+    expect(r.group).toBe('quiet');
     expect(r.note).toMatch(/commits, no PR ever opened/);
     expect(r.note).toMatch(/unknown/);
   });
@@ -389,12 +389,13 @@ describe('classify', () => {
     // `false` is also what every branch on another machine reports, which makes
     // this the assertion that keeps the change additive.
     //
-    // The BASELINE these lift toward is `waiting-on-you` since the quiet rule
-    // landed — an orphaned claim and abandoned work each need a person. The
-    // property asserted is unchanged: a clean tree moves nothing.
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false).group).toBe('waiting-on-you');
-    expect(classify('wip', 'eligible', 200, QUIET, null, false).group).toBe('waiting-on-you');
-    expect(classify('wip', 'eligible', null, QUIET, null, false).group).toBe('waiting-on-you');
+    // The BASELINE these lift toward is `quiet` — an orphaned claim and
+    // abandoned work each still need a person, but operator decision B
+    // (2026-11-03) files that need under QUIET rather than WAITING ON YOU.
+    // The property asserted is unchanged: a clean tree moves nothing.
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false).group).toBe('quiet');
+    expect(classify('wip', 'eligible', 200, QUIET, null, false).group).toBe('quiet');
+    expect(classify('wip', 'eligible', null, QUIET, null, false).group).toBe('quiet');
   });
 
   it('answers identically whether the field is false or simply not passed', () => {
@@ -495,9 +496,9 @@ describe('classify', () => {
     // detached worker, every teammate's laptop, every CI run — so it is the
     // assertion that keeps the change additive. The baseline is the quiet
     // rule's answer; the property is that zero ahead does not move it.
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0).group).toBe('waiting-on-you');
-    expect(classify('wip', 'eligible', 200, QUIET, null, false, 0).group).toBe('waiting-on-you');
-    expect(classify('wip', 'eligible', null, QUIET, null, false, 0).group).toBe('waiting-on-you');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0).group).toBe('quiet');
+    expect(classify('wip', 'eligible', 200, QUIET, null, false, 0).group).toBe('quiet');
+    expect(classify('wip', 'eligible', null, QUIET, null, false, 0).group).toBe('quiet');
   });
 
   it('answers identically whether local_ahead is 0 or simply not passed', () => {
@@ -751,9 +752,9 @@ describe('classify', () => {
     // assertion that keeps the change additive. The baseline is the quiet
     // rule's answer; the property is that a false lock does not move it.
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0,
-      '', 'elsewhere', '', '', false).group).toBe('waiting-on-you');
+      '', 'elsewhere', '', '', false).group).toBe('quiet');
     expect(classify('wip', 'eligible', 200, QUIET, null, false, 0,
-      '', 'elsewhere', '', '', false).group).toBe('waiting-on-you');
+      '', 'elsewhere', '', '', false).group).toBe('quiet');
   });
 
   it('answers identically whether local_locked is false or simply not passed', () => {
@@ -909,12 +910,12 @@ describe('classify', () => {
     );
     expect(merged.group).toBe('done');
 
-    // And the same branch, unmerged, still reaches a person.
+    // And the same branch, unmerged, still names abandoned and files in quiet.
     const notMerged = classify(
       'wip', 'eligible', 60 * 24 * 2, QUIET, null, false, 0, 'approved',
       '', '', '', false, '', '', false, '', false, '', false,
     );
-    expect(notMerged.group).toBe('waiting-on-you');
+    expect(notMerged.group).toBe('quiet');
   });
 
   it('falls back to the phase sentence when a deferred branch names no reason', () => {
@@ -1652,7 +1653,7 @@ describe('classify — whether a worker is actually running', () => {
     // Every caller predating the field. WORKING IS ABOUT AGENTS — no known
     // worker means NOT STARTED for a fresh claim or recent commit.
     expect(classify('claimed', 'eligible', 3, QUIET).group).toBe('not-started');
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET).group).toBe('waiting-on-you');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET).group).toBe('quiet');
     expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
   });
 
@@ -2057,11 +2058,12 @@ describe('rowsFromPulse', () => {
   it('orders groups by what they ask of you, not by plan', () => {
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
     const groups = rows.map((r) => r.group);
-    // WAITING ON YOU LEADS: it is the section that asks for something. The
-    // fixture's `feature/d` is a 240-minute-old claim, which the quiet rule
-    // names an orphaned claim and hands to a person — it used to sit in QUIET
-    // under a note that gave its age and no state.
-    expect(groups[0]).toBe('waiting-on-you');
+    // NOT STARTED LEADS this fixture: `feature/c` is open with no known
+    // worker, which an agent may still take. The fixture's `feature/d` is a
+    // 240-minute-old claim, which the quiet rule names an orphaned claim —
+    // operator decision B (2026-11-03) files that in QUIET rather than
+    // WAITING ON YOU, so it no longer leads here.
+    expect(groups[0]).toBe('not-started');
     // done sits last: it asks nothing of you at all.
     expect(groups.at(-1)).toBe('done');
   });
@@ -2549,9 +2551,10 @@ describe('rowsFromPulse', () => {
       // of them. The base fixture carries neither field.
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
       // `feature/d` is a 240-minute-old CLAIM, so the quiet rule names it an
-      // orphaned claim and it needs a person. The property here is that the
-      // absent field moves nothing, not which section the baseline is.
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
+      // orphaned claim and files it in QUIET (operator decision B,
+      // 2026-11-03). The property here is that the absent field moves
+      // nothing, not which section the baseline is.
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
     });
   });
 
@@ -2594,9 +2597,10 @@ describe('rowsFromPulse', () => {
     it('leaves a pulse reporting zero answering exactly as before', () => {
       const rows = rowsFromPulse(ahead('feature/d', 0), ages, 'plot', QUIET);
       // `feature/d` is a 240-minute-old CLAIM, so the quiet rule names it an
-      // orphaned claim and it needs a person. The property here is that the
-      // absent field moves nothing, not which section the baseline is.
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
+      // orphaned claim and files it in QUIET (operator decision B,
+      // 2026-11-03). The property here is that the absent field moves
+      // nothing, not which section the baseline is.
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
     });
   });
 
@@ -2871,9 +2875,10 @@ describe('rowsFromPulse', () => {
       // carries none of the three, and the answer must not move.
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
       // `feature/d` is a 240-minute-old CLAIM, so the quiet rule names it an
-      // orphaned claim and it needs a person. The property here is that the
-      // absent field moves nothing, not which section the baseline is.
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
+      // orphaned claim and files it in QUIET (operator decision B,
+      // 2026-11-03). The property here is that the absent field moves
+      // nothing, not which section the baseline is.
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
     });
   });
 
@@ -3243,7 +3248,7 @@ describe('classify with PR data', () => {
     // claim here, since `claimed` IS the empty-claim reading.
     expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('not-started');
     expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('not-started');
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('waiting-on-you');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('quiet');
   });
 });
 
