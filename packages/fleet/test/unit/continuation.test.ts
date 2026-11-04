@@ -453,7 +453,7 @@ describe('continueOnDesk — the question key and the answer record', () => {
     }
   });
 
-  it('refuses already-answered and appends nothing for a second continue on an answered key', async () => {
+  it('starts but appends nothing for a second continue on an answered key', async () => {
     const { worktree, askedAt, manifestDir } = await deskWithMarker('which adapter?');
     const home = recordHome();
     process.env[ANSWER_RECORD_HOME_ENV] = home;
@@ -469,11 +469,58 @@ describe('continueOnDesk — the question key and the answer record', () => {
       };
       const first = await continueOnDesk({ ...input, answer: 'use the shell adapter', author: 'jwloka' });
       expect(first.kind).toBe('started');
+      // THE START IS NOT REFUSED. A marker the first agent never deleted keeps
+      // this key answered for as long as the file sits there, so a refusal
+      // would leave the desk waiting on a person with no route to continue it.
       const second = await continueOnDesk({ ...input, answer: 'a second answer', author: 'eins78' });
-      expect(second).toMatchObject({ kind: 'refused', reason: 'already-answered' });
+      expect(second.kind).toBe('started');
+      expect(second.kind === 'started' && second.warning).toMatch(/already holds an answered row/);
       const rows = await answerRecordFile({ home }).rowsFor(worktree, askedAt);
       expect(isAnswered(rows) && rows.value).toHaveLength(1);
       expect(isAnswered(rows) && rows.value[0]?.author).toBe('jwloka');
+    } finally {
+      delete process.env[ANSWER_RECORD_HOME_ENV];
+    }
+  });
+
+  it('restarts an answered key whose agent left the marker behind', async () => {
+    // THE DEADLOCK THIS GUARD MUST NOT CAUSE. `continueOnDesk` never deletes
+    // `PLOT-BLOCKED`; the agent it starts does. An agent that ends first
+    // (`turn-limit`, a crash, a kill) leaves the marker, and `askedAt` is that
+    // file's mtime, so the key stays answered for as long as the file sits
+    // there. fleetd's own recovery start must still run, or the desk shows as
+    // waiting on a person who can only continue it by editing the marker.
+    const { worktree, askedAt, manifestDir } = await deskWithMarker('which adapter?');
+    const home = recordHome();
+    process.env[ANSWER_RECORD_HOME_ENV] = home;
+    try {
+      const appended = await answerRecordFile({ home }).append({
+        worktree,
+        askedAt,
+        question: 'which adapter?',
+        answer: 'use the shell adapter',
+        author: 'jwloka',
+        outcome: 'answered',
+      });
+      expect(isAnswered(appended)).toBe(true);
+
+      const restarted = await continueOnDesk({
+        opts: { repoRoot: worktree, scriptsDir: '/s', manifestDir },
+        branch: 'feature/x',
+        worktree,
+        main: '',
+        previousPid: '',
+        caller: 'fleetd',
+        answer: 'use the shell adapter',
+        fresh: true,
+        readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+        spawn: fakeSpawn,
+      });
+
+      expect(restarted.kind).toBe('started');
+      // And the record still holds exactly the one row the answer earned.
+      const rows = await answerRecordFile({ home }).rowsFor(worktree, askedAt);
+      expect(isAnswered(rows) && rows.value).toHaveLength(1);
     } finally {
       delete process.env[ANSWER_RECORD_HOME_ENV];
     }

@@ -74,7 +74,7 @@ The charter adds "never widen the scope guard" and "never tell the desk to weake
 
 **An escalation reaches the plan's issue.** For an `escalated <reason>` row, fleetd posts one comment on the issue named by the plan's `Issue:` line through `Tracker.issueComment` (`ports/tracker.ts:481`). The comment holds the question, the reason and the branch, and passes a marker keyed on the desk and `askedAt`, so a repeated post edits the comment rather than adding a second one. `PLOT-BLOCKED` stays on the desk. The board's *Waiting on you* row for that desk shows the reason. A plan with no `Issue:` line, or a tracker that answers `unaskable` or `failed`, posts nothing and logs one line naming why; the ladder still notifies.
 
-**The record names the true author.** `continuation.ts:1502` no longer defaults to `'unblocker'`. The applier passes `unblocker`. The board's continue route passes the `author` its request names, and `plot-continue-command.mjs` takes `--who <handle>`. A call that names no author records `unknown`. `continueOnDesk` refuses `already-answered` when the question key already holds an `answered` or `started` row.
+**The record names the true author.** `continuation.ts:1502` no longer defaults to `'unblocker'`. The applier passes `unblocker`. The board's continue route passes the `author` its request names, and `plot-continue-command.mjs` takes `--who <handle>`. A call that names no author records `unknown`. A question key that already holds an `answered` row records no second row, checked under the continuation lock at the append site. The start itself is never refused for one: `continueOnDesk` never deletes `PLOT-BLOCKED` and `askedAt` is that marker's modification time, so an agent ending before it deletes the marker would otherwise leave the desk unable to be continued by anyone.
 
 ### Open Questions
 
@@ -97,7 +97,8 @@ Slice 2:
 
 - A `continue` with no author writes `author=unknown`. On `origin/main` it writes `unblocker`.
 - `plot-continue-command.mjs --who jwloka` and the board route with `author: "jwloka"` write `author=jwloka`.
-- A second `continue` on a key that holds an `answered` row refuses `already-answered` and appends nothing. On `origin/main` it appends a second row.
+- A second `continue` on a key that holds an `answered` row starts its agent and appends nothing. On `origin/main` it appends a second row.
+- A `fresh` fleetd restart on an answered key whose agent left `PLOT-BLOCKED` behind still starts. A refusal here would close every route out of that desk.
 
 Slice 3:
 
@@ -112,7 +113,7 @@ Slice 3:
 
 ### The record names its author
 
-- `bug/an-answer-records-its-true-author` — `continue` records the caller's handle or `unknown`, never a default `unblocker`; the board route and `plot-continue-command.mjs --who` pass it; a second answer on one question key refuses `already-answered` <!-- builds: answer author, already-answered refusal -->
+- `bug/an-answer-records-its-true-author` — `continue` records the caller's handle or `unknown`, never a default `unblocker`; the board route and `plot-continue-command.mjs --who` pass it; a second answer on one question key appends no second row and still starts <!-- builds: answer author, one row per question key -->
 
 ### An escalation reaches the issue
 

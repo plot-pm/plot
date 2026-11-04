@@ -179,19 +179,7 @@ export type ContinueRefusal =
    * where `expectedAskedAt` is given, so today's behaviour is unchanged for a
    * caller that never pins.
    */
-  | 'question-moved'
-  /**
-   * The desk's current question already holds an `answered` row.
-   *
-   * **CHECKED WHERE `question-moved` IS — before the lock, before any
-   * write.** A caller racing to answer a question somebody already answered
-   * gets a no-trace refusal, the same contract every refusal above the lock
-   * already keeps, rather than a second `answered` row appended for one
-   * question. A `started` row with no following `answered` (an in-flight or
-   * abandoned attempt) does not count: only a settled `answered` row blocks
-   * a retry.
-   */
-  | 'already-answered';
+  | 'question-moved';
 /** How many commits the prompt names before it says there are more. */
 export const COMMIT_MAX = 40;
 
@@ -961,19 +949,9 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     );
   }
 
-  // CHECKED HERE, WHERE `question-moved` IS — before the lock, before any
-  // write. A second caller racing to answer a question somebody already
-  // answered gets a no-trace refusal rather than a second `answered` row.
-  if (askedAt) {
-    const rows = await answerRecordFile().rowsFor(worktree, askedAt);
-    if (isAnswered(rows) && rows.value.some((row) => row.outcome === 'answered')) {
-      return refused(
-        409,
-        'already-answered',
-        `the question asked ${askedAt} already holds an answered row on this desk`,
-      );
-    }
-  }
+  // THE RECORD STOPS A DUPLICATE ROW; IT NEVER STOPS A START. An answered key
+  // is checked at the append site below, under the lock, and not here as a
+  // refusal — see that comment for why a refusal deadlocked the desk.
 
   const cmd = readCfg(opts, 'Worker command', '');
   if (cmd === '' || cmd === 'none' || cmd === 'NONE' || cmd === 'None') {
@@ -1519,7 +1497,36 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // path, never from a `refused(...)` return above, every one of which
     // exits the function before reaching here. A fresh start with no marker
     // (`freshAsked`) has no question to record against, so it writes nothing.
-    if (question && askedAt) {
+    //
+    // ONE `answered` ROW PER QUESTION KEY, AND THE START IS NEVER REFUSED FOR
+    // ONE. This read sits under the continuation lock, so a second caller that
+    // raced the first one here reads the row the first one appended and
+    // appends nothing. Checking before the lock could not keep that promise:
+    // both callers read an empty record, then appended in turn.
+    //
+    // A REFUSAL HERE WOULD DEADLOCK THE DESK. `continueOnDesk` never deletes
+    // `PLOT-BLOCKED` — the continued agent does — and `askedAt` is that file's
+    // mtime, so an agent that ends before deleting it (`turn-limit`, a crash,
+    // a kill) leaves the key unchanged and already answered. Refusing on that
+    // row would close every route out at once: a person's `continue`, fleetd's
+    // own `fresh: true` restart after an ending, and `restart`, which refuses
+    // a marker it can see with `blocked-marker`. The desk would show as
+    // waiting on a person who had no way to continue it but to edit the marker
+    // by hand. A duplicate row is the lesser harm, and suppressing the append
+    // keeps even that away without holding the desk shut.
+    const duplicate = question && askedAt
+      ? await answerRecordFile().rowsFor(worktree, askedAt)
+      : undefined;
+    const answeredAlready =
+      duplicate !== undefined && isAnswered(duplicate) && duplicate.value.some((row) => row.outcome === 'answered');
+    if (answeredAlready) {
+      // Reported, not silent: the start is real and the record deliberately
+      // does not grow, so a reader of the log sees why the row count did not.
+      const line = `started pid ${pid}; the question asked ${askedAt} already holds an answered row, so none was appended`;
+      logLine(log, line);
+      warning = warning ?? line;
+    }
+    if (question && askedAt && !answeredAlready) {
       const recorded = await answerRecordFile().append({
         worktree,
         askedAt,

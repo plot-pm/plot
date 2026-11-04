@@ -73,10 +73,6 @@ export function refusalWord(reason: ContinueRefusal): string {
       // Pinned the way `merge` pins to a head — the desk moved on to a new
       // question while this answer was in flight.
       return 'The desk now asks a different question — reload and answer the one it is asking now.';
-    case 'already-answered':
-      // Checked the same way `question-moved` is — a second caller lost a
-      // race to answer this question and the first answer already landed.
-      return 'This question already has an answer — reload to see the branch’s current state.';
   }
 }
 

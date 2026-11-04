@@ -1306,10 +1306,10 @@ describe('two concurrent continuations on one desk — #1357', () => {
     // asks for, built with `onLocked` rather than real concurrency so the
     // interleaving is deterministic.
     //
-    // The pre-lock `already-answered` check reads the answer record, which
-    // without this override resolves its directory via a `git rev-parse`
-    // subprocess on every call — real latency the 10 ms budget below does not
-    // otherwise need to absorb.
+    // The duplicate-row check reads the answer record, which without this
+    // override resolves its directory via a `git rev-parse` subprocess on
+    // every call — real latency the 10 ms budget below does not otherwise
+    // need to absorb.
     const recordHome = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-answer-record-'));
     dirs.push(recordHome);
     const previousRecordHome = process.env[ANSWER_RECORD_HOME_ENV];
