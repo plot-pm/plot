@@ -834,23 +834,19 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
         const onMain = inCheckout
           ? (await plansOnMain()).includes(realFile)
           : (await plansOnMain()).some((f) => namesPlan(slug, f));
-        let found: Awaited<ReturnType<typeof choosePlanPr>>;
-        try {
-          found = await choosePlanPr(
-            ctx,
-            { slug, planDir: dirs.planDir, onMain },
-            main,
-            realFile,
-            (unread) => { unreadOpen = unread; },
-            (detail) => refuseOpenList(ctx, detail),
-          );
-        } catch (err) {
-          // A plan already settled on the default branch is still readable with
-          // no PR at all — the host call above only looks for one that might
-          // supersede it, and its failure is not fatal where main already answers.
-          if (!(err instanceof Refused) || !onMain) throw err;
-          found = undefined;
-        }
+        // `firstParentAddition`'s `addition` ask needs the plan's path on the
+        // default branch to trace its carrying merge — `realFile` is '' for a
+        // plan not in this checkout, which asked git about no path at all and
+        // always read back empty.
+        const additionFile = realFile || (onMain ? (await plansOnMain()).find((f) => namesPlan(slug, f)) ?? '' : '');
+        const found = await choosePlanPr(
+          ctx,
+          { slug, planDir: dirs.planDir, onMain },
+          main,
+          additionFile,
+          (unread) => { unreadOpen = unread; },
+          (detail) => refuseOpenList(ctx, detail),
+        );
         if (found !== undefined && found.outcome === 'refused') {
           prRefused = found.reason;
           pr = { number: found.number, state: 'OPEN', draft: false };
@@ -859,7 +855,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
           if (found.branch !== '') prBranch = found.branch;
           carried = found.carried;
           prRoute = found.route;
-          const readFile = found.read.at === 'head' ? found.read.file : realFile || (await plansOnMain()).find((f) => namesPlan(slug, f)) || '';
+          const readFile = found.read.at === 'head' ? found.read.file : additionFile;
           const readSha = found.read.at === 'head' ? found.read.sha : `origin/${main}`;
           prBlob = await blobAt(readSha, readFile);
           prRivals = await Promise.all(

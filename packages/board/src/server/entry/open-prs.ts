@@ -169,7 +169,11 @@ export const choosePlanPr = async (
     switch (answer.ask) {
       case 'named': {
         const lookup = await ctx.host.prState(`idea/${current.slug}`);
-        if (!lookup.ok) throw refuseOnHostFailure(`the host could not be asked for the PR of 'idea/${current.slug}' (plot-host.sh pr-state refused the call).`);
+        if (!lookup.ok) {
+          throw refuseOnHostFailure(lookup.why === 'unaskable'
+            ? `the host backend has no answer for the PR state of 'idea/${current.slug}' (plot-host.sh pr-state exited 4).`
+            : `the host could not be asked for the PR of 'idea/${current.slug}' (plot-host.sh pr-state refused the call).`);
+        }
         const pr = lookup.value;
         const named: NamedPr | null = pr !== null && (pr.state === 'MERGED' || pr.state === 'OPEN' || pr.state === 'CLOSED')
           ? { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha }
@@ -207,7 +211,9 @@ export const choosePlanPr = async (
       case 'confirm': {
         const asked = await ctx.host.prState(answer.number);
         if (!asked.ok) {
-          throw refuseOnHostFailure(`the host could not be asked for PR #${answer.number} (plot-host.sh pr-state refused the call).`);
+          throw refuseOnHostFailure(asked.why === 'unaskable'
+            ? `the host backend has no answer for the PR state of PR #${answer.number} (plot-host.sh pr-state exited 4).`
+            : `the host could not be asked for PR #${answer.number} (plot-host.sh pr-state refused the call).`);
         }
         current = {
           ...current,

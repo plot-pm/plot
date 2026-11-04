@@ -26,9 +26,47 @@ const approve = path.join(SCRIPTS, 'plot-approve.sh');
 
 let tmp, origin, repo, stubDir, statePath;
 
-// A real PR always names a head; the suite's own default state must too, now
-// that `plot-host.sh pr-merge` refuses to merge an unpinned GitHub PR.
-const DEFAULT_HEAD = 'd0d0'.padEnd(40, '0');
+// A real PR always names a head, and `readHeadOf` now resolves it through
+// git AND reads what the head changes against its MERGE BASE with the
+// default branch (`OpenPr.changed`'s own contract). `makeApproveSandbox`
+// commits the plan file straight onto `main`, so a PR head identical to
+// `main`'s tip would diff empty against it and refuse `pr-carries-no-plan`.
+// `approve.ts` separately reads the checkout's OWN copy of the plan file
+// straight off disk (never through git) and refuses `checkout-copy-differs`
+// unless it matches the PR head's text byte for byte — so the PR head cannot
+// simply be a commit onto `main`'s tip either, or the checkout (still at the
+// un-marked commit) would disagree with it.
+//
+// `pushPlanHead` satisfies both at once: it advances `main` itself to a new
+// commit that appends a marker comment to the plan file (so the checkout,
+// freshly reset to that tip, carries the marker too), then creates
+// `idea/approve-me` as a SIBLING commit — same parent, same marker, same
+// resulting tree, different sha — off `main`'s PRE-marker parent. The
+// three-dot diff from their shared merge base (that parent) to
+// `idea/approve-me` still names the plan path, and the checkout's marked text
+// matches the PR head's marked text exactly.
+let DEFAULT_HEAD;
+
+function pushPlanHead(planRel, label) {
+  const parent = git(repo, 'rev-parse', 'main').trim();
+  const marked = `${fs.readFileSync(path.join(repo, planRel), 'utf8')}<!-- ${label} -->\n`;
+
+  fs.writeFileSync(path.join(repo, planRel), marked);
+  git(repo, 'commit', '-qam', `plan on main (${label})`);
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-approve-head-'));
+  try {
+    git(repo, 'worktree', 'add', '-q', '--detach', scratch, parent);
+    fs.writeFileSync(path.join(scratch, planRel), marked);
+    git(scratch, 'commit', '-qam', `plan head (${label})`);
+    const sha = git(scratch, 'rev-parse', 'HEAD').trim();
+    git(scratch, 'push', '-qf', 'origin', `${sha}:refs/heads/idea/approve-me`);
+    return sha;
+  } finally {
+    git(repo, 'worktree', 'remove', '-f', scratch);
+  }
+}
 
 function run(args, { cwd = repo, expectFail = false, env = {} } = {}) {
   try {
@@ -144,6 +182,12 @@ function makeRepo(planBody = PLAN(), files = {}) {
     activeLinkName: 'approve-me.md',
     extraFiles: files,
   }));
+  // The named PR's head is read through git (`readHeadOf` fetches
+  // `idea/<slug>`) and through what it changes against `main`'s merge base
+  // (`readings.open`/`namedHead.changed`), so the branch must exist on origin
+  // and its tip must diff as carrying the plan — one commit ahead of `main`,
+  // since `main` already holds the plan file verbatim.
+  DEFAULT_HEAD = pushPlanHead('docs/plans/2026-08-17-approve-me.md', 'default');
   setHostState({ number: 42, state: 'OPEN', draft: false, headSha: DEFAULT_HEAD });
   return repo;
 }
@@ -372,8 +416,8 @@ test('approve: a Design plan with a merged plan PR approves with a declared --wh
 });
 
 test('approve: a Design plan with an open plan PR and --who merges it pinned to the PR head', () => {
-  const head = 'c0ffee'.padEnd(40, '0');
   makeRepo(PLAN({ phase: 'Design' }));
+  const head = pushPlanHead('docs/plans/2026-08-17-approve-me.md', 'design-plan-head');
   setHostState({ number: 42, state: 'OPEN', draft: false, headSha: head });
   const { code, out } = run(['approve-me', '--who', 'jwloka']);
   assert.equal(code, 0, out);
@@ -883,8 +927,8 @@ const spikeHold = () => ({
 });
 
 test('approve: --spike merges the draft plan PR pinned to its head, records the spike and clears only its hold', () => {
-  const head = 'c0ffee'.padEnd(40, '1');
   makeRepo(SPIKE_FIRST, spikeHold());
+  const head = pushPlanHead('docs/plans/2026-08-17-approve-me.md', 'spike-head-1');
   setHostState({ number: 42, state: 'OPEN', draft: true, headSha: head });
   const { code, out } = run(['--spike', '--who', 'jwloka', 'approve-me']);
   assert.equal(code, 0, out);
@@ -916,7 +960,7 @@ test('approve: --spike merges the draft plan PR pinned to its head, records the 
 
 test('approve: --spike under PLOT_UNATTENDED=1 refuses and merges nothing', () => {
   makeRepo(SPIKE_FIRST, spikeHold());
-  setHostState({ number: 42, state: 'OPEN', draft: true, headSha: 'c0ffee'.padEnd(40, '2') });
+  setHostState({ number: 42, state: 'OPEN', draft: true, headSha: pushPlanHead('docs/plans/2026-08-17-approve-me.md', 'spike-head-2') });
   const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
   const { code, err } = run(['--spike', '--who', 'jwloka', 'approve-me'], { expectFail: true, env: { PLOT_UNATTENDED: '1' } });
   assert.equal(code, 1);
@@ -930,7 +974,7 @@ test('approve: --spike under PLOT_UNATTENDED=1 refuses and merges nothing', () =
 
 test('approve: a second --spike refuses spike-approved', () => {
   makeRepo(SPIKE_FIRST, spikeHold());
-  setHostState({ number: 42, state: 'OPEN', draft: false, headSha: 'c0ffee'.padEnd(40, '3') });
+  setHostState({ number: 42, state: 'OPEN', draft: false, headSha: pushPlanHead('docs/plans/2026-08-17-approve-me.md', 'spike-head-3') });
   assert.equal(run(['--spike', '--who', 'jwloka', 'approve-me']).code, 0);
   refreshMain();
   const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
