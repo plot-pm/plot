@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3113 merged
+- **Started:** 2026-11-04, Jan Wloka, `feature/plot-fleetctl-stop-ignores-dry-run`
 
 ## Changelog
 
