@@ -138,7 +138,7 @@ Each case fails on origin/main unless the list says otherwise.
 
 ### Scan asks the release rule
 
-- `bug/scan-release-asks-the-domain` — scan section 6 asks `releasePr` and `releaseTag` through one `plot-release-chain.mjs` call per sweep, reports an all-foreign plan with its own finding, and drops its shell copy of the rule <!-- builds: a batched release verb on plot-release-chain.mjs; section 6 without last_pr --> <!-- waits: bug/release-tag-contains-every-local-pr -->
+- `bug/scan-release-asks-the-domain` — scan section 6 asks `releasePr` and `releaseTag` through one `plot-release-chain.mjs` call per sweep, reports an all-foreign plan with its own finding, and drops its shell copy of the rule <!-- builds: a batched release verb on plot-release-chain.mjs; section 6 without last_pr --> <!-- waits: bug/release-tag-contains-every-local-pr --> → #3111
 
 ## Notes
 
