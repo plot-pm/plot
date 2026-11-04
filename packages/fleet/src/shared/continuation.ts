@@ -179,7 +179,19 @@ export type ContinueRefusal =
    * where `expectedAskedAt` is given, so today's behaviour is unchanged for a
    * caller that never pins.
    */
-  | 'question-moved';
+  | 'question-moved'
+  /**
+   * The desk's current question already holds an `answered` row.
+   *
+   * **CHECKED WHERE `question-moved` IS — before the lock, before any
+   * write.** A caller racing to answer a question somebody already answered
+   * gets a no-trace refusal, the same contract every refusal above the lock
+   * already keeps, rather than a second `answered` row appended for one
+   * question. A `started` row with no following `answered` (an in-flight or
+   * abandoned attempt) does not count: only a settled `answered` row blocks
+   * a retry.
+   */
+  | 'already-answered';
 /** How many commits the prompt names before it says there are more. */
 export const COMMIT_MAX = 40;
 
@@ -949,6 +961,20 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     );
   }
 
+  // CHECKED HERE, WHERE `question-moved` IS — before the lock, before any
+  // write. A second caller racing to answer a question somebody already
+  // answered gets a no-trace refusal rather than a second `answered` row.
+  if (askedAt) {
+    const rows = await answerRecordFile().rowsFor(worktree, askedAt);
+    if (isAnswered(rows) && rows.value.some((row) => row.outcome === 'answered')) {
+      return refused(
+        409,
+        'already-answered',
+        `the question asked ${askedAt} already holds an answered row on this desk`,
+      );
+    }
+  }
+
   const cmd = readCfg(opts, 'Worker command', '');
   if (cmd === '' || cmd === 'none' || cmd === 'NONE' || cmd === 'None') {
     // The same `none` handling `start_worker` performs, and for the same
@@ -1499,7 +1525,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         askedAt,
         question,
         answer,
-        author: input.author ?? 'unblocker',
+        author: input.author ?? 'unknown',
         outcome: 'answered',
       });
       if (!isAnswered(recorded)) {

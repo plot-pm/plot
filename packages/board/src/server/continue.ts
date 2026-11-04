@@ -156,6 +156,13 @@ export async function handleContinue(
   // marker is used with no comparison.
   const questionKeyRaw = (body as { questionKey?: unknown })?.questionKey;
   const questionKey = typeof questionKeyRaw === 'string' ? questionKeyRaw : undefined;
+  // Optional, same shape as `questionKey`: a caller that sends no author, or
+  // one of the wrong type, keeps today's behaviour — `continueOnDesk` falls
+  // back to `unknown`. This board has no session of its own to read a
+  // signed-in handle from, so the request body is the one source available;
+  // see the PR description for why this route does not yet carry a session.
+  const authorRaw = (body as { author?: unknown })?.author;
+  const author = typeof authorRaw === 'string' ? authorRaw : undefined;
   if (typeof branch !== 'string' || branch === '') {
     json(400, { error: 'branch is required' });
     return;
@@ -184,6 +191,7 @@ export async function handleContinue(
     caller: 'person',
     answer,
     questionKey,
+    author,
     monitors: deps.monitors,
   });
   if (started.kind === 'refused') {

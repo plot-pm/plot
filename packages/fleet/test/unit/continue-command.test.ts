@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { FleetReadingSchema } from '@plot-pm/domain/entities/fleet';
 import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
-import type { FleetReading } from '@plot-pm/domain';
+import { answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
+import { isAnswered, type FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/continue-command.js';
 import { branchFromPulse, continueBranch } from '../../src/shared/continue-command.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
@@ -64,6 +65,12 @@ describe('the continue entry', () => {
     const warned: string[] = [];
     expect(await run([], '/nonexistent', '/nonexistent', {}, () => {}, (s) => warned.push(s))).toBe(2);
     expect(await run(['feature/x', ''], '/nonexistent', '/nonexistent', {}, () => {}, (s) => warned.push(s))).toBe(2);
+    expect(warned.join('')).toContain('usage: plot-continue-command.mjs');
+  });
+
+  it('exits 2 for --who with no handle following it', async () => {
+    const warned: string[] = [];
+    expect(await run(['--who'], '/nonexistent', '/nonexistent', {}, () => {}, (s) => warned.push(s))).toBe(2);
     expect(warned.join('')).toContain('usage: plot-continue-command.mjs');
   });
 });
@@ -162,5 +169,67 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     const pid = /pid (\d+)/.exec(out.join(''))?.[1];
     expect(pid).toBeDefined();
     expect(pid).not.toBe('424242');
+  });
+
+  it('--who jwloka writes author=jwloka on the answered row', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-who-')));
+    dirs.push(root);
+    const repo = path.join(root, 'repo');
+    const desk = path.join(root, 'desk');
+    const manifests = path.join(root, 'manifests');
+    for (const d of [repo, desk, manifests]) fs.mkdirSync(d, { recursive: true });
+    const branch = 'feature/blocked-desk';
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'ignore' });
+    git(repo, 'init', '-q', '-b', 'main');
+    git(desk, 'init', '-q', '-b', 'main');
+    git(desk, 'config', 'user.email', 't@example.com');
+    git(desk, 'config', 'user.name', 'T');
+    fs.mkdirSync(path.join(desk, '.plot/briefs'), { recursive: true });
+    fs.writeFileSync(path.join(desk, '.plot/briefs/blocked-desk.md'), '# Brief\n');
+    git(desk, 'add', '-A');
+    git(desk, 'commit', '-qm', 'trunk');
+    git(desk, 'checkout', '-qb', branch);
+    fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?');
+    fs.writeFileSync(path.join(desk, '.plot-worker.pid'), '424242');
+    fs.writeFileSync(path.join(manifests, 'sess.json'), JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242' }));
+    fs.mkdirSync(path.join(repo, '.plot'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **Worker command:** true\n- **Agent registry:** ${manifests}\n`);
+    const reading = FleetReadingSchema.parse({
+      main: 'main',
+      head: 'abc',
+      fetch_failed: false,
+      summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
+      plans: [{ file: 'docs/plans/p.md', phase: 'Approved', slices: [{ name: 'S', verdict: 'eligible', branches: [{ branch, local_worktree: desk, worker: 'waiting', worker_pid: '424242', state: 'wip', deferred: false, claimed: '' }] }] }],
+    });
+    const wrote = await fleetStateFile({ repoRoot: repo }).write({
+      at: Date.now(),
+      pulse: reading,
+      ages: new Map(),
+      branchUrlBase: '',
+      approvedAt: new Map(),
+      ideaPlans: new Map(),
+      prError: null,
+    });
+    expect(wrote.ok).toBe(true);
+    const recordHome = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-answer-record-'));
+    dirs.push(recordHome);
+    const previousRecordHome = process.env[ANSWER_RECORD_HOME_ENV];
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+    const out: string[] = [];
+    const warned: string[] = [];
+    let code: number;
+    try {
+      code = await run(['--who', 'jwloka', branch, 'use the shell adapter'], repo, path.resolve(__dirname, '../../../../skills/plot/scripts'), {
+        caller: 'person',
+        monitors: { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true }) } as never,
+      }, (s) => out.push(s), (s) => warned.push(s));
+    } finally {
+      if (previousRecordHome === undefined) delete process.env[ANSWER_RECORD_HOME_ENV];
+      else process.env[ANSWER_RECORD_HOME_ENV] = previousRecordHome;
+    }
+    expect(warned.join('')).toBe('');
+    expect(code).toBe(0);
+    const rows = await answerRecordFile({ home: recordHome }).rowsForDesk(desk);
+    expect(isAnswered(rows) && rows.value.at(-1)?.author).toBe('jwloka');
   });
 });

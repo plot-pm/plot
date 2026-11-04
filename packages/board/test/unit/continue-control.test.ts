@@ -62,6 +62,7 @@ describe('every refusal says something different', () => {
     'no-worker-command',
     'no-manifest',
     'loop-alive',
+    'already-answered',
   ];
 
   it('renders a distinct sentence for each', () => {

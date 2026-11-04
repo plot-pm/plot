@@ -424,7 +424,87 @@ describe('continueOnDesk — the question key and the answer record', () => {
       expect(result.kind).toBe('started');
       const rows = await answerRecordFile({ home }).rowsFor(worktree, askedAt);
       expect(isAnswered(rows) && rows.value).toHaveLength(1);
-      expect(isAnswered(rows) && rows.value[0]?.author).toBe('unblocker');
+      expect(isAnswered(rows) && rows.value[0]?.author).toBe('unknown');
+    } finally {
+      delete process.env[ANSWER_RECORD_HOME_ENV];
+    }
+  });
+
+  it('a continue with no author writes author=unknown, not unblocker', async () => {
+    const { worktree, askedAt, manifestDir } = await deskWithMarker('which adapter?');
+    const home = recordHome();
+    process.env[ANSWER_RECORD_HOME_ENV] = home;
+    try {
+      const result = await continueOnDesk({
+        opts: { repoRoot: worktree, scriptsDir: '/s', manifestDir },
+        branch: 'feature/x',
+        worktree,
+        main: '',
+        previousPid: '',
+        answer: 'use the shell adapter',
+        readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+        spawn: fakeSpawn,
+      });
+      expect(result.kind).toBe('started');
+      const rows = await answerRecordFile({ home }).rowsFor(worktree, askedAt);
+      expect(isAnswered(rows) && rows.value[0]?.author).toBe('unknown');
+    } finally {
+      delete process.env[ANSWER_RECORD_HOME_ENV];
+    }
+  });
+
+  it('refuses already-answered and appends nothing for a second continue on an answered key', async () => {
+    const { worktree, askedAt, manifestDir } = await deskWithMarker('which adapter?');
+    const home = recordHome();
+    process.env[ANSWER_RECORD_HOME_ENV] = home;
+    try {
+      const input = {
+        opts: { repoRoot: worktree, scriptsDir: '/s', manifestDir },
+        branch: 'feature/x',
+        worktree,
+        main: '',
+        previousPid: '',
+        readCfg: (_opts: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+        spawn: fakeSpawn,
+      };
+      const first = await continueOnDesk({ ...input, answer: 'use the shell adapter', author: 'jwloka' });
+      expect(first.kind).toBe('started');
+      const second = await continueOnDesk({ ...input, answer: 'a second answer', author: 'eins78' });
+      expect(second).toMatchObject({ kind: 'refused', reason: 'already-answered' });
+      const rows = await answerRecordFile({ home }).rowsFor(worktree, askedAt);
+      expect(isAnswered(rows) && rows.value).toHaveLength(1);
+      expect(isAnswered(rows) && rows.value[0]?.author).toBe('jwloka');
+    } finally {
+      delete process.env[ANSWER_RECORD_HOME_ENV];
+    }
+  });
+
+  it('a started row with no following answered does not block a retry', async () => {
+    const { worktree, askedAt, manifestDir } = await deskWithMarker('which adapter?');
+    const home = recordHome();
+    process.env[ANSWER_RECORD_HOME_ENV] = home;
+    try {
+      const appended = await answerRecordFile({ home }).append({
+        worktree,
+        askedAt,
+        question: 'which adapter?',
+        answer: 'an earlier, abandoned attempt',
+        author: 'jwloka',
+        outcome: 'started',
+      });
+      expect(isAnswered(appended)).toBe(true);
+      const result = await continueOnDesk({
+        opts: { repoRoot: worktree, scriptsDir: '/s', manifestDir },
+        branch: 'feature/x',
+        worktree,
+        main: '',
+        previousPid: '',
+        answer: 'use the shell adapter',
+        author: 'eins78',
+        readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+        spawn: fakeSpawn,
+      });
+      expect(result.kind).toBe('started');
     } finally {
       delete process.env[ANSWER_RECORD_HOME_ENV];
     }

@@ -41,6 +41,7 @@ import {
   runLogFixture,
   transcriptDirFor,
   TRANSCRIPT_HOME_ENV,
+  ANSWER_RECORD_HOME_ENV,
 } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '@plot-pm/fleet/server/entry/registryd-main';
@@ -1304,30 +1305,47 @@ describe('two concurrent continuations on one desk — #1357', () => {
     // manifest and both spawn — this is the shared starting line the brief
     // asks for, built with `onLocked` rather than real concurrency so the
     // interleaving is deterministic.
+    //
+    // The pre-lock `already-answered` check reads the answer record, which
+    // without this override resolves its directory via a `git rev-parse`
+    // subprocess on every call — real latency the 10 ms budget below does not
+    // otherwise need to absorb.
+    const recordHome = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-answer-record-'));
+    dirs.push(recordHome);
+    const previousRecordHome = process.env[ANSWER_RECORD_HOME_ENV];
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+
     let firstLocked = false;
     let releaseSecond: (() => void) | undefined;
     const second = new Promise<void>((resolve) => {
       releaseSecond = resolve;
     });
 
-    const first = continueOnDesk({
-      ...input(wt, dir),
-      onLocked: async () => {
-        firstLocked = true;
-        // Hold the lock until the second call has had its chance to take it.
-        await new Promise((r) => setTimeout(r, 50));
-      },
-    });
-    // Give the first call a moment to take the lock before the second tries.
-    await new Promise((r) => setTimeout(r, 10));
-    assert.equal(firstLocked, true, 'the first call must reach the lock before the second starts');
-    const secondResult = await continueOnDesk({
-      ...input(wt, dir),
-      onLocked: async () => releaseSecond?.(),
-    });
-    void second;
+    let firstResult: Awaited<ReturnType<typeof continueOnDesk>>;
+    let secondResult: Awaited<ReturnType<typeof continueOnDesk>>;
+    try {
+      const first = continueOnDesk({
+        ...input(wt, dir),
+        onLocked: async () => {
+          firstLocked = true;
+          // Hold the lock until the second call has had its chance to take it.
+          await new Promise((r) => setTimeout(r, 50));
+        },
+      });
+      // Give the first call a moment to take the lock before the second tries.
+      await new Promise((r) => setTimeout(r, 10));
+      assert.equal(firstLocked, true, 'the first call must reach the lock before the second starts');
+      secondResult = await continueOnDesk({
+        ...input(wt, dir),
+        onLocked: async () => releaseSecond?.(),
+      });
+      void second;
 
-    const firstResult = await first;
+      firstResult = await first;
+    } finally {
+      if (previousRecordHome === undefined) delete process.env[ANSWER_RECORD_HOME_ENV];
+      else process.env[ANSWER_RECORD_HOME_ENV] = previousRecordHome;
+    }
 
     const results = [firstResult, secondResult];
     const started = results.filter((r) => r.kind === 'started');
