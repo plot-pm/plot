@@ -1,0 +1,1 @@
+../2026-11-04-a-missing-plot-worker-prompt-sh.md
