@@ -6,7 +6,7 @@ import {
   type ReleaseDetail,
   type ReleaseSprintItem,
 } from '@plot-pm/domain/workflows/release';
-import { refused, type Caller, type Decision } from '@plot-pm/domain/workflows/decision';
+import { callerOf, refused, type Caller, type Decision } from '@plot-pm/domain/workflows/decision';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -188,7 +188,7 @@ export interface GateInput {
 export const inputFrom = (argv: readonly string[]): GateInput => ({
   candidate: argv.includes('--candidate'),
   ignoreSprint: argv.includes('--ignore-sprint'),
-  caller: argv.includes('--unattended') ? 'unattended' : 'person',
+  caller: callerOf({ unattended: argv.includes('--unattended') }),
 });
 
 /** What the gate answered. */
