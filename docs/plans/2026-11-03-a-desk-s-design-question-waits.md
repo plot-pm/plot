@@ -112,7 +112,7 @@ Slice 3:
 
 ### The record names its author
 
-- `bug/an-answer-records-its-true-author` — `continue` records the caller's handle or `unknown`, never a default `unblocker`; the board route and `plot-continue-command.mjs --who` pass it; a second answer on one question key refuses `already-answered` <!-- builds: answer author, already-answered refusal -->
+- `bug/an-answer-records-its-true-author` — `continue` records the caller's handle or `unknown`, never a default `unblocker`; the board route and `plot-continue-command.mjs --who` pass it; a second answer on one question key refuses `already-answered` <!-- builds: answer author, already-answered refusal --> → #3109
 
 ### An escalation reaches the issue
 
