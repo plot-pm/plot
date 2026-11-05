@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3132 merged
+- **Started:** 2026-11-05, Jan Wloka, `bug/plot-approve-writes-the-sprint-annotation`
 
 ## Changelog
 
