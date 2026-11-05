@@ -1130,6 +1130,12 @@ describe('slot 5 holds a value, never a sentence', () => {
    * and a `claimed` branch with an open PR — and those must keep reading
    * `someone is on it` from `startability`, never their kind word.
    */
+  it('prints "no known worker" for a WORKING row with no known worker', () => {
+    expect(tupleFromRow(row({
+      group: 'working', state: 'claimed', startability: 'no-known-worker', pr: null,
+    })).status).toBe('no known worker');
+  });
+
   it('prints the kind word for abandoned and orphaned-claim rows in quiet', () => {
     expect(tupleFromRow(row({
       group: 'quiet', quietKind: 'abandoned', pr: null,

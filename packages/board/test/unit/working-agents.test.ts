@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { workingAgentRows } from '../../src/app/lib/agent-rows/working-agents.js';
+import { claimedWithoutWorkerRows, workingAgentRows } from '../../src/app/lib/agent-rows/working-agents.js';
 import {
   AgentEntrySchema,
   AgentRowSchema,
@@ -118,5 +118,21 @@ describe('workingAgentRows — the live workers, joined to their branch rows', (
     const emptyBranchRow = row({ branch: '', plan: 'not-this-agents', group: 'done' });
     const actual = workingAgentRows([agent({ branch: '' })], byBranch([emptyBranchRow]));
     expect(actual[0].row).toBeNull();
+  });
+});
+
+describe('claimedWithoutWorkerRows — the rows no registry entry names', () => {
+  it('selects WORKING rows with startability no-known-worker and nothing else', () => {
+    const unworked = row({ branch: 'feature/a', group: 'working', startability: 'no-known-worker' });
+    const others = [
+      row({ branch: 'feature/b', group: 'working', startability: 'someone-is-on-it' }),
+      row({ branch: 'feature/c', group: 'quiet', startability: 'no-known-worker' }),
+      row({ branch: 'feature/d', group: 'not-started', startability: 'start-work' }),
+    ];
+    expect(claimedWithoutWorkerRows([...others, unworked])).toEqual([unworked]);
+  });
+
+  it('returns nothing for an empty fleet', () => {
+    expect(claimedWithoutWorkerRows([])).toEqual([]);
   });
 });

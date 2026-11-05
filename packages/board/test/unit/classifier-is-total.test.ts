@@ -24,9 +24,9 @@
 // silently land in the unknown-phase arm (→ DONE) and prove nothing.
 
 import { describe, it, expect } from 'vitest';
-import { classify, rowsFromPulse } from '../../src/server/fleet.js';
+import { classify, rowsFromPulse, withHandOver } from '../../src/server/fleet.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import type { AgentRow, BranchState, FleetReading, WaitingGroup, SliceVerdict, WorkerState } from '../../src/contract/schema.js';
+import type { AgentEntry, AgentRow, BranchState, FleetReading, WaitingGroup, SliceVerdict, WorkerState } from '../../src/contract/schema.js';
 // WHERE THE WAVE'S SECTION NOW LIVES. `classify` answers per BRANCH and still
 // does — a merged branch of an eligible wave is `done` to it, correctly, for a
 // branch. The wave's ONE section is decided a layer up, by `sliceSection` reading
@@ -710,5 +710,48 @@ describe('the quiet-kind invariant — no PR-less abandoned/orphaned-claim row w
       return result.group === 'waiting-on-you' && isAbandonedOrOrphaned;
     });
     expect(violators).toEqual([]);
+  });
+});
+
+describe('the startability invariant — a taken slice is never filed under NOT STARTED', () => {
+  const agentOn = (branch: string): AgentEntry => ({
+    session: 'abc12345', branch, worktree: '', command: '', startedAt: '', pid: '4242',
+    previousPid: '', relaunches: 0, state: 'running',
+  } as unknown as AgentEntry);
+
+  it('no row reading someone-is-on-it or no-known-worker has group not-started', () => {
+    const AGES: readonly (number | null)[] = [null, 5, QUIET + 1, 5000];
+    const offenders: string[] = [];
+    let unworked = 0;
+    for (const state of STATES) {
+      for (const phase of SCAN_PHASES) {
+        for (const verdict of VERDICTS) {
+          for (const age of AGES) {
+            for (const handed of [false, true]) {
+              const branch = 'feature/swept';
+              const pulse: FleetReading = {
+                main: 'main', head: 'abc1234',
+                plans: [{
+                  file: '2026-11-01-swept.md', phase,
+                  slices: [{ name: 'W', verdict, branches: [{ branch, state, deferred: false, claimed: state === 'claimed' ? 'someone' : '' }] }],
+                }],
+                summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+              };
+              const ages = new Map<string, number | null>([[branch, age]]);
+              const rows = withHandOver(rowsFromPulse(pulse, ages, 'plot', QUIET), handed ? [agentOn(branch)] : []);
+              for (const r of rows) {
+                if (r.startability === 'no-known-worker') unworked += 1;
+                const taken = r.startability === 'someone-is-on-it' || r.startability === 'no-known-worker';
+                if (taken && r.group === 'not-started') {
+                  offenders.push(JSON.stringify({ state, phase, verdict, age, handed, group: r.group, startability: r.startability }));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+    expect(unworked).toBeGreaterThan(0);
   });
 });

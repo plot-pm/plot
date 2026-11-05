@@ -41,6 +41,28 @@ describe('classify — the approved spike of a Design plan', () => {
     expect(differ).toEqual([]);
   });
 
+  it('places a fresh claim with no known worker in WORKING, for the spike and for an approved plan', () => {
+    for (const [phase, spike] of [['design', true], ['approved', false]] as const) {
+      const r = classify(
+        'claimed', 'eligible', 5, QUIET, null,
+        false, 0, phase,
+        'none', '', '', false,
+        [], '', false, '', false, '', false, false,
+        [], null, null, null,
+        spike,
+      );
+      expect(r.group).toBe('working');
+      expect(r.startability).toBe('no-known-worker');
+      expect(r.note).toBe('claimed, no known worker');
+    }
+  });
+
+  it('keeps a stale wip branch with no local activity in QUIET, startability unset', () => {
+    const r = place('wip', 5000, 'none', 'approved', false);
+    expect(r.group).toBe('quiet');
+    expect(r.startability).toBeUndefined();
+  });
+
   it('places an open spike branch in NOT STARTED, not in DONE', () => {
     const r = place('open', null, 'none', 'design', true);
     expect(r.group).toBe('not-started');

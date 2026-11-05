@@ -491,6 +491,12 @@ describe('isLive — which rows carry the pulsing indicator', () => {
     expect(new Set(answers).size).toBe(1);
   });
 
+  it('leaves a WORKING row with no known worker still', () => {
+    // No process is known to run for it, so the indicator would promise
+    // activity nothing measured.
+    expect(isLive(row({ group: 'working', startability: 'no-known-worker' }))).toBe(false);
+  });
+
   it('leaves every other group still', () => {
     // Asserted as a negative across the whole vocabulary rather than on one
     // group: `working` is the only claim the board can make honestly, and a

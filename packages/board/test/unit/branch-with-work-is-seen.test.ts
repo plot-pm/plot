@@ -143,9 +143,9 @@ describe('a branch with work on it is visible', () => {
     expect(row.note).toBe('commits, no PR ever opened — last commit 12 min ago');
   });
 
-  it('leaves a PLANNED branch with a recent tip in NOT STARTED', () => {
-    // The quiet window still holds where its reason does: a plan's branch is
-    // work an agent may take. A real plan's placement is unchanged.
+  it('files a PLANNED branch with a recent tip under WORKING, as a branch with no known worker', () => {
+    // A plan's branch with a fresh tip is work somebody is doing, so it reads
+    // WORKING with startability `no-known-worker`.
     expect(build().find((r) => r.branch === 'feature/planned')!.group).toBe('working');
   });
 
