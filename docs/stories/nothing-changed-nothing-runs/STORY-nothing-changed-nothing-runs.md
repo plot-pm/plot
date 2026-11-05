@@ -193,10 +193,7 @@ Each row has one unit. A baseline names its fixture.
 
 ## Open Points
 
-- ⏸️ The Phase 1 gate counts `execve` on Linux CI as a proxy for the macOS `syspolicyd` cost. jwloka accepts that proxy only if it stays written here as an open point. The macOS figure stays a manual measurement.
-- ⏸️ Whether a non-zero count gets a tolerance in the gate, or only structural zeros are held strictly.
-- ⏸️ Whether a stopped fleetd may leave desk findings (`stalled`, `waiting`) unproduced until it restarts, or whether a desk keeps a process-free self-report. Phase 6 ends the AgentMonitor loops, which produce them today.
-- ⏸️ Whether a long-lived fleetd may hold Bitbucket, Jira and Jenkins credentials in-process (Jenkins uses a Keycloak device-flow bearer that expires), or keeps one CLI call per token refresh. Two unrelated tools named `bb` exist on the operator's machine.
+- ✅ Gate proxy, gate tolerance, desk findings with no fleetd, and connector credentials: decided by jwloka on 2026-11-05. See Decisions.
 
 ## Decisions
 
@@ -222,6 +219,10 @@ Each row has one unit. A baseline names its fixture.
 | 2026-11-05 | The working/idle activity reading comes from file events on the worker log | CPU time has no change event; the log grows while an agent works. — master session's call, accepted by jwloka |
 | 2026-11-05 | One fleetd per repository stays | `plot-registryd` is the old name of the per-repository fleetd (`packages/fleet/build.mjs` builds `plot-fleetd.mjs` from `registryd-main.ts`), not a machine-wide process. One fleetd per repository keeps repositories independent. — master session's call, accepted by jwloka |
 | 2026-11-05 | Reconciled juror disagreements (see `panel.md`): the board reads the channel, not the persisted bridge; the liveness token is inherited by the agent's process group; deadlines are recorded in wall time and re-checked on wake | Each pick and its reason is in the panel record. — panel, round 1 |
+| 2026-11-05 | The Phase 1 gate counts `execve` on Linux CI as the proxy for the macOS `syspolicyd` cost; the macOS figure stays a manual measurement | Exact counting on macOS needs root. — jwloka |
+| 2026-11-05 | The gate allows a tolerance on non-zero counts and holds structural zeros strictly | A loaded runner makes non-zero counts jitter; a zero has no jitter. — jwloka |
+| 2026-11-05 | While fleetd is stopped, desk findings (`stalled`, `waiting`) may go unproduced until it restarts | No fleet means nothing acts on them; a desk keeps no process-free self-report. — jwloka |
+| 2026-11-05 | A long-lived fleetd may hold Bitbucket, Jira and Jenkins credentials in-process and refreshes each on expiry | One CLI call per refresh would bring back a process per poll. — jwloka |
 
 ## Key Findings
 
