@@ -1045,12 +1045,14 @@ stated as a rule about all rows.**
 |---|---|---|
 | plan `phase` | Development | Discovery · Endgame · Released |
 | wave `verdict` | eligible · blocked | complete |
-| branch `state` | wip · open | merged · deferred |
-| worker | **running** | everything else |
+| branch `state` | wip · open · **claimed** | merged · deferred |
+| worker | **running**, or **none known** for a claimed or `wip` branch | everything else |
 
 **Unmeasured — the section is empty on this board.** Stated from its definition:
 WORKING means an agent is working *now*, so `worker: running` is the membership
 condition and a plan may only be here while it is Development.
+
+**Two row kinds.** A `running` row is drawn from the registry. A claimed or `wip` branch with a fresh tip or local activity, and no live worker, is drawn as a `no-known-worker` row: startability `no-known-worker`, status word `no known worker`. It carries no activity indicator and no worker log, because no process is known to run for it. A stale claim or `wip` branch with no local activity stays in QUIET, and a branch with an open PR never reaches this rule.
 
 A Discovery plan cannot be here: dispatch refuses an unapproved plan, so no agent
 can be running on one.
@@ -1074,7 +1076,7 @@ implied by the section's own meaning.
 |---|---|---|
 | plan `phase` | **Development only** | Discovery · Endgame · Released |
 | wave `verdict` | eligible · blocked | complete |
-| branch `state` | **open only** | wip · merged · deferred |
+| branch `state` | open · blocked · waiting · unknown · deferred, on a plan still in play | merged · **claimed or `wip` with a fresh tip or local activity** (WORKING since `working-shows-claims-without-a-worker`) |
 | pr | **absent** | present |
 | worker | **elsewhere** | any live state |
 
@@ -1083,8 +1085,7 @@ implied by the section's own meaning.
          state: 9/9 open          pr: 0 of 9   worker: 9/9 elsewhere
 ```
 
-**Perfectly uniform on all five axes.** This is the strictest section and the
-estate has never violated it. *Approved* is the plan-side condition — the
+**Uniform on every axis except branch state.** The branch-state axis admits the five states above and refuses a branch somebody holds. *Approved* is the plan-side condition — the
 section's own hint says *"approved — nobody has taken it"* — and a Discovery plan
 appearing here is the defect `a-plan-moves-through-the-sections` fixed.
 
