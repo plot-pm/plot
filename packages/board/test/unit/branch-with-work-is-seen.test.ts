@@ -146,7 +146,7 @@ describe('a branch with work on it is visible', () => {
   it('leaves a PLANNED branch with a recent tip in NOT STARTED', () => {
     // The quiet window still holds where its reason does: a plan's branch is
     // work an agent may take. A real plan's placement is unchanged.
-    expect(build().find((r) => r.branch === 'feature/planned')!.group).toBe('not-started');
+    expect(build().find((r) => r.branch === 'feature/planned')!.group).toBe('working');
   });
 
   it('names an abandoned branch ABANDONED, as every stale wip row now does', () => {

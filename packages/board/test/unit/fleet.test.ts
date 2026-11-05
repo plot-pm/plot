@@ -249,12 +249,12 @@ describe('classify', () => {
   // on. What they assert now is the GROUP, which is what they were always
   // about; the sentence beside it is pinned by the worker tests below.
   //
-  // WORKING IS ABOUT AGENTS. A claim with no known worker is NOT STARTED —
-  // an agent may take this, the claim ref exists but nobody has proven a
-  // worker is running. See `every-section-has-one-subject`.
-  it('puts a fresh claim without a known worker into not-started', () => {
+  // A fresh claim with no known worker is WORKING, labelled `no-known-worker`:
+  // the claim ref says someone took it, and nobody has proven a worker runs.
+  // See `unworkedPlacement`.
+  it('puts a fresh claim without a known worker into working', () => {
     const r = classify('claimed', 'eligible', 3, QUIET);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/claimed/);
   });
 
@@ -285,8 +285,8 @@ describe('classify', () => {
   // STARTED — an agent may take this. See `every-section-has-one-subject`.
   // Past the window it is ABANDONED: real commits, no open PR (the PR arm
   // above catches every branch carrying one), nobody on it.
-  it('puts a recent commit without a known worker into not-started, stale to abandoned', () => {
-    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
+  it('puts a recent commit without a known worker into working, stale to abandoned', () => {
+    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('working');
     const stale = classify('wip', 'eligible', 200, QUIET);
     expect(stale.group).toBe('quiet');
     expect(stale.note).toMatch(/commits, no PR ever opened/);
@@ -297,7 +297,7 @@ describe('classify', () => {
     // The window still decides WHEN the row stops reading as freshly touched;
     // what changed is what it reads as afterwards.
     expect(classify('wip', 'eligible', 45, 30).group).toBe('quiet');
-    expect(classify('wip', 'eligible', 45, 60).group).toBe('not-started');
+    expect(classify('wip', 'eligible', 45, 60).group).toBe('working');
   });
 
   it('does not claim a branch is working when its age is unknown', () => {
@@ -356,31 +356,31 @@ describe('classify', () => {
   // narrow — a signal true only on the machine doing the looking may add an
   // answer where this machine knows more, never downgrade one.
 
-  // WORKING IS ABOUT AGENTS. Local activity without a known worker goes to
-  // NOT STARTED, not WORKING. The note names the evidence as LOCAL, because
-  // that is what a reader needs to judge it. See `every-section-has-one-subject`.
-  it('puts a stale CLAIM with a dirty worktree into not-started', () => {
+  // Local activity without a known worker is WORKING, labelled
+  // `no-known-worker`. The note names the evidence as LOCAL, because that is
+  // what a reader needs to judge it. See `unworkedPlacement`.
+  it('puts a stale CLAIM with a dirty worktree into working', () => {
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET, null, true);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/local/);
     expect(r.note).toMatch(/uncommitted/);
   });
 
-  it('puts a stale WIP branch with a dirty worktree into not-started', () => {
+  it('puts a stale WIP branch with a dirty worktree into working', () => {
     // All six quiet rows on the board the day this was found were `wip` with
     // 22-day-old commits, not `claimed`. A dirty worktree means the same thing
     // whatever put the branch there.
     const r = classify('wip', 'eligible', 30_300, QUIET, null, true);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/local/);
   });
 
-  it('puts a claim with unknown age but a dirty worktree into not-started', () => {
+  it('puts a claim with unknown age but a dirty worktree into working', () => {
     // Without an age the claim arm falls to quiet because there is nothing to
     // judge. A dirty worktree is something to judge — but still NOT STARTED
     // because WORKING IS ABOUT AGENTS.
-    expect(classify('claimed', 'eligible', null, QUIET, null, true).group).toBe('not-started');
-    expect(classify('wip', 'eligible', null, QUIET, null, true).group).toBe('not-started');
+    expect(classify('claimed', 'eligible', null, QUIET, null, true).group).toBe('working');
+    expect(classify('wip', 'eligible', null, QUIET, null, true).group).toBe('working');
   });
 
   it('changes nothing for a CLEAN worktree', () => {
@@ -429,7 +429,7 @@ describe('classify', () => {
     expect(classify('open', 'eligible', null, QUIET, null, true).group).toBe('not-started');
     // A branch with a recent commit but no known worker also goes to NOT STARTED.
     const fresh = classify('wip', 'eligible', 5, QUIET, null, true);
-    expect(fresh.group).toBe('not-started');
+    expect(fresh.group).toBe('working');
     expect(fresh.note).toMatch(/last commit/);
   });
 
@@ -445,9 +445,9 @@ describe('classify', () => {
   // WORKING IS ABOUT AGENTS. Unpushed commits without a known worker go to
   // NOT STARTED — local activity, not proof an agent is running.
   // See `every-section-has-one-subject`.
-  it('puts a CLAIM with unpushed commits into not-started', () => {
+  it('puts a CLAIM with unpushed commits into working', () => {
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 3);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     // The note says how many, and names the evidence as local — work nobody else
     // can see, claimed on grounds the next person cannot verify.
     expect(r.note).toMatch(/3 commits not pushed/);
@@ -457,17 +457,17 @@ describe('classify', () => {
     expect(r.note).not.toMatch(/ago/);
   });
 
-  it('puts a stale WIP branch with unpushed commits into not-started', () => {
+  it('puts a stale WIP branch with unpushed commits into working', () => {
     const r = classify('wip', 'eligible', 30_300, QUIET, null, false, 1);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     // Singular, because a note that reads "1 commits" is the kind of thing a
     // reader stops trusting.
     expect(r.note).toMatch(/1 commit not pushed/);
   });
 
-  it('puts a claim with unknown age but unpushed commits into not-started', () => {
-    expect(classify('claimed', 'eligible', null, QUIET, null, false, 2).group).toBe('not-started');
-    expect(classify('wip', 'eligible', null, QUIET, null, false, 2).group).toBe('not-started');
+  it('puts a claim with unknown age but unpushed commits into working', () => {
+    expect(classify('claimed', 'eligible', null, QUIET, null, false, 2).group).toBe('working');
+    expect(classify('wip', 'eligible', null, QUIET, null, false, 2).group).toBe('working');
   });
 
   it('says BOTH facts when a branch is dirty AND ahead, unpushed first', () => {
@@ -476,7 +476,7 @@ describe('classify', () => {
     // because a second outranks it is the displacement `deferred` used to cause
     // to the note text.
     const r = classify('wip', 'eligible', 30_300, QUIET, null, true, 2);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/2 commits not pushed/);
     expect(r.note).toMatch(/uncommitted/);
     // Unpushed first: finished work nobody can see is the more urgent half.
@@ -592,7 +592,7 @@ describe('classify', () => {
     // WORKING IS ABOUT AGENTS. A branch with a recent commit but no known worker
     // goes to NOT STARTED. See `every-section-has-one-subject`.
     const fresh = classify('wip', 'eligible', 5, QUIET, null, false, 4);
-    expect(fresh.group).toBe('not-started');
+    expect(fresh.group).toBe('working');
     expect(fresh.note).toMatch(/last commit/);
   });
 
@@ -681,25 +681,25 @@ describe('classify', () => {
 
   const LOCKED = [null, false, 0, '', 'elsewhere', '', '', true] as const;
 
-  // WORKING IS ABOUT AGENTS. A lock without a known worker goes to NOT STARTED
-  // — local activity, not proof an agent is running. See `every-section-has-one-subject`.
-  it('puts a quiet CLAIM with a lock into not-started', () => {
+  // A lock without a known worker is WORKING, labelled `no-known-worker`.
+  // See `unworkedPlacement`.
+  it('puts a quiet CLAIM with a lock into working', () => {
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET, ...LOCKED);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/write is in progress/);
     // Named as LOCAL, like every other signal only this machine can see.
     expect(r.note).toMatch(/local/);
   });
 
-  it('puts a stale WIP branch with a lock into not-started', () => {
+  it('puts a stale WIP branch with a lock into working', () => {
     const r = classify('wip', 'eligible', 30_300, QUIET, ...LOCKED);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/write is in progress/);
   });
 
   it('puts a branch with unknown age but a lock into not-started', () => {
-    expect(classify('claimed', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
-    expect(classify('wip', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
+    expect(classify('claimed', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
+    expect(classify('wip', 'eligible', null, QUIET, ...LOCKED).group).toBe('working');
   });
 
   it('says the LOCK alone, not the other two facts beside it', () => {
@@ -709,7 +709,7 @@ describe('classify', () => {
     // instructions.
     const r = classify('wip', 'eligible', 30_300, QUIET, null, true, 2,
       '', 'elsewhere', '', '', true);
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).toMatch(/write is in progress/);
     expect(r.note).not.toMatch(/not pushed/);
     expect(r.note).not.toMatch(/uncommitted/);
@@ -726,7 +726,7 @@ describe('classify', () => {
     expect(classify('open', 'eligible', null, QUIET, ...LOCKED).group).toBe('not-started');
     // A branch with a recent commit but no known worker goes to NOT STARTED.
     const fresh = classify('wip', 'eligible', 5, QUIET, ...LOCKED);
-    expect(fresh.group).toBe('not-started');
+    expect(fresh.group).toBe('working');
     expect(fresh.note).toMatch(/last commit/);
   });
 
@@ -995,11 +995,13 @@ describe('classify', () => {
   it('answers waiting-on-you/DRAFT_PLAN_NOTE for a draft plan\'s fresh wip branch', () => {
     // The one tuple pulled out of the loop above: a draft plan's FRESH `wip`
     // branch now reads the draft note, where an approved plan's reads `last
-    // commit 5 min ago` in NOT STARTED. See `draftPlacement`.
+    // commit 5 min ago` in WORKING. See `draftPlacement`.
     expect(classify('wip', 'eligible', 5, QUIET, null, false, 0, 'draft'))
       .toEqual({ group: 'waiting-on-you', note: DRAFT_PLAN_NOTE, verdict: 'eligible' });
     expect(classify('wip', 'eligible', 5, QUIET, null, false, 0, 'approved'))
-      .toEqual({ group: 'not-started', note: 'last commit 5 min ago', verdict: 'eligible' });
+      .toEqual({
+        group: 'working', startability: 'no-known-worker', note: 'last commit 5 min ago', verdict: 'eligible',
+      });
   });
 
   it('leaves a PR to answer even when commits are unpushed', () => {
@@ -1618,7 +1620,7 @@ describe('classify — whether a worker is actually running', () => {
     // carrying the rejected pid must NOT be talked back into running.
     // WORKING IS ABOUT AGENTS — a claim with no known worker goes to NOT STARTED.
     const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'none', '', '0');
-    expect(r.group).toBe('not-started'); // no known worker, so NOT STARTED
+    expect(r.group).toBe('working'); // no known worker, so NOT STARTED
     expect(r.note).not.toMatch(/running/);
     expect(r.note).toMatch(/no known worker/);
   });
@@ -1645,16 +1647,16 @@ describe('classify — whether a worker is actually running', () => {
     // WORKING IS ABOUT AGENTS. A claim with no known worker goes to NOT STARTED
     // — we do NOT say "dead" or "nobody", but we also do not say WORKING.
     const r = classify('claimed', 'eligible', 3, QUIET, null, false, 0, '', 'none');
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
     expect(r.note).not.toMatch(/dead|nobody/i);
   });
 
   it('leaves a caller that passes no worker at all answering as before', () => {
     // Every caller predating the field. WORKING IS ABOUT AGENTS — no known
     // worker means NOT STARTED for a fresh claim or recent commit.
-    expect(classify('claimed', 'eligible', 3, QUIET).group).toBe('not-started');
+    expect(classify('claimed', 'eligible', 3, QUIET).group).toBe('working');
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET).group).toBe('quiet');
-    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
+    expect(classify('wip', 'eligible', 5, QUIET).group).toBe('working');
   });
 
   it('does not let a stale worktree speak for a merged branch', () => {
@@ -2063,7 +2065,7 @@ describe('rowsFromPulse', () => {
     // 240-minute-old claim, which the quiet rule names an orphaned claim —
     // operator decision B (2026-11-03) files that in QUIET rather than
     // WAITING ON YOU, so it no longer leads here.
-    expect(groups[0]).toBe('not-started');
+    expect(groups[0]).toBe('working');
     // done sits last: it asks nothing of you at all.
     expect(groups.at(-1)).toBe('done');
   });
@@ -2536,13 +2538,13 @@ describe('rowsFromPulse', () => {
       }],
     });
 
-    it('puts a long-quiet branch with local activity into not-started, not working', () => {
+    it('puts a long-quiet branch with local activity into working', () => {
       // `feature/d` is 240 minutes old against a 30-minute window, so the refs
-      // put it firmly in quiet and only the worktree says otherwise. WORKING IS
-      // ABOUT AGENTS: local activity without an agent is not-started.
+      // put it firmly in quiet and only the worktree says otherwise. Local
+      // activity without a known worker is WORKING, labelled `no-known-worker`.
       const rows = rowsFromPulse(dirty('feature/d'), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d');
-      expect(row!.group).toBe('not-started');
+      expect(row!.group).toBe('working');
       expect(row!.note).toMatch(/local/);
     });
 
@@ -2577,13 +2579,13 @@ describe('rowsFromPulse', () => {
       }],
     });
 
-    it('puts a long-quiet branch with unpushed commits into not-started, not working', () => {
+    it('puts a long-quiet branch with unpushed commits into working', () => {
       // `feature/d` is 240 minutes old against a 30-minute window, so the refs
       // put it firmly in quiet and only the unpushed commits say otherwise.
-      // WORKING IS ABOUT AGENTS: local activity without an agent is not-started.
+      // Local activity without a known worker is WORKING, labelled `no-known-worker`.
       const rows = rowsFromPulse(ahead('feature/d', 3), ages, 'plot', QUIET);
       const row = rows.find((r) => r.branch === 'feature/d');
-      expect(row!.group).toBe('not-started');
+      expect(row!.group).toBe('working');
       expect(row!.note).toMatch(/3 commits not pushed/);
     });
 
@@ -3213,7 +3215,7 @@ describe('classify with PR data', () => {
     // through to the git-state classification. WORKING IS ABOUT AGENTS: with
     // no agent state, a recent commit goes to not-started.
     const r = classify('wip', 'eligible', 3, QUIET, pr({ draft: true }));
-    expect(r.group).toBe('not-started');
+    expect(r.group).toBe('working');
   });
 
   it('shows review state as a note without ever gating on it', () => {
@@ -3246,8 +3248,8 @@ describe('classify with PR data', () => {
     // ABOUT AGENTS: without agent state, recent commits go to not-started, and
     // past the window the quiet rule names what the branch is — an orphaned
     // claim here, since `claimed` IS the empty-claim reading.
-    expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('not-started');
-    expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('not-started');
+    expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('working');
+    expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('working');
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('quiet');
   });
 });
