@@ -134,7 +134,7 @@ On the 2.30.1 release a person still approves the held CI run once; that approva
 
 ### Review switched on
 
-- `feature/the-release-review-is-switched-on` — set `Auto-review: true`, regenerate `AGENTS.md`, and log a skipped release review as skipped <!-- waits: bug/a-high-gets-its-own-fixer-attempts -->
+- `feature/the-release-review-is-switched-on` — set `Auto-review: true`, regenerate `AGENTS.md`, and log a skipped release review as skipped <!-- waits: bug/a-high-gets-its-own-fixer-attempts --> → #3175
 
 ### Release guard
 
