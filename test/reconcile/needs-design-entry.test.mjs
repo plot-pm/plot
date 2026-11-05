@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pushPlanHead } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -55,7 +56,7 @@ before(() => {
   stubDir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-needs-design-entry-stub-')));
   fs.writeFileSync(path.join(stubDir, 'gh'), `#!/usr/bin/env bash
 if [ "$1" = pr ] && [ "$2" = view ]; then
-  printf '%s' '{"number":42,"state":"OPEN","isDraft":true,"url":"https://example.invalid/pr/42","mergeCommit":null}'
+  printf '{"number":42,"state":"OPEN","isDraft":true,"url":"https://example.invalid/pr/42","mergeCommit":null,"headRefName":"${HEAD}","headRefOid":"%s"}' "$PLOT_TEST_PR_HEAD_OID"
 elif [ "$1" = repo ] && [ "$2" = view ]; then
   printf 'main'
 else
@@ -87,20 +88,24 @@ const makeRepo = (planBody) => {
   return { repo, origin };
 };
 
-/** Pushes `idea/<slug>` to origin, one commit ahead of main, and keeps no local branch. */
+/**
+ * Pushes `idea/<slug>` to origin as a head that changes the plan file, keeps no
+ * local branch, and returns the head's full sha.
+ *
+ * The controller reads the plan at the plan PR's own head: git must hold the
+ * head the host names, the head must change the plan file, and the checkout's
+ * copy must equal the head's copy. `pushPlanHead` builds exactly that shape.
+ */
 const pushPlanPrBranch = (repo) => {
-  git(repo, 'checkout', '-qb', HEAD);
-  fs.writeFileSync(path.join(repo, 'NOTES.md'), 'the plan PR\n');
-  git(repo, 'add', 'NOTES.md');
-  git(repo, 'commit', '-qm', 'plan PR');
-  git(repo, 'push', '-q', 'origin', HEAD);
-  git(repo, 'checkout', '-q', 'main');
-  git(repo, 'branch', '-qD', HEAD);
+  const sha = pushPlanHead({ tmp: path.dirname(repo), repo, planRel: PLAN_REL, branch: HEAD });
+  git(repo, 'fetch', '-q', 'origin');
+  return sha;
 };
 
-const childEnv = () => {
+const childEnv = (prHead = '') => {
   const env = {
     ...process.env,
+    PLOT_TEST_PR_HEAD_OID: prHead,
     PATH: `${stubDir}:${process.env.PATH}`,
     PLOT_HOST: 'github',
     PLOT_BUDGET_HOME: stubDir,
@@ -111,8 +116,8 @@ const childEnv = () => {
   return env;
 };
 
-const needsDesign = (repo, args) =>
-  spawnSync(process.execPath, [BUNDLE, ...args], { cwd: repo, encoding: 'utf8', env: childEnv() });
+const needsDesign = (repo, args, prHead = '') =>
+  spawnSync(process.execPath, [BUNDLE, ...args], { cwd: repo, encoding: 'utf8', env: childEnv(prHead) });
 
 const today = () => {
   const now = new Date();
@@ -137,10 +142,10 @@ test('needs-design entry: --channel takes board or cli and refuses anything else
 
 test('needs-design entry: the plan-PR arm commits onto the PR head, records the board channel, and leaves the receipt', () => {
   const { repo } = makeRepo(PLAN());
-  pushPlanPrBranch(repo);
+  const prHead = pushPlanPrBranch(repo);
   const mainBefore = git(repo, 'rev-parse', 'origin/main').trim();
 
-  const r = needsDesign(repo, ['--channel', 'board', SLUG]);
+  const r = needsDesign(repo, ['--channel', 'board', SLUG], prHead);
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.match(r.stdout, /summary: target=plan-pr phase=flipped record=written push=clean/);
 
@@ -160,12 +165,11 @@ test('needs-design entry: the plan-PR arm commits onto the PR head, records the 
 
 test('needs-design entry: a rejected push on the plan-PR arm leaves the head and the checkout as they were', () => {
   const { repo, origin } = makeRepo(PLAN());
-  pushPlanPrBranch(repo);
-  const headBefore = git(repo, 'rev-parse', `origin/${HEAD}`).trim();
+  const headBefore = pushPlanPrBranch(repo);
   fs.writeFileSync(path.join(origin, 'hooks', 'pre-receive'), '#!/bin/sh\necho "rejected by the test" >&2\nexit 1\n');
   fs.chmodSync(path.join(origin, 'hooks', 'pre-receive'), 0o755);
 
-  const r = needsDesign(repo, ['--channel', 'board', SLUG]);
+  const r = needsDesign(repo, ['--channel', 'board', SLUG], headBefore);
   assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
   assert.match(r.stderr, /push was rejected/);
   assert.equal(git(origin, 'rev-parse', HEAD).trim(), headBefore, 'the head branch on origin did not move');
