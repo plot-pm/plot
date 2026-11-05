@@ -4,7 +4,7 @@
 // for four lines of string handling. See `entities/version.ts`.
 import { normalizeVersion } from '../entities/version.js';
 import { approvalArm } from '../rules/approval-arm.js';
-import { spikeOf, type SpikeSlice } from '../rules/spike.js';
+import { licensedSpike, spikeOf, type SpikeSlice } from '../rules/spike.js';
 import { confirmRefusal } from '../rules/spike-confirm.js';
 import {
   unnamedBranchDetail,
@@ -530,11 +530,11 @@ export const approveSpike = (plan: TransitionPlan, input: ApproveSpikeInput): Sp
       );
   }
 
-  if ((plan.spikeApprovedRecord ?? '').trim() !== '') {
+  if (licensedSpike(plan.spikeApprovedRecord ?? '', input.slices).licensed) {
     return refuse(
       plan.slug,
       'spike-approved',
-      `plan '${plan.slug}' already carries a 'Spike approved:' record — nothing to approve.`,
+      `plan '${plan.slug}' already carries a 'Spike approved:' record that licenses its marked branch — nothing to approve.`,
     );
   }
 
@@ -597,7 +597,7 @@ export const approveSpike = (plan: TransitionPlan, input: ApproveSpikeInput): Sp
     outcome: 'decided',
     slug: plan.slug,
     field: 'Spike approved',
-    record: `${input.on}, ${who}, ${input.channel}`,
+    record: `${input.on}, ${who}, ${input.channel}, ${spike.branch}`,
     branch: spike.branch,
   };
 };

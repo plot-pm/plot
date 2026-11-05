@@ -201,6 +201,36 @@ export const insertStatusRecord = (content: string, field: string, record: strin
   return { changed: true, content: out.join('\n') };
 };
 
+/**
+ * Replaces the first filled `- **{field}:**` line in `## Status` with
+ * `- **{field}:** {record}`, or inserts the line as {@link insertStatusRecord}
+ * does where none is filled.
+ *
+ * Stops at the next `## ` heading and at an HTML comment, as
+ * {@link insertStatusRecord} does. Later filled lines of the same field stay.
+ *
+ * @param content - the whole plan file.
+ * @param field - the record's field name, such as `Spike approved`.
+ * @param record - the text to record.
+ * @returns the edited content; `changed: false` only where the file holds no
+ *   `## Status` heading.
+ */
+export const replaceStatusRecord = (content: string, field: string, record: string): EditResult => {
+  const lines = content.split('\n');
+  const filled = new RegExp(`^[ \\t]*[-*][ \\t]*\\*\\*${field}:\\*\\*[ \\t]*\\S`);
+  const start = lines.findIndex(isStatusHeading);
+  if (start === -1) return { changed: false, content };
+  for (let i = start + 1; i < lines.length; i++) {
+    if (isOtherHeading(lines[i]) || isComment(lines[i])) break;
+    if (filled.test(lines[i])) {
+      const out = [...lines];
+      out[i] = `- **${field}:** ${record}`;
+      return { changed: true, content: out.join('\n') };
+    }
+  }
+  return insertStatusRecord(content, field, record);
+};
+
 /** Whether a line is `## Status` or a heading that starts with it. */
 const isStatusSection = (line: string): boolean => /^## Status/.test(line);
 

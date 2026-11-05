@@ -951,7 +951,7 @@ test('approve: --spike merges the draft plan PR pinned to its head, records the 
 
   const receipts = spikeReceipts();
   assert.equal(receipts.length, 1, 'one receipt under the spike key');
-  assert.match(receipts[0], /\t\d{4}-\d{2}-\d{2}, jwloka, plan-PR #42 merged\n$/);
+  assert.match(receipts[0], /\t\d{4}-\d{2}-\d{2}, jwloka, plan-PR #42 merged, feature\/alpha\n$/);
 
   const log = fs.readFileSync(path.join(repo, '.plot', 'state', 'in-session-approvals.tsv'), 'utf8').trim().split('\n');
   assert.equal(log.length, 1);

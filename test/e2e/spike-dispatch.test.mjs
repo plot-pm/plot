@@ -116,7 +116,7 @@ after(() => sb.cleanup());
 
 test('approve: --spike records Spike approved: and leaves the plan in Design', () => {
   const plan = sh(sb.work, 'git show origin/main:docs/plans/2026-10-12-spiked.md');
-  assert.match(plan, /- \*\*Spike approved:\*\* \d{4}-\d{2}-\d{2}, alice, in-session/, plan);
+  assert.match(plan, new RegExp(`^- \\*\\*Spike approved:\\*\\* \\d{4}-\\d{2}-\\d{2}, alice, in-session, ${SPIKE}$`, 'm'), plan);
   assert.match(plan, /- \*\*(State|Phase):\*\* Design/, plan);
   assert.doesNotMatch(plan, /- \*\*Approved:\*\* \d/, plan);
 });

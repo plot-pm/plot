@@ -51,7 +51,7 @@ describe('approveSpike — the writes', () => {
     expect(decided(out)).toBe(true);
     if (!decided(out)) return;
     expect(out.writes.map((w) => w.kind)).toEqual(['pr-merge', 'plan-record', 'hold-clear', 'commit', 'push']);
-    expect(out.writes[1]).toMatchObject({ field: 'Spike approved', value: '2026-10-12, jwloka, plan-PR #42 merged' });
+    expect(out.writes[1]).toMatchObject({ field: 'Spike approved', value: '2026-10-12, jwloka, plan-PR #42 merged, feature/spike' });
     expect(out.writes[2]).toMatchObject({ branch: 'feature/spike' });
     expect(out.detail.spike).toBe('feature/spike');
     expect(out.writes.some((w) => w.kind === 'plan-phase')).toBe(false);
@@ -100,11 +100,18 @@ describe('approveSpike — the refusals', () => {
   });
 
   it('refuses a recorded approval, a plan outside Design, and a missing or undeclared person', () => {
-    expect(reason(readings({ spikeApprovedRecord: '2026-10-12, jwloka, in-session' }))).toBe('spike-approved');
+    expect(reason(readings({ spikeApprovedRecord: '2026-10-12, jwloka, in-session, feature/spike' }))).toBe('spike-approved');
     expect(reason(readings({ phase: 'approved' }))).toBe('state-wrong');
     expect(reason(readings({ phase: 'draft' }))).toBe('state-wrong');
     expect(reason(readings(), input({ who: ' ' }))).toBe('review-human');
     expect(reason(readings(), input({ who: 'stranger' }))).toBe('reviewer-undeclared');
+  });
+
+  it('decides a new record where the old one licenses nothing', () => {
+    for (const spikeApprovedRecord of ['2026-10-12, jwloka, in-session', '2026-10-12', '2026-10-12, jwloka, in-session, feature/gone']) {
+      const out = approveSpike(readings({ spikeApprovedRecord }), input());
+      expect(decided(out) && out.writes[1]).toMatchObject({ field: 'Spike approved', value: '2026-10-12, jwloka, plan-PR #42 merged, feature/spike' });
+    }
   });
 
   it('refuses an unreadable state, a missing plan and an unparseable plan', () => {
