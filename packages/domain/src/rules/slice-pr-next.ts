@@ -13,13 +13,19 @@ import type { TicketReading } from './ticket.js';
 export type SiblingReading = { read: 'unread' } | { read: 'record' };
 
 /**
- * The fixer's attempts record, read down to the two answers `highArm` and
- * `ciRedArm` need from it (#2903): `fixerInFlight` and `fixerAttemptsExhausted`
- * are each computed once, by the caller that holds the raw record, and
- * carried here as plain values — these two arms are pure functions and
- * cannot read `FixerAttemptsStore` themselves.
+ * The fixer's attempts record, read down to the answers `highArm` and
+ * `ciRedArm` need from it (#2903): `fixerInFlight`, `fixerAttemptsExhausted`
+ * for each finding kind and `fixerPushedHead` are computed once, by the caller
+ * that holds the raw record, and carried here as plain values — these arms are
+ * pure functions and cannot read `FixerAttemptsStore` themselves.
+ *
+ * `highExhausted` and `ciExhausted` are the two budgets, counted apart.
+ * `pushedHead` is true where the record proves the fixer pushed the row's
+ * current head.
  */
-export type FixerReading = { read: 'unread' } | { read: 'record'; inFlight: boolean; exhausted: boolean };
+export type FixerReading =
+  | { read: 'unread' }
+  | { read: 'record'; inFlight: boolean; highExhausted: boolean; ciExhausted: boolean; pushedHead: boolean };
 
 /** The review verdict file `reviews/<pr>-<headSha>.md` as read through `reviewVerdict`. */
 export type VerdictReading =
@@ -172,7 +178,11 @@ export const reviewRunArm = (readings: SlicePrNextReadings): SlicePrStep => {
 };
 
 /**
- * Arm 3. A verdict file the index does not yet reflect gets its status written.
+ * Arm 5. A verdict file the index does not yet reflect gets its status written.
+ *
+ * Obeys the review arm's gates: `Auto-review` off, or the head's review start
+ * budget spent, answers `none`. Runs after {@link highArm}, so a status that arm
+ * accepted is not overwritten by a failing verdict file.
  *
  * A row with no `plotReview` field was never asked, and the index never says
  * no, so that row answers `none`.
@@ -181,7 +191,11 @@ export const reviewRunArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * @returns `write-status`, a hold where the verdict file is unreadable, or `none`.
  */
 export const restatusArm = (readings: SlicePrNextReadings): SlicePrStep => {
-  const { row, verdict } = readings;
+  const { row, verdict, config, reviewStarts, now } = readings;
+  if (!config.autoReview) return none('auto-review-off');
+  if (row !== null && row.headSha !== undefined && reviewStartAllowed(reviewStarts, row.headSha, config.startBudget, now) === 'budget-spent') {
+    return none('budget-spent');
+  }
   if (verdict.read === 'unread') return hold('unread');
   if (verdict.read !== 'verdict') return none('no-verdict');
   if (row === null || row.headSha === undefined || row.plotReview === undefined) return none('not-asked');
@@ -196,7 +210,7 @@ export const restatusArm = (readings: SlicePrNextReadings): SlicePrStep => {
 };
 
 /**
- * Arm 4 (#2903). A live fixer makes the head temporary.
+ * Arm 3 (#2903). A live fixer makes the head temporary.
  *
  * @param readings - the PR's readings.
  * @returns a `fixer-in-flight` hold, an `unread` hold, or `none`.
@@ -209,7 +223,7 @@ export const fixerInFlightArm = (readings: SlicePrNextReadings): SlicePrStep => 
 };
 
 /**
- * Arm 5 (#2903). A HIGH on the current head starts the fixer, and once the
+ * Arm 4 (#2903). A HIGH on the current head starts the fixer, and once the
  * attempts are spent goes to a ticket.
  *
  * A HIGH is `row.plotReview === 'failure'` bound to the row's `headSha` — a
@@ -231,7 +245,7 @@ export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (fixer.read === 'unread') return hold('unread');
   if (row === null || row.headSha === undefined || row.plotReview === undefined) return none('not-asked');
   if (row.plotReview !== 'failure' || row.plotReviewSha !== row.headSha) return none('no-high');
-  if (!fixer.exhausted) return { step: 'fixer', head: row.headSha, evidence: 'high' };
+  if (!fixer.highExhausted) return { step: 'fixer', head: row.headSha, evidence: 'high' };
   if (ticket === undefined) return none('ticket-not-built');
   if (ticket.ticket === 'pending') return hold('ticket-pending');
   if (ticket.ticket === 'none' || !ticket.coversHead) return { step: 'ticket', head: row.headSha };
@@ -246,7 +260,12 @@ export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
 
 /**
  * Arm 6 (#2903). CI red on the current head starts the fixer once the desk
- * that owned it is gone.
+ * that owned it is gone, or where the fixer itself pushed the head.
+ *
+ * A head is fixer-pushed where {@link FixerReading.pushedHead} is true: the
+ * attempts record names it as the head an ended attempt left, and
+ * {@link fixerInFlightArm} has already held a running fixer. A desk that reads
+ * `elsewhere` or `live` is not gone by that reading alone.
  *
  * "Desk dead" is arm-specific rather than one uniform read: a desk is dead
  * per {@link DeskDeadAnswer}, OR its ending reads `corrections-spent` with its
@@ -266,8 +285,8 @@ export const ciRedArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (fixer.read === 'unread') return hold('unread');
   if (row === null || row.headSha === undefined || row.ciChecks === undefined) return none('not-asked');
   if (row.ciChecks !== 'failing' || row.checksSha !== row.headSha) return none('no-ci-red');
-  if (fixer.exhausted) return hold('ci-red-attempts-spent');
-  const deskGone = desk.dead || correctionsSpentExhausted === true;
+  if (fixer.ciExhausted) return hold('ci-red-attempts-spent');
+  const deskGone = desk.dead || correctionsSpentExhausted === true || fixer.pushedHead;
   if (!deskGone) return none('desk-alive');
   return { step: 'fixer', head: row.headSha, evidence: 'ci-red' };
 };
@@ -278,8 +297,8 @@ export const ciRedArm = (readings: SlicePrNextReadings): SlicePrStep => {
  * Answers `review` when all hold, and `none` with the first failed reason
  * otherwise: `auto-review-off`; `not-asked`; `checks-unbound` or
  * `ci-not-green`; `reviewed`; `budget-spent` or `backoff`. A red default
- * branch never holds a review. Arm 3 runs first and already intercepts every
- * `verdict.read` other than `absent`, so this arm never sees one.
+ * branch never holds a review. Arm 5 runs first and already intercepts every
+ * `verdict.read` other than `absent` while the review gates hold, so this arm never sees one.
  *
  * @param readings - the PR's readings.
  * @returns `review`, or `none`.
@@ -379,7 +398,7 @@ export const nextMerge = (answers: readonly PrStepAnswer[]): { pr: number; head:
  * The next step for one open PR.
  *
  * Calls the arms in a fixed order and returns the first answer that is not
- * `none`: guard, review run, re-status, fixer in flight, HIGH, CI red,
+ * `none`: guard, review run, fixer in flight, HIGH, re-status, CI red,
  * review, merge. An arm that writes or holds on the current head comes before
  * an arm that starts new work on it. A guard `none` ends the walk. With no
  * answer, the review arm's `none` is returned, because it names the reason.
@@ -390,7 +409,7 @@ export const nextMerge = (answers: readonly PrStepAnswer[]): { pr: number; head:
 export const slicePrNext = (readings: SlicePrNextReadings): SlicePrStep => {
   const guard = guardArm(readings);
   if (guard !== null) return guard;
-  const arms = [reviewRunArm, restatusArm, fixerInFlightArm, highArm, ciRedArm, reviewArm, mergeArm];
+  const arms = [reviewRunArm, fixerInFlightArm, highArm, restatusArm, ciRedArm, reviewArm, mergeArm];
   let review: SlicePrStep = none('no-arm-answered');
   for (const arm of arms) {
     const answer = arm(readings);

@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 import { slicePrNext, type SlicePrNextReadings, type SlicePrStep } from '@plot-pm/domain';
-import { fixerAttemptsExhausted, fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
+import { fixerAttemptsExhausted, fixerReadingOf } from '@plot-pm/domain/rules/fixer-attempts';
 import { reviewVerdict, type ReviewCounts } from '@plot-pm/domain/rules/review-verdict';
 import { REVIEW_ISSUE_LABEL, reviewIssueTitle } from '@plot-pm/domain/rules/review-issue';
 import {
@@ -235,17 +235,14 @@ export const ticketTick = async (
       ...readings,
       row,
       desk: { dead: false, why: 'elsewhere' },
-      fixer:
-        attempts === 'unreadable'
-          ? { read: 'unread' }
-          : { read: 'record', inFlight: fixerInFlight(attempts), exhausted: fixerAttemptsExhausted(attempts) },
+      fixer: fixerReadingOf(attempts, head),
       ticket,
     });
     let acted: TicketActOutcome | undefined;
     if (step.step === 'ticket') {
       acted = await putOnTicket(world, opts, row, step.head, readings.now);
     } else if (step.step === 'write-status' && step.why === 'ticket-accepted') {
-      acted = await writeAccepted(world, opts, row, step.head, attempts !== 'unreadable' && fixerAttemptsExhausted(attempts), ticket);
+      acted = await writeAccepted(world, opts, row, step.head, attempts !== 'unreadable' && fixerAttemptsExhausted(attempts, 'high'), ticket);
     }
     if (acted === undefined) {
       results.push({ pr: row.number, step });

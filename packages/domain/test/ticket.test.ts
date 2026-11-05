@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decodeTicketRecord, encodeTicketRecord, type TicketRecord } from '../src/entities/ticket-record.js';
+import { fixerAttemptsExhausted } from '../src/rules/fixer-attempts.js';
 import { reviewStatus, ticketFindingsBody, ticketReading, type TicketReading } from '../src/rules/ticket.js';
 
 const HEAD = 'a'.repeat(40);
@@ -40,6 +41,12 @@ describe('reviewStatus', () => {
     expect(reviewStatus(counts, { read: 'record', ticket: 'none' }, true).state).toBe('failure');
     expect(reviewStatus(counts, { ...confirmed, coversHead: false }, true).state).toBe('failure');
     expect(reviewStatus(counts, { read: 'unread' }, true).state).toBe('failure');
+  });
+
+  it('does not accept a HIGH whose own attempts are unspent', () => {
+    const ci = (i: number) => ({ headSha: `${i}`.repeat(40), finding: { kind: 'ci' as const, runId: `${i}` } });
+    const spent = { v: 1 as const, pr: 7, attempts: [ci(1), ci(2)] };
+    expect(reviewStatus(counts, confirmed, fixerAttemptsExhausted(spent, 'high')).state).toBe('failure');
   });
 
   it('words a single HIGH in the singular', () => {

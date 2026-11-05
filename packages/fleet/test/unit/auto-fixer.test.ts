@@ -176,9 +176,16 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
         if (opts.markOk === false || record === 'none' || record === 'unreadable') return { ok: false, why: 'failed' };
         const target = record.attempts[index];
         if (target === undefined) return { ok: false, why: 'failed' };
-        const kept: FixerAttempt = { headSha: target.headSha, finding: target.finding, ...(target.start === undefined ? {} : { start: target.start }) };
+        const { inFlight: _cleared, ...kept } = target;
         const changed: FixerAttempt = mark === null ? kept : { ...kept, inFlight: mark };
         records.set(pr, { ...record, attempts: record.attempts.map((a, at) => (at === index ? changed : a)) });
+        return { ok: true, value: undefined };
+      },
+      markPushed: async (pr, index, sha) => {
+        const record = recordOf(pr);
+        opts.order?.push('pushed');
+        if (record === 'none' || record === 'unreadable' || record.attempts[index] === undefined) return { ok: false, why: 'failed' };
+        records.set(pr, { ...record, attempts: record.attempts.map((a, at): FixerAttempt => (at === index ? { ...a, pushedSha: sha } : a)) });
         return { ok: true, value: undefined };
       },
       markStart: async (pr, index) => {
@@ -578,6 +585,35 @@ describe('fixerTick keeps one fixer per PR', () => {
     expect(starts).toHaveLength(2);
   });
 
+  it('starts a fixer on the red head an ended fixer pushed, while the desk reads elsewhere', async () => {
+    const opts = fixture();
+    const record: FixerAttemptsRecord = {
+      v: 1,
+      pr: 7,
+      attempts: [{ headSha: HEAD, finding: { kind: 'ci', runId: HEAD }, inFlight: { pid: 4242, startedAt: 't' } }],
+    };
+    const starts: Started[] = [];
+    const w = world({ pidCheck: () => 'dead', attempts: record, workerState: 'elsewhere', agentRunStarts: starts, prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } });
+    const pushedRed: PrIndexRow = { ...ciRedRow, headSha: OTHER_HEAD, checksSha: OTHER_HEAD };
+    const [first] = await fixerTick([pushedRed], baseReadings, opts, w);
+    expect(first!.step).toEqual({ step: 'fixer', head: OTHER_HEAD, evidence: 'ci-red' });
+    expect(first!.started).toEqual({ started: true, pid: 9001 });
+  });
+
+  it('does not start a fixer on a red head no ended fixer pushed, while the desk reads elsewhere', async () => {
+    const opts = fixture();
+    const record: FixerAttemptsRecord = {
+      v: 1,
+      pr: 7,
+      attempts: [{ headSha: HEAD, finding: { kind: 'ci', runId: HEAD }, inFlight: { pid: 4242, startedAt: 't' } }],
+    };
+    const starts: Started[] = [];
+    const w = world({ pidCheck: () => 'dead', attempts: record, workerState: 'elsewhere', agentRunStarts: starts });
+    const [first] = await fixerTick([ciRedRow], baseReadings, opts, w);
+    expect(first!.step.step).not.toBe('fixer');
+    expect(starts).toHaveLength(0);
+  });
+
   it('keeps the fixer in flight while the process table cannot answer for its pid', async () => {
     const opts = fixture();
     const removeCalls: string[] = [];
@@ -941,5 +977,11 @@ describe('fixerTick records a failed start', () => {
     const fresh = world({ attempts: (await w.attempts(opts).read(7)).ok ? ((await w.attempts(opts).read(7)) as { value: FixerAttemptsRecord }).value : 'none', prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } });
     const [next] = await fixerTick([newHead], baseReadings, opts, fresh, logged);
     expect(next!.started).toMatchObject({ started: true });
+  });
+});
+
+describe('deskDeadFromWorkerState never reads elsewhere as dead', () => {
+  it('answers not dead for elsewhere, so a desk on another machine never counts as gone by itself', () => {
+    expect(deskDeadFromWorkerState('elsewhere')).toEqual({ dead: false, why: 'elsewhere' });
   });
 });
