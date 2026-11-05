@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { pulseFor } from './fleet.js';
-import type { FleetReading } from '../contract/schema.js';
+import { BOARD_ANSWER_AUTHOR, type FleetReading } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 import type { DeskMonitors } from '@plot-pm/domain';
 import { continueBranch } from '@plot-pm/fleet/shared/continue-command';
@@ -67,6 +67,19 @@ export interface ContinueDeps {
   /** Starts the desk's monitor; defaults to the shell script under `scriptsDir`. */
   monitors?: DeskMonitors;
 }
+
+/**
+ * The `author` `POST /api/continue` records for an answer.
+ *
+ * The caller asserts the value and nothing verifies it: the route holds no
+ * session, and its gates check origin, not identity.
+ *
+ * @param raw - the request body's `author` field, of any type.
+ * @returns `raw` trimmed when it is a string with a non-blank character,
+ *   otherwise {@link BOARD_ANSWER_AUTHOR}.
+ */
+export const boardAnswerAuthor = (raw: unknown): string =>
+  typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : BOARD_ANSWER_AUTHOR;
 
 /**
  * Handle `POST /api/continue` — refuse, or write the prompt and spawn a NEW
@@ -156,6 +169,7 @@ export async function handleContinue(
   // marker is used with no comparison.
   const questionKeyRaw = (body as { questionKey?: unknown })?.questionKey;
   const questionKey = typeof questionKeyRaw === 'string' ? questionKeyRaw : undefined;
+  const author = boardAnswerAuthor((body as { author?: unknown })?.author);
   if (typeof branch !== 'string' || branch === '') {
     json(400, { error: 'branch is required' });
     return;
@@ -184,6 +198,7 @@ export async function handleContinue(
     caller: 'person',
     answer,
     questionKey,
+    author,
     monitors: deps.monitors,
   });
   if (started.kind === 'refused') {

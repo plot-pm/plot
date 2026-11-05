@@ -12,23 +12,30 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The master agent's `continue` controller, with no board and no HTTP.
  *
  * ```
- * node plot-continue-command.mjs <branch> <answer>
- * node plot-continue-command.mjs <branch> -        # the answer on stdin
- * node plot-continue-command.mjs <branch> <answer> <question-key>
+ * node plot-continue-command.mjs [--who <handle>] <branch> <answer>
+ * node plot-continue-command.mjs [--who <handle>] <branch> -        # the answer on stdin
+ * node plot-continue-command.mjs [--who <handle>] <branch> <answer> <question-key>
  * ```
  *
  * Looks the branch up in the pulse the fleet bridged to disk, refuses
  * `unknown-branch` and `no-worktree`, and otherwise starts a NEW agent on the
  * desk. The new agent has a new pid.
  *
- * The optional third argument is the `askedAt` of the question this answer
- * targets. Given, a desk whose marker has moved on refuses `question-moved`
- * rather than answering the wrong question. Omitted, today's behaviour is
- * unchanged: the desk's current marker is used with no comparison.
+ * `--who <handle>` names who is giving this answer, read before the
+ * positional triple and recorded as the `answered` row's `author`. A missing,
+ * empty or blank handle after `--who` is a usage error. Without `--who`, no
+ * author is passed and `continueOnDesk` records `unknown`. The handle is
+ * asserted by the caller and not verified.
+ *
+ * The optional third positional argument is the `askedAt` of the question
+ * this answer targets. Given, a desk whose marker has moved on refuses
+ * `question-moved` rather than answering the wrong question. Omitted, today's
+ * behaviour is unchanged: the desk's current marker is used with no
+ * comparison.
  */
 
 /** The usage line. */
-const USAGE = 'usage: plot-continue-command.mjs <branch> <answer | -> [question-key]';
+const USAGE = 'usage: plot-continue-command.mjs [--who <handle>] <branch> <answer | -> [question-key]';
 
 type Printer = (s: string) => void;
 
@@ -58,7 +65,7 @@ const bridgedPulse = (repoRoot: string): FleetReading | null => {
 /**
  * Runs the continue command.
  *
- * @param argv - the branch, then the answer or `-`.
+ * @param argv - an optional `--who <handle>`, then the branch, then the answer or `-`.
  * @param cwd - where the command runs; the repository is found from it.
  * @param scriptDir - where the helper scripts are.
  * @param deps - test seams.
@@ -74,8 +81,16 @@ export const run = async (
   write: Printer = (s) => process.stdout.write(s),
   warn: Printer = (s) => process.stderr.write(s),
 ): Promise<number> => {
-  const [branch, given, questionKey, ...extra] = argv;
-  if (branch === undefined || branch === '' || given === undefined || extra.length > 0) {
+  const who = argv[0] === '--who' ? argv[1] : undefined;
+  const rest = argv[0] === '--who' ? argv.slice(2) : argv;
+  const [branch, given, questionKey, ...extra] = rest;
+  if (
+    (argv[0] === '--who' && (who === undefined || who.trim() === '')) ||
+    branch === undefined ||
+    branch === '' ||
+    given === undefined ||
+    extra.length > 0
+  ) {
     warn(`plot-continue-command: ${USAGE}\n`);
     return 2;
   }
@@ -103,6 +118,7 @@ export const run = async (
     caller: deps.caller ?? callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
     answer,
     questionKey,
+    author: who,
     monitors: deps.monitors,
   });
   if (started.kind === 'refused') {
