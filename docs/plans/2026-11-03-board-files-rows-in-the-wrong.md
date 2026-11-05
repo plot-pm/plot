@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3096
@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3098 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/board-files-rows-in-the-wrong`
 - **Started:** 2026-11-05, Jan Wloka, `feature/working-shows-claims-without-a-worker`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 
