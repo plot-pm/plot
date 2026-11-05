@@ -66,6 +66,12 @@ describe('releaseHeadVerdict', () => {
     expect(releaseHeadVerdict([added]).read).toBe('foreign');
   });
 
+  it('refuses a manifest the version step would only edit: added, deleted, or modified without a hunk', () => {
+    expect(releaseHeadVerdict([change('packages/new/package.json', { status: 'added' })])).toEqual({ read: 'foreign', path: 'packages/new/package.json' });
+    expect(releaseHeadVerdict([change('.claude-plugin/plugin.json', { status: 'deleted' })]).read).toBe('foreign');
+    expect(releaseHeadVerdict([change('package.json')])).toEqual({ read: 'foreign', path: 'package.json' });
+  });
+
   it('reads an empty diff as no version step having run, never as clean', () => {
     expect(releaseHeadVerdict([])).toEqual({ read: 'empty' });
   });
