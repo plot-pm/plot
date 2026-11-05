@@ -134,4 +134,25 @@ describe('runWorktreeKind', () => {
     expect(out).toContain('keep');
     expect(out).not.toContain('would');
   });
+
+  it('prints a keep row for a tree outside the worktree root with no worker pid, and counts nothing', async () => {
+    rmSync(path.join(desk, '.plot-worker.pid'));
+    const lines: string[] = [];
+
+    const counters = await runWorktreeKind(
+      ctxFor([], []),
+      reapArgs,
+      dryRunMode,
+      'main',
+      path.join(root, 'agents'),
+      path.join(root, 'elsewhere'),
+      (s) => lines.push(s),
+    );
+
+    const out = lines.join('');
+    expect(out).toContain('keep');
+    expect(out).toContain('not a dispatch tree');
+    expect(counters.kept).toBe(0);
+    expect(counters.unplaced).toBe(0);
+  });
 });

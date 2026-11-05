@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { answered } from '@plot-pm/domain';
 import type { Processes, Trees, Worktree } from '@plot-pm/domain';
@@ -103,5 +106,28 @@ describe('runDirtyKind', () => {
     const count = await runDirtyKind(ctx, '/repo/.plot/agents', (s) => lines.push(s));
 
     expect(count).toBe(0);
+  });
+
+  it('prints a keep row, not a LEFTOVER, for a dirty desk whose manifest names it', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'reap-dirty-')));
+    try {
+      const desk = path.join(root, 'desk-a');
+      const manifestDir = path.join(root, 'agents');
+      mkdirSync(desk);
+      mkdirSync(manifestDir);
+      writeFileSync(path.join(manifestDir, 'a.json'), JSON.stringify({ worktree: desk, pid: '', wrapperPid: '' }));
+      const ctx = ctxFor(treesStub([worktree({ path: desk })], [], ['?? half-done.txt']));
+      const lines: string[] = [];
+
+      const count = await runDirtyKind(ctx, manifestDir, (s) => lines.push(s));
+
+      const out = lines.join('');
+      expect(count).toBe(0);
+      expect(out).not.toContain('LEFTOVER');
+      expect(out).toContain('keep');
+      expect(out).toContain('owner: a.json');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -874,7 +874,10 @@ export const runWorktreeKind = async (
     let unclassified = false;
     if (!isDispatchTree && wtRoot !== '' && tree.path.startsWith(`${wtRoot}/`)) unclassified = true;
 
-    if (!isDispatchTree && !unclassified) continue;
+    if (!isDispatchTree && !unclassified) {
+      write(row('keep', label, 'not a dispatch tree (outside the worktree root, no worker pid) — never reaped'));
+      continue;
+    }
 
     if (unclassified) {
       write(
@@ -1540,7 +1543,16 @@ export const runDirtyKind = async (ctx: Context, manifestDir: string, write: Pri
       workerPid: pid === '' ? null : pid,
       manifest,
     });
-    if (owner !== 'nobody') continue;
+    if (owner !== 'nobody') {
+      write(
+        row(
+          'keep',
+          tree.branch !== '' ? tree.branch : '(detached)',
+          `${dirtyCount} uncommitted, owner: ${owner} — not a leftover: ${tree.path}`,
+        ),
+      );
+      continue;
+    }
 
     dirtyTrees += 1;
     write(
