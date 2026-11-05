@@ -36,6 +36,8 @@ export function refusalWord(reason: ContinueRefusal): string {
   switch (reason) {
     case 'unknown-branch':
       return 'No plan on this board names that branch.';
+    case 'no-pulse':
+      return 'No current fleet reading to look this branch up in — wait for the next fleet scan, then restart again.';
     case 'no-worktree':
       return 'No worktree for this branch on this machine — continue it from the machine that holds it.';
     case 'no-question':
