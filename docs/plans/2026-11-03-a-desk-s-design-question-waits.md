@@ -117,7 +117,7 @@ Slice 3:
 
 ### An escalation reaches the issue
 
-- `feature/an-escalated-question-reaches-the-issue` — an `escalated <reason>` row posts one comment on the plan's issue through `Tracker.issueComment`, and the desk's *Waiting on you* row shows the reason <!-- builds: escalation issue comment, waiting row reason -->
+- `feature/an-escalated-question-reaches-the-issue` — an `escalated <reason>` row posts one comment on the plan's issue through `Tracker.issueComment`, and the desk's *Waiting on you* row shows the reason <!-- builds: escalation issue comment, waiting row reason --> → #3151
 
 ## Notes
 
