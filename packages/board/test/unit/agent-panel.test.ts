@@ -7,7 +7,9 @@
 // the markup.
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { branchFromPulse, parseEtime, uptimeSeconds } from '../../src/server/agent-panel.js';
+import { agentPanel, branchFromPulse, parseEtime, uptimeSeconds } from '../../src/server/agent-panel.js';
+import { panelMissWord } from '../../src/app/components/AgentPanelFacts.js';
+import type { BuildBoardOptions } from '../../src/server/board.js';
 
 describe('parsing what ps reports', () => {
   // The four shapes measured from `ps -o etime=` on 2026-08-19. Linux adds no
@@ -113,5 +115,34 @@ describe('resolving a branch against the pulse', () => {
 
   it('answers null on a cold cache, licensing no claim', () => {
     assert.equal(branchFromPulse(null, 'feature/the-agent-panel'), null);
+  });
+});
+
+describe('agentPanel misses', () => {
+  const opts = {} as unknown as BuildBoardOptions;
+  const reading = (worktree: string) =>
+    ({
+      main: 'main',
+      head: 'abc',
+      fetch_failed: false,
+      plans: [
+        {
+          file: 'docs/plans/p.md',
+          phase: 'Approved',
+          slices: [{ name: 'One', verdict: 'eligible', branches: [{ branch: 'there', local_worktree: worktree, worker: 'waiting', worker_pid: '1' }] }],
+        },
+      ],
+    }) as unknown as ReturnType<NonNullable<Parameters<typeof agentPanel>[3]>['pulse'] & (() => never)>;
+
+  it('agentPanel names each miss without a board server', async () => {
+    assert.deepEqual(await agentPanel(opts, 'x', {}, { pulse: () => null }), { ok: false, branch: 'x', reason: 'no-pulse' });
+    assert.deepEqual(await agentPanel(opts, 'x', {}, { pulse: () => reading('/w') }), { ok: false, branch: 'x', reason: 'unknown-branch' });
+    assert.deepEqual(await agentPanel(opts, 'there', {}, { pulse: () => reading('') }), { ok: false, branch: 'there', reason: 'no-worktree' });
+  });
+
+  it('panelMissWord gives each miss its own sentence', () => {
+    const words = (['no-worktree', 'unknown-branch', 'no-pulse'] as const).map(panelMissWord);
+    assert.equal(new Set(words).size, 3);
+    assert.equal(panelMissWord('no-pulse'), 'No current fleet reading yet — wait for the next fleet scan.');
   });
 });

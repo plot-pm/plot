@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AgentPanel } from '../../server/agent-panel.js';
+import type { AgentPanel, AgentPanelMiss } from '../../server/agent-panel.js';
 
 /**
  * A worker command → the flowing text the collapsed preview wraps.
@@ -25,6 +25,18 @@ import type { AgentPanel } from '../../server/agent-panel.js';
  * exact defect this field exists to remove. Exported for test: the boundary
  * cases (a tab, a leading space, an embedded newline) are invisible in markup.
  */
+/** The sentence the panel strip shows for a miss. */
+export const panelMissWord = (reason: AgentPanelMiss): string => {
+  switch (reason) {
+    case 'no-worktree':
+      return 'No worktree for this branch on this machine — ask the machine that took it.';
+    case 'unknown-branch':
+      return 'No scan has reported this branch — the next pulse may know it.';
+    case 'no-pulse':
+      return 'No current fleet reading yet — wait for the next fleet scan.';
+  }
+};
+
 export function commandFirstLine(command: string): string {
   return command.replace(/\s+/g, ' ').trim();
 }
@@ -364,9 +376,7 @@ export function AgentPanelFacts({ panel, now, onOpenPlan, onRevealBranch }: Agen
         data-panel-miss={panel.reason}
         className="shrink-0 border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400"
       >
-        {panel.reason === 'no-worktree'
-          ? 'No worktree for this branch on this machine — ask the machine that took it.'
-          : 'No scan has reported this branch — the next pulse may know it.'}
+        {panelMissWord(panel.reason)}
       </p>
     );
   }
