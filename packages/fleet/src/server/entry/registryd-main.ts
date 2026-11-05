@@ -92,7 +92,7 @@ import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
 import { boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
 import { readAutoReview } from '../../shared/auto-review.js';
-import { releaseTick } from '../../shared/release-tick.js';
+import { releaseLine, releaseTick } from '../../shared/release-tick.js';
 import { repairStartWorldOf } from '../../shared/repair-start-world.js';
 import { repairStartTick } from '../../shared/repair-start.js';
 import { repairRevertTick } from '../../shared/revert-start.js';
@@ -3327,7 +3327,8 @@ export const run = async (
           Date.now(),
           reviewOn,
         );
-        if (outcome.step.step !== 'none') write(`plot-fleetd: release ${outcome.stage}: ${outcome.step.step}\n`);
+        const printed = releaseLine(outcome);
+        if (printed !== null) write(`${printed}\n`);
       } catch (e) {
         warn(`plot-fleetd: release tick failed: ${e instanceof Error ? e.message : String(e)}\n`);
       }
