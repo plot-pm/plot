@@ -1551,7 +1551,7 @@ const runPrompt = async (
   // needs the prompt file the resolution names.
   const refusal =
     verb === 'refused' || (file === '' && sdk === undefined)
-      ? `${why ?? 'no prompt'}`
+      ? (why ?? 'no prompt')
       : sdk === undefined && !(deps.promptExists ?? existsSync)(file)
         ? `the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`
         : undefined;

@@ -357,6 +357,13 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.logs.filter((l) => l.includes('never started') || l.includes('failed to run'))).toEqual([]);
   });
 
+  it('reads the file system for the prompt file when no promptExists is injected', async () => {
+    const r = rig(ASSIGNED, [], { promptExists: undefined });
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    expect(r.runs).toHaveLength(0);
+    expect(r.logs.join('\n')).toContain(`the prompt file ${path.join(r.dir, '.plot', 'worker-prompt.sh')} is absent`);
+  });
+
   describe('a slice carries its own charter', () => {
     /** Writes a real charter file at the rig's `.plot/charters/<name>.json`. */
     const writeCharter = (r: { dir: string }, name: string, fields: Record<string, unknown> = {}) => {
