@@ -505,7 +505,7 @@ test('--stop records a confirmed-stopped branch, and --start restarts it through
     // THIS SANDBOX HAS NO BRIDGED PULSE, as after a --stop older than the
     // bridge's age bound. Only the recorded desk path reaches the worktree, and
     // `unattended` is the first refusal past the worktree lookup; without the
-    // path the controller refuses `unknown-branch` instead.
+    // path the controller refuses `no-pulse` instead.
     assert.match(out, /feature\/a: refused unattended/,
       `the recorded desk path did not carry the branch past the worktree lookup:\n${out}`);
     assert.equal(fs.existsSync(recordPath), false, 'the record survived a restart pass');

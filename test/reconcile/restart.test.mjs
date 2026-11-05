@@ -475,11 +475,11 @@ test('plot-fleet-scan.sh --next still offers only open branches', () => {
     'the claimable condition must still require state open');
 });
 
-test('--restart refuses a branch no plan or worktree holds, naming the refusal', () => {
+test('--restart refuses a branch with no fleet reading and no worktree, naming the refusal', () => {
   const { repo } = makeRepo();
   const res = run(repo, ['--restart', 'feature/never-dispatched'],
     { gh: ghShim(), expectFail: true });
-  assert.match(res.stdout, /unknown-branch/);
+  assert.match(res.stdout, /no-pulse/);
 });
 
 // ---------------------------------------------------------------------------

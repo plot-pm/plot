@@ -57,6 +57,7 @@ describe('the control is named as a continuation', () => {
 describe('every refusal says something different', () => {
   const reasons: ContinueRefusal[] = [
     'unknown-branch',
+    'no-pulse',
     'no-worktree',
     'no-question',
     'no-worker-command',

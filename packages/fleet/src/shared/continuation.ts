@@ -97,8 +97,10 @@ export const ANSWER_MAX = 8 * 1024;
 export const BODY_LIMIT = ANSWER_MAX + 4096;
 /** Why a continuation was refused — each sends the reader somewhere different. */
 export type ContinueRefusal =
-  /** The pulse has never mentioned this branch. */
+  /** The current pulse does not list this branch. */
   | 'unknown-branch'
+  /** No current fleet reading exists to look the branch up in. */
+  | 'no-pulse'
   /** The pulse knows the branch; this machine holds no worktree for it. */
   | 'no-worktree'
   /**

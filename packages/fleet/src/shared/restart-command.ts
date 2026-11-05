@@ -102,7 +102,8 @@ const markerFile = (worktree: string): string => {
 /**
  * Restarts the worker of a branch whose worker is dead.
  *
- * Refuses `unknown-branch` where the reading does not list the branch and
+ * Refuses `no-pulse` where there is no fleet reading and no named worktree,
+ * `unknown-branch` where the reading does not list the branch, and
  * `no-worktree` where it lists no worktree on this machine. Otherwise
  * {@link continueOnDesk} holds the desk's continue lock, and under it this
  * reads the pull request, the worker and the live loop, asks `restartWorker`,
@@ -112,6 +113,9 @@ const markerFile = (worktree: string): string => {
  * @returns what {@link continueOnDesk} answers, or a refusal naming the rule that stopped the restart.
  */
 export const restartBranch = async (input: RestartBranchInput): Promise<DeskContinuation> => {
+  if (input.pulse === null && !input.worktree) {
+    return { kind: 'refused', status: 404, reason: 'no-pulse', detail: 'no current fleet reading to look the branch up in' };
+  }
   const listed = branchFromPulse(input.pulse, input.branch);
   const found = listed ?? (input.worktree ? { worktree: '', plan: '', wave: '', worker: 'elsewhere', pid: '' } : null);
   if (!found) {

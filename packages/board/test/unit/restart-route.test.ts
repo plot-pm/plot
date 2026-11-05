@@ -55,6 +55,12 @@ describe('handleRestart', () => {
     expect(out).toMatchObject({ status: 404, body: { ok: false, reason: 'unknown-branch', branch: 'feature/nope' } });
   });
 
+  it('refuses no-pulse with 404 where there is no fleet reading', async () => {
+    const { res, out } = response();
+    await handleRestart(request({ branch: 'nope' }), res, opts, { pulse: () => null });
+    expect(out).toMatchObject({ status: 404, body: { ok: false, reason: 'no-pulse', branch: 'nope' } });
+  });
+
   it('refuses no-worktree with 404 where the pulse lists the branch with no desk', async () => {
     const { res, out } = response();
     await handleRestart(request({ branch: 'feature/no-desk' }), res, opts, { pulse: () => pulse });

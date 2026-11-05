@@ -15,7 +15,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * ```
  *
  * Looks the branch up in the pulse the fleet bridged to disk, refuses
- * `unknown-branch` and `no-worktree`, asks the domain's `restartWorker`, and
+ * `no-pulse`, `unknown-branch` and `no-worktree`, asks the domain's `restartWorker`, and
  * on its decision starts a NEW agent on the desk. The new agent has a new pid.
  */
 

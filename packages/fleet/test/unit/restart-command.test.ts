@@ -33,6 +33,21 @@ const pulseOf = (branch: string, worktree: string): FleetReading =>
   });
 
 describe('the restart entry', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmTree(d);
+  });
+
+  it('exits 1 naming no-pulse where there is no pulse and no worktree', async () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-restart-nopulse-'));
+    dirs.push(repo);
+    execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'main'], { stdio: 'ignore' });
+    const warned: string[] = [];
+    const code = await run(['nope'], repo, scriptDir, { pulse: () => null, worktree: '', caller: 'person' }, () => {}, (s) => warned.push(s));
+    expect(code).toBe(1);
+    expect(warned.join('')).toContain('plot-restart-command: no-pulse: no current fleet reading to look the branch up in');
+  });
+
   it('exits 2 for no branch, an empty branch and an extra argument', async () => {
     const warned: string[] = [];
     const warn = (s: string) => warned.push(s);
@@ -51,9 +66,14 @@ describe('restartBranch', () => {
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
   });
 
-  it('refuses unknown-branch where there is no pulse at all', async () => {
+  it('refuses no-pulse where there is no pulse and no named worktree', async () => {
     const r = await restartBranch({ opts, pulse: null, branch: 'feature/nope', caller: 'person' });
-    expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
+    expect(r).toEqual({ kind: 'refused', status: 404, reason: 'no-pulse', detail: 'no current fleet reading to look the branch up in' });
+  });
+
+  it('does not refuse no-pulse where the caller names the worktree', async () => {
+    const r = await restartBranch({ opts, pulse: null, branch: 'x', worktree: '/w/x', caller: 'unattended' });
+    expect(r).toMatchObject({ kind: 'refused', status: 409, reason: 'unattended' });
   });
 
   it('refuses no-worktree with 404 where the pulse lists the branch with no desk', async () => {
