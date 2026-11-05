@@ -135,14 +135,19 @@ describe('agentPanel misses', () => {
     }) as unknown as ReturnType<NonNullable<Parameters<typeof agentPanel>[3]>['pulse'] & (() => never)>;
 
   it('agentPanel names each miss without a board server', async () => {
-    assert.deepEqual(await agentPanel(opts, 'x', {}, { pulse: () => null }), { ok: false, branch: 'x', reason: 'no-pulse' });
-    assert.deepEqual(await agentPanel(opts, 'x', {}, { pulse: () => reading('/w') }), { ok: false, branch: 'x', reason: 'unknown-branch' });
-    assert.deepEqual(await agentPanel(opts, 'there', {}, { pulse: () => reading('') }), { ok: false, branch: 'there', reason: 'no-worktree' });
+    const whole = { pulseComplete: () => true, lastComplete: () => null };
+    assert.deepEqual(await agentPanel(opts, 'x', {}, { pulse: () => null, ...whole }), { ok: false, branch: 'x', reason: 'no-pulse' });
+    assert.deepEqual(await agentPanel(opts, 'x', {}, { pulse: () => reading('/w'), ...whole }), { ok: false, branch: 'x', reason: 'unknown-branch' });
+    assert.deepEqual(await agentPanel(opts, 'there', {}, { pulse: () => reading(''), ...whole }), { ok: false, branch: 'there', reason: 'no-worktree' });
+    assert.deepEqual(
+      await agentPanel(opts, 'nope', {}, { pulse: () => reading('/w'), pulseComplete: () => false, lastComplete: () => null }),
+      { ok: false, branch: 'nope', reason: 'pulse-partial' },
+    );
   });
 
   it('panelMissWord gives each miss its own sentence', () => {
-    const words = (['no-worktree', 'unknown-branch', 'no-pulse'] as const).map(panelMissWord);
-    assert.equal(new Set(words).size, 3);
+    const words = (['no-worktree', 'unknown-branch', 'no-pulse', 'pulse-partial'] as const).map(panelMissWord);
+    assert.equal(new Set(words).size, 4);
     assert.equal(panelMissWord('no-pulse'), 'No current fleet reading yet — wait for the next fleet scan.');
   });
 });

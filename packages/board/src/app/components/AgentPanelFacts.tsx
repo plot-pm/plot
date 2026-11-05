@@ -32,6 +32,8 @@ export const panelMissWord = (reason: AgentPanelMiss): string => {
       return 'No worktree for this branch on this machine — ask the machine that took it.';
     case 'unknown-branch':
       return 'No scan has reported this branch — the next pulse may know it.';
+    case 'pulse-partial':
+      return 'The scan in progress has not reached this branch yet — the next pulse may know it.';
     case 'no-pulse':
       return 'No current fleet reading yet — wait for the next fleet scan.';
   }

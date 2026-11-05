@@ -38,6 +38,8 @@ export function refusalWord(reason: ContinueRefusal): string {
       return 'No plan on this board names that branch.';
     case 'no-pulse':
       return 'No current fleet reading to look this branch up in — wait for the next fleet scan, then restart again.';
+    case 'pulse-partial':
+      return 'The board has not finished its scan, and the last finished scan does not name this branch — ask again after the next pulse.';
     case 'no-worktree':
       return 'No worktree for this branch on this machine — continue it from the machine that holds it.';
     case 'no-question':

@@ -1,11 +1,11 @@
 import fs from 'node:fs';
-import type { Caller, FleetReading } from '@plot-pm/domain';
+import { pulseBranchReading, type Caller, type FleetReading } from '@plot-pm/domain';
 import { hostShell, processesShell } from '@plot-pm/domain/adapters';
 import type { ProcessReading } from '@plot-pm/domain/ports/processes';
 import { restartWorker, type BranchPrReading } from '@plot-pm/domain/workflows/dispatch-verbs';
 import { deskManifestFor } from './manifest-stamp.js';
 import { readDeskLoop } from './desk-loop.js';
-import { lookupBranch } from './continue-command.js';
+import { branchFromPulse, refusal } from './continue-command.js';
 import {
   continueOnDesk,
   type ContinuationOptions,
@@ -34,6 +34,10 @@ export interface RestartBranchInput {
   readCfg?: (opts: ContinuationOptions, key: string, fallback: string) => string;
   /** The fleet reading the branch is looked up in; `null` where there is none. */
   pulse: FleetReading | null;
+  /** Whether the scan behind `pulse` finished; absent reads as `true`. */
+  pulseComplete?: boolean;
+  /** The pulse of the last scan that finished; absent reads as `null`. */
+  lastCompletePulse?: FleetReading | null;
   branch: string;
   /** The worktree git reports for the branch; used where the reading names none. */
   worktree?: string;
@@ -102,8 +106,9 @@ const markerFile = (worktree: string): string => {
 /**
  * Restarts the worker of a branch whose worker is dead.
  *
- * Refuses `no-pulse` where there is no fleet reading, `unknown-branch` where
- * the reading does not list the branch, and `no-worktree` where it lists no
+ * Refuses `no-pulse` where there is no fleet reading, `pulse-partial` where an
+ * unfinished scan and the last finished one both miss the branch,
+ * `unknown-branch` where a finished reading does not list it, and `no-worktree` where it lists no
  * worktree on this machine. A named worktree stands in for the first two. Otherwise
  * {@link continueOnDesk} holds the desk's continue lock, and under it this
  * reads the pull request, the worker and the live loop, asks `restartWorker`,
@@ -113,13 +118,16 @@ const markerFile = (worktree: string): string => {
  * @returns what {@link continueOnDesk} answers, or a refusal naming the rule that stopped the restart.
  */
 export const restartBranch = async (input: RestartBranchInput): Promise<DeskContinuation> => {
-  const lookup = lookupBranch(input.pulse, input.branch);
-  if (lookup.kind !== 'found' && !input.worktree) {
-    return lookup.kind === 'no-pulse'
-      ? { kind: 'refused', status: 404, reason: 'no-pulse', detail: 'no current fleet reading to look the branch up in' }
-      : { kind: 'refused', status: 404, reason: 'unknown-branch', detail: 'no plan on this board names that branch' };
-  }
-  const found = lookup.kind === 'found' ? lookup.desk : { worktree: '', plan: '', wave: '', worker: 'elsewhere', pid: '' };
+  const reading = pulseBranchReading(
+    input.pulse,
+    input.pulseComplete ?? true,
+    input.lastCompletePulse ?? null,
+    input.branch,
+  );
+  if (reading.kind !== 'listed' && !input.worktree) return refusal(reading.kind);
+  const found =
+    (reading.kind === 'listed' ? branchFromPulse(reading.pulse, input.branch) : null) ??
+    { worktree: '', plan: '', wave: '', worker: 'elsewhere', pid: '' };
   const worktree = found.worktree || input.worktree || '';
   if (!worktree) {
     return { kind: 'refused', status: 404, reason: 'no-worktree', detail: 'this machine holds no worktree for that branch' };

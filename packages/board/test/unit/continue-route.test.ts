@@ -794,6 +794,13 @@ describe('what cannot be continued is refused, never spawned', () => {
     assert.match(JSON.stringify(out.body), /no current fleet reading to look the branch up in/);
   });
 
+  it('refuses pulse-partial where the scan has not finished and the last one misses the branch', async () => {
+    const d = { ...deps('/tmp/no-such-worktree'), pulseComplete: () => false, lastComplete: () => null };
+    const out = await post({ branch: 'nothing', answer: 'go' }, d, '/tmp/no-such-worktree');
+    assert.equal(out.status, 404);
+    assert.equal(refusal(out), 'pulse-partial');
+  });
+
   it('refuses unknown-branch where the pulse does not list the branch', async () => {
     const out = await post({ branch: 'nothing', answer: 'go' }, deps('/tmp/no-such-worktree'), '/tmp/no-such-worktree');
     assert.equal(out.status, 404);
@@ -903,6 +910,7 @@ describe('what cannot be continued is refused, never spawned', () => {
     const reasons: ContinueRefusal[] = [
       'unknown-branch',
       'no-pulse',
+      'pulse-partial',
       'no-worktree',
       'no-question',
       'no-worker-command',

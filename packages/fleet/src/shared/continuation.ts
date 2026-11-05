@@ -101,6 +101,8 @@ export type ContinueRefusal =
   | 'unknown-branch'
   /** No current fleet reading exists to look the branch up in. */
   | 'no-pulse'
+  /** The board's scan has not finished, and neither it nor the last finished scan lists this branch. */
+  | 'pulse-partial'
   /** The pulse knows the branch; this machine holds no worktree for it. */
   | 'no-worktree'
   /**
