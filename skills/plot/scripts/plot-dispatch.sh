@@ -1013,7 +1013,7 @@ ask_start_command() { # $1 = free | assigned
   start_cmd_configured=$("$script_dir/plot-config.sh" get "Worker command" "")
   start_cmd_bundle="$script_dir/board/plot-start-command.mjs"
   answer=$(printf '%s' "$start_cmd_configured" | node "$start_cmd_bundle" "$1" \
-    plot-worker-loop.sh "PLOT_UNATTENDED=1 plot-worker-loop.sh" 2>/dev/null)
+    plot-worker-loop.sh "PLOT_UNATTENDED=1 plot-worker-loop.sh" "$repo_root" "$("$script_dir/plot-config.sh" get "Agent runner" "")" 2>/dev/null)
   rc=$?
   case "$rc:$answer" in
     0:run$'\t'*) start_cmd_verb=run; start_cmd_run=${answer#run$'\t'} ;;
