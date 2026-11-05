@@ -8,7 +8,7 @@ import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state
 import { answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered, type FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/continue-command.js';
-import { branchFromPulse, continueBranch } from '../../src/shared/continue-command.js';
+import { branchFromPulse, continueBranch, lookupBranch } from '../../src/shared/continue-command.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // The refusals the continue controller keeps, with no board: they are answered
@@ -40,9 +40,28 @@ describe('continueBranch', () => {
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
   });
 
-  it('refuses unknown-branch where there is no pulse at all', async () => {
+  it('refuses no-pulse where there is no pulse at all', async () => {
     const r = await continueBranch({ opts, pulse: null, branch: 'feature/has-desk', caller: 'person', answer: 'yes' });
-    expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
+    expect(r).toEqual({
+      kind: 'refused',
+      status: 404,
+      reason: 'no-pulse',
+      detail: 'no current fleet reading to look the branch up in',
+    });
+  });
+
+  it('refuses no-pulse before unattended where there is no pulse', async () => {
+    const r = await continueBranch({ opts, pulse: null, branch: 'feature/has-desk', caller: 'unattended', answer: 'yes' });
+    expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-pulse' });
+  });
+
+  it('lookupBranch answers no-pulse, unknown-branch or the desk', () => {
+    expect(lookupBranch(null, 'feature/has-desk')).toEqual({ kind: 'no-pulse' });
+    expect(lookupBranch(pulse, 'nope')).toEqual({ kind: 'unknown-branch' });
+    expect(lookupBranch(pulse, 'feature/has-desk')).toMatchObject({
+      kind: 'found',
+      desk: { worktree: '/w/has-desk', pid: '41' },
+    });
   });
 
   it('refuses no-worktree with 404 where the branch holds no desk on this machine', async () => {
@@ -112,6 +131,23 @@ describe('the continue entry maps PLOT_UNATTENDED to the caller', () => {
     }
     expect(code).toBe(1);
     expect(warned.join('')).toContain('unattended');
+  });
+});
+
+describe('the continue entry', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmTree(d);
+  });
+
+  it('refuses no-pulse where the bridge holds no fleet reading', async () => {
+    const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-nopulse-')));
+    dirs.push(repo);
+    execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'main'], { stdio: 'ignore' });
+    const warned: string[] = [];
+    const code = await run(['x', 'yes'], repo, '/nonexistent', { pulse: () => null, caller: 'person' }, () => {}, (s) => warned.push(s));
+    expect(code).toBe(1);
+    expect(warned.join('')).toContain('plot-continue-command: no-pulse: no current fleet reading to look the branch up in');
   });
 });
 

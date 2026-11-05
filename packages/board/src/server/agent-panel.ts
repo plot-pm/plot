@@ -60,11 +60,13 @@ export type AgentPanel =
 export type AgentPanelMiss =
   /** No worktree for the branch on this machine — ask the machine that holds it. */
   | 'no-worktree'
-  /** The pulse knows the branch but reports no worktree path for it. */
-  | 'unknown-branch';
+  /** The current pulse does not list this branch. */
+  | 'unknown-branch'
+  /** No current fleet reading exists to look the branch up in. */
+  | 'no-pulse';
 
 export { branchFromPulse } from '@plot-pm/fleet/shared/continue-command';
-import { branchFromPulse } from '@plot-pm/fleet/shared/continue-command';
+import { lookupBranch } from '@plot-pm/fleet/shared/continue-command';
 
 /**
  * `ps -o etime=` output → seconds, or null for anything it does not recognise.
@@ -157,9 +159,11 @@ export async function agentPanel(
   opts: BuildBoardOptions,
   branch: string,
   env: { home?: string } = {},
+  deps: { pulse?: (opts: BuildBoardOptions) => ReturnType<typeof pulseFor> } = {},
 ): Promise<AgentPanel> {
-  const found = branchFromPulse(pulseFor(opts), branch);
-  if (!found) return { ok: false, branch, reason: 'unknown-branch' };
+  const lookup = lookupBranch((deps.pulse ?? pulseFor)(opts), branch);
+  if (lookup.kind !== 'found') return { ok: false, branch, reason: lookup.kind };
+  const found = lookup.desk;
   if (!found.worktree) return { ok: false, branch, reason: 'no-worktree' };
 
   const [uptime, command] = await Promise.all([
