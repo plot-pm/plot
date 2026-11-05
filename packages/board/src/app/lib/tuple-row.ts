@@ -1172,13 +1172,19 @@ export function stateStatus(row: AgentRow): string {
   // Null falls straight through, so a payload from an older server renders its
   // git state exactly as it did.
   //
+  // `group === 'quiet'` IS REQUIRED, AND THE TWO POPULATIONS NOW OVERLAP.
+  // `rowQuietKind` also stamps a kind on rows OUTSIDE QUIET that read `someone
+  // is on it` on purpose: a fresh claim or fresh `wip` branch of a Draft or
+  // Design plan (`draftPlacement`), and a `claimed` branch with an open PR.
+  // Those rows carry `orphaned-claim` or `abandoned` too, and without the
+  // group check a branch claimed two minutes ago would read `unclaimed`
+  // instead of `someone is on it`. Only a row QUIET actually placed may read
+  // its kind word here.
+  //
   // BELOW `startability`, which still leads. That field answers *can I start
   // this* and its four verdicts are about a branch a person may take; this
-  // answers *what is this branch* for one nobody is on. The two populations do
-  // not overlap — `startabilityVerdict` returns `someone-is-on-it` for `wip`
-  // and `claimed`, never a startable word — so the order settles nothing today
-  // and states the precedence for the day it does.
-  if (row.quietKind) {
+  // answers *what is this branch* for one nobody is on.
+  if (row.group === 'quiet' && row.quietKind) {
     return quietKindWord(row.quietKind);
   }
   switch (row.state) {

@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3098 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/board-files-rows-in-the-wrong`
+- **Started:** 2026-11-05, Jan Wloka, `feature/working-shows-claims-without-a-worker`
 
 ## Changelog
 
@@ -170,7 +171,7 @@ None. The panel round closed the four earlier questions; the sections above give
 
 ### Claims without a worker
 
-- `feature/working-shows-claims-without-a-worker` <!-- waits: feature/board-files-rows-in-the-wrong --> — add `unworked-branch.ts` and the `no-known-worker` startability; four `classifyGroup` arms take group and startability from `unworkedPlacement`, and `classify` passes the startability on; `rowsFromPulse` sets the row's startability from that answer on the plan-branch and ref-only paths; `withHandOver` takes `working` rows with `no-known-worker` only; WORKING draws and counts them, never as live; `startableNote` calls `noteShown` with the row's startability, group and kind; add the startability invariant, the one-section test with its ref-only branch, the case-1, double hand-out, hand-over scope and label scope fixtures and the mock row; flip the listed assertions and the WORKING and NOT STARTED doc tables.
+- `feature/working-shows-claims-without-a-worker` <!-- waits: feature/board-files-rows-in-the-wrong --> — add `unworked-branch.ts` and the `no-known-worker` startability; four `classifyGroup` arms take group and startability from `unworkedPlacement`, and `classify` passes the startability on; `rowsFromPulse` sets the row's startability from that answer on the plan-branch and ref-only paths; `withHandOver` takes `working` rows with `no-known-worker` only; WORKING draws and counts them, never as live; `startableNote` calls `noteShown` with the row's startability, group and kind; add the startability invariant, the one-section test with its ref-only branch, the case-1, double hand-out, hand-over scope and label scope fixtures and the mock row; flip the listed assertions and the WORKING and NOT STARTED doc tables. → #3156
 
 ## Notes
 

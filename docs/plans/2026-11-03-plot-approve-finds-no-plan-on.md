@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3089
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3091 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/plot-approve-finds-no-plan-on`
+- **Delivered:** 2026-11-04
 
 ## Changelog
 

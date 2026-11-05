@@ -1122,6 +1122,62 @@ describe('slot 5 holds a value, never a sentence', () => {
     expect(tupleFromRow(unknown).status).toBe('');
   });
 
+  /**
+   * `quietKind` OUTRANKS THE GIT STATE ONLY INSIDE QUIET. Operator decision B
+   * (2026-11-03) moved `abandoned` and `orphaned-claim` into QUIET, keeping
+   * their kind word; `rowQuietKind` also stamps a kind on rows OUTSIDE QUIET
+   * on purpose — a fresh claim or fresh `wip` branch of a Draft or Design plan,
+   * and a `claimed` branch with an open PR — and those must keep reading
+   * `someone is on it` from `startability`, never their kind word.
+   */
+  it('prints the kind word for abandoned and orphaned-claim rows in quiet', () => {
+    expect(tupleFromRow(row({
+      group: 'quiet', quietKind: 'abandoned', pr: null,
+    })).status).toBe('abandoned');
+    expect(tupleFromRow(row({
+      group: 'quiet', quietKind: 'orphaned-claim', pr: null,
+    })).status).toBe('unclaimed');
+  });
+
+  it('keeps "someone is on it" for a Draft-plan fresh claim carrying orphaned-claim', () => {
+    expect(tupleFromRow(row({
+      group: 'waiting-on-you', state: 'claimed', quietKind: 'orphaned-claim',
+      startability: 'someone-is-on-it', pr: null,
+    })).status).toBe('someone is on it');
+  });
+
+  it('keeps "someone is on it" for a Draft-plan fresh wip carrying abandoned', () => {
+    expect(tupleFromRow(row({
+      group: 'waiting-on-you', state: 'wip', quietKind: 'abandoned',
+      startability: 'someone-is-on-it', pr: null,
+    })).status).toBe('someone is on it');
+  });
+
+  it('keeps "someone is on it" for a handed orphaned claim, quietKind cleared', () => {
+    expect(tupleFromRow(row({
+      group: 'working', state: 'claimed', quietKind: null,
+      startability: 'someone-is-on-it', pr: null,
+    })).status).toBe('someone is on it');
+  });
+
+  it('keeps "someone is on it" for a handed row even if quietKind were still set', () => {
+    expect(tupleFromRow(row({
+      group: 'working', state: 'claimed', quietKind: 'orphaned-claim',
+      startability: 'someone-is-on-it', pr: null,
+    })).status).toBe('someone is on it');
+  });
+
+  it('keeps "someone is on it" for a double hand-out row, with or without quietKind', () => {
+    expect(tupleFromRow(row({
+      group: 'waiting-on-you', state: 'claimed', quietKind: null,
+      startability: 'someone-is-on-it', pr: null,
+    })).status).toBe('someone is on it');
+    expect(tupleFromRow(row({
+      group: 'waiting-on-you', state: 'claimed', quietKind: 'orphaned-claim',
+      startability: 'someone-is-on-it', pr: null,
+    })).status).toBe('someone is on it');
+  });
+
   it('puts the PHASE on the plan row, which is the object it describes', () => {
     // 71 branch rows printed their plan's phase — 36 `Development`, 26
     // `Testing`, 9 `Design` — a fact about the plan on a row about something

@@ -5,7 +5,8 @@ import type { FleetReading } from '../../src/contract/schema.js';
 /**
  * A row whose kind is `quiet` is placed in Quiet (#1758). Measured 2026-10-15
  * on `quatico/ewz-kus-portal`: 15 rows with `quietKind: "quiet"` sat in
- * Waiting on you. `abandoned` keeps Waiting on you.
+ * Waiting on you. `abandoned` now joins it there too — operator decision B
+ * (2026-11-03) reverses #1758/#1902's choice to keep it in Waiting on you.
  *
  * The host is unasked (`prs` null), which is the reading that answers `quiet`
  * for a branch with real commits and nobody on it.
@@ -30,9 +31,9 @@ describe('placement of a branch nobody is on', () => {
     expect(row.group).toBe('quiet');
   });
 
-  it('keeps an abandoned row in waiting-on-you', () => {
+  it('places an abandoned row in quiet', () => {
     const row = rowFor('feature/abandoned', new Map());
     expect(row.quietKind).toBe('abandoned');
-    expect(row.group).toBe('waiting-on-you');
+    expect(row.group).toBe('quiet');
   });
 });

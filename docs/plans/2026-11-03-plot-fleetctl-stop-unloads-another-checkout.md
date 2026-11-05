@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3060
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3094 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/plot-fleetctl-stop-unloads-another-checkout`
+- **Delivered:** 2026-11-04
 
 ## Changelog
 

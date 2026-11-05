@@ -311,7 +311,10 @@ test('a merged branch a worktree holds is kept', () => {
   const bin = stubGh(tmp, { [branch]: [{ mergedAt: '2026-09-01T10:00:00Z', number: 504 }] });
 
   const dry = run(repo, bin, '--dry-run');
-  assert.match(lineFor(dry, branch), /checked out in a worktree/, `held branch must be kept:\n${dry}`);
+  // The worktree kind prints its own keep row for the same name first (not a
+  // dispatch tree); this test is about the branch sweep, so read its section.
+  const branches = dry.split('\n-- local branches --\n')[1] ?? '';
+  assert.match(lineFor(branches, branch), /checked out in a worktree/, `held branch must be kept:\n${dry}`);
 
   run(repo, bin, '--yes');
   assert.ok(hasBranch(repo, branch), 'a held branch survives --yes');

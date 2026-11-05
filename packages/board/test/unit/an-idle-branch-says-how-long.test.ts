@@ -143,10 +143,10 @@ describe('the row lands where its state puts it, whatever its age', () => {
     // the format this wave fixed is still what renders it.
     const rows = build();
     const fresh = rows.find((r) => r.branch === 'bug/fresh')!;
-    expect(fresh.group).toBe('waiting-on-you');
+    expect(fresh.group).toBe('quiet');
     expect(fresh.note).toBe('commits, no PR ever opened — last commit 5 min ago');
     const abandoned = rows.find((r) => r.branch === 'docs/abandoned')!;
-    expect(abandoned.group).toBe('waiting-on-you');
+    expect(abandoned.group).toBe('quiet');
     expect(abandoned.note).toMatch(/commits, no PR ever opened/);
     expect(abandoned.note).toMatch(/119 days/);
   });

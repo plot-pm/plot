@@ -1907,26 +1907,6 @@ jenkins_no_instance() {
 # estimate for. This draws it one step earlier, for a connector that does not
 # exist at all — and `resultOf` (`adapters/run-script.ts:211`) maps exit 4 onto
 # `unaskable`, which is the word the build port already answers with.
-# The Jenkins REST credential: JENKINS_USER + JENKINS_API_TOKEN from the
-# environment, then `plot_env_file`, then the macOS keychain where `jen`
-# already stores it — the environment wins outright, same order and the same
-# both-or-neither rule as `jira_load_env_file`.
-#
-# NOT THE KEYCLOAK BEARER. `jen auth token` prints one and Jenkins answers it
-# with an HTML login redirect — measured 2026-09-10. Jenkins' own API takes
-# BASIC auth with a user and an API token.
-#
-# Prints `user:token` and nothing else, or nothing at all — never the value
-# on a failure path. Empty means no source held a full pair; the caller turns
-# that into exit 4, *cannot be asked*.
-jenkins_rest_credential() { # $1 = the bare host
-  local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" src="the environment" found env_file
-  [ -n "$u" ] || [ -n "$t" ] || { found="$(plot_env_file JENKINS_USER JENKINS_API_TOKEN)"; [ -n "$found" ] && env_file="${found%|*}" && src="${found#*|}.env" && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
-  [ -n "$u" ] && [ -n "$t" ] && { echo "plot-host: JENKINS_USER and JENKINS_API_TOKEN read from $src" >&2; printf '%s:%s' "$u" "$t"; return 0; }
-  command -v security >/dev/null 2>&1 || return 1; u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
-  t=$(security find-generic-password -s jen -a "jenkins-token:$1" -w 2>/dev/null) || return 1
-  [ -n "$u" ] && [ -n "$t" ] || return 1; printf '%s:%s' "$u" "$t"
-}
 
 # A job path as Jenkins' REST API spells it: every segment under `job/`.
 #
@@ -1943,20 +1923,6 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
   printf '%s' "$out"
 }
 
-# The REST host for the Jenkins slug $1, read off `jen -I <slug> auth status`'s
-# `Instance:` line rather than reinvented here — `jen` already turns a slug
-# like `ewz` into `jenkins-ci-ewz.internal.quatico.dev` and keys its stored
-# credential by that resolved host, so a literal slug sent to `curl` or to
-# `jenkins_rest_credential` can only fail. Prints nothing and exits 1 when
-# `jen` is missing, unparseable, or the line is absent; exits 2 when the line
-# names no parenthesized host. The caller decides what an unresolved host
-# means, same contract as every other helper here.
-jenkins_resolve_host() {
-  local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1)
-  [ -n "$line" ] || return 1
-  sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" | grep . || return 2
-}
-
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
 # (no instance) / exit 4 (cannot be asked). Shared by `run-for-sha`,
 # `runs-for-sha` and `runs`, so the instance, the credential and the
@@ -1968,10 +1934,11 @@ jenkins_resolve_host() {
 # Run it in `$(...)` and read the exit code with `|| exit $?`: it exits rather
 # than returns, and a subshell's exit is the code the caller sees.
 #
-# THE SHA IS IN JENKINS AND `jen` IS NOT THE TRANSPORT. Measured 2026-09-10: a
-# `jen build list --json` entry carries no sha, so Jenkins' REST API answers it
-# at `actions[].lastBuiltRevision.SHA1`. One `tree=` query returns a whole
-# history, so this costs one round trip like the GitHub arm.
+# Plot reaches Jenkins only through `jen`; `jen api` carries the sha through
+# `tree=` in one round trip. Measured 2026-09-10: a `jen build list --json`
+# entry carries no sha, so Jenkins' REST API answers it at
+# `actions[].lastBuiltRevision.SHA1`, and `jen api <path>` (jen 0.4.0) is the
+# raw passthrough that reaches it with the proxy's own auth headers.
 #
 # A BRANCH IS A JOB SEGMENT ON A MULTIBRANCH JOB AND NOT ON A PLAIN ONE, and no
 # reading of the configured path says which this is. The multibranch URL is
@@ -1983,10 +1950,9 @@ jenkins_resolve_host() {
 # path segment, as `jenkins_build_map` keys it). A multibranch container that
 # answers `jobs` and no `builds` has not indexed the branch: an empty history.
 #
-# NO CREDENTIAL IS *CANNOT BE ASKED*, never *no run*: the keychain is macOS-only
-# and a Linux agent legitimately has none. AN UNREACHABLE INSTANCE IS NOT AN
-# EMPTY HISTORY: a refused or redirected request answers HTML, which fails the
-# `builds` test.
+# A `jen` THAT CANNOT AUTHENTICATE IS *CANNOT BE ASKED*, never *no run*; an
+# unreachable instance is not an empty history. A refused or redirected
+# request answers HTML, which fails the `builds` test.
 #
 # A BRANCH THE MULTIBRANCH JOB NEVER INDEXED IS AN EMPTY HISTORY, NOT A
 # REFUSAL. Measured live on ewz-kus-portal: `develop` builds in a separate job
@@ -2031,8 +1997,8 @@ jenkins_resolve_host() {
 # the cut silently shrinks the answer — `runs --limit 3` over five builds where
 # two are `NOT_BUILT` returning 1 row instead of 3. The over-fetch factor is
 # fixed at 3x, uncapped: it costs response BYTES, never an extra round trip or
-# rate-budget slot (`host_slot_take`/`budget_record_call` below run once per
-# path regardless of `limit`), and a single multibranch job's full history is
+# rate-budget slot (the `jen()` wrapper records one ledger row per path
+# regardless of `limit`), and a single multibranch job's full history is
 # small enough that 3x of any realistic `--limit` stays well under what one
 # `tree=` query already returns today (measured 2026-09-10: 4855 bytes for
 # five builds).
@@ -2041,35 +2007,24 @@ jenkins_resolve_host() {
 # is tried first; if it answers real JSON with no `builds` key, Jenkins
 # reached the job and simply has no such branch, and the refusal says so.
 # Only the root-path retry's container check (above) can turn that into an
-# empty-history read instead. A host that never answers at all — curl
-# failure, HTML, empty body — gets the generic "did not answer" refusal,
-# since nothing there proves Jenkins was even reached.
+# empty-history read instead. A host that never answers at all — a failed
+# `jen api` request, HTML, empty body — gets the generic "did not answer"
+# refusal, since nothing there proves Jenkins was even reached.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path branch_path branch_answered=""
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug job tree body try path plain="" default_job root_path branch_path branch_answered="" err_tmp err_line
   instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"; [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
-  # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
-  # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
-  case "$slug" in *.*) host="$slug" ;; *) host="$(jenkins_resolve_host "$slug")" || {
-      [ $? = 2 ] && printf '%s\n' "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" "  \`jen -I $slug auth status\` answered an 'Instance:' line that names no (https://…) host; run it directly to see what it names." >&2 || printf '%s\n' "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2
-      exit 4; } ;; esac
-  cred="$(jenkins_rest_credential "$host")" || {
-    echo "plot-host: $op — no Jenkins API credential for '$host'" >&2
-    echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
-    exit 4
-  }
   tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$((limit * 3))%7D"
   body=""; root_path="$(jenkins_job_url_path "$job" "")"; branch_path="$(jenkins_job_url_path "$job" "$branch")"
   for path in "$branch_path" "$root_path"; do
-    host_slot_take jenkins ''
-    try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
-    host_slot_give; budget_record_call jenkins ''
+    plot_tmpfile err_tmp host-jenkins-sha-err || { echo "plot-host: $op — no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+    try=$(PLOT_JEN_BOUND_S="${PLOT_JENKINS_SHA_BOUND_S:-30}" jen -I "$slug" api "$path/api/json?$tree" 2>"$err_tmp") || true
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
     # A branch path that came back as REAL JSON (jq could parse and evaluate
     # it, just found no `builds` key) means Jenkins answered and indexed no
-    # such branch — distinct from curl failing outright or answering HTML,
+    # such branch — distinct from `jen` failing outright or answering HTML,
     # where jq's own exit code is 4 (empty input) or 5 (parse error) rather
     # than the 1 a successfully-evaluated `false` reports.
     [ "$path" = "$branch_path" ] && printf '%s' "$try" | jq -e . >/dev/null 2>&1 && branch_answered=1
@@ -2083,8 +2038,23 @@ jenkins_sha_runs() {
     [ "$path" = "$root_path" ] && printf '%s' "$try" | jq -e '._class == "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"' >/dev/null 2>&1 && { body='{"builds":[]}'; break; }
     plain=1
   done
-  cred=""
-  [ -n "$body" ] || { [ -n "$branch_answered" ] && echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2 || echo "plot-host: $op — Jenkins did not answer for '$host'" >&2; exit 4; }
+  if [ -z "$body" ]; then
+    if [ -n "$branch_answered" ]; then
+      echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2
+    else
+      err_line="$(grep -m1 '^error:' "$err_tmp" 2>/dev/null || true)"
+      if grep -qi 'unknown command: api' "$err_tmp" 2>/dev/null; then
+        echo "plot-host: $op — the sha read needs jen 0.4.0 or later with \`api\`" >&2
+      elif grep -qiE 'command not found|no such file or directory' "$err_tmp" 2>/dev/null; then
+        echo "plot-host: $op — \`jen\` is not installed; the sha read needs jen 0.4.0 or later with \`api\`" >&2
+      else
+        printf '%s\n' "plot-host: $op — Jenkins did not answer for Jenkins instance '$slug'" >&2
+        [ -n "$err_line" ] && printf '  jen: %s\n' "$err_line" >&2
+        printf '  Plot reaches Jenkins only through `jen`; run `jen auth login`.\n' >&2
+      fi
+    fi
+    exit 4
+  fi
   printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" --argjson limit "$limit" 'def headsha($records): ($records | map(select(any(.branches[]; . == $branch))) | first.sha) // (if [$records[].branches[]] | length == 0 then $records | last.sha // "" else "" end);
     [ .builds[]
       | { records: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision
@@ -3904,8 +3874,20 @@ bb() {
 
 jen() {
   host_slot_take jenkins ''
-  command jen "$@"
-  local rc=$?
+  local rc
+  if [ -n "${PLOT_JEN_BOUND_S:-}" ]; then
+    local pid watcher was_m
+    case $- in *m*) was_m=yes ;; *) was_m=no ;; esac; set -m
+    command jen "$@" & pid=$!
+    ( sleep "$PLOT_JEN_BOUND_S"; kill -TERM "-$pid" ) >/dev/null 2>&1 & watcher=$!
+    wait "$pid"; rc=$?
+    kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+    [ "$was_m" = yes ] || set +m
+    [ $rc = 143 ] && echo "jen api gave no answer within ${PLOT_JEN_BOUND_S} s" >&2
+  else
+    command jen "$@"
+    rc=$?
+  fi
   host_slot_give
   # Jenkins is the CI axis, a connector of its own — this repo is GitHub +
   # Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
@@ -5106,20 +5088,17 @@ case "$op" in
     _ci="$(ci_scheme)"
     case "$_ci" in
       jenkins)
-        # THE SHA IS IN JENKINS AND `jen` IS NOT THE TRANSPORT. Measured
+        # `jen api` IS THE RAW PASSTHROUGH AND THE ONLY TRANSPORT. Measured
         # 2026-09-10 against a live instance: a build entry from `jen build
         # list --json` carries `id`, `status`, timings and stages, and a search
         # of the whole payload for `sha|commit|revision|scm` matches nothing.
-        # `jen` has no changesets subcommand and no raw-API passthrough.
-        #
-        # JENKINS' OWN REST API ANSWERS IT, at
-        # `actions[].lastBuiltRevision.SHA1`, paired with the branch. One
+        # Jenkins' own REST API answers it at
+        # `actions[].lastBuiltRevision.SHA1`, paired with the branch, and
+        # `jen api <path>` reaches it with the instance's own auth headers. One
         # `tree=` query returns a whole history — 4855 bytes for five builds —
         # so this costs one round trip like the GitHub arm does.
         #
-        # THIS ARM EXITED 4 UNTIL 2026-09-11, and the refusal was honest for
-        # the transport it had. What changed is the transport, not the rule.
-        # The fetch, credential and match rule live in `jenkins_sha_runs`, which
+        # THE FETCH AND MATCH RULE LIVE IN `jenkins_sha_runs`, which
         # `runs-for-sha` shares. `|| exit $?` keeps exit 3 (no instance) apart
         # from exit 4 (cannot be asked).
         _jen_all=$(jenkins_sha_runs "$op" "$branch" "$limit" "$sha") || exit $?

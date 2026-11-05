@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3081
@@ -15,6 +15,8 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3082 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/release-pr-reads-local-references`
 - **Started:** 2026-11-04, Jan Wloka, `bug/release-tag-contains-every-local-pr`
+- **Started:** 2026-11-04, Jan Wloka, `bug/scan-release-asks-the-domain`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 
@@ -137,7 +139,7 @@ Each case fails on origin/main unless the list says otherwise.
 
 ### Scan asks the release rule
 
-- `bug/scan-release-asks-the-domain` — scan section 6 asks `releasePr` and `releaseTag` through one `plot-release-chain.mjs` call per sweep, reports an all-foreign plan with its own finding, and drops its shell copy of the rule <!-- builds: a batched release verb on plot-release-chain.mjs; section 6 without last_pr --> <!-- waits: bug/release-tag-contains-every-local-pr -->
+- `bug/scan-release-asks-the-domain` — scan section 6 asks `releasePr` and `releaseTag` through one `plot-release-chain.mjs` call per sweep, reports an all-foreign plan with its own finding, and drops its shell copy of the rule <!-- builds: a batched release verb on plot-release-chain.mjs; section 6 without last_pr --> <!-- waits: bug/release-tag-contains-every-local-pr --> → #3111
 
 ## Notes
 

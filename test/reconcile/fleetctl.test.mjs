@@ -587,7 +587,7 @@ test('--stop polls the unload past a still-loaded first answer, clears the marke
   // A single-sample implementation prints `did NOT unload` here and fails.
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopunloadok');
   const marker = armedMarker(root);
-  const bin = stubUnload(box, { sticky: 2 });
+  const bin = stubUnload(box, { sticky: 2, workdir: root });
   const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
@@ -608,7 +608,7 @@ test('--stop keeps the marker and exits 1 when the unload is never confirmed', (
   // case fast; the bound is the contract, not its value.
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopunloadfail');
   const marker = armedMarker(root);
-  const bin = stubUnload(box, { sticky: 'forever' });
+  const bin = stubUnload(box, { sticky: 'forever', workdir: root });
   const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
     HOME: fakeHome(box, { unit: true, label: fleetLabel }),
     PLOT_FLEET_LABEL: fleetLabel,
@@ -638,7 +638,7 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
   fs.writeFileSync(dispatch, '#!/usr/bin/env bash\nexit 0\n');
   fs.chmodSync(dispatch, 0o755);
 
-  const bin = stubUnload(box, { sticky: 'forever' });
+  const bin = stubUnload(box, { sticky: 'forever', workdir: root });
   try {
     const r = run(ctl, ['--stop', '--wait', '1'], root, guardBin, {
       HOME: fakeHome(box, { unit: true, label: fleetLabel }),
@@ -649,6 +649,225 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
     assert.match(r.out, /did NOT unload within 1s/, 'the supervisor failure is reported');
     assert.match(r.out, /1 agent\(s\) did not exit within 1s/,
       'the agent summary survives the supervisor failure — it prints after that block');
+  } finally {
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+// ── --stop refuses to unload a supervisor that is not this checkout's own ────
+//
+// THE BUG: --stop booted out whatever held the resolved label with no check
+// on which checkout it served. These cases are the fix's own table —
+// `another`/`unknown` refuse before anything is touched, `this` proceeds,
+// and the TOCTOU case closes the race the brief named: another process's
+// `--start` can load the label for a different checkout while this run's
+// agent-stop loop is still going.
+
+test("--stop refuses a supervisor serving ANOTHER checkout, and leaves it loaded", () => {
+  const other = fs.realpathSync(scratch('plot-fleetctl-stopother-'));
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopother');
+  const marker = armedMarker(root);
+  const calls = holdLabel(box, guardBin, other);
+  const r = run(ctl, ['--stop'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, new RegExp(`serves ANOTHER checkout \\(${other.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\), not this repository`));
+  assert.match(r.out, /it was not unloaded/);
+  assert.match(r.out, /Run --stop in that checkout, or give this checkout its own label/);
+  assert.deepEqual(launchctlCalls(calls), [], 'nothing was booted out');
+  assert.equal(fs.existsSync(marker), true, 'the start marker survives a refused stop');
+  assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-stopped.json')), false,
+    'no stop record was written for a refused stop');
+});
+
+test('--stop refuses when the serving checkout cannot be determined', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopunknown');
+  const marker = armedMarker(root);
+  const calls = holdLabel(box, guardBin, null);
+  const r = run(ctl, ['--stop'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /is loaded, and which checkout it serves cannot be determined — it was not unloaded/);
+  assert.match(r.out, /names no working directory for it, so it may be another checkout's/);
+  assert.doesNotMatch(r.out, /serves ANOTHER checkout/);
+  assert.deepEqual(launchctlCalls(calls), []);
+  assert.equal(fs.existsSync(marker), true);
+});
+
+// A BUNDLE THAT CANNOT BE ASKED REFUSES, at the `--stop` read as well as at
+// the migration's. The decision runs through a command substitution, which
+// keeps only stdout: a broken install returns 1 having written to stderr only,
+// so a test on the WORD alone reads that empty answer as permission and boots
+// out whatever holds the label — the very bug the cases above close. The label
+// is held for ANOTHER checkout in both cases, so an unload here is the bug.
+for (const [name, rule] of [
+  ['its bundle is missing', 'missing'],
+  ['its bundle exits non-zero without answering', 'silent'],
+]) {
+  test(`--stop refuses when ${name}, and unloads nothing`, () => {
+    const other = fs.realpathSync(scratch(`plot-fleetctl-stopbroken-${rule}-`));
+    const { root, box, ctl, fleetLabel, guardBin } = sandbox(`stopbroken${rule}`);
+    const marker = armedMarker(root);
+    const bundle = path.join(path.dirname(ctl), 'board', 'plot-old-label.mjs');
+    if (rule === 'missing') fs.rmSync(bundle);
+    else fs.writeFileSync(bundle, 'process.exit(3);\n');
+    const calls = holdLabel(box, guardBin, other);
+    const r = run(ctl, ['--stop'], root, guardBin, { HOME: fakeHome(box), PLOT_FLEET_LABEL: fleetLabel });
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /broken or partial installation of Plot/, r.out);
+    assert.deepEqual(launchctlCalls(calls), [],
+      `a broken old-label bundle was read as permission to unload another checkout's supervisor:\n${r.out}`);
+    assert.equal(fs.existsSync(marker), true, 'the start marker was removed on a refused stop');
+    assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-stopped.json')), false,
+      'a stop record was written although the rule could not be asked');
+  });
+}
+
+test("--stop's refusal lists this checkout's own ready-to-stop supervisor, not a blank report", () => {
+  // `plot_processes_block`'s comparison-root mode is what the refusal falls
+  // back on: a person stopped by the owner check still needs the command for
+  // THEIR OWN supervisor, if the process table shows one.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopotherown');
+  const other = fs.realpathSync(scratch('plot-fleetctl-stopotherown-other-'));
+  holdLabel(box, guardBin, other);
+  const procs = path.join(box, 'procs');
+  fs.mkdirSync(path.join(procs, 'cwd'), { recursive: true });
+  fs.mkdirSync(path.join(procs, 'users'), { recursive: true });
+  // A registryd-shaped row the process-classifier reads as this checkout's
+  // own supervisor, distinct from the label held above.
+  fs.writeFileSync(path.join(procs, 'ps'), `9001 1 501 node ${path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-fleetd.mjs')}\n`);
+  fs.writeFileSync(path.join(procs, 'cwd', '9001'), root);
+  fs.writeFileSync(path.join(procs, 'users', '501'), `${os.userInfo().username}\n`);
+  const r = run(ctl, ['--stop'], root, guardBin, {
+    HOME: fakeHome(box),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PLOT_TEST_PROCS: procs,
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /this checkout's own supervisor\(s\), if any, may still be stopped:/);
+  assert.match(r.out, /PLOT_FLEET_LABEL=\S+ .*--stop/,
+    `the refusal did not list a ready --stop command for this checkout's own supervisor:\n${r.out}`);
+  assert.doesNotMatch(r.out, /no supervisor serving this checkout was found/);
+});
+
+test('--stop proceeds and cleanly unloads a supervisor that serves this checkout', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopthis');
+  const marker = armedMarker(root);
+  const bin = stubUnload(box, { sticky: 1, workdir: root });
+  const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin, {
+    HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PATH: withHarness(box, bin, process.env.PATH),
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /supervisor unloaded/);
+  assert.doesNotMatch(r.out, /it was not unloaded/, 'a stop that proceeds on `this` prints no owner refusal');
+  assert.equal(fs.existsSync(marker), false, 'a confirmed unload on `this` clears the start marker');
+});
+
+test('--stop reads this checkout through a symlink as `this`, and still proceeds', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopthislink');
+  const marker = armedMarker(root);
+  const link = path.join(box, 'linked-repo');
+  fs.symlinkSync(root, link);
+  const bin = stubUnload(box, { sticky: 1, workdir: link });
+  const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin, {
+    HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+    PLOT_FLEET_LABEL: fleetLabel,
+    PATH: withHarness(box, bin, process.env.PATH),
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /supervisor unloaded/, 'physical paths are compared, so the symlinked workdir still reads as this checkout');
+  assert.equal(fs.existsSync(marker), false);
+});
+
+test('--stop run from a desk compares against the main checkout, not the desk', () => {
+  // THE WHOLE REASON --stop reads `plot_repo_root` rather than `$repo_root`:
+  // the supervisor always serves the MAIN checkout. A stub whose workdir is
+  // the main root, read from a desk whose OWN root differs, must still read
+  // `this` rather than `another` — proving the comparison root travelled.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopfromdesk');
+  const desk = path.join(root, '.worktrees', 'feature-c');
+  git(root, 'worktree', 'add', '-q', '-b', 'feature/c', desk);
+  // `start_marker()` reads `$repo_root`, which is the DESK here — `--start` is
+  // never run from a desk in practice, so the marker always lives beside
+  // whichever root `--stop` itself resolves to, same as every other case here.
+  const marker = armedMarker(desk);
+  const bin = stubUnload(box, { sticky: 1, workdir: root });
+  try {
+    const r = run(ctl, ['--stop', '--wait', '10'], desk, guardBin, {
+      HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+      PLOT_FLEET_LABEL: fleetLabel,
+      PATH: withHarness(box, bin, process.env.PATH),
+    });
+    assert.equal(r.status, 0, r.out);
+    assert.match(r.out, /supervisor unloaded/,
+      `a desk's own root must not be compared in place of the main checkout's:\n${r.out}`);
+    assert.equal(fs.existsSync(marker), false);
+  } finally {
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('--stop closes the race: an owner that changes between the two reads leaves the summary intact and the supervisor loaded', () => {
+  // THE SECOND READ, RIGHT BEFORE unload_supervisor, is what this proves. The
+  // agent-stop loop runs between the two reads; a `plot-dispatch.sh --stop`
+  // that takes a moment is this test's stand-in for that window. The stub
+  // answers `this` on every read UNTIL `plot-dispatch.sh` has run, then
+  // answers `another` — so the FIRST read (before the loop) proceeds, and the
+  // SECOND read (right before the unload) refuses.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stoprace');
+  const marker = armedMarker(root);
+  const desk = path.join(root, '.worktrees', 'feature-d');
+  git(root, 'worktree', 'add', '-q', '-b', 'feature/d', desk);
+  const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+
+  const flipped = path.join(box, 'owner-flipped');
+  const dispatch = path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh');
+  fs.writeFileSync(dispatch,
+    `#!/usr/bin/env bash\ntouch '${flipped}'\nps -o command= -p ${sleeper} | grep -qx 'sleep 30' && kill ${sleeper} 2>/dev/null\nexit 0\n`);
+  fs.chmodSync(dispatch, 0o755);
+
+  const other = fs.realpathSync(scratch('plot-fleetctl-stoprace-other-'));
+  const bin = path.join(box, 'race-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const write = (name, body) => {
+    const p = path.join(bin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
+  // `print` answers `this` (this checkout's root) until the dispatch call has
+  // run, then `another` (a different checkout). `bootout`/`bootstrap` are
+  // never reached once the second read refuses, so they just log.
+  write('launchctl', [
+    `if [ "$1" = print ]; then`,
+    `  if [ -f '${flipped}' ]; then`,
+    `    printf '%s\\n' '\tworking directory = ${other}' '\tpid = 4242'`,
+    '  else',
+    `    printf '%s\\n' '\tworking directory = ${root}' '\tpid = 4242'`,
+    '  fi',
+    '  exit 0',
+    'fi',
+    `echo "$*" >> '${path.join(box, 'launchctl.calls')}'`,
+    'exit 0',
+  ].join('\n'));
+  try {
+    const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin, {
+      HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+      PLOT_FLEET_LABEL: fleetLabel,
+      PATH: withHarness(box, bin, process.env.PATH),
+    });
+    assert.equal(r.status, 1, r.out);
+    // The agent summary survives: the first read let the stop loop run, and
+    // the branch was confirmed stopped before the second read ever refused.
+    assert.match(r.out, /feature\/d\s+signalled.*exited/s,
+      `the agent-stop loop did not complete before the second owner check:\n${r.out}`);
+    assert.match(r.out, new RegExp(`serves ANOTHER checkout \\(${other.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\), not this repository`),
+      'the second read did not refuse the unload');
+    assert.deepEqual(launchctlCalls(path.join(box, 'launchctl.calls')), [],
+      'the supervisor was never booted out once the second read refused');
+    assert.equal(fs.existsSync(marker), true, 'an unconfirmed-by-refusal unload keeps the start marker');
   } finally {
     signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
     fs.rmSync(desk, { recursive: true, force: true });
@@ -1514,9 +1733,13 @@ function stubPlatform(box, { kernel = 'Darwin', loaded = false } = {}) {
  *
  * @param box - the sandbox directory to place the stubs in
  * @param opts.sticky - how many `print` calls after `bootout` still answer loaded; `'forever'` never unloads
+ * @param opts.workdir - the working directory `print`/`show -p WorkingDirectory`
+ *   answers while loaded, so `supervisor_checkout` reads `this <workdir>` rather
+ *   than `unknown` — omit for the handful of cases that test the `unknown`
+ *   reading itself.
  * @returns the directory to prepend to `PATH`
  */
-function stubUnload(box, { sticky = 1 } = {}) {
+function stubUnload(box, { sticky = 1, workdir } = {}) {
   const bin = path.join(box, 'stub-bin');
   fs.mkdirSync(bin, { recursive: true });
   const ticks = path.join(box, 'unload-ticks');
@@ -1528,6 +1751,11 @@ function stubUnload(box, { sticky = 1 } = {}) {
   write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
   // THE PID IS EMITTED ON EVERY LOADED ANSWER, so the unconfirmed report can
   // name it. `supervisor_pid` parses `pid = N` out of this same output.
+  //
+  // A `show -p WorkingDirectory` READ is told apart from `-p MainPID` BY ITS
+  // OWN FLAG, not by call order — `supervisor_checkout`'s `supervisor_workdir`
+  // and `supervisor_pid` both shell to `show`, and only the argument says which
+  // question this call is.
   const body = (bootoutVerb) => `
 TICKS="${ticks}"
 if [ "$1" = ${bootoutVerb} ]; then echo ${sticky === 'forever' ? -1 : sticky} > "$TICKS"; exit 0; fi
@@ -1539,8 +1767,16 @@ if [ "$1" = print ] || [ "$1" = is-active ] || [ "$1" = show ]; then
     else EMIT=no; fi
   fi
   if [ "$EMIT" = yes ]; then
-    [ "$1" = print ] && echo "	pid = 4242"
-    [ "$1" = show ] && echo 4242
+    if [ "$1" = print ]; then
+      echo "	pid = 4242"
+      ${workdir ? `echo "\\tworking directory = ${workdir}"` : ''}
+    fi
+    if [ "$1" = show ]; then
+      case "$*" in
+        *WorkingDirectory*) ${workdir ? `echo '${workdir}'` : 'echo ""'} ;;
+        *) echo 4242 ;;
+      esac
+    fi
     exit 0
   fi
   exit ${bootoutVerb === 'bootout' ? 113 : 3}
@@ -1548,7 +1784,7 @@ fi
 exit 0`;
   write('launchctl', body('bootout'));
   // `systemctl --user disable --now` arms the same counter; `is-active` and
-  // `show -p MainPID` are the two reads the systemd arm makes.
+  // `show -p MainPID`/`-p WorkingDirectory` are the reads the systemd arm makes.
   write('systemctl', body('disable'));
   return bin;
 }
@@ -2619,7 +2855,11 @@ const unitNameFor = (ctl, label, cwd = path.dirname(ctl)) => {
 // can make one inactive and the `--stop` poll sees it go. `daemon-reload`
 // succeeds and `enable` fails, so a `--start` records the enable call and exits
 // before it starts any agent.
-const stubSystemd = (box, { active = [] } = {}) => {
+//
+// `opts.workdir`, LIKE `stubUnload`'s, answers `-p WorkingDirectory` so
+// `supervisor_checkout` reads `this <workdir>` for an active unit rather than
+// `unknown` — omitted where a test is about the `unknown` reading itself.
+const stubSystemd = (box, { active = [], workdir } = {}) => {
   const bin = path.join(box, 'systemd-bin');
   const state = path.join(box, 'systemd-active');
   const log = path.join(box, 'systemctl.log');
@@ -2637,7 +2877,7 @@ const stubSystemd = (box, { active = [] } = {}) => {
     '[ "$1" = --user ] && shift',
     'case "$1" in',
     `  is-active) [ -f '${state}'/"$3" ] && exit 0; exit 3 ;;`,
-    `  show) [ -f '${state}'/"$2" ] && [ "$4" = MainPID ] && echo 4242; exit 0 ;;`,
+    `  show) [ -f '${state}'/"$2" ] && { [ "$4" = MainPID ] && echo 4242; ${workdir ? `[ "$4" = WorkingDirectory ] && echo '${workdir}';` : ''} }; exit 0 ;;`,
     `  disable) rm -f '${state}'/"$3"; exit 0 ;;`,
     '  daemon-reload) exit 0 ;;',
     '  *) exit 1 ;;',
@@ -2739,7 +2979,7 @@ test('systemd: --status and --stop ask about the unit --start wrote', () => {
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('unitname-stop');
   const home = fakeHome(box);
   const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
-  const sd = stubSystemd(box, { active: [name, 'plot-registryd'] });
+  const sd = stubSystemd(box, { active: [name, 'plot-registryd'], workdir: root });
   const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, sd.bin, guardBin, process.env.PATH) };
 
   run(ctl, ['--status'], root, guardBin, env);
@@ -3226,9 +3466,12 @@ test('processes: the arm follows uname, not platform(), so a host with no init s
 // THE OLD-LABEL RULE, ASKED THROUGH ITS BUNDLE. The three readings
 // `supervisor_checkout` prints and the one word each answers per verb; an
 // unreadable line or verb exits 2, which `old_label_action` refuses on.
-const askOldLabel = (line, verb) => {
+// `start`, `start-default`, `stop` and `serves` take four more arguments:
+// label, platform, read command, root.
+const LABEL_ARGS = ['com.plot-pm.fleetd', 'launchd', "launchctl print gui/501/com.plot-pm.fleetd", '/repos/a'];
+const askOldLabel = (line, verb, extra = []) => {
   const bundle = path.join(scripts, 'board', 'plot-old-label.mjs');
-  return spawnSync(process.execPath, [bundle, ...(verb ? [verb] : [])], { input: line, encoding: 'utf8' });
+  return spawnSync(process.execPath, [bundle, ...(verb ? [verb] : []), ...extra], { input: line, encoding: 'utf8' });
 };
 test('old-label bundle: retire unloads this checkout, leaves another, refuses unknown', () => {
   assert.equal(askOldLabel('this /repos/a\n', 'retire').stdout, 'unload-and-remove\n');
@@ -3240,8 +3483,61 @@ test('old-label bundle: status notes this checkout and leaves another and unknow
   assert.equal(askOldLabel('another /repos/b\n', 'status').stdout, 'leave\n');
   assert.equal(askOldLabel('unknown\n', 'status').stdout, 'leave\n');
 });
+test('old-label bundle: start refuses every reading, word for word as refuse_label printed it', () => {
+  const this_ = askOldLabel('this /repos/a\n', 'start', LABEL_ARGS);
+  assert.equal(this_.stdout, 'refuse\n');
+  assert.match(this_.stderr, /is already loaded, serving THIS repository \(\/repos\/a\)/);
+  assert.match(this_.stderr, /To restart it: \/plot-fleet --stop, then \/plot-fleet --start/);
+
+  const another = askOldLabel('another /repos/b\n', 'start', LABEL_ARGS);
+  assert.equal(another.stdout, 'refuse\n');
+  assert.match(another.stderr, /is already loaded, serving ANOTHER checkout \(\/repos\/b\)/);
+  assert.match(another.stderr, /This repository is \/repos\/a\. That supervisor is not yours to stop\./);
+
+  const unknown = askOldLabel('unknown\n', 'start', LABEL_ARGS);
+  assert.equal(unknown.stdout, 'refuse\n');
+  assert.match(unknown.stderr, /and which checkout it serves cannot be determined/);
+  assert.match(unknown.stderr, /launchd names no working directory for it/);
+});
+test('old-label bundle: start-default refuses only this checkout, same text as start', () => {
+  const this_ = askOldLabel('this /repos/a\n', 'start-default', LABEL_ARGS);
+  assert.equal(this_.stdout, 'refuse\n');
+  assert.match(this_.stderr, /is already loaded, serving THIS repository \(\/repos\/a\)/);
+
+  assert.equal(askOldLabel('another /repos/b\n', 'start-default', LABEL_ARGS).stdout, 'proceed\n');
+  assert.equal(askOldLabel('unknown\n', 'start-default', LABEL_ARGS).stdout, 'proceed\n');
+});
+test('old-label bundle: stop proceeds only on this checkout and prints new refusal wording', () => {
+  assert.equal(askOldLabel('this /repos/a\n', 'stop', LABEL_ARGS).stdout, 'proceed\n');
+
+  const another = askOldLabel('another /repos/b\n', 'stop', LABEL_ARGS);
+  assert.equal(another.stdout, 'refuse\n');
+  assert.match(another.stderr, /serves ANOTHER checkout \(\/repos\/b\), not this repository \(\/repos\/a\) — it was not unloaded\./);
+  assert.match(another.stderr, /Run --stop in that checkout/);
+  assert.doesNotMatch(another.stderr, /not yours to stop/);
+
+  const unknown = askOldLabel('unknown\n', 'stop', LABEL_ARGS);
+  assert.equal(unknown.stdout, 'refuse\n');
+  assert.match(unknown.stderr, /which checkout it serves cannot be determined — it was not unloaded\./);
+});
+test('old-label bundle: serves prints the --status line for every reading and never refuses', () => {
+  assert.equal(askOldLabel('this /repos/a\n', 'serves', LABEL_ARGS).stdout, '  serves:  THIS repository (/repos/a)\n');
+  assert.equal(
+    askOldLabel('another /repos/b\n', 'serves', LABEL_ARGS).stdout,
+    '  serves:  ANOTHER checkout (/repos/b) — this repository is /repos/a\n',
+  );
+  assert.equal(
+    askOldLabel('unknown\n', 'serves', LABEL_ARGS).stdout,
+    '  serves:  cannot determine — launchd names no working directory for com.plot-pm.fleetd\n',
+  );
+});
+test('old-label bundle: a missing label argument exits 2 and prints no action', () => {
+  const r = askOldLabel('this /repos/a\n', 'stop', ['com.plot-pm.fleetd', 'launchd']);
+  assert.equal(r.status, 2);
+  assert.equal(r.stdout, '');
+});
 test('old-label bundle: an unreadable line or verb exits 2 and prints no action', () => {
-  for (const r of [askOldLabel('somewhere /repos/c\n', 'retire'), askOldLabel('this /repos/a\n'), askOldLabel('this /repos/a\n', 'stop')]) {
+  for (const r of [askOldLabel('somewhere /repos/c\n', 'retire'), askOldLabel('this /repos/a\n'), askOldLabel('this /repos/a\n', 'bogus')]) {
     assert.equal(r.status, 2);
     assert.equal(r.stdout, '');
   }

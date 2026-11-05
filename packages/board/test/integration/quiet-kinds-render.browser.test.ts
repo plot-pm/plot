@@ -53,12 +53,12 @@ describe('the board shows which kind of quiet a row is in', () => {
       pr: { number: 53, url: 'https://github.com/tiny/garden/pull/53', draft: false, state: 'closed' },
     }),
     buildRow({
-      branch: 'feature/never-begun', plan: 'garden', wave: 'never-begun-slice', state: 'claimed', group: 'waiting-on-you',
+      branch: 'feature/never-begun', plan: 'garden', wave: 'never-begun-slice', state: 'claimed', group: 'quiet',
       ageMinutes: 4_320, note: 'claimed, no work committed — claimed 3 days ago',
       quietKind: 'orphaned-claim',
     }),
     buildRow({
-      branch: 'feature/left-behind', plan: 'garden', wave: 'left-behind-slice', state: 'wip', group: 'waiting-on-you',
+      branch: 'feature/left-behind', plan: 'garden', wave: 'left-behind-slice', state: 'wip', group: 'quiet',
       ageMinutes: 60 * 24 * 126, note: 'commits, no PR ever opened — last commit 126 days ago',
       quietKind: 'abandoned',
     }),
@@ -81,10 +81,10 @@ describe('the board shows which kind of quiet a row is in', () => {
       over: { fleet: buildFleet({ ...envelope(), rows }) as Fleet },
     });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
     const toggle = page.locator('[data-group-toggle="quiet"]');
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    await expandAgentFolds(page);
     return page;
   }
 
@@ -197,17 +197,20 @@ describe('the board shows which kind of quiet a row is in', () => {
     }
   });
 
-  it('puts the two kinds that need a person where a person will see them', async () => {
-    // THE GROUP IS THE HALF THAT ASKS FOR SOMETHING, and moving it is the plan's
-    // own warning. #669 fixed a withdrawn plan's NOTE and kept its group,
-    // calling that conservative — so the row went on asking for a decision its
-    // own sentence said was made, and sat in WAITING ON YOU for a day until
-    // #675 moved it.
+  it('puts the two kinds that still need a person inside QUIET', async () => {
+    // OPERATOR DECISION B (2026-11-03) reverses #1758/#1902: an orphaned claim
+    // and abandoned work keep their kind word and their note, but file under
+    // QUIET rather than WAITING ON YOU. The errand they ask for — revive it, or
+    // drop it — is real, but it is not the kind of "waiting on you" that a
+    // live PR or a review request is.
     const page = await open();
     try {
+      const quiet = group(page, 'Quiet');
+      await expect.poll(() => quiet.getByText('feature/never-begun').count()).toBeGreaterThan(0);
+      await expect.poll(() => quiet.getByText('feature/left-behind').count()).toBeGreaterThan(0);
       const waiting = group(page, 'Waiting on you');
-      await expect.poll(() => waiting.getByText('feature/never-begun').count()).toBeGreaterThan(0);
-      await expect.poll(() => waiting.getByText('feature/left-behind').count()).toBeGreaterThan(0);
+      expect(await waiting.getByText('feature/never-begun').count()).toBe(0);
+      expect(await waiting.getByText('feature/left-behind').count()).toBe(0);
     } finally {
       await page.close();
     }

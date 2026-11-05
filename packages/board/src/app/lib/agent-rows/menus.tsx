@@ -98,16 +98,19 @@ export function openTarget(row: Pick<AgentRow, 'pr' | 'branchUrl'>): string {
 }
 
 /**
- * Does this row OFFER Open — and it is WAITING ON YOU, and only there.
+ * Does this row OFFER Open — and it is WAITING ON YOU, or a QUIET row that
+ * still names a reason (`abandoned`, `orphaned-claim`) — and nowhere else.
  *
  * **The scope the motivating defect actually named.** The reported defect was a
  * plain PR *awaiting review* with no `⋯` at all — a row the reader must act on,
- * leading with a subject they had no route to. Open closes that. But a `quiet`,
- * `blocked` or `done` row has nothing to do, and the rule
+ * leading with a subject they had no route to. Open closes that. But a plain
+ * `quiet`, `blocked` or `done` row has nothing to do, and the rule
  * `one-place-for-what-a-row-can-do` settled holds there: a menu whose only item
  * opens a link the row ALREADY shows (its branch name is an anchor) is the empty
  * `⋯` that lies, measured lying on two of six rows. So Open lives where the
- * section's whole membership means *this wants a person*: WAITING ON YOU.
+ * row's own membership means *this wants a person*: WAITING ON YOU, and the two
+ * QUIET kinds operator decision B (2026-11-03) moved there — `abandoned` still
+ * asks *revive or drop*, and `orphaned-claim` still asks *reap it*.
  *
  * `openTarget` stays a pure address resolver — *what* to open — and this answers
  * *whether* to offer it. Two questions: a `done` row still HAS a branch address,
@@ -117,8 +120,10 @@ export function openTarget(row: Pick<AgentRow, 'pr' | 'branchUrl'>): string {
  * though it has an address — is the half a check on the URL alone gets wrong,
  * and the one that reopens the empty-menu defect a section over.
  */
-export function offersOpen(row: Pick<AgentRow, 'pr' | 'branchUrl' | 'group'>): boolean {
-  return row.group === 'waiting-on-you' && openTarget(row) !== '';
+export function offersOpen(row: Pick<AgentRow, 'pr' | 'branchUrl' | 'group' | 'quietKind'>): boolean {
+  const asksAPerson = row.group === 'waiting-on-you'
+    || (row.group === 'quiet' && (row.quietKind === 'abandoned' || row.quietKind === 'orphaned-claim'));
+  return asksAPerson && openTarget(row) !== '';
 }
 
 /**
@@ -633,18 +638,20 @@ export function RowActions({
   const canResolve = Boolean(
     row.stuck?.state === 'conflict' && card && dispatch,
   );
-  // OPEN — the item that makes the menu fit every WAITING ON YOU row. It is
-  // navigation to a fact the row already carries (`openTarget`: the PR page, or
-  // the branch on the host), so it needs no card, no dispatch verdict and no
-  // fetch — the same shape as the run link. A PR row's Open reads *Review*,
-  // because opening a PR is what reviewing it is; a branch row's reads *Open*.
+  // OPEN — the item that makes the menu fit every WAITING ON YOU row, and the
+  // two QUIET kinds operator decision B (2026-11-03) moved there without taking
+  // it away. It is navigation to a fact the row already carries (`openTarget`:
+  // the PR page, or the branch on the host), so it needs no card, no dispatch
+  // verdict and no fetch — the same shape as the run link. A PR row's Open
+  // reads *Review*, because opening a PR is what reviewing it is; a branch
+  // row's reads *Open*.
   //
-  // `offersOpen` scopes it to WAITING ON YOU, and that scope is load-bearing: a
-  // `quiet` or `done` row has an address too, but nothing to do — and an Open
-  // item there is the empty menu `one-place-for-what-a-row-can-do` removed, one
-  // section over. Where there is no address (a merged branch, a host with no PR
-  // url) there is no item either, and the row falls back to whatever else it
-  // offers.
+  // `offersOpen` scopes it to WAITING ON YOU plus `abandoned`/`orphaned-claim`
+  // in QUIET, and that scope is load-bearing: a plain `quiet` or `done` row has
+  // an address too, but nothing to do — and an Open item there is the empty
+  // menu `one-place-for-what-a-row-can-do` removed, one section over. Where
+  // there is no address (a merged branch, a host with no PR url) there is no
+  // item either, and the row falls back to whatever else it offers.
   const openUrl = offersOpen(row) ? openTarget(row) : '';
   // COMMISSION DESIGN IS NOT HERE EITHER — it is a plan decision, the OTHER
   // answer to a Draft plan beside Approve, and it left the branch row for the

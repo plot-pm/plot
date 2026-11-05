@@ -148,7 +148,7 @@ Each test fails on `main` for the reason given, unless it is marked as a guard.
 
 ### Single-source plan read
 
-- `bug/plot-approve-reads-the-plan-from` <!-- waits: bug/plot-approve-finds-no-plan-on --> — `planPrOf` names the PR, the plan file and the head to read; both controllers read only there and pin to that sha; rivals with a differing blob, a named PR without the plan, an unheld head and a differing checkout copy refuse by name; needs-design calls the domain rule; the tests and docs above.
+- `bug/plot-approve-reads-the-plan-from` <!-- waits: bug/plot-approve-finds-no-plan-on --> — `planPrOf` names the PR, the plan file and the head to read; both controllers read only there and pin to that sha; rivals with a differing blob, a named PR without the plan, an unheld head and a differing checkout copy refuse by name; needs-design calls the domain rule; the tests and docs above. → #3112
 
 Files: `packages/domain/src/rules/plan-pr.ts`, `packages/domain/src/workflows/approve.ts`, `packages/domain/src/workflows/needs-design.ts`, `packages/board/src/server/entry/open-prs.ts`, `packages/board/src/server/entry/approve.ts`, `packages/board/src/server/entry/needs-design.ts`, `skills/plot-approve/SKILL.md`, `skills/plot/scripts/README.md`, the tests above, and one changeset.
 
