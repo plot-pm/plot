@@ -12,6 +12,7 @@ import {
   fixerAttemptsSpent,
   fixerInFlight,
   fixerPushedHead,
+  fixerReadingOf,
 } from '../src/rules/fixer-attempts.js';
 
 const record = (over: Partial<FixerAttemptsRecord> = {}): FixerAttemptsRecord => ({
@@ -123,6 +124,30 @@ describe('fixerPushedHead', () => {
     expect(fixerPushedHead(r, 'a'.repeat(40))).toBe(false);
     expect(fixerPushedHead('none', 'b'.repeat(40))).toBe(false);
     expect(fixerPushedHead('unreadable', 'b'.repeat(40))).toBe(false);
+  });
+});
+
+describe('fixerReadingOf', () => {
+  const ci = (i: number) => ({ headSha: `${i}`.repeat(40), finding: { kind: 'ci' as const, runId: `${i}` } });
+
+  it('reads an unreadable record as unread', () => {
+    expect(fixerReadingOf('unreadable', 'h')).toEqual({ read: 'unread' });
+  });
+
+  it('reads a missing record as nothing spent, nothing in flight and no pushed head', () => {
+    expect(fixerReadingOf('none', 'h')).toEqual({
+      read: 'record',
+      inFlight: false,
+      highExhausted: false,
+      ciExhausted: false,
+      pushedHead: false,
+    });
+  });
+
+  it('splits the budgets and reads a pushed head only for a non-empty head', () => {
+    const r = record({ attempts: [{ ...ci(1), pushedSha: 'p' }, ci(2)] });
+    expect(fixerReadingOf(r, 'p')).toMatchObject({ highExhausted: false, ciExhausted: true, pushedHead: true });
+    expect(fixerReadingOf(r, '')).toMatchObject({ pushedHead: false });
   });
 });
 
