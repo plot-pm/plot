@@ -68,4 +68,15 @@ export interface FixerAttemptsStore {
    *   unreadable, `index` names no attempt, or the write did not land.
    */
   markStart(pr: number, index: number): Promise<PortResult<void>>;
+
+  /**
+   * Sets `pushedSha` on one recorded attempt; every other field stays.
+   *
+   * @param pr - the PR number.
+   * @param index - the attempt's position in the record's `attempts`, from 0.
+   * @param sha - the head the PR carried when the attempt ended.
+   * @returns nothing on success; `failed` where the record is missing or
+   *   unreadable, `index` names no attempt, or the write did not land.
+   */
+  markPushed(pr: number, index: number, sha: string): Promise<PortResult<void>>;
 }

@@ -161,7 +161,7 @@ Every site in the Motivation table calls `licensedSpike`. The three board copies
 
 ### The record names its branch
 
-- `feature/record-names-no-branch-so-a` <!-- waits: bug/plot-approve-reads-the-plan-from --> — add `licensedSpike`, write the branch into the record, add the re-approval path
+- `feature/record-names-no-branch-so-a` <!-- waits: bug/plot-approve-reads-the-plan-from --> — add `licensedSpike`, write the branch into the record, add the re-approval path → #3172
 
 ### Every reader asks the one rule
 
