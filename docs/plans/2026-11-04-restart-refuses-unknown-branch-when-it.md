@@ -78,15 +78,15 @@ Files the slice changes:
 Tests that fail on origin/main and pass after the change:
 
 - `packages/fleet/test/unit/restart-command.test.ts:54-57` — rewrite `refuses unknown-branch where there is no pulse at all` to `refuses no-pulse where there is no pulse and no named worktree`, asserting `{ kind: 'refused', status: 404, reason: 'no-pulse', detail: 'no current fleet reading to look the branch up in' }`.
-- `packages/fleet/test/unit/restart-command.test.ts` — new test in `describe('the restart entry')`: `run(['feature/nope'], repo, scriptDir, { pulse: () => null, worktree: '', caller: 'person' }, write, warn)` returns 1 and `warn` receives `plot-restart-command: no-pulse: no current fleet reading to look the branch up in`. `repo` is a `git init` directory from `fs.mkdtempSync(path.join(os.tmpdir(), 'plot-restart-nopulse-'))`, pushed to the file's `dirs` list and removed by that exact name.
-- `test/reconcile/restart.test.mjs:478-483` — the sandbox has no bridged pulse and `feature/never-dispatched` has no worktree, so the launcher now prints `no-pulse`. Rename the test to `--restart refuses a branch with no fleet reading and no worktree, naming the refusal` and assert `/no-pulse/`.
+- `packages/fleet/test/unit/restart-command.test.ts` — new test in `describe('the restart entry')`: `run(['nope'], repo, scriptDir, { pulse: () => null, worktree: '', caller: 'person' }, write, warn)` returns 1 and `warn` receives `plot-restart-command: no-pulse: no current fleet reading to look the branch up in`. `repo` is a `git init` directory from `fs.mkdtempSync(path.join(os.tmpdir(), 'plot-restart-nopulse-'))`, pushed to the file's `dirs` list and removed by that exact name.
+- `test/reconcile/restart.test.mjs:478-483` — the sandbox has no bridged pulse and `never-dispatched` has no worktree, so the launcher now prints `no-pulse`. Rename the test to `--restart refuses a branch with no fleet reading and no worktree, naming the refusal` and assert `/no-pulse/`.
 - `packages/board/test/unit/continue-control.test.ts:58-65` — add `'no-pulse'` to the `reasons` list, so `renders a distinct sentence for each` and `tells the reader what to do` cover it.
-- `packages/board/test/unit/restart-route.test.ts` — new test: `handleRestart(request({ branch: 'feature/nope' }), res, opts, { pulse: () => null })` answers `{ status: 404, body: { ok: false, reason: 'no-pulse', branch: 'feature/nope' } }`.
+- `packages/board/test/unit/restart-route.test.ts` — new test: `handleRestart(request({ branch: 'nope' }), res, opts, { pulse: () => null })` answers `{ status: 404, body: { ok: false, reason: 'no-pulse', branch: 'nope' } }`.
 
 Tests that pass before and after, and guard the order:
 
 - `packages/fleet/test/unit/restart-command.test.ts:49-52` — a non-null pulse without the branch still refuses `unknown-branch`. Unchanged.
-- `packages/fleet/test/unit/restart-command.test.ts` — new test: `restartBranch({ opts, pulse: null, branch: 'feature/x', worktree: '/w/x', caller: 'unattended' })` refuses `unattended` (409, `continuation.ts:917-919`), not `no-pulse`. It touches no file system. It fails against an implementation that checks `input.pulse === null` without `input.worktree`.
+- `packages/fleet/test/unit/restart-command.test.ts` — new test: `restartBranch({ opts, pulse: null, branch: 'x', worktree: '/w/x', caller: 'unattended' })` refuses `unattended` (409, `continuation.ts:917-919`), not `no-pulse`. It touches no file system. It fails against an implementation that checks `input.pulse === null` without `input.worktree`.
 - `packages/board/test/unit/restart-route.test.ts:52-56` — its stub pulse is non-null, so it keeps `unknown-branch`. Unchanged.
 
 Checks the slice runs before it pushes:
