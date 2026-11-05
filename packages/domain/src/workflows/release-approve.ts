@@ -1,6 +1,7 @@
 import type { Pr } from '../entities/pr.js';
 import type { PrReviewReading } from '../ports/host.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
+import { reportsCiChecks } from '../adapters/host/reports-ci-checks.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { ciCounted } from '../rules/release-checks-counted.js';
 import { sameCommit } from '../rules/same-commit.js';
@@ -148,7 +149,7 @@ export const releaseApproveAt = async (
       caller: ports.caller,
       pr: asked?.[0].ok ? asked[0].value : 'unaskable',
       review: asked?.[1].ok ? asked[1].value : 'unaskable',
-      ciAsked: asked?.[2].ok === true && asked[2].value === 'github',
+      ciAsked: asked?.[2].ok === true && reportsCiChecks(asked[2].value),
     },
     { pr, sha, minHexLen: minHexLenFor(asked?.[2].ok ? asked[2].value : '') },
   );
