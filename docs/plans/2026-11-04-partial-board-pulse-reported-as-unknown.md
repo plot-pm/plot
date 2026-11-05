@@ -93,7 +93,7 @@ The delivery gate already separates the readings: `deliver.ts:314` passes `pulse
 
 ### Refusal
 
-- `feature/partial-pulse-names-itself` <!-- waits: feature/restart-refuses-no-pulse --> <!-- waits: feature/continue-refuses-no-pulse --> — the domain rule `pulseBranchReading` chooses between `listed`, `no-pulse`, `pulse-partial` and `unknown-branch`; restart, continue and the agent panel pass `pulseCompleteFor` and `lastCompletePulseFor` to it <!-- builds: the partial-pulse refusal for restart and continue -->
+- `feature/partial-pulse-names-itself` <!-- waits: feature/restart-refuses-no-pulse --> <!-- waits: feature/continue-refuses-no-pulse --> — the domain rule `pulseBranchReading` chooses between `listed`, `no-pulse`, `pulse-partial` and `unknown-branch`; restart, continue and the agent panel pass `pulseCompleteFor` and `lastCompletePulseFor` to it <!-- builds: the partial-pulse refusal for restart and continue --> → #3181
 
 Files the slice changes:
 
