@@ -292,6 +292,17 @@ export function mockFleet(): Fleet {
       wave: 'Inverted', ageMinutes: 27, worker: 'running',
       note: 'worker running (pid 12345)',
     }),
+    // A CLAIMED BRANCH WITH NO KNOWN WORKER: fresh tip, no registry entry, no
+    // process. It reads WORKING with the status word `no known worker`.
+    row({
+      kind: 'branch', group: 'working', state: 'claimed',
+      branch: 'feature/a-claim-with-no-known-worker',
+      branchUrl: 'https://example.invalid/tree/feature/a-claim-with-no-known-worker',
+      plan: 'every-section-has-one-subject',
+      planFile: 'docs/plans/2026-08-20-every-section-has-one-subject.md',
+      wave: 'Claimed', ageMinutes: 5, worker: 'none',
+      note: 'claimed, no known worker', startability: 'no-known-worker',
+    }),
     // A PLAN UNDER REVIEW, on its own `idea/` branch — the one plan row the
     // SERVER emits, and the case `rowKind`'s idea arm exists for. Technically a
     // PR; what the reader decides is whether to APPROVE the plan, which is a

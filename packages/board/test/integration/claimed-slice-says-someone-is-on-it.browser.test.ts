@@ -67,6 +67,7 @@ const OLDER_BRANCH = 'feature/older-server';
  * that already states it and the false sentence goes. See the PR body.
  */
 const ON_IT = 'someone is on it';
+const NO_WORKER = 'no known worker';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-09-13-a-plan.md',
@@ -89,23 +90,23 @@ function fleet(): Fleet {
     // sentence the server composes for one — `ELIGIBLE_NOTE` — beside a
     // startability that says somebody is already on it.
     row({
-      kind: 'wave', group: 'not-started', state: 'claimed',
+      kind: 'wave', group: 'working', state: 'claimed',
       plan: 'a-harness-this-machine-cannot-run-refuses',
       planFile: '2026-09-12-a-harness-this-machine-cannot-run-refuses.md',
       branch: CLAIMED_BRANCH, branchUrl: `https://github.com/tiny/garden/tree/${CLAIMED_BRANCH}`,
       wave: 'Refused', ageMinutes: null, waitingDays: 2,
-      note: ELIGIBLE_NOTE, verdict: 'eligible', startability: 'someone-is-on-it',
+      note: 'claimed, no known worker', verdict: 'eligible', startability: 'no-known-worker',
     }),
     // THE SAME SHAPE ONE STATE ALONG. `wip` reaches `someone-is-on-it` by the
     // same line of `startabilityVerdict` as `claimed`, so both must answer — a
     // fixture carrying one leaves the other free to keep the sentence.
     row({
-      kind: 'wave', group: 'not-started', state: 'wip',
+      kind: 'wave', group: 'working', state: 'wip',
       plan: 'a-claimed-slice-does-not-say-nobody-took-it',
       planFile: '2026-09-13-a-claimed-slice-does-not-say-nobody-took-it.md',
       branch: WIP_BRANCH, branchUrl: `https://github.com/tiny/garden/tree/${WIP_BRANCH}`,
       wave: 'Claimed', ageMinutes: 12, waitingDays: 2,
-      note: ELIGIBLE_NOTE, verdict: 'eligible', startability: 'someone-is-on-it',
+      note: 'last commit 12 min ago', verdict: 'eligible', startability: 'no-known-worker',
     }),
     // THE CONTROL, and it is the population the sentence is CORRECT for. A
     // genuinely unclaimed eligible slice answers `start-work` and must still
@@ -203,7 +204,7 @@ describe('a claimed slice does not say nobody took it', () => {
       expect(line.text).not.toContain('nobody has taken it');
       // AND THE FACT SURVIVES. Withdrawing the sentence must not cost the row
       // the answer — slot 5 carries it, which is why the note may go.
-      expect(line.status).toBe(ON_IT);
+      expect(line.status).toBe(NO_WORKER);
     } finally {
       await page.close();
     }
@@ -214,21 +215,20 @@ describe('a claimed slice does not say nobody took it', () => {
     try {
       const line = await lineFor(page, WIP_BRANCH);
       expect(line.text).not.toContain('nobody has taken it');
-      expect(line.status).toBe(ON_IT);
+      expect(line.status).toBe(NO_WORKER);
     } finally {
       await page.close();
     }
   });
 
-  it('the two states agree — one rule, not two', async () => {
+  it('the two states agree on the word — one rule, not two', async () => {
     const page = await open();
     try {
       const claimed = await lineFor(page, CLAIMED_BRANCH);
       const wip = await lineFor(page, WIP_BRANCH);
-      // `claimed` and `wip` reach `someone-is-on-it` by the same line of
-      // `startabilityVerdict`, so a fix that treats them differently has read
-      // the state rather than the verdict.
-      expect(claimed.note).toBe(wip.note);
+      // `claimed` and `wip` reach `no-known-worker` through the same
+      // `unworkedPlacement` rule, so a fix that treats them differently has
+      // read the state rather than the placement.
       expect(claimed.status).toBe(wip.status);
     } finally {
       await page.close();

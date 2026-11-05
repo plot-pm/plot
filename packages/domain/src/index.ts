@@ -113,6 +113,7 @@ export * from './rules/prompt.js';
 export * from './rules/panel.js';
 export * from './rules/ended-desk.js';
 export * from './rules/quiet.js';
+export * from './rules/unworked-branch.js';
 export * from './rules/brief-writer.js';
 export * from './rules/supervisor-reading.js';
 export * from './rules/supervision-debt.js';

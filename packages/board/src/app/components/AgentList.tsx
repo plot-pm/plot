@@ -98,7 +98,7 @@ import { SLICE_LINKING_KINDS, groupBySlice, sliceLabel } from '../lib/agent-rows
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { waitingView } from '../lib/agent-rows/waiting-view.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
-import { workingAgentRows, brokenAgentRows, quietEndedDeskRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
+import { workingAgentRows, claimedWithoutWorkerRows, brokenAgentRows, quietEndedDeskRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
 import { PlanLevelRowView, planFileFromFleet, sectionCount, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
@@ -1168,9 +1168,13 @@ export function AgentList({
         // agents where applicable. WORKING counts its registry entries AND the
         // fleet's own plan-level runs; WAITING ON YOU adds issues, broken agents,
         // draft plans and the fleet's failed verify runs to its branch rows.
+        // THE CLAIMED BRANCHES WITH NO KNOWN WORKER, drawn below the registry
+        // rows. No registry entry names them, so `workingRows` cannot hold them.
+        const claimedRows = workingSection ? claimedWithoutWorkerRows(rows) : [];
         const countOf = sectionCount(key, {
           branches: rows.length,
           registry: workingRows.length,
+          claimedWithoutWorker: claimedRows.length,
           broken: brokenRows.length,
           drafts: draftRows.length,
           quiet: quietRows.length,
@@ -1579,7 +1583,7 @@ export function AgentList({
                 // it. The five registry states each render their own word, and a
                 // merged branch's worker sits here while that branch keeps its
                 // DONE row — both true, neither moved.
-                workingRows.length > 0 || workingPlanRows.length > 0 ? (
+                workingRows.length > 0 || workingPlanRows.length > 0 || claimedRows.length > 0 ? (
                   <>
                     {workingRows.map(({ agent, row }) => (
                       <RegistryRow
@@ -1600,6 +1604,29 @@ export function AgentList({
                         active={row ? active.has(rowKey(row)) : false}
                         onRevealBranch={onRevealBranch}
                         highlighted={agent.branch !== '' && agent.branch === highlightBranch}
+                        planIndex={planIndex}
+                      />
+                    ))}
+                    {/* A CLAIMED OR `wip` BRANCH NO WORKER IS KNOWN ON — a branch
+                        row, never a live one: no pulse and no worker log. */}
+                    {claimedRows.map((r) => (
+                      <Row
+                        key={rowKey(r)}
+                        row={r}
+                        onOpenPlan={onOpenPlan}
+                        card={cardForPlanFile?.(r.planFile) ?? null}
+                        dispatch={dispatch}
+                        implement={implement}
+                        continueWith={continueWith}
+                        restartWith={restartWith}
+                        pulse={pulse}
+                        onStarting={onStarting}
+                        marked={marked.has(rowKey(r))}
+                        active={active.has(rowKey(r))}
+                        section={key}
+                        agent={agentByBranch.get(r.branch) ?? null}
+                        onRevealBranch={onRevealBranch}
+                        highlighted={r.branch === highlightBranch}
                         planIndex={planIndex}
                       />
                     ))}

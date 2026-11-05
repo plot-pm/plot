@@ -243,3 +243,50 @@ describe('withHandOver is total and replaces rather than mutates', () => {
     expect(before.startability).toBe('start-work');
   });
 });
+
+describe('a claim with no known worker is handed over like any other taken slice', () => {
+  const unworked = (over: Partial<AgentRow> = {}): AgentRow => row({
+    state: 'claimed', group: 'working', pr: null, ageMinutes: 5, worker: 'none',
+    note: 'claimed, no known worker', startability: 'no-known-worker', ...over,
+  });
+
+  it('reads a live registry session as taken, in WORKING, with no quiet kind', () => {
+    const r = only(unworked(), [agent()]);
+    expect(r.group).toBe('working');
+    expect(r.note).toBe(HANDED);
+    expect(r.startability).toBe('someone-is-on-it');
+    expect(r.quietKind ?? null).toBeNull();
+  });
+
+  it('sends a claim two live sessions hold to WAITING ON YOU', () => {
+    const r = only(unworked(), [agent(), agent({ session: '4b603822', state: 'waiting' })]);
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe('handed to 2 agents at once');
+  });
+
+  it('leaves the row as it is when no session names the branch', () => {
+    const before = unworked();
+    expect(only(before, [])).toEqual(before);
+  });
+
+  it('leaves a wip branch with an open PR in WAITING ON YOU, group and note kept', () => {
+    const before = row({
+      state: 'wip', group: 'waiting-on-you', note: 'PR open — waiting on review', startability: null,
+    });
+    const r = only(before, [agent()]);
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe(before.note);
+    expect(r.startability).toBeNull();
+  });
+
+  it('leaves an abandoned wip branch in QUIET, group, note and startability kept', () => {
+    const before = row({
+      state: 'wip', group: 'quiet', ageMinutes: 5000, quietKind: 'abandoned',
+      note: 'last commit 3 d ago', startability: 'someone-is-on-it',
+    });
+    const r = only(before, [agent()]);
+    expect(r.group).toBe('quiet');
+    expect(r.note).toBe(before.note);
+    expect(r.startability).toBe('someone-is-on-it');
+  });
+});

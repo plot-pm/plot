@@ -82,6 +82,7 @@ import {
   freeWaitEnded,
   readEnding,
   serverPlanRefAgeSeconds,
+  unworkedPlacement,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -4121,7 +4122,7 @@ function classifyGroup(
    * answer record; `''` where it did not. LAST, BECAUSE IT IS THE NEWEST.
    */
   escalationReason = '',
-): { group: WaitingGroup; note: string } {
+): { group: WaitingGroup; note: string; startability?: 'no-known-worker' } {
   // A phase the board places branches under as runnable work: `approved`, and
   // `design` for the one branch its approved spike names.
   const runnablePhase = planPhase === 'approved' || (planPhase === 'design' && approvedSpike);
@@ -4715,10 +4716,11 @@ function classifyGroup(
     // passed with nothing committed does "go look" become the useful thing to
     // say.
     //
-    // WORKING IS ABOUT AGENTS, NOT BRANCHES. A claimed branch with no known
-    // worker is NOT STARTED — an agent may take it. The claim ref exists, but
-    // until `worker === 'running'` or `worker === 'waiting'`, no agent is on
-    // it. See `every-section-has-one-subject`, slice Inverted.
+    // A CLAIMED BRANCH WITH NO KNOWN WORKER IS IN WORKING, labelled
+    // `no-known-worker`. The claim ref says someone took it, and a hand-started
+    // worker writes no pid file, so the scan cannot see it. `unworkedPlacement`
+    // answers section and label together for a fresh claim and for one with
+    // local activity (operator decision A, 2026-11-03).
     //
     // THE DRAFT RULE ANSWERS BEFORE EITHER RETURN BELOW, so a fresh claim and
     // a claim with local activity both meet the phase first — see
@@ -4731,11 +4733,18 @@ function classifyGroup(
       const placement = draftPlacement({ planPhase, approvedSpike, state: 'claimed', deferredReason: '', fresh, local });
       if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
     }
-    if (ageMinutes !== null && ageMinutes <= quietMinutes) {
-      return { group: 'not-started', note: unstarted };
-    }
-    if (localDirty || localAhead > 0 || localLocked) {
-      return localActivity(localDirty, localAhead, localLocked);
+    {
+      const fresh = ageMinutes !== null && ageMinutes <= quietMinutes;
+      const local = localDirty || localAhead > 0 || localLocked;
+      const unworked = unworkedPlacement({
+        state: 'claimed', workerLive: worker === 'running' || worker === 'waiting', fresh, local,
+      });
+      if (unworked) {
+        return {
+          ...unworked,
+          note: fresh ? unstarted : localActivity(localDirty, localAhead, localLocked).note,
+        };
+      }
     }
     // AN ORPHANED CLAIM, AND THE RULE NAMES IT. `state === 'claimed'` IS
     // `isEmptyClaim`: the scan reaches that word only where a branch's commits
@@ -4837,10 +4846,10 @@ function classifyGroup(
   }
   // state === 'wip'
   //
-  // WORKING IS ABOUT AGENTS. A branch with recent commits but no known agent
-  // is NOT STARTED — an agent may take it. The commit shows activity, but
-  // until `worker === 'running'` or `worker === 'waiting'`, no agent is on it.
-  // See `every-section-has-one-subject`, slice Inverted.
+  // A `wip` BRANCH WITH NO KNOWN WORKER IS IN WORKING, labelled
+  // `no-known-worker`, when its tip is fresh or a local worktree shows
+  // activity: `unworkedPlacement` answers section and label together
+  // (operator decision A, 2026-11-03).
   //
   // THE DRAFT RULE ANSWERS BEFORE EITHER RETURN BELOW, so a fresh commit and
   // local activity both meet the phase first — see `draftPlacement`. A STALE
@@ -4852,11 +4861,20 @@ function classifyGroup(
     const placement = draftPlacement({ planPhase, approvedSpike, state: 'wip', deferredReason: '', fresh, local });
     if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
   }
-  if (ageMinutes !== null && ageMinutes <= quietMinutes) {
-    return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
-  }
-  if (localDirty || localAhead > 0 || localLocked) {
-    return localActivity(localDirty, localAhead, localLocked);
+  {
+    const fresh = ageMinutes !== null && ageMinutes <= quietMinutes;
+    const local = localDirty || localAhead > 0 || localLocked;
+    const unworked = unworkedPlacement({
+      state: 'wip', workerLive: worker === 'running' || worker === 'waiting', fresh, local,
+    });
+    if (unworked) {
+      return {
+        ...unworked,
+        note: fresh && ageMinutes !== null
+          ? `last commit ${humanAge(ageMinutes)} ago`
+          : localActivity(localDirty, localAhead, localLocked).note,
+      };
+    }
   }
   // ABANDONED, AND THE RULE DECIDES WHICH. Reaching here with `state === 'wip'`
   // means real commits, no local activity, and — because the PR arm far above
@@ -5178,7 +5196,7 @@ export function machineProcesses(
  */
 export function classify(
   ...args: Parameters<typeof classifyGroup>
-): { group: WaitingGroup; note: string; verdict: SliceVerdict | null } {
+): { group: WaitingGroup; note: string; verdict: SliceVerdict | null; startability?: 'no-known-worker' } {
   // The verdict is WITHHELD when the PR is unknown and the slice verdict would
   // be `eligible`. `args[16]` is `prUnknown`; `args[1]` is the slice verdict
   // string. See the arm in `classifyGroup` for the group/note side; this is
@@ -6001,14 +6019,15 @@ const HANDED_NOTE = 'handed over — not taken up yet';
  * registry has. A row whose `verdict` is `unapproved` belongs to a Draft plan,
  * and #1161's rule wins there: dispatch refuses a Draft slice, so a live agent
  * on one is a fault in its own right and the row must keep naming the approval a
- * person owes. And the group is `not-started` OR the orphaned claim — `claimed`,
- * `quiet`, no PR — because a `not-started`-only rule leaves the
+ * person owes. And the group is `not-started`, OR a WORKING row labelled
+ * `no-known-worker` (`unworkedPlacement` moved it), OR the orphaned claim —
+ * `claimed`, `quiet`, no PR — because a `not-started`-only rule leaves the
  * past-the-quiet-window case reading as an orphan while WORKING shows its agent.
  *
  * **Absence is not falsehood.** A row no live agent names keeps
  * `classifyGroup`'s answer whole, so #1090's orphan reading survives every case
  * where the registry says nothing — an agent that dies on an empty claim turns
- * `failed`, stops matching, and its row returns to NOT STARTED inside the window
+ * `failed`, stops matching, and its row returns to WORKING inside the window
  * and QUIET after it.
  *
  * **Two live agents is a fault for a person, not a no-op.** The row goes to
@@ -6031,7 +6050,8 @@ export const withHandOver = (rows: readonly AgentRow[], agents: readonly AgentEn
     if (row.worker === 'running' || row.worker === 'waiting') return row;
     if (row.verdict === 'unapproved') return row;
     const orphanedClaim = row.state === 'claimed' && row.group === 'quiet' && row.pr === null;
-    if (row.group !== 'not-started' && !orphanedClaim) return row;
+    const unworked = row.group === 'working' && row.startability === 'no-known-worker';
+    if (row.group !== 'not-started' && !orphanedClaim && !unworked) return row;
     const sessions = handedTo(row.branch, agents);
     if (sessions.length === 0) return row;
     return sessions.length === 1
@@ -6368,7 +6388,7 @@ export function rowsFromPulse(
         const linked = held && held.state === 'CLOSED' ? pr : (held ?? pr);
         // The desk's question reading, used for the first line, the age and the row's `question`.
         const questionReading = questions?.get(b.branch) ?? null;
-        const { group: openGroup, note: openNote, verdict } = classify(
+        const { group: openGroup, note: openNote, verdict, startability: unworkedStartability } = classify(
           b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
           // The plan's own phase, which the pulse has carried since #140 and
           // nothing read. It is the half git cannot answer: every branch of a
@@ -6797,7 +6817,7 @@ export function rowsFromPulse(
           // disagree.
           //
           // `brief` is computed a few lines above — the fact this field completes.
-          startability: rowStartability,
+          startability: group === 'working' && unworkedStartability ? unworkedStartability : rowStartability,
           // WHETHER IT CAN MOVE — a fact ADDED beside the group, never folded
           // into it. `classify` above answered what this branch IS; nothing it
           // can say means *this cannot advance without someone doing
@@ -7272,7 +7292,7 @@ export function rowsFromPulse(
     // labelled `closed`. The label was right and the placement was not — the
     // board knew, and the rule was never asked.
     const prClosed: 'closed' | null = known?.state === 'CLOSED' ? 'closed' : null;
-    const { group, note } = classify(
+    const { group, note, startability } = classify(
       'wip', 'eligible', ageMinutes, NO_QUIET_WINDOW, null,
       // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
       // localLocked, workerDirtyPaths, workerQuestion, held, localWorktree,
@@ -7398,7 +7418,7 @@ export function rowsFromPulse(
       briefWriter: 'none',
       blockedBy: null,
       verdict: null,
-      startability: null,
+      startability: startability ?? null,
       // `elsewhere` — NOWHERE TO LOOK, which is the exact truth. This row comes
       // from a ref, so the worktree scan never visited the branch and no question
       // about a worker was asked here. Reporting `none` would be the invented
@@ -7434,8 +7454,8 @@ export function rowsFromPulse(
       findings: [],
       // ABANDONED, ONCE THE WINDOW HAS PASSED — this loop's whole population is
       // branches carrying commits with no open PR, which is the reading the
-      // rule calls `abandoned`. Null while the commit is recent, because the
-      // row is in NOT STARTED then and nobody has given up on anything.
+      // rule calls `abandoned`. This path passes `NO_QUIET_WINDOW`, so no tip counts
+      // as recent and the row is QUIET at any age.
       quietKind: kind,
       // NO DESK WAS READ — see the row above. This branch reached the board from
       // the ref list, so nothing registered it and the tick judged nothing about

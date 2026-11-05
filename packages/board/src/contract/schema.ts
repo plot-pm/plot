@@ -1799,7 +1799,7 @@ export function isOneSlicePlan(wave: { planSliceCount?: number }): boolean {
  * phase) and neither is derived from the other.
  */
 export const StartabilityVerdictSchema = z.enum([
-  'start-work', 'needs-brief', 'waiting-on-approval', 'someone-is-on-it',
+  'start-work', 'needs-brief', 'waiting-on-approval', 'someone-is-on-it', 'no-known-worker',
 ]);
 export type StartabilityVerdict = z.infer<typeof StartabilityVerdictSchema>;
 

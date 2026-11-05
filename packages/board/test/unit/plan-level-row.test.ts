@@ -136,6 +136,13 @@ describe('sectionCount', () => {
     expect(sectionCount('working', withRows)).toBe(4);
   });
 
+  it('counts the claimed branches with no known worker in Working only', () => {
+    expect(sectionCount('working', { ...without, claimedWithoutWorker: 2 })).toBe(5);
+    expect(sectionCount('waiting-on-you', { ...without, claimedWithoutWorker: 2 })).toBe(
+      sectionCount('waiting-on-you', without),
+    );
+  });
+
   it('counts the failed plan-level row in Waiting on you, and not the halted line', () => {
     expect(haltedLine).not.toBeNull();
     expect(sectionCount('waiting-on-you', without)).toBe(4);

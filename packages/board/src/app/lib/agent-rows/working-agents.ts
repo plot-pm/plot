@@ -55,6 +55,17 @@ export function workingAgentRows(
 }
 
 /**
+ * The WORKING rows that hold a claimed or `wip` branch with no known worker: the
+ * rows `unworkedPlacement` moved, which carry startability `no-known-worker`.
+ * No registry entry names them, so `workingAgentRows` never draws them.
+ *
+ * @param rows - every branch row of the fleet.
+ * @returns the rows in WORKING with startability `no-known-worker`.
+ */
+export const claimedWithoutWorkerRows = (rows: readonly AgentRow[]): AgentRow[] =>
+  rows.filter((row) => row.group === 'working' && row.startability === 'no-known-worker');
+
+/**
  * One WAITING ON YOU row per BROKEN registry entry — a problem report for an
  * agent that stopped and needs a person.
  *

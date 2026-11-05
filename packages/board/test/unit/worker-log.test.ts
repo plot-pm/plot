@@ -252,6 +252,11 @@ describe('showsWorkerLog — WORKING membership, and nothing else', () => {
     expect(showsWorkerLog(row())).toBe(true);
   });
 
+  // A row with no known worker has no process whose log could be read.
+  it('offers nothing on a WORKING row with no known worker', () => {
+    expect(showsWorkerLog(row({ startability: 'no-known-worker' }))).toBe(false);
+  });
+
   // WORKING lists AGENTS; every other section lists results or processes, and
   // those have no console output to read.
   it.each(['waiting-on-you', 'waiting-on-machine', 'quiet', 'not-started'] as const)(
