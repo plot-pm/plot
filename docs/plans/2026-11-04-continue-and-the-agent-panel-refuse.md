@@ -65,7 +65,7 @@ This plan owns the `null` pulse: for `continue`, `restart` and the agent panel, 
 
 ### Continue and the panel name a missing pulse
 
-- `feature/continue-refuses-no-pulse` <!-- waits: feature/restart-refuses-no-pulse --> — one `lookupBranch` answers `no-pulse`, `unknown-branch` or the desk; `continueBranch`, `restartBranch` and `agentPanel` map it; the panel strip reads `panelMissWord`; tests and documents follow.
+- `feature/continue-refuses-no-pulse` <!-- waits: feature/restart-refuses-no-pulse --> — one `lookupBranch` answers `no-pulse`, `unknown-branch` or the desk; `continueBranch`, `restartBranch` and `agentPanel` map it; the panel strip reads `panelMissWord`; tests and documents follow. → #3176
 
 Files the slice changes:
 
