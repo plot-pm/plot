@@ -1352,6 +1352,67 @@ describe('bashCleanliness — PLOT-CORRECTION.md reads as the shell readers read
   }
 });
 
+describe('bashCleanliness — .plot-worker.exit reads as the shell readers read it', () => {
+  // `desk_dirt` lists names and the other two readers excuse the prefix
+  // `(^|/)\.plot-worker\.`, so a nested or tracked copy is where they differ.
+  let repo = '';
+  afterEach(() => {
+    if (repo) rmTree(repo);
+    repo = '';
+  });
+
+  const tree = (): string => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bashclean-exit-'));
+    const g = (...a: string[]) =>
+      execFileSync('git', ['-C', repo, ...a], { stdio: ['ignore', 'pipe', 'ignore'] });
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
+    g('config', 'user.email', 't@e.x');
+    g('config', 'user.name', 'T');
+    g('config', 'core.excludesFile', '/dev/null');
+    fs.mkdirSync(path.join(repo, 'docs'));
+    fs.writeFileSync(path.join(repo, 'docs', 'a.md'), 'a\n');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'r\n');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'init');
+    return repo;
+  };
+
+  const shellClean = (wt: string): { worker: boolean; reaper: boolean } => {
+    const out = execFileSync('bash', ['-c', `
+      . "$1/plot-worker-state.sh"
+      printf 'worker=%s\\n' "$(plot_worker_dirty "$2" | wc -l | tr -d ' ')"
+      printf 'reaper=%s\\n' "$(desk_dirt "$2" | grep -c . || true)"
+    `, 'bash', SCRIPTS_DIR, wt], { encoding: 'utf8' });
+    return { worker: /worker=0\b/.test(out), reaper: /reaper=0\b/.test(out) };
+  };
+
+  const shapes: Array<[string, (wt: string) => void, { board: boolean; worker: boolean; reaper: boolean }]> = [
+    ['an untracked root file', (wt) => {
+      fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '0\n');
+    }, { board: true, worker: true, reaper: true }],
+    ['a nested untracked file', (wt) => {
+      fs.writeFileSync(path.join(wt, 'docs', '.plot-worker.exit'), '0\n');
+    }, { board: true, worker: true, reaper: false }],
+    ['a tracked, modified root file', (wt) => {
+      fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '0\n');
+      execFileSync('git', ['-C', wt, 'add', '.plot-worker.exit'], { stdio: 'ignore' });
+      execFileSync('git', ['-C', wt, 'commit', '-q', '-m', 'track'], { stdio: 'ignore' });
+      fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '1\n');
+    }, { board: true, worker: true, reaper: false }],
+  ];
+
+  for (const [name, arrange, expected] of shapes) {
+    it(`reads ${name} as board=${expected.board} worker=${expected.worker} reaper=${expected.reaper}`, async () => {
+      const wt = tree();
+      arrange(wt);
+      const [clean] = await bashCleanliness([wt]);
+      assert.equal(clean, expected.board, `bashCleanliness on ${name}`);
+      assert.deepEqual(shellClean(wt), { worker: expected.worker, reaper: expected.reaper },
+        `the shell readers on ${name}`);
+    });
+  }
+});
+
 describe('a desk whose loop ended at the free-wait bound — listed only while it holds something', () => {
   // The loop exits 124 with no slice offered. `plot-worker-state.sh` reads that
   // exit with no PR fact as `failed`, and `isBrokenState` files `failed` in
