@@ -1,5 +1,5 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -1314,6 +1314,8 @@ export interface LoopDeps {
   readonly log: (line: string) => void;
   /** Resolves which prompt file runs: `<resolution>\t<prompt>\t<detail>`. */
   readonly resolvePrompt?: (repoRoot: string, agent: string) => string;
+  /** Whether the resolved prompt file exists; defaults to `existsSync`. */
+  readonly promptExists?: (path: string) => boolean;
   /**
    * The settings file every prompt receives as `PLOT_AGENT_SETTINGS`; `''` or
    * absent runs the prompt with the variable unset, as the shell does.
@@ -1547,9 +1549,15 @@ const runPrompt = async (
   const file = verb === 'refused' || !named ? '' : join(deps.repoRoot, named);
   // A REFUSED CHARTER REFUSES ON EITHER RUNNER; only the `command` runner
   // needs the prompt file the resolution names.
-  if (verb === 'refused' || (file === '' && sdk === undefined)) {
-    deps.log(`plot-worker-loop: refusing to launch — ${why ?? 'no prompt'}`);
-    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: '' };
+  const refusal =
+    verb === 'refused' || (file === '' && sdk === undefined)
+      ? (why ?? 'no prompt')
+      : sdk === undefined && !(deps.promptExists ?? existsSync)(file)
+        ? `the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`
+        : undefined;
+  if (refusal !== undefined) {
+    deps.log(`plot-worker-loop: refusing to launch — ${refusal}`);
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted', refused: refusal }, permissionDenials: 'unanswerable', finalText: '', handBack: null, sessionId: '' };
   }
 
   const manifest = await readManifestFields(deps.manifestFile);
@@ -1810,7 +1818,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       deps.log(`plot-worker-loop: the prompt failed to run on ${readings.assignedBranch} — the command exited ${held.status} without the agent doing any work. The slice stays claimed; retrying (${attempt.attempts} of ${deps.config.maxStartRetries}).`);
     }
     const ending = decision.writes.find((w) => w.kind === 'loop-end');
-    if (ending !== undefined && ending.kind === 'loop-end' && ending.reason === 'unstarted') {
+    if (ending !== undefined && ending.kind === 'loop-end' && ending.reason === 'unstarted' && !(held.exit?.answer === 'unstarted' && held.exit.refused !== undefined)) {
       deps.log(`plot-worker-loop: the prompt never started on ${readings.assignedBranch} — the command exited ${held.status} on each of ${deps.config.maxStartRetries} attempts. The slice stays claimed and a person is asked; ending worker.`);
     }
     if (decision.detail.exitCode === 124 && readings.assignedBranch === '' && readings.waitedSeconds >= readings.boundSeconds) {

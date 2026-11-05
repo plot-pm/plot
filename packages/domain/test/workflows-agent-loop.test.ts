@@ -553,6 +553,23 @@ describe('agentLoop — row 7: prompt exit unstarted', () => {
     expect(result.detail.exitCode).toBeNull();
   });
 
+  it('ends at once on a refused launch: no agent-attempt, the question names the refusal', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'unstarted', refused: 'the prompt file /r/.plot/worker-prompt.sh is absent' },
+      startRetries: 0,
+      maxStartRetries: 2,
+    });
+    expect(kindsOf(result.writes)).toEqual(['blocked-marker', 'declaration', 'loop-end']);
+    expect(endWrite(result.writes)?.reason).toBe('unstarted');
+    expect(endWrite(result.writes)?.exitCode).toBe(1);
+    const marker = result.writes.find((w) => w.kind === 'blocked-marker');
+    expect(marker).toMatchObject({
+      question: `PLOT-BLOCKED: the prompt never started on \`${BRANCH}\`: the prompt file /r/.plot/worker-prompt.sh is absent — a person decides what to fix.`,
+    });
+  });
+
   it('blocks once retries are spent: marker, declaration, loop-end unstarted exit 1', () => {
     const result = agentLoop({
       ...freeLoop,

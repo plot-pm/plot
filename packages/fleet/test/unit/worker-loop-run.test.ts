@@ -200,6 +200,7 @@ const rig = (
     },
     log: (line) => logs.push(line),
     resolvePrompt: () => 'declared\t.plot/worker-prompt.sh\tx',
+    promptExists: () => true,
     ...over,
   };
   return { dir, wt, deps, ports, calls, deskCalls, runs, sleeps, logs, write, read, manifestFile, spends };
@@ -342,6 +343,25 @@ describe('runWorkerLoop — a prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(1);
     expect(r.runs).toHaveLength(0);
     expect(r.logs.join('\n')).toContain('bad charter');
+  });
+
+  it('refuses a prompt file that is absent: one line naming it, no run, no attempt (row 7, refused)', async () => {
+    const r = rig(ASSIGNED, [], { promptExists: () => false });
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    const file = path.join(r.dir, '.plot', 'worker-prompt.sh');
+    expect(r.runs).toHaveLength(0);
+    expect(r.calls.attempts).toEqual([]);
+    expect(r.logs.filter((l) => l.includes('refusing to launch'))).toEqual([
+      `plot-worker-loop: refusing to launch — the prompt file ${file} is absent; run plot-install-prompt.sh to write .plot/worker-prompt.sh`,
+    ]);
+    expect(r.logs.filter((l) => l.includes('never started') || l.includes('failed to run'))).toEqual([]);
+  });
+
+  it('reads the file system for the prompt file when no promptExists is injected', async () => {
+    const r = rig(ASSIGNED, [], { promptExists: undefined });
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    expect(r.runs).toHaveLength(0);
+    expect(r.logs.join('\n')).toContain(`the prompt file ${path.join(r.dir, '.plot', 'worker-prompt.sh')} is absent`);
   });
 
   describe('a slice carries its own charter', () => {
