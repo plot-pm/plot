@@ -94,7 +94,9 @@ export interface ResetReading {
  *
  * - `wait`: a limit, a known reset at or after now, and the wait is allowed.
  * - `end-limited`: a limit, and no wait is allowed; `cause` says which gate.
- * - `unstarted`: no limit, and a non-zero status — the retry path.
+ * - `unstarted`: no limit, and a non-zero status — the retry path. `refused`
+ *   is set only where the loop declined to launch and names why; the loop
+ *   ends at once instead of retrying.
  * - `dropped`: no limit, a status of 0, and an output that shows the turn
  *   ended with its background work dropped; `line` is the line that shows it.
  * - `ran`: no limit, and a status of 0.
@@ -107,7 +109,7 @@ export type PromptExit =
       readonly line: string;
       readonly cause: LimitCause;
     }
-  | { readonly answer: 'unstarted' }
+  | { readonly answer: 'unstarted'; readonly refused?: string }
   | { readonly answer: 'dropped'; readonly line: string }
   | { readonly answer: 'ran' };
 

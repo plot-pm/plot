@@ -108,7 +108,7 @@ import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // modules; the unit suite and `App.tsx` import them from here, and a second
 // definition is exactly the drift the split removed.
 export { menuState, noActionReason, offersOpen, openLabel, openTarget, runLinkLabel, showsWorkerLog, storyRefusal } from '../lib/agent-rows/menus.js';
-export { inferredPlanName, isReleaseBranch, isUnpushed, rowSubject } from '../lib/agent-rows/rows.js';
+export { inferredPlanName, isReleaseBranch, isUnpushed, rowSubject, startableNote } from '../lib/agent-rows/rows.js';
 export type { AgentListProps };
 
 /**

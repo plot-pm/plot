@@ -3788,7 +3788,7 @@ function removeSandbox(root) {
  *   `worktreeRoot` — the key's value, or `null` to write no key.
  * @returns the sandbox root and the checkout inside it.
  */
-function repoForStart(label, workerCommand = 'true', { asLoop = true, worktreeRoot = '.worktrees' } = {}) {
+function repoForStart(label, workerCommand = 'true', { asLoop = true, worktreeRoot = '.worktrees', prompt = true } = {}) {
   const root = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-start-${label}-`)));
   const origin = path.join(root, 'origin.git');
   const checkout = path.join(root, 'repo');
@@ -3808,6 +3808,11 @@ function repoForStart(label, workerCommand = 'true', { asLoop = true, worktreeRo
     '## Plot Config\n\n- **Plan directory:** plans/\n'
     + (worktreeRoot === null ? '' : `- **Worktree root:** ${worktreeRoot}\n`)
     + (workerCommand === '' ? '' : `- **Worker command:** ${workerCommand}\n`));
+  // A loop on the command runner sources this file; `--start` refuses without it.
+  if (prompt) {
+    fs.mkdirSync(path.join(checkout, '.plot'));
+    fs.writeFileSync(path.join(checkout, '.plot', 'worker-prompt.sh'), '#!/usr/bin/env bash\ntrue\n');
+  }
   git(checkout, 'add', '-A');
   git(checkout, 'commit', '-qm', 'init');
   git(checkout, 'push', '-q', '-u', 'origin', 'main');
@@ -4114,6 +4119,36 @@ test('dispatch: --start refuses a Worker command that does not run the loop', ()
     const trees = execFileSync('git', ['worktree', 'list', '--porcelain'],
       { cwd: checkout, encoding: 'utf8' }).match(/^worktree /gm) ?? [];
     assert.equal(trees.length, 1, 'git knows only the checkout itself');
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --start refuses a loop whose prompt file is absent, before any desk or claim', () => {
+  // #2529: with no .plot/worker-prompt.sh every agent exited 1 and stranded its claim.
+  const { root, checkout } = repoForStart('noprompt', 'true', { prompt: false });
+  try {
+    const childEnv = { ...process.env };
+    delete childEnv.PLOT_REPO_ROOT;
+    const res = spawnSync('bash', [dispatch, '--start', '1'],
+      { cwd: checkout, env: childEnv, encoding: 'utf8' });
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stderr, /prompt file \.plot\/worker-prompt\.sh is absent/, res.stderr);
+    assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
+    assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');
+    const refs = execFileSync('git', ['for-each-ref', 'refs/plot/'],
+      { cwd: path.join(root, 'origin.git'), encoding: 'utf8' });
+    assert.equal(refs, '', 'no claim ref on origin');
+  } finally {
+    removeSandbox(root);
+  }
+});
+
+test('dispatch: --start starts one agent when the prompt file is present', () => {
+  const { root, checkout } = repoForStart('hasprompt');
+  try {
+    const out = runDetached(['--start', '1'], checkout);
+    assert.match(out, /summary: agents=1 /, out);
   } finally {
     removeSandbox(root);
   }

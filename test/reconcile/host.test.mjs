@@ -1503,9 +1503,9 @@ test('host: run-for-sha reaches the jenkins arm through a prose CI value', () =>
   });
   // ANY OF THE ARM'S OWN REFUSALS PROVES THE ROUTING, and which one fires
   // depends on how far the sandbox lets it get: no instance configured refuses
-  // first, then a bare-host instance, then an absent keychain credential. The
+  // first, then a bare instance with no job path, then a failing `jen`. The
   // github arm would answer `null` instead, which is what this guards against.
-  assert.match(res.stderr, /no Jenkins instance is configured|names no job path|no Jenkins API credential/,
+  assert.match(res.stderr, /no Jenkins instance is configured|names no job path|did not answer|is not installed/,
     'the jenkins arm was reached');
 });
 
@@ -2689,12 +2689,25 @@ function makeJenStub({
     _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
     name: 'continuous-build-multi',
   }),
+  apiAnswers = null, // path (without query string) -> { body, exit, stderr }
+  apiMissing = false, // every `api` call answers `unknown command: api`, exit 1
+  apiSleep = null, // seconds to sleep before answering an `api` call
 } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenbin-')));
   const callsFile = path.join(dir, 'jen.calls');
   const authLine = authReachable
     ? 'Jenkins auth:  OK — someone@example.test'
     : 'Jenkins auth:  NOT reachable';
+  const apiCases = Object.entries(apiAnswers ?? {})
+    .map(
+      ([apiPath, { body: ansBody = '', exit: ansExit = 0, stderr: ansStderr = '' }]) => `
+  "${apiPath.replace(/"/g, '\\"')}")
+    ${ansStderr ? `printf '%s\\n' '${ansStderr.replace(/'/g, `'\\''`)}' >&2` : ':'}
+    printf '%s' '${String(ansBody).replace(/'/g, `'\\''`)}'
+    exit ${ansExit}
+    ;;`,
+    )
+    .join('\n');
   const body = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${callsFile}"
 # jen [-I slug] [--json] <group> <sub> [path] — capture -I's VALUE, the real
@@ -2726,6 +2739,18 @@ fi
 if [ "$group" = job ] && [ "$sub" = list ]; then
   printf '%s' '${jobsJson.replace(/'/g, `'\\''`)}'
   exit ${jobListExit}
+fi
+if [ "$group" = api ]; then
+  ${apiSleep ? `sleep ${apiSleep}` : ':'}
+  ${apiMissing ? `printf '%s\\n' 'error: unknown command: api' >&2; exit 1` : ''}
+  _apipath="\${sub%%\\?*}"
+  case "$_apipath" in
+${apiCases}
+  *)
+    printf '%s\\n' 'error: HTTP 404' >&2
+    exit 1
+    ;;
+  esac
 fi
 exit 0
 `;
@@ -2886,24 +2911,69 @@ test('host: a slashed branch name joins after decoding the percent-encoding', ()
     'the slashed branch must join its red build, not fall through to none');
 });
 
-// A `curl` stub for the pr-list sha-bound path: records argv and answers one
-// build matching `sha` with the given Jenkins `result` word (`null` for
-// still-building). No `security` beside it — paired with JENKINS_USER/
-// JENKINS_API_TOKEN env so the credential resolves without the keychain.
-function makeJenkinsPrRestStub({ sha, result }) {
-  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenprrest-')));
-  const argvFile = path.join(dir, 'curl.argv');
-  const resultJson = result === null ? 'null' : `"${result}"`;
+// The job-path segments `jenkins_job_url_path` builds, so a `jen api` answer
+// can be keyed on the exact path the branch or root lookup will ask for.
+const jenkinsRootPath = (job = 'webbloqs/continuous-build-multi') =>
+  `${job.split('/').map((seg) => `/job/${seg}`).join('')}/api/json`;
+const jenkinsJobBranchPath = (branch, job = 'webbloqs/continuous-build-multi') =>
+  `${job.split('/').map((seg) => `/job/${seg}`).join('')}/job/${branch.replace(/\//g, '%2F')}/api/json`;
+const JENKINS_ROOT_PATH = jenkinsRootPath();
+const jenkinsBranchPath = (branch) => jenkinsJobBranchPath(branch);
+
+// Replaces the old curl-based `makeJenkinsRestBin`: an `apiAnswers` map for
+// `makeJenStub`, answering `body` at both the root and branch paths for
+// `job` (default: `makeJenkinsRepo`'s own default job) and `branch` — mirrors
+// the old stub's "same body everywhere" default. `branchBody`, where given,
+// overrides the branch path alone, the same role `branchSeg`/`branchAnswer`
+// played: a test making the branch URL 404 while the job URL answers.
+function jenkinsRestApiAnswers(body, { job = 'webbloqs/continuous-build-multi', branch, branchBody } = {}) {
+  const answers = { [jenkinsRootPath(job)]: { body } };
+  if (branch) answers[jenkinsJobBranchPath(branch, job)] = { body: branchBody ?? body };
+  return answers;
+}
+
+// Rewrites an already-written `jen` stub's `api` case arms in place, for the
+// plain-job/multibranch REST fixtures that build the stub first (for its
+// `jobsJson`/`viewJson` plumbing) and only decide the REST answers after.
+// `defaultBody`, where given, replaces the unmatched arm's 404 — the old
+// curl-based stub answered every URL identically, so a path this map does not
+// name (any branch segment a test never bothered to list) must still answer
+// rather than fall through to a refusal only the NAMED paths were meant to
+// avoid.
+function patchJenApiAnswers(jen, apiAnswers, defaultBody) {
+  const apiCases = Object.entries(apiAnswers)
+    .map(
+      ([apiPath, { body: ansBody = '', exit: ansExit = 0, stderr: ansStderr = '' }]) => `
+  "${apiPath.replace(/"/g, '\\"')}")
+    ${ansStderr ? `printf '%s\\n' '${ansStderr.replace(/'/g, `'\\''`)}' >&2` : ':'}
+    printf '%s' '${String(ansBody).replace(/'/g, `'\\''`)}'
+    exit ${ansExit}
+    ;;`,
+    )
+    .join('\n');
+  const defaultArm =
+    defaultBody === undefined
+      ? `  *)\n    printf '%s\\n' 'error: HTTP 404' >&2\n    exit 1\n    ;;`
+      : `  *)\n    printf '%s' '${String(defaultBody).replace(/'/g, `'\\''`)}'\n    exit 0\n    ;;`;
+  const jenFile = path.join(jen.dir, 'jen');
+  const patched = readFileSync(jenFile, 'utf8').replace(
+    /case "\$_apipath" in\n(?:.|\n)*?\n  \*\)\n(?:.|\n)*?\n    ;;\n  esac/,
+    `case "$_apipath" in\n${apiCases}\n${defaultArm}\n  esac`,
+  );
+  writeFileSync(jenFile, patched);
+}
+
+// `jen api` answers for the pr-list sha-bound path: one build matching `sha`
+// with the given Jenkins `result` word (`null` for still-building), answered
+// identically for the branch path and the root path — a caller that reaches
+// either learns the same history.
+function jenkinsPrApiAnswers({ sha, result, branch }) {
   const builds = JSON.stringify({ builds: [
-    { number: 9, result: JSON.parse(resultJson), building: result === null, timestamp: 1790000000000,
+    { number: 9, result, building: result === null, timestamp: 1790000000000,
       url: 'https://ci.test/9/', actions: [{ lastBuiltRevision: { SHA1: sha } }] },
   ] });
-  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
-printf '%s\\n' "$@" >> "${argvFile}"
-printf '%s' '${builds}'
-`);
-  chmodSync(path.join(dir, 'curl'), 0o755);
-  return { dir, argvFile };
+  const answer = { body: builds };
+  return { [jenkinsBranchPath(branch)]: answer, [JENKINS_ROOT_PATH]: answer };
 }
 
 const ghRowWithSha = (head, sha) => JSON.stringify([
@@ -2921,17 +2991,15 @@ test('host: a Jenkins build that was aborted reads unknown on the PR row, bound 
   const repo = makeJenkinsRepo();
   const sha = 'sha-aborted';
   const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/green', sha) });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsPrRestStub({ sha, result: 'ABORTED' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiAnswers: jenkinsPrApiAnswers({ sha, result: 'ABORTED', branch: 'feature/green' }) });
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], {
     cwd: repo,
     encoding: 'utf8',
     env: {
       ...process.env,
-      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
       PLOT_HOST: '',
-      JENKINS_USER: 'env-user',
-      JENKINS_API_TOKEN: 'env-tok',
+      ...jenkinsHome(),
     },
   });
   assert.equal(res.status, 0, res.stderr);
@@ -2953,17 +3021,15 @@ test('host: a Jenkins build that was never built reads unknown on the PR row, un
   const repo = makeJenkinsRepo();
   const sha = 'sha-notbuilt';
   const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/red', sha) });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsPrRestStub({ sha, result: 'NOT_BUILT' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiAnswers: jenkinsPrApiAnswers({ sha, result: 'NOT_BUILT', branch: 'feature/red' }) });
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], {
     cwd: repo,
     encoding: 'utf8',
     env: {
       ...process.env,
-      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
       PLOT_HOST: '',
-      JENKINS_USER: 'env-user',
-      JENKINS_API_TOKEN: 'env-tok',
+      ...jenkinsHome(),
     },
   });
   assert.equal(res.status, 0, res.stderr);
@@ -2984,18 +3050,16 @@ test('host: a push after the last build reads unknown on the new head, not the o
   const repo = makeJenkinsRepo();
   const newSha = 'sha-superseding-push';
   const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/green', newSha) });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
   // The REST history carries a build for a DIFFERENT (older) sha only.
-  const rest = makeJenkinsPrRestStub({ sha: 'sha-old-head', result: 'SUCCESS' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiAnswers: jenkinsPrApiAnswers({ sha: 'sha-old-head', result: 'SUCCESS', branch: 'feature/green' }) });
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], {
     cwd: repo,
     encoding: 'utf8',
     env: {
       ...process.env,
-      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
       PLOT_HOST: '',
-      JENKINS_USER: 'env-user',
-      JENKINS_API_TOKEN: 'env-tok',
+      ...jenkinsHome(),
     },
   });
   assert.equal(res.status, 0, res.stderr);
@@ -3004,8 +3068,8 @@ test('host: a push after the last build reads unknown on the new head, not the o
     'the new head has no Jenkins build yet, so it must not read the old head\'s green');
   assert.equal(rows.get('feature/green').checksSha, '',
     'no sha-bound match exists for the new head, so checksSha stays unbound');
-  assert.match(readFileSync(rest.argvFile, 'utf8'), /api\/json/,
-    'pending must come from a Jenkins answer, so the sha lookup must have reached curl');
+  assert.match(readFileSync(jen.callsFile, 'utf8'), /api /,
+    'pending must come from a Jenkins answer, so the sha lookup must have reached jen api');
 });
 
 // Rows with a head sha, so the sha-bound lookup is reached; `ghRowsFor` carries none.
@@ -3016,35 +3080,47 @@ const ghRowsWithSha = (pairs) => JSON.stringify(pairs.map(([head, sha, updatedAt
   author: { login: 'x' }, updatedAt, mergedAt: null,
 })));
 
-// A `curl` that records argv and answers `body` to every URL, and a `security`
-// that finds nothing, so the keychain on the test machine cannot supply a credential.
-const makeCurlAnswering = (body) => {
+// A `curl` that records argv and fails — a test asserting zero calls to it
+// fails loudly if `jenkins_sha_runs` ever falls back to the old transport.
+const makeCurlUnreached = () => {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jencurl-')));
   const argvFile = path.join(dir, 'curl.argv');
   writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
 printf '%s\\n' "$@" >> "${argvFile}"
-printf '%s' '${body.replace(/'/g, `'\\''`)}'
+exit 1
 `);
-  writeFileSync(path.join(dir, 'security'), '#!/usr/bin/env bash\nexit 44\n');
   chmodSync(path.join(dir, 'curl'), 0o755);
-  chmodSync(path.join(dir, 'security'), 0o755);
   return { dir, argvFile };
 };
 
-const curlCalls = (argvFile) =>
-  existsSync(argvFile) ? readFileSync(argvFile, 'utf8').split('\n').filter((l) => l.includes('/api/json')) : [];
+const curlCalls = (argvFile) => (existsSync(argvFile) ? readFileSync(argvFile, 'utf8').split('\n').filter(Boolean) : []);
 
-const runJenkinsShaRows = ({ pairs, rest, credential = true }) => {
-  const env = { ...process.env, PLOT_HOST: '' };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  if (credential) Object.assign(env, { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' });
+const apiCalls = (callsFile) =>
+  existsSync(callsFile)
+    ? readFileSync(callsFile, 'utf8').split('\n').filter((l) => l.startsWith('api ') || l.includes(' api '))
+    : [];
+
+// Every branch's own path, answered by the SAME jen response, to exercise a
+// pass over several rows with one fixture — the shape `makeCurlAnswering`'s
+// old "answer every URL" stub gave for free.
+const jenkinsApiAnswersForBranches = (branches, answer) => {
+  const answers = { [JENKINS_ROOT_PATH]: answer };
+  for (const branch of branches) answers[jenkinsBranchPath(branch)] = answer;
+  return answers;
+};
+
+const runJenkinsShaRows = ({ pairs, curl, apiAnswers, apiMissing }) => {
   const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs) });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiAnswers, apiMissing });
+  const env = {
+    ...process.env,
+    PLOT_HOST: '',
+    PATH: `${curl.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+    ...jenkinsHome(),
+  };
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
-  return rowsByHead(res.stdout);
+  return { rows: rowsByHead(res.stdout), jen };
 };
 
 const jenkinsBuildsFor = (sha, result, second) => JSON.stringify({ builds: [
@@ -3055,43 +3131,58 @@ const jenkinsBuildsFor = (sha, result, second) => JSON.stringify({ builds: [
       : [{ lastBuiltRevision: { SHA1: sha } }] },
 ] });
 
-test('host: a sha lookup with no Jenkins API credential keeps the branch colour of green and failing rows', () => {
-  // `jenkins_sha_runs` exits 4 with no credential: Jenkins was not asked, so no
-  // row may read `pending` from it. The colour stays, unbound to the head.
-  const rest = makeCurlAnswering(jenkinsBuildsFor('other', 'SUCCESS'));
-  const rows = runJenkinsShaRows({ pairs: [['feature/green', 'sha-g'], ['feature/red', 'sha-r']], rest, credential: false });
+test('host: a sha lookup with a failing jen api keeps the branch colour of green and failing rows', () => {
+  // `jenkins_sha_runs` exits 4 when `jen api` cannot answer: Jenkins was not
+  // asked, so no row may read `pending` from it. The colour stays, unbound.
+  const curl = makeCurlUnreached();
+  const { rows } = runJenkinsShaRows({ pairs: [['feature/green', 'sha-g'], ['feature/red', 'sha-r']], curl, apiMissing: true });
   assert.equal(rows.get('feature/green').checks, 'green');
   assert.equal(rows.get('feature/green').checksSha, '');
   assert.equal(rows.get('feature/red').checks, 'failing');
   assert.deepEqual(rows.get('feature/red').failing_checks, ['webbloqs/continuous-build-multi/feature/red']);
-  assert.deepEqual(curlCalls(rest.argvFile), [], 'with no credential, nothing reaches Jenkins');
+  assert.deepEqual(curlCalls(curl.argvFile), [], 'the sha lookup never falls back to curl');
 });
 
 test('host: a sha lookup that Jenkins answers with HTML keeps the branch colour and stops asking', () => {
   // An HTML body fails the `builds` test on both URLs, and `jenkins_sha_runs`
   // exits 4. The colour stays, and the pass asks no further row: whatever made
   // one lookup unanswerable makes the next one cost two more calls for nothing.
-  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
-  const rows = runJenkinsShaRows({ pairs: [['feature/green', 'sha-g'], ['feature/red', 'sha-r']], rest });
+  const curl = makeCurlUnreached();
+  const html = { body: '<html><body>Authentication required</body></html>' };
+  const { rows, jen } = runJenkinsShaRows({
+    pairs: [['feature/green', 'sha-g'], ['feature/red', 'sha-r']],
+    curl,
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/green', 'feature/red'], html),
+  });
   assert.equal(rows.get('feature/green').checks, 'green');
   assert.equal(rows.get('feature/red').checks, 'failing');
   assert.equal(rows.get('feature/red').checksSha, '');
-  assert.equal(curlCalls(rest.argvFile).length, 2,
-    'one lookup: the multibranch URL, then the plain one, and no lookup for the second row');
+  assert.equal(apiCalls(jen.callsFile).length, 2,
+    'one lookup: the multibranch path, then the plain one, and no lookup for the second row');
 });
 
 test('host: a sha lookup answered with no build of the head reads unknown, never pending', () => {
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-older-head', 'SUCCESS'));
-  const rows = runJenkinsShaRows({ pairs: [['feature/green', 'sha-new-head'], ['feature/red', 'sha-new-red']], rest });
+  const curl = makeCurlUnreached();
+  const answer = { body: jenkinsBuildsFor('sha-older-head', 'SUCCESS') };
+  const { rows, jen } = runJenkinsShaRows({
+    pairs: [['feature/green', 'sha-new-head'], ['feature/red', 'sha-new-red']],
+    curl,
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/green', 'feature/red'], answer),
+  });
   assert.equal(rows.get('feature/green').checks, 'unknown');
   assert.equal(rows.get('feature/red').checks, 'unknown');
   assert.deepEqual(rows.get('feature/red').failing_checks, []);
-  assert.equal(curlCalls(rest.argvFile).length, 2, 'one multibranch call per row');
+  assert.equal(apiCalls(jen.callsFile).length, 2, 'one multibranch call per row');
 });
 
 test('host: a sha lookup answered with a build of the head reads that build, bound to the head', () => {
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-head', 'SUCCESS'));
-  const rows = runJenkinsShaRows({ pairs: [['feature/red', 'sha-head']], rest });
+  const curl = makeCurlUnreached();
+  const answer = { body: jenkinsBuildsFor('sha-head', 'SUCCESS') };
+  const { rows } = runJenkinsShaRows({
+    pairs: [['feature/red', 'sha-head']],
+    curl,
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/red'], answer),
+  });
   assert.equal(rows.get('feature/red').checks, 'green',
     'the branch colour says red, and the build of this head says SUCCESS');
   assert.equal(rows.get('feature/red').checksSha, 'sha-head');
@@ -3115,16 +3206,16 @@ test('host: pr-state bitbucket names the head and reads checks unknown without C
 // the branch colour would read `failing`, a build of an older head. The colour
 // cannot bind to the head, so the word is `unknown`, never `pending`: `pending`
 // holds the merge queue on a head Jenkins may never report.
-const bbJenkinsPrState = (args, { build, bbJson, instance }) => {
-  const rest = makeCurlAnswering(build);
+const bbJenkinsPrState = (args, { build, bbJson, instance, branch = 'feature/red' }) => {
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   const hostStubs = makeStubs({ bbJson });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const answer = typeof build === 'string' ? { body: build } : build;
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiAnswers: jenkinsApiAnswersForBranches([branch], answer) });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const res = spawnSync('bash', [adapter, 'pr-state', ...args], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket', instance }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
-  return { ...JSON.parse(res.stdout), curls: curlCalls(rest.argvFile).length };
+  return { ...JSON.parse(res.stdout), curls: apiCalls(jen.callsFile).length };
 };
 
 const BB_RED_PR = {
@@ -3200,15 +3291,15 @@ const bbRowsFor = (rows) => JSON.stringify(rows.map(({ id, head, sha, state = 'O
 })));
 
 const runBbJenkinsPrList = ({ rows, build, instance }) => {
-  const rest = makeCurlAnswering(build);
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const answer = typeof build === 'string' ? { body: build } : build;
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiAnswers: jenkinsApiAnswersForBranches(rows.map((r) => r.head), answer) });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket', instance }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
-  return { rows: rowsByHead(res.stdout), curls: curlCalls(rest.argvFile).length };
+  return { rows: rowsByHead(res.stdout), curls: apiCalls(jen.callsFile).length };
 };
 
 test('host: pr-list bitbucket under jenkins binds a short head hash to the full Jenkins sha it begins', () => {
@@ -3337,18 +3428,20 @@ test('host: pr-list bitbucket under jenkins reads unknown, never a stale colour,
   const rows = Array.from({ length: 7 }, (_, i) => ({
     id: 10 + i, head: `feature/b${i}`, sha: `sha-${i}`, updatedAt: `2026-10-17T0${i}:00:00Z`,
   }));
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-6', 'FAILURE'));
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
   const many = JSON.stringify(Array.from({ length: 7 }, (_, i) => (
     { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: `feature/b${i}`, color: 'blue' })));
-  const jen = makeJenStub({ jobsJson: many });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({
+    jobsJson: many,
+    apiAnswers: jenkinsApiAnswersForBranches(rows.map((r) => r.head), { body: jenkinsBuildsFor('sha-6', 'FAILURE') }),
+  });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
   const out = rowsByHead(res.stdout);
-  const asked = curlCalls(rest.argvFile);
+  const asked = apiCalls(jen.callsFile);
   assert.equal(asked.length, 5, `seven ambiguous rows with a head sha cost five calls:\n${asked.join('\n')}`);
   assert.equal(out.get('feature/b6').checks, 'failing', 'the newest row is read by sha');
   assert.equal(out.get('feature/b6').checksLookup, undefined, 'a row Jenkins answered carries no checksLookup');
@@ -3372,14 +3465,16 @@ test('host: pr-list bitbucket under jenkins still reads a row inside the cap by 
     { id: 21, head: 'feature/c1', sha: 'sha-c1', updatedAt: '2026-10-17T02:00:00Z' },
     { id: 22, head: 'feature/c2', sha: 'sha-c2', updatedAt: '2026-10-17T01:00:00Z' },
   ];
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-c1', 'SUCCESS'));
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
   const many = JSON.stringify(rows.map((r) => (
     { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: r.head, color: 'blue' })));
-  const jen = makeJenStub({ jobsJson: many });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({
+    jobsJson: many,
+    apiAnswers: jenkinsApiAnswersForBranches(rows.map((r) => r.head), { body: jenkinsBuildsFor('sha-c1', 'SUCCESS') }),
+  });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
   const out = rowsByHead(res.stdout);
@@ -3394,19 +3489,21 @@ test('host: pr-state bitbucket without --with-checks makes zero Jenkins calls', 
   // checks must not pay for `jenkins_instance`/`jenkins_build_map`/
   // `jenkins_bind_rows` — none of them may run, so no `curl` reaches Jenkins
   // and no `jen` call is made either.
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-head', 'SUCCESS'));
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   const hostStubs = makeStubs({
     bbJson: JSON.stringify(BB_RED_PR),
   });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({
+    jobsJson: JEN_JOBS,
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/red'], { body: jenkinsBuildsFor('sha-head', 'SUCCESS') }),
+  });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const res = spawnSync('bash', [adapter, 'pr-state', '5'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
   const out = JSON.parse(res.stdout);
   assert.equal(out.checks, 'unknown', 'no checks asked for, so no checks answered');
-  assert.deepEqual(curlCalls(rest.argvFile), [], 'checks not asked for: zero Jenkins REST calls');
+  assert.deepEqual(apiCalls(jen.callsFile), [], 'checks not asked for: zero Jenkins REST calls');
   assert.deepEqual(callsOf(jen.callsFile), [], 'checks not asked for: zero jen CLI calls');
 });
 
@@ -3430,13 +3527,15 @@ test('host: plot-ask merge on bitbucket under jenkins reads the bound green chec
   // Bitbucket checks only under `--with-checks`. Without the flag from the
   // `Host.prState` adapter every Bitbucket + Jenkins merge refused
   // `checks-not-green` (#2619).
-  const rest = makeCurlAnswering(jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'));
   const env = { ...process.env, PLOT_HOST: '', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   delete env.PLOT_SCRIPTS_DIR;
   const hostStubs = makeStubs({ bbJson: JSON.stringify(BB_SHORT_PR), bbReviewSha: BB_SHORT });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({
+    jobsJson: JEN_JOBS,
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/red'], { body: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS') }),
+  });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const ask = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs');
   const res = spawnSync('node', [ask, 'merge', '5', BB_SHORT],
     { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
@@ -3445,7 +3544,7 @@ test('host: plot-ask merge on bitbucket under jenkins reads the bound green chec
   assert.equal(out.merged, true, `the bound check is green, so the merge goes through:\n${res.stdout}\n${res.stderr}`);
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(argvOf(hostStubs.bbArgv).slice(0, 3), ['pr', 'merge', '5']);
-  assert.ok(curlCalls(rest.argvFile).length > 0, 'the merge path asked Jenkins for the head');
+  assert.ok(apiCalls(jen.callsFile).length > 0, 'the merge path asked Jenkins for the head');
 });
 
 // --- the merge re-read never asks Jenkins, and head-moved still fires correctly ---
@@ -3458,14 +3557,16 @@ test('host: pr-merge bitbucket re-read makes no Jenkins call either way', () => 
   // asserted here, because only one of them stops short of the merge call.
   const matchSha = 'a'.repeat(40);
   const movedSha = 'b'.repeat(40);
-  const rest = makeCurlAnswering(jenkinsBuildsFor('whatever', 'SUCCESS'));
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const jen = makeJenStub({
+    jobsJson: JEN_JOBS,
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/x'], { body: jenkinsBuildsFor('whatever', 'SUCCESS') }),
+  });
   const hostStubs = makeStubs({
     bbJson: `{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/x"},"commit":{"hash":"${matchSha}"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/5"}}}`,
   });
   const env = {
     ...process.env, PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
-    PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+    PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
   };
   delete env.JENKINS_INSTANCE;
   // A `CI: jenkins` repository with credentials set, so a Jenkins call would
@@ -3474,13 +3575,13 @@ test('host: pr-merge bitbucket re-read makes no Jenkins call either way', () => 
   const matched = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', matchSha], { cwd, encoding: 'utf8', env });
   assert.equal(matched.status, 0, matched.stderr);
   assert.deepEqual(argvOf(hostStubs.bbArgv), ['pr', 'merge', '5']);
-  assert.deepEqual(curlCalls(rest.argvFile), [], 'a matching head still makes no Jenkins REST call');
+  assert.deepEqual(apiCalls(jen.callsFile), [], 'a matching head still makes no Jenkins REST call');
   assert.deepEqual(callsOf(jen.callsFile), [], 'a matching head still makes no jen CLI call');
 
   const refused = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', movedSha], { cwd, encoding: 'utf8', env });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /head-moved/, 'a moved head is still caught with checks never asked for');
-  assert.deepEqual(curlCalls(rest.argvFile), [], 'a moved head still makes no Jenkins REST call');
+  assert.deepEqual(apiCalls(jen.callsFile), [], 'a moved head still makes no Jenkins REST call');
 });
 
 // --- --state all spends one cap of five, on OPEN rows only ------------------
@@ -3502,16 +3603,18 @@ test('host: pr-list --state all binds at most five rows in the whole pass, all o
   const bb = makeStrictBbStub({ perState: { open, merged, declined } });
   const jobs = JSON.stringify([...openHeads, 'm0', 'd0'].map((name) =>
     ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
-  const jen = makeJenStub({ jobsJson: jobs });
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-o0', 'SUCCESS'));
+  const jen = makeJenStub({
+    jobsJson: jobs,
+    apiAnswers: jenkinsApiAnswersForBranches(openHeads, { body: jenkinsBuildsFor('sha-o0', 'SUCCESS') }),
+  });
   const env = {
     ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
-    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+    PATH: `${jen.dir}:${bb.dir}:${process.env.PATH}`,
   };
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
     { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
-  const asked = curlCalls(rest.argvFile);
+  const asked = apiCalls(jen.callsFile);
   assert.equal(asked.length, 5, `one cap of five for the whole --state all pass:\n${asked.join('\n')}`);
   assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), 'settled rows are never asked');
   const rows = rowsByHead(res.stdout);
@@ -3530,17 +3633,19 @@ test('host: pr-list --state all never binds a MERGED or DECLINED row, however am
   const bb = makeStrictBbStub({ perState: { open, merged, declined } });
   const jobs = JSON.stringify(['o0', 'm0', 'd0'].map((name) =>
     ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
-  const jen = makeJenStub({ jobsJson: jobs });
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-o0', 'SUCCESS'));
+  const jen = makeJenStub({
+    jobsJson: jobs,
+    apiAnswers: jenkinsApiAnswersForBranches(['o0'], { body: jenkinsBuildsFor('sha-o0', 'SUCCESS') }),
+  });
   const env = {
     ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
-    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+    PATH: `${jen.dir}:${bb.dir}:${process.env.PATH}`,
   };
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
     { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
   const rows = rowsByHead(res.stdout);
-  const asked = curlCalls(rest.argvFile);
+  const asked = apiCalls(jen.callsFile);
   assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), `MERGED/DECLINED never asked by sha:\n${asked.join('\n')}`);
   assert.equal(rows.get('m0').checks, 'green', 'a MERGED row stands on its raw branch colour, unbound');
   assert.equal(rows.get('m0').checksLookup, undefined, 'never skipped or broken: it was never a candidate');
@@ -3570,14 +3675,16 @@ test('host: pr-list bitbucket under jenkins reads checksLookup broken for a name
   // named — and its Jenkins REST call answers HTML, breaking the ask. The row
   // must read 'broken', never 'skipped' (which means "never named").
   const rows = [{ id: 30, head: 'feature/broken', sha: 'sha-broken', updatedAt: '2026-10-17T09:00:00Z' }];
-  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   delete env.JENKINS_INSTANCE;
   const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
-  const jen = makeJenStub({ jobsJson: JSON.stringify([
-    { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature/broken', color: 'red' },
-  ]) });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({
+    jobsJson: JSON.stringify([
+      { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature/broken', color: 'red' },
+    ]),
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/broken'], { body: '<html><body>Authentication required</body></html>' }),
+  });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
   const out = rowsByHead(res.stdout);
@@ -3597,16 +3704,18 @@ test('host: pr-list --state all reads checksLookup broken for a named OPEN row w
   const bb = makeStrictBbStub({ perState: { open, merged, declined } });
   const jobs = JSON.stringify(['feature/broken', 'm0', 'd0'].map((name) =>
     ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
-  const jen = makeJenStub({ jobsJson: jobs });
-  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
+  const jen = makeJenStub({
+    jobsJson: jobs,
+    apiAnswers: jenkinsApiAnswersForBranches(['feature/broken'], { body: '<html><body>Authentication required</body></html>' }),
+  });
   const env = {
     ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
-    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+    PATH: `${jen.dir}:${bb.dir}:${process.env.PATH}`,
   };
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
     { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
-  const asked = curlCalls(rest.argvFile);
+  const asked = apiCalls(jen.callsFile);
   assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), `settled rows are never asked:\n${asked.join('\n')}`);
   const rows = rowsByHead(res.stdout);
   assert.equal(rows.get('feature/broken').checks, 'unknown');
@@ -3623,15 +3732,17 @@ test('host: a refresh reads at most five rows by sha, the most recently updated 
   const pairs = Array.from({ length: 7 }, (_, i) => [heads[i % 3], `sha-${i}`, `2026-10-17T0${i}:00:00Z`]);
   const many = JSON.stringify(Array.from({ length: 7 }, (_, i) => (
     { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: `b${i}`, color: 'blue' })));
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-6', 'FAILURE'));
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs.map(([, sha, at], i) => [`b${i}`, sha, at])) });
-  const jen = makeJenStub({ jobsJson: many });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({
+    jobsJson: many,
+    apiAnswers: jenkinsApiAnswersForBranches(Array.from({ length: 7 }, (_, i) => `b${i}`), { body: jenkinsBuildsFor('sha-6', 'FAILURE') }),
+  });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
   const rows = rowsByHead(res.stdout);
-  const asked = curlCalls(rest.argvFile);
+  const asked = apiCalls(jen.callsFile);
   assert.equal(asked.length, 5, `seven green rows with a head sha cost five calls:\n${asked.join('\n')}`);
   assert.ok(!asked.some((u) => u.includes('/job/b0/') || u.includes('/job/b1/')), 'the two oldest rows are not asked');
   assert.equal(rows.get('b6').checks, 'failing', 'the newest row is read by sha');
@@ -3657,11 +3768,13 @@ test('host: --bound-shas rotates past rows already bound to their current head, 
   const pairs = heads.map((head, i) => [head, `sha-${i}`, `2026-10-17T0${i}:00:00Z`]);
   const jobs = JSON.stringify(heads.map((name) =>
     ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
-  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-0', 'SUCCESS'));
   const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
   const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs) });
-  const jen = makeJenStub({ jobsJson: jobs });
-  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const jen = makeJenStub({
+    jobsJson: jobs,
+    apiAnswers: jenkinsApiAnswersForBranches(heads, { body: jenkinsBuildsFor('sha-0', 'SUCCESS') }),
+  });
+  env.PATH = `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
   // b2..b6 already read their current head's sha last pass; b0 and b1 never
   // did. With a cap of five, rotation fills b0 and b1's slots first (the two
   // never-bound rows), then the three remaining slots go to the newest of the
@@ -3671,7 +3784,7 @@ test('host: --bound-shas rotates past rows already bound to their current head, 
   const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--bound-shas', boundShas],
     { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
-  const asked = curlCalls(rest.argvFile);
+  const asked = apiCalls(jen.callsFile);
   assert.equal(asked.length, 5, `rotation still spends the same cap of five:\n${asked.join('\n')}`);
   assert.ok(asked.some((u) => u.includes('/job/b0/')), 'b0 was never bound, so rotation asks it ahead of a bound row');
   assert.ok(asked.some((u) => u.includes('/job/b1/')), 'b1 was never bound, so rotation asks it ahead of a bound row');
@@ -3955,9 +4068,9 @@ test('host: runs on a plain job emits a line rather than exiting 4', () => {
     { number: 3, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/3/',
       actions: [{ lastBuiltRevision: { SHA1: 'some-sha' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy' });
   const res = runJenkinsAllowFail(['runs', 'continuous-deploy'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, `a readable plain job must not exit 4\n${res.stderr}`);
   const row = JSON.parse(res.stdout.trim());
   assert.equal(row.conclusion, 'SUCCESS', 'the state Jenkins reported, not a refusal');
@@ -3975,9 +4088,9 @@ test('host: runs-for-sha on a plain job returns the matching build rather than e
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
   const builds = jenkinsBuildsFor('some-sha', 'SUCCESS');
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy' });
   const res = runJenkinsAllowFail(['runs-for-sha', 'continuous-deploy', 'some-sha'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, `a readable plain job must not exit 4\n${res.stderr}`);
   const rows = JSON.parse(res.stdout.trim());
   assert.equal(rows.length, 1);
@@ -4095,25 +4208,23 @@ test('host: a bare-host instance names no job, so no shape is probed', () => {
 // 2026-09-08 — the connector had nothing to call. These pin what it reaches
 // now, and what it honestly cannot answer yet.
 
-// A `curl` stub for the REST arm, same shape as the `run-for-sha` fixtures
-// below: a `bin` dir holding `security` (so `jenkins_rest_credential` finds a
-// usable keychain stub) and `curl` (so the `tree=` request is answered
-// in-process rather than reaching a real Jenkins). With `branchSeg`, a URL
-// naming that job segment answers `branchAnswer` instead, so a test can make
-// the branch URL 404 and the job URL answer. With `credHost`, `security` only
-// answers a lookup keyed by THAT host — a slug asked literally fails, proving
-// the credential is keyed by the resolved host and not the raw slug.
-const makeJenkinsRestBin = (buildsJson, { branchSeg = '', branchAnswer = '', credHost = '' } = {}) => {
-  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
-  writeFileSync(path.join(bin, 'security'), credHost
-    ? `#!/usr/bin/env bash\ncase "$*" in *"${credHost}"*) echo stub ;; *) exit 1 ;; esac\n`
-    : '#!/usr/bin/env bash\necho stub\n');
-  writeFileSync(path.join(bin, 'curl'), branchSeg
-    ? `#!/usr/bin/env bash\ncase "$*" in *"/job/${branchSeg}/api/"*) printf '%s' '${branchAnswer}' ;; *) printf '%s' '${buildsJson}' ;; esac\n`
-    : `#!/usr/bin/env bash\nprintf '%s' '${buildsJson}'\n`);
-  chmodSync(path.join(bin, 'security'), 0o755);
-  chmodSync(path.join(bin, 'curl'), 0o755);
-  return bin;
+// Patches an already-written `jen` stub (from `makeJenStub`) with `api`
+// answers for the plain-job/multibranch REST fixtures below: the root path
+// answers `buildsJson`, and the branch path, by default, answers the same —
+// matching the old curl-based stub's "every URL answers identically" default.
+// `branchSeg` is the queried branch name; `branchAnswer`, where given,
+// overrides the branch path alone, so a test can make the branch URL 404
+// while the job URL answers. `job` names the instance's job path, for the
+// plain-job fixtures whose instance is not `makeJenkinsRepo`'s default.
+const makeJenkinsRestBin = (jen, buildsJson, { branchSeg = '', branchAnswer = '', job = 'webbloqs/continuous-build-multi' } = {}) => {
+  patchJenApiAnswers(
+    jen,
+    jenkinsRestApiAnswers(buildsJson, {
+      job,
+      ...(branchSeg ? { branch: branchSeg, branchBody: branchAnswer || buildsJson } : {}),
+    }),
+    buildsJson,
+  );
 };
 
 test('host: runs on Jenkins reaches jenkins_sha_runs unfiltered, never gh, and returns every build newest first', () => {
@@ -4129,9 +4240,9 @@ test('host: runs on Jenkins reaches jenkins_sha_runs unfiltered, never gh, and r
     { number: 8, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/8/',
       actions: [{ lastBuiltRevision: { SHA1: 'older-sha' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const out = runJenkins(['runs', 'feature/red'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.equal(rows.length, 2, 'more than one entry, where the old map arm always returned one or none');
   assert.deepEqual(rows.map((r) => r.conclusion), ['FAILURE', 'SUCCESS'], 'newest first');
@@ -4156,9 +4267,9 @@ test('host: runs on Jenkins omits NOT_BUILT and ABORTED builds, keeping the ones
     { number: 8, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/8/',
       actions: [{ lastBuiltRevision: { SHA1: 'older-sha' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const out = runJenkins(['runs', 'feature/red'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.conclusion), ['FAILURE', 'SUCCESS'],
     'NOT_BUILT and ABORTED are absent; the builds that ran survive, newest first');
@@ -4184,9 +4295,9 @@ test('host: runs --limit 3 over five builds where two are NOT_BUILT still return
     { number: 10, result: 'SUCCESS', building: false, timestamp: 1790000100000, url: 'https://ci.test/10/',
       actions: [{ lastBuiltRevision: { SHA1: 'sha-10' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const out = runJenkins(['runs', 'feature/red', '--limit', '3'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.equal(rows.length, 3, 'three surviving builds exist, so the limit must not return fewer');
   assert.deepEqual(rows.map((r) => r.conclusion), ['SUCCESS', 'FAILURE', 'SUCCESS'], 'newest surviving three, newest first');
@@ -4205,9 +4316,9 @@ test('host: runs on Jenkins keeps a still-building row, which must not be mistak
     { number: 10, result: 'ABORTED', building: false, timestamp: 1790000200000, url: 'https://ci.test/10/',
       actions: [{ lastBuiltRevision: { SHA1: 'sha-aborted' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const out = runJenkins(['runs', 'feature/red'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.conclusion), ['in_progress'], 'the building row survives, ABORTED does not');
 });
@@ -4222,9 +4333,9 @@ test('host: run-for-sha returns an ABORTED build for the exact sha asked', () =>
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const builds = jenkinsBuildsFor('sha-aborted', 'ABORTED');
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-aborted'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(singular.code, 0, singular.stderr);
   assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'ABORTED', 'run-for-sha still reports the cancelled build');
 });
@@ -4236,9 +4347,9 @@ test('host: runs-for-sha returns an ABORTED build for the exact sha asked', () =
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const builds = jenkinsBuildsFor('sha-aborted', 'ABORTED');
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-aborted'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(plural.code, 0, plural.stderr);
   const rows = JSON.parse(plural.stdout.trim());
   assert.equal(rows.length, 1);
@@ -4253,9 +4364,9 @@ test('host: run-for-sha answers none when the only build for a sha is NOT_BUILT'
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const builds = jenkinsBuildsFor('sha-not-built', 'NOT_BUILT');
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-not-built'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(singular.code, 0, singular.stderr);
   assert.equal(singular.stdout.trim(), '', 'run-for-sha prints nothing for a sha with no surviving build');
 });
@@ -4266,9 +4377,9 @@ test('host: runs-for-sha answers empty when the only build for a sha is NOT_BUIL
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const builds = jenkinsBuildsFor('sha-not-built', 'NOT_BUILT');
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-not-built'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(plural.code, 0, plural.stderr);
   assert.deepEqual(JSON.parse(plural.stdout.trim()), [], 'runs-for-sha answers empty, not an error');
 });
@@ -4286,9 +4397,9 @@ test('host: run-for-sha answers the older FAILURE when a newer NOT_BUILT build s
     { number: 9, result: 'FAILURE', building: false, timestamp: 1790000100000, url: 'https://ci.test/9/',
       actions: [{ lastBuiltRevision: { SHA1: 'sha-retried' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-retried'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(singular.code, 0, singular.stderr);
   assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'FAILURE',
     'the newer NOT_BUILT must not hide the older FAILURE of the same sha');
@@ -4304,9 +4415,9 @@ test('host: runs on Jenkins carries conclusion host-neutral, raw from .result, m
     { number: 7, result: 'UNSTABLE', building: false, timestamp: 1790000000000, url: 'https://ci.test/7/',
       actions: [{ lastBuiltRevision: { SHA1: 'some-sha' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const row = JSON.parse(runJenkins(['runs', 'feature/unstable'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } }).trim());
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } }).trim());
   assert.equal(row.conclusion, 'UNSTABLE', "Jenkins' own word, not the colour table's \"failing\"");
 });
 
@@ -4319,9 +4430,9 @@ test('host: runs on Jenkins populates startedAt and url from the REST answer', (
     { number: 7, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/7/',
       actions: [{ lastBuiltRevision: { SHA1: 'some-sha' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const row = JSON.parse(runJenkins(['runs', 'feature/green'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } }).trim());
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } }).trim());
   assert.equal(row.startedAt, '2026-09-21T14:13:20Z');
   assert.equal(row.url, 'https://ci.test/7/');
   assert.equal(row.workflow, 'webbloqs/continuous-build-multi', 'the job path, matching run-for-sha\'s shape');
@@ -4335,9 +4446,9 @@ test('host: runs on Jenkins leaves startedAt and url empty when the REST answer 
   const builds = JSON.stringify({ builds: [
     { number: 11, result: null, building: true, actions: [] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const row = JSON.parse(runJenkins(['runs', 'feature/running'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } }).trim());
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } }).trim());
   assert.equal(row.startedAt, '', 'Jenkins reported no timestamp for a still-queued build — stay honest, do not invent one');
   assert.equal(row.url, '');
   assert.equal(row.conclusion, 'in_progress', 'a running build reads its status, as the GitHub arm does');
@@ -4358,9 +4469,9 @@ test('host: runs on a plain Jenkins job reports only the asked branch\'s builds'
     { number: 3, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/3/',
       actions: [{ lastBuiltRevision: { SHA1: 'unnamed-sha' } }] },
   ] });
-  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fx', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy', branchSeg: 'feature%2Fx', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['runs', 'feature/x'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.url), ['https://ci.test/4/'], 'main\'s build and the unnamed build are absent');
@@ -4385,9 +4496,9 @@ test('host: runs on a plain Jenkins job reports a build once despite two lastBui
         { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/develop' }] } },
       ] },
   ] });
-  const bin = makeJenkinsRestBin(builds, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy', branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['runs', 'develop'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.equal(rows.length, 1, 'the build with two matching lastBuiltRevision entries must appear once, not twice');
@@ -4403,9 +4514,9 @@ test('host: runs on Jenkins reports nothing for a branch the multibranch job has
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const container = JSON.stringify({ _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
     jobs: [{ name: 'feature%2Fgreen' }] });
-  const bin = makeJenkinsRestBin(container, { branchSeg: 'feature%2Fnew', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, container, { branchSeg: 'feature%2Fnew', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['runs', 'feature/new'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, `an unindexed branch must not exit 4\n${res.stderr}`);
   assert.equal(res.stdout.trim(), '');
 });
@@ -4418,9 +4529,9 @@ test('host: runs on Jenkins reports nothing for a branch the job does not build'
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const builds = JSON.stringify({ builds: [] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const res = runJenkinsAllowFail(['runs', 'feature/never-built'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0);
   assert.equal(res.stdout.trim(), '');
 });
@@ -4440,9 +4551,9 @@ test('host: run-for-sha on Jenkins reads an unindexed default branch as empty, n
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = makeJenkinsRestBin(JEN_ROOT_CLASS_ONLY, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, JEN_ROOT_CLASS_ONLY, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['run-for-sha', 'develop', 'deadbeef'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, `a _class-only root must not exit 4\n${res.stderr}`);
   assert.equal(res.stdout.trim(), '');
 });
@@ -4455,9 +4566,9 @@ test('host: runs on Jenkins still exits 4 when the root itself does not answer (
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = makeJenkinsRestBin('<html>404 Not Found</html>', { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, '<html>404 Not Found</html>', { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['runs', 'develop'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 4, 'a root that answers nothing usable must still mean "Jenkins did not answer"');
   assert.equal(res.stdout.trim(), '');
 });
@@ -4471,9 +4582,9 @@ test('host: runs refuses by branch name when Jenkins answers real JSON with no b
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = makeJenkinsRestBin('{"foo":"bar"}', { branchSeg: 'feature%2Fghost', branchAnswer: '{"foo":"bar"}' });
+  makeJenkinsRestBin(jen, '{"foo":"bar"}', { branchSeg: 'feature%2Fghost', branchAnswer: '{"foo":"bar"}' });
   const res = runJenkinsAllowFail(['runs', 'feature/ghost'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 4, res.stderr);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /no branch 'feature\/ghost' indexed/, `must name the branch, got: ${res.stderr}`);
@@ -4489,24 +4600,17 @@ const makeJenkinsRepoWithDefaultBranch = (branch, opts = {}) => {
   return repo;
 };
 
-// A curl stub keyed on the JOB PREFIX, not the branch segment —
-// `makeJenkinsRestBin`'s `branchSeg` match cannot tell "continuous-deploy"
-// from "continuous-build-multi" apart, because both job paths end in the same
-// `/job/develop` segment. Answers `builds` only under `jobPrefix`'s own path
-// (branch or root) and 404-HTML under every other job path, so a result at
-// all proves which job was actually asked.
-const makeJenkinsRestBinKeyedOnJob = (jobPrefix, buildsJson) => {
-  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-job-')));
-  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
-  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash
-case "$*" in
-  *"/job/${jobPrefix}"*) printf '%s' '${buildsJson.replace(/'/g, `'\\''`)}' ;;
-  *) printf '%s' '<html>404 Not Found</html>' ;;
-esac
-`);
-  chmodSync(path.join(bin, 'security'), 0o755);
-  chmodSync(path.join(bin, 'curl'), 0o755);
-  return bin;
+// Patches an already-written `jen` stub so only `jobPrefix`'s own path (branch
+// and root) answers `buildsJson`; every other job path 404s. Replaces the old
+// curl-based `makeJenkinsRestBinKeyedOnJob`, which could not tell
+// "continuous-deploy" from "continuous-build-multi" apart by branch segment
+// alone, because both job paths end in the same `/job/develop` segment — a
+// result at all proves which job was actually asked.
+const patchJenApiAnswersKeyedOnJob = (jen, jobPrefix, buildsJson, branch) => {
+  patchJenApiAnswers(jen, {
+    [jenkinsRootPath(jobPrefix)]: { body: buildsJson },
+    ...(branch ? { [jenkinsJobBranchPath(branch, jobPrefix)]: { body: buildsJson } } : {}),
+  }, '<html>404 Not Found</html>');
 };
 
 test('host: "Default branch job" routes the default branch to its own job, bypassing the multibranch path', () => {
@@ -4522,9 +4626,9 @@ test('host: "Default branch job" routes the default branch to its own job, bypas
   // Only `continuous-deploy`'s own path answers `builds`; the multibranch job
   // path (`continuous-build-multi`) 404s. A result at all proves the override
   // routed the request to the named job instead.
-  const bin = makeJenkinsRestBinKeyedOnJob('continuous-deploy', builds);
+  patchJenApiAnswersKeyedOnJob(jen, 'continuous-deploy', builds, 'develop');
   const res = runJenkinsAllowFail(['runs', 'develop'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.conclusion), ['SUCCESS']);
@@ -4541,23 +4645,17 @@ test('host: "Default branch job" leaves every other branch on the multibranch pa
     readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8') + '- **Default branch job:** continuous-deploy\n');
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-job-')));
-  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
-  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash
-case "$*" in
-  *"/job/continuous-deploy"*) printf '%s' '${JSON.stringify({ builds: [
+  const deployBuilds = JSON.stringify({ builds: [
     { number: 1, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/1/',
       actions: [{ lastBuiltRevision: { SHA1: 'deploy-build-sha' } }] },
-  ] }).replace(/'/g, `'\\''`)}' ;;
-  *"/job/continuous-build-multi/job/feature%2Fnew"*) printf '%s' '<html>404 Not Found</html>' ;;
-  *"/job/continuous-build-multi"*) printf '%s' '${JEN_ROOT_CLASS_ONLY.replace(/'/g, `'\\''`)}' ;;
-  *) printf '%s' '<html>404 Not Found</html>' ;;
-esac
-`);
-  chmodSync(path.join(bin, 'security'), 0o755);
-  chmodSync(path.join(bin, 'curl'), 0o755);
+  ] });
+  patchJenApiAnswers(jen, {
+    [jenkinsRootPath('continuous-deploy')]: { body: deployBuilds },
+    [jenkinsJobBranchPath('feature/new')]: { body: '<html>404 Not Found</html>' },
+    [jenkinsRootPath()]: { body: JEN_ROOT_CLASS_ONLY },
+  }, '<html>404 Not Found</html>');
   const res = runJenkinsAllowFail(['runs', 'feature/new'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.stdout.trim(), '', 'a non-default branch still reads through the multibranch job, unindexed means empty — not the deploy job\'s row');
 });
@@ -4566,9 +4664,9 @@ test('host: with no "Default branch job" key, the default branch behaves exactly
   const repo = makeJenkinsRepoWithDefaultBranch('develop');
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = makeJenkinsRestBin(JEN_ROOT_CLASS_ONLY, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, JEN_ROOT_CLASS_ONLY, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['runs', 'develop'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.stdout.trim(), '', 'unset key: the empty-history fix applies, nothing else changes');
 });
@@ -4585,115 +4683,12 @@ test('host: PLOT_JENKINS_JOB overrides "Default branch job", same precedence it 
   ] });
   // Only the env-named job's own path answers; "Default branch job"'s path
   // 404s, so a result at all proves PLOT_JENKINS_JOB won.
-  const bin = makeJenkinsRestBinKeyedOnJob('continuous-build-multi', builds);
+  patchJenApiAnswersKeyedOnJob(jen, 'continuous-build-multi', builds, 'develop');
   const res = runJenkinsAllowFail(['runs', 'develop'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_JENKINS_JOB: 'continuous-build-multi' } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_JENKINS_JOB: 'continuous-build-multi' } });
   assert.equal(res.code, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.conclusion), ['SUCCESS'], 'PLOT_JENKINS_JOB still wins over the config key');
-});
-
-test('host: runs on Jenkins without a credential exits 4, never empty', () => {
-  // Same direction of failure `run-for-sha` already relies on: an absent
-  // credential must answer *cannot be asked*, never *this branch has no runs*.
-  const repo = makeJenkinsRepo();
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const res = runJenkinsAllowFail(['runs', 'feature/red'],
-    { repo, hostStubs, jen, extraEnv: { JENKINS_USER: '', JENKINS_API_TOKEN: '' } });
-  assert.equal(res.code, 4);
-  assert.equal(res.stdout.trim(), '');
-  assert.match(res.stderr, /no Jenkins API credential|names no job path/);
-});
-
-// --- a bare slug resolves to jen's host, not a literal host --------------
-//
-// `ewz-kus-portal`'s instance names `ewz`, the Jenkins slug `jen` resolves to
-// `jenkins-ci-ewz.internal.quatico.dev` — not a host `curl` or the keychain
-// can use literally. These pin the repair: a bare slug is resolved through
-// `jen auth status`'s own `Instance:` line before the credential lookup and
-// the REST call, exactly as a dotted instance already was.
-
-test('host: runs on a slug-form Jenkins instance resolves the slug to jen\'s host before asking for a credential', () => {
-  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: 'jenkins-ci-ewz.internal.quatico.dev' });
-  const builds = JSON.stringify({ builds: [
-    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://jenkins-ci-ewz.internal.quatico.dev/9/',
-      actions: [{ lastBuiltRevision: { SHA1: 'some-sha' } }] },
-  ] });
-  // security answers ONLY the resolved host — a literal 'ewz' lookup fails,
-  // so a credential found here proves the slug was resolved first.
-  const bin = makeJenkinsRestBin(builds, { credHost: 'jenkins-ci-ewz.internal.quatico.dev' });
-  const res = runJenkinsAllowFail(['runs', 'feature/red'],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
-  assert.equal(res.code, 0, `a slug instance must resolve to jen's host, not fail as an unkeyed credential\n${res.stderr}`);
-  const row = JSON.parse(res.stdout.trim());
-  assert.equal(row.conclusion, 'SUCCESS');
-});
-
-test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when jen cannot resolve it', () => {
-  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  // No `Instance:` line at all — `jen auth status` answered, but not with one.
-  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: null });
-  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
-  assert.equal(res.code, 4);
-  assert.equal(res.stdout.trim(), '');
-  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/);
-  assert.match(res.stderr, /did not answer an 'Instance:' line/);
-});
-
-// `jenkins_resolve_host` directly: an `Instance:` LINE EXISTS but names no
-// parenthesized host — `jen`'s own `auth status` answered the slug with no
-// `(https://...)` suffix. `[ -n "$line" ] && sed ... || return 1` tests only
-// that the line is non-empty, not that the substitution matched, so this
-// shape used to fall through exit 0 with empty stdout — a bare empty host
-// reaching `jenkins_rest_credential ""` next, rather than the "cannot
-// resolve" refusal the caller already prints for a MISSING line. It exits 2,
-// not the missing line's 1, so the caller can name which of the two happened.
-// Sourced directly: no CLI op prints `jenkins_resolve_host`'s own exit code,
-// only what its caller does with it, and the caller's wording is pinned
-// above and below.
-function sourcedJenkinsResolveHost(line) {
-  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
-    + `jen() { printf '%s\\n' ${JSON.stringify(line)}; }\n`
-    + `jenkins_resolve_host ewz; printf 'exit:%s\\n' "$?"`;
-  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
-  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
-}
-
-test('host: jenkins_resolve_host refuses (non-zero, empty stdout) when the Instance line names no host', () => {
-  const res = sourcedJenkinsResolveHost('Instance: ewz (no-host-here)');
-  const lines = res.stdout.trim().split('\n');
-  assert.equal(lines.length, 1, `a host-less Instance line must print nothing but the exit marker, got: ${res.stdout}`);
-  assert.equal(lines[0], 'exit:2', `a host-less Instance line must exit 2, got stdout: ${res.stdout}`);
-});
-
-test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when the Instance line names no host', () => {
-  // The caller-level repro of the same defect: `jen auth status` answers an
-  // `Instance:` line, but it names no `(https://...)` host. Before the fix
-  // this fell through into a credential lookup keyed by an empty host rather
-  // than the same "cannot resolve" refusal a missing line already gets.
-  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: 'no-host-here' });
-  // Rewrite the jen stub's Instance line to omit the https:// host entirely,
-  // reusing makeJenStub for auth reachability/job-list plumbing and patching
-  // only the one line the fixture always prints with a parenthesized host.
-  const jenFile = path.join(jen.dir, 'jen');
-  const body = readFileSync(jenFile, 'utf8')
-    .replace(/printf '%s\\n' "Instance:[^\n]*"/, 'printf \'%s\\n\' "Instance:      $slug (no-host-here)"');
-  writeFileSync(jenFile, body);
-  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
-  assert.equal(res.code, 4);
-  assert.equal(res.stdout.trim(), '');
-  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/,
-    'a host-less Instance line must refuse the same way a missing line does, not fall through to a credential lookup');
-  assert.match(res.stderr, /answered an 'Instance:' line that names no \(https:\/\/…\) host/,
-    'the refusal names the cause: the line exists and names no host');
-  assert.doesNotMatch(res.stderr, /did not answer an 'Instance:' line/,
-    'a line that exists must not be reported as missing');
 });
 
 // --- a build can carry more than one lastBuiltRevision action ------------
@@ -4717,9 +4712,9 @@ test('host: run-for-sha matches a sha carried by the second of two lastBuiltRevi
         { lastBuiltRevision: { SHA1: headSha } },
       ] },
   ] });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.equal(row.conclusion, 'SUCCESS', 'the build is found by its SECOND lastBuiltRevision action, not only its first');
@@ -4752,15 +4747,15 @@ test('host: run-for-sha matches the branch-head entry when it is SECOND, and the
   const developSha = '1111111111111111111111111111111111aaaa';
   const headSha = '2222222222222222222222222222222222bbbb';
   const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const headRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(headRes.code, 0, headRes.stderr);
   const row = JSON.parse(headRes.stdout.trim());
   assert.equal(row.sha, headSha, 'the entry whose branch names the asked branch, not the first (merge-base) entry');
 
   const baseRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', developSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(baseRes.code, 0, baseRes.stderr);
   assert.equal(baseRes.stdout.trim(), '', 'the merge-base sha must not match the branch-head lookup');
 });
@@ -4779,16 +4774,16 @@ for (const result of ['SUCCESS', 'FAILURE', 'ABORTED']) {
           { lastBuiltRevision: { SHA1: mergeBaseSha, branch: [{ name: 'origin/develop' }] } },
         ] },
     ] });
-    const bin = makeJenkinsRestBin(builds);
+    makeJenkinsRestBin(jen, builds);
     const headRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha],
-      { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+      { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
     assert.equal(headRes.code, 0, headRes.stderr);
     const row = JSON.parse(headRes.stdout.trim());
     assert.equal(row.sha, headSha, 'the entry whose branch names the asked branch, not the last (merge-base) entry');
     assert.equal(row.conclusion, result);
 
     const baseRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', mergeBaseSha],
-      { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+      { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
     assert.equal(baseRes.code, 0, baseRes.stderr);
     assert.equal(baseRes.stdout.trim(), '', `the merge-base sha must not match the branch-head lookup (${result})`);
   });
@@ -4801,9 +4796,9 @@ test('host: run-for-sha matches a short-hash prefix on the branch-head entry and
   const developSha = '1111111111111111111111111111111111aaaa';
   const headSha = '2222222222222222222222222222222222bbbb';
   const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha.slice(0, 7)],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.equal(row.sha, headSha, 'the full sha of the matched entry, not the prefix asked for');
@@ -4816,9 +4811,9 @@ test('host: runs-for-sha reports the matched sha, not the merge-base entry', () 
   const developSha = '1111111111111111111111111111111111aaaa';
   const headSha = '2222222222222222222222222222222222bbbb';
   const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', headSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const rows = JSON.parse(res.stdout.trim());
   assert.equal(rows.length, 1);
@@ -4832,9 +4827,9 @@ test('host: runs-for-sha does not match a build on its merge-base sha', () => {
   const developSha = '1111111111111111111111111111111111aaaa';
   const headSha = '2222222222222222222222222222222222bbbb';
   const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
-  const bin = makeJenkinsRestBin(builds);
+  makeJenkinsRestBin(jen, builds);
   const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', developSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(JSON.parse(res.stdout.trim()), [], 'a different branch\'s build must not bind to its merge-base sha');
 });
@@ -4858,15 +4853,15 @@ test('host: runs-for-sha on a plain job matches the asked branch\'s entry and no
         { lastBuiltRevision: { SHA1: ownSha, branch: [{ name: 'origin/continuous-deploy' }] } },
       ] },
   ] });
-  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy', branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
   const otherRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', otherSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(otherRes.code, 0, otherRes.stderr);
   const row = JSON.parse(otherRes.stdout.trim());
   assert.equal(row.sha, otherSha, 'the entry named for the asked branch matches');
 
   const ownRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', ownSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(ownRes.code, 0, ownRes.stderr);
   assert.equal(ownRes.stdout.trim(), '', 'a plain job must not match a sha whose entry names only the job\'s own last segment');
 });
@@ -4894,9 +4889,9 @@ test('host: runs-for-sha on a plain job matches a build once despite two lastBui
         { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/feature/other' }] } },
       ] },
   ] });
-  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy', branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['runs-for-sha', 'feature/other', dupSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const rows = JSON.parse(res.stdout.trim());
   assert.equal(rows.length, 1, 'a build with two matching lastBuiltRevision entries must match once, not twice');
@@ -4916,9 +4911,9 @@ test('host: runs-for-sha on a plain job falls back to the last entry when no act
         { lastBuiltRevision: { SHA1: headSha } },
       ] },
   ] });
-  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy', branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/other', headSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.equal(row.sha, headSha, 'with no branch name on any entry, the last entry stands for the head');
@@ -4937,9 +4932,9 @@ test('host: runs-for-sha on a plain job does not fall back to the last record wh
     const builds = JSON.stringify({ builds: [
       { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/', actions },
     ] });
-    const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+    makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy', branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
     return runJenkinsAllowFail(['run-for-sha', 'feature/other', sha],
-      { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+      { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   };
   const merge = ask([
     { lastBuiltRevision: { SHA1: otherSha, branch: [{ name: 'origin/feature/x' }] } },
@@ -4976,14 +4971,14 @@ test('host: runs-for-sha on a plain job binds the first record naming the branch
         { lastBuiltRevision: { SHA1: secondSha, branch: [{ name: 'origin/feature/other' }] } },
       ] },
   ] });
-  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  makeJenkinsRestBin(jen, builds, { job: 'quaweb/continuous-deploy', branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
   const firstRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', firstSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(firstRes.code, 0, firstRes.stderr);
   assert.equal(JSON.parse(firstRes.stdout.trim()).sha, firstSha, 'the first record naming the branch binds the build');
 
   const secondRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', secondSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    { repo, hostStubs, jen, extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(secondRes.code, 0, secondRes.stderr);
   assert.equal(secondRes.stdout.trim(), '', 'the second, disagreeing record does not bind the build');
 });
@@ -5000,10 +4995,8 @@ const jenkinsShaRunsLib = adapter;
 function sourcedJenkinsShaRuns(branch, builds) {
   const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(jenkinsShaRunsLib)}\n`
     + `jenkins_instance() { echo "ci.test/webbloqs/continuous-build-multi"; }\n`
-    + `jenkins_resolve_host() { echo "ci.test"; }\n`
-    + `jenkins_rest_credential() { echo "stub:stub"; }\n`
     + `jenkins_job_url_path() { echo "/job/webbloqs/job/continuous-build-multi"; }\n`
-    + `curl() { printf '%s' '${builds}'; }\n`
+    + `jen() { printf '%s' '${builds}'; }\n`
     + `jenkins_sha_runs runs ${JSON.stringify(branch)} 10 ""`;
   const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   return { code: res.status, stdout: res.stdout, stderr: res.stderr };
@@ -5072,10 +5065,10 @@ test('host: pr-list --rich surfaces a Jenkins sha-lookup failure on stderr rathe
   // A head sha AND a green colour — `rowsToBind` only selects an ambiguous
   // row (green/failing with a head sha) for a sha lookup at all.
   const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/green', 'a'.repeat(40)) });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: null });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, apiMissing: true });
   const res = runJenkinsAllowFail(['pr-list', '--rich'], { repo, hostStubs, jen });
   assert.equal(res.code, 0, 'a failed sha lookup must not blank the PR list');
-  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/,
+  assert.match(res.stderr, /the sha read needs jen 0\.4\.0 or later with `api`/,
     'the lookup failure reaches stderr instead of being discarded');
 });
 
@@ -5097,14 +5090,15 @@ test('host: runs on Jenkins with no instance configured exits 3, naming the thre
 });
 
 test('host: run-for-sha on Jenkins without a credential exits 4, never empty', () => {
-  // THIS TEST ASSERTED `names no commit` UNTIL 2026-09-11. That refusal was
-  // honest for the transport it had — `jen` carries no sha — and what changed
-  // is the transport: `plot-host.sh` now reads Jenkins' REST API at
-  // `actions[].lastBuiltRevision.SHA1`.
+  // THIS TEST ASSERTED `names no commit` UNTIL 2026-09-11, and asserted a
+  // curl-era `no Jenkins API credential` wording UNTIL 2026-11-04. What
+  // changed both times is the transport: `plot-host.sh` now reads Jenkins'
+  // REST API at `actions[].lastBuiltRevision.SHA1` through `jen api`, not a
+  // raw `curl -u` call, and `jen` itself owns the credential.
   //
-  // THE PROPERTY WORTH KEEPING IS THE DIRECTION OF THE FAILURE. Jenkins' REST
-  // API takes basic auth with an API token from the login keychain, which this
-  // sandbox has none of — and an absent credential must answer *cannot be
+  // THE PROPERTY WORTH KEEPING IS THE DIRECTION OF THE FAILURE. A sandbox with
+  // no `jen auth login` cannot reach the REST endpoint — the stub's `api` arm
+  // 404s, same as a signed-out `jen` would — and that must answer *cannot be
   // asked*, never *this branch has no run for the sha*. Silence at exit 0 is
   // the one answer that would cost a merge.
   const repo = makeJenkinsRepo();
@@ -5113,12 +5107,7 @@ test('host: run-for-sha on Jenkins without a credential exits 4, never empty', (
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'abc123'], { repo, hostStubs, jen });
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
-  assert.match(res.stderr, /no Jenkins API credential|names no job path/);
-  // COUNTED ON EVERY `jen` CALL. `run-for-sha` reaches Jenkins by curl against
-  // REST, so it must reach `jen` by no verb at all — a `job view` here would be
-  // the shape probe leaking into a path the plan scoped out explicitly.
-  assert.deepEqual(callsOf(jen.callsFile), [],
-    'the sha route does not go through `jen` at all, which carries no commit');
+  assert.match(res.stderr, /Jenkins did not answer|Plot reaches Jenkins only through `jen`/);
 });
 
 test('host: run-for-sha on Jenkins carries the job path as workflow, so Default branch checks can name it', () => {
@@ -5128,18 +5117,14 @@ test('host: run-for-sha on Jenkins carries the job path as workflow, so Default 
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
   const builds = JSON.stringify({ builds: [
     { number: 7, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/7/',
       actions: [{ lastBuiltRevision: { SHA1: 'asked-sha' } }] },
   ] });
-  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
-  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash\nprintf '%s' '${builds}'\n`);
-  chmodSync(path.join(bin, 'security'), 0o755);
-  chmodSync(path.join(bin, 'curl'), 0o755);
+  makeJenkinsRestBin(jen, builds, { branchSeg: 'feature/red' });
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'asked-sha'], {
     repo, hostStubs, jen,
-    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+    extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
   });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(JSON.parse(res.stdout).workflow, 'webbloqs/continuous-build-multi',
@@ -5153,18 +5138,14 @@ test('host: run-for-sha on Jenkins answers nothing when no build carries the ask
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
   const builds = JSON.stringify({ builds: [
     { number: 7, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/7/',
       actions: [{ lastBuiltRevision: { SHA1: 'other-sha' } }] },
   ] });
-  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
-  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash\nprintf '%s' '${builds}'\n`);
-  chmodSync(path.join(bin, 'security'), 0o755);
-  chmodSync(path.join(bin, 'curl'), 0o755);
+  makeJenkinsRestBin(jen, builds, { branchSeg: 'feature/red' });
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'asked-sha'], {
     repo, hostStubs, jen,
-    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+    extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
   });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.stdout.trim(), '', 'a build for another sha is no run for this one');
@@ -5172,404 +5153,9 @@ test('host: run-for-sha on Jenkins answers nothing when no build carries the ask
   // match rule and not a stub that never reached the filter.
   const hit = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'other-sha'], {
     repo, hostStubs, jen,
-    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+    extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
   });
   assert.equal(JSON.parse(hit.stdout).sha, 'other-sha');
-});
-
-// --- jenkins_rest_credential: environment and .env, beside the keychain -----
-//
-// The keychain is macOS-only — `command -v security` fails outright on every
-// Linux agent and every CI machine, so the credential tests above (which rely
-// on `security` being ABSENT) prove exit 4 there, never a run. These tests
-// pin the two sources that now resolve on such a machine: `JENKINS_USER` /
-// `JENKINS_API_TOKEN` from the environment, and the same pair from the
-// repository's `.env` where `jira_load_env_file` already set the precedent.
-//
-// NO `security` ON PATH in any of these: the bin directory built below holds
-// only `curl`, so a credential that still reached `security` first would fail
-// here exactly as it does on a real Linux box, rather than silently passing
-// because the sandbox's real PATH carries a `security` these tests forgot to
-// hide.
-
-const JENKINS_DOTENV_USER = 'dotenv-jenkins-user';
-const JENKINS_DOTENV_TOKEN = 'dotenv-jenkins-tok-s3cr3t';
-
-// A `curl` stub with no `security` beside it: records argv (one line per
-// invocation) and answers a one-build `builds` body carrying the asked sha,
-// so a case only needs to assert how the credential reached `-u`.
-function makeJenkinsRestStub({ sha = 'abc123' } = {}) {
-  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest2-')));
-  const argvFile = path.join(dir, 'curl.argv');
-  const builds = JSON.stringify({ builds: [
-    { number: 1, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/1/',
-      actions: [{ lastBuiltRevision: { SHA1: sha } }] },
-  ] });
-  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
-printf '%s\\n' "$@" >> "${argvFile}"
-printf '%s' '${builds}'
-`);
-  chmodSync(path.join(dir, 'curl'), 0o755);
-  return { dir, argvFile };
-}
-
-function runJenkinsRest(args, { repo, hostStubs, jen, rest, extraEnv = {} }) {
-  const res = spawnSync('bash', [adapter, ...args], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
-      PLOT_HOST: '',
-      ...extraEnv,
-    },
-  });
-  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
-}
-
-test('host: run-for-sha with no security on PATH reaches curl with the env pair', () => {
-  const repo = makeJenkinsRepo();
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const res = runJenkinsRest(['run-for-sha', 'feature/red', 'abc123'], {
-    repo, hostStubs, jen, rest,
-    extraEnv: { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' },
-  });
-  assert.equal(res.code, 0, res.stderr);
-  assert.equal(JSON.parse(res.stdout).sha, 'abc123');
-  const argv = readFileSync(rest.argvFile, 'utf8');
-  assert.ok(argv.includes('env-user:env-tok'), `the env pair must reach curl -u:\n${argv}`);
-});
-
-test('host: run-for-sha with no security on PATH reads the pair from .env', () => {
-  const repo = makeJenkinsRepo();
-  writeFileSync(path.join(repo, '.env'),
-    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(JSON.parse(res.stdout).sha, 'abc123');
-  const argv = readFileSync(rest.argvFile, 'utf8');
-  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`),
-    `the .env pair must reach curl -u, stripped of quotes/whitespace:\n${argv}`);
-  assert.match(res.stderr, /JENKINS_USER and JENKINS_API_TOKEN read from \.env/);
-});
-
-test('host: a quoted-and-trailed .env value still parses', () => {
-  // The same shape that broke two drafts of the Jira reader: stripping quotes
-  // before whitespace leaves ["tok"] intact on a trailed value, and a quoted
-  // token reaching curl -u is the 401 this read exists to avoid.
-  const repo = makeJenkinsRepo();
-  writeFileSync(path.join(repo, '.env'),
-    `JENKINS_USER="${JENKINS_DOTENV_USER}"   \nJENKINS_API_TOKEN="${JENKINS_DOTENV_TOKEN}"   \n`);
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  const argv = readFileSync(rest.argvFile, 'utf8');
-  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`), `stderr: ${res.stderr}\nargv: ${argv}`);
-});
-
-test('host: only one of JENKINS_USER/JENKINS_API_TOKEN set, in the environment, exits 4', () => {
-  const repo = makeJenkinsRepo();
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub();
-  const env = { ...process.env };
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '', JENKINS_USER: 'only-user' },
-  });
-  assert.equal(res.status, 4, 'a half credential must not reach curl');
-  assert.equal(res.stdout.trim(), '');
-  assert.match(res.stderr, /no Jenkins API credential/);
-  assert.ok(!existsSync(rest.argvFile), 'curl must never be called with a half credential');
-});
-
-test('host: only one of JENKINS_USER/JENKINS_API_TOKEN set, in .env, exits 4', () => {
-  const repo = makeJenkinsRepo();
-  writeFileSync(path.join(repo, '.env'), `JENKINS_USER=${JENKINS_DOTENV_USER}\n`);
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub();
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 4);
-  assert.doesNotMatch(res.stderr, /read from \.env/, 'a half pair is never adopted');
-  assert.ok(!existsSync(rest.argvFile), 'curl must never be called with a half credential');
-});
-
-test('host: the environment wins over a different .env pair', () => {
-  const repo = makeJenkinsRepo();
-  writeFileSync(path.join(repo, '.env'),
-    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const res = runJenkinsRest(['run-for-sha', 'feature/red', 'abc123'], {
-    repo, hostStubs, jen, rest,
-    extraEnv: { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' },
-  });
-  assert.equal(res.code, 0, res.stderr);
-  const argv = readFileSync(rest.argvFile, 'utf8');
-  assert.ok(argv.includes('env-user:env-tok'), 'the exported pair is what is used');
-  assert.ok(!argv.includes(JENKINS_DOTENV_TOKEN), 'the .env file was not read');
-  assert.doesNotMatch(res.stderr, /read from \.env/, 'and nothing claims it was');
-});
-
-test('host: no .env and no security leaves the "cannot be asked" refusal unchanged', () => {
-  const repo = makeJenkinsRepo();
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub();
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 4);
-  assert.match(res.stderr, /no Jenkins API credential/);
-  assert.equal(res.stdout.trim(), '');
-});
-
-test('host: no .env, no security — nothing names the would-be credential', () => {
-  // No test above prints the token either, but this pins the no-source
-  // refusal path specifically: the stderr naming "no Jenkins API credential"
-  // must never widen into echoing what was tried.
-  const repo = makeJenkinsRepo();
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub();
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.ok(!res.stdout.includes(JENKINS_DOTENV_TOKEN));
-  assert.ok(!res.stderr.includes(JENKINS_DOTENV_TOKEN));
-});
-
-test('host: the env pair never prints to stdout or stderr', () => {
-  const repo = makeJenkinsRepo();
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const res = runJenkinsRest(['run-for-sha', 'feature/red', 'abc123'], {
-    repo, hostStubs, jen, rest,
-    extraEnv: { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'super-secret-tok' },
-  });
-  assert.equal(res.code, 0, res.stderr);
-  assert.ok(!res.stdout.includes('super-secret-tok'));
-  assert.ok(!res.stderr.includes('super-secret-tok'));
-});
-
-test('host: the .env pair never prints to stdout or stderr', () => {
-  const repo = makeJenkinsRepo();
-  writeFileSync(path.join(repo, '.env'),
-    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  assert.ok(!res.stdout.includes(JENKINS_DOTENV_TOKEN));
-  assert.ok(!res.stderr.includes(JENKINS_DOTENV_TOKEN));
-  assert.ok(!res.stdout.includes(JENKINS_DOTENV_USER));
-  assert.ok(!res.stderr.includes(JENKINS_DOTENV_USER));
-});
-
-test('host: a source note prints once per call, not once per retry loop', () => {
-  // `jenkins_rest_credential` runs inside `$(...)` at the call site, so a
-  // stderr note must print once per `run-for-sha` call. The REST arm tries the
-  // multibranch path and then the plain path on a miss, which is the loop this
-  // pins against: a note inside that loop would print twice for one call.
-  const repo = makeJenkinsRepo();
-  writeFileSync(path.join(repo, '.env'),
-    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  const notes = res.stderr.split('\n').filter((l) => l.includes('read from .env'));
-  assert.equal(notes.length, 1, `expected exactly one source note, got:\n${res.stderr}`);
-});
-
-// --- a worktree with no .env of its own falls back to the main checkout's ---
-
-// Same shape as `jiraWorktreeRepo`, built on `makeJenkinsRepo`'s Plot Config.
-function makeJenkinsWorktreeRepo({ mainEnv = null, worktreeEnv = null } = {}) {
-  const main = makeJenkinsRepo();
-  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: main });
-  execFileSync('git', ['config', 'user.name', 't'], { cwd: main });
-  execFileSync('git', ['add', 'CLAUDE.md'], { cwd: main });
-  execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: main });
-  if (mainEnv !== null) writeFileSync(path.join(main, '.env'), mainEnv);
-
-  const worktreesParent = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jen-wt-parent-')));
-  const worktree = path.join(worktreesParent, 'wt');
-  execFileSync('git', ['worktree', 'add', '-q', '-b', 'wt-branch', worktree], { cwd: main });
-  if (worktreeEnv !== null) writeFileSync(path.join(worktree, '.env'), worktreeEnv);
-
-  return { main, worktree };
-}
-
-test('host: run-for-sha in a worktree with no .env reads the main checkout\'s, and the source is named', () => {
-  const { worktree } = makeJenkinsWorktreeRepo({
-    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
-  });
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: worktree,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  const argv = readFileSync(rest.argvFile, 'utf8');
-  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`), 'the main checkout\'s pair must reach curl -u');
-  assert.match(res.stderr, /read from the main checkout's \.env/);
-});
-
-test('host: run-for-sha — the worktree\'s own .env wins over the main checkout\'s', () => {
-  const worktreeUser = 'worktree-jenkins-user';
-  const worktreeToken = 'worktree-jenkins-tok';
-  const { worktree } = makeJenkinsWorktreeRepo({
-    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
-    worktreeEnv: `JENKINS_USER=${worktreeUser}\nJENKINS_API_TOKEN=${worktreeToken}\n`,
-  });
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: worktree,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  const argv = readFileSync(rest.argvFile, 'utf8');
-  assert.ok(argv.includes(`${worktreeUser}:${worktreeToken}`), 'the worktree\'s own pair wins');
-  assert.ok(!argv.includes(JENKINS_DOTENV_TOKEN), 'the main checkout\'s .env was not read');
-  assert.match(res.stderr, /read from \.env/);
-  assert.doesNotMatch(res.stderr, /read from the main checkout's \.env/);
-});
-
-test('host: run-for-sha — neither the worktree nor the main checkout has a credential, refusal unchanged', () => {
-  const { worktree } = makeJenkinsWorktreeRepo();
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub();
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: worktree,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 4);
-  assert.match(res.stderr, /no Jenkins API credential/);
-  assert.equal(res.stdout.trim(), '');
-  assert.ok(!existsSync(rest.argvFile), 'curl must never be called with no credential');
-});
-
-test('host: run-for-sha — a worktree .env holding only half a pair falls through to the main checkout\'s complete pair', () => {
-  // The defect fix #2 targets: a worktree-local .env is readable but holds
-  // only ONE of the two vars. Reading file existence alone (the old
-  // plot_env_file) stopped there and never looked at the main checkout's
-  // complete pair underneath it.
-  const { worktree } = makeJenkinsWorktreeRepo({
-    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
-    worktreeEnv: `JENKINS_USER=worktree-only-user\n`,
-  });
-  const hostStubs = makeStubs({ ghJson: '[]' });
-  const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const rest = makeJenkinsRestStub({ sha: 'abc123' });
-  const env = { ...process.env };
-  delete env.JENKINS_USER;
-  delete env.JENKINS_API_TOKEN;
-  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
-    cwd: worktree,
-    encoding: 'utf8',
-    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
-  });
-  assert.equal(res.status, 0, res.stderr);
-  const argv = readFileSync(rest.argvFile, 'utf8');
-  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`),
-    'the main checkout\'s complete pair must be used, skipping the worktree\'s partial one');
-  assert.match(res.stderr, /read from the main checkout's \.env/);
-});
-
-test('host: plot_env_file resolves the main checkout absolutely from a subdirectory of a worktree', () => {
-  // Fix #3: `--git-common-dir` with no `--path-format=absolute` can answer a
-  // path relative to cwd rather than to the repo root. Called from two levels
-  // below the worktree root, the main checkout's .env must still resolve.
-  const { main, worktree } = makeJenkinsWorktreeRepo({
-    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
-  });
-  const nested = path.join(worktree, 'a', 'b');
-  mkdirSync(nested, { recursive: true });
-  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(adapter)}\n`
-    + `plot_env_file JENKINS_USER JENKINS_API_TOKEN`;
-  const res = spawnSync('bash', ['-c', script], { cwd: nested, encoding: 'utf8' });
-  assert.match(res.stdout, /\|the main checkout's $/, `must resolve the main checkout's .env, got: ${JSON.stringify(res.stdout)}`);
-  const envFile = res.stdout.split('|')[0];
-  assert.ok(path.isAbsolute(envFile), `the resolved .env path must be absolute, got: ${envFile}`);
-  assert.ok(envFile.endsWith(path.join(path.basename(main), '.env')),
-    `the path must point at the main checkout, not the worktree: ${envFile}`);
 });
 
 // --- runs-for-sha: every run for one sha --------------------------------------
@@ -5662,7 +5248,6 @@ test('host: runs-for-sha on Jenkins prints every build of the sha, with the host
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
   const builds = JSON.stringify({ builds: [
     { number: 9, result: null, building: true, timestamp: 1790000100000, url: 'https://ci.test/9/',
       actions: [{ lastBuiltRevision: { SHA1: 'asked-sha' } }] },
@@ -5671,13 +5256,10 @@ test('host: runs-for-sha on Jenkins prints every build of the sha, with the host
     { number: 7, result: 'SUCCESS', building: false, timestamp: 1780000000000, url: 'https://ci.test/7/',
       actions: [{ lastBuiltRevision: { SHA1: 'other-sha' } }] },
   ] });
-  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
-  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash\nprintf '%s' '${builds}'\n`);
-  chmodSync(path.join(bin, 'security'), 0o755);
-  chmodSync(path.join(bin, 'curl'), 0o755);
+  makeJenkinsRestBin(jen, builds, { branchSeg: 'feature/red' });
   const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'asked-sha'], {
     repo, hostStubs, jen,
-    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+    extraEnv: { PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
   });
   assert.equal(res.code, 0, res.stderr);
   const out = JSON.parse(res.stdout);

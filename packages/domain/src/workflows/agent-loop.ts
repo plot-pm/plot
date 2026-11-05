@@ -774,6 +774,27 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
 
   // ROW 7 — the prompt never started.
   if (exit !== null && exit.answer === 'unstarted') {
+    if (exit.refused !== undefined) {
+      return end(
+        worktree,
+        branch,
+        'unstarted',
+        'agent',
+        'the prompt was refused at launch',
+        1,
+        [
+          {
+            kind: 'blocked-marker',
+            worktree,
+            branch,
+            question: `PLOT-BLOCKED: the prompt never started on \`${branch}\`: ${exit.refused} — a person decides what to fix.`,
+            author: 'loop',
+          },
+          blockedDeclaration(worktree, branch, 'the prompt was refused at launch'),
+        ],
+        readings.checksResumeId,
+      );
+    }
     if (readings.startRetries < readings.maxStartRetries) {
       return decide(
         'agent-loop',

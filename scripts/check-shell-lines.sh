@@ -115,6 +115,7 @@ report() { # <label> <before-rev> <before-desc> <named-in-failure>
   if [ "$after" -gt "$before" ]; then
     echo "check-shell-lines: $((after - before)) lines over $3 ($4)." >&2
     echo "  A line counts once per command. Joining statements with ';' or '&&', or folding 'fi' or 'done' onto the line before, is not a payment." >&2
+    [ "$1" = pr ] && echo "  If $4 is stale, the $3 is older than the real fork point and this count can include growth that landed on the default branch. Run 'git fetch --no-tags origin ${4#refs/remotes/origin/}' and re-run this gate before you remove any shell." >&2
     echo "  The shell under skills/ may shrink and may not grow. Pay for the growth in one of two ways:" >&2
     echo "    - remove at least $((after - before)) lines of shell elsewhere in this same change, or" >&2
     echo "    - write the rule in packages/domain and ask it through a bundle (docs/shell-and-domain.md)." >&2

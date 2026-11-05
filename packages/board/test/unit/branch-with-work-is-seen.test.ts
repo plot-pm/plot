@@ -129,15 +129,17 @@ describe('a branch with work on it is visible', () => {
     expect(build().find((r) => r.branch === 'bug/commits-only')!.group).not.toBe('not-started');
   });
 
-  it('sends a recently-pushed branch with no plan to WAITING ON YOU as abandoned', () => {
+  it('sends a recently-pushed branch with no plan to QUIET as abandoned', () => {
     // The arm written for this population: real commits, no PR, nobody on it —
     // revive it or drop it. The age is said second, and here it is 12 minutes.
+    // Operator decision B (2026-11-03) moved this placement from WAITING ON
+    // YOU to QUIET, reversing #1758/#1902.
     //
     // THE VOLUME CONCERN THIS TEST USED TO GUARD — ~31 branches swamping the
     // section — is a count of branches the fleet could not place in a plan.
     // Measured on the live board 2026-09-24: 2 plan-less rows, both DONE.
     const row = build().find((r) => r.branch === 'bug/commits-only')!;
-    expect(row.group).toBe('waiting-on-you');
+    expect(row.group).toBe('quiet');
     expect(row.note).toBe('commits, no PR ever opened — last commit 12 min ago');
   });
 
@@ -159,7 +161,7 @@ describe('a branch with work on it is visible', () => {
     // months old: not in flight, abandoned, and the board is the place that
     // says so.
     const row = build().find((r) => r.branch === 'docs/long-abandoned')!;
-    expect(row.group).toBe('waiting-on-you');
+    expect(row.group).toBe('quiet');
     expect(row.note).toMatch(/commits, no PR ever opened/);
   });
 

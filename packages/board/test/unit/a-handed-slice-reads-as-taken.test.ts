@@ -53,10 +53,11 @@ describe('a slice handed to one live agent reads WORKING, with the hand-over not
 
   it('moves the orphaned claim past the quiet window', () => {
     // 45 minutes against a 30-minute window — `classifyGroup` has already read
-    // this as an orphaned claim in WAITING ON YOU. A `not-started`-only rule
-    // leaves this case contradicting WORKING, which is why the plan names it.
+    // this as an orphaned claim in QUIET (operator decision B, 2026-11-03). A
+    // `not-started`-only rule leaves this case contradicting WORKING, which is
+    // why the plan names it.
     const r = only(row({
-      state: 'claimed', group: 'waiting-on-you', pr: null, ageMinutes: 45,
+      state: 'claimed', group: 'quiet', pr: null, ageMinutes: 45,
       note: 'claimed, no work committed — claimed 45 min ago · claimed elsewhere',
     }), [agent()]);
     expect(r.group).toBe('working');
@@ -103,6 +104,19 @@ describe('a slice handed to two live agents at once is a fault for a person', ()
     ]);
     expect(r.note).toBe('handed to 2 agents at once');
   });
+
+  it('moves an orphaned claim in QUIET to WAITING ON YOU when two agents hold it', () => {
+    // The fault outranks the quiet placement: two live sessions on one branch
+    // is a person's problem regardless of which section the claim's age alone
+    // would have named.
+    const r = only(row({
+      state: 'claimed', group: 'quiet', pr: null, ageMinutes: 45,
+      note: 'claimed, no work committed — claimed 45 min ago · claimed elsewhere',
+    }), [agent(), agent({ session: '4b603822', state: 'waiting' })]);
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe('handed to 2 agents at once');
+    expect(r.startability).toBe('someone-is-on-it');
+  });
 });
 
 describe('absence is not falsehood — #1090 holds wherever the registry says nothing', () => {
@@ -118,7 +132,7 @@ describe('absence is not falsehood — #1090 holds wherever the registry says no
 
   it('leaves the orphaned claim no agent names', () => {
     const before = row({
-      state: 'claimed', group: 'waiting-on-you', pr: null, ageMinutes: 45,
+      state: 'claimed', group: 'quiet', pr: null, ageMinutes: 45,
       note: 'claimed, no work committed — claimed 45 min ago · claimed elsewhere',
     });
     expect(only(before, [])).toEqual(before);
@@ -178,7 +192,7 @@ describe('the rule moves nothing it was not asked to move', () => {
     // the branch, `classifyGroup`'s answer is the better one and this rule must
     // not overwrite the note it composed.
     const before = row({
-      state: 'claimed', group: 'waiting-on-you', pr: null, ageMinutes: 45,
+      state: 'claimed', group: 'quiet', pr: null, ageMinutes: 45,
       worker: 'waiting', note: 'the worker asked a question',
     });
     expect(only(before, [agent({ state: 'waiting' })])).toEqual(before);

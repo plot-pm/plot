@@ -155,3 +155,72 @@ test('exclude_bundle_paths: an empty bundle set excludes nothing', () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /x\.ts/);
 });
+
+const WORKER_FILES = [
+  '.plot-worker.pid',
+  '.plot-worker.wrapper.pid',
+  '.plot-worker.exit',
+  '.plot-worker.log',
+  '.plot-worker.freewait',
+  '.plot-worker.ending.json',
+  '.plot-worker.envelope.json',
+  '.plot-worker.monitor.worker.jsonl',
+  '.plot-worker.monitor.agent.jsonl',
+  '.plot-worker.monitor.build.jsonl',
+];
+
+for (const name of WORKER_FILES) {
+  test(`desk_dirt: a desk holding only ${name} reads clean`, () => {
+    const dir = repo();
+    // A global ignore file (`*.log`) must not hide the file from the precondition.
+    execFileSync('git', ['-C', dir, 'config', 'core.excludesFile', '/dev/null']);
+    writeFileSync(path.join(dir, name), 'worker bookkeeping\n');
+    assert.match(execFileSync('git', ['-C', dir, 'status', '--porcelain'], { encoding: 'utf8' }),
+      new RegExp(`\\?\\? ${name.replaceAll('.', '\\.')}`), 'precondition: git reports the file as untracked');
+    const r = call('desk_dirt', dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), '', `${name} alone is not unlanded work:\n${r.stdout}`);
+  });
+}
+
+test('desk_dirt: the full file set of a dead worker reads clean', () => {
+  const dir = repo();
+  for (const name of ['.plot-worker.ending.json', '.plot-worker.envelope.json', '.plot-worker.exit',
+    '.plot-worker.monitor.worker.jsonl', '.plot-worker.monitor.agent.jsonl', '.plot-worker.continue.md',
+    '.plot-worker.pid']) {
+    writeFileSync(path.join(dir, name), 'x\n');
+  }
+  const r = call('desk_dirt', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '', `a dead worker's own files are not unlanded work:\n${r.stdout}`);
+});
+
+test('desk_dirt: a nested docs/.plot-worker.exit still reads dirty', () => {
+  const dir = repo();
+  // A tracked sibling keeps git from collapsing the untracked file into `?? docs/`.
+  mkdirSync(path.join(dir, 'docs'));
+  writeFileSync(path.join(dir, 'docs', 'a.md'), 'a\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, 'commit', '-qm', 'docs']);
+  writeFileSync(path.join(dir, 'docs', '.plot-worker.exit'), 'x\n');
+  const r = call('desk_dirt', dir);
+  assert.match(r.stdout, /docs\/\.plot-worker\.exit/, `a nested copy must still be named:\n${r.stdout}`);
+});
+
+test('desk_dirt: a tracked, modified .plot-worker.exit still reads dirty', () => {
+  const dir = repo();
+  writeFileSync(path.join(dir, '.plot-worker.exit'), 'one\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, 'commit', '-qm', 'track it']);
+  writeFileSync(path.join(dir, '.plot-worker.exit'), 'two\n');
+  const r = call('desk_dirt', dir);
+  assert.match(r.stdout, /\.plot-worker\.exit/, `a tracked change must still be named:\n${r.stdout}`);
+});
+
+test('desk_dirt: a staged .plot-worker.ending.json still reads dirty', () => {
+  const dir = repo();
+  writeFileSync(path.join(dir, '.plot-worker.ending.json'), '{}\n');
+  execFileSync('git', ['-C', dir, 'add', '.plot-worker.ending.json']);
+  const r = call('desk_dirt', dir);
+  assert.match(r.stdout, /\.plot-worker\.ending\.json/, `a staged copy must still be named:\n${r.stdout}`);
+});

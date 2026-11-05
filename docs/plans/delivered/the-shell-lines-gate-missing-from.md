@@ -1,0 +1,1 @@
+../2026-11-04-the-shell-lines-gate-missing-from.md

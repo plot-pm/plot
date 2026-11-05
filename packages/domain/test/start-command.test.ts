@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
-import { startCommand, type LoopScript } from '../src/rules/start-command.js';
+import { startCommand as ask, type LoopScript, type PromptReading, type StartingAgent } from '../src/rules/start-command.js';
 
 /** The loop as `plot-dispatch.sh` names it; the rule itself names no script. */
 const LOOP: LoopScript = {
   name: 'plot-worker-loop.sh',
   command: 'PLOT_UNATTENDED=1 plot-worker-loop.sh',
 };
+
+/** A present fallback prompt on the command runner: the reading the existing cases assume. */
+const PRESENT: PromptReading = {
+  runner: 'command',
+  resolution: { resolve: 'fallback', prompt: '.plot/worker-prompt.sh', why: 'no agent named' },
+  present: true,
+};
+
+const startCommand = (c: string, l: LoopScript, a: StartingAgent, p: PromptReading = PRESENT) => ask(c, l, a, p);
 
 /** The measured command from #1124. */
 const PLAIN = 'claude -p "Implementiere den Branch in $PLOT_BRANCH nach dem Plan" --session-id "$PLOT_SESSION_ID"';
@@ -80,6 +89,56 @@ describe('startCommand', () => {
       ['a different script', 'skills/plot/scripts/plot-worker-loop.bash'],
     ])('refuses %s for a free agent', (_label, configured) => {
       expect(startCommand(configured, LOOP, 'free').start).toBe('refused');
+    });
+  });
+
+  describe('the prompt file', () => {
+    const LOOPING = 'PLOT_UNATTENDED=1 plot-worker-loop.sh';
+    const absent: PromptReading = { ...PRESENT, present: false };
+
+    it('refuses a command-runner loop whose fallback prompt is absent, naming the file and the installer', () => {
+      for (const agent of ['free', 'assigned'] as const) {
+        const answer = startCommand(LOOPING, LOOP, agent, absent);
+        expect(answer.start).toBe('refused');
+        if (answer.start !== 'refused') return;
+        expect(answer.why).toContain('.plot/worker-prompt.sh');
+        expect(answer.repair).toContain('plot-install-prompt.sh');
+      }
+    });
+
+    it('runs when the file is present, stale or not', () => {
+      expect(startCommand(LOOPING, LOOP, 'free', PRESENT)).toEqual({ start: 'run', command: LOOPING });
+    });
+
+    it('runs on the sdk runner whatever present says', () => {
+      expect(startCommand(LOOPING, LOOP, 'free', { ...absent, runner: 'sdk' })).toEqual({ start: 'run', command: LOOPING });
+    });
+
+    it('refuses a declared prompt that is absent, naming its path and its charter', () => {
+      const answer = startCommand(LOOPING, LOOP, 'free', {
+        runner: 'command',
+        resolution: { resolve: 'declared', prompt: '.plot/prompts/x.sh', charter: 'x' },
+        present: false,
+      });
+      expect(answer.start).toBe('refused');
+      if (answer.start !== 'refused') return;
+      expect(answer.why).toContain('.plot/prompts/x.sh');
+      expect(answer.repair).toContain("charter 'x'");
+    });
+
+    it('refuses a refused resolution with the charter\'s why', () => {
+      const answer = startCommand(LOOPING, LOOP, 'free', {
+        runner: 'command',
+        resolution: { resolve: 'refused', why: "charter 'x' not JSON" },
+        present: true,
+      });
+      expect(answer.start === 'refused' && answer.why).toBe("charter 'x' not JSON");
+    });
+
+    it('reads no prompt for an absent key, `none`, or an assigned command that is not the loop', () => {
+      expect(startCommand('', LOOP, 'free', absent).start).toBe('unconfigured');
+      expect(startCommand('none', LOOP, 'free', absent).start).toBe('declined');
+      expect(startCommand(PLAIN, LOOP, 'assigned', absent)).toEqual({ start: 'run', command: PLAIN });
     });
   });
 });

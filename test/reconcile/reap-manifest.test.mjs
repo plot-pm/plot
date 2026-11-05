@@ -360,3 +360,33 @@ test('a repo with no Agent registry key still reaps, from .plot/agents', () => {
 
   assert.ok(!fs.existsSync(file), 'the default directory is resolved too');
 });
+
+test("a merged desk holding only the dead worker's own files is reaped with its manifest", () => {
+  const { repo, registryDir } = makeRepo();
+  const wt = worktree(repo, 'feature/bookkeeping');
+  for (const name of ['.plot-worker.ending.json', '.plot-worker.envelope.json', '.plot-worker.exit',
+    '.plot-worker.monitor.worker.jsonl', '.plot-worker.monitor.agent.jsonl', '.plot-worker.continue.md']) {
+    fs.writeFileSync(path.join(wt, name), 'x\n');
+  }
+  const file = manifest(registryDir, 'sess-bookkeeping', wt);
+
+  const out = run(repo, '--yes');
+
+  assert.match(out, /reaped\s+feature\/bookkeeping/, `expected a reap:\n${out}`);
+  assert.match(out, /manifest cleared/, `expected the manifest row:\n${out}`);
+  assert.ok(!fs.existsSync(wt), 'the desk directory is gone');
+  assert.ok(!fs.existsSync(file), 'the manifest is gone with it');
+});
+
+test('a desk with a live recorded pid keeps with worker alive', () => {
+  const { repo, registryDir } = makeRepo();
+  const wt = worktree(repo, 'feature/alive');
+  fs.writeFileSync(path.join(wt, '.plot-worker.exit'), 'x\n');
+  const file = manifest(registryDir, 'sess-alive', wt, { pid: String(process.pid) });
+
+  const out = run(repo, '--yes');
+
+  assert.match(out, /keep\s+feature\/alive.*worker alive/, `expected a live-worker keep:\n${out}`);
+  assert.ok(fs.existsSync(wt), 'the desk stays');
+  assert.ok(fs.existsSync(file), 'the manifest stays');
+});

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Issue:** #3064
 - **Sprint:** follow-ups-2-30-1
@@ -14,6 +14,8 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3067 merged
 - **Started:** 2026-11-03, Jan Wloka, `feature/fleetd-starts-the-unblocker`
 - **Started:** 2026-11-04, Jan Wloka, `bug/an-answer-records-its-true-author`
+- **Started:** 2026-11-05, Jan Wloka, `feature/an-escalated-question-reaches-the-issue`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 
@@ -74,7 +76,7 @@ The charter adds "never widen the scope guard" and "never tell the desk to weake
 
 **An escalation reaches the plan's issue.** For an `escalated <reason>` row, fleetd posts one comment on the issue named by the plan's `Issue:` line through `Tracker.issueComment` (`ports/tracker.ts:481`). The comment holds the question, the reason and the branch, and passes a marker keyed on the desk and `askedAt`, so a repeated post edits the comment rather than adding a second one. `PLOT-BLOCKED` stays on the desk. The board's *Waiting on you* row for that desk shows the reason. A plan with no `Issue:` line, or a tracker that answers `unaskable` or `failed`, posts nothing and logs one line naming why; the ladder still notifies.
 
-**The record names the true author.** `continuation.ts:1502` no longer defaults to `'unblocker'`. The applier passes `unblocker`. The board's continue route passes the `author` its request names, and `plot-continue-command.mjs` takes `--who <handle>`. A call that names no author records `unknown`. `continueOnDesk` refuses `already-answered` when the question key already holds an `answered` or `started` row.
+**The record names the true author.** `continuation.ts` no longer defaults to `'unblocker'`. The applier passes `unblocker`. The board's continue control sends `author: "board"`, and the board's continue route records the request's `author`, trimmed, or `board` when the request names none or a blank one. `plot-continue-command.mjs` takes `--who <handle>` and refuses a missing, empty or blank handle with its usage error. A call that names no author records `unknown`. The caller asserts the author, and nothing verifies it. `continueOnDesk` refuses no start for an `answered` or `started` row on the question key. It always starts the agent, and under the continuation lock, at the append site, it skips the `answered` row when the key already holds one. `continueOnDesk` never deletes `PLOT-BLOCKED` and `askedAt` is that marker's modification time, so a refusal would leave a desk whose agent ended before it deleted the marker unable to be continued by anyone.
 
 ### Open Questions
 
@@ -116,7 +118,7 @@ Slice 3:
 
 ### An escalation reaches the issue
 
-- `feature/an-escalated-question-reaches-the-issue` — an `escalated <reason>` row posts one comment on the plan's issue through `Tracker.issueComment`, and the desk's *Waiting on you* row shows the reason <!-- builds: escalation issue comment, waiting row reason -->
+- `feature/an-escalated-question-reaches-the-issue` — an `escalated <reason>` row posts one comment on the plan's issue through `Tracker.issueComment`, and the desk's *Waiting on you* row shows the reason <!-- builds: escalation issue comment, waiting row reason --> → #3151
 
 ## Notes
 

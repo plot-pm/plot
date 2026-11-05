@@ -450,7 +450,7 @@ describe('runWorkerLoop on the SDK runner — how a run ends', () => {
     expect(logs.join('\n')).toContain('refusing to launch — charter x unreadable');
 
     const noFile = rig([ran('blocked')], async () => ({ passed: true }));
-    noFile.deps = { ...noFile.deps, resolvePrompt: () => 'fallback\t\tx' };
+    noFile.deps = { ...noFile.deps, resolvePrompt: () => 'fallback\t\tx', promptExists: () => false };
     expect(await runWorkerLoop(noFile.deps)).toBe(0);
     expect(noFile.requests).toHaveLength(1);
   });

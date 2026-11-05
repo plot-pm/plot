@@ -1591,10 +1591,19 @@ export function SliceRow({
  * nothing new may be built on matching prose. `startability` is the field that
  * carries this answer, so this asks it.
  *
+ * A QUIET ROW WITH A KIND IS THE ONE EXCEPTION, and it is the opposite
+ * population from the one above: `abandoned` and `orphaned-claim` read
+ * `someone-is-on-it` is false for them — nobody is on a QUIET row — but
+ * `stateStatus` already prints their kind word in slot 5, and their note
+ * (*commits, no PR ever opened*, *claimed, no work committed*) is not a
+ * duplicate of it. So this keeps the note wherever `group === 'quiet'` and
+ * `quietKind` is set, before asking `startability` at all.
+ *
  * @param row - the row about to render its note.
  * @returns the note, or "" where the row's startability contradicts it.
  */
 export function startableNote(row: AgentRow): string {
+  if (row.group === 'quiet' && row.quietKind) return row.note;
   return row.startability === 'someone-is-on-it' ? '' : row.note;
 }
 

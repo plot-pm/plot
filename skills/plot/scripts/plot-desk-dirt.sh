@@ -48,6 +48,20 @@
 #                             repository's `.gitignore` does not name it.
 #                             Matched the same way, whole line and untracked
 #                             form only.
+#   ?? .plot-worker.<name>    ten files the dispatch wrapper and its monitors
+#                             write at the desk root: `pid`, `wrapper.pid`,
+#                             `exit`, `log`, `freewait`, `ending.json`,
+#                             `envelope.json`, `monitor.worker.jsonl`,
+#                             `monitor.agent.jsonl`, `monitor.build.jsonl`.
+#                             A merged desk holding only these has nothing an
+#                             agent still reads. Matched as a whole line, untracked
+#                             form only: a tracked, staged or nested copy counts.
+#                             NARROW BY DESIGN. The other three readers excuse the
+#                             prefix `(^|/)\.plot-worker\.`; this one lists names,
+#                             because it sits in front of `git worktree remove
+#                             --force` and deletes whatever it excuses. Not listed:
+#                             `.plot-worker.limited`, `.plot-worker.continue.lock`
+#                             (a continuation may still run) and `.plot-worker.log.1`.
 #   each generated bundle     `main` rebuilds and pushes every one of them
 #                             (`bug/main-builds-its-bundles`, #1249), so a desk
 #                             that locally rebuilt one to test holds nothing an
@@ -114,7 +128,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
 desk_dirt() {
   git -C "$1" status --porcelain 2>/dev/null \
     | grep -v 'tiny-garden/\.plot/state' \
-    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt') \
+    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl') \
     | exclude_bundle_paths "$1" \
     || true
 }

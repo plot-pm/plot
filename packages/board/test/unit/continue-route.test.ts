@@ -23,7 +23,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { writeGate } from '../../src/server/write-gate.js';
-import { handleContinue } from '../../src/server/continue.js';
+import { boardAnswerAuthor, handleContinue } from '../../src/server/continue.js';
 import type { ContinueDeps } from '../../src/server/continue.js';
 import {
   CONTINUATION_ENV,
@@ -32,7 +32,7 @@ import {
   stopAndAwaitExit,
   type ContinueRefusal,
 } from '@plot-pm/fleet/shared/continuation';
-import type { FleetReading } from '@plot-pm/domain';
+import { isAnswered, type FleetReading } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
 import { record, signalOwn } from '../../../../test/reconcile/own-process.mjs';
 import {
@@ -41,6 +41,8 @@ import {
   runLogFixture,
   transcriptDirFor,
   TRANSCRIPT_HOME_ENV,
+  ANSWER_RECORD_HOME_ENV,
+  answerRecordFile,
 } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '@plot-pm/fleet/server/entry/registryd-main';
@@ -402,6 +404,49 @@ describe('answering starts a NEW run', () => {
     await post({ branch: BRANCH, answer: 'go' }, deps(wt), wt);
     const log = fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8');
     assert.ok(log.includes('the previous run said this'), 'the previous log must survive');
+  });
+});
+
+describe('the author a board answer records', () => {
+  it('reads a non-blank author from the body, trimmed, and the board word otherwise', () => {
+    assert.equal(boardAnswerAuthor('jwloka'), 'jwloka');
+    assert.equal(boardAnswerAuthor('  jwloka '), 'jwloka');
+    assert.equal(boardAnswerAuthor(undefined), 'board');
+    assert.equal(boardAnswerAuthor(''), 'board');
+    assert.equal(boardAnswerAuthor('   '), 'board');
+    assert.equal(boardAnswerAuthor(42), 'board');
+  });
+
+  const authorOfPost = async (body: Record<string, unknown>): Promise<string | undefined> => {
+    const wt = worktree();
+    dirs.push(wt);
+    const recordHome = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-answer-record-'));
+    dirs.push(recordHome);
+    const previousRecordHome = process.env[ANSWER_RECORD_HOME_ENV];
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+    try {
+      const out = await post({ branch: BRANCH, answer: 'use the existing endpoint', ...body }, deps(wt), wt);
+      assert.equal(out.status, 202);
+    } finally {
+      if (previousRecordHome === undefined) delete process.env[ANSWER_RECORD_HOME_ENV];
+      else process.env[ANSWER_RECORD_HOME_ENV] = previousRecordHome;
+    }
+    const rows = await answerRecordFile({ home: recordHome }).rowsForDesk(wt);
+    assert.ok(isAnswered(rows));
+    assert.equal(rows.value.length, 1);
+    return rows.value[0]?.author;
+  };
+
+  it('records the body\'s author on the answered row', async () => {
+    assert.equal(await authorOfPost({ author: 'jwloka' }), 'jwloka');
+  });
+
+  it('records `board` for a body with no author, never `unknown`', async () => {
+    assert.equal(await authorOfPost({}), 'board');
+  });
+
+  it('records `board` for the body the board\'s own control sends', async () => {
+    assert.equal(await authorOfPost({ author: 'board' }), 'board');
   });
 });
 
@@ -1304,30 +1349,47 @@ describe('two concurrent continuations on one desk — #1357', () => {
     // manifest and both spawn — this is the shared starting line the brief
     // asks for, built with `onLocked` rather than real concurrency so the
     // interleaving is deterministic.
+    //
+    // The duplicate-row check reads the answer record, which without this
+    // override resolves its directory via a `git rev-parse` subprocess on
+    // every call — real latency the 10 ms budget below does not otherwise
+    // need to absorb.
+    const recordHome = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-answer-record-'));
+    dirs.push(recordHome);
+    const previousRecordHome = process.env[ANSWER_RECORD_HOME_ENV];
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+
     let firstLocked = false;
     let releaseSecond: (() => void) | undefined;
     const second = new Promise<void>((resolve) => {
       releaseSecond = resolve;
     });
 
-    const first = continueOnDesk({
-      ...input(wt, dir),
-      onLocked: async () => {
-        firstLocked = true;
-        // Hold the lock until the second call has had its chance to take it.
-        await new Promise((r) => setTimeout(r, 50));
-      },
-    });
-    // Give the first call a moment to take the lock before the second tries.
-    await new Promise((r) => setTimeout(r, 10));
-    assert.equal(firstLocked, true, 'the first call must reach the lock before the second starts');
-    const secondResult = await continueOnDesk({
-      ...input(wt, dir),
-      onLocked: async () => releaseSecond?.(),
-    });
-    void second;
+    let firstResult: Awaited<ReturnType<typeof continueOnDesk>>;
+    let secondResult: Awaited<ReturnType<typeof continueOnDesk>>;
+    try {
+      const first = continueOnDesk({
+        ...input(wt, dir),
+        onLocked: async () => {
+          firstLocked = true;
+          // Hold the lock until the second call has had its chance to take it.
+          await new Promise((r) => setTimeout(r, 50));
+        },
+      });
+      // Give the first call a moment to take the lock before the second tries.
+      await new Promise((r) => setTimeout(r, 10));
+      assert.equal(firstLocked, true, 'the first call must reach the lock before the second starts');
+      secondResult = await continueOnDesk({
+        ...input(wt, dir),
+        onLocked: async () => releaseSecond?.(),
+      });
+      void second;
 
-    const firstResult = await first;
+      firstResult = await first;
+    } finally {
+      if (previousRecordHome === undefined) delete process.env[ANSWER_RECORD_HOME_ENV];
+      else process.env[ANSWER_RECORD_HOME_ENV] = previousRecordHome;
+    }
 
     const results = [firstResult, secondResult];
     const started = results.filter((r) => r.kind === 'started');
