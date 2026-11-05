@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3131 merged
 - **Started:** 2026-11-05, Jan Wloka, `feature/a-missing-plot-worker-prompt-sh-start`
+- **Started:** 2026-11-05, Jan Wloka, `feature/a-missing-plot-worker-prompt-sh-line`
 
 ## Changelog
 
