@@ -759,16 +759,16 @@ wait_bound=30
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --status) mode=status ;;
-    --once)   mode=once ;;
-    # Only a bare number is consumed, the same rule `plot-dispatch.sh --start`
-    # applies, so `--start --dry-run` means what it reads as.
-    --start)  mode=start
-              case "${2:-}" in
-                ''|*[!0-9]*) ;;
-                *) start_count="$2"; shift ;;
+    # Two DIFFERENT mode flags refuse; the same flag twice is one mode.
+    # Only a bare number after --start is consumed, the same rule
+    # `plot-dispatch.sh --start` applies, so `--start --dry-run` means what it reads as.
+    --status|--once|--start|--stop)
+              [ -z "$mode" ] || [ "$mode" = "${1#--}" ] || { echo "plot-fleetctl: --$mode and $1 are different modes; give one; nothing was done" >&2; exit 1; }
+              mode=${1#--}
+              case "$1:${2:-}" in
+                --start:|--start:*[!0-9]*) ;;
+                --start:*) start_count="$2"; shift ;;
               esac ;;
-    --stop)   mode=stop ;;
     --wait)   wait_bound="${2:?--wait needs a value}"
               case "$wait_bound" in
                 ''|*[!0-9]*) echo "plot-fleetctl: --wait needs a number, got '$wait_bound'" >&2; exit 1 ;;
