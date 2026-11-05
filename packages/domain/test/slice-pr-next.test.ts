@@ -539,14 +539,14 @@ describe('the merge arm', () => {
     });
 
     it('admits the revert PR the open episode names from bug/revert-<pr>', () => {
-      const record = { ...(repairMerge().record as object), repairPr: undefined, revertPr: 7 } as RepairMergeReading['record'];
+      const record = { ...(repairMerge().record as object), repairPr: undefined, revertPr: 7, revertedPr: 6 } as RepairMergeReading['record'];
       expect(onRed({ repairMerge: repairMerge({ record }) }, 'bug/revert-6')).toEqual({ step: 'merge', head: HEAD });
     });
 
     it('holds the admitted repair and revert PRs to the same merger check', () => {
       expect(onRed({ backend: 'github', mergerApp: { read: 'absent' } })).toEqual({ step: 'hold', reason: 'merger-app-missing' });
       expect(onRed({ backend: 'github', mergerApp: { read: 'usable' } })).toEqual({ step: 'merge', head: HEAD });
-      const record = { ...(repairMerge().record as object), repairPr: undefined, revertPr: 7 } as RepairMergeReading['record'];
+      const record = { ...(repairMerge().record as object), repairPr: undefined, revertPr: 7, revertedPr: 6 } as RepairMergeReading['record'];
       expect(
         onRed({ repairMerge: repairMerge({ record }), backend: 'github', mergerApp: { read: 'absent' } }, 'bug/revert-6'),
       ).toEqual({ step: 'hold', reason: 'merger-app-missing' });

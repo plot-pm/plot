@@ -215,9 +215,13 @@ export const episodeOpen = (
  * - The reading is too old for {@link defaultBranchRed}: `hold`. This gates
  *   every later answer, `revert` included: a stale reading never reverts.
  * - `idle` or `rerun`: reads {@link RedMainStepInput.rerunSettled} for the
- *   first red SHA's re-run — `'none'`/`'pending'` holds `await-rerun`;
- *   `'green'` answers `close-prs` (the episode ends with no agent); `'red'`
- *   moves to `start-repair`.
+ *   first red SHA's re-run — `'none'`/`'pending'` holds `await-rerun`; `'red'`
+ *   moves to `start-repair`. `'green'` answers `close-prs` only while the
+ *   settled reading is green. With the settled reading red, a settled commit
+ *   after the first red SHA answers `start-repair` (a flake on the first red
+ *   SHA does not clear a later red); the first red SHA itself answers
+ *   `await-rerun`, because two readings of one commit disagree for one beat
+ *   and neither starts an agent nor closes the episode.
  * - `repairing`: `await-repair` while the attempt is in flight and the bound
  *   has not passed; `start-repair` if no attempt is recorded yet.
  * - `reverting`: `exhausted` once a revert PR is already recorded (one
@@ -252,7 +256,10 @@ export const redMainStep = (
   }
 
   if (record.state === 'idle' || record.state === 'rerun') {
-    if (input.rerunSettled === 'green') return 'close-prs';
+    if (input.rerunSettled === 'green') {
+      if (reading.settled.state === 'green') return 'close-prs';
+      return reading.settled.sha === record.firstRedSha ? 'await-rerun' : 'start-repair';
+    }
     if (input.rerunSettled === 'red') return 'start-repair';
     return 'await-rerun';
   }

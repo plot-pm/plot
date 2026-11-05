@@ -77,13 +77,15 @@ describe('mainRepairBranchOf', () => {
 
 describe('isRevertBranch', () => {
   it.each([
-    ['bug/revert-2937', true],
-    ['bug/revert-0', false],
-    ['bug/revert-', false],
-    ['bug/revert-12x', false],
-    ['feature/bug/revert-12', false],
-  ])('%s -> %s', (branch, expected) => {
-    expect(isRevertBranch(branch)).toBe(expected);
+    ['bug/revert-2937', 2937, true],
+    ['bug/revert-2937', 2938, false],
+    ['bug/revert-2937', undefined, false],
+    ['bug/revert-0', 0, false],
+    ['bug/revert-', 12, false],
+    ['bug/revert-12x', 12, false],
+    ['feature/bug/revert-12', 12, false],
+  ])('%s with revertedPr %s -> %s', (branch, revertedPr, expected) => {
+    expect(isRevertBranch(branch, revertedPr)).toBe(expected);
   });
 });
 
@@ -135,8 +137,20 @@ describe('repairMergeVerdict', () => {
   });
 
   it('admits the revert PR the record names on a bug/revert-<pr> branch', () => {
-    const revert = reading({ record: record({ revertPr: 2950 }) });
+    const revert = reading({ record: record({ revertPr: 2950, revertedPr: 2937 }) });
     expect(repairMergeVerdict(revert, { number: 2950, head: 'bug/revert-2937' })).toEqual({ verdict: 'admitted', role: 'revert' });
+  });
+
+  it('refuses repair-branch-mismatch for bug/revert-<n> where n differs from revertedPr', () => {
+    const revert = reading({ record: record({ revertPr: 2950, revertedPr: 2938 }) });
+    const out = repairMergeVerdict(revert, { number: 2950, head: 'bug/revert-2937' });
+    expect(out.verdict === 'refused' && out.reason).toBe('repair-branch-mismatch');
+    expect(out.verdict === 'refused' && out.detail).toContain('bug/revert-2938');
+  });
+
+  it('refuses repair-branch-mismatch for a record with no revertedPr', () => {
+    const revert = reading({ record: record({ revertPr: 2950 }) });
+    expect(reasonOf(revert, { number: 2950, head: 'bug/revert-2937' })).toBe('repair-branch-mismatch');
   });
 
   it('answers not-named for no record, an unreadable record, or a PR the record does not name', () => {
