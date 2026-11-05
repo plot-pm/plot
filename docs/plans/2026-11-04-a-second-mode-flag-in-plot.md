@@ -119,7 +119,7 @@ No board source changes, so `pnpm run typecheck` and `test:board` are not requir
 
 ### Refuse two mode flags
 
-- `feature/a-second-mode-flag-in-plot` <!-- waits: feature/plot-fleetctl-stop-ignores-dry-run --> — merge the four mode arms of the `plot-fleetctl.sh` argument loop into one arm that refuses a second, different mode with exit 1 and a message naming both flags (net −3 shell commands); six cases in `test/reconcile/fleetctl.test.mjs` per *Tests*, red first and a mutation check; one changeset.
+- `feature/a-second-mode-flag-in-plot` <!-- waits: feature/plot-fleetctl-stop-ignores-dry-run --> — merge the four mode arms of the `plot-fleetctl.sh` argument loop into one arm that refuses a second, different mode with exit 1 and a message naming both flags (net −3 shell commands); six cases in `test/reconcile/fleetctl.test.mjs` per *Tests*, red first and a mutation check; one changeset. → #3168
 
 ## Notes
 
