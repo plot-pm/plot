@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3118
+- **Approved:** 2026-11-05, Jan Wloka, plan-PR #3127 merged
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
