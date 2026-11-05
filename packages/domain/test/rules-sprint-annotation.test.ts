@@ -4,6 +4,19 @@ import { annotateSprintItem } from '../src/rules/sprint-annotation.js';
 /** A Must Have tier line is what {@link memberLineIndex} requires to recognize a member line. */
 const MUST = (line: string): string => `### Must Have\n\n${line}\n`;
 
+describe('annotateSprintItem on a file with a log line and a Deferred line', () => {
+  it('updates the member line and leaves every other line identical', () => {
+    const content = [
+      '### Could Have', '', '- [ ] [slug] Thing', '', '## Notes', '', '### Scope Changes', '',
+      '- 2026-11-01: added [slug] as Could', '', '### Deferred', '', '- [ ] [slug] Thing', '',
+    ].join('\n');
+    const { content: next, outcome } = annotateSprintItem(content, 'slug', 42, 'feature/x');
+    expect(outcome).toBe('updated');
+    const without = (text: string): string[] => text.split('\n').filter((_, i) => i !== 2);
+    expect(without(next)).toEqual(without(content));
+  });
+});
+
 describe('annotateSprintItem', () => {
   it('fills a comment-less item line with pr and branch', () => {
     const content = MUST('- [ ] [approve-me] the plan');

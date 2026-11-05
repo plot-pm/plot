@@ -11,6 +11,30 @@ import {
 } from '../src/index.js';
 import type { Decision, Write } from '../src/index.js';
 
+/** `memberLineIndex` recognizes a member line only under a Must, Should or Could heading. */
+const MUST = (line: string): string => `### Must Have\n\n${line}`;
+
+/** A sprint file in the shape of the issue: a Could member, a scope-change log line and a Deferred box naming the same slug. */
+const SPRINT_WITH_LOG = [
+  '### Could Have',
+  '',
+  '- [ ] [slug] Thing',
+  '',
+  '## Notes',
+  '',
+  '### Scope Changes',
+  '',
+  '- 2026-11-01: added [slug] as Could',
+  '',
+  '### Deferred',
+  '',
+  '- [ ] [slug] Thing',
+  '',
+].join('\n');
+
+const withoutIndex = (text: string, index: number): string[] =>
+  text.split('\n').filter((_, i) => i !== index);
+
 /**
  * How a decision's writes become plan-file text.
  *
@@ -180,7 +204,7 @@ describe('a hold is released by exact name, never by pattern', () => {
 describe('a sprint annotation keeps the keys this write does not name', () => {
   it('adds an annotation to an item that carries none', () => {
     const { text, wrote } = withSprintAnnotation(
-      '- [ ] [slug] Do the thing\n', 'slug', false, 42, 'feature/x',
+      MUST('- [ ] [slug] Do the thing\n'), 'slug', false, 42, 'feature/x',
     );
     expect(wrote).toBe(true);
     expect(text).toContain('<!-- pr: #42, branch: feature/x -->');
@@ -191,19 +215,19 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
     // and a plan whose PR is known can name no branch yet — so an item gaining
     // its first annotation may carry either key without the other, and neither
     // may print an empty `pr: #` or `branch: `.
-    const prOnly = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', false, 42, '');
+    const prOnly = withSprintAnnotation(MUST('- [ ] [slug] Thing\n'), 'slug', false, 42, '');
     expect(prOnly.text).toContain('<!-- pr: #42 -->');
     expect(prOnly.text).not.toContain('branch:');
 
-    const branchOnly = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', false, null, 'feature/x');
+    const branchOnly = withSprintAnnotation(MUST('- [ ] [slug] Thing\n'), 'slug', false, null, 'feature/x');
     expect(branchOnly.text).toContain('<!-- branch: feature/x -->');
     expect(branchOnly.text).not.toContain('pr:');
   });
 
   it('ticks the box when asked, and only then', () => {
-    const delivered = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', true, null, '');
+    const delivered = withSprintAnnotation(MUST('- [ ] [slug] Thing\n'), 'slug', true, null, '');
     expect(delivered.text).toContain('- [x]');
-    const started = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', false, null, '');
+    const started = withSprintAnnotation(MUST('- [ ] [slug] Thing\n'), 'slug', false, null, '');
     expect(started.text).toContain('- [ ]');
   });
 
@@ -213,7 +237,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
     // writes is a change nobody asked for, so an existing one survives — and
     // no new one appears.
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- pr: #7, status: in-progress -->\n',
+      MUST('- [ ] [slug] Thing <!-- pr: #7, status: in-progress -->\n'),
       'slug', true, null, '',
     );
     expect(text).toContain('pr: #7');
@@ -224,8 +248,8 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
   it('adds NO annotation when there is nothing to record', () => {
     // A delivery names no PR and no branch. An item with no comment must not
     // gain `<!--  -->`, which reads as machinery where none ran.
-    const { text } = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', true, null, '');
-    expect(text).toBe('- [x] [slug] Thing\n');
+    const { text } = withSprintAnnotation(MUST('- [ ] [slug] Thing\n'), 'slug', true, null, '');
+    expect(text).toBe(MUST('- [x] [slug] Thing\n'));
     expect(text).not.toContain('<!--');
   });
 
@@ -233,7 +257,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
     // The other arm of the pr branch: an item annotated with only a branch
     // gains the number rather than losing it into an unmatched replace.
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- branch: feature/x -->\n',
+      MUST('- [ ] [slug] Thing <!-- branch: feature/x -->\n'),
       'slug', true, 99, '',
     );
     expect(text).toContain('pr: #99');
@@ -242,7 +266,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
 
   it('replaces an existing branch rather than appending a second', () => {
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- branch: feature/old -->\n',
+      MUST('- [ ] [slug] Thing <!-- branch: feature/old -->\n'),
       'slug', false, null, 'feature/new',
     );
     expect(text).toContain('branch: feature/new');
@@ -251,7 +275,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
   });
 
   it('leaves items for other plans untouched', () => {
-    const two = '- [ ] [alpha] A\n- [ ] [beta] B\n';
+    const two = MUST('- [ ] [alpha] A\n- [ ] [beta] B\n');
     const { text } = withSprintAnnotation(two, 'alpha', true, null, '');
     expect(text).toContain('- [ ] [beta] B');
   });
@@ -260,7 +284,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
     // The other arm of the same branch: an annotation that already names a PR
     // has that number rewritten, not a duplicate key appended.
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- pr: #7 -->\n',
+      MUST('- [ ] [slug] Thing <!-- pr: #7 -->\n'),
       'slug', true, 99, '',
     );
     expect(text).toContain('pr: #99');
@@ -271,7 +295,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
   it('ADDS a branch to an annotation that carries none', () => {
     // And the matching arm for branch: absent means append, not replace.
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- pr: #7 -->\n',
+      MUST('- [ ] [slug] Thing <!-- pr: #7 -->\n'),
       'slug', false, null, 'feature/new',
     );
     expect(text).toContain('branch: feature/new');
@@ -280,10 +304,34 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
 
   it('reports false when nothing changed', () => {
     const { text, wrote } = withSprintAnnotation(
-      '- [ ] [other] Thing\n', 'slug', true, null, '',
+      MUST('- [ ] [other] Thing\n'), 'slug', true, null, '',
     );
     expect(wrote).toBe(false);
-    expect(text).toBe('- [ ] [other] Thing\n');
+    expect(text).toBe(MUST('- [ ] [other] Thing\n'));
+  });
+});
+
+describe('a sprint annotation writes the member line and no other', () => {
+  const MEMBER = 2;
+
+  it('annotates only the member line, leaving the log and Deferred lines byte-identical', () => {
+    const { text, wrote } = withSprintAnnotation(SPRINT_WITH_LOG, 'slug', false, 42, 'feature/x');
+    expect(wrote).toBe(true);
+    expect(text.split('\n')[MEMBER]).toBe('- [ ] [slug] Thing <!-- pr: #42, branch: feature/x -->');
+    expect(withoutIndex(text, MEMBER)).toEqual(withoutIndex(SPRINT_WITH_LOG, MEMBER));
+  });
+
+  it('keeps the Deferred box unticked when it ticks the member line', () => {
+    const { text } = withSprintAnnotation(SPRINT_WITH_LOG, 'slug', true, 42, 'feature/x');
+    expect(text.split('\n')[MEMBER]).toContain('- [x] [slug]');
+    expect(withoutIndex(text, MEMBER)).toEqual(withoutIndex(SPRINT_WITH_LOG, MEMBER));
+  });
+
+  it('writes nothing when the slug appears only in the scope-change log', () => {
+    const logOnly = ['### Must Have', '', '### Scope Changes', '', '- 2026-11-01: dropped [slug]', ''].join('\n');
+    const { text, wrote } = withSprintAnnotation(logOnly, 'slug', true, 42, 'feature/x');
+    expect(wrote).toBe(false);
+    expect(text).toBe(logOnly);
   });
 });
 
