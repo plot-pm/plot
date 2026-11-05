@@ -382,7 +382,7 @@ test('a desk with a live recorded pid keeps with worker alive', () => {
   const { repo, registryDir } = makeRepo();
   const wt = worktree(repo, 'feature/alive');
   fs.writeFileSync(path.join(wt, '.plot-worker.exit'), 'x\n');
-  const file = manifest(registryDir, 'sess-alive', wt, { pid: process.pid });
+  const file = manifest(registryDir, 'sess-alive', wt, { pid: String(process.pid) });
 
   const out = run(repo, '--yes');
 
