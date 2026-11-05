@@ -103,10 +103,6 @@ jwloka, 2026-11-03, after the first panel round:
 
 ## Slices
 
-### Merge gate
-
-- `bug/the-merge-gate-bounds-an-unknown-head` <!-- waits: feature/pr-review-accepts-a-plot-review --> — a person's merge passes a default-branch head that reads `unknown` past `Checks wait`, with no `settled` write; `mergeAt` reads the tip before any host call (#2922)
-
 ### Fixer attempts
 
 - `bug/a-high-gets-its-own-fixer-attempts` <!-- waits: feature/fleetd-merges-as-the-merger-app --> — count HIGH and CI-red attempts apart by `finding.kind`; give a red head that the fixer record proves fixer-pushed to the fixer arm; move the re-status arm after the HIGH arm and gate it on `Auto-review` and the start budget (#2923, #2921)
@@ -130,6 +126,10 @@ jwloka, 2026-11-03, after the first panel round:
 ### Review comment tests
 
 - `bug/the-review-comment-tests-can-fail` — one shared `prComments` across heads, the dead `reviewIssue` decision removed, the test name, and the two stale texts (#2929)
+
+### Merge gate
+
+- `bug/the-merge-gate-bounds-an-unknown-head` <!-- waits: feature/pr-review-accepts-a-plot-review --> — a person's merge passes a default-branch head that reads `unknown` past `Checks wait`, with no `settled` write; `mergeAt` reads the tip before any host call (#2922)
 
 ## Tests
 
