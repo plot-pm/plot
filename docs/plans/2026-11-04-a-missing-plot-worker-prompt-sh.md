@@ -109,7 +109,7 @@ Each slice runs `node skills/plot/scripts/board/plot-local-checks.mjs` and what 
 
 ### Refuse at start
 
-- `feature/a-missing-plot-worker-prompt-sh-start` — `startCommand` takes a prompt reading and refuses a `command`-runner loop whose resolved prompt file is absent; `plot-start-command.mjs` supplies the reading <!-- builds: extends startCommand with a prompt-file reading -->
+- `feature/a-missing-plot-worker-prompt-sh-start` — `startCommand` takes a prompt reading and refuses a `command`-runner loop whose resolved prompt file is absent; `plot-start-command.mjs` supplies the reading <!-- builds: extends startCommand with a prompt-file reading --> → #3150
 
 ### Name the file
 
