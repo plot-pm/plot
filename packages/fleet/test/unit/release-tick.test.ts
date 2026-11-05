@@ -55,6 +55,7 @@ const ports = (pr: PrIndexRow, log = runLogFixture()): ReleaseTickPorts & { log:
   phases: async () => new Map([['x', 'delivered']]),
   pr: async () => pr,
   runs: async () => ({ read: 'runs', runs: [{ workflow: 'CI', status: 'completed', conclusion: 'success' }] }),
+  headChanges: async () => [{ path: 'package.json', status: 'modified', hunks: [{ section: '', removed: ['  "version": "1.0.0",'], added: ['  "version": "1.1.0",'] }] }],
   changesets: async () => [{ file: 'a.md', plan: '2026-10-29-x' }, { file: 'b.md', plan: '' }],
   finish: async () => 'none',
   log,
@@ -88,6 +89,16 @@ describe('releaseTick', () => {
     expect(starts).toBe(1);
     expect(p.log.lines).toHaveLength(1);
     expect(p.log.lines[0]).toMatchObject({ step: 'release-review', head: HEAD, outcome: 'moved', branch: BRANCH });
+  });
+
+  it('starts no review on a foreign release head and shows the hold as the stage', async () => {
+    const foreign = { path: '.github/workflows/ci.yml', status: 'modified', hunks: [{ section: '', removed: ['a'], added: ['b'] }] } as const;
+    const p = { ...ports(row({ plotReview: 'absent', plotReviewSha: undefined })), headChanges: async () => [foreign] };
+    const result = await releaseTick(p, config, start(), NOW);
+    expect(result.stage).toBe('release-head-foreign');
+    expect(result.step).toEqual({ step: 'hold', reason: 'release-head-foreign' });
+    expect(starts).toBe(0);
+    expect(p.log.lines).toHaveLength(0);
   });
 
   it('a review step with Auto-review off writes a release-review line with outcome skipped: auto-review-off', async () => {

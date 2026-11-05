@@ -29,6 +29,32 @@ export interface TreeBlob {
 }
 
 /**
+ * One hunk of a line-level diff, read with no context lines.
+ */
+export interface DiffHunk {
+  /** The nearest unindented line above the hunk, as git prints it after the second `@@`; `''` where none. */
+  section: string;
+  /** The lines the hunk removed, without their leading `-`. */
+  removed: readonly string[];
+  /** The lines the hunk added, without their leading `+`. */
+  added: readonly string[];
+}
+
+/**
+ * One file a commit changed against its merge base, at line level.
+ *
+ * `other` covers every change that is not a plain add, modify or delete: a
+ * mode change, a type change, a binary file. A caller reads it as a change it
+ * cannot judge by lines.
+ */
+export interface FileChange {
+  /** The path, relative to the repository root. */
+  path: string;
+  status: 'added' | 'modified' | 'deleted' | 'other';
+  hunks: readonly DiffHunk[];
+}
+
+/**
  * One path the index holds staged against `HEAD`, with the status that says
  * what changed.
  *
@@ -262,6 +288,21 @@ export interface Refs {
    * @returns the paths, relative to the repository root.
    */
   changedFiles(branch: string, against?: string): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Reads what a commit changed since it left the default branch, at line level.
+   *
+   * The diff is `origin/<default>...<sha>` (three dots): the commit's changes
+   * from its merge base, not the commits main gained since. The commit is
+   * named by object id, never by a branch that can be force-pushed. Renames
+   * read as a delete and an add.
+   *
+   * @param sha - the commit to read.
+   * @returns the changed files; empty where the commit changed nothing against
+   *   its merge base. A failed result where git cannot compute the diff,
+   *   including a commit this checkout does not hold.
+   */
+  headChanges(sha: string): Promise<PortResult<readonly FileChange[]>>;
 
   /**
    * Lists the paths that would conflict if `branch` merged into `base`.

@@ -8,6 +8,7 @@ import {
   type ReleaseChangeset,
   type ReleaseChecksReading,
   type ReleaseFinishReading,
+  type ReleaseHeadReading,
   type ReleasePrReading,
   type ReleasePrepareConfig,
   type ReleasePrepareStep,
@@ -33,6 +34,8 @@ export interface ReleaseTickPorts {
   /** The release PR's row from the index, or the host's answer; never `none` from an index miss. */
   readonly pr: () => Promise<ReleasePrReading>;
   readonly runs: (branch: string, sha: string) => Promise<ReleaseChecksReading>;
+  /** What the head's `sha` changes against its merge base; `null` where the host has no release workflows. */
+  readonly headChanges: (sha: string) => Promise<ReleaseHeadReading | null>;
   readonly changesets: () => Promise<readonly ReleaseChangeset[] | 'unaskable'>;
   readonly finish: () => Promise<ReleaseFinishReading>;
   readonly log: RunLog;
@@ -91,6 +94,7 @@ export const releaseTick = async (
   const row = pr === 'none' || pr === 'unaskable' ? null : pr;
   const checks: ReleaseChecksReading =
     row?.headSha === undefined ? { read: 'unaskable' } : await ports.runs(row.head, row.headSha);
+  const headChanges = row?.headSha === undefined ? ('unaskable' as const) : await ports.headChanges(row.headSha);
   const live = liveReviewRuns(start.repoRoot, start.pidAlive, now);
   const run = row === null ? null : (live?.find((entry) => entry.pr === row.number) ?? null);
   const starts = row === null ? null : (readReviewStarts(start.repoRoot)?.find((entry) => entry.pr === row.number) ?? null);
@@ -99,6 +103,7 @@ export const releaseTick = async (
     phases,
     pr,
     checks,
+    headChanges,
     changesets,
     log,
     reviewRun: run === null ? null : { head: run.head, pid: run.pid, startedAt: run.startedAt, live: true },
