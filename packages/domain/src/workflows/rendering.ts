@@ -1,4 +1,5 @@
 import { fencedLines } from '../rules/fences.js';
+import { memberLineIndex } from '../rules/sprint-membership.js';
 import type { Decision, Write } from './decision.js';
 
 /**
@@ -211,6 +212,10 @@ export const withoutHold = (
  * change nobody asked for, and the sweep that removed the estate's copies was
  * a one-off a person ran.
  *
+ * The item line is found by {@link memberLineIndex}, which is tier-aware: a
+ * slug under `### Deferred` or in a `### Scope Changes` log line is not the
+ * item, and a file with no member line comes back unchanged with `wrote: false`.
+ *
  * @param text - the sprint file's contents.
  * @param plan - the plan slug whose item line carries the annotation.
  * @param tick - whether to tick the item's checkbox.
@@ -225,19 +230,20 @@ export const withSprintAnnotation = (
   pr: number | null,
   branch: string,
 ): { text: string; wrote: boolean } => {
-  const marker = `[${plan}]`;
-  const lines = text.split('\n').map((line) => {
-    if (!line.includes(marker)) return line;
-    let next = tick ? line.replace('[ ]', '[x]') : line;
-    // NOTHING TO RECORD IS NOT AN EMPTY ANNOTATION. With no PR and no branch,
-    // an item with no comment would gain `<!--  -->`, which reads as machinery
-    // where none ran.
-    if (pr === null && branch === '' && !next.includes('<!--')) return next;
+  const index = memberLineIndex(text, plan);
+  if (index === -1) return { text, wrote: false };
+  const lines = text.split('\n');
+  const line = lines[index]!;
+  let next = tick ? line.replace('[ ]', '[x]') : line;
+  // NOTHING TO RECORD IS NOT AN EMPTY ANNOTATION. With no PR and no branch,
+  // an item with no comment would gain `<!--  -->`, which reads as machinery
+  // where none ran.
+  if (!(pr === null && branch === '' && !next.includes('<!--'))) {
     next = next.includes('<!--')
       ? annotateExisting(next, pr, branch)
       : `${next} <!--${annotationBody(pr, branch)} -->`;
-    return next;
-  });
+  }
+  lines[index] = next;
   const joined = lines.join('\n');
   return { text: joined, wrote: joined !== text };
 };
