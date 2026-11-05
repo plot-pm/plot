@@ -7,6 +7,8 @@
  * message or a PR body that mentions a suite passes.
  */
 
+import { readShell } from './shell-reading.js';
+
 /** A refused command, naming the suite it starts. */
 export interface CiSuiteRefusal {
   readonly suite: string;
@@ -70,12 +72,44 @@ const READERS: ReadonlySet<string> = new Set([
 /** The `git` subcommands that read and never run an operand. */
 const GIT_READERS: ReadonlySet<string> = new Set(['diff', 'show', 'log', 'grep']);
 
-/** Whether a simple command's program is a reader: one of `READERS`, or `git diff|show|log|grep`. */
+/** The programs that read the process table and signal nothing. */
+const PROCESS_READERS: ReadonlySet<string> = new Set(['pgrep', 'ps', 'lsof']);
+
+/** A `pgrep` option that signals what it finds: `--signal`, `-<digits>`, `-KILL`, `-SIGTERM`. */
+const SIGNAL_FORM = /^(--signal(=.*)?|-\d+|-[A-Z]{2,})$/;
+
+/**
+ * Whether a simple command reads the process table: after at most one leading
+ * `while` or `until`, the program is `pgrep`, `ps` or `lsof`. The command must
+ * be one simple command that `readShell` reads, with no heredoc, no word that
+ * executes, and no signal option on `pgrep`. Whitespace-split words keep their
+ * quote characters, so the line is read again with `readShell` and the
+ * operands are the quote-free values.
+ *
+ * @param words - one simple command, split on whitespace.
+ * @returns whether the command only looks at processes.
+ */
+const isProcessRead = (words: readonly string[]): boolean => {
+  const reading = readShell(words.join(' '));
+  if (reading === null || reading.commands.length !== 1 || reading.heredocs.length > 0) return false;
+  const [command] = reading.commands;
+  if (command.words.some((word) => word.executes)) return false;
+  const values = command.words.map((word) => word.value ?? word.raw);
+  const at = values[0] === 'while' || values[0] === 'until' ? 1 : 0;
+  if (values[at] === undefined || !PROCESS_READERS.has(wordBasename(values[at]))) return false;
+  if (wordBasename(values[at]) === 'pgrep' && values.slice(at + 1).some((w) => SIGNAL_FORM.test(w))) return false;
+  return true;
+};
+
+/**
+ * Whether a simple command's program is a reader: one of `READERS`,
+ * `git diff|show|log|grep`, or a process-table read (`isProcessRead`).
+ */
 const isReader = (words: readonly string[]): boolean => {
   const [head, sub] = programWords(words);
   if (head === undefined) return false;
   const name = wordBasename(head);
-  return READERS.has(name) || (name === 'git' && GIT_READERS.has(sub));
+  return READERS.has(name) || (name === 'git' && GIT_READERS.has(sub)) || isProcessRead(words);
 };
 
 /**
@@ -96,7 +130,7 @@ const bodySegments = (after: string): string[][] => {
  * Removes the word list of a `for` loop whose body only reads: every simple
  * command in the body has a reader as its program (`cmp`, `diff`, `cat`, `ls`,
  * `grep`, `head`, `tail`, `wc`, `shasum`, `sha256sum`, `stat`, `test`, `[`,
- * `git diff|show|log|grep`), and the body holds no command substitution. Any
+ * `git diff|show|log|grep`, `pgrep`, `ps`, `lsof`), and the body holds no command substitution. Any
  * other body keeps the list, so a name in it reads as a run.
  *
  * @param command - the command line.
@@ -198,7 +232,10 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * | `node .../plot-approve.mjs --dry-run x` | `null` — no endpoint for this mode |
  *
  * A script named is a RUN unless its segment's program is a reader
- * (`isReadSegment`, delegating to `isReader`'s set) and the segment holds no
+ * (`isReadSegment`, delegating to `isReader`'s set, which includes a
+ * process-table read: `pgrep`, `ps` or `lsof`, optionally after one `while` or
+ * `until`, with no signal option; such a segment is a read only when every
+ * other segment of its pipeline is a read) and the segment holds no
  * substitution, no assignment or `env` prefix, and no git option that runs or
  * writes. Everything else a script's basename appears in, including a loop
  * body or an unquoted heredoc line, is read as a run: that is deliberate, not
@@ -222,10 +259,7 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * @returns the action, or `null` when the command runs none of the gated actions.
  */
 export const controllerInvocation = (command: string): GatedAction | null => {
-  for (const segment of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;|\n]/)) {
-    const words = segment.trim().split(/\s+/).filter((word) => word !== '');
-    if (words.length === 0) continue;
-    if (isReadSegment(words)) continue;
+  for (const words of nonReadSegments(command)) {
     const route = httpRouteAction(words);
     if (route !== null) return route;
     for (const word of words) {
@@ -236,6 +270,29 @@ export const controllerInvocation = (command: string): GatedAction | null => {
     }
   }
   return null;
+};
+
+/**
+ * The segments of a command that are not reads, each as its words. A command
+ * splits on `&&`, `||`, `;` and new lines into pipelines, and a pipeline on
+ * `|` into segments. A segment that only `isProcessRead` admits counts as a
+ * read when every other segment of its pipeline is a read, so `pgrep -f x |
+ * xargs kill` keeps both segments.
+ */
+const nonReadSegments = (command: string): string[][] => {
+  const out: string[][] = [];
+  for (const pipeline of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;\n]/)) {
+    const segments = pipeline.split('|')
+      .map((segment) => segment.trim().split(/\s+/).filter((word) => word !== ''))
+      .filter((words) => words.length > 0);
+    const allRead = segments.every(isReadSegment);
+    for (const words of segments) {
+      const processOnly = isProcessRead(words);
+      if (isReadSegment(words) && (!processOnly || allRead)) continue;
+      out.push(words);
+    }
+  }
+  return out;
 };
 
 /**
@@ -251,10 +308,7 @@ export const controllerInvocation = (command: string): GatedAction | null => {
  * @returns the action, or `null` when no segment is a gated HTTP call.
  */
 export const controllerHttpAction = (command: string): GatedAction | null => {
-  for (const segment of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;|\n]/)) {
-    const words = segment.trim().split(/\s+/).filter((word) => word !== '');
-    if (words.length === 0) continue;
-    if (isReadSegment(words)) continue;
+  for (const words of nonReadSegments(command)) {
     const route = httpRouteAction(words);
     if (route !== null) return route;
   }

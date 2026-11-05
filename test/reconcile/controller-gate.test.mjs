@@ -845,6 +845,14 @@ test('controller gate: sed stays refused on purpose — #2706 did not widen past
   assert.equal(run(repo(), `sed -n '1,5p' ${D}`).status, 2, 'sed is a known false positive, kept deliberately');
 });
 
+test('controller gate: a process-table read naming a gated bundle is a read — #2530', () => {
+  assert.equal(
+    run(repo(), 'while pgrep -f "plot-approve.mjs x" >/dev/null; do sleep 1; done').status,
+    0,
+    'waiting for a bundle to exit runs nothing',
+  );
+});
+
 test('controller gate: a substitution in a reader segment is still a run', () => {
   // #2706's guard: a reader segment whose operand is a command substitution
   // still runs the script the substitution names, so it stays refused.
