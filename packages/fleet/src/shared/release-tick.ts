@@ -39,12 +39,17 @@ export interface ReleaseTickPorts {
   readonly notifier: Notifier;
 }
 
+/** The run-log outcome of a `review` step that `Auto-review` off kept from starting. */
+export const REVIEW_SKIPPED_AUTO_REVIEW_OFF = 'skipped: auto-review-off';
+
 /** What one release tick did. */
 export interface ReleaseTickResult {
   readonly stage: ReleaseStage;
   readonly step: ReleasePrepareStep;
   /** Set where the step was `review` and a start was tried. */
   readonly started?: StartReviewResult;
+  /** Set where the step was `review` and `reviewEnabled` was false: the outcome the run log recorded. */
+  readonly skipped?: typeof REVIEW_SKIPPED_AUTO_REVIEW_OFF;
   /** Set where the step was `notify`: the send status the run log recorded. */
   readonly notified?: string;
 }
@@ -55,8 +60,9 @@ export interface ReleaseTickResult {
  * Reads the scope, phases, release PR, required workflow runs, changesets and
  * run log fresh, asks {@link releasePrepareNext}, and acts on the step: a
  * `review` step goes through `startReview` — the only start that writes the
- * `plot/review` status — and a `notify` step sends one message through the
- * `Notifier`. Each action appends one run-log line recording what fleetd did;
+ * `plot/review` status — or, with `reviewEnabled` false, appends a
+ * `skipped: auto-review-off` line and starts nothing; a `notify` step sends one
+ * message through the `Notifier`. Each action appends one run-log line recording what fleetd did;
  * no line records readiness. fleetd never merges and never books a plan.
  *
  * @param ports - the readings and writes.
@@ -120,6 +126,10 @@ export const releaseTick = async (
     await ports.log.append(line(RELEASE_REVIEW_STEP, step.head, started.started ? 'moved' : `failed: ${started.why}`));
     return { stage, step, started };
   }
+  if (step.step === 'review') {
+    await ports.log.append(line(RELEASE_REVIEW_STEP, step.head, REVIEW_SKIPPED_AUTO_REVIEW_OFF));
+    return { stage, step, skipped: REVIEW_SKIPPED_AUTO_REVIEW_OFF };
+  }
   if (step.step === 'notify' && changesets !== 'unaskable') {
     const sent = await ports.notifier.notify(releaseMessage(row.number, step, scope.sprint.slug));
     const status = sent.ok ? 'sent' : sent.why === 'unaskable' ? 'unaskable' : `failed ${sent.code}`;
@@ -151,3 +161,14 @@ export const releaseMessage = (
   ].join('\n');
 };
 
+
+/**
+ * The fleetd stdout line for one release tick.
+ *
+ * @param outcome - what the tick did.
+ * @returns the line without its newline, or `null` where the step was `none`.
+ */
+export const releaseLine = (outcome: ReleaseTickResult): string | null => {
+  if (outcome.skipped !== undefined) return `plot-fleetd: release ${outcome.stage}: review skipped (Auto-review off)`;
+  return outcome.step.step === 'none' ? null : `plot-fleetd: release ${outcome.stage}: ${outcome.step.step}`;
+};

@@ -9,7 +9,7 @@ import type { Detached } from '@plot-pm/domain/ports/detached';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import { runLogFixture } from '@plot-pm/domain/adapters/run-log/run-log-fixture';
 import { removeTree } from '../rm-tree.mjs';
-import { releaseTick, type ReleaseTickPorts } from '../../src/shared/release-tick.js';
+import { releaseLine, releaseTick, type ReleaseTickPorts } from '../../src/shared/release-tick.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -88,6 +88,31 @@ describe('releaseTick', () => {
     expect(starts).toBe(1);
     expect(p.log.lines).toHaveLength(1);
     expect(p.log.lines[0]).toMatchObject({ step: 'release-review', head: HEAD, outcome: 'moved', branch: BRANCH });
+  });
+
+  it('a review step with Auto-review off writes a release-review line with outcome skipped: auto-review-off', async () => {
+    const p = ports(row({ plotReview: 'absent', plotReviewSha: undefined }));
+    const result = await releaseTick(p, config, start(), NOW, false);
+    expect(result.skipped).toBe('skipped: auto-review-off');
+    expect(result.started).toBeUndefined();
+    expect(starts).toBe(0);
+    expect(p.log.lines).toHaveLength(1);
+    expect(p.log.lines[0]).toMatchObject({ step: 'release-review', head: HEAD, outcome: 'skipped: auto-review-off', branch: BRANCH });
+  });
+
+  it('a skipped release review names itself skipped in the fleetd line', async () => {
+    const off = await releaseTick(ports(row({ plotReview: 'absent', plotReviewSha: undefined })), config, start(), NOW, false);
+    expect(releaseLine(off)).toBe('plot-fleetd: release preparing: review skipped (Auto-review off)');
+    const on = await releaseTick(ports(row({ plotReview: 'absent', plotReviewSha: undefined })), config, start(), NOW, true);
+    expect(releaseLine(on)).toBe('plot-fleetd: release preparing: review');
+  });
+
+  it('with Auto-review on the review start and its moved line are unchanged', async () => {
+    const p = ports(row({ plotReview: 'absent', plotReviewSha: undefined }));
+    const result = await releaseTick(p, config, start(), NOW, true);
+    expect(result.skipped).toBeUndefined();
+    expect(result.started).toEqual({ started: true, pid: 9001 });
+    expect(p.log.lines.map((l) => l.outcome)).toEqual(['moved']);
   });
 
   it('notifies once, with both changeset groups, and not again on a bot bump', async () => {
