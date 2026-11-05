@@ -841,7 +841,7 @@ const EXPECTED_FILES = 80;
 // 638 → 644 on 2026-11-01: one `it(` in the new `every-plan-reference-shows-
 // its-issue.browser.test.ts` and five in the new `panels-show-the-prefix.test
 // .ts`. `EXPECTED_FILES` moves by 2, matching the two new files.
-const EXPECTED_TESTS = 644;
+const EXPECTED_TESTS = 645;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

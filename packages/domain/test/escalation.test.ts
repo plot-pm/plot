@@ -56,6 +56,7 @@ describe('planIssueId', () => {
   it('answers null for no line or a line naming no issue', () => {
     expect(planIssueId('## Status\n- **State:** Approved\n')).toBeNull();
     expect(planIssueId('## Status\n- **Issue:** none\n')).toBeNull();
+    expect(planIssueId('# P\n\nNo status section here.\n')).toBeNull();
   });
 
   it('answers null for a plan with no Status section, even where another section names an issue', () => {
