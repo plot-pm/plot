@@ -2696,6 +2696,18 @@ describe('rowsFromPulse', () => {
         questions, opts.closed ? new Map([['feature/d', opts.closed]]) : null,
       ).find((r) => r.branch === 'feature/d')!;
 
+      it('shows the escalation reason on the row note, after the age', () => {
+        const escalated = new Map([['feature/d', { firstLine: 'which adapter?', askedAt: ASKED, escalation: 'test' }]]);
+        const row = rowOf('finished', escalated);
+        expect(row.group).toBe('waiting-on-you');
+        expect(row.note).toBe('waiting on you: which adapter? · asked 45 minutes ago · escalated: test');
+      });
+
+      it('shows no reason for a question the unblocker did not escalate', () => {
+        const row = rowOf('finished', reading('which adapter?'));
+        expect(row.note).not.toContain('escalated');
+      });
+
       it('keeps the question and the exit code on a failed worker', () => {
         const row = rowOf('failed', reading('which adapter?'), { exit: '124' });
         expect(row.group).toBe('waiting-on-you');

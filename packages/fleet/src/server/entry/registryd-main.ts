@@ -86,6 +86,7 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
+import { escalationPostWorldFor, postEscalation } from '../../shared/escalation-post.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
@@ -2871,10 +2872,25 @@ export const run = async (
   // behind it. The world's `liveFixer` reads the applier, so no tick starts a
   // second run while one is live.
   const unblockPorts: UnblockPorts = unblockPortsFor({ repoRoot, scriptsDir, boardOpts });
+  const escalationWorld = escalationPostWorldFor(repoRoot, scriptsDir);
   const unblockRuns = unblockApplier(
     unblockPorts,
     (applied) => {
       for (const { line, error } of unblockLines(applied)) (error ? warn : write)(`${line}\n`);
+      // THE POST RUNS AFTER THE ROW AND OFF THE BATCH: the `escalated` row is
+      // already written, a slow tracker must not hold the next batch, and a
+      // failed post is logged once and not retried.
+      for (const entry of applied) {
+        if (entry.outcome !== 'escalated' || entry.escalation === undefined) continue;
+        void postEscalation(escalationWorld, {
+          branch: entry.branch,
+          askedAt: entry.escalation.askedAt,
+          question: entry.escalation.question,
+          reason: entry.detail,
+        }).then((posted) => {
+          if (!posted.posted) warn(`plot-fleetd escalation ${entry.branch}: not posted — ${posted.why}\n`);
+        });
+      }
     },
     (error) => warn(`plot-fleetd unblock: ${error instanceof Error ? error.message : String(error)}\n`),
   );

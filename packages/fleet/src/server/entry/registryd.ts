@@ -1354,6 +1354,8 @@ export interface FreshAgentApplied {
     | 'released';
   /** One line saying why, or what started. */
   detail: string;
+  /** For `escalated`: the question key and text the escalation was recorded for. */
+  escalation?: { askedAt: string; question: string };
 }
 
 /** What {@link applyFreshAgentDecisions} acts through. */
@@ -1633,15 +1635,21 @@ export const applyUnblockDecisions = async (
   const out: UnblockApplied[] = [];
   for (const write of writes) {
     if (write.refused === 'answer-cap') {
+      const capped = await ports.question(write.worktree);
       await ports.record.append({
         worktree: write.worktree,
         askedAt: write.askedAt,
-        question: await ports.question(write.worktree),
+        question: capped,
         answer: '',
         author: 'unblocker',
         outcome: 'escalated answer-cap',
       });
-      out.push({ branch: write.branch, outcome: 'escalated', detail: 'answer-cap' });
+      out.push({
+        branch: write.branch,
+        outcome: 'escalated',
+        detail: 'answer-cap',
+        escalation: { askedAt: write.askedAt, question: capped },
+      });
       continue;
     }
     try {
@@ -1681,7 +1689,12 @@ export const applyUnblockDecisions = async (
           author: 'unblocker',
           outcome: `escalated ${parsed.reason}`,
         });
-        out.push({ branch: write.branch, outcome: 'escalated', detail: parsed.reason });
+        out.push({
+          branch: write.branch,
+          outcome: 'escalated',
+          detail: parsed.reason,
+          escalation: { askedAt: write.askedAt, question },
+        });
         continue;
       }
       const started = await ports.start({
