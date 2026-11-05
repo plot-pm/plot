@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #2807
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3133 merged
 - **Started:** 2026-11-05, Jan Wloka, `feature/reap-excuses-worker-own-files`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 
