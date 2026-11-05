@@ -216,8 +216,8 @@ export const episodeOpen = (
  *   every later answer, `revert` included: a stale reading never reverts.
  * - `idle` or `rerun`: reads {@link RedMainStepInput.rerunSettled} for the
  *   first red SHA's re-run — `'none'`/`'pending'` holds `await-rerun`; `'red'`
- *   moves to `start-repair`. `'green'` answers `close-prs` only while the
- *   settled reading is green. With the settled reading red, a settled commit
+ *   moves to `start-repair`. `'green'` never closes the episode: a settled green
+ *   closed it above, so the settled reading is red here. A settled commit
  *   after the first red SHA answers `start-repair` (a flake on the first red
  *   SHA does not clear a later red); the first red SHA itself answers
  *   `await-rerun`, because two readings of one commit disagree for one beat
@@ -257,7 +257,6 @@ export const redMainStep = (
 
   if (record.state === 'idle' || record.state === 'rerun') {
     if (input.rerunSettled === 'green') {
-      if (reading.settled.state === 'green') return 'close-prs';
       return reading.settled.sha === record.firstRedSha ? 'await-rerun' : 'start-repair';
     }
     if (input.rerunSettled === 'red') return 'start-repair';

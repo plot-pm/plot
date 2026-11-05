@@ -150,7 +150,9 @@ describe('repairMergeVerdict', () => {
 
   it('refuses repair-branch-mismatch for a record with no revertedPr', () => {
     const revert = reading({ record: record({ revertPr: 2950 }) });
-    expect(reasonOf(revert, { number: 2950, head: 'bug/revert-2937' })).toBe('repair-branch-mismatch');
+    const out = repairMergeVerdict(revert, { number: 2950, head: 'bug/revert-2937' });
+    expect(out.verdict === 'refused' && out.reason).toBe('repair-branch-mismatch');
+    expect(out.verdict === 'refused' && out.detail).toContain('names no reverted PR');
   });
 
   it('answers not-named for no record, an unreadable record, or a PR the record does not name', () => {
