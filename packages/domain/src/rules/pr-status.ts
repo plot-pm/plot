@@ -34,9 +34,9 @@ export type PrStatusLevel = 'info' | 'warning' | 'error';
  * A notice is one of the informational lines written to stderr with the
  * `plot-host: ` prefix: `<backend> ignores --limit`, `<backend> pr-list
  * state=<s> page complete`, `pr-list sweep complete`, and the `… read from
- * <source>` credential-source lines — the JENKINS_USER/JENKINS_API_TOKEN and
- * JIRA_EMAIL/JIRA_API_TOKEN pairs from `skills/plot/scripts/plot-host.sh`, and
- * the BITBUCKET_REVIEW_USER/BITBUCKET_REVIEW_APP_PASSWORD pair from
+ * <source>` credential-source lines — the JIRA_EMAIL/JIRA_API_TOKEN pair from
+ * `skills/plot/scripts/plot-host.sh`, and the
+ * BITBUCKET_REVIEW_USER/BITBUCKET_REVIEW_APP_PASSWORD pair from
  * `skills/plot/scripts/plot-bitbucket-commit-status.mjs`. Each reports
  * something true about the read and never a failure. A failure carries the
  * same `plot-host: ` prefix, so the prefix alone does not make a line a
@@ -63,7 +63,7 @@ const NOTICE_PATTERNS = [
   // `envFileCandidate` print. Matched to the end of the sentence rather than
   // `\S+`, which stopped after "the" and left "environment" in the remainder
   // as a false outage cause.
-  /(?:JENKINS_USER and JENKINS_API_TOKEN|JIRA_EMAIL and JIRA_API_TOKEN|BITBUCKET_REVIEW_USER and BITBUCKET_REVIEW_APP_PASSWORD) read from (?:the environment|\.env|the main checkout's \.env)/,
+  /(?:JIRA_EMAIL and JIRA_API_TOKEN|BITBUCKET_REVIEW_USER and BITBUCKET_REVIEW_APP_PASSWORD) read from (?:the environment|\.env|the main checkout's \.env)/,
 ] as const;
 
 const NOTICE = new RegExp(

@@ -109,20 +109,20 @@ describe('extractHostNotices — plot-host notices split from the real failure t
    */
   it('matches the credential-source notice to the end of its sentence, not just the first word', () => {
     const { notices, remainder } = extractHostNotices(
-      'plot-host: JENKINS_USER and JENKINS_API_TOKEN read from the environment',
+      'plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from the environment',
     );
     expect(notices).toEqual([
-      { text: 'JENKINS_USER and JENKINS_API_TOKEN read from the environment' },
+      { text: 'JIRA_EMAIL and JIRA_API_TOKEN read from the environment' },
     ]);
     expect(remainder).toBeNull();
   });
 
   it('keeps a real failure on the next line after a credential-source notice', () => {
     const { notices, remainder } = extractHostNotices(
-      'plot-host: JENKINS_USER and JENKINS_API_TOKEN read from the environment\nplot-host: pr-list: host throttled — bb: HTTP 429 Too Many Requests',
+      'plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from the environment\nplot-host: pr-list: host throttled — bb: HTTP 429 Too Many Requests',
     );
     expect(notices).toEqual([
-      { text: 'JENKINS_USER and JENKINS_API_TOKEN read from the environment' },
+      { text: 'JIRA_EMAIL and JIRA_API_TOKEN read from the environment' },
     ]);
     expect(remainder).toBe(THROTTLED_FAILURE);
   });
