@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3067 merged
 - **Started:** 2026-11-03, Jan Wloka, `feature/fleetd-starts-the-unblocker`
 - **Started:** 2026-11-04, Jan Wloka, `bug/an-answer-records-its-true-author`
+- **Started:** 2026-11-05, Jan Wloka, `feature/an-escalated-question-reaches-the-issue`
 
 ## Changelog
 
