@@ -691,6 +691,94 @@ test('--once --dry-run and --status --dry-run refuse and name the mode', () => {
   assert.match(statusResult.out, /--dry-run works with --start only, not --status/);
 });
 
+// ── Two different mode flags refuse; the same flag twice is one mode ──────────
+
+const stubDispatch = (root) => {
+  const log = path.join(root, 'calls.log');
+  const p = path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh');
+  fs.writeFileSync(p, `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nexit 0\n`);
+  fs.chmodSync(p, 0o755);
+  return log;
+};
+
+test('a second mode flag refuses: --start --stop signals no agent, writes no record, unloads nothing', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('modeconflictstartstop');
+  const desk = path.join(root, '.worktrees', 'feature-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'feature/a', desk);
+  const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+  const marker = armedMarker(root);
+  const log = stubDispatch(root);
+  const bin = stubUnload(box, { sticky: 1, workdir: root });
+  try {
+    const r = run(ctl, ['--start', '--stop'], root, guardBin, {
+      HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+      PLOT_FLEET_LABEL: fleetLabel,
+      PATH: withHarness(box, bin, process.env.PATH),
+    });
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /--start and --stop are different modes/);
+    assert.equal(fs.existsSync(log), false, 'plot-dispatch was called');
+    assert.equal(fs.existsSync(path.join(box, 'unload-ticks')), false, 'the supervisor was asked to unload');
+    assert.equal(fs.existsSync(marker), true, 'the start marker was removed');
+    assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-stopped.json')), false,
+      'a stop record was written');
+  } finally {
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('a second mode flag refuses: --stop --start fills no unit, loads nothing, starts no agent', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('modeconflictstopstart');
+  const log = stubDispatch(root);
+  const bin = stubUnload(box, { sticky: 1, workdir: root });
+  const home = fakeHome(box);
+  const r = run(ctl, ['--stop', '--start'], root, guardBin, {
+    HOME: home,
+    PLOT_FLEET_LABEL: fleetLabel,
+    PATH: withHarness(box, bin, process.env.PATH),
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /--stop and --start are different modes/);
+  assert.equal(fs.existsSync(path.join(home, 'Library', 'LaunchAgents', `${fleetLabel}.plist`)), false,
+    'a unit was filled');
+  const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
+  assert.doesNotMatch(calls, /dispatch --start/);
+  assert.doesNotMatch(calls, /dispatch --stop/);
+  assert.equal(fs.existsSync(path.join(box, 'unload-ticks')), false, 'the init system was asked to unload');
+});
+
+test('a second mode flag refuses: --status --once', () => {
+  const { root, ctl, guardBin } = sandbox('modeconflictstatusonce');
+  const r = run(ctl, ['--status', '--once'], root, guardBin);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /--status and --once are different modes/);
+});
+
+test('a second mode flag refuses: --start 3 --stop names --start, not the count', () => {
+  const { root, ctl, guardBin } = sandbox('modeconflictcount');
+  const r = run(ctl, ['--start', '3', '--stop'], root, guardBin);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /--start and --stop are different modes/);
+});
+
+test('the same mode flag twice is one mode: --stop --stop', () => {
+  const { root, ctl, guardBin } = sandbox('modesame');
+  const r = run(ctl, ['--stop', '--stop'], root, guardBin);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /no agents on a branch/);
+  assert.doesNotMatch(r.out, /different modes/);
+});
+
+test('--start N still takes its count: --start 3 --dry-run', () => {
+  const { root, box, ctl, guardBin } = sandbox('modecount');
+  const r = run(ctl, ['--start', '3', '--dry-run'], root, guardBin, { HOME: fakeHome(box) });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /plot-dispatch\.sh --start 3$/m);
+  assert.doesNotMatch(r.out, /different modes/);
+});
+
 test('-h exits 0 and prints --wait and --dry-run', () => {
   const { root, ctl, guardBin } = sandbox('help');
   const r = run(ctl, ['-h'], root, guardBin);
