@@ -16,7 +16,7 @@ import { type BranchState, SliceVerdictSchema, type SliceVerdict } from '../enti
 //                              branch transitions and the verdict is derived
 //                              again.
 export const StartabilityVerdictSchema = z.enum([
-  'start-work', 'needs-brief', 'waiting-on-approval', 'someone-is-on-it',
+  'start-work', 'needs-brief', 'waiting-on-approval', 'someone-is-on-it', 'no-known-worker',
 ]);
 export type StartabilityVerdict = z.infer<typeof StartabilityVerdictSchema>;
 

@@ -1101,6 +1101,7 @@ export function startabilityWord(startability: AgentRow['startability']): string
     case 'needs-brief': return 'needs a brief';
     case 'waiting-on-approval': return 'waiting on approval';
     case 'someone-is-on-it': return 'someone is on it';
+    case 'no-known-worker': return 'no known worker';
     default: return '';
   }
 }

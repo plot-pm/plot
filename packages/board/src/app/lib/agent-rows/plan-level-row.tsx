@@ -118,8 +118,8 @@ export const planFileFromFleet = (
   '';
 
 /**
- * The number a section's heading shows. *Working* counts its registry rows and
- * its running plan-level rows. *Waiting on you* counts its branch rows, broken
+ * The number a section's heading shows. *Working* counts its registry rows,
+ * its running plan-level rows and its claimed branches with no known worker. *Waiting on you* counts its branch rows, broken
  * agents, draft plans and waiting plan-level rows; the halted line is not a row
  * and no count includes it. *Quiet* counts its branch rows and the released
  * free desks landing there. Every other section counts its branch rows.
@@ -136,11 +136,12 @@ export const sectionCount = (
     broken: number;
     drafts: number;
     quiet?: number;
+    claimedWithoutWorker?: number;
     planLevel: { working: number; waiting: number };
   },
 ): number =>
   section === 'working'
-    ? held.registry + held.planLevel.working
+    ? held.registry + held.planLevel.working + (held.claimedWithoutWorker ?? 0)
     : section === 'waiting-on-you'
       ? held.branches + held.broken + held.drafts + held.planLevel.waiting
       : section === 'quiet'

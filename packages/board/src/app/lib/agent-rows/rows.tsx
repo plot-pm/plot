@@ -34,7 +34,7 @@ const EMPTY_PLAN_INDEX: PlanIndex = planIndexOf({});
 // 'manifest'` is a rule with a test beside it in
 // `packages/domain/test/agent.test.ts`; comparing the string here would be a
 // second copy of it in a component.
-import { identityWasDeclared } from '@plot-pm/domain';
+import { identityWasDeclared, noteShown } from '@plot-pm/domain';
 import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
@@ -1603,8 +1603,9 @@ export function SliceRow({
  * @returns the note, or "" where the row's startability contradicts it.
  */
 export function startableNote(row: AgentRow): string {
-  if (row.group === 'quiet' && row.quietKind) return row.note;
-  return row.startability === 'someone-is-on-it' ? '' : row.note;
+  return noteShown({ startability: row.startability, group: row.group, quietKind: row.quietKind ?? null })
+    ? row.note
+    : '';
 }
 
 /**

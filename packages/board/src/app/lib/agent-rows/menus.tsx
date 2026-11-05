@@ -66,7 +66,7 @@ import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
  * not pin down.
  */
 export function showsWorkerLog(row: AgentRow): boolean {
-  return row.group === 'working';
+  return row.group === 'working' && row.startability !== 'no-known-worker';
 }
 
 export function noActionReason(row: AgentRow): string {

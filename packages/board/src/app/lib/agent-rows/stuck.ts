@@ -30,7 +30,7 @@ import { isFinished } from './row-identity.js';
  * checks only one of the three notes, so all three are pinned here.
  */
 export function isLive(row: AgentRow): boolean {
-  return row.group === 'working';
+  return row.group === 'working' && row.startability !== 'no-known-worker';
 }
 
 export function isActive(
