@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #2529
@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3131 merged
 - **Started:** 2026-11-05, Jan Wloka, `feature/a-missing-plot-worker-prompt-sh-start`
 - **Started:** 2026-11-05, Jan Wloka, `feature/a-missing-plot-worker-prompt-sh-line`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 

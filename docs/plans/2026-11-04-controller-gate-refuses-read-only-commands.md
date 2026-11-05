@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #2530
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3135 merged
 - **Started:** 2026-11-05, Jan Wloka, `feature/controller-gate-reads-a-process-lookup`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 
