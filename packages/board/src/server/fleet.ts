@@ -522,7 +522,7 @@ export interface CacheEntry {
    * instead, which renders as *reason unavailable* until the first scan lands —
    * an unknown the reader can act on rather than a stale claim they cannot.
    */
-  questions: Map<string, { firstLine: string; askedAt: string }>;
+  questions: Map<string, { firstLine: string; askedAt: string; escalation?: string }>;
   /**
    * PR data is cached BESIDE the pulse, with its own timestamp and error — the
    * two sources fail independently. The host can be down while git is fine, and
@@ -6074,7 +6074,7 @@ export function rowsFromPulse(
    * `workerQuestions`. The map is built on the scan, not on this render path.
    * A caller that passes nothing gives every row no question.
    */
-  questions?: Map<string, { firstLine: string; askedAt: string }> | null,
+  questions?: Map<string, { firstLine: string; askedAt: string; escalation?: string }> | null,
   /**
    * Every PR keyed by head — merged and closed included — for the LINK only.
    * See `CacheEntry.prsByHead`.

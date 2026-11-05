@@ -2700,7 +2700,7 @@ describe('rowsFromPulse', () => {
         const escalated = new Map([['feature/d', { firstLine: 'which adapter?', askedAt: ASKED, escalation: 'test' }]]);
         const row = rowOf('finished', escalated);
         expect(row.group).toBe('waiting-on-you');
-        expect(row.note).toBe('waiting on you: which adapter? · asked 45 minutes ago · escalated: test');
+        expect(row.note).toBe('waiting on you: which adapter? · asked 45 min ago · escalated: test');
       });
 
       it('shows no reason for a question the unblocker did not escalate', () => {

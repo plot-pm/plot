@@ -1543,6 +1543,8 @@ export interface UnblockApplied {
   outcome: 'started' | 'escalated' | 'refused' | 'failed';
   /** One line saying why, or what started. */
   detail: string;
+  /** For `escalated`: the question key and text the escalation row was recorded for. */
+  escalation?: { askedAt: string; question: string };
 }
 
 /** What {@link applyUnblockDecisions} acts through. */
