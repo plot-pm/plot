@@ -128,17 +128,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
 desk_dirt() {
   git -C "$1" status --porcelain 2>/dev/null \
     | grep -v 'tiny-garden/\.plot/state' \
-    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' \
-      '?? .plot-worker.pid' \
-      '?? .plot-worker.wrapper.pid' \
-      '?? .plot-worker.exit' \
-      '?? .plot-worker.log' \
-      '?? .plot-worker.freewait' \
-      '?? .plot-worker.ending.json' \
-      '?? .plot-worker.envelope.json' \
-      '?? .plot-worker.monitor.worker.jsonl' \
-      '?? .plot-worker.monitor.agent.jsonl' \
-      '?? .plot-worker.monitor.build.jsonl') \
+    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl') \
     | exclude_bundle_paths "$1" \
     || true
 }
