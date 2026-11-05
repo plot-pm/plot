@@ -140,7 +140,7 @@ On the 2.30.1 release a person still approves the held CI run once; that approva
 
 ### Release guard
 
-- `feature/the-release-checks-are-counted` — `release-approve` refuses `checks-missing` and the release stage reads the same rule
+- `feature/the-release-checks-are-counted` — `release-approve` refuses `checks-missing` and the release stage reads the same rule → #3180
 - `feature/the-release-head-is-the-version-step` — `release-approve` refuses `release-head-foreign` and fleetd starts no review on a foreign head → #3179
 
 ## Notes
