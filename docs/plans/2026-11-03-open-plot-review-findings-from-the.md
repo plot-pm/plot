@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3075 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/holding-work-reads-unpushed-commits`
+- **Started:** 2026-11-05, Jan Wloka, `bug/a-high-gets-its-own-fixer-attempts`
 
 ## Changelog
 
