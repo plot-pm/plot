@@ -70,7 +70,7 @@ No changeset: the change bumps no skill and no package. The decision is reversib
 
 ### Local checks entry
 
-- `feature/the-shell-lines-gate-missing-from` — add the five CI gates to the `**` entry of `Local checks`, add the commit-first sentence, regenerate `AGENTS.md`, add the drift test, and add the stale-ref line to the shell-lines refusal
+- `feature/the-shell-lines-gate-missing-from` — add the five CI gates to the `**` entry of `Local checks`, add the commit-first sentence, regenerate `AGENTS.md`, add the drift test, and add the stale-ref line to the shell-lines refusal → #3152
 
 Files this slice touches, and no others:
 
