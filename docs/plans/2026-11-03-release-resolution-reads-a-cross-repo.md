@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3081
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-03, Jan Wloka, `bug/release-pr-reads-local-references`
 - **Started:** 2026-11-04, Jan Wloka, `bug/release-tag-contains-every-local-pr`
 - **Started:** 2026-11-04, Jan Wloka, `bug/scan-release-asks-the-domain`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 
