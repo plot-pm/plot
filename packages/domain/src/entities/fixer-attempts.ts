@@ -63,6 +63,12 @@ export const FixerAttemptSchema = z
     inFlight: FixerInFlightSchema.optional(),
     /** `'failed'` where the CLI refused the run before any agent started; absent otherwise. */
     start: z.literal('failed').optional(),
+    /**
+     * The head the PR carried when the tick that ended this attempt settled it,
+     * written only where that head differs from {@link headSha}. Optional, so a
+     * record written before the field existed still decodes at version 1.
+     */
+    pushedSha: z.string().min(1).optional(),
   })
   .strict();
 export type FixerAttempt = z.infer<typeof FixerAttemptSchema>;

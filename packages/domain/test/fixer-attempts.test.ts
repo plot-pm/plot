@@ -11,6 +11,7 @@ import {
   fixerAttemptsExhausted,
   fixerAttemptsSpent,
   fixerInFlight,
+  fixerPushedHead,
 } from '../src/rules/fixer-attempts.js';
 
 const record = (over: Partial<FixerAttemptsRecord> = {}): FixerAttemptsRecord => ({
@@ -67,13 +68,30 @@ describe('decodeFixerAttempts', () => {
   });
 });
 
+describe('record versioning', () => {
+  it('decodes a record written by the current schema at version 1', () => {
+    const written = JSON.stringify({
+      v: 1,
+      pr: 42,
+      attempts: [
+        { headSha: 'a'.repeat(40), finding: { kind: 'high', hash: 'h1' } },
+        { headSha: 'a'.repeat(40), finding: { kind: 'ci', runId: 'r' }, start: 'failed', pushedSha: 'b'.repeat(40) },
+      ],
+    });
+    const decoded = decodeFixerAttempts(written);
+    expect(decoded).not.toBe('unreadable');
+    expect(decoded).not.toBe('none');
+    expect(decoded).toMatchObject({ v: 1, attempts: [{}, { pushedSha: 'b'.repeat(40) }] });
+  });
+});
+
 describe('fixerAttemptsSpent', () => {
   it('reads a missing record as zero attempts', () => {
-    expect(fixerAttemptsSpent('none')).toBe(0);
+    expect(fixerAttemptsSpent('none', 'high')).toBe(0);
   });
 
   it('reads a corrupt record as zero attempts, not as exhausted', () => {
-    expect(fixerAttemptsSpent('unreadable')).toBe(0);
+    expect(fixerAttemptsSpent('unreadable', 'high')).toBe(0);
   });
 
   it('counts two attempts on different heads of one PR as two', () => {
@@ -83,13 +101,34 @@ describe('fixerAttemptsSpent', () => {
         { headSha: 'b'.repeat(40), finding: { kind: 'high', hash: 'h1' } },
       ],
     });
-    expect(fixerAttemptsSpent(r)).toBe(2);
+    expect(fixerAttemptsSpent(r, 'high')).toBe(2);
+  });
+});
+
+describe('fixerAttemptsSpent by kind', () => {
+  const ciAttempt = (i: number) => ({ headSha: `${i}`.repeat(40), finding: { kind: 'ci' as const, runId: `${i}` } });
+
+  it('two CI-red attempts leave the HIGH budget unspent', () => {
+    const r = record({ attempts: [ciAttempt(1), ciAttempt(2)] });
+    expect(fixerAttemptsSpent(r, 'high')).toBe(0);
+    expect(fixerAttemptsExhausted(r, 'high')).toBe(false);
+    expect(fixerAttemptsExhausted(r, 'ci')).toBe(true);
+  });
+});
+
+describe('fixerPushedHead', () => {
+  it('proves a head only from an attempt that recorded it', () => {
+    const r = record({ attempts: [{ headSha: 'a'.repeat(40), finding: { kind: 'ci', runId: '1' }, pushedSha: 'b'.repeat(40) }] });
+    expect(fixerPushedHead(r, 'b'.repeat(40))).toBe(true);
+    expect(fixerPushedHead(r, 'a'.repeat(40))).toBe(false);
+    expect(fixerPushedHead('none', 'b'.repeat(40))).toBe(false);
+    expect(fixerPushedHead('unreadable', 'b'.repeat(40))).toBe(false);
   });
 });
 
 describe('fixerAttemptsExhausted', () => {
   it('is not exhausted below the budget', () => {
-    expect(fixerAttemptsExhausted(record({ attempts: [] }))).toBe(false);
+    expect(fixerAttemptsExhausted(record({ attempts: [] }), 'high')).toBe(false);
   });
 
   it('is exhausted once spent reaches the budget', () => {
@@ -97,12 +136,12 @@ describe('fixerAttemptsExhausted', () => {
       headSha: `${i}`.repeat(40),
       finding: { kind: 'high' as const, hash: 'h1' },
     }));
-    expect(fixerAttemptsExhausted(record({ attempts }))).toBe(true);
+    expect(fixerAttemptsExhausted(record({ attempts }), 'high')).toBe(true);
   });
 
   it('is not exhausted on a missing or corrupt record', () => {
-    expect(fixerAttemptsExhausted('none')).toBe(false);
-    expect(fixerAttemptsExhausted('unreadable')).toBe(false);
+    expect(fixerAttemptsExhausted('none', 'high')).toBe(false);
+    expect(fixerAttemptsExhausted('unreadable', 'high')).toBe(false);
   });
 });
 
@@ -142,13 +181,13 @@ describe('a failed start spends no attempt', () => {
   });
 
   it('counts none of two failed starts', () => {
-    expect(fixerAttemptsSpent(failedStarts)).toBe(0);
-    expect(fixerAttemptsExhausted(failedStarts)).toBe(false);
+    expect(fixerAttemptsSpent(failedStarts, 'high')).toBe(0);
+    expect(fixerAttemptsExhausted(failedStarts, 'high')).toBe(false);
   });
 
   it('counts the attempts that ran next to a failed one', () => {
     const mixed = record({ attempts: [...failedStarts.attempts, { headSha: 'b'.repeat(40), finding: { kind: 'high', hash: 'h3' } }] });
-    expect(fixerAttemptsSpent(mixed)).toBe(1);
+    expect(fixerAttemptsSpent(mixed, 'high')).toBe(1);
   });
 
   it('decodes a record with no start field at version 1', () => {

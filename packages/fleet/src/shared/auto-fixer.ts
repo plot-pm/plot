@@ -15,7 +15,7 @@ import type { PidCheck } from '@plot-pm/domain/rules/role-run-alive';
 import { fixerPrompt, endedFixerAttempts, type FixerEvidence } from '@plot-pm/domain/rules/fixer-start';
 import type { FixerAttemptsRecord, FixerFinding, FixerInFlight } from '@plot-pm/domain/entities/fixer-attempts';
 import type { FixerAttemptsStore } from '@plot-pm/domain/ports/fixer-attempts';
-import { fixerInFlight, fixerAttemptsExhausted, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
+import { fixerReadingOf, FIXER_BOUND_SECONDS } from '@plot-pm/domain/rules/fixer-attempts';
 import { fixerAdmission, fixerRanToBound, runningFixers } from '@plot-pm/domain/rules/fixer-concurrency';
 import type { SlotRefusalInput } from '@plot-pm/domain/rules/fleet-run';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
@@ -52,7 +52,7 @@ export interface FixerTickWorld {
   readonly trees: (opts: ActOptions) => Pick<Trees, 'forBranch' | 'add' | 'fetch' | 'prune' | 'removeOnly'>;
   readonly host: (opts: ActOptions) => Pick<Host, 'prState'>;
   readonly worker: (opts: ActOptions) => Pick<Processes, 'workerState'>;
-  readonly attempts: (opts: ActOptions) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart'>;
+  readonly attempts: (opts: ActOptions) => Pick<FixerAttemptsStore, 'read' | 'append' | 'markInFlight' | 'markStart' | 'markPushed'>;
   readonly freshAgents: (opts: ActOptions) => Pick<FreshAgentRecordStore, 'rowsFor'>;
   /** Reads a desk worktree's ending file; real `fs` by default, `null` for "no file". */
   readonly readEndingFile: (worktree: string) => string | null;
@@ -285,6 +285,12 @@ const settleEnded = async (
   for (const index of ended) {
     if (!(await store.markInFlight(row.number, index, null)).ok) problems.push('mark-not-cleared');
   }
+  for (const index of ended) {
+    const attempt = record.attempts[index];
+    if (attempt?.start !== 'failed' && row.headSha !== undefined && attempt !== undefined && row.headSha !== attempt.headSha) {
+      if (!(await store.markPushed(row.number, index, row.headSha)).ok) problems.push('pushed-not-recorded');
+    }
+  }
   const head = record.attempts[ended[ended.length - 1] ?? 0]?.headSha ?? '';
   const boundHit = ended.some((index) => {
     const startedAt = record.attempts[index]?.inFlight?.startedAt;
@@ -371,10 +377,7 @@ export const fixerTick = async (
     const worker = deskTree === null ? null : await world.worker(opts).workerState(deskTree.path, true);
     const desk: DeskDeadAnswer = worker?.ok ? deskDeadFromWorkerState(worker.value.state) : { dead: false, why: 'elsewhere' };
     const spentExhausted = await correctionsSpentExhausted(world, opts, deskTree?.path ?? null, row.head);
-    const fixer: FixerReading =
-      attempts === 'unreadable'
-        ? { read: 'unread' }
-        : { read: 'record', inFlight: fixerInFlight(attempts), exhausted: fixerAttemptsExhausted(attempts) };
+    const fixer: FixerReading = fixerReadingOf(attempts, row.headSha ?? '');
 
     const step = slicePrNext({ ...readings, row, desk, correctionsSpentExhausted: spentExhausted, fixer });
     if (step.step !== 'fixer' || attempts === 'unreadable') {
