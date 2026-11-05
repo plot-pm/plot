@@ -6744,8 +6744,8 @@ test('host: the REST fallback and the GraphQL path speak one vocabulary', () => 
     }),
   }));
   // REST carries no rollup, so it answers checks `unknown` where GraphQL reads one; that is the one deliberate difference.
-  const { checks: restChecks, checksSha: _rs, ...restRest } = viaRest;
-  const { checks: _gc, checksSha: _gs, ...graphqlRest } = viaGraphql;
+  const { checks: restChecks, checksSha: _rs, ciChecks: _rc, ...restRest } = viaRest;
+  const { checks: _gc, checksSha: _gs, ciChecks: _gcc, ...graphqlRest } = viaGraphql;
   assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
   assert.deepEqual(restRest, graphqlRest, 'a caller must not be able to tell which route answered');
   assert.equal(viaRest.state, 'MERGED', "REST's lowercase `closed` + `merged:true` is MERGED");
@@ -7417,7 +7417,7 @@ test('host: no caller learns which transport ran', () => {
   });
   const viaGraphql = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: graphql });
   const viaRest = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: rest });
-  const { checks: _c, checksSha: _s, ...graphqlBody } = JSON.parse(viaGraphql);
+  const { checks: _c, checksSha: _s, ciChecks: _cc, ...graphqlBody } = JSON.parse(viaGraphql);
   const { checks: restChecks, ...restBody } = JSON.parse(viaRest);
   assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
   assert.deepEqual(graphqlBody, restBody);
