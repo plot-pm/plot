@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord, reverseDelivery } from '../src/rules/plan-record-edit.js';
+import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord, replaceStatusRecord, reverseDelivery } from '../src/rules/plan-record-edit.js';
 
 describe('flipStatusValue', () => {
   it('flips State: Approved to Delivered inside ## Status', () => {
@@ -260,5 +260,22 @@ describe('reverseDelivery', () => {
 
   it('returns null where the status section holds no state bullet', () => {
     expect(reverseDelivery(plan('- **Approved:** a\n'), 'Approved', 'r')).toBeNull();
+  });
+});
+
+describe('replaceStatusRecord', () => {
+  const plan = (line: string) => `# P\n\n## Status\n\n- **Phase:** Design\n${line}- **Approved:**\n\n## Branches\n`;
+
+  it('replaces a filled line in place and leaves one', () => {
+    const out = replaceStatusRecord(plan('- **Spike approved:** 2026-10-01, jwloka, in-session\n'), 'Spike approved', '2026-11-04, jwloka, pr, feature/x');
+    expect(out.changed).toBe(true);
+    expect(out.content).toBe(plan('- **Spike approved:** 2026-11-04, jwloka, pr, feature/x\n'));
+    expect(out.content.match(/Spike approved/g)).toHaveLength(1);
+  });
+
+  it('inserts as insertStatusRecord does where no line is filled', () => {
+    expect(replaceStatusRecord(plan(''), 'Spike approved', 'r')).toEqual(insertStatusRecord(plan(''), 'Spike approved', 'r'));
+    const empty = plan('- **Spike approved:**\n');
+    expect(replaceStatusRecord(empty, 'Spike approved', 'r')).toEqual(insertStatusRecord(empty, 'Spike approved', 'r'));
   });
 });

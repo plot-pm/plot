@@ -319,6 +319,20 @@ test('approve entry: a Design plan whose spike annotation was removed approves o
   assert.doesNotMatch(hostCalls(), /^gh pr list --head feature\/spike\b/m, 'a plan with no spike reads no spike merge');
 });
 
+test('approve entry: --spike over a three-field record rewrites the one line to four fields and files the receipt', () => {
+  const { repo } = makeRepo(SPIKE_PLAN(), { number: 0, state: 'NONE', draft: false, spike: 'merged' });
+  const r = approve(repo, ['--spike', '--who', 'jwloka', 'approve-me']);
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  const plan = planOnMain(repo);
+  assert.equal(plan.match(/Spike approved:/g).length, 1, plan);
+  assert.match(plan, /^- \*\*Spike approved:\*\* \d{4}-\d{2}-\d{2}, jwloka, in-session, feature\/spike$/m, plan);
+  assert.match(plan, /\*\*Phase:\*\* Design/, plan);
+  const dir = path.join(repo, '.plot', 'state', 'state-receipts');
+  const receipts = fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).filter((t) => t.startsWith(`${PLAN_REL}#Spike approved\t`));
+  assert.equal(receipts.length, 1, 'one receipt under the plan path and the field');
+  assert.match(receipts[0], /\t\d{4}-\d{2}-\d{2}, jwloka, in-session, feature\/spike\n$/, receipts[0]);
+});
+
 // --- the receipts ------------------------------------------------------------
 
 test('approve entry: a completed approval leaves the state receipt the gate reads and spends the action receipt', () => {

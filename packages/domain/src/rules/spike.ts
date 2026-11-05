@@ -61,3 +61,49 @@ export const spikeSliceOf = (shown: readonly number[], plan: number): number | u
   })));
   return spike !== undefined && spike.slice < shown.length ? spike.slice : undefined;
 };
+
+/** Why a `Spike approved:` record licenses no branch. */
+export type SpikeUnlicensed =
+  | 'spike-record-absent'
+  | 'spike-record-branchless'
+  | 'spike-record-unparseable'
+  | 'spike-none'
+  | 'spike-marker-moved'
+  | 'spike-branch-renamed';
+
+/** The answer of {@link licensedSpike}. */
+export type LicensedSpike =
+  | { readonly licensed: true; readonly branch: string; readonly slice: number }
+  | { readonly licensed: false; readonly reason: SpikeUnlicensed };
+
+/**
+ * The branch a `Spike approved:` record licenses.
+ *
+ * The record is `<date>, <who>, <channel>, <branch>`; the branch is the fourth
+ * field. Reasons are checked in this order: `spike-record-absent` (empty
+ * record), `spike-record-branchless` (fewer than four fields),
+ * `spike-record-unparseable` (an empty or whitespace-bearing fourth field, or a
+ * fifth field), `spike-none` (the plan marks no branch or several),
+ * `spike-marker-moved` (the record's branch is in the plan, the marker is on
+ * another), `spike-branch-renamed` (the record's branch is in no slice). Reads
+ * no phase.
+ *
+ * @param record - the verbatim record text after `Spike approved:`.
+ * @param slices - the plan's slices in document order.
+ * @returns the licensed branch with its slice position, or the reason none is.
+ */
+export const licensedSpike = (record: string, slices: readonly SpikeSlice[]): LicensedSpike => {
+  const text = record.trim();
+  if (text === '') return { licensed: false, reason: 'spike-record-absent' };
+  const fields = text.split(',').map((f) => f.trim());
+  if (fields.length < 4) return { licensed: false, reason: 'spike-record-branchless' };
+  const branch = fields[3];
+  if (fields.length > 4 || branch === '' || /\s/.test(branch)) {
+    return { licensed: false, reason: 'spike-record-unparseable' };
+  }
+  const spike = spikeOf(slices);
+  if (!spike) return { licensed: false, reason: 'spike-none' };
+  if (spike.branch === branch) return { licensed: true, branch, slice: spike.slice };
+  const present = slices.some(({ branches }) => branches.some((b) => b.branch === branch));
+  return { licensed: false, reason: present ? 'spike-marker-moved' : 'spike-branch-renamed' };
+};

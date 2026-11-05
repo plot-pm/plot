@@ -11,7 +11,7 @@ import { approve as approveWorkflow, approveSpike as approveSpikeWorkflow, type 
 import { planStateOf } from '@plot-pm/domain/entities/plan';
 import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { slicesPushedOf } from '@plot-pm/domain/rules/spike-confirm';
-import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
+import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord, replaceStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { SPIKE_APPROVED_FIELD, spikeReceiptKey } from '@plot-pm/domain/rules/state-transition';
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
 import {
@@ -592,7 +592,7 @@ const applySpikeWrites = async (
   );
   if (decision.outcome === 'refused') throw new Refused(decision.detail);
 
-  const inserted = insertStatusRecord(content, SPIKE_APPROVED_FIELD, decision.record);
+  const inserted = replaceStatusRecord(content, SPIKE_APPROVED_FIELD, decision.record);
   if (!inserted.changed) {
     throw new Refused(`${rel} has no '## Status' section — nowhere to record the spike approval.\n  Nothing was written. Fix the section and re-run.`);
   }
@@ -1022,7 +1022,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       if (pr.draft) write(`step: would mark PR #${pr.number} ready for review\n`);
       if (pr.state !== 'MERGED' && !sameBranch) write(`step: would merge PR #${pr.number}\n`);
     }
-    write(`step: would fill Spike approved: ${today}, ${who}, ${spikeChannel} and leave the phase\n`);
+    write(`step: would fill Spike approved: ${today}, ${who}, ${spikeChannel}, ${verdict.detail.spike ?? ''} and leave the phase\n`);
     write(`step: would clear the .plot/hold entry for: ${verdict.detail.spike ?? ''}\n`);
     write('summary: merged=' + (inSession ? 'skipped-in-session' : 'would') + ' phase=unchanged record=would holds=would sprint=none push=would\n');
     return 0;

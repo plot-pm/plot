@@ -376,7 +376,7 @@ Get the explicit go from the person, then make one call. Do not do this by hand:
 `<handle>` is the person who gave the go, and the `People` config key must declare it. The script does these steps:
 
 1. Under `Review: pr`, `none` or `ballot`, it takes an open draft plan PR out of draft and merges it pinned to the reviewed head (`--match-head-commit`). Under `Review: in-session`, under `Impl: same branch`, or when the plan PR is already merged, it merges nothing.
-2. It writes `- **Spike approved:** <date>, <handle>, <channel>` in `## Status`, and a state receipt under `<plan path>#Spike approved`.
+2. It writes `- **Spike approved:** <date>, <handle>, <channel>, <branch>` in `## Status`, naming the spike branch it licenses. It replaces an existing record line and leaves one, and a state receipt under `<plan path>#Spike approved`.
 3. It removes the `.plot/hold` entry of the spike branch only. The holds of the other branches stay.
 4. It commits `plot: approve spike of <slug>` and pushes it to the default branch.
 5. It appends a row to `.plot/state/in-session-approvals.tsv` whose fifth column is `spike`.
@@ -388,7 +388,7 @@ The phase stays Design, and no `Approved:` record is written. Carry the script's
 **On a refusal (exit 1), report the script's own words and stop.** It refuses:
 
 - `state-wrong` — the plan is not in the Design phase.
-- `spike-approved` — the plan already carries a `Spike approved:` record. A second run is not a repair.
+- `spike-approved` — the plan's `Spike approved:` record already licenses the marked branch. A record with no branch, or one that names a branch the plan no longer marks, licenses nothing; re-run the command to replace it.
 - `spike-none` — no branch is marked `<!-- spike -->`, or more than one is.
 - `spike-not-first` — the spike is not the only branch of the first slice.
 - `spike-unmerged` and `slices-unpushed` — the whole-plan approval of a Design plan with a spike (step 2b). They do not apply to `--spike`.
