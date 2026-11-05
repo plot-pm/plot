@@ -87,15 +87,16 @@ describe('a branch the host finished does not wait on a person', () => {
   });
 
   it('leaves WAITING ON YOU when the PR closed', () => {
-    // A closed PR is a DECISION. `quietNeedsPerson` releases exactly this kind,
+    // A closed PR is a DECISION. `quietPlacement` releases exactly this kind,
     // and the loose path hardcoded `rowQuietKind(null, ...)` so it could never
     // be reached — the row said `closed` and sat in the section that asks.
     expect(rowFor('infra/declined', 'CLOSED').group).toBe('done');
   });
 
-  it('still asks a person about a branch with no PR at all', () => {
+  it('still shows a branch with no PR at all, in QUIET', () => {
     // The control. Real abandoned work — commits, no PR ever opened — is what
-    // this section is FOR, and neither fix may take it away.
-    expect(rowFor('docs/abandoned', null).group).toBe('waiting-on-you');
+    // this section is FOR, and neither fix may take it away. Operator decision
+    // B (2026-11-03) moves it to QUIET; it still carries the word `abandoned`.
+    expect(rowFor('docs/abandoned', null).group).toBe('quiet');
   });
 });

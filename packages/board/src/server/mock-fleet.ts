@@ -240,6 +240,16 @@ export function mockFleet(): Fleet {
       wave: 'Batched', state: 'wip',
       ageMinutes: 8 * 1440, note: 'last commit 8d ago',
     }),
+    // AN ABANDONED BRANCH IN QUIET — operator decision B (2026-11-03) moved it
+    // here from WAITING ON YOU, keeping its kind word and its note. No plan: a
+    // loose branch with real commits and no PR ever opened.
+    row({
+      kind: 'branch', group: 'quiet', quietKind: 'abandoned',
+      branch: 'docs/a-note-on-fetch-timing',
+      branchUrl: 'https://example.invalid/tree/docs/a-note-on-fetch-timing',
+      wave: '', state: 'wip',
+      ageMinutes: 20 * 1440, note: 'commits, no PR ever opened',
+    }),
     // AND A DELIVERED SLICE IN DONE — `state: 'merged'`, which the row displays as
     // `delivered`. Two branches of one slice, so DONE shows the slice that landed
     // rather than two branches that each did.

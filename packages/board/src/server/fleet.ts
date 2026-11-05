@@ -4734,14 +4734,12 @@ function classifyGroup(
     // from `ClaimRefReadings`. So the reading is read off the state rather than
     // re-derived, and no new field crosses the pulse.
     //
-    // WAITING ON YOU, NOT QUIET, and that move is the half this slice exists
-    // for. `quietNeedsPerson` says an orphaned claim is still somebody's to
-    // answer — a branch nobody started, holding a worktree slot — and the group
-    // is the half that asks. QUIET means *go check whether it died*; nothing
-    // died here, and there is nothing to check: the claim is the whole of what
-    // happened. #669 relabelled a row and left its group, and the row went on
-    // asking for a decision its own sentence said was made; this plan's own
-    // notes call that the error not to repeat.
+    // QUIET, NOT WAITING ON YOU. Operator decision B (2026-11-03) keeps an
+    // orphaned claim's Open item, kind word and note, but moves the group out
+    // of the action list: `quietPlacement` answers `quiet` for this kind, the
+    // same answer it gives the `abandoned` arm below. QUIET means *go check
+    // whether it died*, and an orphaned claim is exactly that — a branch
+    // nobody started, holding a worktree slot.
     //
     // THE AGE RIDES BESIDE THE SENTENCE, never instead of it. Age is what the
     // fallthrough said when it had nothing else, and it is the fact this rule
@@ -4754,9 +4752,10 @@ function classifyGroup(
     // two renderings of one reading, so a fetch that never landed has to reach
     // both or the row says *no PR ever opened* beside a kind that declines to
     // say it.
-    const orphaned = quietNote(claimedReadings(pr, hostUnasked, tipAt, fetchAt));
+    const claimReadings = claimedReadings(pr, hostUnasked, tipAt, fetchAt);
+    const orphaned = quietNote(claimReadings);
     return {
-      group: 'waiting-on-you',
+      group: quietPlacement(claimReadings),
       note:
         ageMinutes === null
           ? withNote(orphaned, elsewhere ? 'claimed elsewhere' : '')
@@ -5992,20 +5991,21 @@ const HANDED_NOTE = 'handed over — not taken up yet';
  * and #1161's rule wins there: dispatch refuses a Draft slice, so a live agent
  * on one is a fault in its own right and the row must keep naming the approval a
  * person owes. And the group is `not-started` OR the orphaned claim — `claimed`,
- * `waiting-on-you`, no PR — because a `not-started`-only rule leaves the
+ * `quiet`, no PR — because a `not-started`-only rule leaves the
  * past-the-quiet-window case reading as an orphan while WORKING shows its agent.
  *
  * **Absence is not falsehood.** A row no live agent names keeps
  * `classifyGroup`'s answer whole, so #1090's orphan reading survives every case
  * where the registry says nothing — an agent that dies on an empty claim turns
  * `failed`, stops matching, and its row returns to NOT STARTED inside the window
- * and WAITING ON YOU after it.
+ * and QUIET after it.
  *
  * **Two live agents is a fault for a person, not a no-op.** The row goes to
  * WAITING ON YOU naming the count. The double hand-out itself is #1039 and
  * #1152; this only reports it.
  *
- * Every moved row carries `someone-is-on-it`, or an `open` row would keep
+ * Every moved row carries `someone-is-on-it`, and `quietKind: null` — a handed
+ * row has an agent, so it is not quiet. Or an `open` row would keep
  * `start-work` from `startabilityVerdict` and a menu would offer to start a
  * slice an agent already holds. Every other field is kept, and the rows are
  * REPLACED rather than mutated — the objects `rowsFromPulse` returned are read
@@ -6019,17 +6019,24 @@ export const withHandOver = (rows: readonly AgentRow[], agents: readonly AgentEn
   rows.map((row) => {
     if (row.worker === 'running' || row.worker === 'waiting') return row;
     if (row.verdict === 'unapproved') return row;
-    const orphanedClaim = row.state === 'claimed' && row.group === 'waiting-on-you' && row.pr === null;
+    const orphanedClaim = row.state === 'claimed' && row.group === 'quiet' && row.pr === null;
     if (row.group !== 'not-started' && !orphanedClaim) return row;
     const sessions = handedTo(row.branch, agents);
     if (sessions.length === 0) return row;
     return sessions.length === 1
-      ? { ...row, group: 'working' as const, note: HANDED_NOTE, startability: 'someone-is-on-it' as const }
+      ? {
+        ...row,
+        group: 'working' as const,
+        note: HANDED_NOTE,
+        startability: 'someone-is-on-it' as const,
+        quietKind: null,
+      }
       : {
         ...row,
         group: 'waiting-on-you' as const,
         note: `handed to ${sessions.length} agents at once`,
         startability: 'someone-is-on-it' as const,
+        quietKind: null,
       };
   });
 
@@ -6449,7 +6456,7 @@ export function rowsFromPulse(
         // other direction. QUIET, not DONE: DONE would read a declined branch
         // as an equal outcome to a merged one.
         //
-        // AND IT ASKS FOR NOTHING, which is the move. `quietNeedsPerson` lets a
+        // AND IT ASKS FOR NOTHING, which is the move. `quietPlacement` lets a
         // closed PR go — somebody already decided, and a decision is not a
         // thing to look at. It is the answer that empties 17 of this estate's
         // 26 quiet rows and the reason the other kinds are readable at all.
@@ -7246,7 +7253,7 @@ export function rowsFromPulse(
     // AND `CLOSED` REACHES IT TOO. `quietKind` answers `closed-pr` only when it
     // is TOLD the PR closed, and `rowQuietKind`'s first argument — the closed
     // flag — was hardcoded `null` on this path, so a rejected branch could never
-    // reach the one kind `quietNeedsPerson` releases.
+    // reach the one kind `quietPlacement` releases.
     //
     // Measured 2026-09-04: #363, #369, #56 and eleven more sat in WAITING ON YOU
     // labelled `closed`. The label was right and the placement was not — the
@@ -7281,7 +7288,7 @@ export function rowsFromPulse(
     // against it, which is an outcome — the branch is finished, whatever the
     // verdict was. Quiet means *nobody is on it and nobody need be*, which
     // reads as an invitation to go and look; the decision was already taken.
-    // `quietNeedsPerson` has said `closed-pr` needs nobody since the kind
+    // `quietPlacement` has said `closed-pr` needs nobody since the kind
     // existed; this is the section catching up with that answer.
     const placed: WaitingGroup = prClosed ? 'done' : group;
     // `hostUnasked` REACHES THIS PATH TOO, and that is the asymmetry :6585

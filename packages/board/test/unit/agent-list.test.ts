@@ -10,6 +10,7 @@ import {
   openTarget,
   offersOpen,
   openLabel,
+  startableNote,
   runLinkLabel,
   storyRefusal,
   splitBranch,
@@ -3844,15 +3845,17 @@ describe('openTarget — the address Open navigates to, from fields already on t
 });
 
 /**
- * WHICH ROWS OFFER OPEN — and it is WAITING ON YOU, and only there.
+ * WHICH ROWS OFFER OPEN — WAITING ON YOU, and the two QUIET kinds operator
+ * decision B (2026-11-03) moved there without taking the item away.
  *
  * The motivating defect was a plain PR *awaiting review* with no menu — a row
  * the reader must act on, leading with a subject they had no route to. Open
- * answers that. But a `quiet`, `blocked` or `done` row has genuinely nothing to
- * do, and the settled rule `one-place-for-what-a-row-can-do` holds there: a `⋯`
- * that opens nothing but a link the row ALREADY shows (its branch is an anchor)
- * is the empty menu that lies. So Open is a WAITING ON YOU affordance — the
- * section whose whole membership is *this wants a person*.
+ * answers that. But a PLAIN `quiet`, `blocked` or `done` row has genuinely
+ * nothing to do, and the settled rule `one-place-for-what-a-row-can-do` holds
+ * there: a `⋯` that opens nothing but a link the row ALREADY shows (its branch
+ * is an anchor) is the empty menu that lies. So Open is a *this wants a
+ * person* affordance — WAITING ON YOU's whole membership, plus `abandoned` and
+ * `orphaned-claim` in QUIET, which still ask *revive or drop* / *reap it*.
  *
  * A branch waiting its turn (`not-started`, `waitingOn: 'time'`) is the sharp
  * negative: it has a `branchUrl`, but it is not yours to act on yet, and the row
@@ -3871,6 +3874,66 @@ describe('offersOpen — Open is a WAITING ON YOU affordance', () => {
 
   it('offers nothing where there is no address to open', () => {
     expect(offersOpen(row({ group: 'waiting-on-you', branchUrl: '', pr: null }))).toBe(false);
+  });
+
+  it('offers Open on abandoned and orphaned-claim rows in quiet', () => {
+    expect(offersOpen(row({ group: 'quiet', quietKind: 'abandoned', branchUrl: 'u' }))).toBe(true);
+    expect(offersOpen(row({ group: 'quiet', quietKind: 'orphaned-claim', branchUrl: 'u' }))).toBe(true);
+  });
+
+  it('does NOT offer Open on a plain quiet-kind row, even with an address', () => {
+    expect(offersOpen(row({ group: 'quiet', quietKind: 'quiet', branchUrl: 'u' }))).toBe(false);
+  });
+});
+
+/**
+ * STARTABLE NOTE KEEPS A QUIET ROW'S SENTENCE, the one exception to blanking
+ * every `someone-is-on-it` row's note. `abandoned` and `orphaned-claim` in
+ * QUIET read `someone-is-on-it` is false — nobody is on them — but a row
+ * elsewhere that DOES read `someone-is-on-it` (a Draft-plan fresh claim, a
+ * handed row, a double hand-out) still loses its note, because slot 5 already
+ * says so and the note would only repeat it.
+ */
+describe('startableNote — the one note a someone-is-on-it row keeps', () => {
+  it('keeps the note of a plan-named abandoned row in quiet', () => {
+    expect(startableNote(row({
+      group: 'quiet', quietKind: 'abandoned', note: 'commits, no PR ever opened',
+    }))).toBe('commits, no PR ever opened');
+  });
+
+  it('blanks the note of a Draft-plan fresh claim reading someone-is-on-it', () => {
+    expect(startableNote(row({
+      group: 'waiting-on-you', quietKind: 'orphaned-claim',
+      startability: 'someone-is-on-it', note: 'claimed, no work committed',
+    }))).toBe('');
+  });
+
+  it('blanks the note of a Draft-plan fresh wip reading someone-is-on-it', () => {
+    expect(startableNote(row({
+      group: 'waiting-on-you', quietKind: 'abandoned',
+      startability: 'someone-is-on-it', note: 'commits, no PR ever opened',
+    }))).toBe('');
+  });
+
+  it('blanks the note of a handed row in working', () => {
+    expect(startableNote(row({
+      group: 'working', quietKind: null,
+      startability: 'someone-is-on-it', note: 'handed off',
+    }))).toBe('');
+  });
+
+  it('blanks the note of a double hand-out row in waiting-on-you', () => {
+    expect(startableNote(row({
+      group: 'waiting-on-you', quietKind: null,
+      startability: 'someone-is-on-it', note: 'handed to 2 agents at once',
+    }))).toBe('');
+  });
+
+  it('blanks the note of a someone-is-on-it row with quietKind: null', () => {
+    expect(startableNote(row({
+      group: 'waiting-on-you', quietKind: null,
+      startability: 'someone-is-on-it', note: 'something',
+    }))).toBe('');
   });
 });
 

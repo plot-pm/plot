@@ -1094,16 +1094,27 @@ appearing here is the defect `a-plan-moves-through-the-sections` fixed.
 |---|---|---|
 | plan `phase` | Development | Discovery · Endgame · Released |
 | wave `verdict` | eligible · blocked | complete |
-| branch `state` | **wip only** | open · merged · deferred |
-| pr | present | — |
+| branch `state` | wip · **claimed** | open · merged · deferred |
+| pr | present, or **absent** | — |
 | worker | not running | running |
 
-```
-6 rows   phase: 6/6 Development   state: 6/6 wip   pr: 6 of 6   worker: 6/6 elsewhere
-```
+**No longer uniform on `pr`, by design.** `quiet-is-not-one-state` split the
+original fallthrough into four named kinds — `closed-pr`, `orphaned-claim`,
+`abandoned`, plain `quiet` — two of which carry no PR at all: an **orphaned
+claim** (`state: claimed`, nobody ever pushed a commit) and **abandoned** work
+(`state: wip`, commits exist, no PR was ever opened). `wip` is no longer the
+only admitted branch state, because a `claimed` branch can go quiet too — a ref
+exists and nothing followed.
 
-**Also uniform.** `wip` is the definition: work was pushed and then nothing
-happened. A branch with no commits cannot go quiet — it was never loud.
+Operator decision B (2026-11-03) reverses `#1758`/`#1902` deliberately: both
+PR-less kinds moved from WAITING ON YOU into QUIET, keeping their kind word and
+their note. The errand they ask for — revive it, or drop it — is real, but it
+is not the kind of "waiting on you" a live PR or a review request is.
+
+`wip` with a PR present is still the original definition: work was pushed and
+then nothing happened. A branch with no commits at all cannot go quiet under
+that reading — it was never loud — which is exactly why `claimed` needed its
+own kind rather than being folded into `wip`'s.
 
 ### DONE — *finished, and still yours*
 
