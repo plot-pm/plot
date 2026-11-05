@@ -91,6 +91,11 @@ export interface Pr {
    * none (Jenkins colours per branch).
    */
   checksSha?: string;
+  /**
+   * The colour of the check rollup with `plot/review` excluded, or absent where
+   * the host reports none (REST transport, Bitbucket). Absent is not `none`.
+   */
+  ciChecks?: Checks;
 }
 
 /**

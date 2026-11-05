@@ -26,6 +26,7 @@ const pr = (over: Partial<Pr> = {}): Pr => ({
   author: '',
   headSha: HEAD,
   checksSha: HEAD,
+  ciChecks: 'green',
   ...over,
 });
 
@@ -42,6 +43,7 @@ const readings = (over: Partial<ReleaseApproveReadings> = {}): ReleaseApproveRea
   caller: 'person',
   pr: pr(),
   review: review(),
+  ciAsked: true,
   ...over,
 });
 
@@ -79,6 +81,23 @@ describe('releaseApprove — the controller for a release PR approval', () => {
   it('refuses a success recorded on an older sha when the head has since moved', () => {
     // catches reading the status without checking its sha.
     expect(refusalOf(readings({ review: review({ sha: OTHER, state: 'success' }) }))).toBe('review-missing');
+  });
+
+  it('a release PR whose rollup holds only plot/review success refuses checks-missing', () => {
+    expect(refusalOf(readings({ pr: pr({ ciChecks: 'none' }) }))).toBe('checks-missing');
+    expect(refusalOf(readings({ pr: pr({ ciChecks: 'pending' }) }))).toBe('checks-missing');
+    expect(refusalOf(readings({ pr: pr({ ciChecks: 'unknown' }) }))).toBe('checks-missing');
+    const { ciChecks: _omitted, ...bare } = pr();
+    expect(refusalOf(readings({ pr: bare }))).toBe('checks-missing');
+    expect(refusalOf(readings({ pr: pr({ checksSha: OTHER }) }))).toBe('checks-missing');
+  });
+
+  it('a release PR whose required validate succeeded on the pinned head passes the checks rule', () => {
+    expect(refusalOf(readings({ pr: pr({ ciChecks: 'green' }) }))).toBe('decided');
+  });
+
+  it('skips the checks rule on a host that reports no CI-only rollup', () => {
+    expect(refusalOf(readings({ pr: pr({ ciChecks: 'none' }), ciAsked: false }))).toBe('decided');
   });
 
   it('decides one approval pinned to the head the caller reviewed', () => {

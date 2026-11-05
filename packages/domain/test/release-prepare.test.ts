@@ -29,7 +29,7 @@ const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
   url: 'u',
   headSha: HEAD,
   checksSha: HEAD,
-  ciChecks: 'none',
+  ciChecks: 'green',
   plotReview: 'success',
   plotReviewSha: HEAD,
   ...over,
@@ -64,6 +64,13 @@ const readings = (over: Partial<ReleasePrepareReadings> = {}): ReleasePrepareRea
 });
 
 describe('releasePrepareNext', () => {
+  it('a head whose only CI success is outside what GitHub counts reads preparing, not ready', () => {
+    expect(releaseStage(readings({ pr: row({ ciChecks: 'none' }) }))).toBe('preparing');
+    expect(releaseStage(readings({ pr: row({ ciChecks: undefined }) }))).toBe('preparing');
+    expect(releaseStage(readings({ pr: row({ ciChecks: 'pending' }) }))).toBe('preparing');
+    expect(releaseStage(readings({ pr: row({ ciChecks: 'green', checksSha: OLD }) }))).toBe('preparing');
+  });
+
   it('holds on a scope read as none, never ready', () => {
     const r = readings({ scope: { read: 'none', why: 'no-active-sprint' } });
     expect(releasePrepareNext(r)).toEqual({ step: 'hold', reason: 'waiting-scope' });
@@ -122,7 +129,7 @@ describe('releasePrepareNext', () => {
   });
 
   it('sends no second notification for an unchanged changeset list on a moved head', () => {
-    const r = readings({ pr: row({ headSha: OLD, plotReviewSha: OLD }), log: [line()] });
+    const r = readings({ pr: row({ headSha: OLD, checksSha: OLD, plotReviewSha: OLD }), log: [line()] });
     expect(releasePrepareNext(r)).toEqual({ step: 'none', why: 'notified' });
   });
 

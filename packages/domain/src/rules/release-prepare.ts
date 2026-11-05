@@ -1,6 +1,7 @@
 import type { PrIndexRow } from '../entities/pr-index.js';
 import type { RunLogLine } from '../ports/run-log.js';
 import { planSlug } from './auto-dispatch.js';
+import { ciCounted } from './release-checks-counted.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { ReviewRunReading } from './slice-pr-next.js';
 import type { SprintScope } from './sprint-scope.js';
@@ -218,7 +219,7 @@ export const releaseStage = (readings: ReleasePrepareReadings): ReleaseStage => 
   if (!scope.slugs.every((slug) => phases.get(slug) === 'delivered')) return 'waiting-scope';
   if (pr === 'none' || pr === 'unaskable' || pr.state !== 'OPEN' || pr.headSha === undefined) return 'preparing';
   const green = requiredChecks(readings.checks, readings.config.requiredWorkflow) === 'green';
-  return green && reviewPassed(pr) ? 'ready' : 'preparing';
+  return green && reviewPassed(pr) && ciCounted(pr.ciChecks) && pr.checksSha === pr.headSha ? 'ready' : 'preparing';
 };
 
 /**

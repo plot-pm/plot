@@ -504,6 +504,27 @@ test('host: pr-state github names the head and the checks read for it', () => {
   assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: green })).checks, 'green');
 });
 
+test("host: pr-state reports the rollup's checks without plot/review", () => {
+  const sha = 'a'.repeat(40);
+  const only = makeStubs({
+    ghJson: `{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefOid":"${sha}",`
+      + '"statusCheckRollup":[{"context":"plot/review","state":"SUCCESS"}]}',
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: only }));
+  assert.equal(out.checks, 'green', 'plot/review alone folds to green in the full rollup');
+  assert.equal(out.ciChecks, 'none', 'and to none once plot/review is excluded');
+  const both = makeStubs({
+    ghJson: `{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefOid":"${sha}",`
+      + '"statusCheckRollup":[{"context":"plot/review","state":"SUCCESS"},{"name":"validate","status":"COMPLETED","conclusion":"SUCCESS"}]}',
+  });
+  assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: both })).ciChecks, 'green');
+  const bb = makeStubs({
+    bbJson: '{"id":5,"state":"OPEN","source":{"branch":{"name":"b"},"commit":{"hash":"h"}},'
+      + '"links":{"html":{"href":"u"}},"destination":{"branch":{"name":"main"}}}',
+  });
+  assert.equal(JSON.parse(run(['pr-state', '5'], { env: { PLOT_HOST: 'bitbucket' }, stubs: bb })).ciChecks, undefined, 'bitbucket reports none');
+});
+
 // The fold is an allow-list: green needs every item finished with an accepted
 // result. Each row is [rollup, word]; pr-state and pr-list --rich read one fold.
 const CHECK_FOLD_CASES = [
