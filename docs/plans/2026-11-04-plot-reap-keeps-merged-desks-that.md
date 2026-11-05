@@ -118,7 +118,7 @@ CI runs these on the PR. A non-fleet session runs them locally through `node ski
 
 ### Reaper reads the worker's own files
 
-- `feature/reap-excuses-worker-own-files` — excuse ten untracked root `.plot-worker.*` files in `desk_dirt`, declare the narrow-by-design difference from the prefix readers with a test, print a keep row at `reap.ts:877` and `:1543`, and prove the manifest goes with the desk <!-- builds: the worker-own-files exclusions in plot-desk-dirt.sh -->
+- `feature/reap-excuses-worker-own-files` — excuse ten untracked root `.plot-worker.*` files in `desk_dirt`, declare the narrow-by-design difference from the prefix readers with a test, print a keep row at `reap.ts:877` and `:1543`, and prove the manifest goes with the desk <!-- builds: the worker-own-files exclusions in plot-desk-dirt.sh --> → #3154
 
 ## Notes
 
