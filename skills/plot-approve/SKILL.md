@@ -268,9 +268,9 @@ summary: merged=yes phase=flipped record=written holds=2 sprint=updated push=cle
 | `push` | `clean` \| `bypassed` \| `unknown` \| `local` \| `nothing-to-commit` |
 | `carried` | present only where this run merged a PR that carried other plans: their slugs, comma-separated |
 
-**The plan PR is the PR that adds or changes the plan file.** "Changes" is measured against the PR's merge base with the default branch: what merging the PR would bring, not how its head differs from the default branch's tip. The script asks the host for the PR of `idea/<slug>` first. Where that branch has no PR and the default branch does not hold the plan file, it lists the open PRs (one host call, at most 100) and asks git which heads change the file, so a batch PR on `idea/batch-<first-slug>` is found by the plan file it adds. Where the default branch holds the plan file, no open PR is the plan PR: the script reads the merge commit on the default branch that added the file, takes the merged PR whose head is that merge's second parent (one host call, at most 100 merged PRs), and the host confirms that PR merged at that commit. A plan that reached the default branch by squash or by a direct push has no such merge, and the script refuses it as having no PR. Two open PRs that both change the plan file are refused, before any merge.
+**The plan PR is the PR that adds or changes the plan file.** "Changes" is measured against the PR's merge base with the default branch: what merging the PR would bring, not how its head differs from the default branch's tip. The script asks the host for the PR of `idea/<slug>` first. Where that branch has no PR and the default branch does not hold the plan file, it lists the open PRs (one host call, at most 100) and asks git which heads change the file, so a batch PR on `idea/batch-<first-slug>` is found by the plan file it adds. Where the default branch holds the plan file, no open PR is the plan PR: the script reads the merge commit on the default branch that added the file, takes the merged PR whose head is that merge's second parent (one host call, at most 100 merged PRs), and the host confirms that PR merged at that commit. A plan that reached the default branch by squash or by a direct push has no such merge, and the script refuses it as having no PR. On the `idea/<slug>` route, an open PR with a differing copy of the plan file refuses `pr-copies-differ`. On the open route, any second PR that changes the plan file refuses `pr-ambiguous`.
 
-**A plan the checkout does not hold is read from where it is.** The board runs the script in the default branch's checkout, where a plan on an unmerged plan PR does not exist. The script then reads the plan from the default branch as fetched, or from the head of the open PR that carries it, and prints a `step:` line naming the source.
+**A plan the checkout does not hold is read from where it is.** The board runs the script in the default branch's checkout, where a plan on an unmerged plan PR does not exist. The script then reads the plan from the default branch as fetched, or from the head of the plan PR that carries it, and prints a `step:` line naming the source. A checkout copy that differs from that head refuses `checkout-copy-differs`.
 
 **A batch PR merges once and approves one plan.** Approving one slug of a batch PR merges the PR, flips only that plan, and names the other plans in `carried=` — they land on the default branch in their own phase, `Draft`. Approve each by its own slug: the PR is then already merged, so the run reports `merged=already` and flips that plan.
 
@@ -282,7 +282,7 @@ but a missing CI run must not be a mystery later.
 **On a refusal (exit 1), report the script's own words and stop.** It
 refuses a plan that is not Draft, a `Review:` it cannot act on, a
 PR that is draft, closed, or absent, and a plan that two open PRs both
-change.
+change (naming the differing copy).
 Do not work around a refusal.
 
 **It is idempotent, and re-running it is the repair.** Step 2 merges the
@@ -395,6 +395,7 @@ The phase stays Design, and no `Approved:` record is written. Carry the script's
 - `review-human` — `--who` is missing or empty.
 - `reviewer-undeclared` — `People` does not declare the handle.
 - `pr-closed`, `pr-absent` or `pr-ambiguous` — the plan PR is closed, missing, or not the only open PR that changes the plan file.
+- `pr-copies-differ`, `pr-head-unheld`, `pr-carries-no-plan` or `checkout-copy-differs` — a rival PR carries a different copy of the plan file, git does not hold the named PR's head, the named PR's head does not change the plan file, or the checkout's copy differs from the plan PR's head.
 
 Do not work around a refusal, and do not write the `Spike approved:` line by hand: `plot-state-gate.sh` refuses a commit that adds, changes or removes it without the script's receipt.
 

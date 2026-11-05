@@ -13,6 +13,8 @@ const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
 const HEAD = 'a'.repeat(40);
 const SLUG = 'a-plan';
 const FILE = `docs/plans/active/${SLUG}.md`;
+/** The plan's real path, as a PR head's `changed` files name it — `isPlanFile` only matches a path directly under the plan directory, never the active-index copy. */
+const REAL_FILE = `docs/plans/2026-10-17-${SLUG}.md`;
 
 /** A `Scripts` stub answering only the `## Plot Config` keys and `host()` calls this path reaches. */
 const scriptsStub = (calls: string[][]): Scripts => ({
@@ -63,7 +65,7 @@ const sameBranchTreesStub = (staged: string[][]): Trees => ({
   currentBranch: async () => answered(`feature/${SLUG}`),
 } as unknown as Trees);
 
-/** A fixture `Context` whose plan-PR lookup resolves on the FIRST ask (`idea/<slug>`), so `Refs` is never read. */
+/** A fixture `Context` whose plan-PR lookup resolves on the FIRST ask (`idea/<slug>`): the named PR's head is git-held at `HEAD` and carries `REAL_FILE`. */
 const ctxFor = (statuses: CommitStatusWrite[], calls: string[][]): Context => ({
   repoRoot: '/repo',
   scriptDir: '/repo/skills/plot/scripts',
@@ -81,7 +83,7 @@ const ctxFor = (statuses: CommitStatusWrite[], calls: string[][]): Context => ({
       file: FILE, phase: 'draft', review: 'pr', impl: 'own-branches', branches: ['feature/one'],
     })],
   }),
-  refs: refsFixture(),
+  refs: refsFixture({ shas: { [`${HEAD}^{commit}`]: HEAD }, changedFiles: { [HEAD]: [REAL_FILE] } }),
   scripts: scriptsStub(calls),
   trees: treesStub(),
 });
@@ -214,7 +216,7 @@ describe('approve perform — sprint annotation by sprintOfPlan, not by director
         approvedRaw: '2026-10-01 by jw',
       })),
     }),
-    refs: refsFixture(),
+    refs: refsFixture({ shas: { [`${HEAD}^{commit}`]: HEAD }, changedFiles: { [HEAD]: [FILE] } }),
     scripts: scriptsStub([]),
     trees: sameBranchTreesStub(staged),
   });

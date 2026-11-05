@@ -88,6 +88,56 @@ describe('planNeedsDesign write targets', () => {
   });
 });
 
+describe('planNeedsDesign — the plan-pr rule\'s own refusal and copy checks', () => {
+  it('refuses pr-head-unheld and pr-carries-no-plan ahead of plan-not-found', () => {
+    const unheld = planNeedsDesign(ready({ file: '', pr: { number: 6, state: 'OPEN', head: '', refused: 'pr-head-unheld' } }), on);
+    expect(unheld).toMatchObject({ outcome: 'refused', reason: 'pr-head-unheld' });
+    const noPlan = planNeedsDesign(ready({ file: '', pr: { number: 6, state: 'OPEN', head: '', refused: 'pr-carries-no-plan' } }), on);
+    expect(noPlan).toMatchObject({ outcome: 'refused', reason: 'pr-carries-no-plan' });
+  });
+
+  it('refuses plan-pr-absent ahead of plan-not-found when a CLOSED named PR carries no file', () => {
+    const out = planNeedsDesign(ready({ file: '', pr: { number: 6, state: 'CLOSED', head: 'idea/a-plan' } }), on);
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'plan-pr-absent' });
+  });
+
+  it('refuses checkout-copy-differs, and decides where the checkout agrees with the PR head', () => {
+    const differing = planNeedsDesign(
+      ready({ pr: { number: 42, state: 'OPEN', head: 'idea/a-plan', copies: { checkout: 'local', head: 'remote' } } }),
+      on,
+    );
+    expect(differing).toMatchObject({ outcome: 'refused', reason: 'checkout-copy-differs' });
+    const same = planNeedsDesign(
+      ready({ pr: { number: 42, state: 'OPEN', head: 'idea/a-plan', copies: { checkout: 'same', head: 'same' } } }),
+      on,
+    );
+    expect(decided(same)).toBe(true);
+  });
+
+  it('refuses pr-copies-differ on either route, with no pr-ambiguous arm', () => {
+    const rival = { number: 43, file: 'docs/plans/2026-10-12-a-plan.md', blob: 'other' };
+    const named = planNeedsDesign(
+      ready({ pr: { number: 42, state: 'OPEN', head: 'idea/a-plan', route: 'named' as const, blob: 'same', rivals: [rival] } }),
+      on,
+    );
+    expect(named).toMatchObject({ outcome: 'refused', reason: 'pr-copies-differ' });
+    const open = planNeedsDesign(
+      ready({ pr: { number: 42, state: 'OPEN', head: 'idea/a-plan', route: 'open' as const, blob: 'same', rivals: [rival] } }),
+      on,
+    );
+    expect(open).toMatchObject({ outcome: 'refused', reason: 'pr-copies-differ' });
+  });
+
+  it('decides where a rival carries an identical blob', () => {
+    const rival = { number: 43, file: 'docs/plans/2026-10-12-a-plan.md', blob: 'same' };
+    const out = planNeedsDesign(
+      ready({ pr: { number: 42, state: 'OPEN', head: 'idea/a-plan', route: 'open' as const, blob: 'same', rivals: [rival] } }),
+      on,
+    );
+    expect(decided(out)).toBe(true);
+  });
+});
+
 describe('planNeedsDesign refusals', () => {
   it.each([
     [{ file: '' }, 'plan-not-found'],

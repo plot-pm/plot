@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { git, makeApproveSandbox } from './approve-sandbox.mjs';
+import { git, makeApproveSandbox, pushPlanHead } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.resolve(here, '../../skills/plot/scripts');
@@ -64,8 +64,9 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   process.stdout.write(JSON.stringify({
     number: state.number, state: state.state, isDraft: state.draft,
     url: 'https://example.invalid/pr/' + state.number, mergeCommit: null,
-    // A GitHub PR names its head; pr-merge pins the merge to it.
-    headRefOid: '0123456789abcdef0123456789abcdef01234567',
+    // A GitHub PR names its head; the approval reads the plan there and
+    // pr-merge pins the merge to it.
+    headRefOid: state.headSha,
   }));
 } else if (argv[0] === 'pr' && argv[1] === 'merge') {
   state.state = 'MERGED';
@@ -106,7 +107,10 @@ const approveAndRead = (planBody) => {
   tmp = sandbox.tmp;
   const repo = sandbox.repo;
 
-  fs.writeFileSync(statePath, JSON.stringify({ number: 42, state: 'OPEN', draft: false }));
+  // The approval reads the plan at the plan PR's head, so the head is a real
+  // commit on origin that carries the plan, not a made-up sha.
+  const headSha = pushPlanHead({ tmp, repo, planRel: rel, branch: 'idea/approve-me' });
+  fs.writeFileSync(statePath, JSON.stringify({ number: 42, state: 'OPEN', draft: false, headSha }));
   // PLOT_REPO_ROOT IS SCRUBBED, and the sandbox is the point. Since
   // `config-takes-the-callers-root`, `plot-config.sh` prefers an exported
   // `PLOT_REPO_ROOT` over `git rev-parse`, so a run inheriting one from a

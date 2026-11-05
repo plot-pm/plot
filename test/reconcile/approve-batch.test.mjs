@@ -72,6 +72,10 @@ const find = (ref) => state.prs.find((p) => String(p.number) === ref || p.head =
 const flag = (name) => { const i = argv.indexOf(name); return i === -1 ? '' : argv[i + 1]; };
 if (argv[0] === 'pr' && argv[1] === 'view') {
   const pr = find(argv[2]);
+  // Real gh exits 1 with this exact phrasing for a branch with no PR;
+  // plot-host.sh's own is_lookup_miss/host_miss_or_fail then translates
+  // that into a clean NONE at exit 0 — the stub must hand it gh's own
+  // answer, not pre-translate it.
   if (!pr) { process.stderr.write('no pull requests found for branch "' + argv[2] + '"'); process.exit(1); }
   process.stdout.write(JSON.stringify({
     number: pr.number, state: pr.state, isDraft: pr.draft, url: 'https://example.invalid/pr/' + pr.number,

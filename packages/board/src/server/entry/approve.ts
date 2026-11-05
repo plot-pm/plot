@@ -17,15 +17,10 @@ import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
 import {
   isPlanFile,
   namesPlan,
-  planPrOf,
-  planPrsCarrying,
   planSlugOf,
-  type NamedPr,
-  type OpenPr,
-  type PlanPrFound,
-  type PlanPrReadings,
+  type PlanPrRefusal,
 } from '@plot-pm/domain/rules/plan-pr';
-import { openPrsOf, unreadPrsLine, type UnreadPr } from './open-prs.js';
+import { choosePlanPr, readHeadOf, unreadPrsLine, type UnreadPr } from './open-prs.js';
 import { approvalArm } from '@plot-pm/domain/rules/approval-arm';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
 import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-membership';
@@ -255,10 +250,12 @@ const sameBranchOf = async (ctx: Context, slug: string): Promise<string> => {
 };
 
 /**
- * Asks the host for the plan PR. A host that cannot answer is a refusal here;
- * a PR the host does not hold, or holds closed, is a reading the domain judges.
- * The merge has not happened yet, so every refusal leaves the estate as it was
- * found.
+ * Asks the host for the PR on `branch`, then resolves its head through
+ * {@link readHeadOf} so the sha returned is the one git holds — the same sha
+ * the record read, the review-status write and the merge's `--match-head` pin
+ * all share. A host that cannot answer is a refusal here; a PR the host does
+ * not hold, or holds closed, is a reading the domain judges. The merge has not
+ * happened yet, so every refusal leaves the estate as it was found.
  */
 const readPlanPr = async (ctx: Context, branch: string): Promise<PlanPr> => {
   const lookup = await ctx.host.prState(branch);
@@ -274,11 +271,9 @@ const readPlanPr = async (ctx: Context, branch: string): Promise<PlanPr> => {
   if (pr === null || (pr.state !== 'MERGED' && pr.state !== 'OPEN' && pr.state !== 'CLOSED')) {
     return { number: 0, state: 'NONE', draft: false };
   }
-  return { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha, url: pr.url };
+  const head = pr.state === 'OPEN' ? await readHeadOf(ctx, branch, pr.headSha ?? '') : null;
+  return { number: pr.number, state: pr.state, draft: pr.draft, headSha: head?.sha ?? pr.headSha, url: pr.url };
 };
-
-/** How many open PRs, and how many merged PRs, the plan-PR lookup lists at most. */
-const PRS_LISTED = 100;
 
 /**
  * The plan files directly under the plan directory at one revision, without
@@ -323,116 +318,15 @@ const hostSaid = (ctx: Context): string => {
   return said !== '' ? said : 'The host adapter gave no reason.';
 };
 
-/** The refusal this entry throws when `pr-list` cannot list the open PRs. */
-const refuseOpenList = (ctx: Context): Refused =>
-  new Refused(`the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
-
 /**
- * Asks `planPrOf` until it answers, reading each reading it names.
+ * The refusal this entry throws when a host call `choosePlanPr` needs fails.
  *
- * Host refusals throw, and the caller holds them until the domain has judged
- * the phase and the review channel.
+ * @param detail - the sentence naming which call failed; defaults to the
+ *   generic `pr-list` sentence for a caller with no detail of its own, such
+ *   as `openPrsOf`'s own callback.
  */
-const choosePlanPr = async (
-  ctx: Context,
-  readings: PlanPrReadings,
-  main: string,
-  file: string,
-  onUnread: (unread: readonly UnreadPr[]) => void,
-): Promise<PlanPrFound | undefined> => {
-  let current = readings;
-  for (;;) {
-    const answer = planPrOf(current);
-    if (answer.outcome === 'none') return undefined;
-    if (answer.outcome === 'found') return answer;
-    switch (answer.ask) {
-      case 'named': {
-        const pr = await readPlanPr(ctx, `idea/${current.slug}`);
-        const state = pr.state;
-        const named: NamedPr | null = state === 'MERGED' || state === 'OPEN' || state === 'CLOSED'
-          ? { number: pr.number, state, draft: pr.draft, headSha: pr.headSha }
-          : null;
-        current = { ...current, named };
-        break;
-      }
-      case 'open': {
-        const reading = await openPrsOf(ctx, () => refuseOpenList(ctx));
-        onUnread(reading.unread);
-        current = { ...current, open: reading.open };
-        break;
-      }
-      case 'addition': {
-        const added = await ctx.refs.firstParentAddition(`origin/${main}`, file);
-        const sha = added.ok ? added.value : '';
-        const second = sha === '' ? undefined : await ctx.refs.resolve(`${sha}^2`);
-        current = { ...current, addition: { sha, secondParent: second?.ok ? second.value : '' } };
-        break;
-      }
-      case 'merged': {
-        const listed = await ctx.host.prList('merged', PRS_LISTED);
-        if (!listed.ok) {
-          throw new Refused(`the host could not list its merged PRs to find the one that brought the plan onto the default branch (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
-        }
-        current = { ...current, merged: listed.value.map((pr) => ({ number: pr.number, headSha: pr.headSha ?? '' })) };
-        break;
-      }
-      case 'confirm': {
-        const asked = await ctx.host.prState(answer.number);
-        if (!asked.ok) {
-          throw new Refused(`the host could not be asked for PR #${answer.number} (plot-host.sh pr-state refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
-        }
-        current = {
-          ...current,
-          confirmed: asked.value === null ? null : { state: asked.value.state, mergeCommit: asked.value.mergeCommit },
-        };
-        break;
-      }
-    }
-  }
-};
-
-/** A plan read from a revision, with the open PRs listed to find it. */
-interface RemotePlan {
-  file: string;
-  record: PlanRecord | undefined;
-  /** Where it was read: `origin/<main>`, or `PR #N (<head>)`. */
-  source: string;
-  /** The open PRs listed to find it; absent where the default branch holds it. */
-  open?: readonly OpenPr[];
-}
-
-/**
- * Finds a plan the checkout does not hold: on `origin/<main>` first, then at
- * the head of the first open PR that changes it.
- *
- * @param onUnread - told the own-repo open rows that could not be read, where
- *   the open PRs were listed at all.
- * @returns the plan and where it came from, or undefined where neither holds
- *   it.
- */
-const remotePlanOf = async (
-  ctx: Context,
-  dirs: Dirs,
-  main: string,
-  slug: string,
-  mainPlans: readonly string[],
-  onUnread: (unread: readonly UnreadPr[]) => void,
-): Promise<RemotePlan | undefined> => {
-  const onMain = mainPlans.find((file) => namesPlan(slug, file));
-  if (onMain !== undefined) {
-    return { file: onMain, record: await readPlanAt(ctx, `origin/${main}`, onMain), source: `origin/${main}` };
-  }
-  const { open, unread } = await openPrsOf(ctx, () => refuseOpenList(ctx));
-  onUnread(unread);
-  const [first] = planPrsCarrying(slug, dirs.planDir, open);
-  if (first === undefined) return undefined;
-  return {
-    file: first.file,
-    record: await readPlanAt(ctx, first.pr.headSha, first.file),
-    source: `PR #${first.pr.number} (${first.pr.head})`,
-    open,
-  };
-};
+const refuseOpenList = (ctx: Context, detail = 'the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call).'): Refused =>
+  new Refused(`${detail}\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
 
 /** The readings a Design plan with a spike owes its approval, and the slices they were taken for. */
 interface ConfirmTaken {
@@ -553,6 +447,14 @@ const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext):
       return `${detail}\n  Close the PR that should not carry the plan, then re-run. Nothing was merged and the phase is unchanged.`;
     case 'pr-absent':
       return `no PR found for branch '${c.prBranch}'.\n  Push the branch: git push -u origin ${c.prBranch}\n  Then open its PR — or run /plot-idea, which does both.`;
+    case 'pr-copies-differ':
+      return `${detail}\n  Close the PR that should not carry the plan, then re-run. Nothing was merged and the phase is unchanged.`;
+    case 'pr-head-unheld':
+      return `${detail}\n  Fetch 'idea/${slug}' and re-run. Nothing was merged and the phase is unchanged.`;
+    case 'pr-carries-no-plan':
+      return `${detail}\n  Nothing was merged and the phase is unchanged.`;
+    case 'checkout-copy-differs':
+      return `${detail}\n  Push or discard the local edits, then re-run. Nothing was merged and the phase is unchanged.`;
   }
 };
 
@@ -857,80 +759,182 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   };
 
   // A plan on an unmerged plan PR is absent from the default branch's
-  // checkout, which is where the board runs this. It is read from the
-  // default branch as fetched, or from the head of the open PR that changes it.
+  // checkout, which is where the board runs this. A plan already in the
+  // checkout is read from there, so its phase and review channel are known
+  // before the PR is chosen; one absent from the checkout is read below, once
+  // the PR is chosen, at whichever head or default-branch tip names it —
+  // never from a second, unrelated host read of its own.
   let planFile = await findPlanFile(ctx.planStore, dirs, slug);
   const inCheckout = planFile !== '';
   let plan: PlanRecord | undefined;
-  let listedOpen: readonly OpenPr[] | undefined;
   let unreadOpen: readonly UnreadPr[] = [];
-  if (planFile !== '') {
+  if (inCheckout) {
     const read = await ctx.planStore.readPlan(planFile);
     plan = read.ok ? read.value : undefined;
-  } else {
-    const remote = await remotePlanOf(ctx, dirs, main, slug, await plansOnMain(), (unread) => { unreadOpen = unread; });
-    if (remote !== undefined) {
-      planFile = remote.file;
-      plan = remote.record;
-      listedOpen = remote.open;
-      write(`step: plan ${planFile} is not in this checkout — read it from ${remote.source}\n`);
-    }
   }
-  const phase = plan?.phase ?? '';
-  const review = plan?.review ?? '';
-  const impl = plan?.impl ?? '';
-  const sprint = plan?.sprint ?? '';
+  let phase = plan?.phase ?? '';
+  let review = plan?.review ?? '';
+  let impl = plan?.impl ?? '';
+  let sprint = plan?.sprint ?? '';
+  const people = peopleHandles(await configured(ctx.scripts, 'People', ''));
 
   // Two readings. `inSession` is the channel and decides the PR read, the merge
   // and `sameBranch`; `person` is the arm, which reads the phase too, and
   // decides the named handle, the channel word and the unattended refusal. A
-  // Design plan on `Review: pr` is `person` and not `inSession`.
-  const inSession = review === 'in-session';
-  const person = args.spike || approvalArm({ phase, review }) === 'person';
-  const people = peopleHandles(await configured(ctx.scripts, 'People', ''));
+  // Design plan on `Review: pr` is `person` and not `inSession`. Both are
+  // provisional for a plan not yet in the checkout — `review` is `''` until
+  // the PR below is chosen and its text read — and are retaken afterward.
+  let inSession = review === 'in-session';
+  let sameBranch = !inSession && impl === 'same-branch';
+
+  // A plan absent from the checkout that the default branch holds under
+  // `Review: in-session` has no PR, so its copy on `origin/<main>` is the
+  // record, as the checkout copy is for a plan in the checkout, and no host
+  // call is made.
+  if (!inCheckout) {
+    const onMainFile = (await plansOnMain()).find((f) => namesPlan(slug, f));
+    const onMainPlan = onMainFile === undefined ? undefined : await readPlanAt(ctx, `origin/${main}`, onMainFile);
+    if (onMainFile !== undefined && onMainPlan?.review === 'in-session') {
+      plan = onMainPlan;
+      planFile = onMainFile;
+      phase = plan.phase ?? '';
+      review = plan.review ?? '';
+      impl = plan.impl ?? '';
+      sprint = plan.sprint ?? '';
+      inSession = true;
+      sameBranch = false;
+      write(`step: plan ${onMainFile} is not in this checkout — read it from origin/${main}\n`);
+    }
+  }
 
   // The PR is read only for a plan that carries one. A host that cannot answer
   // is held until the domain has judged the phase and the review channel, so
   // those refusals keep their precedence over it.
   //
-  // The plan PR is the PR that adds or changes the plan file, and `planPrOf`
+  // The plan PR is the PR that adds or changes the plan file, and `choosePlanPr`
   // chooses it: `idea/<slug>` first, then the open PRs that change the file
   // against their merge base where the default branch does not hold it, then
-  // the merged PR that brought it onto the default branch where it does.
-  const sameBranch = !inSession && impl === 'same-branch';
+  // the merged PR that brought it onto the default branch where it does. The
+  // sha it settles on is the ONE sha that serves the record read below, the
+  // `plot/review` status write and the merge's `--match-head` pin.
   let prBranch = sameBranch ? await sameBranchOf(ctx, slug) : `idea/${slug}`;
   let pr: PlanPr = { number: 0, state: 'NONE', draft: false };
-  let rivals: readonly number[] = [];
+  let prRoute: 'named' | 'open' | 'merged' | undefined;
+  let prBlob = '';
+  let prRivals: readonly { number: number; file: string; blob: string }[] = [];
   let carried: readonly string[] = [];
+  let prRefused: PlanPrRefusal['reason'] | undefined;
+  let copies: { checkout: string; head: string } | undefined;
   let hostRefusal: Refused | undefined;
-  if (plan !== undefined && !inSession) {
+  const blobAt = async (sha: string, file: string): Promise<string> => {
+    const resolved = await ctx.refs.resolve(`${sha}:${file}`);
+    return resolved.ok ? resolved.value : '';
+  };
+  if (plan === undefined || !inSession) {
     try {
-      if (sameBranch) {
+      if (inCheckout && sameBranch) {
         pr = await readPlanPr(ctx, prBranch);
+        if (pr.state === 'OPEN' && pr.headSha !== undefined) {
+          const head = await readHeadOf(ctx, prBranch, pr.headSha);
+          const realFile = realPlanPath(ctx.repoRoot, planFile) ?? planFile;
+          if (head === null) {
+            prRefused = 'pr-head-unheld';
+          } else if (!head.changed.includes(realFile)) {
+            prRefused = 'pr-carries-no-plan';
+          } else {
+            const checkoutText = await ctx.planStore.readText(path.join(ctx.repoRoot, realFile));
+            const headShown = await ctx.refs.showFile(head.sha, realFile);
+            if (checkoutText.ok && checkoutText.value !== null && headShown.ok) {
+              copies = { checkout: checkoutText.value, head: headShown.value };
+            }
+          }
+        }
       } else {
-        // An active-index symlink names the plan by its real path on the default branch.
-        const realFile = realPlanPath(ctx.repoRoot, planFile) ?? planFile;
-        const onMain = (await plansOnMain()).includes(realFile);
+        const realFile = inCheckout ? realPlanPath(ctx.repoRoot, planFile) ?? planFile : '';
+        const onMain = inCheckout
+          ? (await plansOnMain()).includes(realFile)
+          : (await plansOnMain()).some((f) => namesPlan(slug, f));
+        // `firstParentAddition`'s `addition` ask needs the plan's path on the
+        // default branch to trace its carrying merge — `realFile` is '' for a
+        // plan not in this checkout, which asked git about no path at all and
+        // always read back empty.
+        const additionFile = realFile || (onMain ? (await plansOnMain()).find((f) => namesPlan(slug, f)) ?? '' : '');
         const found = await choosePlanPr(
           ctx,
-          { slug, planDir: dirs.planDir, onMain, ...(listedOpen === undefined ? {} : { open: listedOpen }) },
+          { slug, planDir: dirs.planDir, onMain },
           main,
-          realFile,
+          additionFile,
           (unread) => { unreadOpen = unread; },
+          (detail) => refuseOpenList(ctx, detail),
         );
-        if (found !== undefined) {
+        if (found !== undefined && found.outcome === 'refused') {
+          prRefused = found.reason;
+          pr = { number: found.number, state: 'OPEN', draft: false };
+        } else if (found !== undefined) {
           pr = { number: found.number, state: found.state, draft: found.draft, headSha: found.headSha || undefined };
           if (found.branch !== '') prBranch = found.branch;
-          rivals = found.rivals;
           carried = found.carried;
+          prRoute = found.route;
+          const readFile = found.read.at === 'head' ? found.read.file : additionFile;
+          const readSha = found.read.at === 'head' ? found.read.sha : `origin/${main}`;
+          prBlob = await blobAt(readSha, readFile);
+          prRivals = await Promise.all(
+            found.rivals.map(async (rival) => ({ number: rival.number, file: rival.file, blob: await blobAt(rival.sha, rival.file) })),
+          );
+          if (!inCheckout) {
+            const shown = await ctx.refs.showFile(readSha, readFile);
+            if (shown.ok) {
+              const written = await readPlanAt(ctx, readSha, readFile);
+              plan = written;
+              planFile = readFile;
+              phase = plan?.phase ?? '';
+              review = plan?.review ?? '';
+              impl = plan?.impl ?? '';
+              sprint = plan?.sprint ?? '';
+              inSession = review === 'in-session';
+              sameBranch = !inSession && impl === 'same-branch';
+              write(
+                found.read.at === 'head'
+                  ? `step: plan ${readFile} is not in this checkout — read it from PR #${found.number} (${prBranch})\n`
+                  : `step: plan ${readFile} is not in this checkout — read it from origin/${main}\n`,
+              );
+            }
+          } else if (found.read.at === 'head') {
+            const checkoutText = await ctx.planStore.readText(path.join(ctx.repoRoot, realFile));
+            const headShown = await ctx.refs.showFile(readSha, readFile);
+            if (checkoutText.ok && checkoutText.value !== null && headShown.ok) {
+              copies = { checkout: checkoutText.value, head: headShown.value };
+            }
+          }
+        } else if (!inCheckout && onMain) {
+          // No PR carries the plan at all — it reached the default branch by a
+          // direct push or a squash merge `planPrOf` cannot trace to a PR. It is
+          // still read, from `origin/<main>`, with no PR to pin a merge to.
+          const readFile = (await plansOnMain()).find((f) => namesPlan(slug, f)) ?? '';
+          plan = await readPlanAt(ctx, `origin/${main}`, readFile);
+          planFile = readFile;
+          phase = plan?.phase ?? '';
+          review = plan?.review ?? '';
+          impl = plan?.impl ?? '';
+          sprint = plan?.sprint ?? '';
+          inSession = review === 'in-session';
+          sameBranch = !inSession && impl === 'same-branch';
+          write(`step: plan ${readFile} is not in this checkout — read it from origin/${main}\n`);
         }
       }
     } catch (err) {
       if (!(err instanceof Refused)) throw err;
+      // A plan not yet found when the host failed was being looked FOR, not
+      // pinned to a PR it already has — that failure is the real reason
+      // nothing can be read, and must outrank a 'plan-not-found' the domain
+      // would otherwise reach first. A plan already in the checkout only
+      // reads the host to pin its PR, so that failure waits on the verdict.
+      if (!inCheckout) throw err;
       hostRefusal = err;
       pr = { number: 0, state: 'OPEN', draft: false };
     }
   }
+  const person = args.spike || approvalArm({ phase, review }) === 'person';
 
   const confirm =
     !args.spike && plan !== undefined && phase === 'design'
@@ -953,8 +957,12 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       state: pr.state === 'MERGED' || pr.state === 'OPEN' || pr.state === 'CLOSED' ? pr.state : 'NONE',
       draft: pr.draft,
       branch: prBranch,
-      rivals,
+      rivals: prRivals,
       carried,
+      ...(prRoute === undefined ? {} : { route: prRoute }),
+      ...(prBlob === '' ? {} : { blob: prBlob }),
+      ...(prRefused === undefined ? {} : { refused: prRefused }),
+      ...(copies === undefined ? {} : { copies }),
     },
   };
   // A spike approval records the channel it rode: the plan PR's merge, or the room.

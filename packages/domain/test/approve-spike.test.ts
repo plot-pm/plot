@@ -130,7 +130,38 @@ describe('approveSpike — the refusals', () => {
   it('refuses a closed or absent PR and a rival PR', () => {
     expect(reason(readings({ pr: { number: 42, state: 'CLOSED', draft: false, branch: 'x' } }))).toBe('pr-closed');
     expect(reason(readings({ pr: { number: 0, state: 'NONE', draft: false, branch: 'x' } }))).toBe('pr-absent');
-    expect(reason(readings({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', rivals: [43] } }))).toBe('pr-ambiguous');
+    const rival = { number: 43, file: 'docs/plans/2026-10-12-a-plan.md', blob: 'riv' };
+    expect(reason(readings({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', rivals: [rival] } }))).toBe('pr-ambiguous');
+  });
+
+  it('refuses the plan-pr rule\'s own refusal ahead of plan-not-found', () => {
+    expect(
+      reason(readings({ file: '', pr: { number: 6, state: 'OPEN', draft: true, branch: 'x', refused: 'pr-head-unheld' } })),
+    ).toBe('pr-head-unheld');
+    expect(
+      reason(readings({ file: '', pr: { number: 6, state: 'OPEN', draft: true, branch: 'x', refused: 'pr-carries-no-plan' } })),
+    ).toBe('pr-carries-no-plan');
+  });
+
+  it('refuses pr-closed ahead of plan-not-found when a CLOSED named PR carries no file', () => {
+    expect(reason(readings({ file: '', pr: { number: 6, state: 'CLOSED', draft: false, branch: 'x' } }))).toBe('pr-closed');
+  });
+
+  it('refuses pr-copies-differ on the named route, and proceeds on an identical blob', () => {
+    const rival = { number: 43, file: 'docs/plans/2026-10-12-a-plan.md', blob: 'other' };
+    const differing = readings({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', route: 'named' as const, blob: 'same', rivals: [rival] } });
+    expect(reason(differing)).toBe('pr-copies-differ');
+    const identical = readings({
+      pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', route: 'named' as const, blob: 'same', rivals: [{ ...rival, blob: 'same' }] },
+    });
+    expect(reason(identical)).toBe('decided');
+  });
+
+  it('refuses checkout-copy-differs, and proceeds where the checkout agrees with the PR head', () => {
+    const differing = readings({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', copies: { checkout: 'local', head: 'remote' } } });
+    expect(reason(differing)).toBe('checkout-copy-differs');
+    const same = readings({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', copies: { checkout: 'same', head: 'same' } } });
+    expect(reason(same)).toBe('decided');
   });
 
   it('reads an absent spike record as none and an absent slice list as no spike', () => {
