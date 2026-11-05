@@ -30,6 +30,7 @@
 #               on; nothing is waited on forever.
 #   --dry-run   with --start: report what would be filled, loaded and started;
 #               write nothing, load nothing, start nothing.
+#               every other mode refuses it and exits 1, before it acts.
 # Output: prose for a person, one line per thing acted on. Exit 0 on success.
 #
 # IT PROBES BEFORE IT ACTS AND REFUSES RATHER THAN REPAIRING — the discipline
@@ -146,13 +147,6 @@ platform() { case "$(uname -s)" in
 pinned_major() {
   local v
   v=$(tr -d ' \tv\n' < "$plot_nvmrc" 2>/dev/null)
-  printf '%s' "${v%%.*}"
-}
-
-running_major() {
-  local v
-  v=$(node --version 2>/dev/null) || return 1
-  v=${v#v}
   printf '%s' "${v%%.*}"
 }
 
@@ -355,14 +349,6 @@ process_cwd() { # $1=kernel $2=pid
   printf '%s' "${cwd//$'\n'/?}"
 }
 
-# A path for printing: under `$HOME` it starts with `~`.
-home_short() {
-  case "$1" in
-    "${HOME:-/nonexistent}"/*) printf '~%s' "${1#"$HOME"}" ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-
 # The second `--status` block: every Plot supervisor, board and top-level scan
 # on this machine except the supervisor the first block names (`$1`, its pid,
 # or empty). Prints NOTHING when every one serves this checkout and no scan is
@@ -445,7 +431,10 @@ plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's comma
       if matches_cmd_root "$full"; then
         inst="THIS repository"
       else
-        inst=$(home_short "$full")
+        case "$full" in
+          "${HOME:-/nonexistent}"/*) inst="~${full#"$HOME"}" ;;
+          *) inst=$full ;;
+        esac
       fi
     fi
     label=""
@@ -786,13 +775,14 @@ while [ $# -gt 0 ]; do
               esac
               shift ;;
     --dry-run) dry_run=1 ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^# Output:/p' "$0"; exit 0 ;;
     *) echo "plot-fleetctl: unknown argument '$1'" >&2; exit 1 ;;
   esac
   shift
 done
 
 [ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --stop is required" >&2; exit 1; }
+[ "$dry_run" = 0 ] || [ "$mode" = start ] || { echo "plot-fleetctl: --dry-run works with --start only, not --$mode; nothing was done" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # --status: processes, not work
@@ -1052,7 +1042,7 @@ if [ "$mode" = "start" ]; then
     printf "plot-fleetctl: cannot read Plot's node pin at %s\n  The unit bakes '%s' in permanently, and without the pin nothing checks it.\n  Plot tracks .nvmrc in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin, then run this again.\n" "$plot_nvmrc" "$node_bin" >&2
     exit 1
   fi
-  have=$(running_major) || have=""
+  have=$(node --version 2>/dev/null) || have=""; have=${have#v}; have=${have%%.*}
   if [ "$have" != "$want" ]; then
     printf "plot-fleetctl: node on PATH is %s, Plot pins %s (%s)\n  The unit bakes '%s' in permanently, so a wrong one here is a\n  daemon that keeps failing after you have moved on.\n  Fix it: put node %s first on PATH (with nvm: nvm install %s && nvm use %s),\n  then run this again.\n" "${have:-unreadable}" "$want" "$plot_nvmrc" "$node_bin" "$want" "$want" "$want" >&2
     exit 1

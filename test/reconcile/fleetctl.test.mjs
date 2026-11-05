@@ -622,6 +622,84 @@ test('--stop keeps the marker and exits 1 when the unload is never confirmed', (
     'an unconfirmed unload keeps the marker: the run it records is still the live one');
 });
 
+// ── --dry-run works with --start only; every other mode refuses it ───────────
+//
+// THE BUG: the parser sets `dry_run=1` in any mode, and only --start reads it.
+// --stop signalled every agent, unloaded the supervisor and removed the start
+// marker under a flag that promised nothing was done (#3099). The fix is a
+// refusal immediately after the mode-required check, read from the FINAL
+// `$mode` the last-mode-wins parser settles on — never from flag order.
+
+test('--stop --dry-run refuses before it signals an agent, writes a record or unloads the supervisor', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopdryrun');
+  const desk = path.join(root, '.worktrees', 'feature-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'feature/a', desk);
+  const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+
+  const marker = armedMarker(root);
+  const log = path.join(root, 'calls.log');
+  fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'),
+    `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nexit 0\n`);
+  fs.chmodSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), 0o755);
+  const bin = stubUnload(box, { sticky: 1, workdir: root });
+
+  try {
+    const r = run(ctl, ['--stop', '--dry-run'], root, guardBin, {
+      HOME: fakeHome(box, { unit: true, label: fleetLabel }),
+      PLOT_FLEET_LABEL: fleetLabel,
+      PATH: withHarness(box, bin, process.env.PATH),
+    });
+    // Each assertion below catches a different destructive step; asserting
+    // only the exit code would pass for a refusal printed after the damage.
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /--dry-run/);
+    assert.match(r.out, /--stop/);
+    assert.match(r.out, /--start/);
+    assert.equal(fs.existsSync(log), false, 'plot-dispatch --stop was called');
+    assert.equal(fs.existsSync(path.join(box, 'unload-ticks')), false, 'the supervisor was asked to unload');
+    assert.equal(fs.existsSync(marker), true, 'the start marker was removed');
+    assert.equal(fs.existsSync(path.join(root, '.plot', 'state', 'fleet-stopped.json')), false,
+      'a stop record was written');
+  } finally {
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('--dry-run --stop (flag first) refuses too — the check reads the final mode, not flag order', () => {
+  const { root, ctl, guardBin } = sandbox('dryrunstop');
+  const log = path.join(root, 'calls.log');
+  fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'),
+    `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nexit 0\n`);
+  fs.chmodSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), 0o755);
+
+  const r = run(ctl, ['--dry-run', '--stop'], root, guardBin);
+  assert.equal(r.status, 1, r.out);
+  assert.equal(fs.existsSync(log), false, 'plot-dispatch --stop was called');
+});
+
+test('--once --dry-run and --status --dry-run refuse and name the mode', () => {
+  const onceBox = sandbox('oncedryrun');
+  const onceResult = run(onceBox.ctl, ['--once', '--dry-run'], onceBox.root, onceBox.guardBin);
+  assert.equal(onceResult.status, 1, onceResult.out);
+  assert.match(onceResult.out, /--dry-run works with --start only, not --once/);
+
+  const statusBox = sandbox('statusdryrun');
+  const statusResult = run(statusBox.ctl, ['--status', '--dry-run'], statusBox.root, statusBox.guardBin);
+  assert.equal(statusResult.status, 1, statusResult.out);
+  assert.match(statusResult.out, /--dry-run works with --start only, not --status/);
+});
+
+test('-h exits 0 and prints --wait and --dry-run', () => {
+  const { root, ctl, guardBin } = sandbox('help');
+  const r = run(ctl, ['-h'], root, guardBin);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /--wait S/);
+  assert.match(r.out, /--dry-run {3}with --start/);
+  assert.match(r.out, /every other mode refuses it and exits 1/);
+});
+
 test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1', () => {
   // THE EARLY-EXIT TRAP. The agent summary prints after the supervisor block,
   // so an `exit 1` inside that block swallows it — and this is exactly the run

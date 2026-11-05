@@ -41,7 +41,7 @@ give the old behaviour to somebody asking for fleet control.
 | `--start [N]` | Probe, fill the unit, load it, then bring up N free agents. |
 | `--stop` | Stop every dispatched agent through `/plot-dispatch --stop`, then unload the supervisor. |
 | `--wait S` | With `--stop`: seconds to wait per worker (default 30). |
-| `--dry-run` | With `--start`: report what would be filled, loaded and started. Writes nothing. |
+| `--dry-run` | With `--start` only: report what would be filled, loaded and started. Writes nothing. Every other mode refuses it and exits 1. |
 
 ## Two processes, two commands, no edge between them
 
