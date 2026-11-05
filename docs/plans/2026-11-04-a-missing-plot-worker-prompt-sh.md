@@ -114,7 +114,7 @@ Each slice runs `node skills/plot/scripts/board/plot-local-checks.mjs` and what 
 
 ### Name the file
 
-- `feature/a-missing-plot-worker-prompt-sh-line` — the worker loop refuses an absent prompt file once with a line that names it, and row 7 ends at once on a launch refusal
+- `feature/a-missing-plot-worker-prompt-sh-line` — the worker loop refuses an absent prompt file once with a line that names it, and row 7 ends at once on a launch refusal → #3155
 
 ## Notes
 
