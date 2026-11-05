@@ -114,7 +114,7 @@ Open PR #3112 (`bug/plot-approve-reads-the-plan-from`) edits `packages/board/src
 
 ### Reproduce and hold
 
-- `bug/plot-approve-writes-the-sprint-annotation` <!-- waits: bug/plot-approve-reads-the-plan-from --> — route `withSprintAnnotation` through `memberLineIndex`, add the issue-shape tests for `withSprintAnnotation` and `annotateSprintItem`, and wrap the existing `rendering.test.ts` fixtures in `### Must Have`
+- `bug/plot-approve-writes-the-sprint-annotation` <!-- waits: bug/plot-approve-reads-the-plan-from --> — route `withSprintAnnotation` through `memberLineIndex`, add the issue-shape tests for `withSprintAnnotation` and `annotateSprintItem`, and wrap the existing `rendering.test.ts` fixtures in `### Must Have` → #3171
 
 ## Notes
 
