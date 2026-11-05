@@ -111,7 +111,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Red main
 
-- `bug/a-red-main-stays-acted-on` <!-- waits: feature/fleetd-merges-as-the-merger-app --> — `redMainStep` reads the settled state before `close-prs`; the revert branch check compares `RepairRecord.revertedPr`; the revert start re-asks the first red SHA and the settled SHA (#2926)
+- `bug/a-red-main-stays-acted-on` <!-- waits: feature/fleetd-merges-as-the-merger-app --> — `redMainStep` reads the settled state before `close-prs`; the revert branch check compares `RepairRecord.revertedPr`; the revert start re-asks the first red SHA and the settled SHA (#2926) → #3177
 
 ### Desk endings
 
