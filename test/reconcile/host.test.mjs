@@ -429,7 +429,7 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    head: '', headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
+    head: '', headSha: '', base: 'main', checks: 'none', ciChecks: 'none', checksSha: '', mergeable: 'unknown', mergedAt: '',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
     ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefName,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt']);
@@ -952,10 +952,10 @@ test('host: pr-state bitbucket does not infer mergeable from state or merge_comm
 // the first place; deriving the expectation from the GitHub arm is what stops
 // the next added key from drifting the same way.
 
-// The three keys a merge reads — the head and the checks read for it — are
+// The keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
 // arm leaves them out and a reader takes absent as not known.
-const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha']);
+const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'ciChecks']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
 test('host: pr-state returns the same key set on both backends — merged PR', () => {
