@@ -32,7 +32,7 @@ describe('a question moves its row into WAITING ON YOU, with its age', () => {
     }),
     buildRow({
       branch: 'feature/escalated',
-      plan: 'garden',
+      plan: 'orchard',
       wave: 'escalated-slice',
       state: 'wip',
       group: 'waiting-on-you',
