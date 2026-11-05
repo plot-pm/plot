@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3061
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3062 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/jenkins-sha-runs-through-jen`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 

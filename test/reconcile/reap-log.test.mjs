@@ -438,10 +438,9 @@ test('refusal 4 unchanged: no merged PR keeps the tree', () => {
 });
 
 test('refusal 5 unchanged: a hand-made worktree is not looked at, log and all', () => {
-  // Not ours to remove, whatever state it is in — so it is skipped rather than
-  // refused, and does not appear in the report at all. A skip that became a
-  // refusal would still be safe; a skip that became a reap would remove a
-  // directory a person made by hand.
+  // Not ours to remove, whatever state it is in — so the worktree kind prints
+  // one keep row naming it as not a dispatch tree, and judges nothing else. A
+  // keep that became a reap would remove a directory a person made by hand.
   const { repo, logDir } = makeRepo();
   const branch = 'feature/handmade';
   const wt = path.join(path.dirname(repo), 'my-own-checkout');
@@ -456,8 +455,10 @@ test('refusal 5 unchanged: a hand-made worktree is not looked at, log and all', 
 
   const out = run(repo, '--yes');
 
-  assert.ok(!/feature\/handmade/.test(worktreeSection(out)),
-    `a non-dispatch tree is not reported as a worktree:\n${out}`);
+  const rows = worktreeSection(out).split('\n').filter((l) => /feature\/handmade/.test(l));
+  assert.equal(rows.length, 1, `a non-dispatch tree gets exactly one worktree row:\n${out}`);
+  assert.match(rows[0], /^keep\s+feature\/handmade\s+not a dispatch tree/,
+    `and that row keeps it as not a dispatch tree:\n${out}`);
   // Its BRANCH is a different kind's population, and there it is reported —
   // kept, because a worktree holds it. That is the branch sweep's second
   // measurement doing its job, not this refusal leaking.

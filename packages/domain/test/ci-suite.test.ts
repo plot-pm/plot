@@ -403,3 +403,38 @@ describe('a .mjs glob resolves like a .sh glob', () => {
     expect(controllerInvocation('node board/*.mjs x')).toBeNull();
   });
 });
+
+describe('a process-table read is a read (#2530)', () => {
+  it.each([
+    'while pgrep -f "plot-approve.mjs the-x" >/dev/null; do /bin/sleep 15; done',
+    'pgrep -f "plot-approve.mjs the-x"',
+    'ps -o pid= -C plot-deliver.mjs',
+    'lsof -c plot-deliver.mjs',
+    'ps aux | grep plot-approve.mjs',
+  ])('%s is not a run', (command) => {
+    expect(controllerInvocation(command)).toBeNull();
+  });
+
+  it.each([
+    ['pkill -f plot-approve.mjs', 'approve'],
+    ['pgrep -f plot-approve.mjs | xargs kill', 'approve'],
+    ['pgrep -f "plot-approve.mjs|plot-deliver.mjs"', 'approve'],
+    ['until ! pgrep -f "plot-deliver.mjs x"; do sleep 1; done', 'deliver'],
+    ['pgrep -KILL -f plot-approve.mjs', 'approve'],
+    ['pgrep --signal=KILL -f plot-approve.mjs', 'approve'],
+    ['X=1 pgrep -f plot-approve.mjs', 'approve'],
+    ['pgrep -f $(plot-approve.mjs x)', 'approve'],
+    ['for f in plot-approve.sh; do sed "1e $f slug" /dev/null; done', 'approve'],
+    ['for f in plot-approve.mjs; do pgrep -f "$f" | xargs kill; done', 'approve'],
+  ] as const)('%s stays a run', (command, action) => {
+    expect(controllerInvocation(command)).toBe(action);
+  });
+
+  it('a single capital-letter pgrep option is not a signal', () => {
+    expect(controllerInvocation('pgrep -F pidfile -f plot-approve.mjs')).toBeNull();
+  });
+
+  it('the merge path sees the same answer', () => {
+    expect(unpinnedMerges('while pgrep -f "gh pr merge 12" >/dev/null; do sleep 1; done')).toEqual([]);
+  });
+});

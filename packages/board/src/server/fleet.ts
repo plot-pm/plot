@@ -523,7 +523,7 @@ export interface CacheEntry {
    * instead, which renders as *reason unavailable* until the first scan lands —
    * an unknown the reader can act on rather than a stale claim they cannot.
    */
-  questions: Map<string, { firstLine: string; askedAt: string }>;
+  questions: Map<string, { firstLine: string; askedAt: string; escalation?: string }>;
   /**
    * PR data is cached BESIDE the pulse, with its own timestamp and error — the
    * two sources fail independently. The host can be down while git is fine, and
@@ -3057,7 +3057,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // Costs nothing on a fleet with no questions in it: `workerQuestions`
     // returns immediately when the pulse names no `waiting` branch with a local
     // worktree, so the ordinary refresh spawns nothing at all.
-    if (!skipDisplay) entry.questions = await workerQuestions(parsed);
+    if (!skipDisplay) entry.questions = await workerQuestions(parsed, opts.repoRoot);
     entry.appliedBridgeAt = owned && bridged !== null ? bridged.at : null;
     entry.at = owned && bridged !== null ? bridged.at : Date.now();
     // THE FETCH, NOT THE SCAN. `complete.fetch_failed` is this pulse's own
@@ -3730,12 +3730,18 @@ function prerequisiteList(names: readonly string[]): string {
  *
  * @param workerQuestion The marker's first line, "" when it could not be read.
  * @param questionAgeMinutes Minutes since the marker was written, or `null`.
+ * @param escalationReason Why the unblocker escalated the question, `''` where it did not; appended as `· escalated: <reason>`.
  */
-const questionNote = (workerQuestion: string, questionAgeMinutes: number | null): string => {
+const questionNote = (
+  workerQuestion: string,
+  questionAgeMinutes: number | null,
+  escalationReason = '',
+): string => {
   const asked = workerQuestion
     ? `waiting on you: ${workerQuestion}`
     : 'waiting on you — reason unavailable, look in its worktree';
-  return questionAgeMinutes === null ? asked : `${asked} · asked ${humanAge(questionAgeMinutes)} ago`;
+  const aged = questionAgeMinutes === null ? asked : `${asked} · asked ${humanAge(questionAgeMinutes)} ago`;
+  return escalationReason === '' ? aged : `${aged} · escalated: ${escalationReason}`;
 };
 
 /**
@@ -4111,6 +4117,11 @@ function classifyGroup(
    * Defaults to `false`, so every caller that does not know reads as before.
    */
   approvedSpike = false,
+  /**
+   * The reason fleetd's unblocker escalated this desk's question, from the
+   * answer record; `''` where it did not. LAST, BECAUSE IT IS THE NEWEST.
+   */
+  escalationReason = '',
 ): { group: WaitingGroup; note: string; startability?: 'no-known-worker' } {
   // A phase the board places branches under as runnable work: `approved`, and
   // `design` for the one branch its approved spike names.
@@ -4246,7 +4257,7 @@ function classifyGroup(
   // whatever its PR says. The PR condition follows the question as evidence.
   if (state !== 'merged' && state !== 'open' && hasQuestion(workerQuestion, questionAgeMinutes)) {
     const exited = worker === 'failed' && workerExit ? ` (worker exited ${workerExit})` : '';
-    const asked = `${questionNote(workerQuestion, questionAgeMinutes)}${exited}`;
+    const asked = `${questionNote(workerQuestion, questionAgeMinutes, escalationReason)}${exited}`;
     return { group: 'waiting-on-you', note: pr ? withNote(asked, prEvidence(pr)) : asked };
   }
   // A PR outranks the git state for work in flight: once a branch has one,
@@ -6090,7 +6101,7 @@ export function rowsFromPulse(
    * `workerQuestions`. The map is built on the scan, not on this render path.
    * A caller that passes nothing gives every row no question.
    */
-  questions?: Map<string, { firstLine: string; askedAt: string }> | null,
+  questions?: Map<string, { firstLine: string; askedAt: string; escalation?: string }> | null,
   /**
    * Every PR keyed by head — merged and closed included — for the LINK only.
    * See `CacheEntry.prsByHead`.
@@ -6457,7 +6468,9 @@ export function rowsFromPulse(
           tipAt?.get(b.branch) ?? null, prAt ?? null,
           // WHETHER THIS IS THE DESIGN PLAN'S APPROVED SPIKE, which places as
           // a branch of an approved plan rather than one waiting on review.
-          approvedSpikes?.has(approvedSpikeKey(plan.file, b.branch)) ?? false);
+          approvedSpikes?.has(approvedSpikeKey(plan.file, b.branch)) ?? false,
+          // WHY THE UNBLOCKER ESCALATED THE QUESTION, where it did.
+          questionReading?.escalation ?? '');
         // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
         //
         // That function states the rule twice and records the mistake being

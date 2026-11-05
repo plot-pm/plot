@@ -78,6 +78,18 @@ test('pr: growth over the merge base fails and states the offset rule', withFixt
   assert.match(r.out, /packages\/domain/);
 }));
 
+test('pr: a growth refusal tells the reader to fetch the default branch and re-run first', withFixture(({ work }) => {
+  git(work, 'checkout', '-q', '-b', 'feature');
+  write(work, A, 13);
+  commit(work, 'grow');
+  const r = run(work, ['pr']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /git fetch --no-tags origin main/);
+  assert.match(r.out, /merge base [0-9a-f]+/);
+  assert.ok(r.out.indexOf('re-run this gate') > -1, r.out);
+  assert.ok(r.out.indexOf('re-run this gate') < r.out.indexOf('remove at least'), r.out);
+}));
+
 test('pr: a net-zero change passes', withFixture(({ work }) => {
   git(work, 'checkout', '-q', '-b', 'feature');
   write(work, A, 13);

@@ -133,6 +133,7 @@ export * from './rules/mine-mode.js';
 export * from './rules/waiting-tickets.js';
 export * from './rules/handed-to.js';
 export * from './rules/question-escalation.js';
+export * from './rules/escalation.js';
 export * from './rules/poll-refusal.js';
 export * from './rules/agent-run-env.js';
 export * from './rules/run-limit.js';

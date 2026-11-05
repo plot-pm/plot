@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FleetReading } from '@plot-pm/domain';
+import { answerRecordFile } from '@plot-pm/domain/adapters/answer-record/answer-record-file';
+import { escalationReason } from '@plot-pm/domain/rules/escalation';
 
 /** What a desk's marker asks and when it was written: the first line and an ISO-8601 modification time. */
 export interface MarkerReading {
@@ -12,6 +14,12 @@ export interface MarkerReading {
    * `PLOT-BLOCKED:` write, which never goes through `writeBlockedMarker`.
    */
   author?: 'loop' | 'fleetd';
+  /**
+   * Why fleetd's unblocker escalated this question to a person, from the
+   * question key's last answer-record row; absent where the last row is not an
+   * escalation. Set by {@link workerQuestions}, never by the marker read.
+   */
+  escalation?: string;
 }
 
 /**
@@ -241,14 +249,26 @@ export function waitingWorktrees(pulse: FleetReading): Map<string, string> {
  *
  * @param pulse The fleet reading.
  */
-export const workerQuestions = async (pulse: FleetReading): Promise<Map<string, MarkerReading>> => {
+export const workerQuestions = async (pulse: FleetReading, repoRoot?: string): Promise<Map<string, MarkerReading>> => {
   const targets = [...waitingWorktrees(pulse)];
   if (targets.length === 0) return new Map();
   const found = await Promise.all(targets.map(([, wt]) => markerReading(wt)));
   const questions = new Map<string, MarkerReading>();
-  targets.forEach(([branch], i) => {
+  for (const [i, [branch, worktree]] of targets.entries()) {
     const reading = found[i];
-    if (reading) questions.set(branch, reading);
-  });
+    if (!reading) continue;
+    const reason = repoRoot === undefined ? null : await escalationOf(repoRoot, worktree, reading.askedAt);
+    questions.set(branch, reason === null ? reading : { ...reading, escalation: reason });
+  }
   return questions;
+};
+
+/**
+ * The escalation reason recorded for one question key, or `null` where the
+ * record holds none or cannot be read: an unread record is no reason, never a
+ * false one.
+ */
+const escalationOf = async (repoRoot: string, worktree: string, askedAt: string): Promise<string | null> => {
+  const rows = await answerRecordFile({ cwd: repoRoot }).rowsFor(worktree, askedAt);
+  return rows.ok ? escalationReason(rows.value) : null;
 };

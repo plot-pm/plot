@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3120
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3130 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/the-shell-lines-gate-missing-from`
+- **Delivered:** 2026-11-05
 
 ## Changelog
 
