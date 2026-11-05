@@ -93,7 +93,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Ordering
 
-- `bug/a-high-gets-its-own-fixer-attempts` lands before or with #3070's `feature/the-release-review-is-switched-on`. That slice sets `Auto-review: true`, which makes every slice PR able to get HIGH findings, so the shared count of two decides live PRs from then on. A `waits:` marker points from the waiting branch, so this order is a note here and a `waits:` on #3070's line, not on this plan's.
+- `bug/a-high-gets-its-own-fixer-attempts` lands before or with #3070's `feature/the-release-review-is-switched-on`. That slice sets `Auto-review: true`, which makes every slice PR able to get HIGH findings, so the shared count of two decides live PRs from then on. A `waits:` marker points from the waiting branch, so this order is a note here and a `waits:` on #3070's line, not on this plan's. → #3169
 - Slices 2 and 3 edit `rules/slice-pr-next.ts` and `slice-pr-next.test.ts`, which #3068's `feature/fleetd-merges-as-the-merger-app` rewrites (`mergeArm`, `SlicePrNextReadings`, `:405-408`), and #3068 adds a repair-arm test with a `bug/revert-<n>` fixture. Both wait on it.
 - Slice 1 waits on #3074's `feature/pr-review-accepts-a-plot-review`, which decides which writer's `plot/review` counts. Slice 1 keeps `review-not-passed` as the only review gate, so that gate must read a trusted writer first.
 - Slices 1 and 3 both edit the `CLAUDE.md` paragraph *One hold reads a non-terminal answer* (`default-branch-unsettled` for slice 1, the `bug/revert-<pr>` rule for slice 3). The second to merge rebases on the first. Slice 1 never writes `settled`, so it does not change what `redMainStep` reads.
