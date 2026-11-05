@@ -93,7 +93,7 @@ One predicate decides a process-table read, and every path that asks "is this se
 
 ### Process-table read
 
-- `feature/controller-gate-reads-a-process-lookup` — admit `pgrep`, `ps` and `lsof` as a read in `isReader`, including as a `while`/`until` condition, read through `readShell`, with the pipe rule and the rows below <!-- builds: isProcessRead in ci-suite.ts, called from isReader, and the pipeline rule shared by controllerInvocation and controllerHttpAction -->
+- `feature/controller-gate-reads-a-process-lookup` — admit `pgrep`, `ps` and `lsof` as a read in `isReader`, including as a `while`/`until` condition, read through `readShell`, with the pipe rule and the rows below <!-- builds: isProcessRead in ci-suite.ts, called from isReader, and the pipeline rule shared by controllerInvocation and controllerHttpAction --> → #3153
 
 Files the slice touches:
 
