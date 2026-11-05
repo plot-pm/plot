@@ -278,4 +278,11 @@ describe('replaceStatusRecord', () => {
     const empty = plan('- **Spike approved:**\n');
     expect(replaceStatusRecord(empty, 'Spike approved', 'r')).toEqual(insertStatusRecord(empty, 'Spike approved', 'r'));
   });
+
+  it('leaves the file byte-identical when there is no ## Status section, even with a filled line before any heading', () => {
+    const content = ['- **Spike approved:** 2026-10-01, jwloka, in-session', '', '## Design', ''].join('\n');
+    const result = replaceStatusRecord(content, 'Spike approved', 'r');
+    expect(result.changed).toBe(false);
+    expect(result.content).toBe(content);
+  });
 });
