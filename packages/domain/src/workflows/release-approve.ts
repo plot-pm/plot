@@ -1,6 +1,7 @@
 import type { Pr } from '../entities/pr.js';
 import type { PrReviewReading } from '../ports/host.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
+import { readsReleaseHead } from '../adapters/host/release-head-backend.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { releaseHeadVerdict, type ReleaseHeadReading } from '../rules/release-head.js';
 import { sameCommit } from '../rules/same-commit.js';
@@ -153,7 +154,7 @@ export const releaseApproveAt = async (
     ? null
     : await Promise.all([ports.host.prState(pr), ports.host.prReview(pr), ports.host.backend()]);
   // Only a host that answered with another backend skips the read; a failed backend answer still reads the head.
-  const otherHost = asked?.[2].ok === true && asked[2].value !== 'github';
+  const otherHost = asked?.[2].ok === true && !readsReleaseHead(asked[2].value);
   const changes = asked === null || otherHost ? null : await ports.refs.headChanges(sha);
   const out = releaseApprove(
     {
