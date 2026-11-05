@@ -1678,7 +1678,14 @@ describe('applyUnblockDecisions — running the unblocker and handing its answer
         },
       }),
     );
-    expect(applied).toEqual([{ branch: 'feature/one', outcome: 'escalated', detail: 'answer-cap' }]);
+    expect(applied).toEqual([
+      {
+        branch: 'feature/one',
+        outcome: 'escalated',
+        detail: 'answer-cap',
+        escalation: { askedAt: write().askedAt, question: expect.any(String) },
+      },
+    ]);
     expect(rows).toEqual([
       expect.objectContaining({
         worktree: '/estate/.worktrees/feature-one',
@@ -1779,7 +1786,12 @@ describe('applyUnblockDecisions — running the unblocker and handing its answer
       }),
     );
     expect(applied).toEqual([
-      { branch: 'feature/one', outcome: 'escalated', detail: 'scope adds a slice, which this run cannot decide' },
+      {
+        branch: 'feature/one',
+        outcome: 'escalated',
+        detail: 'scope adds a slice, which this run cannot decide',
+        escalation: { askedAt: write().askedAt, question: question3048 },
+      },
     ]);
     expect(rows).toEqual([
       expect.objectContaining({

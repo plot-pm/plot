@@ -30,6 +30,16 @@ describe('a question moves its row into WAITING ON YOU, with its age', () => {
       note: 'waiting on you: which adapter should the fallback use? · asked 4 hours ago',
       question: { firstLine: 'which adapter should the fallback use?', askedAt: '2026-10-05T13:36:00.000Z' },
     }),
+    buildRow({
+      branch: 'feature/escalated',
+      plan: 'orchard',
+      wave: 'escalated-slice',
+      state: 'wip',
+      group: 'waiting-on-you',
+      ageMinutes: 30,
+      note: 'waiting on you: should the scan keep its cache? · asked 4 hours ago · escalated: test',
+      question: { firstLine: 'should the scan keep its cache?', askedAt: '2026-10-05T13:36:00.000Z' },
+    }),
   ];
 
   /** The scenario's envelope with its own rows, agents and summary withheld. */
@@ -76,6 +86,16 @@ describe('a question moves its row into WAITING ON YOU, with its age', () => {
       await expect.poll(() => li.textContent())
         .toContain('which adapter should the fallback use?');
       await expect.poll(() => li.textContent()).toContain('4 hours');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows the escalation reason in the row', async () => {
+    const page = await open();
+    try {
+      const li = rowFor(page, 'feature/escalated');
+      await expect.poll(() => li.textContent()).toContain('escalated: test');
     } finally {
       await page.close();
     }

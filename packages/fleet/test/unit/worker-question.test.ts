@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { removeTree as rmTree } from '../rm-tree.mjs';
@@ -353,6 +354,46 @@ describe('waitingWorktrees — who gets asked at all', () => {
     // one has nowhere to look, and looking anyway is how a path gets guessed.
     const p = pulse([{ branch: 'feature/elsewhere', worker: 'waiting', local_worktree: '' }]);
     expect(waitingWorktrees(p).size).toBe(0);
+  });
+});
+
+describe('workerQuestions — the escalation reason from the answer record', () => {
+  const repoWith = (rows: readonly { askedAt: string; outcome: string }[], worktree: string): string => {
+    const repo = fs.mkdtempSync(path.join(tmp, 'repo-'));
+    execFileSync('git', ['init', '-q', repo]);
+    fs.mkdirSync(path.join(repo, '.git', '.plot', 'state'), { recursive: true });
+    const lines = rows.map((r) => [worktree, r.askedAt, 'q', '', 'unblocker', r.outcome].join('\t'));
+    fs.writeFileSync(path.join(repo, '.git', '.plot', 'state', 'answers.tsv'), `${lines.join('\n')}\n`);
+    return repo;
+  };
+  const asked = async (rows: (askedAt: string) => { askedAt: string; outcome: string }[]) => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which?\n' });
+    const p = pulse([{ branch: 'feature/asking', worker: 'waiting', local_worktree: wt }]);
+    const askedAt = (await workerQuestions(p)).get('feature/asking')!.askedAt;
+    const repo = repoWith(rows(askedAt), wt);
+    return (await workerQuestions(p, repo)).get('feature/asking')?.escalation;
+  };
+
+  it('carries the reason of an escalated row on the question key', async () => {
+    expect(await asked((at) => [{ askedAt: at, outcome: 'escalated test' }])).toBe('test');
+  });
+
+  it('carries answer-cap', async () => {
+    expect(await asked((at) => [{ askedAt: at, outcome: 'escalated answer-cap' }])).toBe('answer-cap');
+  });
+
+  it('carries no reason where the last row is started', async () => {
+    expect(await asked((at) => [{ askedAt: at, outcome: 'escalated test' }, { askedAt: at, outcome: 'started' }])).toBeUndefined();
+  });
+
+  it('carries no reason where the escalated row is for an earlier askedAt', async () => {
+    expect(await asked(() => [{ askedAt: '2020-01-01T00:00:00.000Z', outcome: 'escalated test' }])).toBeUndefined();
+  });
+
+  it('carries no reason where no repository root is given', async () => {
+    const wt = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which?\n' });
+    const p = pulse([{ branch: 'feature/asking', worker: 'waiting', local_worktree: wt }]);
+    expect((await workerQuestions(p)).get('feature/asking')?.escalation).toBeUndefined();
   });
 });
 
