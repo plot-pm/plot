@@ -1,0 +1,1 @@
+../2026-11-04-plot-approve-writes-the-sprint-annotation.md
