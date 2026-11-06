@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3101
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3116 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/record-names-no-branch-so-a`
 - **Started:** 2026-11-06, Jan Wloka, `feature/every-spike-reader-asks-one-rule`
+- **Delivered:** 2026-11-06
 
 ## Changelog
 
