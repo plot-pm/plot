@@ -538,7 +538,7 @@ and admits `http(s)` link schemes only.
 
 ### Tracer
 
-- `feature/one-card-grammar-plans` — the `CardFacts` entity and its schema gate, `docs/domain/card-grammar.md`, `planCardFacts` replacing `planCardView`, plan `facts` in `/api/board`, the presentation mapping and its import gate, and the shared `<Card>` on the Plans board only <!-- builds: CardFacts entity and planCardFacts projection --> <!-- spike -->
+- `feature/one-card-grammar-plans` — the `CardFacts` entity and its schema gate, `docs/domain/card-grammar.md`, `planCardFacts` replacing `planCardView`, plan `facts` in `/api/board`, the presentation mapping and its import gate, and the shared `<Card>` on the Plans board only → #3198 <!-- builds: CardFacts entity and planCardFacts projection --> <!-- spike -->
 
 ### Stories
 
