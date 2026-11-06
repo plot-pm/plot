@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { type Page } from 'playwright';
+import { type Page, type Route } from 'playwright';
 import { openCatalogue, board, card, column, sprint, type Catalogue } from '../catalogue/index.js';
 import { planFactsOf } from '../../src/server/plan-facts.js';
 import { stateFor } from '../fixtures/card-controls.js';
@@ -86,8 +86,9 @@ describe('a plan card renders the card grammar', () => {
     await cat?.close();
   });
 
-  const open = async (): Promise<Page> => {
+  const open = async (route?: Record<string, (r: Route) => unknown>): Promise<Page> => {
     const page = await cat.open('an-empty-estate', {
+      ...(route ? { route } : {}),
       over: {
         board: board({
           columns: [column({ phase: 'Discovery', cards: [DRAFT] }), column({ phase: 'Development', cards: [STARTABLE_COLD, APP_KEYS, MANY] })],
@@ -415,6 +416,39 @@ describe('a plan card renders the card grammar', () => {
       await page.keyboard.press('Escape');
       await expect.poll(() => menu.count()).toBe(0);
       expect(await more.evaluate((el) => el === document.activeElement)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+  it('a long refusal wraps in its own row under the footer and stays inside a 320 px card', async () => {
+    const refusal = 'refused: the plan PR #3198 is not approved by a reviewer, and the default branch reads red since 2026-11-06 — approve again once both clear';
+    const page = await open({
+      '**/api/approve': (r: Route) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: refusal }) }),
+    });
+    try {
+      const card = page.locator('#plan-grammar');
+      await card.evaluate((el) => { el.style.width = '320px'; });
+      const approve = card.locator('[data-action-slot="primary"] button');
+      await approve.click();
+      await approve.click();
+      const message = card.locator('[data-action-messages] > *');
+      await expect.poll(() => message.textContent(), { timeout: 5_000 }).toBe(refusal);
+      const fits = await card.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      expect(fits.scroll).toBeLessThanOrEqual(fits.client);
+      // The message wraps over several lines, below the footer row and inside the card.
+      const box = await message.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const band = el.closest('article')!.querySelector('[data-action-band]')!.getBoundingClientRect();
+        const article = el.closest('article')!.getBoundingClientRect();
+        return { lines: el.getClientRects().length, height: r.height, top: r.top, bandBottom: band.bottom, right: r.right, cardRight: article.right };
+      });
+      expect(box.height).toBeGreaterThan(30);
+      expect(box.top).toBeGreaterThanOrEqual(box.bandBottom);
+      expect(box.right).toBeLessThanOrEqual(box.cardRight);
+      // The button label still reads whole on one line.
+      const label = await approve.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, height: el.getBoundingClientRect().height }));
+      expect(label.scroll).toBeLessThanOrEqual(label.client);
+      expect(label.height).toBeLessThanOrEqual(30);
     } finally {
       await page.close();
     }

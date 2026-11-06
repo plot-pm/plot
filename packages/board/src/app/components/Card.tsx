@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Ref } from '@plot-pm/domain/entities/card-facts';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { ActionMessageTarget } from './ui/action-message.js';
 import { GLYPH_PATH, type GlyphKind } from '../lib/glyphs.js';
 import { cn } from '../lib/utils.js';
 import type {
@@ -469,7 +470,9 @@ export const Card = ({
   const more = controlsOf(footer.more.map((action) => ({ action, primary: false })));
   const statusTwoLines = status.work !== null && status.signals.length > 0;
   const numberLink = header.numberRef !== null ? linkFor?.(header.numberRef) ?? null : null;
+  const [messages, setMessages] = useState<HTMLDivElement | null>(null);
   return (
+    <ActionMessageTarget.Provider value={messages}>
     <article
       id={id}
       data-card
@@ -538,7 +541,7 @@ export const Card = ({
         <div
           data-card-row="next"
           data-action-band
-          className="order-2 ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-1.5 py-2.5 pr-4 pl-2 whitespace-nowrap"
+          className="order-2 ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-1.5 py-2.5 pr-4 pl-2"
         >
           {slots.map(({ action, isPrimary, control }) => (
             <span key={action.action} className="inline-flex" data-action-slot={isPrimary ? 'primary' : 'secondary'}>
@@ -574,6 +577,8 @@ export const Card = ({
           </span>
           {footer.age && <span>{footer.age.text}</span>}
         </div>
+        {/* An action's refusal or confirmation: its own full-width row under the footer row, wrapping normally. */}
+        <div ref={setMessages} data-action-messages className="order-3 flex basis-full flex-col gap-1 px-4 pb-2.5 [overflow-wrap:anywhere] empty:hidden" />
       </div>
 
       {/* HEADER, meta line — number, type, alerts and related items. */}
@@ -627,5 +632,6 @@ export const Card = ({
         {footer.age && <PieceView piece={footer.age} />}
       </div>
     </article>
+    </ActionMessageTarget.Provider>
   );
 };
