@@ -2529,8 +2529,9 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // a count and a wrong one only for a decision.
   const lastComplete = lastCompletePulseFor(opts);
   const cards: CardFields[] = [];
-  // What each card's facts read beyond its own fields, keyed by slug and
-  // completed once the stories and sprints below are read.
+  // What each card's facts read beyond its own fields, keyed by the plan's
+  // repo-relative path (two plans may share a slug), and completed once the
+  // stories and sprints below are read.
   const factsExtras = new Map<string, PlanFactsExtras>();
   // Each PR's head branch, for the facts' per-PR branch and the slice refs.
   const prHeads = new Map<number, string>([...(prLinks?.values() ?? [])].map((r) => [r.number, r.head]));
@@ -2849,7 +2850,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // between being written and being pushed.
     if (localOnlyPaths.has(relPath)) card.notPushed = true;
     const spikeBranch = spikeOf(meta.slices)?.branch;
-    factsExtras.set(slug, {
+    factsExtras.set(relPath, {
       state: meta.phase,
       records: {
         designRaw: meta.design_raw,
@@ -2890,7 +2891,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   const archived = new Set(archivedStories.map((s) => s.slug));
   const withFacts: Card[] = cards.map((card) => ({
     ...card,
-    facts: planFactsOf(card, { ...factsExtras.get(card.slug), stories: allStories, archived, sprints }),
+    facts: planFactsOf(card, { ...factsExtras.get(card.path), stories: allStories, archived, sprints }),
   }));
   const columns: Column[] = phaseColumns(phaseMap).map(({ name, ...drawing }) => ({
     phase: name,
