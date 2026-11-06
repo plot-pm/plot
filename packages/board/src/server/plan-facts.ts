@@ -103,6 +103,7 @@ export const planFactsOf = (card: CardFields, extras: PlanFactsExtras = {}): Car
     prs: {
       value: card.prs.map((pr) => ({
         number: pr.number, branch: extras.prHeads?.get(pr.number) ?? '', checks: pr.checks, mergeable: pr.mergeable,
+        checksLookup: pr.checksLookup ?? null,
       })),
     },
     verification: card.verification ? { state: card.verification.state, refuted: card.verification.refuted } : null,

@@ -145,9 +145,20 @@ export const CostReadingSchema = z.object({
 });
 export type CostReading = z.infer<typeof CostReadingSchema>;
 
-/** One pull request of an item, with its own build reading and whether it merges cleanly. */
+/** Why a PR's checks were not read on this pass: `skipped` until a later pass, `broken` lookup. */
+// plot-state: reading — what one pass's checks lookup did with this PR; the next pass reads it again.
+export const ChecksLookupSchema = z.enum(['skipped', 'broken']);
+
+/**
+ * One pull request of an item, with its own build reading, whether it merges
+ * cleanly, and what this pass's checks lookup did (`null` where it ran).
+ */
 export const CardPrSchema = z.object({
-  number: z.number(), branch: z.string(), checks: ChecksSchema, mergeable: MergeabilitySchema,
+  number: z.number(),
+  branch: z.string(),
+  checks: ChecksSchema,
+  mergeable: MergeabilitySchema,
+  checksLookup: ChecksLookupSchema.nullable(),
 });
 export type CardPrFact = z.infer<typeof CardPrSchema>;
 
