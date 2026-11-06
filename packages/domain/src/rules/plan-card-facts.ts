@@ -55,16 +55,20 @@ export interface PlanSlicesReading {
 /** A story the plan names, as the board read it. */
 export interface PlanStoryReading {
   slug: string;
+  /** The story's title; its slug where no story file exists. */
   title: string;
-  status: StoryStatus;
+  /** The story's status; `null` where no story file exists. */
+  status: StoryStatus | null;
   archived: boolean;
 }
 
 /** A sprint the plan names, as the board read it. */
 export interface PlanSprintReading {
   slug: string;
+  /** The sprint's title; its slug where no sprint file exists. */
   title: string;
-  state: SprintState;
+  /** The sprint's state; `null` where no sprint file exists. */
+  state: SprintState | null;
 }
 
 /** The plan's dated records, verbatim; `''` where the plan has none. */

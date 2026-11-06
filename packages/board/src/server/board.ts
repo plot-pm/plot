@@ -48,9 +48,9 @@ import {
   type SliceSpendRecord,
   type Trees,
   planSpend,
-  planCardView,
   storyCardView,
   type PersonDirectory,
+  type PlanSlicesReading,
   DEFAULT_PHASE_MAP,
   parsePhaseMap,
   phaseColumns,
@@ -85,6 +85,7 @@ import {
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
+import { planFactsOf, type CardFields, type PlanFactsExtras } from './plan-facts.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
@@ -2518,7 +2519,13 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // below still reads `pulse`, because a partial answer is the honest one for
   // a count and a wrong one only for a decision.
   const lastComplete = lastCompletePulseFor(opts);
-  const cards: Card[] = [];
+  const cards: CardFields[] = [];
+  // What each card's facts read beyond its own fields, keyed by slug and
+  // completed once the stories and sprints below are read.
+  const factsExtras = new Map<string, PlanFactsExtras>();
+  // Each PR's head branch, for the facts' per-PR branch and the slice refs.
+  const prHeads = new Map<number, string>([...(prLinks?.values() ?? [])].map((r) => [r.number, r.head]));
+  const prByHead = new Map<string, number>([...prHeads].map(([n, h]) => [h, n]));
   const deliveredReadings = new Map<string, { text: string; deliveryCommit: string | null }>();
   let metas: PlanMeta[];
   try {
@@ -2673,16 +2680,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     const phase = phaseOfPlan(phaseMap, { state: meta.phase, deliverable: status === 'deliverable', tracer: meta.tracer });
     if (!phase) continue;
     const slug = planSlug(relPath);
-    const cardView = planCardView(
-      { type: meta.type, assignee: meta.assignee, approvedRaw: meta.approved_raw },
-      directory,
-    );
-    const card: Card = {
+    const card: CardFields = {
       slug,
       title: meta.title || slug,
       type: meta.type || 'unknown',
-      typeLabel: cardView.type,
-      owner: cardView.owner,
       phase,
       controls: cardControls({
         state: meta.phase,
@@ -2835,14 +2836,23 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // legitimately run and where five plans were each invisible for the minutes
     // between being written and being pushed.
     if (localOnlyPaths.has(relPath)) card.notPushed = true;
+    const spikeBranch = spikeOf(meta.slices)?.branch;
+    factsExtras.set(slug, {
+      records: {
+        designRaw: meta.design_raw,
+        approvedRaw: meta.approved_raw,
+        startedRaw: meta.started_raw.join('\n'),
+        deliveredRaw: meta.delivered_raw,
+        releasedRaw: meta.released_raw,
+      },
+      slices: slicesFromPulse(meta, pulse, prByHead),
+      spike: spikeBranch === undefined ? null : { branch: spikeBranch, pr: prByHead.get(spikeBranch) ?? null },
+      prHeads,
+      spendRead: spendLines !== null,
+      directory,
+    });
     cards.push(card);
   }
-
-  const columns: Column[] = phaseColumns(phaseMap).map(({ name, ...drawing }) => ({
-    phase: name,
-    ...drawing,
-    cards: cards.filter((c) => c.phase === name),
-  }));
 
   const stories = await collectStories(
     repoRoot, storyDir, metas, `origin/${defaultBranch}`, refs, directory,
@@ -2861,6 +2871,19 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     ),
     readConfigAsync(opts, 'Release directory', 'docs/releases/'),
   ]);
+
+  // THE FACTS, once per build, after the stories and sprints they link to are read.
+  const allStories = [...stories, ...archivedStories];
+  const archived = new Set(archivedStories.map((s) => s.slug));
+  const withFacts: Card[] = cards.map((card) => ({
+    ...card,
+    facts: planFactsOf(card, { ...factsExtras.get(card.slug), stories: allStories, archived, sprints }),
+  }));
+  const columns: Column[] = phaseColumns(phaseMap).map(({ name, ...drawing }) => ({
+    phase: name,
+    ...drawing,
+    cards: withFacts.filter((c) => c.phase === name),
+  }));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -3488,3 +3511,33 @@ export async function renderDesignDocPage(
 
   return renderMarkdownPage(md, docName, embed);
 }
+
+/**
+ * A plan's slices as the pulse reports them, for its card facts: the total the
+ * plan names, the complete and eligible counts where a pulse covers the plan,
+ * and the unmerged branches of the earliest incomplete slice.
+ *
+ * Joined on basename, as `summariseFromPulse` joins. `null` where the plan names
+ * no slices; `complete` and `eligible` are `null` where no pulse covers it.
+ */
+export const slicesFromPulse = (
+  meta: PlanMeta, pulse: FleetReading | null, prByHead: ReadonlyMap<string, number>,
+): PlanSlicesReading | null => {
+  if (meta.slices.length === 0) return null;
+  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  if (!plan) return { total: meta.slices.length, complete: null, eligible: null, waitsOn: [] };
+  let eligible = 0;
+  for (const slice of plan.slices) {
+    for (const b of slice.branches) if (b.state === 'open' && slice.verdict === 'eligible') eligible += 1;
+  }
+  const pending = plan.slices.find((slice) => slice.verdict !== 'complete' && slice.verdict !== 'empty');
+  const waitsOn = (pending?.branches ?? [])
+    .filter((b) => !b.deferred && b.state !== 'merged')
+    .map((b) => ({ branch: b.branch, pr: prByHead.get(b.branch) ?? null }));
+  return {
+    total: meta.slices.length,
+    complete: plan.slices.filter((slice) => slice.verdict === 'complete').length,
+    eligible,
+    waitsOn,
+  };
+};

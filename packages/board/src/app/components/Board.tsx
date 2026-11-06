@@ -289,6 +289,7 @@ export function BoardView({
                     dispatch={board.dispatch}
                     approve={board.approve}
                     interrogate={board.interrogate}
+                    deliver={board.deliver}
                     pulse={pulse}
                     onStarting={onStarting}
                     onOpen={(opened) => { onOpenPlan(opened.path); }}

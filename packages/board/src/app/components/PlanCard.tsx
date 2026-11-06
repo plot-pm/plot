@@ -1,19 +1,18 @@
-import type { MouseEvent } from 'react';
-import type { Card, DispatchInfo, StoryCard } from '../../contract/schema.js';
-import { Badge, typeVariant } from './ui/badge.js';
-import { cn } from '../lib/utils.js';
-import { checksVerdict, planReference, planRoute, type PlanIndex } from '@plot-pm/domain';
+import type { Card as PlanCardData, DispatchInfo, StoryCard } from '../../contract/schema.js';
+import type { Ref } from '@plot-pm/domain/entities/card-facts';
+import { planRoute } from '@plot-pm/domain';
 import { storyHref } from '../lib/plan.js';
+import { presentCard, type CardBoard, type PresentedAction } from '../lib/card-presentation.js';
+import { Card, type RefLink } from './Card.js';
 import { StartWorkButton } from './StartWorkButton.js';
-import { SPIKE_CARD_TEXT } from '@plot-pm/domain/rules/spike-confirm';
 import { ApproveButton } from './ApproveButton.js';
 import { InterrogateButton } from './InterrogateButton.js';
+import { DeliverButton } from './DeliverButton.js';
+
+type Card = PlanCardData;
 
 // Colour only ever REPEATS what the column header already says in symbol and
 // word — it must not be the sole carrier of the human/agent distinction.
-/** The card carries its own file, slug and issues, so its reference needs no index. */
-const NO_INDEX: PlanIndex = new Map();
-
 const PHASE_ACCENT: Record<string, string> = {
   neutral: 'border-l-slate-300',
   Discovery: 'border-l-sky-400',
@@ -22,29 +21,6 @@ const PHASE_ACCENT: Record<string, string> = {
   Testing: 'border-l-violet-500',
   Released: 'border-l-orange-500',
 };
-
-/**
- * Approved, and nobody has started it — the exact state `plot-dispatch.sh`
- * requires and the exact state the **Ready** badge already described.
- *
- * **The column is now `Development`, not `Design`.** This predicate read
- * `phase === 'Design'` while the board manufactured its Design column by
- * forking `approved` on `started`; once `toBoardPhase` maps approved to
- * Development *whether or not* a branch has started, an approved-unstarted plan
- * is a Development card and this expression found nothing. Measured: the
- * `Start work` button vanished from every plan that could be started, and nine
- * browser tests timed out looking for a control that was no longer rendered.
- *
- * `started === false` still carries the whole distinction — it is the half that
- * was always doing the work, and it is now the only half, since the column no
- * longer varies with it.
- *
- * Exported so the badge and the Start work button are the SAME expression and
- * cannot drift into disagreeing about what Ready means.
- */
-export function isReadyToStart(card: Card): boolean {
-  return card.controls.readyToStart;
-}
 
 /**
  * Approved, started or not. `plot-dispatch.sh` hard-gates on phase `approved`
@@ -81,132 +57,6 @@ export function isDraft(card: Card): boolean {
 }
 
 /**
- * The slice badge's text, or "" when there is nothing worth saying.
- *
- * Answers the question a tile is actually asked — how much work is left, and is
- * anyone on it? — from two halves with different rules:
- *
- * **Shape** (`N waves · M branches`) only where shape says something. "1 slices ·
- * 1 branches" is noise, so it is kept to multi-slice plans. Deferred branches are
- * already excluded upstream: they are not outstanding.
- *
- * **Occupancy** (`claimed`, `ready`) renders for every plan that has it,
- * single-slice included — that question is worth answering whether a plan has one
- * branch or nine.
- *
- * Both occupancy counts are optional, and **absent means unknown, never zero**.
- * A board whose git scan has not landed omits them rather than asserting that
- * nothing is claimed — the two must not render alike, since that
- * indistinguishability is the defect this whole change exists to remove. `> 0`
- * excludes `undefined` along with 0, so a card says nothing rather than
- * something it cannot support.
- *
- * Exported for test: this is display logic with real edge cases (a single-slice
- * plan with nothing claimed has nothing to show at all), and an empty badge on
- * screen is exactly the kind of thing prose promises and code forgets.
- */
-export function sliceBadgeText(s: NonNullable<Card['sliceSummary']>): string {
-  const parts: string[] = [];
-  if (s.slices > 1) parts.push(`${s.slices} slices · ${s.branches} branches`);
-  if ((s.claimed ?? 0) > 0) parts.push(`${s.claimed} claimed`);
-  if ((s.eligible ?? 0) > 0) parts.push(`${s.eligible} ready`);
-  return parts.join(' · ');
-}
-
-/**
- * What a plan's cost badge SAYS, or "" when there is nothing honest to say.
- *
- * **COVERAGE, NOT COUNTERS, AND THE REASON IS THE EYE RATHER THAN THE
- * ARITHMETIC.** The rollup refuses to sum the four counters because cache reads
- * measured 99.36% of a naive total. That gates the arithmetic and gates nothing
- * about what a reader does: over a real plan the counters span five orders of
- * magnitude — `in 502 · out 107,182 · cache-write 528,331 · cache-read
- * 40,690,450` — so the largest is 81,000x the smallest and a two-second reader
- * reads the big one as the cost. NOT SUMMING IS NOT THE SAME AS NOT BEING READ
- * AS A SUM, so the glance-level text is what the number is good for: how much
- * of this plan was measured here.
- *
- * The counters are not hidden — {@link costBadgeDetail} puts all four on the
- * badge's tooltip, so refusing them at a glance is not refusing them.
- *
- * **NOTHING MEASURED SHOWS NO COST, NEVER A ZERO.** `tokens: null` is the
- * rollup's answer for a plan nothing was measured for, because "`reduce(…, 0)`
- * over nothing is correct arithmetic and a lie". The badge says *not measured
- * here* — the muted form of the open question, chosen over rendering nothing so
- * a reader can tell "this machine has no record" from "this board is too old to
- * have looked", which renders nothing at all.
- *
- * **ABSENT AND UNREADABLE STAY TWO COUNTS.** A branch nobody measured here and
- * a record that could not be read are different facts, and collapsing them is
- * the failure this repo has shipped twice.
- *
- * Exported for test, like its two neighbours and for their reason: this is
- * display logic with real edge cases, and an empty badge on screen is exactly
- * the kind of thing prose promises and code forgets.
- */
-export function costBadgeText(card: Card): string {
-  const cost = card.cost;
-  if (cost === undefined) return '';
-  if (cost.slices === 0) return '';
-  if (cost.tokens === null) {
-    // No number, and the reason named. `unreadable` leads where both are
-    // present: a record that could not be read is a fault to fix, where an
-    // absence is usually just another machine's work.
-    if (cost.unreadable > 0) return `not measured here (${cost.unreadable} unreadable)`;
-    return 'not measured here';
-  }
-  const base = `measured on ${cost.measured} of ${cost.slices} slices`;
-  if (cost.unreadable > 0) return `${base} · ${cost.unreadable} unreadable`;
-  return base;
-}
-
-/**
- * The four counters, for the badge's tooltip — where a reader who wants the
- * numbers finds them without leaving the board.
- *
- * This is the other half of {@link costBadgeText}'s refusal: the counters are
- * DEFERRED, not withheld. They are listed apart and never summed, for the
- * reason the rollup states — a four-field total is a cache-read count wearing a
- * cost's name.
- *
- * It also states the two things a coverage figure cannot: which models the
- * measured slices ran on is not carried here, and the sum is biased LOW because
- * a worker killed by the `Worker bound` never reaches the write site, so the
- * most expensive runs record nothing.
- */
-export function costBadgeDetail(card: Card): string {
-  const cost = card.cost;
-  if (cost === undefined || cost.slices === 0) return '';
-  const scope =
-    `${cost.measured} of ${cost.slices} slices measured on this machine` +
-    (cost.absent > 0 ? `, ${cost.absent} not measured here` : '') +
-    (cost.unreadable > 0 ? `, ${cost.unreadable} unreadable` : '');
-  if (cost.tokens === null) {
-    return `${scope}. A run that was never measured here records nothing rather than zero.`;
-  }
-  const t = cost.tokens;
-  const fromRuns = cost.fromRuns ?? 0;
-  // A RUN LINE AND A SEAL LINE COUNT DIFFERENT THINGS: the SDK's figures
-  // include subagents and compaction, the seal's transcript sum excludes them.
-  const definition =
-    fromRuns === 0
-      ? ''
-      : ` ${fromRuns} of the measured slices are read from SDK run lines, which include ` +
-        `subagents and compaction; a seal line excludes them.`;
-  // Grouped digits: these run to eight figures and an ungrouped number of that
-  // size is unreadable at a glance, which is the whole complaint above.
-  const n = (v: number) => v.toLocaleString('en-US');
-  return (
-    `in ${n(t.inputTokens)} · out ${n(t.outputTokens)} · ` +
-    `cache-write ${n(t.cacheCreationTokens)} · cache-read ${n(t.cacheReadTokens)}. ` +
-    `${scope}. Counters are listed apart rather than summed — cache reads are ` +
-    `the overwhelming majority of any total. Runs killed by the worker bound ` +
-    `record nothing, so this is biased low.` +
-    definition
-  );
-}
-
-/**
  * The interrogation badge's text, or "" when there is nothing to say.
  *
  * **Draft and Design.** Past Design the count is history: approval settled
@@ -238,47 +88,6 @@ export const roundsBadgeClass = (card: Card): string =>
     ? ''
     : 'border border-dashed border-slate-400 bg-transparent italic text-slate-600 dark:border-slate-500 dark:bg-transparent dark:text-slate-300';
 
-/**
- * What one PR's build says, or nothing at all.
- *
- * NOTHING IS DECIDED HERE. `shown`, `label`, `detail` and `prominence` arrive
- * from `checksVerdict` in the domain, asserted in
- * `packages/domain/test/checks-reading.test.ts` with no browser. This maps
- * `prominence` to two class strings and renders the words it was given — the
- * supervisor badge's shape in `FleetControls.tsx`, reused rather than
- * reinvented.
- *
- * `warn` is amber, matching its neighbours. `note` — the `unknown` state — is
- * deliberately NOT amber: a board that could not ask must render neither an
- * alarm nor an all-clear. And a `green` PR renders nothing, because a check
- * that passed is not a finding.
- *
- * The `data-` attributes are what a browser test reads. It asserts `none` and
- * `unknown` render differently, which is a claim about two rendered rows and
- * therefore the one thing the unit test above cannot make.
- */
-const ChecksNote = ({ pr }: { pr: Card['prs'][number] }) => {
-  const verdict = checksVerdict({
-    checks: pr.checks, mergeable: pr.mergeable, checksSha: pr.checksSha, checksLookup: pr.checksLookup,
-  });
-  if (!verdict.shown) return null;
-  return (
-    <span
-      data-pr-checks
-      data-pr-checks-state={verdict.state}
-      data-pr-checks-prominence={verdict.prominence}
-      className={`text-xs ${
-        verdict.prominence === 'warn'
-          ? 'text-amber-600 dark:text-amber-500'
-          : 'text-slate-400 dark:text-slate-500'
-      }`}
-      title={verdict.detail}
-    >
-      {verdict.label}
-    </span>
-  );
-};
-
 export interface PlanCardProps {
   card: Card;
   /** The column's `accent`: a default phase's name, or `'neutral'`. */
@@ -306,6 +115,10 @@ export interface PlanCardProps {
    * board has not said — the button then does not render.
    */
   interrogate?: DispatchInfo;
+  /** Whether this server will act on Deliver, and why not. Absent leaves Deliver off. */
+  deliver?: DispatchInfo;
+  /** The board the card renders on; it decides only which row is emphasised. */
+  board?: CardBoard;
   /** Bumps once per board refresh; the Start work button counts these. */
   pulse?: number;
   /** A Start work click became outstanding (true) or settled (false). */
@@ -315,7 +128,7 @@ export interface PlanCardProps {
   /**
    * The story card for `card.story`, when the board collected one. Absent for a
    * plan with no story and for one naming a story nobody has written — the
-   * badge then stays plain text (or a lane jump), never a link that 404s.
+   * story then stays plain text, never a link that 404s.
    */
   story?: StoryCard;
   /** Open the story in the in-board overlay (plain left-click only). */
@@ -328,6 +141,12 @@ export interface PlanCardProps {
   highlighted?: boolean;
 }
 
+/**
+ * A plan's card on the planning board and in swimlanes: its `facts`, worded by
+ * `presentCard` and rendered by the shared `<Card>`. This component only wires
+ * each enabled action to the control that runs it, and each named item to its
+ * link.
+ */
 export function PlanCard({
   card,
   accent = 'neutral',
@@ -336,6 +155,8 @@ export function PlanCard({
   dispatch,
   approve,
   interrogate,
+  deliver,
+  board = 'plans',
   pulse = 0,
   onStarting,
   onOpen,
@@ -343,250 +164,55 @@ export function PlanCard({
   onOpenStory,
   highlighted = false,
 }: PlanCardProps) {
-  const href = planRoute(card.path);
-  // The heading prints the plan's tracker keys before its title; the rule
-  // decides the prefix, this only renders it.
-  const { issues } = planReference({ file: card.path, slug: card.slug, issues: card.issues }, NO_INDEX);
-  const issuePrefix = issues.length > 0 ? `${issues.join(', ')}: ` : '';
-  // The story's own page, or "" — a story with no file gets no link, the same
-  // rule plan rows follow for `planFile: ''`.
+  const hide = [...(showStory ? [] : ['stories' as const]), ...(showSprint ? [] : ['sprints' as const])];
+  const rows = presentCard(card.facts, board, { hide });
   const storyPage = story ? storyHref(story) : '';
 
-  // The Open control is a real anchor so cmd/ctrl/shift/middle-click open the
-  // plan page natively (new tab, etc.). Only a plain primary click is
-  // intercepted for the in-board modal — never preventDefault a modified click.
-  const handleOpen = (e: MouseEvent<HTMLAnchorElement>) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    e.preventDefault();
-    onOpen(card);
+  const linkFor = (ref: Ref): RefLink | null => {
+    if (ref.kind === 'story' && story && storyPage && onOpenStory && ref.slug === story.slug) {
+      return { href: storyPage, onOpen: () => onOpenStory(story), title: `Open the ${ref.slug} story` };
+    }
+    if (ref.kind === 'slice' && ref.pr !== null) {
+      // The host adapter is the only thing that knows a PR's address; no URL, no link.
+      const url = card.prs.find((pr) => pr.number === ref.pr)?.url ?? '';
+      return url ? { href: url, external: true } : null;
+    }
+    return null;
+  };
+
+  const renderAction = (action: PresentedAction) => {
+    switch (action.action) {
+      case 'start-work':
+        return dispatch ? <StartWorkButton card={card} dispatch={dispatch} pulse={pulse} onStarting={onStarting} /> : null;
+      case 'approve':
+      case 'confirm-slices':
+        return approve
+          ? <ApproveButton card={card} approve={approve} onApproving={onStarting} confirm={action.action === 'confirm-slices'} />
+          : null;
+      case 'approve-spike':
+        return approve ? <ApproveButton card={card} approve={approve} onApproving={onStarting} spike /> : null;
+      case 'interrogate':
+        return interrogate
+          ? <InterrogateButton card={card} interrogate={interrogate} pulse={pulse} onActing={onStarting} />
+          : null;
+      case 'deliver':
+        return deliver ? <DeliverButton slug={card.slug} deliver={deliver} onActing={onStarting} /> : null;
+      default:
+        return null;
+    }
   };
 
   return (
-    <article
-      // What `?plan=<slug>` scrolls to. `scroll-mt` keeps the card clear of the
-      // header when it lands.
+    <Card
+      // What `?plan=<slug>` scrolls to.
       id={`plan-${card.slug}`}
-      data-highlighted={highlighted ? 'true' : undefined}
-      className={cn(
-        'scroll-mt-20 rounded-md border border-l-4 bg-white p-3 shadow-sm',
-        'border-slate-200 dark:border-slate-700 dark:bg-slate-900',
-        PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral,
-        // A ring rather than a background: the left border already carries the
-        // phase, and a second colour fill would compete with it.
-        highlighted && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-950',
-      )}
-    >
-      <div data-plan-ref className="text-sm font-medium leading-snug text-slate-900 dark:text-slate-100">
-        {issuePrefix}{card.title}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {card.typeLabel ? (
-          <Badge variant={typeVariant(card.type)}>
-            {card.typeLabel}
-          </Badge>
-        ) : null}
-        {/* Ready/In-progress used to be a badge because Approved was one
-            column. The distinction is now the column itself — a card in
-            Development IS started — so only the waiting half still needs
-            saying, and only where it is not already obvious. */}
-        {isReadyToStart(card) && <Badge variant="neutral">Ready</Badge>}
-        {showSprint && card.sprint && <Badge variant="sprint">{card.sprint}</Badge>}
-        {showStory && card.story && (
-          // The badge NAMES the story on the card, at triage time — a different
-          // question from the modal's `Open story` button, which is where you
-          // GO once you have stopped triaging. Both exist deliberately; this is
-          // the naming half, and it points at the story ARTEFACT, because that
-          // is what the name refers to.
-          //
-          // A real anchor, so cmd/ctrl/middle-click and "copy link address"
-          // behave; only the plain click is intercepted for the overlay.
-          //
-          // A story with no FILE renders no link at all — the rule plan rows
-          // already follow for `planFile: ''`, and the reason the lane-jump
-          // fallback that used to sit here is gone: a badge that is sometimes a
-          // story and sometimes a scroll position teaches nothing, and the
-          // swimlane view still reaches every lane on its own.
-          storyPage && onOpenStory && story ? (
-            <a
-              href={storyPage}
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                e.preventDefault();
-                onOpenStory(story);
-              }}
-              className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
-              title={`Open the ${card.story} story`}
-            >
-              <Badge variant="story" className="hover:underline">{card.story}</Badge>
-            </a>
-          ) : (
-            <Badge variant="story">{card.story}</Badge>
-          )
-        )}
-        {/* Optional is not the same as invisible. Rendering nothing for a plan
-            with no story makes "belongs to none" indistinguishable from "the
-            badge is switched off" — an absence that reads as a non-answer.
-            Neutral, not a warning colour: naming no story is a legitimate
-            choice, and colouring it like a defect would re-create the
-            obligation a story lint was deliberately dropped to avoid. */}
-        {showStory && !card.story && <Badge variant="neutral">no story</Badge>}
-        {card.sliceSummary && card.sliceSummary.branches > 0 && sliceBadgeText(card.sliceSummary) && (
-          <Badge variant="neutral">{sliceBadgeText(card.sliceSummary)}</Badge>
-        )}
-        {/* How hard this plan has been questioned — a Draft-or-Design answer to
-            "has anyone pushed on this yet?". A plan recording no round is
-            marked `not interrogated` in an outlined badge; a recorded 0 is the
-            filled `0 rounds`. The two must never look alike. */}
-        {card.verification?.badge && (
-          <span data-refuted-badge={card.slug} className="inline-flex">
-            <Badge
-              variant="neutral"
-              className="border border-red-400 bg-red-50 text-red-800 dark:border-red-500 dark:bg-red-950 dark:text-red-200"
-              title="Verification refuted claims of this delivered plan; see ## Verification in the plan"
-            >
-              {card.verification.badge}
-            </Badge>
-          </span>
-        )}
-        {roundsBadgeText(card) && (
-          <span data-rounds={roundsRecorded(card) ? 'recorded' : 'absent'} className="inline-flex">
-            <Badge
-              variant="neutral"
-              className={roundsBadgeClass(card)}
-              title={
-                roundsRecorded(card)
-                  ? `Interrogated: ${roundsBadgeText(card)} recorded in the plan`
-                  : 'No Rounds: field — nobody has interrogated this plan'
-              }
-            >
-              {roundsBadgeText(card)}
-            </Badge>
-          </span>
-        )}
-        {/* What this plan's slices cost, as COVERAGE rather than counters: the
-            four numbers span five orders of magnitude, so a glance reads the
-            largest — the cache-read count — as the cost. The counters are on
-            the tooltip, so this defers them rather than hiding them. A plan
-            nothing was measured for says so; it never renders a zero. */}
-        {costBadgeText(card) && (
-          <Badge variant="neutral" title={costBadgeDetail(card)}>
-            {costBadgeText(card)}
-          </Badge>
-        )}
-        {/* This plan is in THIS checkout and on no ref the board can read — it
-            was written here and not yet pushed.
-
-            Every other card on this board is a statement about what everyone
-            can see, because the estate is read from `origin/<default>`. This
-            one is not, and the marker is the difference stated rather than
-            hidden: without it a local file would wear the authority of a shared
-            one, which is the defect the ref read exists to end. The card is
-            SHOWN rather than dropped because a plan is otherwise invisible for
-            the minutes between writing and pushing — five were, in one session
-            on 2026-08-27.
-
-            Neutral, not a warning colour, and for the same reason `no story` is:
-            an unpushed plan is a normal moment in authoring a plan, not a fault
-            to be scolded for. The `title` carries the consequence, since the
-            two words alone do not say who cannot see it. */}
-        {card.notPushed && (
-          <Badge
-            variant="neutral"
-            title="This plan is in the board's working tree but not on the ref it reads — nobody else can see it yet"
-          >
-            not pushed
-          </Badge>
-        )}
-      </div>
-      <div className="mt-2 font-mono text-xs text-slate-400 dark:text-slate-500">{card.path}</div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <a
-          href={href}
-          onClick={handleOpen}
-          className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-        >
-          Open
-        </a>
-        {/* A PR the board has no URL for stays plain text. The host adapter is
-            the only thing that knows what a PR address looks like; guessing one
-            here would render a confident link that is wrong on GitHub
-            Enterprise and on every self-hosted Bitbucket. */}
-        {card.prs.map((pr) => (
-          <span key={pr.number} className="inline-flex items-center gap-1">
-            {pr.url ? (
-              <a
-                href={pr.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-              >
-                #{pr.number}
-              </a>
-            ) : (
-              <span
-                className="text-xs text-slate-400 dark:text-slate-500"
-                title="No link — the host has not reported a URL for this PR"
-              >
-                #{pr.number}
-              </span>
-            )}
-            <ChecksNote pr={pr} />
-          </span>
-        ))}
-        {/* The button sits on the PLAN card, not on an agent row, and that is
-            not cosmetic: plot-dispatch.sh takes a SLUG, then asks
-            plot-fleet-scan.sh --next which branch is eligible. A button on a
-            branch row would promise "start this one" and deliver "start
-            whichever is next" — a lie the layout would tell on the board's
-            behalf. */}
-        {dispatch && isApproved(card) && (
-          <StartWorkButton
-            card={card}
-            dispatch={dispatch}
-            pulse={pulse}
-            onStarting={onStarting}
-          />
-        )}
-        {/* Draft ONLY, and EVERY Draft.
-
-            Only: an approved plan has nothing to approve, and offering it would
-            invite a second approval whose one effect is a confusing error.
-            `isDraft` is the whole rule — the board holds no other precondition,
-            and that is deliberate.
-
-            Every: including plans whose PR is not yet marked ready, a state
-            that occurred repeatedly in one evening. Hiding the button there
-            would mean the board knew Approve's preconditions and had to keep
-            them in step with the skill — the same rule in two places, which is
-            precisely what running through the skill exists to avoid. The
-            command refuses in its own words instead, and the card shows them. */}
-        {approve && isDraft(card) && (
-          <ApproveButton card={card} approve={approve} onApproving={onStarting} confirm={card.controls.confirmSlices} />
-        )}
-        {/* Where a Design plan stands against its spike, on the domain's `controls.spikeState`. */}
-        {card.controls.spikeState && (
-          <span data-spike-state={card.controls.spikeState} className="text-xs text-slate-500 dark:text-slate-400">
-            {SPIKE_CARD_TEXT[card.controls.spikeState]}
-          </span>
-        )}
-        {/* The spike alone, on the domain's `controls.approveSpike`: a Design plan
-            whose one spike branch is the only branch of the first slice. */}
-        {approve && card.controls.approveSpike && (
-          <ApproveButton card={card} approve={approve} onApproving={onStarting} spike />
-        )}
-        {/* On the domain's `controls.interrogate`, not on Approve: a Design plan
-            whose spike has not merged hides Approve and keeps Interrogate.
-            Approve stays enabled at every round count: the badge informs, and
-            nothing here gates. */}
-        {interrogate && card.controls.interrogate && (
-          <InterrogateButton card={card} interrogate={interrogate} pulse={pulse} onActing={onStarting} />
-        )}
-        {card.owner ? (
-          <span data-plan-owner className="ml-auto text-xs text-slate-500 dark:text-slate-400">
-            @{card.owner}
-          </span>
-        ) : null}
-      </div>
-    </article>
+      rows={rows}
+      titleHref={planRoute(card.path)}
+      onOpenTitle={() => onOpen(card)}
+      linkFor={linkFor}
+      renderAction={renderAction}
+      className={PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral}
+      highlighted={highlighted}
+    />
   );
 }

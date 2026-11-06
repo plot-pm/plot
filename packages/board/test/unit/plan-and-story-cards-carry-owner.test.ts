@@ -5,6 +5,7 @@ import path from 'node:path';
 import { collectStories } from '../../src/server/board.js';
 import { CardSchema, StoryCardSchema } from '../../src/contract/schema.js';
 import { controlsFor } from '../fixtures/card-controls.js';
+import { planFactsOf } from '../../src/server/plan-facts.js';
 import { rmTree } from '../helpers.mjs';
 
 const trackedTempPaths: string[] = [];
@@ -44,14 +45,15 @@ describe('a story card carries its owner from storyCardView', () => {
   });
 });
 
-describe('the card schema reads an absent owner as null', () => {
-  it('defaults a plan card with no type label or owner to null', () => {
-    const parsed = CardSchema.parse({
-      slug: 'x', title: 'X', type: 'feature', phase: 'Discovery',
+describe('an absent owner reads as null', () => {
+  it('a plan card with no type and no owner says so in its facts', () => {
+    const fields = CardSchema.omit({ facts: true }).parse({
+      slug: 'x', title: 'X', type: '', phase: 'Discovery',
       path: 'docs/plans/x.md', prs: [], phaseDate: '', controls: controlsFor({ phase: 'Discovery' }),
     });
-    expect(parsed.typeLabel).toBeNull();
-    expect(parsed.owner).toBeNull();
+    const facts = planFactsOf(fields);
+    expect(facts.identity.type).toBeNull();
+    expect(facts.ownership.owner).toBeNull();
   });
 
   it('defaults a story card with no owner to null', () => {

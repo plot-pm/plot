@@ -1,5 +1,6 @@
 import { planRecord } from '@plot-pm/domain/adapters';
 import { DEFAULT_PHASE_MAP, cardControls, phaseColumns, phaseOfPlan } from '@plot-pm/domain';
+import { planFactsOf, type CardFields } from './plan-facts.js';
 import type { FleetReading, PlanRecord, PlanStatus } from '@plot-pm/domain';
 
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
@@ -496,7 +497,8 @@ export function mockCards(): Column[] {
     over: Partial<Card> & Pick<Card, 'slug' | 'title' | 'path'>,
   ): Card => {
     const controls = cardControls({ ...plan, started: over.started ?? false });
-    return { type: 'feature', phase: 'Development', prs: [], controls, ...over } as Card;
+    const fields = { type: 'feature', phase: 'Development', prs: [], issues: [], status: plan.status, controls, ...over } as CardFields;
+    return { ...fields, facts: planFactsOf(fields) };
   };
   const approved = { state: 'approved', status: 'approved' } as const;
   const column = (name: string, cards: Card[]): Column => {

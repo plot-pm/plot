@@ -20,6 +20,7 @@ import {
   type SprintState,
 } from '@plot-pm/domain';
 import { AgentStateSchema, AgentIdentitySchema, type AgentState, type AgentIdentity } from '@plot-pm/fleet/shared/agent-wire';
+import { CardFactsSchema } from '@plot-pm/domain/entities/card-facts';
 
 /**
  * The contract between Plot's plan-format helper (`plot-plan-meta.sh`) and the
@@ -482,18 +483,6 @@ export const CardSchema = z.object({
   /** The name from the plan's `approved_raw` record's second field. */
   approver: z.string().optional(),
   /**
-   * The type badge's text, from the domain's `planCardView`: the plan's own
-   * `Type:` word, lowercased. `null` where the plan states none, and the card
-   * then renders no badge. `type` stays as the colour key.
-   */
-  typeLabel: z.string().nullable().default(null),
-  /**
-   * The owner's handle, from the domain's `planCardView` and resolved through
-   * `People`: the plan's `Assignee:` before approval, the `Approved:` record's
-   * approver after. `null` where the plan names nobody.
-   */
-  owner: z.string().nullable().default(null),
-  /**
    * Approved cards only: true once the plan has a `Started:` record —
    * the board's Ready (approved, idle) vs In-progress split.
    */
@@ -746,6 +735,12 @@ export const CardSchema = z.object({
    * `"EWZKUS-3430"`. The plan row prints them before its slug.
    */
   issues: z.array(z.string()).default([]),
+  /**
+   * What is true about this plan in the card grammar's five facets, from the
+   * domain's `planCardFacts`. The card renders from these; the fields above stay
+   * for the filters, swimlanes, modal and menus that still read them.
+   */
+  facts: CardFactsSchema,
 });
 export type Card = z.infer<typeof CardSchema>;
 

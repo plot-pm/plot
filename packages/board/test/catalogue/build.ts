@@ -5,6 +5,7 @@ import {
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
 import { controlsFor } from '../fixtures/card-controls.js';
+import { planFactsOf } from '../../src/server/plan-facts.js';
 import type { z } from 'zod';
 
 export { controlsFor };
@@ -105,7 +106,7 @@ export const slice = (over: Partial<SliceInput> = {}): Slice =>
   SliceSchema.parse({ ...SLICE_DEFAULTS, ...over });
 
 /** One plan card, as `/api/board` carries it. */
-const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
+const CARD_DEFAULTS: Omit<CardInput, 'controls' | 'facts'> = {
   slug: 'a-plan',
   title: 'A plan',
   type: 'feature',
@@ -113,8 +114,10 @@ const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
   path: 'docs/plans/2026-08-24-a-plan.md',
 };
 
-export const card = (over: Partial<CardInput> = {}): Card =>
-  CardSchema.parse({ ...CARD_DEFAULTS, controls: controlsFor(over), ...over });
+export const card = (over: Partial<CardInput> = {}): Card => {
+  const fields = CardSchema.omit({ facts: true }).parse({ ...CARD_DEFAULTS, controls: controlsFor(over), ...over });
+  return CardSchema.parse({ ...fields, facts: over.facts ?? planFactsOf(fields) });
+};
 
 /** One board column — a phase and the cards in it. */
 const COLUMN_DEFAULTS: ColumnInput = { phase: 'Development', cards: [] };

@@ -46,11 +46,13 @@ same<z.infer<typeof StoryStandingSchema>, StoryStanding>(true);
  */
 export const RefSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('ticket'), key: z.string(), title: z.string(), lane: TicketLaneSchema }),
+  /** `status: null` names a story no story file exists for; its `title` is then the slug. */
   z.object({
-    kind: z.literal('story'), slug: z.string(), title: z.string(), status: StoryStatusSchema, archived: z.boolean(),
+    kind: z.literal('story'), slug: z.string(), title: z.string(), status: StoryStatusSchema.nullable(), archived: z.boolean(),
   }),
   z.object({ kind: z.literal('plan'), slug: z.string(), title: z.string(), status: PlanStatusSchema }),
-  z.object({ kind: z.literal('sprint'), slug: z.string(), title: z.string(), state: SprintStateSchema }),
+  /** `state: null` names a sprint no sprint file exists for; its `title` is then the slug. */
+  z.object({ kind: z.literal('sprint'), slug: z.string(), title: z.string(), state: SprintStateSchema.nullable() }),
   z.object({ kind: z.literal('slice'), plan: z.string(), branch: z.string(), pr: z.number().nullable() }),
 ]);
 export type Ref = z.infer<typeof RefSchema>;

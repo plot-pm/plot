@@ -8,6 +8,7 @@ import {
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
 import { rowsFromPulse } from '../../src/server/fleet.js';
 import type { FleetReading } from '../../src/contract/schema';
+import { SOME_FACTS } from '../fixtures/card-facts.js';
 
 describe('FleetWaitingSchema — unassigned and assignedToOthers default for an older server', () => {
   it('defaults both counts to 0 when the payload carries neither field', () => {
@@ -193,7 +194,7 @@ const NO_CONTROLS = { approve: false, needsDesign: false, interrogate: false, ro
 
 describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () => {
   const base = {
-    slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md', controls: NO_CONTROLS,
+    slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md', controls: NO_CONTROLS, facts: SOME_FACTS,
   } as const;
 
   it('is carried on the card as an optional field', () => {
@@ -206,7 +207,7 @@ describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () =
     expect(card.sliceSummary?.claimed).toBe(1);
     expect(card.sliceSummary?.eligible).toBe(2);
     const bare = CardSchema.parse({
-      slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md', controls: NO_CONTROLS,
+      slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md', controls: NO_CONTROLS, facts: SOME_FACTS,
     });
     expect(bare.sliceSummary).toBeUndefined();
   });
@@ -229,7 +230,7 @@ describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () =
 });
 
 describe('CardSchema — pull requests', () => {
-  const base = { slug: 'x', title: 'X', type: 'feature', path: 'docs/plans/x.md', controls: NO_CONTROLS };
+  const base = { slug: 'x', title: 'X', type: 'feature', path: 'docs/plans/x.md', controls: NO_CONTROLS, facts: SOME_FACTS };
 
   it('carries each PR as a number, the host-supplied url, and what it said about the build', () => {
     const card = CardSchema.parse({
@@ -425,7 +426,7 @@ describe('AgentRowSchema — a branch row carries no repair', () => {
 describe('rounds — absent is not zero, on both sides of the contract', () => {
   const meta = { file: 'docs/plans/x.md', format: 'canonical', phase: 'draft' };
   const card = {
-    slug: 'x', title: 'X', type: 'feature', phase: 'Discovery', path: 'docs/plans/x.md', controls: NO_CONTROLS,
+    slug: 'x', title: 'X', type: 'feature', phase: 'Discovery', path: 'docs/plans/x.md', controls: NO_CONTROLS, facts: SOME_FACTS,
   } as const;
 
   it('carries a round the helper reported', () => {

@@ -240,6 +240,8 @@ export function Swimlanes({
                         dispatch={board.dispatch}
                         approve={board.approve}
                         interrogate={board.interrogate}
+                        deliver={board.deliver}
+                        board="swimlanes"
                         pulse={pulse}
                         onStarting={onStarting}
                         onOpen={(opened) => { onOpenPlan(opened.path); }}
