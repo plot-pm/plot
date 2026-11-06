@@ -83,7 +83,12 @@ Reading 2, after the approved run's `validate` reads `success` and before the me
 
 Record:
 
-- [ ] not yet run
+- [x] **Outcome B.** Release PR #3080 (`release: 2.31.0`), head `756660c6ed699fe5605939c645b437adbfdb6757` at both readings. Reading identity: `jwloka`. Ruleset 24412719 `require_extra_approval_for_unattributed_changes`: `true`. The master session ran both readings and approved the held run through `POST /actions/runs/42257438360/approve` at jwloka's request.
+- **Reading 1, 2026-11-06T17:14:23Z, before any approval:** `mergeStateStatus` `BLOCKED`, REST `mergeable_state` `blocked`. Dispatched run 42257612120 (`workflow_dispatch`) `completed success`. `pull_request` run 42257438360 `completed action_required`. Seven check runs from app 15368 read `success`: `validate`, `checks`, `board-integration`, `helper-contracts`, `corpus`, `macos-shell-contract`, `select`. Status `plot/review` `success`, written by the review App after a review with no HIGH finding. Head unchanged after the reading.
+- **Reading 2, 2026-11-06T17:27:24Z, after the approved run completed and before any merge:** `mergeStateStatus` `CLEAN`, `mergeable_state` `clean`. Run 42257438360 `completed success`, `run_attempt` 2, `triggering_actor` `jwloka`. Fourteen check runs from app 15368 read `success`: both runs' seven jobs. `plot/review` `success`. Head unchanged after the reading.
+- **What the record shows:** the only change between the readings is the approved `pull_request` run. The dispatched run's `validate` success did not lift `BLOCKED`; the approved run's did. The approval itself is a person-started `run_attempt` 2, which the Live proof's second point excludes after the build slice.
+- **Deviations from the commands above:** check runs were read as `name status conclusion app.id` without `check_suite` and `completed_at`; statuses through `commits/<sha>/status`. `release-approve` was not called.
+- **Earlier attempts, not counted:** a reading at 14:40Z on head `dc196136` had no `plot/review` on the head (inconclusive: another rule blocks); a reading at 14:57Z on head `f5ee8f07` repeated Reading 1's result; eight later attempts lost the head to pushes to main before the approval, and one stopped when its dispatched run failed on a flaky contract test (#3125).
 
 ### Candidate mechanisms
 
@@ -140,9 +145,9 @@ This plan is delivered only after this record exists. It also closes #3070's lin
 
 ### Open Questions
 
-- [ ] What does the 2.31.0 measurement record? Answered by `### Measurement`; this plan stays Draft until the record exists.
+- [x] What does the 2.31.0 measurement record? Outcome B, recorded under `### Measurement` on 2026-11-06.
 - [ ] Under Outcome B, which candidate does the person choose: (a) the relay or (b) the non-bypass token?
-- [ ] Does `mergeStateStatus` read `BLOCKED` for a viewer with bypass `always`? The record names the reading identity, and reading 2 checks the answer against the approved run.
+- [x] Does `mergeStateStatus` read `BLOCKED` for a viewer with bypass `always`? Yes: `jwloka` read `BLOCKED` at Reading 1 and `CLEAN` at Reading 2 on the same head.
 
 ## Slices
 
