@@ -413,6 +413,8 @@ describe('a plan card renders the card grammar', () => {
       expect(await disabled.getAttribute('aria-disabled')).toBe('true');
       const reasonId = await disabled.getAttribute('aria-describedby');
       expect(await page.locator(`[id="${reasonId}"]`).textContent()).toBe('no fleet scan yet');
+      // The reason is plain text: a tooltip holds no links.
+      expect(await page.locator(`[id="${reasonId}"] a`).count()).toBe(0);
       await page.keyboard.press('Escape');
       await expect.poll(() => menu.count()).toBe(0);
       expect(await more.evaluate((el) => el === document.activeElement)).toBe(true);

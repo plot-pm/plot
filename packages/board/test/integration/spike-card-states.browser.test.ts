@@ -92,6 +92,8 @@ describe('a Design plan card states where its spike stands', () => {
       expect(await approve.getAttribute('aria-disabled')).toBe('true');
       expect(await article(page).locator('[data-action-reason]').textContent())
         .toContain('waits on its spike feature/greenhouse-spike #41');
+      // The reason is plain text: a `role="tooltip"` element holds no links.
+      expect(await article(page).locator('[role="tooltip"] a').count()).toBe(0);
       expect(await article(page).locator('[data-interrogate="greenhouse"]').count()).toBe(1);
     } finally {
       await page.close();

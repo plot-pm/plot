@@ -5,7 +5,7 @@ import { ActionMessageTarget } from './ui/action-message.js';
 import { GLYPH_PATH, type GlyphKind } from '../lib/glyphs.js';
 import { cn } from '../lib/utils.js';
 import type {
-  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, PrView, ReasonPart, Tone,
+  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, PrView, Tone,
 } from '../lib/card-presentation.js';
 
 /** Where a piece naming another item links, or `null` to leave it as text. */
@@ -419,20 +419,13 @@ const AssigneesView = ({ a }: { a: PresentedAssignees }) => {
   );
 };
 
-/** A reason's parts: the words as text, each branch or PR it names a link. */
-const ReasonView = ({ parts, linkFor }: { parts: ReasonPart[]; linkFor?: LinkFor }) => (
-  <>
-    {parts.map((part, i) => {
-      const link = part.ref !== null ? linkFor?.(part.ref) ?? null : null;
-      return link ? <LinkView key={i} link={link} className="underline-offset-2">{part.text}</LinkView> : <span key={i}>{part.text}</span>;
-    })}
-  </>
-);
-
-/** A disabled action: a focusable, `aria-disabled` outline whose reason is its description and tooltip. */
-const DisabledAction = ({ action, linkFor }: { action: PresentedAction; linkFor?: LinkFor }) => {
-  const content = action.reasonParts ? <ReasonView parts={action.reasonParts} linkFor={linkFor} /> : undefined;
-  const tip = useReasonTooltip(action.reason, 'reason', content);
+/**
+ * A disabled action: a focusable, `aria-disabled` outline whose reason is its
+ * description and tooltip. The tooltip holds plain text only; every branch and
+ * PR the reason names has its own link elsewhere on the card.
+ */
+const DisabledAction = ({ action }: { action: PresentedAction }) => {
+  const tip = useReasonTooltip(action.reason, 'reason');
   return (
     <span {...tip.wrapperProps} className="relative inline-flex" data-action={action.action} data-action-disabled>
       <button
@@ -466,7 +459,7 @@ export const Card = ({
 }: CardProps) => {
   const { header, status, footer, emphasis, accent } = sections;
   const controlsOf = (actions: { action: PresentedAction; primary: boolean }[]) => actions.flatMap(({ action, primary: isPrimary }) => {
-    const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} linkFor={linkFor} />;
+    const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} />;
     return control === null || control === undefined || control === false ? [] : [{ action, isPrimary, control }];
   });
   const slots = controlsOf([
