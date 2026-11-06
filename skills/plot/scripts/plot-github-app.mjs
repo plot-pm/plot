@@ -18,6 +18,7 @@
 import { execFileSync } from 'node:child_process';
 import { createSign } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const api = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
@@ -30,29 +31,54 @@ const run = (cmd, args) => {
   }
 };
 
+/** The role a `## Plot Config` App key names, as it appears in env variables and key file names. */
+export const roleOf = (configKey) => configKey.replace(/\s+app$/i, '').toLowerCase();
+
+/** True where `appId` is safe to use inside a file name: non-empty, no `/`, no `..`. */
+export const validAppId = (appId) => Boolean(appId) && !appId.includes('/') && !appId.includes('..');
+
 /**
- * The App named by a `## Plot Config` key, as `{ appId, keyPath }`.
+ * Where an App's private key is expected, as the first step that applies:
+ * `PLOT_<ROLE>_APP_KEY` in `env`; the path on the config line (`declaredPath`,
+ * relative to `root`); `<config home>/plot/plot-<role>.<appId>.private-key.pem`,
+ * where the config home is `env.XDG_CONFIG_HOME` or `<home>/.config`. Touches
+ * no file. `appId` must pass `validAppId`.
+ */
+export const appKeyPath = (role, appId, declaredPath, env, home, root) => {
+  const fromEnv = env[`PLOT_${role.toUpperCase()}_APP_KEY`];
+  if (fromEnv) return fromEnv;
+  if (declaredPath) return path.isAbsolute(declaredPath) ? declaredPath : path.join(root, declaredPath);
+  return path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'plot', `plot-${role}.${appId}.private-key.pem`);
+};
+
+/**
+ * The App named by a `## Plot Config` key, as `{ appId, keyPath }`. The line
+ * is `<app id>` or `<app id> <key path>`; `appKeyPath` finds the key.
  * `here` is the directory `plot-config.sh` lives in (callers pass their own
  * `import.meta.url` dirname, since this module ships beside `plot-config.sh`
  * only by convention, not by import). Returns `app: null` where the key is
- * absent, malformed, or names a file that cannot be read, with `reason` set to
- * why and `absent: true` only where `plot-config.sh` exited 0 and printed
- * nothing — a crashed config read must refuse by name rather than fall back,
- * so it reports `absent: false` like a malformed key does. The caller decides
- * the exit code, since `commit-status` refuses an absent key while the Writer
- * and Merger identities fall back to the ambient one.
+ * absent, names an unusable id, or resolves to a file that cannot be read, with
+ * `reason` set to why and `absent: true` only where `plot-config.sh` exited 0
+ * and printed nothing — a crashed config read must refuse by name rather than
+ * fall back, so it reports `absent: false` like a malformed key does. The
+ * caller decides the exit code, since `commit-status` refuses an absent key
+ * while the Writer and Merger identities fall back to the ambient one.
  */
 export const resolveApp = (configKey, here) => {
   const declared = run('bash', [path.join(here, 'plot-config.sh'), 'get', configKey, '']);
   const [appId, key] = declared.out.split(/\s+/);
-  if (!appId || !key) {
+  if (!appId) {
     return {
       app: null,
       absent: declared.ok && !declared.out,
-      reason: `needs a '${configKey}' key in ## Plot Config (format: ${configKey}: <app id> <key path>)`,
+      reason: `needs a '${configKey}' key in ## Plot Config (format: ${configKey}: <app id> [<key path>])`,
     };
   }
-  const keyPath = path.isAbsolute(key) ? key : path.join(run('git', ['rev-parse', '--show-toplevel']).out || '.', key);
+  if (!validAppId(appId)) {
+    return { app: null, absent: false, reason: `'${configKey}' names an app id that is not usable in a file name: ${appId}` };
+  }
+  const root = run('git', ['rev-parse', '--show-toplevel']).out || '.';
+  const keyPath = appKeyPath(roleOf(configKey), appId, key, process.env, os.homedir(), root);
   try {
     fs.accessSync(keyPath, fs.constants.R_OK);
   } catch {

@@ -11,7 +11,7 @@
 //       installation. Exits 3 where owner/repo is empty or a GitHub call
 //       fails, 0 on a 2xx write.
 //
-// `Review app` is `<app id> <key path>`. A relative key path resolves against
+// `Review app` is `<app id>` or `<app id> <key path>`; `plot-github-app.mjs`'s `appKeyPath` finds the key. A relative key path resolves against
 // the repository root, so an agent in a worktree reads the operator's key. It
 // names a SECOND App, with no branch-protection bypass: the build App's key
 // lives only in Actions secrets.

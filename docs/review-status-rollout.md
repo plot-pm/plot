@@ -48,11 +48,18 @@ writes a status for them and nothing needs to.
 3. **Record the App in `## Plot Config`:**
 
    ```
-   - **Review app:** <app id> <key path>
+   - **Review app:** <app id>
    ```
 
-   Write the key path as an absolute path. The resolver does not expand `~`,
-   so `~/.config/plot/…` is refused with exit 4 (#1706).
+   The key path is optional. The resolver reads the key from the first of
+   these that applies: `PLOT_REVIEW_APP_KEY` (`PLOT_WRITER_APP_KEY` and
+   `PLOT_MERGER_APP_KEY` for the other two roles); the path on the config
+   line, where the line still names one (absolute, or relative to the
+   repository root; `~` is not expanded, #1706); then
+   `${XDG_CONFIG_HOME:-$HOME/.config}/plot/plot-<role>.<app id>.private-key.pem`,
+   with `<role>` `review`, `writer` or `merger`. The file name carries no
+   date: a rotated key replaces the file and needs no config change. An
+   unreadable key exits 4 and names the path of the step that applied.
 
    `plot-host.sh commit-status` and `plot-commit-status.mjs` read this key to
    mint a short-lived installation token per write; neither credential reaches
@@ -173,10 +180,10 @@ branch protection, because a lifecycle push IS the bypass case Plot relies on.
    record it in `## Plot Config`:
 
    ```
-   - **Writer app:** <app id> <key path>
+   - **Writer app:** <app id>
    ```
 
-   Absolute path; `~` is not expanded.
+   The key is found as for the Review App (`PLOT_WRITER_APP_KEY`, an optional path on the line, then `plot-writer.<app id>.private-key.pem` in the config folder).
 
 4. Prove the write before relying on it: run a lifecycle action that pushes to the default branch (`/plot-approve` is the simplest), then run `git log -1 --format='%an <%ae>'` on the new commit and confirm it names the App's bot identity (for example `plot-writer[bot] <...>`), not your own `git config user.name` — and that stderr carries no `Writer app not configured` line. A declared key that is malformed or unreadable refuses with exit 4 naming `Writer app`, and `plot-push-main.sh` attempts no push.
 
@@ -201,8 +208,10 @@ point.
    it in `## Plot Config`:
 
    ```
-   - **Merger app:** <app id> <key path>
+   - **Merger app:** <app id>
    ```
+
+   The key is found as for the Review App (`PLOT_MERGER_APP_KEY`, an optional path on the line, then `plot-merger.<app id>.private-key.pem` in the config folder).
 
    `plot-merger-token.mjs` refuses with exit 4, naming both keys, if `Merger
    app` and `Writer app` ever name the same App id: one credential holding

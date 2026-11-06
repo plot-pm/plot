@@ -7,7 +7,7 @@
 //       Prints the login and exits 0. Prints nothing and exits 0 where the
 //       default branch's config declares no `Review app` key (the reading is
 //       unchecked). Exits 4, naming the cause on stderr, where `origin/<default>`
-//       does not exist, the key is malformed or names a key file that cannot be
+//       does not exist, the key is malformed or resolves to a key file that cannot be
 //       read, the JWT does not sign, or `GET /app` does not answer.
 //
 // THE TRUST ANCHOR IS THE COMMITTED CONFIG ON THE DEFAULT BRANCH. `Review app`
@@ -21,8 +21,8 @@
 // API base, as in `plot-github-app.mjs`.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
-import { appJwt, call } from './plot-github-app.mjs';
+import os from 'node:os';
+import { appJwt, appKeyPath, call, validAppId } from './plot-github-app.mjs';
 
 const refuse = (message) => {
   process.stderr.write(`plot-review-writer: ${message}\n`);
@@ -67,9 +67,9 @@ for (const file of ['CLAUDE.md', 'AGENTS.md']) {
 if (declared === null || declared === '') process.exit(0);
 
 const [appId, key] = declared.split(/\s+/);
-if (!appId || !key) refuse(`'Review app' needs <app id> <key path>, read from ${ref}`);
+if (!validAppId(appId)) refuse(`'Review app' needs <app id> [<key path>], read from ${ref}`);
 const root = git('rev-parse', '--show-toplevel')?.trim() || '.';
-const keyPath = path.isAbsolute(key) ? key : path.join(root, key);
+const keyPath = appKeyPath('review', appId, key, process.env, os.homedir(), root);
 try {
   fs.accessSync(keyPath, fs.constants.R_OK);
 } catch {

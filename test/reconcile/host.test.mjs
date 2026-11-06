@@ -632,13 +632,13 @@ test('host: pr-merge github with a declared but unreadable Merger app key refuse
   assert.ok(!argv.includes('merge'), 'no pr merge call reached gh');
 });
 
-test('host: pr-merge github with a malformed Merger app key refuses with exit 4 and merges nothing', () => {
+test('host: pr-merge github with an id-only Merger app line and no key in the config folder refuses with exit 4 and merges nothing', () => {
   const stubs = makeStubs();
   writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), '## Plot Config\n\n- **Merger app:** 999000\n');
   const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
-    { env: { PLOT_HOST: 'github', PLOT_REPO_ROOT: stubs.dir }, stubs });
+    { env: { PLOT_HOST: 'github', PLOT_REPO_ROOT: stubs.dir, XDG_CONFIG_HOME: path.join(stubs.dir, 'no-such-xdg') }, stubs });
   assert.equal(res.code, 4);
-  assert.match(res.stderr, /needs a 'Merger app' key/);
+  assert.match(res.stderr, /plot-merger\.999000\.private-key\.pem/);
   const argv = argvOf(stubs.ghArgv) ?? [];
   assert.ok(!argv.includes('merge'), 'no pr merge call reached gh');
 });

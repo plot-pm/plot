@@ -146,7 +146,7 @@ test('commit-status: a Review app key file that cannot be read exits 4 and names
   assert.equal(api.requests.length, 0);
 });
 
-test('commit-status: reads the App id/key from ## Plot Config, not the environment', async () => {
+test('commit-status: reads the App id/key from ## Plot Config, not PLOT_REVIEW_APP_ID', async () => {
   // CATCHES a shortcut that reads an env var or a hardcoded App instead —
   // works on one machine, fails everywhere else, per the brief. The JWT's
   // `iss` must be the configured id, and its signature must verify against
@@ -155,7 +155,6 @@ test('commit-status: reads the App id/key from ## Plot Config, not the environme
   const api = await fakeGitHub();
   const got = await commitStatus(box, ARGS, api.url, {
     PLOT_REVIEW_APP_ID: '999999',
-    PLOT_REVIEW_APP_KEY: '/nonexistent/path.pem',
   });
   assert.equal(got.code, 0, got.err);
   const jwt = api.requests[0].auth.replace(/^Bearer /, '');
@@ -165,6 +164,16 @@ test('commit-status: reads the App id/key from ## Plot Config, not the environme
     .update(`${header}.${payload}`)
     .verify(box.publicKey, Buffer.from(signature, 'base64url'));
   assert.ok(verified, 'the JWT is not signed with the configured key');
+});
+
+test('commit-status: PLOT_REVIEW_APP_KEY overrides the key path on the config line', async () => {
+  // Step 1 of the key lookup beats step 2: an unreadable env path refuses and names itself.
+  const box = sandbox();
+  const api = await fakeGitHub();
+  const got = await commitStatus(box, ARGS, api.url, { PLOT_REVIEW_APP_KEY: '/nonexistent/path.pem' });
+  assert.equal(got.code, 4);
+  assert.match(got.err, /\/nonexistent\/path\.pem/);
+  assert.equal(api.requests.length, 0);
 });
 
 test('commit-status: writes the status using the installation token, never the bearer JWT', async () => {
