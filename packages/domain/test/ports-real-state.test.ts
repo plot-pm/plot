@@ -63,6 +63,7 @@ describe('PlanStore reads this repository’s plans', () => {
     // first, which is the failure this whole layer is shaped against.
     const KNOWN = [
       'draft',
+      'design',
       'approved',
       'delivered',
       'released',
