@@ -83,6 +83,18 @@ describe('releaseApprove — the controller for a release PR approval', () => {
     expect(refusalOf(readings({ review: 'unaskable' }))).toBe('review-missing');
   });
 
+  it('refuses a foreign status newer than the Review app\'s success as review-foreign-writer', () => {
+    const statuses = [
+      { state: 'success', description: '', time: 't2', writer: 'jwloka' },
+      { state: 'success', description: '', time: 't1', writer: 'plot-review[bot]' },
+    ];
+    expect(refusalOf(readings({ review: review({ statuses }), reviewWriter: 'plot-review[bot]' }))).toBe('review-foreign-writer');
+  });
+
+  it('refuses review-writer-unread where the Review app\'s login could not be resolved', () => {
+    expect(refusalOf(readings({ reviewWriter: 'unaskable' }))).toBe('review-writer-unread');
+  });
+
   it('refuses a failing review on the current head', () => {
     expect(refusalOf(readings({ review: review({ state: 'failure' }) }))).toBe('review-missing');
   });
@@ -184,6 +196,7 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
         backend: async () => ({ ok: true, value: backend }),
         prState: async () => { reads.push('prState'); return { ok: true, value: lookup }; },
         prReview: async () => { reads.push('prReview'); return { ok: true, value: reviewed }; },
+        reviewWriter: async () => ({ ok: true, value: '' }),
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: null }) },

@@ -20,7 +20,17 @@ const OLD = 'b'.repeat(40);
 const NOW = Date.parse('2026-10-30T12:00:00Z');
 const BRANCH = 'changeset-release/main';
 
-const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
+/**
+ * The writer check's judgment the index would hold for a rollup that reads
+ * `success` or `failure` on the head. A test names `plotReviewJudged` itself,
+ * or `undefined` to model a row no pass has judged.
+ */
+const judged = (r: PrIndexRow, over: Partial<PrIndexRow>): PrIndexRow =>
+  'plotReviewJudged' in over || (r.plotReview !== 'success' && r.plotReview !== 'failure') || r.plotReviewSha === undefined
+    ? r
+    : { ...r, plotReviewJudged: r.plotReview, plotReviewCheckedSha: r.headSha, plotReviewCheckedAt: r.plotReviewAt };
+
+const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => judged({
   number: 9,
   head: BRANCH,
   state: 'OPEN',
@@ -34,7 +44,7 @@ const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
   plotReview: 'success',
   plotReviewSha: HEAD,
   ...over,
-});
+}, over);
 
 const greenRuns = { read: 'runs', runs: [{ workflow: 'CI', status: 'completed', conclusion: 'success' }] } as const;
 
@@ -87,6 +97,16 @@ describe('releasePrepareNext — the release head provenance', () => {
 
   it('starts the review on the same head with only the version step\'s changes', () => {
     expect(releasePrepareNext(readings(needsReview))).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('holds review-writer-unchecked for a success no judgment covers, and never reads it as ready', () => {
+    const r = readings({ pr: row({ plotReviewJudged: undefined }) });
+    expect(releasePrepareNext(r)).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
+  });
+
+  it('starts a review where the only success came from a foreign writer', () => {
+    const r = readings({ pr: row({ plotReviewJudged: 'absent', plotReviewCheckedSha: HEAD }) });
+    expect(releasePrepareNext(r)).toEqual({ step: 'review', head: HEAD });
   });
 
   it('holds a reviewed foreign head from ready and from the notice', () => {
