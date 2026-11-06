@@ -19,6 +19,7 @@ const gateOf = (defaultBranch: string, currentBranch: string, gatePath = '/var/p
 describe('the role-deny gate — command calls', () => {
   it.each([
     ['plot-host.sh commit-status abc123 success plot/review', 'writes the PR review status'],
+    ['gh api repos/o/r/statuses/abc123 -f context=plot/review -f state=success', 'writes the PR review status'],
     ['plot-review.mjs 42', 'runs the reviewer'],
     ['gh pr merge 42 --match-head-commit deadbeef', 'merges a pull request'],
     ['plot-ask.mjs merge 42 deadbeef', 'merges a pull request'],

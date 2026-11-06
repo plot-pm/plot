@@ -77,6 +77,46 @@ describe('the controller gate reads no git before its text tests (LOW 9)', () =>
   });
 });
 
+describe('the review status has one writer', () => {
+  const FORMS = [
+    'plot-host.sh commit-status abc123 success plot/review',
+    'gh api repos/o/r/statuses/abc123 -f context=plot/review -f state=success',
+  ];
+  const ALLOWED = ['plot-review.mjs 42', 'plot-host.sh commit-status abc123 success ci/build', 'gh api repos/o/r/statuses/abc123'];
+  const wheres: [string, Where | Error][] = [
+    ['a desk (linked: true)', { root: { ok: true, value: '/nowhere/repo' }, linked: true }],
+    ['the main checkout (linked: false)', MAIN],
+    ['a git reading that throws', new Error('git is broken')],
+  ];
+
+  describe.each([['unattended', '1'], ['attended', '']])('%s', (_label, unattended) => {
+    it.each(FORMS.flatMap((form) => wheres.map(([label, where]) => [form, label, where] as const)))('refuses %s with %s', async (form, _l, where) => {
+      vi.stubEnv('PLOT_UNATTENDED', unattended);
+      const { r } = readings(where);
+      const answer = await ask(r, form);
+      expect(answer.code).toBe(EXIT.refuse);
+      expect(answer.warned).toContain('plot-review.mjs');
+    });
+
+    it.each(ALLOWED)('allows %s', async (command) => {
+      vi.stubEnv('PLOT_UNATTENDED', unattended);
+      const { r } = readings({ root: { ok: true, value: '/nowhere/repo' }, linked: true });
+      expect((await ask(r, command)).code).toBe(EXIT.allow);
+    });
+  });
+
+  it('reads no git before it refuses', async () => {
+    const { r, reads } = readings(MAIN);
+    await ask(r, FORMS[1]!);
+    expect(reads.where).toBe(0);
+  });
+
+  it('allows a commit message that quotes the write', async () => {
+    const { r } = readings({ root: { ok: true, value: '/nowhere/repo' }, linked: true });
+    expect((await ask(r, 'git commit -m "gh api repos/o/r/statuses/x -f context=plot/review"')).code).toBe(EXIT.allow);
+  });
+});
+
 describe('an unpinned plot-host.sh pr-merge on Bitbucket (M6)', () => {
   it('refuses on bitbucket too, naming --match-head', async () => {
     const { r } = readings(MAIN, { backend: 'bitbucket' });

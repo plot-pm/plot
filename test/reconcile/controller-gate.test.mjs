@@ -935,3 +935,25 @@ test('controller gate: the printed escape runs, from a path with a space, and is
   assert.equal(after.length, before + 1, 'the escape is counted');
   assert.match(after.at(-1), /the board is not running/);
 });
+
+const REVIEW_WRITES = [
+  'plot-host.sh commit-status abc123 success plot/review',
+  'gh api repos/o/r/statuses/abc123 -f context=plot/review -f state=success',
+];
+const REVIEW_PASSES = ['node skills/plot/scripts/board/plot-review.mjs 42', 'plot-host.sh commit-status abc123 success ci/build'];
+
+test('controller gate: a hand-written plot/review status is refused from a linked worktree and from the main checkout', () => {
+  const dir = repo();
+  const desk = path.join(dir, '.worktrees', 'feature-review');
+  execSync(`git worktree add -q --detach "${desk}"`, { cwd: dir, stdio: 'pipe' });
+  for (const cwd of [dir, desk]) {
+    for (const command of REVIEW_WRITES) {
+      const r = run(cwd, command);
+      assert.equal(r.status, 2, `must block in ${cwd}: ${command} (stderr: ${r.stderr})`);
+      assert.match(r.stderr, /plot-review\.mjs/, 'the refusal names the route');
+    }
+    for (const command of REVIEW_PASSES) {
+      assert.equal(run(cwd, command).status, 0, `must pass in ${cwd}: ${command}`);
+    }
+  }
+});
