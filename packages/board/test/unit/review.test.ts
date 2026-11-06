@@ -68,6 +68,8 @@ const rig = (
     files?: Map<string, string>;
     headAfter?: string;
     change?: ReviewChange;
+    /** Comments the host already holds; share one array across rigs to model one PR over several heads. */
+    prComments?: { pr: number; body: string }[];
     prCommentFails?: boolean;
     prCommentUnaskable?: boolean;
     pid?: number;
@@ -86,7 +88,7 @@ const rig = (
   const removed: string[] = [];
   const written: string[] = [];
   const changeBases: string[] = [];
-  const prComments: { pr: number; body: string }[] = [];
+  const prComments = opts.prComments ?? [];
   const files = opts.files ?? new Map<string, string>();
   const locks = opts.locks ?? new Map<string, string>();
   const pids = opts.pids ?? new Map<number, boolean | null>();
@@ -571,8 +573,9 @@ describe('one findings comment per PR', () => {
 
   it('three heads of one PR edit the same comment, never a second one', async () => {
     const files = new Map<string, string>();
+    const prComments: { pr: number; body: string }[] = [];
     for (const n of [1, 2, 3]) {
-      const r = rig('- [LOW] naming\nFindings: HIGH 0, MEDIUM 0, LOW 1\n', { prs: [pr({ headSha: sha(n) })], files });
+      const r = rig('- [LOW] naming\nFindings: HIGH 0, MEDIUM 0, LOW 1\n', { prs: [pr({ headSha: sha(n) })], files, prComments });
       const out = await reviewPr(r.deps, '7');
       expect(out.code).toBe(EXIT.ok);
       expect(r.prComments).toHaveLength(1);
@@ -603,7 +606,7 @@ describe('one findings comment per PR', () => {
     expect(body).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
   });
 
-  it('reports a failed PR comment without changing the exit code, and names the verdict file', async () => {
+  it('reports a failed PR comment as the issueNotOpened exit code, and names the verdict file', async () => {
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { prCommentFails: true });
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.issueNotOpened);

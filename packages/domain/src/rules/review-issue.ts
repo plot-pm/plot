@@ -1,23 +1,8 @@
 import type { Issue } from '../entities/issue.js';
-import { reviewVerdict, type ReviewCounts } from './review-verdict.js';
+import { reviewVerdict } from './review-verdict.js';
 
-/** The label every follow-up issue of `plot-review` carries. */
+/** The label on the finding tickets and revert tickets that fleetd opens. */
 export const REVIEW_ISSUE_LABEL = 'ai-generated';
-
-/** What a review's counts decide about opening a follow-up issue. */
-export type ReviewIssueDecision = 'none';
-
-/**
- * Whether a review's findings open a follow-up issue.
- *
- * Answers `none` for every count, HIGH included: a HIGH finding holds the PR
- * at `plot/review=failure` instead, until the fixer's own attempts fail and a
- * ticket is warranted (#2903).
- *
- * @param _counts - the verdict's severity counts.
- * @returns `none`, for every input.
- */
-export const reviewIssue = (_counts: ReviewCounts): ReviewIssueDecision => 'none';
 
 const TITLE_PREFIX = 'plot-review: ';
 

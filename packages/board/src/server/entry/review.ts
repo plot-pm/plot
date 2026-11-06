@@ -7,7 +7,6 @@ import { processesShell } from '@plot-pm/domain/adapters/processes/processes-she
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
-import { reviewIssue } from '@plot-pm/domain/rules/review-issue';
 import { checkedReview, type JudgedReview } from '@plot-pm/domain/rules/checked-review';
 import type { Host, Pr, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
@@ -47,9 +46,8 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The agent's final answer is written to a verdict file under the git common
  * directory and read through `reviewVerdict`, never as free text.
  *
- * No finding opens a follow-up issue — {@link reviewIssue} answers `none` for
- * every count, HIGH included: a HIGH finding holds the PR at `plot/review=failure`
- * instead, until #2903's fixer loop owns the ticket. Zero HIGH findings writes
+ * No finding opens a follow-up issue: a HIGH finding holds the PR at
+ * `plot/review=failure` until #2903's fixer loop owns the ticket. Zero HIGH findings writes
  * `success` with `no HIGH findings`; one or more writes `failure` with the HIGH
  * count. The status's `target_url` is the PR.
  *
@@ -493,9 +491,8 @@ const finishReview = async (
 
   const findings = counts.high + counts.medium + counts.low;
   const run = deps.now();
-  const decision = reviewIssue(counts);
   let posted = true;
-  if (findings !== 0 && decision === 'none') {
+  if (findings !== 0) {
     const marker = findingsMarker(pr.number);
     const body = prCommentBody(
       (v) => `${marker}\n${findingsBody(sha, pr.url, counts, v, run)}`,
