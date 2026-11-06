@@ -7,7 +7,7 @@ import { ActionSchema, CardFactsSchema } from '../src/entities/card-facts.js';
  * copied verbatim from the item. Any other string field is a word the domain
  * generated, and the gate refuses it.
  */
-const ALLOWED_STRING_FIELDS = new Set(['id', 'key', 'slug', 'branch', 'plan', 'assignees', 'path', 'at', 'title', 'summary', 'value']);
+const ALLOWED_STRING_FIELDS = new Set(['id', 'key', 'release', 'slug', 'branch', 'plan', 'assignees', 'path', 'at', 'title', 'summary', 'value']);
 
 /** Every free-string leaf of a schema, as the dotted path of field names that reaches it. */
 const stringFields = (schema: z.ZodType, at: string[] = []): string[] => {

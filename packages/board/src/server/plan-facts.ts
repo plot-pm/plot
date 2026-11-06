@@ -73,9 +73,10 @@ const storyOf = (
 const sprintOf = (slug: string, sprints: readonly SprintCard[] | null): Known<PlanSprintReading> => {
   if (sprints === null) return { unknown: 'failed' };
   const sprint = sprints.find((s) => s.slug === slug);
-  if (!sprint) return { value: { slug, title: slug, state: null } };
+  if (!sprint) return { value: { slug, title: slug, state: null, release: null } };
   const state = SprintStateSchema.safeParse(sprint.phase);
-  return { value: { slug, title: sprint.title, state: state.success ? state.data : null } };
+  const release = sprint.release.trim();
+  return { value: { slug, title: sprint.title, state: state.success ? state.data : null, release: release === '' ? null : release } };
 };
 
 /**

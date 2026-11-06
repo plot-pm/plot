@@ -105,10 +105,10 @@ describe('planCardFacts: lineage', () => {
   it('a story and sprint the board read are refs with their phase', () => {
     const f = facts({
       story: { value: { slug: 's', title: 'S', status: 'active', archived: false } },
-      sprint: { value: { slug: 'sp', title: 'Sp', state: 'Active' } },
+      sprint: { value: { slug: 'sp', title: 'Sp', state: 'Active', release: '2.32.0' } },
     });
     expect(f.lineage.stories).toEqual({ value: [{ kind: 'story', slug: 's', title: 'S', status: 'active', archived: false }] });
-    expect(f.lineage.sprints).toEqual({ value: [{ kind: 'sprint', slug: 'sp', title: 'Sp', state: 'Active' }] });
+    expect(f.lineage.sprints).toEqual({ value: [{ kind: 'sprint', slug: 'sp', title: 'Sp', state: 'Active', release: '2.32.0' }] });
   });
 
   it('a story that could not be read is unknown, never empty', () => {
