@@ -191,8 +191,17 @@ describe('a plan card renders the card grammar', () => {
       // The type tag sits on the muted meta line below the title.
       const meta = page.locator('#plan-grammar [data-meta]');
       expect(await meta.locator('[data-type="feature"]').count()).toBe(1);
-      // The ticket number leads the title, inside its link.
-      expect(await page.locator('#plan-grammar [data-card-title] [data-title-number]').textContent()).toBe('#3101');
+      // The ticket number leads the title, inside its link, muted in tabular figures; the title keeps its weight.
+      const title = page.locator('#plan-grammar [data-card-title]');
+      expect(await title.evaluate((el) => el.tagName)).toBe('A');
+      expect(await title.textContent()).toBe('#3101 The card grammar');
+      const number = title.locator('[data-title-number]');
+      expect(await number.evaluate((el) => getComputedStyle(el).fontVariantNumeric)).toBe('tabular-nums');
+      expect(await number.evaluate((el) => getComputedStyle(el).color))
+        .not.toBe(await title.evaluate((el) => getComputedStyle(el).color));
+      expect(Number(await title.evaluate((el) => getComputedStyle(el).fontWeight))).toBeGreaterThanOrEqual(600);
+      // The meta line names no ticket number.
+      expect(await meta.textContent()).not.toMatch(/#\d+/);
     } finally {
       await page.close();
     }

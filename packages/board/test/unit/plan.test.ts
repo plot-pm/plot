@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { boardLinksOf, linkTargetOf, storyHref } from '../../src/app/lib/plan';
-import { board, card, column, story } from '../catalogue/index.js';
+import type { Board, Card, StoryCard } from '../../src/contract/schema.js';
 import { checksUrlOf } from '../../src/server/board.js';
 
 describe('storyHref', () => {
@@ -27,12 +27,16 @@ describe('storyHref', () => {
 });
 
 describe('linkTargetOf: what each item on a card links to', () => {
-  const plan = card({ slug: 'other', path: 'docs/plans/2026-11-01-other.md' });
-  const links = boardLinksOf(board({
-    columns: [column({ cards: [plan] })],
-    stories: [story({ slug: 'st', path: 'docs/stories/st/STORY-st.md' })],
+  /** A board holding one plan and one story, its fields cut to what the lookups read. */
+  const boardOf = (over: Partial<Pick<Board, 'columns' | 'stories' | 'branchUrlBase'>>) => boardLinksOf({
+    tickets: null, branchUrlBase: '', stories: [], columns: [], ...over,
+  });
+  const plan = { slug: 'other', path: 'docs/plans/2026-11-01-other.md' } as Card;
+  const links = boardOf({
+    columns: [{ phase: 'Development', cards: [plan] }] as Board['columns'],
+    stories: [{ slug: 'st', path: 'docs/stories/st/STORY-st.md' } as StoryCard],
     branchUrlBase: 'https://github.com/o/r/tree/',
-  }));
+  });
   const prs = [{ number: 7, url: 'https://github.com/o/r/pull/7', checksUrl: 'https://github.com/o/r/pull/7/checks' }];
 
   it('a sprint, a plan and a story open their board view in place', () => {
@@ -55,7 +59,7 @@ describe('linkTargetOf: what each item on a card links to', () => {
   });
 
   it('an item the board holds no reading for stays text', () => {
-    const bare = boardLinksOf(board({ columns: [] }));
+    const bare = boardOf({});
     expect(linkTargetOf({ kind: 'plan', slug: 'gone', key: null, title: 'G', status: 'approved' }, 'item', [], bare)).toBeNull();
     expect(linkTargetOf({ kind: 'slice', plan: 'x', branch: 'feature/a', pr: null }, 'item', [], bare)).toBeNull();
     expect(linkTargetOf({ kind: 'slice', plan: 'x', branch: 'feature/a', pr: 7 }, 'build', [], bare)).toBeNull();

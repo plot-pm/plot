@@ -213,9 +213,10 @@ describe('a failing PR names the commit its checks ran against', () => {
       viewport: { width: 1400, height: 1400 },
     });
     try {
-      const badge = page.locator('#plan-failing-with-sha [data-pr-checks]');
-      await expect.poll(() => badge.count(), { timeout: 10_000 }).toBe(1);
-      expect(await badge.getAttribute('title')).toContain('a048b6f');
+      // The PR number is the link; the build sentence is its title.
+      const link = page.locator('#plan-failing-with-sha [data-pr-checks] [data-pr-link]');
+      await expect.poll(() => link.count(), { timeout: 10_000 }).toBe(1);
+      expect(await link.getAttribute('title')).toContain('a048b6f');
     } finally { await page.close(); }
   });
 });
