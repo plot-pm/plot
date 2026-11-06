@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Issue:** #3069
 - **Sprint:** follow-ups-2-30-1
@@ -19,6 +19,7 @@
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-plan-comment-parses-what-it-wrote`
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-review-comment-tests-can-fail`
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-merge-gate-bounds-an-unknown-head`
+- **Delivered:** 2026-11-06
 
 ## Changelog
 
