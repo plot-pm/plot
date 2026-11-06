@@ -221,7 +221,7 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
       title: readings.title,
       summary: null,
       type: type.success ? type.data : null,
-      opens: { kind: 'plan', slug: readings.slug, title: readings.title, status: readings.status },
+      opens: { kind: 'plan', slug: readings.slug, key: readings.issues[0] ?? null, title: readings.title, status: readings.status },
       alerts: readings.notPushed ? [{ kind: 'not-pushed', commits: null }] : [],
     },
     lineage: {

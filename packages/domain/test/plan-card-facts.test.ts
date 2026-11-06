@@ -53,7 +53,7 @@ describe('planCardFacts: identity', () => {
   it('carries the first issue as the key and the plan as what the title opens', () => {
     const f = facts({ issues: ['1089'] });
     expect(f.identity.key).toBe('1089');
-    expect(f.identity.opens).toEqual({ kind: 'plan', slug: 'x', title: 'X', status: 'approved' });
+    expect(f.identity.opens).toEqual({ kind: 'plan', slug: 'x', key: '1089', title: 'X', status: 'approved' });
   });
 
   it('alerts an unpushed plan, with its commits not counted', () => {

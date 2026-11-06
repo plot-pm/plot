@@ -57,7 +57,8 @@ export const RefSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('story'), slug: z.string(), title: z.string(), status: StoryStatusSchema.nullable(), archived: z.boolean(),
   }),
-  z.object({ kind: z.literal('plan'), slug: z.string(), title: z.string(), status: PlanStatusSchema }),
+  /** `key` is the plan's first ticket key, as its `issue:` names it; `null` where it names none. */
+  z.object({ kind: z.literal('plan'), slug: z.string(), key: z.string().nullable(), title: z.string(), status: PlanStatusSchema }),
   /** `state: null` names a sprint no sprint file exists for; its `title` is then the slug. */
   /** `release` is the sprint's `Release:`, verbatim; `null` where it names none. */
   z.object({
