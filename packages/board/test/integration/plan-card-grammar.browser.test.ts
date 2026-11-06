@@ -420,6 +420,42 @@ describe('a plan card renders the card grammar', () => {
       await page.close();
     }
   });
+
+  it('a running action inside More actions keeps its state when the menu closes and reopens', async () => {
+    // The approve request never answers while the test runs, so the action stays running.
+    const held: Route[] = [];
+    const page = await open({ '**/api/approve': (r: Route) => { held.push(r); } });
+    try {
+      const more = page.locator('#plan-many').getByRole('button', { name: 'More actions' });
+      const menu = page.getByRole('dialog', { name: 'More actions' });
+      await more.click();
+      await menu.waitFor({ timeout: 5_000 });
+      const confirm = menu.locator('[data-menu-action="confirm-slices"] button');
+      // By keyboard: the menu focuses its first control on open, and that
+      // disabled control's reason tooltip lies over the item below it.
+      await confirm.focus();
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+      await expect.poll(() => confirm.textContent(), { timeout: 5_000 }).toMatch(/approving…/);
+
+      // Escape closes the menu and returns focus to `⋯`.
+      await confirm.focus();
+      await page.keyboard.press('Escape');
+      await expect.poll(() => menu.count()).toBe(0);
+      expect(await more.evaluate((el) => el === document.activeElement)).toBe(true);
+      // The closed menu is hidden, not removed.
+      expect(await page.locator('#plan-many [data-popover="more-actions"]').count()).toBe(1);
+      expect(await page.locator('#plan-many [data-popover="more-actions"]').isVisible()).toBe(false);
+
+      await more.click();
+      await menu.waitFor({ timeout: 5_000 });
+      expect(await confirm.textContent()).toMatch(/approving…/);
+      expect(await confirm.getAttribute('aria-busy')).toBe('true');
+    } finally {
+      for (const r of held) await r.abort().catch(() => {});
+      await page.close();
+    }
+  });
   it('a long refusal wraps in its own row under the footer and stays inside a 320 px card', async () => {
     const refusal = 'refused: the plan PR #3198 is not approved by a reviewer, and the default branch reads red since 2026-11-06 — approve again once both clear';
     const page = await open({
