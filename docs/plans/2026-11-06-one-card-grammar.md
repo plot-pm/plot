@@ -111,20 +111,43 @@ neither needs a browser.
 
 ### Open Questions
 
-- [ ] **Does the domain already hold ticket ↔ plan ↔ story links?** A plan's
-      `Issue:` field names its ticket, and `Story:` its story — but the ticket card
-      does not read either back (defect above). Is the reverse index derivable from
-      readings the board already has, or does row 2 need a new read? If new, that
-      read is a separate plan and this one waits on it.
+- [x] **Does the domain already hold ticket ↔ plan ↔ story links?** *Answered
+      2026-11-06, from the code: ticket → plan exists and is thrown away; no new
+      read is needed.* `ticketPlansOf` (`packages/board/src/server/fleet.ts:1710`)
+      already builds a map from each issue key to the plans whose `Issue:` field
+      names it, from plan metas the board reads anyway. But it projects each plan
+      to `TicketPlan` (`rules/ticket-phase.ts:4`) — `state`, `total`, `merged` —
+      and drops the plan's identity, so the ticket knows *that* a plan exists and
+      how far it is, never *which*. `ticketPhase` uses it only for the lane label;
+      `ticketCardShowsActions` ignores it. **Consequence for scope:** adding the
+      plan's slug and title to `TicketPlan` is enough for `lineage` and for `next`
+      to offer *Open plan*; it stays inside this plan. Plan → story is the plan's
+      `Story:` field and story → plans already feeds the story card's counts. Ticket
+      → story is not yet checked.
 - [ ] **What does each board's primary reader look for first?** Tickets: is this
       answered yet? Stories: how far along is the umbrella? Plans: what can I do
       now? Confirm before fixing row emphasis.
-- [ ] **What does the story card's ⚠ mean today?** Name its source before giving
-      it a label.
+- [x] **What does the story card's ⚠ mean today?** *Answered 2026-11-06:* status
+      drift — the story's written status is **behind** what its plans prove.
+      `statusDrift` (`packages/domain/src/transitions/story.ts:468`) reports one
+      direction only, and `StoriesTab.tsx:556` shows its phrase solely as a hover
+      `title` on a bare ⚠, so on touch or at a glance it carries no meaning. In the
+      grammar it is an `identity` alert of kind `status-behind` with the proven
+      standing as its subject; the UI labels it (*status behind: plans delivered*).
+      `statusDrift` returns a phrase today (`BEHIND[derived]`) — a word made in the
+      domain, which this plan's split moves to the mapping.
 - [ ] **Where does a sprint list go on a story with nine sprints?** Proposed: row 2
       collapses to *in 9 sprints*.
-- [ ] **Does `cardControls` become the `next` facet, or stay beside it?** It
-      already decides action availability for plans.
+- [x] **Does `cardControls` become the `next` facet, or stay beside it?**
+      *Answered 2026-11-06: beside it, as `next`'s input.* `cardControls`
+      (`rules/card-controls.ts:62`, two callers: `board.ts:2687`, `mock-fleet.ts:498`)
+      returns nine independent flags — `approve`, `needsDesign`, `interrogate`,
+      `roundsBadge`, `dispatch`, `readyToStart`, `approveSpike`, `confirmSlices`,
+      `spikeState` — which is the plan's *capability set*, not one next action, and
+      carries no reason when a flag is false. `next` derives from it: choose the one
+      primary action from the set, and name why it is disabled (`started`, awaiting
+      the spike, unapproved). The secondary flags stay available to the UI for
+      secondary links. `cardControls` keeps its schema and both callers unchanged.
 - [ ] **Where exactly is the line between a fact and a word?** Proposed test: a
       value belongs in `CardFacts` if a second UI (a CLI, a Slack digest) would
       need the same value; it belongs in the mapping if a second UI would phrase
