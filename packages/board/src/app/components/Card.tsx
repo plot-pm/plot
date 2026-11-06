@@ -1,10 +1,10 @@
-import { useId, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Ref } from '@plot-pm/domain/entities/card-facts';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
 import { GLYPH_PATH, type GlyphKind } from '../lib/glyphs.js';
 import { cn } from '../lib/utils.js';
 import type {
-  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, Tone,
+  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, PrView, ReasonPart, Tone,
 } from '../lib/card-presentation.js';
 
 /** Where a piece naming another item links, or `null` to leave it as text. */
@@ -18,6 +18,9 @@ export interface RefLink {
   external?: boolean;
 }
 
+/** Where an item, or a PR's build, links; `null` to leave it as text. */
+export type LinkFor = (ref: Ref, aspect?: 'item' | 'build') => RefLink | null;
+
 export interface CardProps {
   /** The article's id, which `?plan=<slug>` scrolls to. */
   id: string;
@@ -26,8 +29,11 @@ export interface CardProps {
   titleHref: string;
   /** Opens the item in the board on a plain left-click of the title. */
   onOpenTitle: () => void;
-  /** Where a piece naming another item links. */
-  linkFor?: (ref: Ref) => RefLink | null;
+  /**
+   * Where an item a piece names links. `aspect: 'build'` asks for a PR's
+   * build rather than the PR itself; absent asks for the item.
+   */
+  linkFor?: LinkFor;
   /** The control for an enabled action; `null` leaves it off the band. */
   renderAction: (action: PresentedAction, primary: boolean) => ReactNode;
   /** Marks the card as the one just arrived at. */
@@ -108,7 +114,54 @@ const WithDetail = ({ detail, children, className, attrs }: {
   );
 };
 
-const PieceView = ({ piece, linkFor }: { piece: Piece; linkFor?: CardProps['linkFor'] }) => {
+/**
+ * A link that reads as plain card text at rest and shows its underline and a
+ * focus ring on hover and keyboard focus. A host link opens a new tab and says
+ * so in its accessible name; a board link opens the item in place.
+ */
+const LinkView = ({ link, children, className, attrs, title }: {
+  link: RefLink; children: ReactNode; className?: string; attrs?: Record<string, string>; title?: string;
+}) => (
+  <a
+    href={link.href}
+    title={title ?? link.title}
+    {...(link.external ? { target: '_blank', rel: 'noreferrer' } : {})}
+    onClick={(e) => {
+      if (!link.onOpen || !plainClick(e)) return;
+      e.preventDefault();
+      link.onOpen();
+    }}
+    data-card-link={link.external ? 'host' : 'board'}
+    className={cn(
+      'cursor-pointer rounded text-inherit no-underline decoration-1 underline-offset-2 hover:underline',
+      'focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--hue-blue-dot)',
+      className,
+    )}
+    {...attrs}
+  >
+    {children}
+    {link.external && <span className="sr-only"> (opens in a new tab)</span>}
+  </a>
+);
+
+/** A pull request: its number links the PR, its build words link the run where one is known. */
+const PrInline = ({ pr, linkFor, withBranch }: { pr: PrView; linkFor?: LinkFor; withBranch: boolean }) => {
+  const prLink = linkFor?.(pr.prRef) ?? null;
+  const showBranch = withBranch && pr.branch !== '';
+  const branchLink = showBranch ? linkFor?.(pr.branchRef) ?? null : null;
+  const buildLink = linkFor?.(pr.prRef, 'build') ?? null;
+  return (
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5">
+      {prLink ? <LinkView link={prLink} className="tabular-nums" attrs={{ 'data-pr-link': String(pr.number) }}>#{pr.number}</LinkView> : <span className="tabular-nums">#{pr.number}</span>}
+      {showBranch && (branchLink
+        ? <LinkView link={branchLink} className="font-mono text-[11px]" attrs={{ 'data-branch-link': pr.branch }}>{pr.branch}</LinkView>
+        : <span className="font-mono text-[11px]">{pr.branch}</span>)}
+      {buildLink ? <LinkView link={buildLink} attrs={{ 'data-build-link': String(pr.number) }}>{pr.checks}</LinkView> : <span data-build={String(pr.number)}>{pr.checks}</span>}
+    </span>
+  );
+};
+
+const PieceView = ({ piece, linkFor, inPopover = false }: { piece: Piece; linkFor?: LinkFor; inPopover?: boolean }) => {
   const attrs = { ...dataAttrs(piece.data), 'data-tone': piece.tone };
   if (piece.tone === 'type') {
     return (
@@ -120,34 +173,38 @@ const PieceView = ({ piece, linkFor }: { piece: Piece; linkFor?: CardProps['link
       </span>
     );
   }
+  const className = cn('inline-flex min-w-0 max-w-full items-center gap-1', TONE[piece.tone]);
+  if (piece.pr) {
+    return (
+      <span className={className} {...attrs}>
+        {piece.dot && <DotView h={piece.dot} />}
+        <PrInline pr={piece.pr} linkFor={linkFor} withBranch={inPopover} />
+      </span>
+    );
+  }
+  // A related item's name is shortened to fit; the whole name is in its title and tooltip.
+  const text = <span className={cn('min-w-0', piece.icon ? 'truncate' : '[overflow-wrap:anywhere]')}>{piece.text}</span>;
   const content = (
     <>
       {piece.icon && <KindIconView icon={piece.icon} />}
       {piece.dot && <DotView h={piece.dot} />}
-      <span className="min-w-0 [overflow-wrap:anywhere]">{piece.text}</span>
+      {text}
     </>
   );
   const link = piece.ref !== null && linkFor ? linkFor(piece.ref) : null;
-  const className = cn('inline-flex min-w-0 max-w-full items-center gap-1', TONE[piece.tone]);
   if (link) {
     return (
-      <a
-        href={link.href}
-        title={link.title ?? piece.detail ?? undefined}
-        {...(link.external ? { target: '_blank', rel: 'noreferrer' } : {})}
-        onClick={(e) => {
-          if (!link.onOpen || !plainClick(e)) return;
-          e.preventDefault();
-          link.onOpen();
-        }}
-        className={cn(className, 'rounded hover:underline focus-visible:outline-2 focus-visible:outline-offset-2')}
-        {...attrs}
+      <LinkView
+        link={link}
+        title={piece.detail ?? undefined}
+        className={cn(className, piece.icon && !inPopover && 'max-w-[18rem]')}
+        attrs={attrs}
       >
         {content}
-      </a>
+      </LinkView>
     );
   }
-  return <WithDetail detail={piece.detail} className={className} attrs={attrs}>{content}</WithDetail>;
+  return <WithDetail detail={piece.detail} className={cn(className, piece.icon && !inPopover && 'max-w-[18rem]')} attrs={attrs}>{content}</WithDetail>;
 };
 
 /** Dots and counts for a summary: one per state, the word kept for assistive technology. */
@@ -163,22 +220,46 @@ const DotsView = ({ dots }: { dots: Dot[] }) => (
   </span>
 );
 
-/** A list collapsed to its summary, expanding in place under a real button. */
-const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; linkFor?: CardProps['linkFor'] }) => {
+/**
+ * A count that opens a popover listing its items, each a link. The popover is
+ * a dialog: it opens on click, Enter or Space, takes focus, and closes on
+ * Escape or a click outside, returning focus to the count.
+ */
+const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; linkFor?: LinkFor }) => {
   const [open, setOpen] = useState(false);
-  const listId = `${useId()}-${part.id}`;
-  const tip = useReasonTooltip(part.summary.detail, 'detail');
+  const dialogId = `${useId()}-${part.id}`;
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) buttonRef.current?.focus();
+  };
+  useEffect(() => {
+    if (!open) return;
+    // Focus the first link inside, else the dialog itself.
+    const first = dialogRef.current?.querySelector<HTMLElement>('a, button');
+    (first ?? dialogRef.current)?.focus();
+    const outside = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, [open]);
   return (
-    <span className="relative inline-flex flex-col" {...tip.wrapperProps}>
+    <span ref={rootRef} className="relative inline-flex">
       <button
+        ref={buttonRef}
         type="button"
+        aria-haspopup="dialog"
         aria-expanded={open}
-        aria-controls={listId}
+        aria-controls={dialogId}
         data-expander={part.id}
-        {...tip.triggerProps}
+        title={part.summary.detail ?? undefined}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded text-left hover:underline focus-visible:outline-2 focus-visible:outline-offset-2',
+          'inline-flex cursor-pointer items-center gap-1.5 rounded text-left no-underline decoration-1 underline-offset-2 hover:underline',
+          'focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--hue-blue-dot)',
           TONE[part.summary.tone],
         )}
         {...dataAttrs(part.summary.data)}
@@ -187,12 +268,28 @@ const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; li
         <span>{part.summary.text}</span>
         {part.dots.length > 0 && <DotsView dots={part.dots} />}
       </button>
-      {tip.tooltip}
-      <ul id={listId} hidden={!open} className="mt-1 flex flex-col gap-1 pl-1">
-        {part.items.map((item, i) => (
-          <li key={i}><PieceView piece={item} linkFor={linkFor} /></li>
-        ))}
-      </ul>
+      {open && (
+        <div
+          ref={dialogRef}
+          id={dialogId}
+          role="dialog"
+          aria-label={part.summary.text}
+          tabIndex={-1}
+          data-popover={part.id}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.stopPropagation();
+            close(true);
+          }}
+          className="absolute left-0 top-full z-30 mt-1.5 flex w-max max-w-80 flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none"
+        >
+          <ul className="flex flex-col gap-1.5">
+            {part.items.map((item, i) => (
+              <li key={i}><PieceView piece={item} linkFor={linkFor} inPopover /></li>
+            ))}
+          </ul>
+        </div>
+      )}
     </span>
   );
 };
@@ -217,7 +314,7 @@ const WorkView = ({ part }: { part: Extract<Part, { kind: 'work' }> }) => (
   </span>
 );
 
-const PartView = ({ part, linkFor }: { part: Part; linkFor?: CardProps['linkFor'] }) =>
+const PartView = ({ part, linkFor }: { part: Part; linkFor?: LinkFor }) =>
   part.kind === 'piece' ? <PieceView piece={part.piece} linkFor={linkFor} />
     : part.kind === 'list' ? <ListView part={part} linkFor={linkFor} />
       : <WorkView part={part} />;
@@ -272,9 +369,20 @@ const AssigneesView = ({ a }: { a: PresentedAssignees }) => {
   );
 };
 
+/** A reason's parts: the words as text, each branch or PR it names a link. */
+const ReasonView = ({ parts, linkFor }: { parts: ReasonPart[]; linkFor?: LinkFor }) => (
+  <>
+    {parts.map((part, i) => {
+      const link = part.ref !== null ? linkFor?.(part.ref) ?? null : null;
+      return link ? <LinkView key={i} link={link} className="underline-offset-2">{part.text}</LinkView> : <span key={i}>{part.text}</span>;
+    })}
+  </>
+);
+
 /** A disabled action: a focusable, `aria-disabled` outline whose reason is its description and tooltip. */
-const DisabledAction = ({ action }: { action: PresentedAction }) => {
-  const tip = useReasonTooltip(action.reason);
+const DisabledAction = ({ action, linkFor }: { action: PresentedAction; linkFor?: LinkFor }) => {
+  const content = action.reasonParts ? <ReasonView parts={action.reasonParts} linkFor={linkFor} /> : undefined;
+  const tip = useReasonTooltip(action.reason, 'reason', content);
   return (
     <span {...tip.wrapperProps} className="relative inline-flex" data-action={action.action} data-action-disabled>
       <button
@@ -311,7 +419,7 @@ export const Card = ({
     ...(footer.primary === null ? [] : [{ action: footer.primary, primary: true }]),
     ...footer.secondary.map((action) => ({ action, primary: false })),
   ].flatMap(({ action, primary: isPrimary }) => {
-    const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} />;
+    const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} linkFor={linkFor} />;
     return control === null || control === undefined || control === false ? [] : [{ action, isPrimary, control }];
   });
   const statusTwoLines = status.work !== null && status.signals.length > 0;
@@ -346,6 +454,9 @@ export const Card = ({
           }}
           className="line-clamp-2 rounded font-semibold text-(--card-title) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
         >
+          {header.number !== null && (
+            <><span className="font-normal tabular-nums text-(--card-meta)" data-title-number>{header.number}</span>{' '}</>
+          )}
           {header.title}
         </a>
       </div>

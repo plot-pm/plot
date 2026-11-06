@@ -54,9 +54,23 @@ export interface KindIcon {
 }
 
 /** One rendered fact: its words, how loud, what leads it and what it links to. */
+/** A pull request as a card shows it: its number, its branch and its build, each its own link. */
+export interface PrView {
+  number: number;
+  branch: string;
+  /** The build's state in words. */
+  checks: string;
+  /** What the number links to: the PR. */
+  prRef: Ref;
+  /** What the branch links to. */
+  branchRef: Ref;
+}
+
 export interface Piece {
   text: string;
   tone: Tone;
+  /** The pull request this piece shows, drawn as its number, branch and build; `null` for none. */
+  pr: PrView | null;
   /** The kind icon this piece leads with; `null` for none. */
   icon: KindIcon | null;
   /** A coloured dot this piece leads with, beside its words; `null` for none. */
@@ -76,7 +90,7 @@ export interface Dot {
   word: string;
 }
 
-/** A single piece, a list collapsed to a summary that expands in place, or a work measure. */
+/** A single piece, a count whose items open in a popover, or a work measure. */
 export type Part =
   | { kind: 'piece'; piece: Piece }
   | { kind: 'list'; id: string; summary: Piece; dots: Dot[]; items: Piece[] }
@@ -89,6 +103,14 @@ export interface PresentedAction {
   enabled: boolean;
   /** Why it is disabled, in words; `null` when enabled. */
   reason: string | null;
+  /** The same sentence in parts, each item it names its own link; `null` when enabled. */
+  reasonParts: ReasonPart[] | null;
+}
+
+/** A stretch of a sentence, and the item it names where it names one. */
+export interface ReasonPart {
+  text: string;
+  ref: Ref | null;
 }
 
 /** Who the item is assigned to, as the footer's avatars show it. */
@@ -111,11 +133,13 @@ export interface CardSections {
   accent: Hue;
   header: {
     kind: KindIcon;
+    /** The ticket number the title leads with (`#3073`), part of the title link; `null` for none. */
+    number: string | null;
     title: string;
     /** The title as a reader names the item: the key, then the title. */
     label: string;
     ref: Ref;
-    /** The muted meta line: number, subtype tag, alerts, then each related item as icon + identifier. */
+    /** The muted meta line: subtype tag, alerts, then each related item as icon + identifier + name. */
     meta: Part[];
   };
   status: {
@@ -248,7 +272,7 @@ const TICKET_STATE: Readonly<Record<string, [string, Hue]>> = {
 export const kindIcon = (kind: CardKind | IconKind): KindIcon => ({ kind, label: KIND_LABEL[kind], hue: KIND_HUE[kind] });
 
 const piece = (text: string, over: Partial<Piece> = {}): Piece => ({
-  text, tone: 'neutral', icon: null, dot: null, detail: null, ref: null, data: {}, ...over,
+  text, tone: 'neutral', pr: null, icon: null, dot: null, detail: null, ref: null, data: {}, ...over,
 });
 const one = (p: Piece): Part => ({ kind: 'piece', piece: p });
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -287,6 +311,29 @@ export const reasonWords = (reason: Reason, unavailable: PresentOptions['unavail
   }
 };
 
+/** The slice refs a reason names, joined into parts: each one a link, the commas between them text. */
+const sliceParts = (lead: string, refs: readonly Ref[]): ReasonPart[] => [
+  { text: lead, ref: null },
+  ...refs.flatMap((ref, i): ReasonPart[] => [
+    ...(i === 0 ? [] : [{ text: ', ', ref: null }]),
+    { text: sliceWords(ref), ref },
+  ]),
+];
+
+/**
+ * Why an action is disabled, in parts: the words `reasonWords` gives, with each
+ * branch or PR it names its own part, so the renderer can link it.
+ *
+ * @param reason - the typed reason from `CardFacts`.
+ * @param unavailable - the board's own sentence per action it will not run.
+ * @returns the sentence in parts.
+ */
+export const reasonParts = (reason: Reason, unavailable: PresentOptions['unavailable'] = {}): ReasonPart[] => {
+  if (reason.kind === 'nothing-eligible' && reason.waitsOn.length > 0) return sliceParts('waits on ', reason.waitsOn);
+  if (reason.kind === 'awaits-spike') return sliceParts('waits on its spike ', [reason.spike]);
+  return [{ text: reasonWords(reason, unavailable), ref: null }];
+};
+
 const presentAction = (
   a: NonNullable<CardFacts['next']['primary']>, unavailable: PresentOptions['unavailable'],
 ): PresentedAction => ({
@@ -294,6 +341,7 @@ const presentAction = (
   label: LABEL[a.action],
   enabled: a.enabled,
   reason: a.reason === null ? null : reasonWords(a.reason, unavailable),
+  reasonParts: a.reason === null ? null : reasonParts(a.reason, unavailable),
 });
 
 const RELATION_WORD: Readonly<Record<keyof CardFacts['lineage'], [string, string]>> = {
@@ -303,22 +351,23 @@ const RELATION_WORD: Readonly<Record<keyof CardFacts['lineage'], [string, string
   sprints: ['sprint', 'sprints'],
 };
 
-const SHORT = 24;
 
 /** A ticket key as a reader names it: `#3170` for a number, the key as written otherwise. */
 const ticketKey = (key: string): string => (/^\d+$/.test(key) ? `#${key}` : key);
 
 /**
- * How a related item reads on the card: its identifier. A sprint is its
- * `Release:` verbatim, else its title; a ticket its key; a plan its slug; a
- * story its slug, shortened.
+ * How a related item reads on the card: its identifier first, then its name.
+ * A sprint is its `Release:` verbatim and its title (the title alone where it
+ * names no release); a ticket its key; a plan its ticket number, where it has
+ * one, and its title; a story its title. The
+ * card shortens the name to fit; the tooltip holds it whole.
  */
 const identifierOf = (ref: Ref): string => {
   switch (ref.kind) {
-    case 'sprint': return ref.release ?? ref.title;
+    case 'sprint': return ref.release === null ? ref.title : `${ref.release} · ${ref.title}`;
     case 'ticket': return ticketKey(ref.key);
-    case 'plan': return ref.slug;
-    case 'story': return ref.slug.length > SHORT ? `${ref.slug.slice(0, SHORT - 1)}…` : ref.slug;
+    case 'plan': return ref.key === null ? ref.title : `${ticketKey(ref.key)} ${ref.title}`;
+    case 'story': return ref.title;
     case 'slice': return sliceWords(ref);
   }
 };
@@ -350,12 +399,11 @@ const relationParts = (relation: keyof CardFacts['lineage'], known: Known<Ref[]>
   // The ticket the title already names by its key is shown there; every other one shows here.
   const refs = relation === 'tickets' ? known.value.filter((r) => !(r.kind === 'ticket' && r.key === facts.identity.key)) : known.value;
   const items = refs.map((ref) => piece(identifierOf(ref), {
-    ref, icon: kindIcon(ref.kind), detail: relatedDetail(ref), data: { lineage: relation },
+    tone: 'muted', ref, icon: kindIcon(ref.kind), detail: relatedDetail(ref), data: { lineage: relation },
   }));
   if (items.length === 0) return [];
   if (items.length === 1) return [one(items[0])];
-  const summary = relation === 'sprints' ? `in ${refs.length} sprints` : plural(refs.length, singular);
-  return [{ kind: 'list', id: `lineage-${relation}`, summary: piece(summary, { icon: kindIcon(refs[0].kind), data: { lineage: relation } }), dots: [], items }];
+  return [{ kind: 'list', id: `lineage-${relation}`, summary: piece(plural(refs.length, singular), { icon: kindIcon(refs[0].kind), data: { lineage: relation } }), dots: [], items }];
 };
 
 /** The PR list: one PR reads inline, two or more collapse to a count with one dot per check state. */
@@ -367,6 +415,13 @@ const prParts = (prs: CardFacts['progress']['prs'], plan: string): Part[] => {
     const conflicting = conflicts(pr);
     const words = conflicting ? 'no checks — conflicts' : notLookedUp(pr) ? 'checks not looked up yet' : CHECKS[pr.checks];
     return piece(`#${pr.number} ${words}`, {
+      pr: {
+        number: pr.number,
+        branch: pr.branch,
+        checks: words,
+        prRef: { kind: 'slice', plan, branch: pr.branch, pr: pr.number },
+        branchRef: { kind: 'slice', plan, branch: pr.branch, pr: null },
+      },
       tone: pr.checks === 'failing' || conflicting ? 'warn' : pr.checks === 'unknown' ? 'unknown' : 'neutral',
       dot: conflicting ? 'red' : CHECKS_HUE[pr.checks],
       ref: { kind: 'slice', plan, branch: pr.branch, pr: pr.number },
@@ -513,7 +568,6 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
   const hide = new Set(options.hide ?? []);
 
   const meta: Part[] = [];
-  if (identity.key !== null) meta.push(one(piece(ticketKey(identity.key), { tone: 'muted', data: { key: identity.key } })));
   if (identity.type !== null) meta.push(one(piece(identity.type, { tone: 'type', data: { type: identity.type } })));
   for (const alert of identity.alerts) {
     if (alert.kind === 'not-pushed') {
@@ -571,6 +625,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
     accent: state.dot ?? 'slate',
     header: {
       kind: kindIcon(identity.kind),
+      number: identity.key === null ? null : ticketKey(identity.key),
       title: identity.title,
       label: identity.key === null ? identity.title : `${identity.key}: ${identity.title}`,
       ref: identity.opens,

@@ -1544,6 +1544,7 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
+              onOpenSprint={onOpenSprint}
               highlight={validHighlight}
               showReleased={showReleased}
             />
@@ -1558,6 +1559,7 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
+              onOpenSprint={onOpenSprint}
               highlight={validHighlight}
               showReleased={showReleased}
             />

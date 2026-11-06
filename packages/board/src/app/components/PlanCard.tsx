@@ -1,9 +1,8 @@
 import type { Card as PlanCardData, DispatchInfo, StoryCard } from '../../contract/schema.js';
-import type { Ref } from '@plot-pm/domain/entities/card-facts';
 import { checksVerdict, planRoute } from '@plot-pm/domain';
-import { storyHref } from '../lib/plan.js';
+import { linkTargetOf, type BoardLinks } from '../lib/plan.js';
 import { presentCard, UNREADABLE_CARD, type CardBoard, type PresentedAction } from '../lib/card-presentation.js';
-import { Card, type RefLink } from './Card.js';
+import { Card, type LinkFor } from './Card.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { ApproveButton } from './ApproveButton.js';
 import { InterrogateButton } from './InterrogateButton.js';
@@ -133,6 +132,10 @@ export interface PlanCardProps {
   story?: StoryCard;
   /** Open the story in the in-board overlay (plain left-click only). */
   onOpenStory?: (story: StoryCard) => void;
+  /** Open a sprint in the in-board sprint view. Absent leaves the sprint as text. */
+  onOpenSprint?: (sprintSlug: string) => void;
+  /** The board's lookups for the items the card names; absent leaves every related item as text. */
+  links?: BoardLinks;
   /**
    * Mark this card as the one just arrived at — a ring, and the anchor the
    * board scrolls to. Transient: it says *here you are*, not *this is selected*,
@@ -162,6 +165,8 @@ export function PlanCard({
   onOpen,
   story,
   onOpenStory,
+  onOpenSprint,
+  links,
   highlighted = false,
 }: PlanCardProps) {
   // A card the payload carries no facts for cannot be worded; it shows its
@@ -202,24 +207,33 @@ export function PlanCard({
   // The Testing column emphasises the status panel; every other planning column the footer.
   const where = board === 'plans' && accent === 'Testing' ? 'testing' : board;
   const sections = presentCard(card.facts, where, { hide, unavailable, now: Date.now() });
-  const storyPage = story ? storyHref(story) : '';
 
-  const linkFor = (ref: Ref): RefLink | null => {
-    if (ref.kind === 'story' && story && storyPage && onOpenStory && ref.slug === story.slug) {
-      return { href: storyPage, onOpen: () => onOpenStory(story), title: `Open the ${ref.slug} story` };
-    }
-    if (ref.kind === 'slice' && ref.pr !== null) {
-      // The host adapter is the only thing that knows a PR's address; no URL, no link.
-      const pr = card.prs.find((one) => one.number === ref.pr);
-      if (!pr?.url) return null;
+  // The board's lookups, with this card's own story first: the card was handed it directly.
+  const lookups: BoardLinks = {
+    ticketHref: (key) => links?.ticketHref(key),
+    branchHref: (branch) => links?.branchHref(branch),
+    storyOf: (slug) => (story && slug === story.slug ? story : links?.storyOf(slug)),
+    planOf: (slug) => links?.planOf(slug),
+  };
+
+  /** Each item the card names, linked by `linkTargetOf`; a board view opens only where its handler exists. */
+  const linkFor: LinkFor = (ref, aspect = 'item') => {
+    const target = linkTargetOf(ref, aspect, card.prs, lookups);
+    if (target === null) return null;
+    const { opens } = target;
+    if (opens === null) {
+      if (ref.kind !== 'slice' || aspect === 'build') return { href: target.href, external: true };
+      const pr = card.prs.find((one) => one.number === ref.pr && one.url === target.href);
       // The hover keeps the build's whole sentence (the commit it ran against,
       // a skipped lookup), from the same domain rule the rows read.
-      const { detail } = checksVerdict({
-        checks: pr.checks, mergeable: pr.mergeable, checksSha: pr.checksSha, checksLookup: pr.checksLookup,
-      });
-      return { href: pr.url, external: true, title: detail };
+      const title = pr
+        ? checksVerdict({ checks: pr.checks, mergeable: pr.mergeable, checksSha: pr.checksSha, checksLookup: pr.checksLookup }).detail
+        : undefined;
+      return { href: target.href, external: true, title };
     }
-    return null;
+    if (opens.kind === 'story') return onOpenStory ? { href: target.href, onOpen: () => onOpenStory(opens.story) } : null;
+    if (opens.kind === 'plan') return { href: target.href, onOpen: () => onOpen(opens.card) };
+    return onOpenSprint ? { href: target.href, onOpen: () => onOpenSprint(opens.slug) } : null;
   };
 
   const renderAction = (action: PresentedAction) => {
