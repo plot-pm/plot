@@ -9,6 +9,7 @@ export const FLAG_UV = 0x04;
  * The checks {@link passkeyVerdict} makes, in the order it makes them. A
  * refusal names the first one that failed.
  */
+// plot-state: classification — each value names one independent check; a verdict refuses on the first that fails, and no value leads to another.
 export const PasskeyCheckSchema = z.enum([
   'type',
   'challenge',
