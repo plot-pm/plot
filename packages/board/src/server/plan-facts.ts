@@ -1,5 +1,7 @@
 import {
   planCardFacts,
+  withActionAvailability,
+  type ActionAvailability,
   SprintStateSchema,
   StoryStatusSchema,
   type PersonDirectory,
@@ -10,7 +12,7 @@ import {
   type PlanStoryReading,
 } from '@plot-pm/domain';
 import type { CardFacts, Known } from '@plot-pm/domain/entities/card-facts';
-import type { Card, SprintCard, StoryCard } from '../contract/schema.js';
+import type { Card, Column, DispatchInfo, SprintCard, StoryCard } from '../contract/schema.js';
 
 /** A plan card before its facts are attached. */
 export type CardFields = Omit<Card, 'facts'>;
@@ -109,4 +111,47 @@ export const planFactsOf = (card: CardFields, extras: PlanFactsExtras = {}): Car
     sprint: card.sprint ? sprintOf(card.sprint, extras.sprints ?? []) : null,
     notPushed: card.notPushed === true,
   }, extras.directory ?? {});
+};
+
+/** The capability answers a board payload carries; absent where the board has not said. */
+export interface BoardCapabilities {
+  dispatch?: DispatchInfo;
+  approve?: DispatchInfo;
+  interrogate?: DispatchInfo;
+  deliver?: DispatchInfo;
+}
+
+/**
+ * Which card actions a board runs, from its capability answers. An action whose
+ * capability the board has not stated is left unnamed, and so left as it is.
+ *
+ * @param caps - the board's capability answers.
+ * @returns the availability `withActionAvailability` reads.
+ */
+export const actionAvailabilityOf = (caps: BoardCapabilities): ActionAvailability => {
+  const out: ActionAvailability = {};
+  const set = (info: DispatchInfo | undefined, ...actions: (keyof ActionAvailability)[]) => {
+    if (info !== undefined) for (const a of actions) out[a] = info.available;
+  };
+  set(caps.dispatch, 'start-work');
+  set(caps.approve, 'approve', 'approve-spike', 'confirm-slices', 'needs-design');
+  set(caps.interrogate, 'interrogate');
+  set(caps.deliver, 'deliver');
+  return out;
+};
+
+/**
+ * The board's columns with every card's actions marked against what this board
+ * runs — what `/api/board` sends.
+ *
+ * @param columns - the built columns.
+ * @param caps - the board's capability answers.
+ * @returns the columns, each card's facts passed through `withActionAvailability`.
+ */
+export const columnsWithAvailability = <C extends Pick<Column, 'cards'>>(columns: readonly C[], caps: BoardCapabilities): C[] => {
+  const available = actionAvailabilityOf(caps);
+  return columns.map((column) => ({
+    ...column,
+    cards: column.cards.map((card) => (card.facts ? { ...card, facts: withActionAvailability(card.facts, available) } : card)),
+  }));
 };

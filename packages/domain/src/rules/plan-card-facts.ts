@@ -263,24 +263,25 @@ export type ActionAvailability = Partial<Record<ActionKind, boolean>>;
 /**
  * The facts with every action this board will not run marked so.
  *
- * An enabled primary whose capability reads `false` becomes disabled with
- * `action-unavailable`; a secondary whose capability reads `false` is omitted.
- * An action the map does not name is left as it is.
+ * An enabled action, primary or secondary, whose capability reads `false`
+ * becomes disabled with `action-unavailable` and stays on the card: the board's
+ * configuration refuses it, and the card says so. An action already disabled
+ * keeps its own reason, and an action the map does not name is left as it is.
  *
  * @param facts - a card's facts.
  * @param available - whether this board runs each action.
  * @returns the facts with `next` adjusted; the input is not changed.
  */
 export const withActionAvailability = (facts: CardFacts, available: ActionAvailability): CardFacts => {
-  const runs = (a: Action): boolean => available[a.action] !== false;
-  const primary = facts.next.primary;
+  const mark = (a: Action): Action =>
+    a.enabled && available[a.action] === false
+      ? disabled(a.action, { kind: 'action-unavailable', action: a.action })
+      : a;
   return {
     ...facts,
     next: {
-      primary: primary !== null && primary.enabled && !runs(primary)
-        ? disabled(primary.action, { kind: 'action-unavailable', action: primary.action })
-        : primary,
-      secondary: facts.next.secondary.filter(runs),
+      primary: facts.next.primary === null ? null : mark(facts.next.primary),
+      secondary: facts.next.secondary.map(mark),
     },
   };
 };

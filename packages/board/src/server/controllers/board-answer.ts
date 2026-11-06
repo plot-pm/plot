@@ -16,7 +16,7 @@ import { implementAvailability } from '../implement.js';
 import { dropAvailability } from '../drop.js';
 import { storyAvailability } from '../story.js';
 import { boardState } from './fleet-state.js';
-import { withActionAvailability, type ActionAvailability } from '@plot-pm/domain';
+import { columnsWithAvailability } from '../plan-facts.js';
 
 /**
  * The `/api/board` payload: the estate's board plus the facts only this server
@@ -69,23 +69,11 @@ export const boardAnswer = async (
   const approve = approveAvailability(host);
   const interrogate = await interrogateAvailability(host, opts);
   const deliver = deliverAvailability(host);
-  // Which card actions this server runs, from the same answers the capability
-  // fields below carry: a card's facts are built with no binding in scope.
-  const available: ActionAvailability = {
-    'start-work': dispatch.available,
-    approve: approve.available,
-    'approve-spike': approve.available,
-    'confirm-slices': approve.available,
-    'needs-design': approve.available,
-    interrogate: interrogate.available,
-    deliver: deliver.available,
-  };
   return {
     ...built,
-    columns: built.columns.map((column) => ({
-      ...column,
-      cards: column.cards.map((card) => ({ ...card, facts: withActionAvailability(card.facts, available) })),
-    })),
+    // Which card actions this server runs, from the same answers the capability
+    // fields below carry: a card's facts are built with no binding in scope.
+    columns: columnsWithAvailability(built.columns, { dispatch, approve, interrogate, deliver }),
     // The fleet's own cache, not `built.planSource`: the ref and its age
     // come from the same read, but `boardState` has no reason to depend on
     // `fleet.ts`'s cache for a field it never otherwise needs.

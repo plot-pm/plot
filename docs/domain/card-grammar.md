@@ -53,8 +53,9 @@ behind it is a ref whose status or state is `null` and whose title is its slug.
 
 An **action** is `{ action, enabled, reason }`; `reason` is set exactly when
 `enabled` is false. Opening is not an action: the title is the card's only open
-link. A disabled primary stays on the card with its reason beside it; a
-disabled secondary is omitted.
+link. A disabled primary stays on the card with its reason beside it. A
+secondary the plan's own state disables is omitted; one the board's
+configuration refuses stays, disabled, with `action-unavailable`.
 
 | Reason | Means | Card words |
 |---|---|---|

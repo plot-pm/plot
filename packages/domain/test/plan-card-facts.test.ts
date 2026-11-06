@@ -267,9 +267,21 @@ describe('withActionAvailability', () => {
     });
   });
 
-  it('omits a secondary the board will not run', () => {
+  it('keeps a secondary the board\'s configuration refuses, disabled with action-unavailable', () => {
     const draft = facts({ status: 'draft', controls: controls({ state: 'draft', status: 'draft' }) });
-    expect(withActionAvailability(draft, { interrogate: false }).next.secondary).toEqual([]);
+    expect(withActionAvailability(draft, { interrogate: false }).next.secondary).toEqual([
+      { action: 'interrogate', enabled: false, reason: { kind: 'action-unavailable', action: 'interrogate' } },
+    ]);
+  });
+
+  it('still omits a secondary the plan\'s own state disables, whatever the board runs', () => {
+    const blocked = facts({
+      status: 'in-progress', controls: controls({ status: 'in-progress', started: true }),
+      slices: { total: 2, complete: 0, eligible: 0, waitsOn: [] },
+    });
+    expect(blocked.next.secondary).toEqual([]);
+    expect(withActionAvailability(blocked, { 'start-work': false }).next.secondary).toEqual([]);
+    expect(withActionAvailability(blocked, { 'start-work': true }).next.secondary).toEqual([]);
   });
 
   it('keeps an already-disabled primary\'s own reason', () => {

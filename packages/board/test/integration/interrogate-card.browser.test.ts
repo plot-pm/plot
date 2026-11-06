@@ -123,10 +123,14 @@ describe('a Draft card offers Interrogate', () => {
     const posts: unknown[] = [];
     const page = await open({ interrogate: { available: false, reason }, posts });
     try {
-      const btn = interrogate(page, 'never-asked');
+      // The board's configuration refuses it, so the card KEEPS it — disabled,
+      // with the binding's own sentence beside it rather than vanishing.
+      const slot = card(page, 'never-asked').locator('[data-action="interrogate"]');
+      const btn = slot.getByRole('button', { name: 'Interrogate' });
       await expect.poll(() => btn.count(), { timeout: 10_000 }).toBe(1);
       expect(await btn.getAttribute('aria-disabled')).toBe('true');
       expect(await btn.getAttribute('title')).toContain('Interrogate command');
+      expect(await slot.locator('[data-action-reason]').textContent()).toContain('Interrogate command');
       // Playwright will not click an aria-disabled control; the event reaches
       // the handler, which is the guard under test.
       await btn.dispatchEvent('click');
