@@ -219,7 +219,7 @@ Each test fails on `origin/main` before the change unless it says otherwise.
 
 ### Review write gate
 
-- `feature/the-review-status-has-one-writer` — `writesReviewStatus` in `rules/role-gate.ts` reads a `plot/review` commit-status write, the role-deny gate refuses it for a role agent, and the controller gate refuses it in the main checkout and at a desk before its linked-worktree return, unless it comes from `plot-review.mjs` <!-- builds: the plot/review write gate -->
+- `feature/the-review-status-has-one-writer` — `writesReviewStatus` in `rules/role-gate.ts` reads a `plot/review` commit-status write, the role-deny gate refuses it for a role agent, and the controller gate refuses it in the main checkout and at a desk before its linked-worktree return, unless it comes from `plot-review.mjs` <!-- builds: the plot/review write gate --> → #3188
 
 ## Notes
 
