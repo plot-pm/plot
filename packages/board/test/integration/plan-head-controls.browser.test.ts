@@ -3,6 +3,7 @@ import { type Page } from 'playwright';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { expandAgentFolds } from '../helpers.mjs';
 import { type AgentRow, type Fleet, type Board } from '../../src/contract/schema.js';
+import { withFacts } from '../fixtures/card-facts.js';
 
 /**
  * THE PLAN'S ACTS LIVE ON THE PLAN HEAD — what only a rendered page can settle.
@@ -95,10 +96,10 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 
 /** A Draft card for a plan, matched to a fleet row by `path` basename. */
 function draftCard(slug: string, file: string) {
-  return {
+  return withFacts({
     slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [],
     controls: { approve: true, needsDesign: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false },
-  };
+  });
 }
 
 /**

@@ -16,6 +16,7 @@ import { implementAvailability } from '../implement.js';
 import { dropAvailability } from '../drop.js';
 import { storyAvailability } from '../story.js';
 import { boardState } from './fleet-state.js';
+import { columnsWithAvailability } from '../plan-facts.js';
 
 /**
  * The `/api/board` payload: the estate's board plus the facts only this server
@@ -64,21 +65,28 @@ export const boardAnswer = async (
   // `discoveryLanes` would also find no cache — `boardState`'s topics
   // (stories only, no tickets) stand in, same as its `tickets: null`.
   const ticketData = await ticketLaneData(opts);
+  const dispatch = dispatchAvailability(host);
+  const approve = approveAvailability(host);
+  const interrogate = await interrogateAvailability(host, opts);
+  const deliver = deliverAvailability(host);
   return {
     ...built,
+    // Which card actions this server runs, from the same answers the capability
+    // fields below carry: a card's facts are built with no binding in scope.
+    columns: columnsWithAvailability(built.columns, { dispatch, approve, interrogate, deliver }),
     // The fleet's own cache, not `built.planSource`: the ref and its age
     // come from the same read, but `boardState` has no reason to depend on
     // `fleet.ts`'s cache for a field it never otherwise needs.
     planRefAgeSeconds: planRefAgeSeconds(opts),
-    dispatch: dispatchAvailability(host),
+    dispatch,
     server: await serverInfo(opts, port),
-    approve: approveAvailability(host),
+    approve,
     continue: continueAvailability(host),
     restart: restartAvailability(host),
     idea: ideaAvailability(host),
-    interrogate: await interrogateAvailability(host, opts),
+    interrogate,
     reslice: resliceAvailability(host),
-    deliver: deliverAvailability(host),
+    deliver,
     implement: implementAvailability(host),
     drop: dropAvailability(host),
     story: storyAvailability(host),

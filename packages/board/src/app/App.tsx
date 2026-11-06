@@ -594,20 +594,23 @@ export function App() {
     : board?.dispatch;
 
   /**
-   * The board as the card views should see it — same data, effective dispatch.
+   * The board as the card views should see it: the same data, with the
+   * effective `dispatch`, `approve`, `interrogate` and `deliver` entries in
+   * place of the served ones, so a frozen page dims every card control.
    *
-   * `BoardView` and `Swimlanes` read `board.dispatch` off the document rather
-   * than taking it as a prop, so substituting it here reaches every card
-   * through the path they already use. That keeps this change out of both of
-   * those files, which two other branches are editing today, and it means a
-   * card view added later inherits the block for free.
+   * `BoardView` and `Swimlanes` read these entries off the board they are
+   * given, so a card view that takes this board inherits the same block.
    *
-   * A function rather than a derived value because it is called where `board`
-   * has already been narrowed to non-null, and a nullable variable would carry
-   * that null into props that do not accept one.
+   * @param b - the board as served, already narrowed to non-null.
+   * @returns the board with the four action entries replaced where this page overrides them.
    */
-  const withEffectiveDispatch = (b: Board): Board =>
-    dispatchInfo ? { ...b, dispatch: dispatchInfo } : b;
+  const withEffectiveDispatch = (b: Board): Board => ({
+    ...b,
+    ...(dispatchInfo ? { dispatch: dispatchInfo } : {}),
+    ...(approveInfo ? { approve: approveInfo } : {}),
+    ...(interrogateInfo ? { interrogate: interrogateInfo } : {}),
+    deliver: deliverInfo,
+  });
 
   /**
    * The SAME treatment for approving, and it travels to the Delivery tab.
@@ -624,6 +627,11 @@ export function App() {
   const approveInfo = dimmed
     ? { available: false, reason: BLOCKED_REASON }
     : board?.approve;
+
+  /** Interrogate, dimmed on a frozen page by the same rule; it starts a panel agent. */
+  const interrogateInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.interrogate;
 
   /**
    * The SAME treatment again for continuing an answered agent.
@@ -1532,6 +1540,7 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
+              onOpenSprint={onOpenSprint}
               highlight={validHighlight}
               showReleased={showReleased}
             />
@@ -1546,6 +1555,7 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
+              onOpenSprint={onOpenSprint}
               highlight={validHighlight}
               showReleased={showReleased}
             />
