@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { passkeyFile } from '../src/adapters/passkey/passkey-file.js';
-import type { PasskeyRecord } from '../src/entities/passkey.js';
+import { decodePasskeyRecord, encodePasskeyRecord, type PasskeyRecord } from '../src/entities/passkey.js';
 import { FLAG_UP, FLAG_UV, passkeyVerdict } from '../src/rules/passkey-verdict.js';
 
 const ORIGIN = 'http://localhost:4455';
@@ -132,5 +132,25 @@ describe('passkeyVerdict', () => {
 
   it('names the signature when only it fails', () => {
     expect(passkeyVerdict({ ...readings, signature: 'invalid' }, want)).toEqual({ ok: false, check: 'signature' });
+  });
+});
+
+describe('decodePasskeyRecord', () => {
+  const record: PasskeyRecord = { v: 1, credentialId: 'cred-1', publicKey: 'pk', signCount: 0, registeredAt: '2026-11-06T00:00:00Z' };
+
+  it('reads back what encodePasskeyRecord wrote', () => {
+    expect(decodePasskeyRecord(encodePasskeyRecord(record))).toEqual(record);
+  });
+
+  it('reads blank text as no record', () => {
+    expect(decodePasskeyRecord(' \n')).toBeNull();
+  });
+
+  it('reads text that is not JSON as no record', () => {
+    expect(decodePasskeyRecord('{"v":1,')).toBeNull();
+  });
+
+  it('reads another version as no record', () => {
+    expect(decodePasskeyRecord(JSON.stringify({ ...record, v: 2 }))).toBeNull();
   });
 });
