@@ -10,7 +10,7 @@ import {
   type DeskDeadAnswer,
   type FixerReading,
 } from '@plot-pm/domain';
-import { roleCommand, roleAgentsJson, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
+import { roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 import type { PidCheck } from '@plot-pm/domain/rules/role-run-alive';
 import { fixerPrompt, endedFixerAttempts, type FixerEvidence } from '@plot-pm/domain/rules/fixer-start';
 import type { FixerAttemptsRecord, FixerFinding, FixerInFlight } from '@plot-pm/domain/entities/fixer-attempts';
@@ -21,6 +21,7 @@ import type { SlotRefusalInput } from '@plot-pm/domain/rules/fleet-run';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
+import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Processes } from '@plot-pm/domain/ports/processes';
@@ -44,6 +45,7 @@ import type { WorkerState } from '@plot-pm/domain/entities/fleet';
 import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { takeContinueLock, releaseContinueLock, continueLockPath } from './continue-lock.js';
 import { mainCheckout } from './main-checkout.js';
+import { roleFilesAt } from './role-files.js';
 import { commonGitDir } from './agent-log.js';
 import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
 
@@ -56,8 +58,8 @@ export interface FixerTickWorld {
   readonly freshAgents: (opts: ActOptions) => Pick<FreshAgentRecordStore, 'rowsFor'>;
   /** Reads a desk worktree's ending file; real `fs` by default, `null` for "no file". */
   readonly readEndingFile: (worktree: string) => string | null;
-  /** Reads a role's definition file from the main checkout; real `fs` by default. */
-  readonly readRoleFile: (main: string, role: string) => string | null;
+  /** The ports the role's files are read from `origin/<default>` through; the git adapter by default. */
+  readonly refs: (opts: ActOptions) => Pick<Refs, 'defaultBranch' | 'showFile'>;
   /** The path of the agent settings file in the main checkout, or `null` where it is absent. */
   readonly agentSettingsFile: (main: string) => string | null;
   /** Reads a review verdict file; real `fs` by default, `null` for a file that cannot be read. */
@@ -155,9 +157,8 @@ const clearRunDirRemnants = (dir: string): boolean => {
 /** Where this fixer run's log is appended. */
 const fixerLogPath = (repoRoot: string, pr: number): string => path.join(repoRoot, '.plot', 'state', 'fixer', `${pr}.log`);
 
-/** Where this fixer run's `--agents` JSON is written — outside the run's own tree, as `PLOT_ROLE_GATE` requires. */
-const fixerAgentsJsonPath = (repoRoot: string, pr: number): string =>
-  path.join(repoRoot, '.plot', 'state', 'fixer', `${pr}.agents.json`);
+/** Where this fixer run's `agents.json` and `settings.json` are written — outside the run's own tree, as `PLOT_ROLE_GATE` requires, and one directory per PR so concurrent fixers never share a file. */
+const fixerRoleDir = (repoRoot: string, pr: number): string => path.join(repoRoot, '.plot', 'state', 'fixer', String(pr));
 
 /** Translates a {@link WorkerState} into the {@link DeskDeadAnswer} `deskDead` would have answered, had the fleet assembled `AgentStateReadings` from scratch. */
 export const deskDeadFromWorkerState = (state: WorkerState): DeskDeadAnswer => {
@@ -171,12 +172,6 @@ export const deskDeadFromWorkerState = (state: WorkerState): DeskDeadAnswer => {
     default:
       return { dead: true };
   }
-};
-
-/** The turn limit `roleCommand` enforces for the fixer, read from its own frontmatter rather than hardcoded. */
-const maxTurnsOf = (text: string): number => {
-  const match = /^maxTurns:\s*(\d+)\s*$/m.exec(text);
-  return match ? Number(match[1]) : 0;
 };
 
 /**
@@ -455,13 +450,17 @@ const startFixer = async (
   logged: Set<string>,
 ): Promise<FixerStartOutcome> => {
   const main = mainCheckout(opts.repoRoot);
-  const text = world.readRoleFile(main, 'fixer');
-  if (text === null) return { started: false, why: 'role-files-failed' };
-  const json = roleAgentsJson('fixer', text);
-  if (json.read !== 'json') return { started: false, why: 'role-files-failed' };
-  const agentsFile = fixerAgentsJsonPath(opts.repoRoot, row.number);
-  const ref: RoleAgentRef = { name: 'fixer', agentsFile, settingsFile: path.join(main, '.claude', 'settings', 'fixer.json') };
-  const role = roleCommand(ref, maxTurnsOf(text));
+  const trees = world.trees(opts);
+  const files = await roleFilesAt(
+    { repoRoot: opts.repoRoot, trees, refs: world.refs(opts) },
+    { role: 'fixer', outDir: fixerRoleDir(opts.repoRoot, row.number), settings: true },
+  );
+  if (files.read === 'refused') {
+    console.error(`plot-fleetd: the fixer for #${row.number} did not start: ${files.why}`);
+    return { started: false, why: 'role-files-failed' };
+  }
+  const ref: RoleAgentRef = { name: 'fixer', agentsFile: files.agentsFile, settingsFile: files.settingsFile };
+  const role = roleCommand(ref, files.maxTurns);
   if (role.read !== 'command') return { started: false, why: 'role-command-refused' };
   // A SECOND `--settings` MERGES WITH THE ROLE'S OWN (measured on 2.1.316): the agent settings disable the operator's plugins.
   const agentSettings = world.agentSettingsFile(main);
@@ -485,7 +484,6 @@ const startFixer = async (
   fs.mkdirSync(lockDir, { recursive: true });
   const lock = takeContinueLock(lockDir);
   if (lock === null) return { started: false, why: 'lock-held' };
-  const trees = world.trees(opts);
   const worktree = fixerRunDir(opts.repoRoot, row.number);
   let added = false;
   let outcome: FixerStartOutcome = { started: false, why: 'unaskable' };
@@ -509,8 +507,6 @@ const startFixer = async (
       return (outcome = { started: false, why: 'worktree-failed' });
     }
     added = true;
-    fs.mkdirSync(path.dirname(agentsFile), { recursive: true });
-    fs.writeFileSync(agentsFile, json.json, 'utf8');
 
     const startedAt = new Date(now).toISOString();
     const store = world.attempts(opts);
@@ -743,7 +739,7 @@ const defaultFixerTickWorld: FixerTickWorld = {
   attempts: (opts) => fixerAttemptsFile(opts.repoRoot),
   freshAgents: (opts) => freshAgentRecordFile({ cwd: opts.repoRoot }),
   readEndingFile: readOrNull,
-  readRoleFile: (main, role) => readOrNull(path.join(main, '.claude', 'agents', `${role}.md`)),
+  refs: (opts) => refsOf(opts),
   readVerdictFile: readOrNull,
   readLogFile: readOrNull,
   agentSettingsFile: (main) => {

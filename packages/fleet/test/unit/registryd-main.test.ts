@@ -3157,7 +3157,8 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
         // `unblockPortsFor`'s own wiring does not require a real `.claude/agents`
         // definition or a real `claude` binary on PATH — `unblockOutcome`'s
         // parser and `agentRunCommand`'s spawn are each tested on their own.
-        readRoleFile: () => null,
+        trees: { fetch: async () => ({ ok: true, value: undefined }) },
+        refs: { defaultBranch: async () => ({ ok: true, value: 'main' }), showFile: async () => ({ ok: false, why: 'failed' }) },
       });
       ports.run = async () => {
         runCalls += 1;
@@ -3238,18 +3239,31 @@ describe('unblockPortsFor — the role run the unblocker gets', () => {
       finalText,
     } as unknown as AgentRunResult);
 
-  const setup = (end: AgentRunEnd, finalText: string) => {
+  const setup = (end: AgentRunEnd, finalText: string, over: { fetchOk?: boolean; originText?: string } = {}) => {
     const repoRoot = mkdtempSync(join(tmpdir(), 'plot-unblock-run-repo-'));
     const scriptsDir = mkdtempSync(join(tmpdir(), 'plot-unblock-run-scripts-'));
     dirs.push(repoRoot, scriptsDir);
     writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), question3048);
     const seen: { fragment: string; request: AgentRunRequest | null } = { fragment: '', request: null };
     let starts = 0;
+    const loads: string[] = [];
     const ports = unblockPortsFor({
       repoRoot,
       scriptsDir,
       boardOpts: { repoRoot, scriptsDir },
-      readRoleFile: () => roleText,
+      trees: {
+        fetch: async (_dir, branch) => {
+          loads.push(`fetch ${String(branch)}`);
+          return over.fetchOk === false ? { ok: false, why: 'failed' } : { ok: true, value: undefined };
+        },
+      },
+      refs: {
+        defaultBranch: async () => ({ ok: true, value: 'main' }),
+        showFile: async (ref, file) => {
+          loads.push(`read ${ref}:${file}`);
+          return { ok: true, value: file.endsWith('.md') ? (over.originText ?? roleText) : '{"hooks":{}}' };
+        },
+      },
       agentSettingsFile: (main) => join(main, '.plot', 'agent-settings.json'),
       agentRun: (fragment) => {
         seen.fragment = fragment;
@@ -3272,7 +3286,7 @@ describe('unblockPortsFor — the role run the unblocker gets', () => {
       branch: 'feature/the-scan-script-is-a-launcher',
       askedAt: '2026-11-03T09:21:39.000Z',
     };
-    return { repoRoot, ports, seen, write, starts: () => starts };
+    return { repoRoot, ports, seen, write, loads, starts: () => starts };
   };
 
   it('puts the marker`s whole question in the prompt and the `started` row, not the 120-character note (#3048)', async () => {
@@ -3286,6 +3300,33 @@ describe('unblockPortsFor — the role run the unblocker gets', () => {
     expect(seen.request?.prompt).toBe(whole);
     const rows = await answerRecordFile({ cwd: repoRoot }).rowsForDesk(repoRoot);
     expect(rows.ok && rows.value.map((row) => [row.outcome, row.question])).toEqual([['started', whole]]);
+  });
+
+  it('starts from the origin text and its maxTurns, with the settings file the loader wrote', async () => {
+    const originText = roleText.replace(/^maxTurns:.*$/m, 'maxTurns: 13').replace(/^(---\n[\s\S]*?\n---\n)[\s\S]*$/, '$1Origin body.\n');
+    expect(originText).toContain('maxTurns: 13');
+    const { repoRoot, ports, seen, write } = setup({ answer: 'ran', handBack: null }, 'ANSWER\nyes', { originText });
+    await applyUnblockDecisions([write], ports);
+    expect(seen.fragment).toContain('--max-turns 13');
+    expect(seen.fragment).toContain(join(repoRoot, '.plot', 'state', 'unblocker', 'settings.json'));
+    const agents = JSON.parse(readFileSync(join(repoRoot, '.plot', 'state', 'unblocker', 'agents.json'), 'utf8'));
+    expect(agents.unblocker.prompt).toBe('Origin body.');
+  });
+
+  it('fetches the default branch before it reads the role file', async () => {
+    const { ports, write, loads } = setup({ answer: 'ran', handBack: null }, 'ANSWER\nyes');
+    await applyUnblockDecisions([write], ports);
+    expect(loads[0]).toBe('fetch main');
+    expect(loads[1]).toBe('read origin/main:.claude/agents/unblocker.md');
+  });
+
+  it('records `failed default-branch-unfetched`, runs nothing and writes no role file when the fetch fails', async () => {
+    const { repoRoot, ports, seen, write, starts } = setup({ answer: 'ran', handBack: null }, 'ANSWER\nyes', { fetchOk: false });
+    const applied = await applyUnblockDecisions([write], ports);
+    expect(applied).toEqual([{ branch: write.branch, outcome: 'failed', detail: 'default-branch-unfetched' }]);
+    expect(seen.request).toBeNull();
+    expect(starts()).toBe(0);
+    expect(existsSync(join(repoRoot, '.plot', 'state', 'unblocker'))).toBe(false);
   });
 
   it('bounds the run in time and adds the agent settings as a second `--settings`', async () => {

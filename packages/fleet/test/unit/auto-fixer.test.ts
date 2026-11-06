@@ -82,7 +82,12 @@ interface WorldOptions {
   markCalls?: { pr: number; index: number; mark: FixerInFlight | null }[];
   prState?: { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED'; headSha?: string } | null | 'fail';
   addOk?: boolean;
+  /** The fixer definition `origin/<default>` holds; `null` where the file is not there. */
   roleText?: string | null;
+  /** Every fetch and role-file read, in order. */
+  loads?: string[];
+  /** Whether the default branch fetch completes; `false` fails it. */
+  defaultFetchOk?: boolean;
   /** The verdict file's text; `null` for a file that cannot be read. */
   verdictText?: string | null;
   verdictFiles?: string[];
@@ -130,7 +135,10 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
         fs.writeFileSync(path.join(dir, '.git'), 'gitdir: elsewhere\n');
         return { ok: true, value: undefined };
       },
-      fetch: async () => ({ ok: true, value: undefined }),
+      fetch: async (_dir, branch) => {
+        opts.loads?.push(`fetch ${String(branch)}`);
+        return branch === 'main' && opts.defaultFetchOk === false ? { ok: false, why: 'failed' } : { ok: true, value: undefined };
+      },
       prune: async () => ({ ok: true, value: undefined }),
       removeOnly: async (dir) => {
         opts.removeCalls?.push(dir);
@@ -200,7 +208,15 @@ const world = (opts: WorldOptions = {}): FixerTickWorld => {
       rowsFor: async () => ({ ok: true, value: Array.from({ length: opts.freshRows ?? 0 }, () => ({}) as never) }),
     }),
     readEndingFile: () => (opts.endingText === undefined ? null : opts.endingText),
-    readRoleFile: () => (opts.roleText === undefined ? FIXER_MD : opts.roleText),
+    refs: () => ({
+      defaultBranch: async () => ({ ok: true, value: 'main' }),
+      showFile: async (ref, file) => {
+        opts.loads?.push(`read ${ref}:${file}`);
+        const text = opts.roleText === undefined ? FIXER_MD : opts.roleText;
+        if (file.endsWith('.md')) return text === null ? { ok: false, why: 'failed' } : { ok: true, value: text };
+        return { ok: true, value: '{"hooks":{}}' };
+      },
+    }),
     agentSettingsFile: () => (opts.agentSettings === undefined ? '/main/.plot/agent-settings.json' : opts.agentSettings),
     readLogFile: () => (opts.logText === undefined ? null : opts.logText),
     readVerdictFile: (file) => {
@@ -405,6 +421,41 @@ describe('fixerTick', () => {
     const w = world({ roleText: null });
     const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, w);
     expect(result!.started).toEqual({ started: false, why: 'role-files-failed' });
+  });
+
+  it('starts with the origin text and its maxTurns, not the main checkout copy', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const agentsDir = path.join(repoRoot, '.claude', 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, 'fixer.md'), '---\ndescription: Dirty copy.\nmaxTurns: 99\n---\n\nDirty body.\n');
+    const runRequests: NonNullable<WorldOptions['runRequests']> = [];
+    const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ runRequests }));
+    expect(result!.started).toEqual({ started: true, pid: 9001 });
+    expect(runRequests[0]!.fragment).toContain('--max-turns 7');
+    expect(runRequests[0]!.fragment).not.toContain('--max-turns 99');
+    const agents = JSON.parse(fs.readFileSync(path.join(repoRoot, '.plot', 'state', 'fixer', '7', 'agents.json'), 'utf8'));
+    expect(agents.fixer.prompt).toBe('Fix the finding.');
+    expect(runRequests[0]!.fragment).toContain(path.join(repoRoot, '.plot', 'state', 'fixer', '7', 'settings.json'));
+  });
+
+  it('fetches the default branch before it reads the role file', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const loads: string[] = [];
+    await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ loads }));
+    expect(loads.indexOf('fetch main')).toBeGreaterThanOrEqual(0);
+    expect(loads.indexOf('fetch main')).toBeLessThan(loads.indexOf('read origin/main:.claude/agents/fixer.md'));
+  });
+
+  it('refuses the start, writes no role file and spends no attempt when the default branch cannot be fetched', async () => {
+    const { repoRoot, scriptsDir } = fixture();
+    const starts: Started[] = [];
+    const appendCalls: { pr: number; headSha: string }[] = [];
+    const dir = path.join(repoRoot, '.plot', 'state', 'fixer', '7');
+    const [result] = await fixerTick([highRow], baseReadings, { repoRoot, scriptsDir }, world({ defaultFetchOk: false, agentRunStarts: starts, appendCalls }));
+    expect(result!.started).toEqual({ started: false, why: 'role-files-failed' });
+    expect(starts).toHaveLength(0);
+    expect(appendCalls).toEqual([]);
+    expect(fs.existsSync(dir)).toBe(false);
   });
 
   it('creates the worktree at a run directory that does not exist yet, and leaves no lock behind', async () => {
@@ -721,7 +772,7 @@ describe('fixerTick against a real git repository', () => {
   const realWorld = (repoRoot: string, head: string, options: WorldOptions = {}): FixerTickWorld => {
     const fake = world({ prState: { number: 7, state: 'OPEN', headSha: head }, ...options });
     const real = treesGit({ repoRoot, scriptDir: repoRoot });
-    return { ...fake, trees: (o) => ({ ...real, forBranch: fake.trees(o).forBranch }) };
+    return { ...fake, trees: (o) => ({ ...real, forBranch: fake.trees(o).forBranch, fetch: fake.trees(o).fetch }) };
   };
 
   it('creates the fixer worktree detached at the head, and removes it after a failed start so a retry succeeds', async () => {

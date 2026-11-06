@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,7 +24,7 @@ afterEach(() => {
 
 const REFUSAL = "--agent 'main-repair' not found. Available agents: claude, Explore\n";
 
-const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean; alive?: boolean; refused?: boolean; warns?: string[] } = {}) => {
+const rig = (over: { trees?: string[]; fetch?: boolean; fetchDefault?: boolean; definition?: string; files?: boolean; alive?: boolean; refused?: boolean; warns?: string[] } = {}) => {
   const repoRoot = mkdtempSync(join(tmpdir(), 'repair-role-'));
   roots.push(repoRoot);
   const calls: string[] = [];
@@ -36,8 +36,9 @@ const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean; alive?:
     scriptsDir: '/plugin/scripts',
     trees: {
       list: async () => answered((over.trees ?? []).map((branch) => ({ path: `/desk/${branch}`, branch }) as never)),
-      fetch: async () => {
-        calls.push('fetch');
+      fetch: async (_path, branch) => {
+        calls.push(`fetch ${String(branch)}`);
+        if (branch === 'main') return over.fetchDefault === false ? failed() : answered(undefined);
         return over.fetch === false ? failed() : answered(undefined);
       },
       addBranch: async (_path, _branch, start) => {
@@ -48,7 +49,7 @@ const rig = (over: { trees?: string[]; fetch?: boolean; files?: boolean; alive?:
     refs: {
       defaultBranch: async () => answered('main'),
       showFile: async (_ref, path) =>
-        over.files === false ? failed() : answered(path.endsWith('.md') ? DEFINITION : '{"hooks":{}}'),
+        over.files === false ? failed() : answered(path.endsWith('.md') ? (over.definition ?? DEFINITION) : '{"hooks":{}}'),
     },
     runnerOf: (fragment): AgentRun => {
       fragments.push(fragment);
@@ -79,7 +80,7 @@ describe('repairRoleOf', () => {
     const r = rig();
     const world = repairRoleOf(r.deps);
     expect(await world.startRole(BRANCH)).toBe('started');
-    expect(r.calls).toEqual(['fetch', `add origin/${BRANCH}`, 'run']);
+    expect(r.calls).toEqual([`fetch ${BRANCH}`, `add origin/${BRANCH}`, 'fetch main', 'run']);
     expect(r.requests[0]).toMatchObject({
       worktree: `/desk/${BRANCH}`,
       boundSeconds: 3600,
@@ -143,18 +144,35 @@ describe('repairRoleOf', () => {
     r.finish();
   });
 
-  it('keeps an existing desk and fetches nothing', async () => {
+  it('keeps an existing desk and fetches only the default branch', async () => {
     const r = rig({ trees: [BRANCH] });
     const world = repairRoleOf(r.deps);
     expect(await world.hasDesk(BRANCH)).toBe(true);
     expect(await world.startRole(BRANCH)).toBe('started');
-    expect(r.calls).toEqual(['run']);
+    expect(r.calls).toEqual(['fetch main', 'run']);
   });
 
   it('starts nothing where the branch cannot be fetched', async () => {
     const r = rig({ fetch: false });
     expect(await repairRoleOf(r.deps).startRole(BRANCH)).toBe('failed');
-    expect(r.calls).toEqual(['fetch']);
+    expect(r.calls).toEqual([`fetch ${BRANCH}`]);
+  });
+
+  it('starts nothing, and writes no role file, where the default branch cannot be fetched even though a stale ref answers', async () => {
+    const warns: string[] = [];
+    const r = rig({ fetchDefault: false, warns });
+    expect(await repairRoleOf(r.deps).startRole(BRANCH)).toBe('failed');
+    expect(r.calls).toEqual([`fetch ${BRANCH}`, `add origin/${BRANCH}`, 'fetch main']);
+    expect(existsSync(join(r.repoRoot, '.plot', 'state', 'main-repair'))).toBe(false);
+    expect(warns).toEqual(['plot-fleetd: repair-start held — default-branch-unfetched']);
+  });
+
+  it('takes the session turn limit from the definition file', async () => {
+    const r = rig({ definition: DEFINITION.replace('model: opus', 'model: opus\nmaxTurns: 80') });
+    expect(await repairRoleOf(r.deps).startRole(BRANCH)).toBe('started');
+    expect(r.requests[0]!.maxTurns).toBe(80);
+    expect(r.fragments[0]).toContain('--max-turns 80');
+    r.finish();
   });
 
   it('starts nothing where the role files are not on the default branch', async () => {
