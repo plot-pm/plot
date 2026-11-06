@@ -34,6 +34,23 @@ const COLD_INPUT = {
   path: 'docs/plans/2026-11-06-cold.md', sprint: 'card-alignment',
   sliceSummary: { slices: 2, branches: 2, deferred: 0 },
 } satisfies Parameters<typeof card>[0];
+/** A plan with no `Assignee:` line whose `Started:` record names who took it up. */
+const APP_KEYS_INPUT = {
+  slug: 'app-keys', title: 'App keys resolve from one per-user folder', phase: 'Development', status: 'approved', started: true,
+  path: 'docs/plans/2026-11-06-app-keys.md',
+} satisfies Parameters<typeof card>[0];
+const APP_KEYS = card({
+  ...APP_KEYS_INPUT,
+  facts: planFactsOf(card(APP_KEYS_INPUT), {
+    state: stateFor(APP_KEYS_INPUT),
+    records: {
+      designRaw: '', approvedRaw: '', deliveredRaw: '', releasedRaw: '',
+      startedRaw: '2026-11-06, Jan Wloka, feature/app-keys-resolve-from-one-folder',
+    },
+    directory: { 'jan wloka': 'jwloka' },
+  }),
+});
+
 const STARTABLE_COLD = card({ ...COLD_INPUT, facts: planFactsOf(card(COLD_INPUT), { state: stateFor(COLD_INPUT), sprints: [SPRINT] }) });
 
 describe('a plan card renders the card grammar', () => {
@@ -51,7 +68,7 @@ describe('a plan card renders the card grammar', () => {
     const page = await cat.open('an-empty-estate', {
       over: {
         board: board({
-          columns: [column({ phase: 'Discovery', cards: [DRAFT] }), column({ phase: 'Development', cards: [STARTABLE_COLD] })],
+          columns: [column({ phase: 'Discovery', cards: [DRAFT] }), column({ phase: 'Development', cards: [STARTABLE_COLD, APP_KEYS] })],
           branchUrlBase: 'https://example.invalid/tree/',
           issueUrlBase: 'https://example.invalid/issues/',
           sprints: [SPRINT],
@@ -88,7 +105,17 @@ describe('a plan card renders the card grammar', () => {
       // Nobody assigned is an empty circle named for it, not a word on the card.
       const nobody = page.locator('#plan-cold [data-assignees]');
       expect(await nobody.getAttribute('aria-label')).toBe('Unassigned');
-      expect(await page.locator('#plan-cold').innerText()).not.toContain('Unassigned');
+      // The circle is not the only sign: a muted word follows it.
+      expect(await nobody.locator('[data-assignee-word]').innerText()).toBe('unassigned');
+      // A plan with no Assignee: shows who started it, and the tooltip names the record.
+      const starter = page.locator('#plan-app-keys [data-assignees]');
+      expect(await starter.getAttribute('aria-label')).toBe('@jwloka');
+      expect(await starter.innerText()).toBe('JW');
+      await starter.focus();
+      // The tooltip the avatar names as its description.
+      const tip = page.locator(`[id="${await starter.getAttribute('aria-describedby')}"]`);
+      await expect.poll(() => tip.isVisible()).toBe(true);
+      expect(await tip.textContent()).toBe('Started by @jwloka on 2026-11-06');
     } finally {
       await page.close();
     }

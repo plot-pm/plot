@@ -116,6 +116,25 @@ const DATE = /\b\d{4}-\d{2}-\d{2}\b/g;
 const newestDate = (raws: readonly string[]): string =>
   raws.flatMap((raw) => raw.match(DATE) ?? []).reduce((a, b) => (b > a ? b : a), '');
 
+/** A `Started:` record's value: its ISO date, then the person who took the work up. */
+const STARTED = /^\s*(\d{4}-\d{2}-\d{2})\s*,\s*`?([^,`]+)`?/;
+
+/**
+ * The person and date on the newest `Started:` record; on equal dates the
+ * later line wins.
+ *
+ * @param startedRaw - the plan's `Started:` values, one per line.
+ * @returns the person as the record spells them and the record's date, or
+ *   `null` where no record names both.
+ */
+const newestStart = (startedRaw: string): { who: string; at: string } | null =>
+  startedRaw.split('\n').reduce<{ who: string; at: string } | null>((newest, line) => {
+    const match = line.match(STARTED);
+    if (match === null) return newest;
+    const start = { at: match[1] as string, who: (match[2] as string).trim() };
+    return newest === null || start.at >= newest.at ? start : newest;
+  }, null);
+
 const enabled = (action: ActionKind): Action => ({ action, enabled: true, reason: null });
 const disabled = (action: ActionKind, reason: Reason): Action => ({ action, enabled: false, reason });
 
@@ -188,7 +207,8 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
  * What is true about one plan, as its card shows it.
  *
  * The assignees are the plan's `Assignee:` names, resolved through `People`;
- * the approver is not an assignee. `progress.state` is the plan's `State:`,
+ * where it names none, the person on its newest `Started:` record; the
+ * approver is never an assignee. `progress.state` is the plan's `State:`,
  * `unknown` where it could not be read. `ownership.since` is the
  * newest dated record (`transitioned`), else the plan file's date prefix
  * (`opened`). `identity.key` is the plan's first issue key, and `lineage.tickets`
@@ -202,13 +222,19 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
 export const planCardFacts = (readings: PlanCardFactsReadings, directory: PersonDirectory = {}): CardFacts => {
   const type = PlanTypeSchema.safeParse(readings.type.trim().toLowerCase());
   const { records } = readings;
-  const assignees = readings.assignee.split(',').map((name) => name.trim()).filter((name) => name !== '')
+  const assigned = readings.assignee.split(',').map((name) => name.trim()).filter((name) => name !== '')
     .map((name) => resolvePerson(name, directory).handle);
+  // No `Assignee:` line: whoever took the work up on the newest `Started:` record.
+  const started = assigned.length === 0 ? newestStart(records.startedRaw) : null;
+  const assignees = started === null ? assigned : [resolvePerson(started.who, directory).handle];
+  const assignedFrom: CardFacts['ownership']['assignedFrom'] = assigned.length > 0
+    ? { source: 'assigned' }
+    : started === null ? null : { source: 'started', at: started.at };
   const state = PlanStateSchema.safeParse(readings.state.trim().toLowerCase());
   const transitioned = newestDate([
     records.designRaw, records.approvedRaw, records.startedRaw, records.deliveredRaw, records.releasedRaw,
   ]);
-  const opened = (readings.path.split('/').pop() ?? '').match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
+  const opened = readings.path.slice(readings.path.lastIndexOf('/') + 1).match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
   const since: CardFacts['ownership']['since'] = transitioned !== ''
     ? { at: transitioned, event: 'transitioned' }
     : opened !== '' ? { at: opened, event: 'opened' } : null;
@@ -249,6 +275,7 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
     next: nextOf(readings),
     ownership: {
       assignees: { value: assignees },
+      assignedFrom,
       since,
       source: { path: readings.path },
     },

@@ -68,7 +68,7 @@ describe('presentCard: three sections', () => {
     expect(s.status.state).toMatchObject({ text: 'Approved', dot: 'green' });
     expect(s.accent).toBe('green');
     expect(s.status.work).toMatchObject({ kind: 'work', done: 1, total: 2, piece: { text: '1/2 slices' } });
-    expect(s.footer.assignees).toEqual({ kind: 'named', initials: 'JW', more: 0, label: '@jwloka' });
+    expect(s.footer.assignees).toEqual({ kind: 'named', initials: 'JW', more: 0, label: '@jwloka', detail: 'Assigned: @jwloka', word: null });
     expect(s.footer.age).toMatchObject({ text: '5 days ago', detail: 'opened 2026-11-01' });
   });
 
@@ -81,15 +81,27 @@ describe('presentCard: three sections', () => {
     expect(cold.status.work).toMatchObject({ kind: 'work', done: null, piece: { text: '2 slices · progress unknown', tone: 'unknown' } });
   });
 
-  it('two assignees show the first plus a count, every name in the label; none is the empty circle named Unassigned', () => {
-    expect(sections({ assignee: 'jwloka, eins78' }).footer.assignees).toEqual({ kind: 'named', initials: 'JW', more: 1, label: '@jwloka, @eins78' });
-    expect(sections({ assignee: '' }).footer.assignees).toEqual({ kind: 'unassigned', initials: null, more: 0, label: 'Unassigned' });
+  it('two assignees show the first plus a count, every name in the label; none is the empty circle and the word unassigned', () => {
+    expect(sections({ assignee: 'jwloka, eins78' }).footer.assignees).toEqual({
+      kind: 'named', initials: 'JW', more: 1, label: '@jwloka, @eins78', detail: 'Assigned: @jwloka, @eins78', word: null,
+    });
+    expect(sections({ assignee: '' }).footer.assignees).toEqual({
+      kind: 'unassigned', initials: null, more: 0, label: 'Unassigned', detail: 'Unassigned', word: 'unassigned',
+    });
+  });
+
+  it('a plan with no Assignee: shows who started it, and the tooltip says so', () => {
+    const records = { ...reading().records, startedRaw: '2026-11-06, Jan Wloka, feature/app-keys' };
+    const s = presentCard(planCardFacts(reading({ assignee: '', records }), { 'jan wloka': 'jwloka' }), 'plans');
+    expect(s.footer.assignees).toEqual({
+      kind: 'named', initials: 'JW', more: 0, label: '@jwloka', detail: 'Started by @jwloka on 2026-11-06', word: null,
+    });
   });
 
   it('an unread assignee list is the same circle, named Assignee unknown', () => {
     const facts = planCardFacts(reading());
     const s = presentCard({ ...facts, ownership: { ...facts.ownership, assignees: { unknown: 'throttled' } } }, 'plans');
-    expect(s.footer.assignees).toEqual({ kind: 'unknown', initials: null, more: 0, label: 'Assignee unknown' });
+    expect(s.footer.assignees).toEqual({ kind: 'unknown', initials: null, more: 0, label: 'Assignee unknown', detail: 'Assignee unknown', word: null });
   });
 
   it('shows no age without a clock', () => {
