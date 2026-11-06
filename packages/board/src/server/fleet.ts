@@ -3294,6 +3294,25 @@ export function prsByNumber(opts: BuildBoardOptions): Map<number, PrRecord> | nu
 export const branchUrlBaseFor = (opts: BuildBoardOptions): string => ensureCache(opts).branchUrlBase;
 
 /**
+ * The prefix for this repository's issue pages on its host, where the git host
+ * answers the repository's issues: `https://github.com/org/repo/issues/` on
+ * GitHub, `https://bitbucket.org/ws/repo/issues/` on Bitbucket Cloud.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @returns the prefix, or `''` where a `Tracker` names another service, the
+ *   config cannot be read, or the host's page shape is unknown.
+ */
+export const issueUrlBaseFor = async (opts: BuildBoardOptions): Promise<string> => {
+  const branchBase = ensureCache(opts).branchUrlBase;
+  const repo = branchBase.match(/^(.*\/)(?:tree|branch)\/$/)?.[1];
+  if (repo === undefined) return '';
+  const declared = await scriptsFor(opts).config('Tracker', '');
+  if (!declared.ok) return '';
+  const source = issueSource({ declared: declared.value, gitHost: ensureCache(opts).backend ?? '', listers: TRACKER_LISTERS });
+  return source.ask === 'git-host' ? `${repo}issues/` : '';
+};
+
+/**
  * The cached fleet pulse, or null while none has landed.
  *
  * The same shape and the same rules as `prsByNumber` above — synchronous, never

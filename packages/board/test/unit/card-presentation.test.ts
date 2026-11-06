@@ -55,10 +55,12 @@ describe('presentCard: three sections', () => {
     const s = sections({ issues: ['1089'], sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active', release: '2.32.0' } } });
     expect(s.header.kind).toEqual({ kind: 'plan', label: 'Plan', hue: 'blue' });
     expect(s.header.number).toBe('#1089');
+    expect(s.header.numberRef).toEqual({ kind: 'ticket', key: '1089', title: '1089', lane: null });
     expect(s.header.title).toBe('X');
     expect(s.header.label).toBe('1089: X');
     expect(words(s.header.meta)).toEqual(['feature', '2.32.0 · card-alignment']);
     expect(sections().header.number).toBeNull();
+    expect(sections().header.numberRef).toBeNull();
   });
 
   it('the status panel opens with the state pill and the work; the footer holds the assignee and the age', () => {

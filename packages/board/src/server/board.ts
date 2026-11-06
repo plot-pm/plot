@@ -87,7 +87,7 @@ import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
 import { planFactsOf, type CardFields, type PlanFactsExtras } from './plan-facts.js';
-import { branchUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
+import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 
@@ -2508,6 +2508,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   const prLinks = prsByNumber(opts);
   // The host's branch-page prefix, read from `origin` by the scan; `''` where unknown.
   const urlBase = branchUrlBaseFor(opts);
+  // The host's issue-page prefix, where the git host answers the issues; `''` otherwise.
+  const issueBase = await issueUrlBaseFor(opts);
   // Claims live in git refs, so the card's occupancy counts are read from the
   // same cached pulse the Delivery tab classifies from — one source, so a card
   // and a row can no longer disagree about whether work is in flight. null on a
@@ -2897,6 +2899,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     generatedAt: new Date().toISOString(),
     columns,
     branchUrlBase: urlBase,
+    issueUrlBase: issueBase,
     phaseMapRefusal,
     // WHERE THE PLANS ABOVE CAME FROM. Reported on every board, not only a
     // broken one: "these came from origin/main" is a fact a reader needs stated

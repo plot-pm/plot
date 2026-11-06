@@ -54,8 +54,19 @@ describe('linkTargetOf: what each item on a card links to', () => {
     expect(linkTargetOf(slice, 'build', prs, links)).toEqual({ href: 'https://github.com/o/r/pull/7/checks', external: true, opens: null });
     expect(linkTargetOf({ ...slice, pr: null }, 'item', prs, links))
       .toEqual({ href: 'https://github.com/o/r/tree/feature/a%20b', external: true, opens: null });
-    // No issue row names the key, so the ticket stays text rather than a built address.
+    // No issue row names the key and the board knows no issue page, so the ticket stays text.
     expect(linkTargetOf({ kind: 'ticket', key: '3101', title: '3101', lane: null }, 'item', prs, links)).toBeNull();
+  });
+
+  it('a ticket links its issue row\'s URL, else the repository\'s issue page for a number, never for another key', () => {
+    const withIssues = boardLinksOf({
+      tickets: { open: [{ id: 7, url: 'https://tracker.example/7' }], 'in-progress': [], done: [] } as unknown as Board['tickets'],
+      branchUrlBase: '', stories: [], columns: [], issueUrlBase: 'https://github.com/o/r/issues/',
+    });
+    const ticket = (key: string) => linkTargetOf({ kind: 'ticket', key, title: key, lane: null }, 'item', [], withIssues);
+    expect(ticket('7')).toEqual({ href: 'https://tracker.example/7', external: true, opens: null });
+    expect(ticket('3069')).toEqual({ href: 'https://github.com/o/r/issues/3069', external: true, opens: null });
+    expect(ticket('PROJ-12')).toBeNull();
   });
 
   it('an item the board holds no reading for stays text', () => {

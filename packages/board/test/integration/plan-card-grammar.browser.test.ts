@@ -53,6 +53,7 @@ describe('a plan card renders the card grammar', () => {
         board: board({
           columns: [column({ phase: 'Discovery', cards: [DRAFT] }), column({ phase: 'Development', cards: [STARTABLE_COLD] })],
           branchUrlBase: 'https://example.invalid/tree/',
+          issueUrlBase: 'https://example.invalid/issues/',
           sprints: [SPRINT],
           dispatch: { available: true, reason: '' },
           approve: { available: true, reason: '' },
@@ -191,15 +192,25 @@ describe('a plan card renders the card grammar', () => {
       // The type tag sits on the muted meta line below the title.
       const meta = page.locator('#plan-grammar [data-meta]');
       expect(await meta.locator('[data-type="feature"]').count()).toBe(1);
-      // The ticket number leads the title, inside its link, muted in tabular figures; the title keeps its weight.
-      const title = page.locator('#plan-grammar [data-card-title]');
-      expect(await title.evaluate((el) => el.tagName)).toBe('A');
-      expect(await title.textContent()).toBe('#3101 The card grammar');
-      const number = title.locator('[data-title-number]');
+      // The ticket number leads the title line as its own link to the issue, muted in tabular figures.
+      const number = page.locator('#plan-grammar a[data-title-number]');
+      expect(await number.getAttribute('href')).toBe('https://example.invalid/issues/3101');
+      expect(await number.getAttribute('target')).toBe('_blank');
+      expect(await number.textContent()).toBe('#3101 (opens in a new tab)');
       expect(await number.evaluate((el) => getComputedStyle(el).fontVariantNumeric)).toBe('tabular-nums');
-      expect(await number.evaluate((el) => getComputedStyle(el).color))
-        .not.toBe(await title.evaluate((el) => getComputedStyle(el).color));
+      expect(await number.evaluate((el) => getComputedStyle(el).textDecorationLine)).toBe('none');
+      // The title is a separate link at full weight, and it comes after the number in the tab order.
+      const title = page.locator('#plan-grammar [data-card-title]');
+      expect(await title.textContent()).toBe('The card grammar');
       expect(Number(await title.evaluate((el) => getComputedStyle(el).fontWeight))).toBeGreaterThanOrEqual(600);
+      await number.focus();
+      await page.keyboard.press('Tab');
+      expect(await title.evaluate((el) => el === document.activeElement)).toBe(true);
+      // The title opens PlanModal in place.
+      await title.click();
+      const path = page.getByRole('dialog').locator('[data-plan-path]');
+      await path.waitFor({ timeout: 5_000 });
+      expect(await path.textContent()).toBe('docs/plans/2026-11-06-grammar.md');
       // The meta line names no ticket number.
       expect(await meta.textContent()).not.toMatch(/#\d+/);
     } finally {
