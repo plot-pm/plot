@@ -3287,6 +3287,13 @@ export function prsByNumber(opts: BuildBoardOptions): Map<number, PrRecord> | nu
 }
 
 /**
+ * The prefix for this repository's branch pages on its host, as the scan read
+ * it from `origin`; `''` where the host's branch-page shape is not known or no
+ * scan has run.
+ */
+export const branchUrlBaseFor = (opts: BuildBoardOptions): string => ensureCache(opts).branchUrlBase;
+
+/**
  * The cached fleet pulse, or null while none has landed.
  *
  * The same shape and the same rules as `prsByNumber` above — synchronous, never

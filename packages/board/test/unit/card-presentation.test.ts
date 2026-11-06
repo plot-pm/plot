@@ -51,12 +51,14 @@ const related = (s: CardSections): Part[] =>
   s.header.meta.filter((p) => (p.kind === 'list' ? true : p.kind === 'piece' && 'lineage' in p.piece.data));
 
 describe('presentCard: three sections', () => {
-  it('the header is the kind icon and the title; the meta line holds the number, the type tag and the related items', () => {
+  it('the header is the kind icon and the title, led by the ticket number; the meta line holds the tag and the related items', () => {
     const s = sections({ issues: ['1089'], sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active', release: '2.32.0' } } });
     expect(s.header.kind).toEqual({ kind: 'plan', label: 'Plan', hue: 'blue' });
+    expect(s.header.number).toBe('#1089');
     expect(s.header.title).toBe('X');
     expect(s.header.label).toBe('1089: X');
-    expect(words(s.header.meta)).toEqual(['#1089', 'feature', '2.32.0']);
+    expect(words(s.header.meta)).toEqual(['feature', '2.32.0 · card-alignment']);
+    expect(sections().header.number).toBeNull();
   });
 
   it('the status panel opens with the state pill and the work; the footer holds the assignee and the age', () => {
@@ -136,13 +138,13 @@ describe('presentCard: every fact the plan card shows still shows', () => {
 });
 
 describe('presentCard: related items on the meta line', () => {
-  it('a sprint reads as its release, a story as its slug, each with its kind icon and the title and state in the tooltip', () => {
+  it('a sprint reads as its release then its title, a story as its title, each with its kind icon and its state in the tooltip', () => {
     const over = {
       story: { value: { slug: 's', title: 'The story', status: 'active' as const, archived: false } },
       sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active' as const, release: '2.32.0' } },
     };
     const items = related(sections(over));
-    expect(words(items)).toEqual(['s', '2.32.0']);
+    expect(words(items)).toEqual(['The story', '2.32.0 · card-alignment']);
     const pieces = items.flatMap((p) => (p.kind === 'piece' ? [p.piece] : []));
     expect(pieces.map((p) => p.icon)).toEqual([
       { kind: 'story', label: 'Story', hue: 'violet' },
@@ -150,15 +152,25 @@ describe('presentCard: related items on the meta line', () => {
     ]);
     expect(pieces.map((p) => p.detail)).toEqual(['The story · active', 'card-alignment · release 2.32.0 · Active']);
     const filtered = presentCard(planCardFacts(reading(over)), 'plans', { hide: ['stories'] });
-    expect(words(related(filtered))).toEqual(['2.32.0']);
+    expect(words(related(filtered))).toEqual(['2.32.0 · card-alignment']);
   });
 
-  it('a sprint naming no release reads as its title; a long story slug is shortened', () => {
-    const over = {
-      story: { value: { slug: 'the-master-agent-holds-the-fleet', title: 'T', status: 'active' as const, archived: false } },
-      sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active' as const, release: null } },
-    };
-    expect(words(related(sections(over)))).toEqual(['the-master-agent-holds-…', 'card-alignment']);
+  it('a related plan reads as its ticket number and title, or its title alone, with its title and phase in the tooltip', () => {
+    const base = planCardFacts(reading());
+    const plans = [
+      { kind: 'plan', slug: 'a', key: '3092', title: 'The release head reports', status: 'approved' },
+      { kind: 'plan', slug: 'b', key: null, title: 'No ticket', status: 'draft' },
+    ] as const;
+    const s = presentCard({ ...base, lineage: { ...base.lineage, plans: { value: [plans[0]] } } }, 'plans', { now: NOW });
+    const items = related(s).flatMap((p) => (p.kind === 'piece' ? [p.piece] : []));
+    expect(items.map((p) => [p.text, p.icon?.kind, p.detail])).toEqual([['#3092 The release head reports', 'plan', 'The release head reports · approved']]);
+    const both = presentCard({ ...base, lineage: { ...base.lineage, plans: { value: [...plans] } } }, 'plans', { now: NOW });
+    expect(words(related(both))).toEqual(['2 plans', '#3092 The release head reports', 'No ticket']);
+  });
+
+  it('a sprint naming no release reads as its title alone', () => {
+    const over = { sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active' as const, release: null } } };
+    expect(words(related(sections(over)))).toEqual(['card-alignment']);
   });
 
   it('a plan with no story says nothing about a story', () => {
@@ -169,9 +181,10 @@ describe('presentCard: related items on the meta line', () => {
     expect(related(sections({ story: { unknown: 'failed' } }))[0]).toMatchObject({ kind: 'piece', piece: { text: 'stories unknown', tone: 'unknown' } });
   });
 
-  it('every issue key shows: the first as the number, the rest as related tickets', () => {
+  it('every issue key shows: the first before the title, the rest as related tickets', () => {
     const s = sections({ issues: ['3101', 'PROJ-12'] });
-    expect(words(s.header.meta)).toEqual(['#3101', 'feature', 'PROJ-12']);
+    expect(s.header.number).toBe('#3101');
+    expect(words(s.header.meta)).toEqual(['feature', 'PROJ-12']);
     expect(words(related(sections({ issues: ['3101'] })))).toEqual([]);
   });
 
@@ -179,7 +192,7 @@ describe('presentCard: related items on the meta line', () => {
     const facts: CardFacts = planCardFacts(reading());
     const sprints = Array.from({ length: 2 }, (_, i) => ({ kind: 'sprint' as const, slug: `s${i}`, title: `S${i}`, state: 'Closed' as const, release: null }));
     const s = presentCard({ ...facts, lineage: { ...facts.lineage, sprints: { value: sprints } } }, 'plans');
-    expect(related(s)[0]).toMatchObject({ kind: 'list', summary: { text: 'in 2 sprints' } });
+    expect(related(s)[0]).toMatchObject({ kind: 'list', summary: { text: '2 sprints' } });
   });
 });
 
@@ -230,9 +243,17 @@ describe('presentCard: the PR list', () => {
 describe('presentCard: the footer\'s actions', () => {
   it('a disabled Start work carries its reason in words', () => {
     const cold = sections({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
-    expect(cold.footer.primary).toEqual({ action: 'start-work', label: 'Start work', enabled: false, reason: 'no fleet scan yet' });
+    expect(cold.footer.primary).toEqual({
+      action: 'start-work', label: 'Start work', enabled: false, reason: 'no fleet scan yet',
+      reasonParts: [{ text: 'no fleet scan yet', ref: null }],
+    });
     const blocked = sections({ slices: { total: 2, complete: 0, eligible: 0, waitsOn: [{ branch: 'feature/x', pr: 3105 }] } });
     expect(blocked.footer.primary?.reason).toBe('waits on feature/x #3105');
+    // The branch and PR it names are their own part, so the tooltip can link them.
+    expect(blocked.footer.primary?.reasonParts).toEqual([
+      { text: 'waits on ', ref: null },
+      { text: 'feature/x #3105', ref: { kind: 'slice', plan: 'x', branch: 'feature/x', pr: 3105 } },
+    ]);
   });
 
   it('every reason kind has words', () => {
@@ -286,5 +307,24 @@ describe('relativeAge', () => {
     expect(relativeAge('2026-09-01', NOW)).toBe('2 months ago');
     expect(relativeAge('2024-11-01', NOW)).toBe('2 years ago');
     expect(relativeAge('not a date', NOW)).toBe('not a date');
+  });
+});
+
+describe('presentCard: what each item links to', () => {
+  it('every related item and every PR names the ref its link resolves', () => {
+    const s = sections({
+      issues: ['3101', '3102'],
+      story: { value: { slug: 's', title: 'The story', status: 'active' as const, archived: false } },
+      sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active' as const, release: '2.32.0' } },
+      prs: { value: [{ number: 3209, branch: 'feature/a', checks: 'pending', mergeable: 'mergeable', checksLookup: null }] },
+    });
+    const refs = related(s).flatMap((p) => (p.kind === 'piece' ? [p.piece.ref?.kind] : []));
+    expect(refs).toEqual(['ticket', 'story', 'sprint']);
+    const pr = s.status.signals.find((p) => p.kind === 'piece')!;
+    expect(pr.kind === 'piece' && pr.piece.pr).toEqual({
+      number: 3209, branch: 'feature/a', checks: 'checks running',
+      prRef: { kind: 'slice', plan: 'x', branch: 'feature/a', pr: 3209 },
+      branchRef: { kind: 'slice', plan: 'x', branch: 'feature/a', pr: null },
+    });
   });
 });

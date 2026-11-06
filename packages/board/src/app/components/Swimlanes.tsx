@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { planningColumns } from '@plot-pm/domain/rules/workflow-phases';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
-import { checksUnaskableOn, storyHref } from '../lib/plan.js';
+import { boardLinksOf, checksUnaskableOn, storyHref } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
 import { PlanSourceLine } from './PlanSourceLine.js';
 
@@ -24,6 +24,8 @@ export interface SwimlanesProps {
    * both now point at the story's own file.
    */
   onOpenStory?: (story: StoryCard) => void;
+  /** Open a sprint in the in-board sprint view. */
+  onOpenSprint?: (sprintSlug: string) => void;
   /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
   highlight?: string;
   /**
@@ -120,12 +122,14 @@ export function Swimlanes({
   onStarting,
   onOpenPlan,
   onOpenStory,
+  onOpenSprint,
   highlight = '',
   planAgeSeconds = null,
   planSourceFrozen = false,
   showReleased = false,
 }: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
+  const links = useMemo(() => boardLinksOf(board), [board]);
 
   // Sprint membership: which plans each sprint contains, by slug.
   //
@@ -242,6 +246,9 @@ export function Swimlanes({
                         interrogate={board.interrogate}
                         deliver={board.deliver}
                         board="swimlanes"
+                        onOpenStory={onOpenStory}
+                        onOpenSprint={onOpenSprint}
+                        links={links}
                         pulse={pulse}
                         onStarting={onStarting}
                         onOpen={(opened) => { onOpenPlan(opened.path); }}

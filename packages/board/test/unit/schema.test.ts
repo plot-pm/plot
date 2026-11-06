@@ -238,7 +238,7 @@ describe('CardSchema — pull requests', () => {
       prs: [{ number: 113, url: 'https://example.test/pr/113', checks: 'green', mergeable: 'mergeable' }],
     });
     expect(card.prs).toEqual([
-      { number: 113, url: 'https://example.test/pr/113', checks: 'green', mergeable: 'mergeable', author: '' },
+      { number: 113, url: 'https://example.test/pr/113', checksUrl: '', checks: 'green', mergeable: 'mergeable', author: '' },
     ]);
   });
 

@@ -305,6 +305,11 @@ export const CardPrSchema = z.object({
   number: z.number(),
   url: z.string().default(''),
   /**
+   * The PR's checks page on the host, from the PR's own `url`; `''` where the
+   * URL is unknown or the host has no checks page of its own.
+   */
+  checksUrl: z.string().default(''),
+  /**
    * The build, summarized onto this PR — the five states of `ChecksSchema`.
    *
    * `none` AND `unknown` ARE DIFFERENT ANSWERS AND MUST NOT RENDER THE SAME.
@@ -1522,6 +1527,12 @@ export const BoardSchema = z.object({
    * plan-named ticket as unnamed; see `ticketLane`'s own doc comment.
    */
   plansUnreadable: z.boolean().default(false),
+  /**
+   * The prefix for this repository's branch pages on its host, read from
+   * `origin` by the fleet scan (`https://github.com/org/repo/tree/`); `''`
+   * where the host's branch-page shape is unknown or no scan has run.
+   */
+  branchUrlBase: z.string().default(''),
   /**
    * Whether the tracker can be asked at all, read from the SAME cache entry
    * `Fleet.issueAnswer` reads — so Discovery's Create plan/Create story

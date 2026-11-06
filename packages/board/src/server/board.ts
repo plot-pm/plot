@@ -87,7 +87,7 @@ import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
 import { planFactsOf, type CardFields, type PlanFactsExtras } from './plan-facts.js';
-import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
+import { branchUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 
@@ -2365,6 +2365,18 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   return board;
 }
 
+/**
+ * A PR's checks page on the host, from the PR's own URL: GitHub's `<pr>/checks`.
+ *
+ * @param prUrl - the PR's URL as the host reported it; `''` where unknown.
+ * @param branchBase - the repository's branch-page prefix; its `/tree/` shape
+ *   names a GitHub host.
+ * @returns the checks page, or `''` where the URL is unknown or the host has
+ *   no checks page of its own.
+ */
+export const checksUrlOf = (prUrl: string, branchBase: string): string =>
+  prUrl !== '' && branchBase.endsWith('/tree/') && /\/pull\/\d+$/.test(prUrl) ? `${prUrl}/checks` : '';
+
 async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Board> {
   // FOUR INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
   // `plot-config.sh` spawn and none needs another's answer, so awaiting them
@@ -2494,6 +2506,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // until the first fetch lands, which costs a card its link and never a wrong
   // one.
   const prLinks = prsByNumber(opts);
+  // The host's branch-page prefix, read from `origin` by the scan; `''` where unknown.
+  const urlBase = branchUrlBaseFor(opts);
   // Claims live in git refs, so the card's occupancy counts are read from the
   // same cached pulse the Delivery tab classifies from — one source, so a card
   // and a row can no longer disagree about whether work is in flight. null on a
@@ -2697,9 +2711,11 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
       // from `none` and must not be rendered as one. That is the whole plan.
       prs: meta.prs.map((number): CardPr => {
         const record = prLinks?.get(number);
+        const url = record?.url ?? '';
         return {
           number,
-          url: record?.url ?? '',
+          url,
+          checksUrl: checksUrlOf(url, urlBase),
           checks: asChecks(record?.checks),
           mergeable: asMergeability(record?.mergeable),
           author: record?.author ?? '',
@@ -2880,6 +2896,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   return {
     generatedAt: new Date().toISOString(),
     columns,
+    branchUrlBase: urlBase,
     phaseMapRefusal,
     // WHERE THE PLANS ABOVE CAME FROM. Reported on every board, not only a
     // broken one: "these came from origin/main" is a fact a reader needs stated
