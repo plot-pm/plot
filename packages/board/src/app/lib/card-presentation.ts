@@ -1,6 +1,7 @@
 import type {
   ActionKind,
   CardFacts,
+  CardKind,
   CardPrFact,
   CostReading,
   Known,
@@ -32,9 +33,20 @@ export type Facet = 'identity' | 'lineage' | 'progress' | 'next' | 'ownership';
 export type Tone = 'neutral' | 'muted' | 'warn' | 'alert' | 'type';
 
 /** One rendered fact: its words, how loud, and what it links to. */
+/** The kinds of item an icon names: the three card kinds, and the items they link to. */
+export type IconKind = Ref['kind'];
+
+/** An icon for a kind of item, with the kind as its accessible name. */
+export interface KindIcon {
+  kind: IconKind;
+  label: string;
+}
+
 export interface Piece {
   text: string;
   tone: Tone;
+  /** The kind icon this piece leads with; `null` for none. */
+  icon: KindIcon | null;
   /** Hover text for a reader who wants the rest of the sentence; `null` for none. */
   detail: string | null;
   /** The item this piece names, which the renderer may link; `null` for none. */
@@ -61,6 +73,8 @@ export interface PresentedAction {
 export interface CardRows {
   /** The facet this board emphasises. */
   emphasis: Facet;
+  /** The card's kind icon, which leads the title row on every kind. */
+  kind: KindIcon;
   title: { text: string; ref: Ref };
   /** The type badge and the labelled alerts, beside the title. */
   identity: Part[];
@@ -123,8 +137,24 @@ const SPIKE: Readonly<Record<string, string>> = {
   'spike-merged': 'spike merged — confirm the slices to approve',
 };
 
+const KIND_LABEL: Readonly<Record<IconKind, string>> = {
+  ticket: 'Ticket',
+  story: 'Story',
+  plan: 'Plan',
+  sprint: 'Sprint',
+  slice: 'Slice',
+};
+
+/**
+ * The icon for a kind of item, named by the kind.
+ *
+ * @param kind - a card kind or the kind of a linked item.
+ * @returns the icon and its accessible name.
+ */
+export const kindIcon = (kind: CardKind | IconKind): KindIcon => ({ kind, label: KIND_LABEL[kind] });
+
 const piece = (text: string, over: Partial<Piece> = {}): Piece => ({
-  text, tone: 'neutral', detail: null, ref: null, data: {}, ...over,
+  text, tone: 'neutral', icon: null, detail: null, ref: null, data: {}, ...over,
 });
 const one = (p: Piece): Part => ({ kind: 'piece', piece: p });
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -189,7 +219,7 @@ const relationParts = (relation: keyof CardFacts['lineage'], known: Known<Ref[]>
   const refs = relation === 'tickets' ? known.value.filter((r) => !(r.kind === 'ticket' && r.key === facts.identity.key)) : known.value;
   const items = refs.map((ref) => piece(
     ref.kind === 'story' || ref.kind === 'sprint' ? `${singular} ${ref.title}` : refWords(ref),
-    { ref, data: { lineage: relation } },
+    { ref, icon: kindIcon(ref.kind), data: { lineage: relation } },
   ));
   if (items.length === 0) return [];
   if (items.length === 1) return [one(items[0])];
@@ -200,9 +230,12 @@ const relationParts = (relation: keyof CardFacts['lineage'], known: Known<Ref[]>
 /** The PR list: one PR reads inline, two or more collapse to counts by check state. */
 const prParts = (prs: NonNullable<CardFacts['progress']>['prs'], plan: string): Part[] => {
   if ('unknown' in prs) return [one(piece(`PRs unknown — ${REACH[prs.unknown]}`, { tone: 'muted', data: { prs: 'unknown' } }))];
+  const conflicts = (pr: CardPrFact) => pr.checks === 'none' && pr.mergeable === 'conflicting';
+  const notLookedUp = (pr: CardPrFact) => pr.checks === 'unknown' && pr.checksLookup === 'skipped';
   const items = prs.value.map((pr) => {
-    const conflicting = pr.checks === 'none' && pr.mergeable === 'conflicting';
-    return piece(`#${pr.number} ${conflicting ? 'no checks — conflicts' : CHECKS[pr.checks]}`, {
+    const conflicting = conflicts(pr);
+    const words = conflicting ? 'no checks — conflicts' : notLookedUp(pr) ? 'checks not looked up yet' : CHECKS[pr.checks];
+    return piece(`#${pr.number} ${words}`, {
     tone: pr.checks === 'failing' || conflicting ? 'warn' : pr.checks === 'unknown' || pr.checks === 'pending' ? 'muted' : 'neutral',
     ref: { kind: 'slice', plan, branch: pr.branch, pr: pr.number },
     data: { 'pr-checks': '', 'pr-checks-state': pr.checks, 'pr-number': String(pr.number) },
@@ -210,20 +243,24 @@ const prParts = (prs: NonNullable<CardFacts['progress']>['prs'], plan: string): 
   });
   if (items.length === 0) return [];
   if (items.length === 1) return [one(items[0])];
-  const count = (state: CardPrFact['checks']) => prs.value.filter((pr) => pr.checks === state).length;
+  const count = (holds: (pr: CardPrFact) => boolean) => prs.value.filter(holds).length;
   const words = [plural(items.length, 'PR')];
-  const failing = count('failing');
-  const pending = count('pending');
-  const none = count('none');
-  const unknown = count('unknown');
+  const failing = count((pr) => pr.checks === 'failing');
+  const conflicting = count(conflicts);
+  const pending = count((pr) => pr.checks === 'pending');
+  const none = count((pr) => pr.checks === 'none' && !conflicts(pr));
+  const unread = count(notLookedUp);
+  const unknown = count((pr) => pr.checks === 'unknown' && !notLookedUp(pr));
   if (failing > 0) words.push(`${failing} failing`);
+  if (conflicting > 0) words.push(`${conflicting} conflicting`);
   if (pending > 0) words.push(`${pending} running`);
   if (none > 0) words.push(`${none} without checks`);
   if (unknown > 0) words.push(`${unknown} checks unknown`);
+  if (unread > 0) words.push(`${unread} not looked up yet`);
   if (words.length === 1) words.push('all green');
   return [{
     kind: 'list', id: 'prs',
-    summary: piece(words.join(' · '), { tone: failing > 0 ? 'warn' : 'neutral', data: { prs: 'summary' } }),
+    summary: piece(words.join(' · '), { tone: failing + conflicting > 0 ? 'warn' : 'neutral', data: { prs: 'summary' } }),
     items,
   }];
 };
@@ -284,7 +321,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
   for (const alert of identity.alerts) {
     if (alert.kind === 'not-pushed') {
       const text = alert.commits === null ? 'not pushed' : `not pushed · ${plural(alert.commits, 'commit')}`;
-      identityParts.push(one(piece(text, { tone: 'warn', detail: ALERT_DETAIL, data: { alert: alert.kind } })));
+      identityParts.push(one(piece(text, { tone: 'neutral', detail: ALERT_DETAIL, data: { alert: alert.kind } })));
     } else if (alert.kind === 'status-behind') {
       identityParts.push(one(piece(`status behind: ${alert.proven}`, { tone: 'warn', data: { alert: alert.kind } })));
     } else {
@@ -337,6 +374,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
 
   return {
     emphasis: EMPHASIS[board],
+    kind: kindIcon(identity.kind),
     title: { text: identity.key === null ? identity.title : `${identity.key}: ${identity.title}`, ref: identity.opens },
     identity: identityParts,
     lineage: lineageParts,

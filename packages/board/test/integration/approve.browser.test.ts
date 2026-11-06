@@ -320,7 +320,8 @@ describe('approve: a board that cannot approve says so instead of offering', () 
       // deliberately not localhost. The phone reads the board; it does not
       // approve from it. `Start work` behaves identically for the same reason.
       expect(await button.isDisabled()).toBe(true);
-      expect(await button.getAttribute('title')).toMatch(/localhost/);
+      const reasonId = await button.getAttribute('aria-describedby');
+      expect(await page.locator(`[id="${reasonId}"]`).textContent()).toMatch(/localhost/);
     } finally {
       await page.close();
     }
@@ -344,7 +345,7 @@ describe('approve: a board that cannot approve says so instead of offering', () 
       await button.focus();
       expect(await button.evaluate((el) => el === document.activeElement)).toBe(true);
       // And the reason travels with it, for a reader with no pointer to hover:
-      // shown on the card beside it, and named as the button's description.
+      // it opens on focus and is named as the button's description.
       const reasonId = await button.getAttribute('aria-describedby');
       expect(reasonId).toBeTruthy();
       const reason = page.locator(`[id="${reasonId}"]`);

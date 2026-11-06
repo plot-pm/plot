@@ -105,14 +105,56 @@ describe('a plan card renders the card grammar', () => {
     }
   });
 
-  it('a disabled Start work names its reason on the card, not only on hover', async () => {
+  it('leads the title row with the plan kind icon, named Plan, and its type as a tag', async () => {
+    const page = await open();
+    try {
+      const identity = page.locator('#plan-grammar [data-card-row="identity"]');
+      expect(await identity.getByRole('img', { name: 'Plan' }).count()).toBe(1);
+      expect(await identity.locator('[data-type="feature"]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('sets the action band apart: a top divider and its own tint', async () => {
+    const page = await open();
+    try {
+      const band = page.locator('#plan-grammar [data-action-band]');
+      const style = await band.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { border: s.borderTopWidth, bg: s.backgroundColor, card: getComputedStyle(el.closest('article')!).backgroundColor };
+      });
+      expect(style.border).not.toBe('0px');
+      expect(style.bg).not.toBe(style.card);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('a disabled Start work is a focusable control whose reason opens on focus and hover, and closes on Escape', async () => {
     const page = await open();
     try {
       const slot = page.locator('#plan-cold [data-action="start-work"]');
-      expect(await slot.getByRole('button', { name: 'Start work' }).getAttribute('aria-disabled')).toBe('true');
-      const reason = slot.locator('[data-action-reason]');
+      const button = slot.getByRole('button', { name: 'Start work' });
+      const reason = slot.locator('[role="tooltip"]');
+      expect(await button.getAttribute('aria-disabled')).toBe('true');
+      expect(await button.getAttribute('title')).toBeNull();
+      expect(await button.getAttribute('aria-describedby')).toBe(await reason.getAttribute('id'));
+      expect(await reason.isVisible()).toBe(false);
+
+      // Keyboard: tab from the title reaches the disabled control, and focus opens the reason.
+      await page.locator('#plan-cold [data-card-title]').focus();
+      await page.keyboard.press('Tab');
+      expect(await button.evaluate((el) => el === document.activeElement)).toBe(true);
       expect(await reason.isVisible()).toBe(true);
-      expect(await reason.textContent()).toContain('no fleet scan yet');
+      expect(await reason.textContent()).toBe('no fleet scan yet');
+      await page.keyboard.press('Escape');
+      expect(await reason.isVisible()).toBe(false);
+
+      // Pointer: hover opens it too.
+      await page.locator('#plan-cold [data-card-title]').focus();
+      await button.hover();
+      expect(await reason.isVisible()).toBe(true);
     } finally {
       await page.close();
     }

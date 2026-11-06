@@ -2,7 +2,7 @@ import { useId, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Ref } from '@plot-pm/domain/entities/card-facts';
 import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
-import type { CardRows, Facet, Part, Piece, PresentedAction, Tone } from '../lib/card-presentation.js';
+import type { CardRows, Facet, IconKind, KindIcon, Part, Piece, PresentedAction, Tone } from '../lib/card-presentation.js';
 
 /** Where a piece naming another item links, or `null` to leave it as text. */
 export interface RefLink {
@@ -41,6 +41,43 @@ const TONE: Readonly<Record<Tone, string>> = {
   type: '',
 };
 
+/** One 16-unit path per kind of item; drawn in the current text colour. */
+const ICON_PATH: Readonly<Record<IconKind, string>> = {
+  // A document with a folded corner.
+  plan: 'M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13 M6 8h5 M6 10.5h5',
+  // An open book.
+  story: 'M2 3.5c2-1 4-1 6 0v10c-2-1-4-1-6 0z M8 3.5c2-1 4-1 6 0v10c-2-1-4-1-6 0z',
+  // A ticket stub with a notch.
+  ticket: 'M1.5 4.5h13v2.5a1.5 1.5 0 0 0 0 3v2.5h-13V10a1.5 1.5 0 0 0 0-3z',
+  // A calendar page.
+  sprint: 'M2 3.5h12v10H2z M2 6.5h12 M5 2v3 M11 2v3',
+  // A branch.
+  slice: 'M5 2v12 M5 10c0-3 6-3 6-6 M11 2.5v1.5',
+};
+
+/**
+ * A kind icon. Named by its kind where it is the only carrier (the title row),
+ * hidden from assistive technology where text beside it already names the kind.
+ */
+const KindIconView = ({ icon, named }: { icon: KindIcon; named: boolean }) => (
+  <svg
+    viewBox="0 0 16 16"
+    width="14"
+    height="14"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.3"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="inline-block shrink-0 text-slate-500 dark:text-slate-400"
+    data-kind-icon={icon.kind}
+    {...(named ? { role: 'img', 'aria-label': icon.label } : { 'aria-hidden': true })}
+  >
+    {named && <title>{icon.label}</title>}
+    <path d={ICON_PATH[icon.kind]} />
+  </svg>
+);
+
 /** `data-*` attributes from a piece's map. */
 const dataAttrs = (data: Readonly<Record<string, string>>): Record<string, string> =>
   Object.fromEntries(Object.entries(data).map(([k, v]) => [`data-${k}`, v]));
@@ -71,14 +108,20 @@ const PieceView = ({ piece, linkFor }: { piece: Piece; linkFor?: CardProps['link
           e.preventDefault();
           link.onOpen();
         }}
-        className={cn(className, 'hover:underline focus-visible:outline focus-visible:outline-2')}
+        className={cn(className, 'inline-flex items-center gap-1 hover:underline focus-visible:outline focus-visible:outline-2')}
         {...attrs}
       >
+        {piece.icon && <KindIconView icon={piece.icon} named={false} />}
         {piece.text}
       </a>
     );
   }
-  return <span className={className} title={piece.detail ?? undefined} {...attrs}>{piece.text}</span>;
+  return (
+    <span className={cn(className, piece.icon && 'inline-flex items-center gap-1')} title={piece.detail ?? undefined} {...attrs}>
+      {piece.icon && <KindIconView icon={piece.icon} named={false} />}
+      {piece.text}
+    </span>
+  );
 };
 
 /** A list collapsed to its summary, expanding in place under a real button. */
@@ -126,35 +169,57 @@ const PartsRow = ({ facet, parts, emphasis, linkFor, className }: {
   );
 };
 
-/** A disabled action, with its reason on the card rather than only on hover. */
+/**
+ * A disabled action: a focusable control with `aria-disabled`, whose reason is
+ * its description and a tooltip. The tooltip opens on hover and on keyboard
+ * focus, closes on Escape, and a tap shows it and does nothing else.
+ */
 const DisabledAction = ({ action }: { action: PresentedAction }) => {
   const reasonId = useId();
+  const [open, setOpen] = useState(false);
   return (
-    <span className="inline-flex flex-wrap items-baseline gap-1" data-action={action.action} data-action-disabled>
+    <span
+      className="relative inline-flex"
+      data-action={action.action}
+      data-action-disabled
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button
         type="button"
         aria-disabled="true"
         aria-describedby={reasonId}
-        title={action.reason ?? undefined}
-        className="cursor-not-allowed text-xs font-medium text-slate-400 dark:text-slate-500"
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
+        onClick={(e) => { e.preventDefault(); setOpen(true); }}
+        className="cursor-not-allowed rounded px-1.5 py-0.5 text-xs font-medium text-slate-400 ring-1 ring-slate-200 dark:text-slate-500 dark:ring-slate-700"
       >
         {action.label}
       </button>
-      <span id={reasonId} data-action-reason className="text-xs text-slate-500 dark:text-slate-400">
-        — {action.reason}
+      <span
+        id={reasonId}
+        role="tooltip"
+        data-action-reason
+        hidden={!open}
+        className="absolute bottom-full left-0 z-20 mb-1 w-max max-w-64 rounded bg-slate-800 px-2 py-1 text-xs text-white shadow dark:bg-slate-200 dark:text-slate-900"
+      >
+        {action.reason}
       </span>
     </span>
   );
 };
 
 /**
- * One card in the card grammar's five rows: title with type and alerts, lineage,
- * progress, the action row and ownership.
+ * One card in the card grammar's five rows: kind icon and title with type and
+ * alerts, lineage, progress, the action band and ownership.
  *
  * Renders what `presentCard` returned and decides nothing. The title is the only
- * link that opens the item. The action row comes second in the DOM and is
- * placed fourth on screen, so the tab order is title, primary, secondaries,
- * then the links and expanders of the rows below.
+ * link that opens the item. The action band comes second in the DOM and is
+ * placed fourth on screen, so the tab order is title, primary (disabled or
+ * not), secondaries, then the links and expanders of the rows below. The band
+ * is set apart by a top divider, its own tint and padding, and is not drawn
+ * when no action renders.
  */
 export const Card = ({
   id, rows, titleHref, onOpenTitle, linkFor, renderAction, className, highlighted = false,
@@ -182,6 +247,8 @@ export const Card = ({
       )}
     >
       <div data-card-row="identity" className="order-1 flex flex-col gap-1.5">
+        <div className="flex items-start gap-1.5">
+        <span className="mt-0.5"><KindIconView icon={rows.kind} named /></span>
         <a
           href={titleHref}
           data-plan-ref
@@ -195,6 +262,7 @@ export const Card = ({
         >
           {rows.title.text}
         </a>
+        </div>
         {rows.identity.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             {rows.identity.map((part, i) => part.kind === 'piece' && <PieceView key={i} piece={part.piece} />)}
@@ -205,9 +273,11 @@ export const Card = ({
         <div
           data-card-row="next"
           data-emphasis={rows.emphasis === 'next' ? 'true' : undefined}
+          data-action-band
           className={cn(
-            'order-4 flex flex-wrap items-center gap-x-3 gap-y-1',
-            rows.emphasis === 'next' && 'rounded bg-slate-50 px-1.5 py-1 dark:bg-slate-800/60',
+            'order-4 -mx-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200 bg-slate-50 px-3 py-2',
+            'dark:border-slate-700 dark:bg-slate-800/60',
+            rows.emphasis === 'next' && 'font-medium',
           )}
         >
           {slots.map(({ action, isPrimary, control }) => (
