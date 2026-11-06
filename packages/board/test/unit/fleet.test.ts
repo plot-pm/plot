@@ -24,7 +24,9 @@ import {
 } from '../../src/contract/schema.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import { parsePhaseMap, prRowPlacement, parsePersonDirectory } from '@plot-pm/domain';
+import { parsePhaseMap, prRowPlacement, parsePersonDirectory, FleetReadingSchema, answered } from '@plot-pm/domain';
+import { DEFAULT_PHASE_MAP, phaseOfPlan } from '@plot-pm/domain/rules/workflow-phases';
+import { assemblePlanWalk, planRow } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import { rowsForReader, readerFrom } from '../../src/app/lib/agent-rows/mine-filter.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
@@ -5135,4 +5137,53 @@ describe('a pending check outranks an unreadable mergeable', () => {
       expect(note).toBe(expected.clause === 'green' ? 'PR #1164, draft' : `PR #1164, draft, ${expected.clause}`);
     });
   }
+});
+
+describe('the fleet row reads the plan\'s Tracer line, as the card does', () => {
+  const branch = (name: string, spike?: boolean) => [{
+    name: 'slice-1',
+    branches: [{ branch: name, deferred: false, deferredReason: '', claimed: '', waitsOn: [], ...(spike ? { spike } : {}) }],
+  }];
+  const spikePlan = { file: 'docs/plans/2026-11-04-m.md', phase: 'approved', type: 'feature', slices: branch('feature/m', true), unreadBranchItems: [] };
+  const tracerPlan = { file: 'docs/plans/2026-11-04-t.md', phase: 'approved', type: 'feature', tracer: true, slices: branch('feature/t'), unreadBranchItems: [] };
+  const open = {
+    deferredByPlan: false, refTip: 't1', mainTip: 'm1', mergeSubjectFound: false, hostReach: 'ok',
+    pr: 'none', prListComplete: true, commitsAhead: 0, realCommitsAhead: 0, waits: [],
+  };
+  const header = {
+    main: 'main', readRef: 'abc', localHead: 'def', fetchFailed: false, fetchError: '',
+    planDir: 'docs/plans/', host: 'github', mergeDetect: 'host', nowSeconds: 1000,
+  };
+
+  it('puts the spike-marker plan in Development and the Tracer: yes plan in Design', () => {
+    const walked = assemblePlanWalk(
+      {
+        estate: answered({
+          mainSha: 'm1', indexes: [], dangling: [],
+          plans: [spikePlan, tracerPlan].map((record) => ({ blob: 'b', record })),
+        } as never),
+        branches: answered({
+          mainSha: 'm1', backend: 'github', origin: '', merges: [], added: new Map(),
+          branches: [[spikePlan, 'feature/m'], [tracerPlan, 'feature/t']].map(([plan, name]) => ({
+            plan: (plan as typeof spikePlan).file, branch: name, readings: open, landed: [], changedPaths: [],
+          })),
+        } as never),
+        desks: answered({ mainSha: 'm1', desks: [] }),
+      },
+      { slug: '', offer: false },
+    );
+    if (!walked.ok) throw new Error('the walk failed');
+    const pulse = FleetReadingSchema.parse({
+      main: 'main',
+      head: 'abc1234',
+      plans: walked.value.plans.map((p) => planRow(p, header)),
+      summary: { plans: 2, waves: 2, branches: 2, claimed: 0, eligible: 2, blocked: 0, deferred: 0 },
+    });
+    const rows = rowsFromPulse(pulse, new Map(), 'plot', QUIET);
+    const phaseOf = (name: string) => rows.find((r) => r.branch === name)!.phase;
+    expect(phaseOf('feature/m')).toBe('Development');
+    expect(phaseOf('feature/t')).toBe('Design');
+    expect(phaseOf('feature/m')).toBe(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved' }));
+    expect(phaseOf('feature/t')).toBe(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved', tracer: true }));
+  });
 });

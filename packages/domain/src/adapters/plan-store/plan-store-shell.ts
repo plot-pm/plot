@@ -35,6 +35,7 @@ export interface RawPlan {
   prs?: number[];
   deferred_prs?: number[];
   slices?: RawSlice[];
+  tracer?: boolean;
   review?: string;
   impl?: string;
   approved_raw?: string;
@@ -162,6 +163,7 @@ export const planOf = (raw: RawPlan, rejectedRaw = ''): PlanRecord => ({
   prs: raw.prs ?? [],
   deferredPrs: raw.deferred_prs ?? [],
   slices: slicesOf(raw).map(sliceOf),
+  ...(raw.tracer === true ? { tracer: true } : {}),
   review: raw.review ?? '',
   impl: raw.impl ?? '',
   approvedRaw: raw.approved_raw ?? '',

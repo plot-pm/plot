@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Issue:** #3077
 - **Sprint:** follow-ups-2-30-1
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-06, Jan Wloka, `feature/release-finish-names-unbooked-plans`
 - **Started:** 2026-11-06, Jan Wloka, `feature/one-loader-reads-a-role-file`
 - **Started:** 2026-11-06, Jan Wloka, `feature/the-reviewer-loads-its-role-file`
+- **Delivered:** 2026-11-06
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches

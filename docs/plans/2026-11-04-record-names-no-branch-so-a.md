@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3116 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/record-names-no-branch-so-a`
+- **Started:** 2026-11-06, Jan Wloka, `feature/every-spike-reader-asks-one-rule`
 
 ## Changelog
 
@@ -165,7 +166,7 @@ Every site in the Motivation table calls `licensedSpike`. The three board copies
 
 ### Every reader asks the one rule
 
-- `feature/every-spike-reader-asks-one-rule` <!-- waits: bug/the-queue-hands-out-an-approved-spike --> — switch every reader to `licensedSpike`, delete the three board copies, name the refusal reasons
+- `feature/every-spike-reader-asks-one-rule` <!-- waits: bug/the-queue-hands-out-an-approved-spike --> — switch every reader to `licensedSpike`, delete the three board copies, name the refusal reasons → #3201
 
 ## Notes
 

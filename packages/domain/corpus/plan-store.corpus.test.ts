@@ -46,6 +46,7 @@ const FIELDS: ReadonlyArray<readonly [keyof PlanRecord, string]> = [
   ['branches', 'branches'],
   ['prs', 'prs'],
   ['deferredPrs', 'deferred_prs'],
+  ['tracer', 'tracer'],
   ['review', 'review'],
   ['impl', 'impl'],
   ['approvedRaw', 'approved_raw'],
@@ -73,8 +74,6 @@ const KNOWN_UNCARRIED = [
   'design_raw',
   // The scan carries it to the verdict line as `1`/`0`; no PlanStore reader decides on it.
   'spike_approved_raw',
-  // The scan carries it to the pulse plan; no PlanStore reader decides on it.
-  'tracer',
   // The board passes it from its own PlanMeta to verificationOf; no PlanStore reader decides on it.
   'verified_raw',
   'issues',

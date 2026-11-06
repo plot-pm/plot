@@ -34,6 +34,8 @@ export type RoleFilesRead<Settings extends boolean = boolean> =
       settingsFile: Settings extends true ? string : undefined;
       /** The `maxTurns` the definition declares; `0` where it declares none. */
       maxTurns: number;
+      /** The definition file's text as read from `origin/<default>`. */
+      definition: string;
     }
   | { read: 'refused'; why: string };
 
@@ -93,5 +95,5 @@ export const roleFilesAt = async <Settings extends boolean>(
     settingsFile = join(input.outDir, 'settings.json');
     writeFileSync(settingsFile, settingsText);
   }
-  return { read: 'files', agentsFile, settingsFile: settingsFile as Settings extends true ? string : undefined, maxTurns: maxTurnsOfRole(definition.value) };
+  return { read: 'files', agentsFile, settingsFile: settingsFile as Settings extends true ? string : undefined, maxTurns: maxTurnsOfRole(definition.value), definition: definition.value };
 };

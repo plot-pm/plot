@@ -107,7 +107,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Auto-design:** false
 - **Auto-review:** true
 - **Review app:** 5317669 /Users/jwloka/.config/plot/plot-review.5317669.private-key.pem
-- **Merger app:** 5599192 /Users/jwloka/.config/plot/plot-merger.2026-11-03.private-key.pem
+- **Merger app:** 5599192 /Users/jwloka/.config/plot/plot-merger.2026-11-06.private-key.pem
 - **Review required since:** 2026-10-15T02:17:59Z
 - **Plan PRs:** required
 

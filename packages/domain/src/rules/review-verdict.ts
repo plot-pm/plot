@@ -134,6 +134,69 @@ const COMMAND_WORD = /^[A-Za-z0-9._:[\]-]+$/;
 /** `value` single-quoted for a POSIX shell, with each `'` written as `'\''`. */
 const singleQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
+/** The reviewer's definition, as `reviewer.md` declares it and the floor admits it. */
+export interface ReviewerRole {
+  model: string;
+  effort: string;
+  maxTurns: number;
+  /** The `--agents` JSON file `roleFilesAt` wrote, absolute. */
+  agentsFile: string;
+}
+
+/** What `reviewerRoleFloor` answers: the declared words, or the key that widens the floor. */
+export type ReviewerRoleRead =
+  | { read: 'floor'; model: string; effort: string }
+  | { read: 'refused'; why: string };
+
+/**
+ * Checks the reviewer's definition text against the code's floor.
+ *
+ * Reads the frontmatter's own keys, not the `--agents` JSON, which drops
+ * `mcpServers` without a word. A definition widens the floor when `tools`
+ * names a tool outside {@link REVIEWER_TOOLS}, `permissionMode` is set,
+ * `mcpServers` is set, or `disallowedTools` is set and omits a name of
+ * {@link REVIEWER_DENY}.
+ *
+ * @param text - the text of `.claude/agents/reviewer.md`.
+ * @returns the declared `model` and `effort` (`''` where absent), or
+ *   `reviewer-role-widens` naming the key, or a refusal for a file with no
+ *   frontmatter or a model or effort outside `[A-Za-z0-9._:[\]-]`.
+ */
+export const reviewerRoleFloor = (text: string): ReviewerRoleRead => {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (match === null) return { read: 'refused', why: 'reviewer.md has no frontmatter' };
+  const keys = new Map<string, string[]>();
+  let list: string | null = null;
+  for (const line of match[1]!.split(/\r?\n/)) {
+    const item = /^\s+-\s+(.*)$/.exec(line);
+    if (item !== null && list !== null) {
+      keys.get(list)!.push(item[1]!.trim());
+      continue;
+    }
+    const pair = /^([A-Za-z]+):\s*(.*)$/.exec(line);
+    if (pair === null) continue;
+    const value = pair[2]!.trim();
+    list = value === '' ? pair[1]! : null;
+    keys.set(pair[1]!, value === '' ? [] : [value]);
+  }
+  const unquote = (v: string): string => v.replace(/^(['"])(.*)\1$/, '$2');
+  const words = (key: string): string[] =>
+    (keys.get(key) ?? []).flatMap((v) => unquote(v).replace(/^\[|\]$/g, '').split(',')).map((v) => unquote(v.trim())).filter((v) => v !== '');
+  const widens = (key: string): ReviewerRoleRead => ({ read: 'refused', why: `reviewer-role-widens: ${key}` });
+  if (keys.has('mcpServers')) return widens('mcpServers');
+  if (keys.has('permissionMode')) return widens('permissionMode');
+  if (words('tools').some((tool) => !REVIEWER_TOOLS.includes(tool))) return widens('tools');
+  if (keys.has('disallowedTools') && REVIEWER_DENY.some((tool) => !words('disallowedTools').includes(tool))) {
+    return widens('disallowedTools');
+  }
+  const model = unquote((keys.get('model') ?? [''])[0]!);
+  const effort = unquote((keys.get('effort') ?? [''])[0]!);
+  for (const [key, value] of [['model', model], ['effort', effort]] as const) {
+    if (value !== '' && !COMMAND_WORD.test(value)) return { read: 'refused', why: `the reviewer's ${key} '${value}' is not a single word` };
+  }
+  return { read: 'floor', model, effort };
+};
+
 /** What `reviewerCommand` answers: the shell fragment, or the reason none is built. */
 export type ReviewerCommand = { read: 'command'; command: string } | { read: 'refused'; why: string };
 
@@ -146,31 +209,30 @@ export type ReviewerCommand = { read: 'command'; command: string } | { read: 're
  * user`, so no hook or permission rule from the reviewed tree applies),
  * denies every permission the settings do not grant (`--permission-mode
  * dontAsk`), and loads no MCP server (`--strict-mcp-config`). It never names
- * `bypassPermissions`. Each of `readDirs` is passed as `--add-dir`, single-quoted,
- * so the reviewer may read files there outside its working tree.
+ * `bypassPermissions`. It selects the definition with `--agent reviewer
+ * --agents "$(cat -- <agentsFile>)"` and needs a bash runner. Each of
+ * `readDirs` is passed as `--add-dir`, single-quoted.
  *
- * @param charter - the reviewer charter's harness, model and effort.
+ * @param role - the reviewer's model, effort, turn limit and agents file.
  * @param readDirs - absolute directories outside the working tree the reviewer reads.
- * @returns the fragment, or a refusal for a harness other than `claude` or a
- *   model or effort word outside `[A-Za-z0-9._:[\]-]`.
+ * @returns the fragment, or a refusal for a model or effort word outside
+ *   `[A-Za-z0-9._:[\]-]` or a turn limit that is not a whole number.
  */
-export const reviewerCommand = (
-  charter: { harness: string; model: string; effort: string },
-  readDirs: readonly string[],
-): ReviewerCommand => {
-  if (charter.harness !== '' && charter.harness !== 'claude') {
-    return { read: 'refused', why: `the reviewer runs read-only on claude only; the charter names harness '${charter.harness}'` };
-  }
-  for (const [key, value] of [['model', charter.model], ['effort', charter.effort]] as const) {
+export const reviewerCommand = (role: ReviewerRole, readDirs: readonly string[]): ReviewerCommand => {
+  for (const [key, value] of [['model', role.model], ['effort', role.effort]] as const) {
     if (value !== '' && !COMMAND_WORD.test(value)) {
-      return { read: 'refused', why: `the charter's ${key} '${value}' is not a single word` };
+      return { read: 'refused', why: `the reviewer's ${key} '${value}' is not a single word` };
     }
+  }
+  if (!Number.isInteger(role.maxTurns) || role.maxTurns < 0) {
+    return { read: 'refused', why: `the turn limit '${role.maxTurns}' is not a whole number` };
   }
   const command = [
     'claude',
     '-p',
-    ...(charter.model === '' ? [] : ['--model', `'${charter.model}'`]),
-    ...(charter.effort === '' ? [] : ['--effort', `'${charter.effort}'`]),
+    ...(role.model === '' ? [] : ['--model', `'${role.model}'`]),
+    ...(role.effort === '' ? [] : ['--effort', `'${role.effort}'`]),
+    ...(role.maxTurns > 0 ? ['--max-turns', String(role.maxTurns)] : []),
     ...readDirs.flatMap((dir) => ['--add-dir', singleQuote(dir)]),
     '--tools',
     REVIEWER_TOOLS.join(','),
@@ -181,6 +243,10 @@ export const reviewerCommand = (
     '--permission-mode',
     'dontAsk',
     '--strict-mcp-config',
+    '--agent',
+    'reviewer',
+    '--agents',
+    `"$(cat -- ${singleQuote(role.agentsFile)})"`,
   ].join(' ');
   return { read: 'command', command };
 };
