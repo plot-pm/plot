@@ -18,6 +18,7 @@
 - **Started:** 2026-11-06, Jan Wloka, `bug/an-idle-episode-survives-a-restart`
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-plan-comment-parses-what-it-wrote`
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-review-comment-tests-can-fail`
+- **Started:** 2026-11-06, Jan Wloka, `bug/the-merge-gate-bounds-an-unknown-head`
 
 ## Changelog
 
