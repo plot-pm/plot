@@ -14,6 +14,7 @@
 - **Started:** 2026-11-06, Jan Wloka, `feature/a-release-is-approved-with-a-passkey`
 - **Started:** 2026-11-06, Jan Wloka, `feature/release-finish-names-unbooked-plans`
 - **Started:** 2026-11-06, Jan Wloka, `feature/one-loader-reads-a-role-file`
+- **Started:** 2026-11-06, Jan Wloka, `feature/the-reviewer-loads-its-role-file`
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
