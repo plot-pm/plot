@@ -71,3 +71,31 @@ describe('slicesFromPulse: a slice that names no branch', () => {
     expect(slicesFromPulse(prose, null, prs)).toBeNull();
   });
 });
+
+describe('a plan card counts its slices done from the pulse', () => {
+  const metaOf = (phase: string) =>
+    ({ file: '/repo/docs/plans/2026-11-06-p.md', phase, slices: [{ branches: ['a'] }, { branches: ['b'] }] }) as unknown as PlanMeta;
+
+  it('a plan the pulse reads has done.value, never progress unknown', async () => {
+    const { planFactsOf } = await import('../../src/server/plan-facts.js');
+    const slices = slicesFromPulse(metaOf('approved'), pulse([
+      { name: 'One', verdict: 'complete', branches: [branch('feature/a', 'merged')] },
+      { name: 'Two', verdict: 'eligible', branches: [branch('feature/b', 'open')] },
+    ]), prs);
+    const facts = planFactsOf({
+      slug: 'p', title: 'P', type: 'feature', phase: 'Development', path: 'docs/plans/2026-11-06-p.md',
+      prs: [], issues: [], phaseDate: '',
+      controls: { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null },
+    }, { slices, state: 'approved' });
+    expect(facts.progress.work).toEqual({ unit: 'slices', done: { value: 1 }, total: 2 });
+  });
+
+  it('a delivered or released plan the scan leaves out reads every slice complete', () => {
+    expect(slicesFromPulse(metaOf('released'), ({ plans: [] }) as unknown as FleetReading, prs)).toMatchObject({ total: 2, complete: 2 });
+    expect(slicesFromPulse(metaOf('delivered'), null, prs)).toMatchObject({ total: 2, complete: 2 });
+  });
+
+  it('an approved plan the scan has not reached stays unknown', () => {
+    expect(slicesFromPulse(metaOf('approved'), ({ plans: [] }) as unknown as FleetReading, prs)).toMatchObject({ total: 2, complete: null });
+  });
+});

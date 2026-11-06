@@ -498,7 +498,7 @@ export function mockCards(): Column[] {
   ): Card => {
     const controls = cardControls({ ...plan, started: over.started ?? false });
     const fields = { type: 'feature', phase: 'Development', prs: [], issues: [], status: plan.status, controls, ...over } as CardFields;
-    return { ...fields, facts: planFactsOf(fields) };
+    return { ...fields, facts: planFactsOf(fields, { state: plan.state }) };
   };
   const approved = { state: 'approved', status: 'approved' } as const;
   const column = (name: string, cards: Card[]): Column => {

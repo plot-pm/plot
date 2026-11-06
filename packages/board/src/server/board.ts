@@ -51,6 +51,7 @@ import {
   storyCardView,
   type PersonDirectory,
   type PlanSlicesReading,
+  FINISHED_PHASES,
   DEFAULT_PHASE_MAP,
   parsePhaseMap,
   phaseColumns,
@@ -2828,6 +2829,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     if (localOnlyPaths.has(relPath)) card.notPushed = true;
     const spikeBranch = spikeOf(meta.slices)?.branch;
     factsExtras.set(slug, {
+      state: meta.phase,
       records: {
         designRaw: meta.design_raw,
         approvedRaw: meta.approved_raw,
@@ -3535,6 +3537,10 @@ export const slicesFromPulse = (
   const named = meta.slices.filter((slice) => slice.branches.length > 0).length;
   if (named === 0) return null;
   const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  // A delivered or released plan's slices are complete whether or not a scan
+  // covers it — the pulse's own rule (`sliceVerdict`), and the scan leaves such
+  // plans out. Read from the plan file, so it holds with no pulse at all.
+  if (!plan && FINISHED_PHASES.includes(meta.phase)) return { total: named, complete: named, eligible: 0, waitsOn: [] };
   if (!plan) return { total: named, complete: null, eligible: null, waitsOn: [] };
   const working = plan.slices.filter((slice) => slice.branches.length > 0);
   let eligible = 0;

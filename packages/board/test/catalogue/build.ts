@@ -4,7 +4,7 @@ import {
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
-import { controlsFor } from '../fixtures/card-controls.js';
+import { controlsFor, stateFor } from '../fixtures/card-controls.js';
 import { planFactsOf } from '../../src/server/plan-facts.js';
 import type { z } from 'zod';
 
@@ -116,7 +116,7 @@ const CARD_DEFAULTS: Omit<CardInput, 'controls' | 'facts'> = {
 
 export const card = (over: Partial<CardInput> = {}): Card => {
   const fields = CardSchema.omit({ facts: true }).parse({ ...CARD_DEFAULTS, controls: controlsFor(over), ...over });
-  return CardSchema.parse({ ...fields, facts: over.facts ?? planFactsOf(fields) });
+  return CardSchema.parse({ ...fields, facts: over.facts ?? planFactsOf(fields, { state: stateFor(over) }) });
 };
 
 /** One board column — a phase and the cards in it. */
