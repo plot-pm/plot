@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Committed
+- **State:** Active
 - **Start:** 2026-11-06
 - **End:** 2026-11-13
 <!-- Optional. The version this sprint is working toward, named before it is
