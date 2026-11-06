@@ -3,6 +3,7 @@ import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { type AgentRow, type Fleet, type Card, type Column } from '../../src/contract/schema.js';
+import { withFacts } from '../fixtures/card-facts.js';
 
 /**
  * AN APPROVED PLAN OFFERS ITS TWO STARTS — what only a rendered page can settle.
@@ -78,26 +79,26 @@ function blockedFleet(over: Partial<Fleet> = {}): Fleet {
 
 /** An approved card with eligible work, matching the fleet. */
 function approvedCard(slug: string, file: string, eligible = 1): Card {
-  return {
+  return withFacts({
     slug, title: slug, type: 'feature', phase: 'Development', path: file, prs: [], controls: { approve: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: true },
     sliceSummary: { waves: 2, branches: 2, eligible, deferred: 0 },
-  } as Card;
+  }) as Card;
 }
 
 /** A Draft card — Implement/Dispatch must NOT appear. */
 function draftCard(slug: string, file: string): Card {
-  return {
+  return withFacts({
     slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [], controls: { approve: true, needsDesign: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false },
     sliceSummary: { waves: 2, branches: 2, eligible: 1, deferred: 0 },
-  } as Card;
+  }) as Card;
 }
 
 /** A delivered card — Implement/Dispatch must NOT appear. */
 function deliveredCard(slug: string, file: string): Card {
-  return {
+  return withFacts({
     slug, title: slug, type: 'feature', phase: 'Delivered', path: file, prs: [], controls: { approve: false, interrogate: false, roundsBadge: false, dispatch: false, readyToStart: false },
     sliceSummary: { waves: 2, branches: 2, eligible: 0, deferred: 0 },
-  } as Card;
+  }) as Card;
 }
 
 /**

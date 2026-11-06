@@ -858,9 +858,9 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // document the reader already has open.
     const { page, set } = await open('board');
     try {
-      // `Open` is the card's modal trigger — an anchor, so cmd-click still
+      // The card title is its modal trigger — an anchor, so cmd-click still
       // opens the plan natively and only a plain click is intercepted.
-      await page.getByRole('link', { name: 'Open' }).first().click();
+      await page.locator('[data-card-title]').first().click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
 
@@ -885,7 +885,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
 
-      const card = page.getByRole('link', { name: 'Open' }).first();
+      const card = page.locator('[data-card-title]').first();
       const blocked = await card
         .click({ timeout: 1_500, trial: true })
         .then(() => false)

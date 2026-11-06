@@ -133,10 +133,10 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
   const tomatoCard = (page: Page) =>
     page.locator('article', { hasText: 'Plant heirloom tomatoes' });
 
-  it('the Open control is a real anchor to the plan route', async () => {
+  it('the card title is a real anchor to the plan route', async () => {
     const page = await openBoard();
     try {
-      const open = tomatoCard(page).getByRole('link', { name: 'Open' });
+      const open = tomatoCard(page).locator('[data-card-title]');
       // A real href is what makes native cmd/ctrl/middle-click open a new tab.
       expect(await open.getAttribute('href')).toBe(PLAN_PATH);
     } finally {
@@ -147,7 +147,7 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
   it('a plain click opens the modal with the embedded plan, and Close closes it', async () => {
     const page = await openBoard();
     try {
-      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      await tomatoCard(page).locator('[data-card-title]').click();
 
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
@@ -181,7 +181,7 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       // A modified click may open a background tab; whatever the browser does,
       // our handler must not intercept it — so no modal appears.
       const popup = page.context().waitForEvent('page', { timeout: 2000 }).catch(() => null);
-      await tomatoCard(page).getByRole('link', { name: 'Open' }).click({ modifiers: ['Meta'] });
+      await tomatoCard(page).locator('[data-card-title]').click({ modifiers: ['Meta'] });
       expect(await page.getByRole('dialog').count()).toBe(0);
       const p = await popup;
       if (p) await p.close();
@@ -232,8 +232,10 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       // which is exactly why moving the card between columns does not hide it
       // from the first-dispatch case it is most for.
       const card = page.locator('article', { hasText: 'Fix the leaky soaker hose' });
-      await expect.poll(() => card.getByText('Ready').count()).toBe(1);
-      expect(await card.getByRole('button', { name: 'Start work' }).count()).toBe(1);
+      // Start work is the card's PRIMARY action: the Ready badge it replaced
+      // said the same thing, and the action row now says it by position.
+      const primary = card.locator('[data-action-slot="primary"]');
+      await expect.poll(() => primary.getByRole('button', { name: /Start work/ }).count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -288,7 +290,7 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       { branch: 'feature/tomatoes', path: '/Users/gardener/wt-tomatoes' },
     ]);
     try {
-      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      await tomatoCard(page).locator('[data-card-title]').click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
 
@@ -314,7 +316,7 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
     // fixture repo has no worktrees at all.
     const page = await openBoardWithWorktrees();
     try {
-      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      await tomatoCard(page).locator('[data-card-title]').click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
       // The plan itself renders, so this is an absent section rather than an
@@ -369,7 +371,7 @@ describe('tiny-garden: the standalone plan page (the server assembles it)', () =
   it('"Open in new tab" opens the full plan page with a working back-to-board link', async () => {
     const page = await openBoard();
     try {
-      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      await tomatoCard(page).locator('[data-card-title]').click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
 
