@@ -107,10 +107,10 @@ export const slicesFrom = (text: string): SliceLine[] => {
       phase,
       states: parsed,
       branches: parsed.length,
-      // Both ABSENT where the line stops short of them, so an older caller's
-      // line reads as unread rather than as `false`.
-      ...(spikes === undefined || planSpikes === undefined ? {} : { spike: spikeAt === i }),
-      ...(spikeApproved === undefined ? {} : { spikeApproved: spikeApproved === '1' }),
+      // Both EXPLICITLY undefined where the line stops short of them, so an
+      // older caller's line reads as unread rather than as `false`.
+      spike: spikes === undefined || planSpikes === undefined ? undefined : spikeAt === i,
+      spikeApproved: spikeApproved === undefined ? undefined : spikeApproved === '1',
     };
   });
 };

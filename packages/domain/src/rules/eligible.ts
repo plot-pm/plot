@@ -33,19 +33,27 @@ export interface SliceReadings {
    * Whether the slice holds the plan's spike, as `spikeOf` answers it over the
    * whole plan: the one branch annotated `<!-- spike -->`, where exactly one is.
    *
-   * Absent where the caller did not read the annotation, which is a different
-   * statement from `false`. {@link sliceVerdict} admits a `design` plan's slice
-   * only where this and {@link SliceReadings.spikeApproved} both hold and the
-   * slice names one branch.
+   * `undefined` where the caller did not read the annotation, which is a
+   * different statement from `false`. {@link sliceVerdict} admits a `design`
+   * plan's slice only where this and {@link SliceReadings.spikeApproved} both
+   * hold and the slice names one branch.
+   *
+   * REQUIRED, and not optional, so `tsc` refuses a caller that builds
+   * readings without stating it — the defect this field closed: two of three
+   * callers omitted it and still compiled, because an absent key and an
+   * absent-but-typed one both read `undefined` at the call site but only the
+   * second one is visible to the type checker at the literal.
    */
-  spike?: boolean;
+  spike: boolean | undefined;
   /**
    * Whether the plan carries a `Spike approved:` record.
    *
-   * Absent where the caller did not read it, which is a different statement
-   * from `false`. Read only together with {@link SliceReadings.spike}.
+   * `undefined` where the caller did not read it, which is a different
+   * statement from `false`. Read only together with {@link SliceReadings.spike}.
+   *
+   * REQUIRED for the same reason {@link SliceReadings.spike} is.
    */
-  spikeApproved?: boolean;
+  spikeApproved: boolean | undefined;
 }
 
 /**
