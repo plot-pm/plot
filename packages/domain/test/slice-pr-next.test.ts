@@ -612,6 +612,11 @@ describe('a success the writer check has not judged', () => {
     expect(mergeArm(readings({ row: foreign, defaultBranch: green }))).toMatchObject({ step: 'none', why: 'not-passed' });
   });
 
+  it('holds review-writer-unchecked in the re-status arm too', () => {
+    const verdict = { read: 'verdict', state: 'failure', description: 'HIGH 1' } as const;
+    expect(restatusArm(readings({ row: unjudged('success'), verdict }))).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
+  });
+
   it('answers none once the head\'s review start budget is spent', () => {
     const spent = { head: HEAD, count: 99, lastAt: NOW };
     expect(slicePrNext(readings({ row: foreign, defaultBranch: green, reviewStarts: spent }))).toMatchObject({ step: 'none', why: 'budget-spent' });

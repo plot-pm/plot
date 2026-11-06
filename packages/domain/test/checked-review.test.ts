@@ -89,11 +89,20 @@ describe('reviewPasses', () => {
   });
 });
 
+describe('reviewPasses naming a missing sha', () => {
+  it('names an empty review sha as none', () => {
+    const judged = checkedReview({ ...reading(status(APP, 'success')), sha: '' }, APP);
+    const out = reviewPasses(judged, HEAD, { plain: 'review-not-passed' });
+    expect(out.pass === false && out.seen).toContain('names none');
+  });
+});
+
 describe('judgedReviewState', () => {
   it.each([
     ['trusted success', [status(APP, 'success')], 'success'],
     ['trusted failure', [status(APP, 'failure')], 'failure'],
     ['trusted pending', [status(APP, 'pending')], 'pending'],
+    ['a trusted state outside the judged words', [status(APP, 'weird')], 'absent'],
     ['only a foreign success', [status('jwloka', 'success')], 'absent'],
     ['a foreign success over a trusted success', [status('jwloka', 'success'), status(APP, 'success')], 'absent'],
     ['a foreign success over a trusted pending', [status('jwloka', 'success'), status(APP, 'pending')], 'absent'],

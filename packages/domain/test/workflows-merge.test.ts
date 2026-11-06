@@ -357,6 +357,14 @@ describe('mergeAt — the workflow wired to its ports', () => {
     return { p, calls };
   };
 
+  it('refuses review-writer-unread when the Review app writer cannot be resolved', async () => {
+    const { p, calls } = ports(prFixture());
+    (p.host as unknown as { reviewWriter: () => Promise<unknown> }).reviewWriter = async () => ({ ok: false, why: 'unaskable' });
+    const out = await mergeAt(p, 7, HEAD2);
+    expect(out).toMatchObject({ merged: false, reason: 'review-writer-unread' });
+    expect(calls).toEqual([]);
+  });
+
   it('passes the head the caller read to the host as --match-head', async () => {
     const { p, calls } = ports(prFixture());
     const out = await mergeAt(p, 7, HEAD2);
