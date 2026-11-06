@@ -276,7 +276,7 @@ describe('the cost a reader sees, worded by the card presentation', () => {
    */
   const costPiece = (over: Partial<Card> = {}, extras = {}) => {
     const facts = planFactsOf(card(over), extras);
-    const onCard = presentCard(facts, 'plans').status.measures
+    const onCard = presentCard(facts, 'plans').status.signals
       .flatMap((part) => (part.kind === 'piece' ? [part.piece] : []))
       .find((piece) => 'cost' in piece.data);
     return onCard ?? presentDetails(facts).cost ?? undefined;

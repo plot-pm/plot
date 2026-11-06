@@ -4,7 +4,7 @@ import { useReasonTooltip } from './ui/reason-tooltip.js';
 import { GLYPH_PATH, type GlyphKind } from '../lib/glyphs.js';
 import { cn } from '../lib/utils.js';
 import type {
-  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, Section, Tone,
+  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, Tone,
 } from '../lib/card-presentation.js';
 
 /** Where a piece naming another item links, or `null` to leave it as text. */
@@ -124,11 +124,11 @@ const PieceView = ({ piece, linkFor }: { piece: Piece; linkFor?: CardProps['link
     <>
       {piece.icon && <KindIconView icon={piece.icon} />}
       {piece.dot && <DotView h={piece.dot} />}
-      <span>{piece.text}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{piece.text}</span>
     </>
   );
   const link = piece.ref !== null && linkFor ? linkFor(piece.ref) : null;
-  const className = cn('inline-flex items-center gap-1', TONE[piece.tone]);
+  const className = cn('inline-flex min-w-0 max-w-full items-center gap-1', TONE[piece.tone]);
   if (link) {
     return (
       <a
@@ -197,19 +197,19 @@ const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; li
   );
 };
 
-/** Slices done of total, as words and a slim segmented bar. */
+/** Slices done of total, as words and a segmented bar stretched across the rest of the line. */
 const WorkView = ({ part }: { part: Extract<Part, { kind: 'work' }> }) => (
-  <span className="inline-flex items-center gap-1.5">
-    <WithDetail detail={part.piece.detail} className={cn('tabular-nums', TONE[part.piece.tone])} attrs={dataAttrs(part.piece.data)}>
+  <span className="flex min-w-0 flex-1 items-center gap-2">
+    <WithDetail detail={part.piece.detail} className={cn('shrink-0 tabular-nums', TONE[part.piece.tone])} attrs={dataAttrs(part.piece.data)}>
       {part.piece.text}
     </WithDetail>
-    <span aria-hidden className="inline-flex gap-px" data-work-bar>
-      {Array.from({ length: Math.min(part.total, 12) }, (_, i) => (
+    <span aria-hidden className="flex h-1.5 min-w-8 flex-1 gap-0.5" data-work-bar>
+      {Array.from({ length: Math.max(1, Math.min(part.total, 24)) }, (_, i) => (
         <span
           key={i}
-          className="h-1.5 w-2 first:rounded-l-full last:rounded-r-full"
+          className="h-full flex-1 first:rounded-l-full last:rounded-r-full"
           style={{
-            background: part.done !== null && i < part.done ? hue('green').dot : 'var(--card-border)',
+            background: part.done !== null && i < part.done ? hue('green').dot : 'var(--card-track)',
           }}
         />
       ))}
@@ -241,24 +241,36 @@ const StatePill = ({ piece }: { piece: Piece }) => (
   </span>
 );
 
-/** Round initials avatars, with every name in the shared tooltip. */
-const AssigneesView = ({ a }: { a: PresentedAssignees }) => (
-  <WithDetail detail={a.detail} className={cn('inline-flex items-center gap-1.5', TONE[a.tone])} attrs={{ 'data-assignees': '' }}>
-    {a.initials.length > 0 && (
-      <span aria-hidden className="inline-flex -space-x-1">
-        {a.initials.map((initials, i) => (
-          <span
-            key={i}
-            className="inline-flex size-5 items-center justify-center rounded-full bg-(--hue-slate-soft) text-[10px] font-semibold text-(--hue-slate) ring-2 ring-(--card-surface)"
-          >
-            {initials}
+/**
+ * The assignee avatar: the first assignee's initials, `+N` for the rest, and
+ * every name in the shared tooltip and the accessible name. Nobody assigned,
+ * or an unread list, is an empty dashed circle named for it.
+ */
+const AssigneesView = ({ a }: { a: PresentedAssignees }) => {
+  const tip = useReasonTooltip(a.label, 'detail');
+  return (
+    <span {...tip.wrapperProps} className="relative inline-flex">
+      <span
+        tabIndex={0}
+        role="img"
+        aria-label={a.label}
+        {...tip.triggerProps}
+        data-assignees={a.kind}
+        className="inline-flex items-center gap-1 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2"
+      >
+        {a.initials === null ? (
+          <span className="inline-flex size-6 rounded-full border border-dashed border-(--card-meta) opacity-70" />
+        ) : (
+          <span className="inline-flex size-6 items-center justify-center rounded-full bg-(--hue-slate-soft) text-[10px] font-semibold text-(--hue-slate)">
+            {a.initials}
           </span>
-        ))}
+        )}
+        {a.more > 0 && <span aria-hidden className="text-xs tabular-nums text-(--card-meta)">+{a.more}</span>}
       </span>
-    )}
-    <span>{a.text}</span>
-  </WithDetail>
-);
+      {tip.tooltip}
+    </span>
+  );
+};
 
 /** A disabled action: a focusable, `aria-disabled` outline whose reason is its description and tooltip. */
 const DisabledAction = ({ action }: { action: PresentedAction }) => {
@@ -279,110 +291,134 @@ const DisabledAction = ({ action }: { action: PresentedAction }) => {
   );
 };
 
-/** The emphasised section draws a little heavier; position never changes. */
-const emphasised = (section: Section, emphasis: Section) => section === emphasis;
-
 /**
- * One card in the card grammar's four sections: header, context, status and
- * the action band. Renders what `presentCard` returned and decides nothing.
+ * One card in the card grammar's three sections, each on its own surface: the
+ * header on the card, the status in an inset panel, the footer in a tinted
+ * band flush at the bottom. Renders what `presentCard` returned and decides
+ * nothing; the emphasised section takes the stronger tint.
  *
- * The title is the only link that opens the item. The action band comes second
- * in the DOM and is placed last on screen, so the tab order is title, primary
- * (disabled or not), secondaries, then the links and expanders of the other
- * sections. An empty section is not drawn; the band is not drawn when no
- * action renders. Light and dark draw from the same tokens (`index.css`).
+ * Laid out on a grid so the DOM can lead with the title and the actions: the
+ * tab order is title, primary (disabled or not), secondaries, then the meta
+ * line's items, the panel's expanders and the assignee. Every section aligns
+ * to the card's 16 px padding; only the title is indented past the kind icon.
+ * Light and dark draw from the same tokens (`index.css`).
  */
 export const Card = ({
   id, sections, titleHref, onOpenTitle, linkFor, renderAction, highlighted = false,
 }: CardProps) => {
-  const { header, context, status, actions, emphasis, accent } = sections;
+  const { header, status, footer, emphasis, accent } = sections;
   const slots = [
-    ...(actions.primary === null ? [] : [{ action: actions.primary, primary: true }]),
-    ...actions.secondary.map((action) => ({ action, primary: false })),
+    ...(footer.primary === null ? [] : [{ action: footer.primary, primary: true }]),
+    ...footer.secondary.map((action) => ({ action, primary: false })),
   ].flatMap(({ action, primary: isPrimary }) => {
     const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} />;
     return control === null || control === undefined || control === false ? [] : [{ action, isPrimary, control }];
   });
-  const titleText = header.key === null ? header.title : `${header.key}: ${header.title}`;
+  const statusTwoLines = status.work !== null && status.signals.length > 0;
   return (
     <article
       id={id}
       data-card
       data-highlighted={highlighted ? 'true' : undefined}
       className={cn(
-        'group/card relative flex scroll-mt-20 flex-col overflow-visible rounded-xl border border-(--card-border) bg-(--card-surface)',
+        'relative grid scroll-mt-20 grid-cols-[1fr_auto] rounded-xl border border-(--card-border) bg-(--card-surface)',
         'shadow-(--card-shadow) transition-shadow duration-150 hover:shadow-(--card-shadow-raised) focus-within:shadow-(--card-shadow-raised)',
         highlighted && 'ring-2 ring-blue-500 ring-offset-2 ring-offset-(--card-surface)',
       )}
+      style={{ gridTemplateAreas: '"title title" "meta meta" "status status" "who actions"' }}
     >
       {/* The 3 px accent in the state's colour; the state pill says it in words. */}
-      <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] rounded-l-xl" style={{ background: hue(accent).dot }} data-accent={accent} />
-      <div data-section="header" data-card-row="identity" className="order-1 flex flex-col gap-1.5 px-4 pt-4">
-        <div className="flex items-start gap-2 text-[15px] leading-snug">
-          {/* One line tall and centred in it, so the icon sits on the title's first line when it wraps. */}
-          <span className="inline-flex h-[1lh] shrink-0 items-center"><KindIconView icon={header.kind} /></span>
-          <a
-            href={titleHref}
-            data-plan-ref
-            data-card-title
-            title={titleText}
-            onClick={(e) => {
-              if (!plainClick(e)) return;
-              e.preventDefault();
-              onOpenTitle();
-            }}
-            className="line-clamp-2 rounded font-semibold text-(--card-title) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            {header.key !== null && <><span className="font-normal tabular-nums text-(--card-meta)">{header.key}:</span>{' '}</>}
-            {header.title}
-          </a>
-        </div>
-        {header.tags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 pl-[calc(15px+0.5rem)] text-xs">
-            {header.tags.map((tag, i) => <PieceView key={i} piece={tag} />)}
-          </div>
-        )}
+      <span aria-hidden className="absolute inset-y-0 left-0 z-10 w-[3px] rounded-l-xl" style={{ background: hue(accent).dot }} data-accent={accent} />
+
+      {/* HEADER — the title, on the card surface. */}
+      <div data-section="header" data-card-row="identity" className="flex items-start gap-2 px-4 pt-4 text-[15px] leading-snug" style={{ gridArea: 'title' }}>
+        {/* One line tall and centred in it, so the icon sits on the title's first line when it wraps. */}
+        <span className="inline-flex h-[1lh] shrink-0 items-center"><KindIconView icon={header.kind} /></span>
+        <a
+          href={titleHref}
+          data-plan-ref
+          data-card-title
+          title={header.label}
+          onClick={(e) => {
+            if (!plainClick(e)) return;
+            e.preventDefault();
+            onOpenTitle();
+          }}
+          className="line-clamp-2 rounded font-semibold text-(--card-title) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          {header.title}
+        </a>
       </div>
-      {/* The band comes second in the DOM and is drawn last, so it leads the tab order after the title. */}
-      {slots.length > 0 && (
-        <div
-          data-section="actions"
-          data-card-row="next"
-          data-action-band
-          data-emphasis={emphasised('actions', emphasis) ? 'true' : undefined}
-          className="order-4 flex flex-wrap items-center gap-2 rounded-b-xl border-t border-(--card-border) bg-(--card-band) px-4 py-2.5"
-        >
-          {slots.map(({ action, isPrimary, control }) => (
-            <span key={action.action} className="inline-flex" data-action-slot={isPrimary ? 'primary' : 'secondary'}>
-              {control}
-            </span>
-          ))}
-        </div>
-      )}
-      {context.length > 0 && (
-        <div
-          data-section="context"
-          data-card-row="lineage"
-          data-emphasis={emphasised('context', emphasis) ? 'true' : undefined}
-          className={cn('order-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-2.5 text-[13px]', emphasised('context', emphasis) && 'font-medium')}
-        >
-          {context.map((part, i) => <PartView key={i} part={part} linkFor={linkFor} />)}
-        </div>
-      )}
+
+      {/* FOOTER, actions half — second in the DOM so the actions follow the title in the tab order. */}
       <div
-        data-section="status"
-        data-card-row="progress"
-        data-emphasis={emphasised('status', emphasis) ? 'true' : undefined}
-        className="order-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-3 pb-4 text-xs"
+        data-section="footer"
+        data-card-row="next"
+        data-action-band
+        data-emphasis={emphasis === 'footer' ? 'true' : undefined}
+        className="relative z-[1] mt-3 flex flex-wrap items-center justify-end gap-1.5 py-2.5 pr-4 pl-2"
+        style={{ gridArea: 'actions' }}
       >
-        <StatePill piece={status.state} />
-        {status.measures.map((part, i) => <PartView key={i} part={part} linkFor={linkFor} />)}
-        {/* Who and since when, aligned to the right of the same line. */}
-        <span data-card-row="ownership" className="ml-auto inline-flex items-center gap-3 text-(--card-meta)">
-          <AssigneesView a={status.assignees} />
-          {status.age && <PieceView piece={status.age} />}
-        </span>
+        {slots.map(({ action, isPrimary, control }) => (
+          <span key={action.action} className="inline-flex" data-action-slot={isPrimary ? 'primary' : 'secondary'}>
+            {control}
+          </span>
+        ))}
       </div>
+
+      {/* HEADER, meta line — number, type, alerts and related items. */}
+      {header.meta.length > 0 && (
+        <div
+          data-card-row="lineage"
+          data-meta
+          data-emphasis={emphasis === 'header' ? 'true' : undefined}
+          className={cn('flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 px-4 pt-1.5 text-xs text-(--card-meta)', emphasis === 'header' && 'font-medium')}
+          style={{ gridArea: 'meta' }}
+        >
+          {header.meta.map((part, i) => <PartView key={i} part={part} linkFor={linkFor} />)}
+        </div>
+      )}
+
+      {/* STATUS — the inset panel: the state and the work, then the signals. */}
+      <div className="px-4 pt-3" style={{ gridArea: 'status' }}>
+        <div
+          data-section="status"
+          data-card-row="progress"
+          data-emphasis={emphasis === 'status' ? 'true' : undefined}
+          className={cn(
+            'flex flex-col gap-1.5 rounded-lg px-3 py-2 text-xs',
+            emphasis === 'status' ? 'bg-(--card-panel-strong)' : 'bg-(--card-panel)',
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-2.5" data-status-line="1">
+            <StatePill piece={status.state} />
+            {status.work !== null && <WorkView part={status.work} />}
+            {!statusTwoLines && status.signals.map((part, i) => <PartView key={i} part={part} linkFor={linkFor} />)}
+          </div>
+          {statusTwoLines && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-status-line="2">
+              {status.signals.map((part, i) => <PartView key={i} part={part} linkFor={linkFor} />)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* FOOTER, who half — the assignee and the age, on the left of the band. */}
+      <div data-card-row="ownership" className="relative z-[1] mt-3 flex items-center gap-2 py-2.5 pl-4 text-xs text-(--card-meta)" style={{ gridArea: 'who' }}>
+        <AssigneesView a={footer.assignees} />
+        {footer.age && <PieceView piece={footer.age} />}
+      </div>
+
+      {/* The band's surface behind both halves: its tint and its top hairline. */}
+      <span
+        aria-hidden
+        className={cn(
+          'mt-3 rounded-b-xl border-t border-(--card-border)',
+          emphasis === 'footer' ? 'bg-(--card-band-strong)' : 'bg-(--card-band)',
+        )}
+        style={{ gridRow: 4, gridColumn: '1 / -1' }}
+        data-footer-band
+      />
     </article>
   );
 };

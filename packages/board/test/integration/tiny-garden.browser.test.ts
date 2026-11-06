@@ -70,7 +70,8 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       );
       expect(overflow).toBeLessThanOrEqual(0);
       // And the badge itself stays within the viewport (it wraps, not overflows).
-      const box = await page.getByText(LONG_SPRINT).boundingBox();
+      // The visible one: the sprint's tooltip carries the same words, hidden until hover.
+      const box = await page.getByText(LONG_SPRINT).filter({ visible: true }).first().boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE.width + 1);
     } finally {

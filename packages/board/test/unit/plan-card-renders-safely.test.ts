@@ -21,13 +21,14 @@ describe('PlanCard renders safely', () => {
     expect(html).toContain('unreadable card');
   });
 
-  it('an enabled action with no capability answer leaves no empty slot, and no action row at all', () => {
+  it('an enabled action with no capability answer leaves no empty slot; the footer stays for the assignee and age', () => {
     // Ready to start, Start work enabled — but the board said nothing about dispatch.
     const ready = card({ slug: 'ready', title: 'Ready', phase: 'Development', started: false });
     expect(ready.facts.next.primary).toMatchObject({ action: 'start-work', enabled: true });
     const html = render(ready);
     expect(html).not.toContain('data-action-slot');
-    expect(html).not.toContain('data-card-row="next"');
+    expect(html).toContain('data-footer-band');
+    expect(html).toContain('aria-label="Unassigned"');
   });
 
   it('keeps the row and the slot when the control renders', () => {

@@ -8,7 +8,7 @@ import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
  *
  * `presentCard` decides the rows and the words, asserted in
  * `test/unit/card-presentation.test.ts` with no browser. This owns the half a
- * page states: the four sections land in their fixed order on screen, the tab order
+ * page states: the three sections land in their fixed order on screen, the tab order
  * runs title, primary, secondaries, expanders, and an expander is a
  * `<button aria-expanded>` that opens its list in place.
  */
@@ -55,19 +55,28 @@ describe('a plan card renders the card grammar', () => {
     return page;
   };
 
-  it('shows the four sections in their fixed order on screen, the status opening with the state', async () => {
+  it('shows the three sections in their fixed order on screen, the footer flush at the bottom', async () => {
     const page = await open();
     try {
       const tops = await page.locator('#plan-cold [data-section]').evaluateAll((els) =>
         els.map((el) => ({ section: el.getAttribute('data-section'), top: el.getBoundingClientRect().top })),
       );
       const order = [...tops].sort((a, b) => a.top - b.top).map((t) => t.section);
-      expect(order).toEqual(['header', 'context', 'status', 'actions']);
-      expect(await page.locator('#plan-cold [data-section="actions"]').getAttribute('data-emphasis')).toBe('true');
-      // The status opens with the state pill, and ends with the assignee and the age.
+      expect(order).toEqual(['header', 'status', 'footer']);
+      expect(await page.locator('#plan-cold [data-section="footer"]').getAttribute('data-emphasis')).toBe('true');
+      const bottoms = await page.locator('#plan-cold').evaluate((card) => ({
+        card: card.getBoundingClientRect().bottom,
+        band: card.querySelector('[data-footer-band]')!.getBoundingClientRect().bottom,
+      }));
+      expect(Math.abs(bottoms.card - bottoms.band)).toBeLessThanOrEqual(1);
+      // The status panel opens with the state pill; the footer holds the assignee.
       const status = page.locator('#plan-grammar [data-section="status"]');
       expect(await status.locator('[data-state-pill]').first().textContent()).toBe('Draft');
-      expect(await status.locator('[data-assignees]').textContent()).toContain('@jwloka');
+      expect(await page.locator('#plan-grammar [data-assignees]').getAttribute('aria-label')).toBe('@jwloka');
+      // Nobody assigned is an empty circle named for it, not a word on the card.
+      const nobody = page.locator('#plan-cold [data-assignees]');
+      expect(await nobody.getAttribute('aria-label')).toBe('Unassigned');
+      expect(await page.locator('#plan-cold').innerText()).not.toContain('Unassigned');
     } finally {
       await page.close();
     }
@@ -118,7 +127,10 @@ describe('a plan card renders the card grammar', () => {
     try {
       const identity = page.locator('#plan-grammar [data-card-row="identity"]');
       expect(await identity.getByRole('img', { name: 'Plan' }).count()).toBe(1);
-      expect(await identity.locator('[data-type="feature"]').count()).toBe(1);
+      // The number and the type tag sit on the muted meta line below the title, not on the title's line.
+      const meta = page.locator('#plan-grammar [data-meta]');
+      expect(await meta.locator('[data-type="feature"]').count()).toBe(1);
+      expect(await meta.locator('[data-key]').textContent()).toBe('#3101');
     } finally {
       await page.close();
     }
@@ -156,10 +168,10 @@ describe('a plan card renders the card grammar', () => {
     }
   });
 
-  it('sets the action band apart: a top divider and its own tint', async () => {
+  it('sets the footer apart: a top divider and its own tint', async () => {
     const page = await open();
     try {
-      const band = page.locator('#plan-grammar [data-action-band]');
+      const band = page.locator('#plan-grammar [data-footer-band]');
       const style = await band.evaluate((el) => {
         const s = getComputedStyle(el);
         return { border: s.borderTopWidth, bg: s.backgroundColor, card: getComputedStyle(el.closest('article')!).backgroundColor };
