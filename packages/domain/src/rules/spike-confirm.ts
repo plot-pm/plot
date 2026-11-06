@@ -35,8 +35,9 @@ export interface SpikeCardReadings {
  */
 export const spikeCardState = (readings: SpikeCardReadings): SpikeCardState | null => {
   if (readings.state !== 'design') return null;
-  if (spikeOf(readings.slices ?? []) === undefined) return null;
-  if (!licensedSpike(readings.spikeApproved ?? '', readings.slices ?? []).licensed) return 'spike-not-approved';
+  const slices = readings.slices ?? [];
+  if (spikeOf(slices) === undefined) return null;
+  if (!licensedSpike(readings.spikeApproved ?? '', slices).licensed) return 'spike-not-approved';
   return readings.spikeMerged === true ? 'spike-merged' : 'spike-approved';
 };
 
