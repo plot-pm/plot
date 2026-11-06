@@ -148,6 +148,12 @@ jobs:
   # 2026-10-01 through the Actions API: 0 push runs on that branch, ever, and
   # v2.22.0, v2.22.1 and v2.22.2 each merged with `gh pr merge --admin`.
   #
+  # THE DISPATCH ALONE DOES NOT LIFT `BLOCKED`. Measured on 2.31.0 (PR #3080,
+  # 2026-11-06): the dispatched run completed `success` and `mergeStateStatus`
+  # still read `BLOCKED` until a person approved the held `pull_request` run.
+  # `release-validate-relay.yml` copies the dispatched result to a `validate`
+  # commit status on the pinned head.
+  #
   # ITS OWN JOB, AND THAT IS THE POINT. `actions: write` lives here and nowhere
   # else — the `release` job publishes to npm and runs `create-release.sh`, so
   # widening it was the rejected alternative. This job checks nothing out, adds
