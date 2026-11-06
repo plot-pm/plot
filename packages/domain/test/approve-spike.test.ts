@@ -308,7 +308,8 @@ describe('the controller gate and the card', () => {
     const base = { state: 'design', status: 'draft' as const, started: false, slices: SPIKE, spikeApproved: '' };
     expect(cardControls(base).approveSpike).toBe(true);
     expect(cardControls({ ...base, state: 'draft' }).approveSpike).toBe(false);
-    expect(cardControls({ ...base, spikeApproved: 'x, y, z' }).approveSpike).toBe(false);
+    expect(cardControls({ ...base, spikeApproved: '2026-10-12, jwloka, in-session, feature/spike' }).approveSpike).toBe(false);
+    expect(cardControls({ ...base, spikeApproved: 'x, y, z' }).approveSpike).toBe(true);
     expect(cardControls({ ...base, slices: [SPIKE[1], SPIKE[0]] }).approveSpike).toBe(false);
     expect(cardControls({ ...base, slices: [] }).approveSpike).toBe(false);
   });

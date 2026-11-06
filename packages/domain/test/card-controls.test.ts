@@ -96,12 +96,18 @@ describe('cardControls — a Design plan against its spike', () => {
     expect(at('')).toMatchObject({ spikeState: 'spike-not-approved', approveSpike: true, confirmSlices: false, approve: false });
   });
 
+  it('offers Approve spike where the record licenses no branch', () => {
+    for (const record of ['2026-10-13', '2026-10-13, jwloka, in-session', '2026-10-13, jwloka, in-session, feature/rest']) {
+      expect(at(record)).toMatchObject({ spikeState: 'spike-not-approved', approveSpike: true });
+    }
+  });
+
   it('offers neither approval while the approved spike is unmerged', () => {
-    expect(at('2026-10-13, jwloka, in-session')).toMatchObject({ spikeState: 'spike-approved', approveSpike: false, confirmSlices: false, approve: false });
+    expect(at('2026-10-13, jwloka, in-session, feature/spike')).toMatchObject({ spikeState: 'spike-approved', approveSpike: false, confirmSlices: false, approve: false });
   });
 
   it('words the approval as Confirm slices once the spike has merged', () => {
-    expect(at('2026-10-13, jwloka, in-session', true)).toMatchObject({ spikeState: 'spike-merged', confirmSlices: true, approve: true });
+    expect(at('2026-10-13, jwloka, in-session, feature/spike', true)).toMatchObject({ spikeState: 'spike-merged', confirmSlices: true, approve: true });
   });
 
   it('leaves a Design plan with no spike its plain Approve', () => {
