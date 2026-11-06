@@ -390,7 +390,7 @@ type CardFacts = {
 type ItemState =
   | { kind: 'ticket'; lane: TicketLane }
   | { kind: 'story'; status: StoryStatus }
-  | { kind: 'plan'; status: PlanStatus };
+  | { kind: 'plan'; status: PlanState };   // PlanState: draft | design | approved | delivered | released
 
 type Action = { action: ActionKind; enabled: boolean; reason: Reason | null };
 
@@ -521,23 +521,47 @@ empty section, and an empty line inside one, is not drawn.
 
 | Section | Surface | Holds | From |
 |---|---|---|---|
-| **Header** | the card surface | the kind icon and the title (the `opens` link, at most two lines); below it one muted meta line: number, subtype tag, labelled alerts, then each related item as icon + identifier | `identity`, `lineage` |
-| **Status** | an inset panel, rounded, one surface step lighter (dark) or darker (light) than the card | line 1: the state pill, then work done / total with a progress bar stretched to the panel's width; line 2, the signals: PR check dots and counts, design rounds and spike state, verification | `progress` |
+| **Header** | the card surface | the kind icon and the title (the `opens` link, at most two lines), prefixed by the item's ticket number where it has one (*#3073 The release head reports…*); below it one muted meta line: subtype tag, labelled alerts, then each related item | `identity`, `lineage` |
+| **Status** | an inset panel, rounded, one surface step lighter (dark) or darker (light) than the card | line 1: the state pill, then work done / total with a progress bar stretched to the panel's width; line 2, the signals: PRs and their builds, design rounds and spike state, verification | `progress` |
 | **Footer** | a tinted band flush at the bottom with a top hairline | the assignees and the age on the left, the actions on the right: primary, then secondaries | `ownership`, `next` |
 
-**A related item reads as icon + identifier**, the way a ticket reads as its
-number, with its title and state in the tooltip:
+**A related item reads as icon + identifier + name**, the identifier first the
+way a ticket number leads its title, with its state in the tooltip:
 
 | Item | On the card | Tooltip |
 |---|---|---|
 | ticket | `◎ #3170` or `◎ PROJ-12` | title, tracker state |
-| story | `▥ <slug>`, shortened to fit | title, status |
-| plan | `▤ 3092` (its issue key) or `▤ <slug>` | title, phase |
-| sprint | `↻ 2.32.0` — the sprint's `Release:` copied verbatim; its short title when it names none | title, release, state |
+| story | `▥ <title>`, shortened to fit | title, status |
+| plan | `▤ #3092 <title>` with its ticket number, else `▤ <title>`, shortened to fit | title, phase |
+| sprint | `↻ 2.32.0 · <title>`, shortened to fit — the release target first, copied verbatim from the sprint's `Release:`; the title alone when it names none | title, release, state |
 
-Two or more of one kind fold to a count (*↻ 2 sprints*) that expands in place.
-The release is not validated, as `/plot-sprint` states: it is named before it
-is cut, so the card copies it.
+Two or more of one kind fold to a count (*↻ 2 sprints*). The release is not
+validated, as `/plot-sprint` states: it is named before it is cut, so the card
+copies it.
+
+**Every referenced item is a link.** A click on an item navigates to it; a
+click on a count opens a popover that lists the items, each a link.
+
+| Item | A click |
+|---|---|
+| ticket | opens `TicketModal` (Tickets slice); until then the host issue |
+| story | opens `StoryModal` |
+| plan | opens `PlanModal` |
+| sprint | opens `SprintModal` |
+| branch | opens the branch on the host |
+| PR | opens the PR on the host |
+| build | opens the PR's checks on the host — the run's own URL where the reading carries one |
+| a count (*2 PRs*, *↻ 2 sprints*, *3 plans*) | opens a popover listing each item as a link, a PR with its branch, check state and build link |
+
+A link to an item inside the board opens that item's detail view in place; a
+link to the host opens a new tab and says so in its accessible name. **Links
+carry no decoration at rest** — no underline and no link colour, so the card
+reads as text — and show their underline and pointer on hover and on keyboard
+focus, with a visible focus ring. The popover is a dialog: it opens on click,
+Enter or Space, takes focus, closes on Escape or a click outside, and returns
+focus to the count. The host URLs come from the readings that name them (a
+PR's `url`, a run's URL) or from the repository's own host address; the
+mapping builds no URL from free text.
 
 The card shows what a reader scans for; the detail view holds the rest. **Not on
 the card**: the source path or `repo#N` (`ownership.source`), the author or
@@ -622,7 +646,7 @@ and admits `http(s)` link schemes only.
   the tooltip; an approved plan still shows its assignee, not its approver. A
   spike merged with no `Spike approved:` record offers *Approve spike* as the
   primary and *Confirm slices* as a secondary. The card follows the visual
-  design above in both themes. A plan in a sprint with a `Release:` shows `↻ <release>` in its meta line. The status panel and footer keep their lines aligned across cards: a card with no PRs has no empty signals line, and the assignee and age sit in the footer on every card.
+  design above in both themes. A plan with a ticket shows its number before the title; its sprint reads `↻ <release> · <title>`. Every referenced item on the card (sprint, plan, story, ticket, branch, PR, build) is a link without decoration at rest, underlined on hover and focus; *2 PRs* opens a popover listing both PRs as links with their builds. A plan in a sprint with a `Release:` shows `↻ <release>` in its meta line. The status panel and footer keep their lines aligned across cards: a card with no PRs has no empty signals line, and the assignee and age sit in the footer on every card.
   No plan card shows *not measured here* or *checks not asked* as a chip of its
   own; each shows as an unknown in its row. Every plan card leads with the plan
   kind icon from `KIND_ICON_PATH`, sized to the title text, with an accessible
