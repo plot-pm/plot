@@ -130,7 +130,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Review comment tests
 
-- `bug/the-review-comment-tests-can-fail` — one shared `prComments` across heads, the dead `reviewIssue` decision removed, the test name, and the two stale texts (#2929)
+- `bug/the-review-comment-tests-can-fail` — one shared `prComments` across heads, the dead `reviewIssue` decision removed, the test name, and the two stale texts (#2929) → #3185
 
 ### Merge gate
 

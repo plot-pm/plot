@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3074 merged
 - **Started:** 2026-11-06, Jan Wloka, `feature/pr-review-accepts-a-plot-review`
+- **Started:** 2026-11-06, Jan Wloka, `feature/the-review-status-has-one-writer`
 
 ## Changelog
 
@@ -214,11 +215,11 @@ Each test fails on `origin/main` before the change unless it says otherwise.
 
 ### Writer check
 
-- `feature/pr-review-accepts-a-plot-review` — `pr-review` reports every `plot/review` status with its writer, `githubReview` and `reviewPasses` judge it, `Host.reviewWriter` resolves the Review app's bot login from the default branch's config, `mergeAt` and `releaseApproveAt` refuse a newer foreign status, the board's review run reads only the trusted status, and the index judges an unchecked `success` or `failure` row into `plotReviewJudged`, which a later rollup write keeps <!-- builds: the writer check on both read paths --> <!-- waits: feature/the-release-checks-are-counted -->
+- `feature/pr-review-accepts-a-plot-review` — `pr-review` reports every `plot/review` status with its writer, `githubReview` and `reviewPasses` judge it, `Host.reviewWriter` resolves the Review app's bot login from the default branch's config, `mergeAt` and `releaseApproveAt` refuse a newer foreign status, the board's review run reads only the trusted status, and the index judges an unchecked `success` or `failure` row into `plotReviewJudged`, which a later rollup write keeps <!-- builds: the writer check on both read paths --> <!-- waits: feature/the-release-checks-are-counted --> → #3187
 
 ### Review write gate
 
-- `feature/the-review-status-has-one-writer` — `writesReviewStatus` in `rules/role-gate.ts` reads a `plot/review` commit-status write, the role-deny gate refuses it for a role agent, and the controller gate refuses it in the main checkout and at a desk before its linked-worktree return, unless it comes from `plot-review.mjs` <!-- builds: the plot/review write gate -->
+- `feature/the-review-status-has-one-writer` — `writesReviewStatus` in `rules/role-gate.ts` reads a `plot/review` commit-status write, the role-deny gate refuses it for a role agent, and the controller gate refuses it in the main checkout and at a desk before its linked-worktree return, unless it comes from `plot-review.mjs` <!-- builds: the plot/review write gate --> → #3188
 
 ## Notes
 

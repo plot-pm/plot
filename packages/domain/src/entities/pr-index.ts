@@ -122,6 +122,25 @@ export const PrIndexRowSchema = z
      */
     plotReviewAt: z.string().optional(),
     /**
+     * The `plot/review` state judged against the Review app's bot login, kept
+     * beside the rollup's `plotReview` because the rollup carries no writer and
+     * a later rollup write would overwrite a judgment held in `plotReview`.
+     * Absent until fleetd judges a `success` or `failure` rollup, and absent
+     * again once the rollup moves on (see `plotReviewCheckedAt`).
+     */
+    // plot-state: reading — the writer check's answer for the head it names in
+    //                       plotReviewCheckedSha, not an order a review passes
+    //                       through. Re-judged whenever the rollup's status moves.
+    plotReviewJudged: z.enum(['success', 'failure', 'pending', 'absent', 'error']).optional(),
+    /** The head `plotReviewJudged` read. Present only alongside `plotReviewJudged`. */
+    plotReviewCheckedSha: z.string().optional(),
+    /**
+     * The rollup's `plotReviewAt` when the judgment was made. A rollup whose
+     * `plotReviewAt` still equals it names the status the judgment read.
+     * Present only alongside `plotReviewJudged`.
+     */
+    plotReviewCheckedAt: z.string().optional(),
+    /**
      * The GitHub rollup folded the same way `checks` is, but with the
      * `plot/review` context excluded — green · pending · failing · none ·
      * unknown. Bound to `checksSha`, the same commit `checks` is bound to.

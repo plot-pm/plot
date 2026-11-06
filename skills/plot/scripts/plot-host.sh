@@ -111,12 +111,21 @@
 #                                 (exit 0) where none merged. The same query
 #                                 `pr-merge-commit` runs. EXIT 3 is the question
 #                                 failing.
-#   pr-review <number>             one JSON line `{"sha","state","description","time","bypass"}`:
+#   pr-review <number>             one JSON line `{"sha","state","description","time","bypass","statuses"}`:
 #                                 the PR's head sha, the newest `plot/review`
-#                                 status on it (`success|failure|pending|error`,
-#                                 or `absent`), that status's description and
-#                                 time (both `""` where state is `absent`), and
-#                                 whether a comment starts `review-bypass:`.
+#                                 status on it from ANY writer
+#                                 (`success|failure|pending|error`, or
+#                                 `absent`), that status's description and
+#                                 time (both `""` where state is `absent`),
+#                                 whether a comment starts `review-bypass:`, and
+#                                 `statuses`: every `plot/review` status on the
+#                                 head, newest first, as `{"state",
+#                                 "description","time","writer"}` where
+#                                 `writer` is `creator.login` (`""` where the
+#                                 host names none). GitHub reads every page of
+#                                 the head's statuses. The op reports and
+#                                 decides nothing: `checkedReview` judges
+#                                 `statuses` against the Review app's bot login.
 #                                 Bitbucket reads the same state words from the
 #                                 `plot/review` commit status (SUCCESSFUL,
 #                                 FAILED, INPROGRESS, STOPPED), its
@@ -4373,8 +4382,12 @@ case "$op" in
         && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
         || die3 "pr-review: the read failed"
       exit 0; fi
-    out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
-      && jq -c --argjson st "$st" '[$st[] | select(.context == "plot/review")][0] as $m | {sha: .headRefOid, state: ($m.state // "absent"), description: ($m.description // ""), time: ($m.updated_at // ""), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
+    # EVERY `plot/review` STATUS IS REPORTED WITH ITS WRITER, and nothing is
+    # decided here: `checkedReview` judges the list against the Review app's bot
+    # login. The pages and the PR travel through stdin, never `--argjson` (the
+    # 128 KB argv cap on Linux).
+    out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api --paginate "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses?per_page=100")" \
+      && printf '%s\n%s\n' "$out" "$st" | jq -cs '.[0] as $pr | [.[1:][][] | select(.context == "plot/review")] as $s | $s[0] as $m | {sha: $pr.headRefOid, state: ($m.state // "absent"), description: ($m.description // ""), time: ($m.updated_at // ""), bypass: any($pr.comments[]?; .body | startswith("review-bypass:")), statuses: [$s[] | {state, description: (.description // ""), time: (.updated_at // ""), writer: (.creator.login // "")}]}' \
       || die3 "pr-review: the read failed" ;;
 
   pr-create)

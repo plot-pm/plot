@@ -156,7 +156,7 @@ describe('the fix PR of a red default branch', () => {
 
   it('starts nothing on a second pass after the review of the same head finished', async () => {
     await tick([fixRow], record({ repairPr: 9 }));
-    const reviewed = { ...fixRow, plotReview: 'success' as const, plotReviewSha: HEAD };
+    const reviewed = { ...fixRow, plotReview: 'success' as const, plotReviewSha: HEAD, plotReviewJudged: 'success' as const, plotReviewCheckedSha: HEAD };
     const out = await tick([reviewed], record({ repairPr: 9 }), NOW + 60 * 60_000, false);
     expect(out[0]!.started).toBeUndefined();
     expect(starts).toBe(1);
@@ -212,7 +212,7 @@ describe('runAutoReviewPass', () => {
 
   it('starts none on a head that already has a plot/review status', async () => {
     const o = opts();
-    const reviewed = { ...row, plotReview: 'success' as const, plotReviewSha: HEAD };
+    const reviewed = { ...row, plotReview: 'success' as const, plotReviewSha: HEAD, plotReviewJudged: 'success' as const, plotReviewCheckedSha: HEAD };
     const out = await runAutoReviewPass(o, new Set(), NOW, world(), async () => reading([reviewed]));
     // The merge arm answers on a reviewed head; with no default-branch reading it holds.
     expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'default-branch-unread' });

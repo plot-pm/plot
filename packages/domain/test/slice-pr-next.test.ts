@@ -5,14 +5,24 @@ import type { Sprint } from '../src/entities/sprint.js';
 import { defaultBranchRed } from '../src/rules/default-branch.js';
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
-import { ciRedArm, highArm, nextMerge, restatusArm, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import { ciRedArm, highArm, mergeArm, nextMerge, restatusArm, reviewArm, slicePrNext, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
 const NOW = Date.parse('2026-10-30T12:00:00Z');
 const BRANCH = 'feature/x';
 
-const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
+/**
+ * The writer check's judgment the index would hold for a rollup that reads
+ * `success` or `failure` on the head. A test names `plotReviewJudged` itself,
+ * or `undefined` to model a row no pass has judged.
+ */
+const judged = (r: PrIndexRow, over: Partial<PrIndexRow>): PrIndexRow =>
+  'plotReviewJudged' in over || (r.plotReview !== 'success' && r.plotReview !== 'failure') || r.plotReviewSha === undefined
+    ? r
+    : { ...r, plotReviewJudged: r.plotReview, plotReviewCheckedSha: r.headSha, plotReviewCheckedAt: r.plotReviewAt };
+
+const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => judged({
   number: 7,
   head: BRANCH,
   state: 'OPEN',
@@ -25,7 +35,7 @@ const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
   ciChecks: 'green',
   plotReview: 'absent',
   ...over,
-});
+}, over);
 
 const readings = (over: Partial<SlicePrNextReadings> = {}): SlicePrNextReadings => ({
   row: row(),
@@ -577,6 +587,39 @@ describe('the merge arm', () => {
 
   it('keeps the unread hold on an unread repair record', () => {
     expect(merging({ repair: { read: 'unread' } })).toEqual({ step: 'hold', reason: 'unread' });
+  });
+});
+
+describe('a success the writer check has not judged', () => {
+  const unjudged = (state: 'success' | 'failure') =>
+    row({ plotReview: state, plotReviewSha: HEAD, plotReviewJudged: undefined });
+  const foreign = row({ plotReview: 'success', plotReviewSha: HEAD, plotReviewJudged: 'absent', plotReviewCheckedSha: HEAD });
+  const TIP = 'c'.repeat(40);
+  const green = {
+    v: 1 as const, branch: 'main', headSha: TIP, head: 'green' as const, settled: { sha: TIP, state: 'green' as const }, failingRuns: [],
+    headSince: '2026-10-30T11:00:00Z', askedAt: '2026-10-30T11:55:00Z', at: '2026-10-30T11:55:00Z',
+  };
+
+  it('holds review-writer-unchecked in the review arm, the merge arm and the HIGH arm', () => {
+    expect(slicePrNext(readings({ row: unjudged('success'), defaultBranch: green }))).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
+    expect(reviewArm(readings({ row: unjudged('success') }))).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
+    expect(mergeArm(readings({ row: unjudged('success'), defaultBranch: green }))).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
+    expect(highArm(readings({ row: unjudged('failure'), fixer: { read: 'fixer', highExhausted: false } as never }))).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
+  });
+
+  it('starts a review for a success only a foreign writer wrote, and merges nothing', () => {
+    expect(slicePrNext(readings({ row: foreign, defaultBranch: green }))).toEqual({ step: 'review', head: HEAD });
+    expect(mergeArm(readings({ row: foreign, defaultBranch: green }))).toMatchObject({ step: 'none', why: 'not-passed' });
+  });
+
+  it('holds review-writer-unchecked in the re-status arm too', () => {
+    const verdict = { read: 'verdict', state: 'failure', description: 'HIGH 1' } as const;
+    expect(restatusArm(readings({ row: unjudged('success'), verdict }))).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
+  });
+
+  it('answers none once the head\'s review start budget is spent', () => {
+    const spent = { head: HEAD, count: 99, lastAt: NOW };
+    expect(slicePrNext(readings({ row: foreign, defaultBranch: green, reviewStarts: spent }))).toMatchObject({ step: 'none', why: 'budget-spent' });
   });
 });
 

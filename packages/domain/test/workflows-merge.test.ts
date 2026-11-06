@@ -276,6 +276,28 @@ describe('merge — the controller for a PR merge', () => {
     expect(refusalOf(readings({ review: review({ sha: OTHER }) }))).toBe('review-not-passed');
   });
 
+  it('refuses review-foreign-writer where a foreign status is newer than the Review app\'s success', () => {
+    const statuses = [
+      { state: 'success', description: '', time: 't2', writer: 'jwloka' },
+      { state: 'success', description: '', time: 't1', writer: 'plot-review[bot]' },
+    ];
+    expect(refusalOf(readings({ review: review({ statuses }), reviewWriter: 'plot-review[bot]' }))).toBe('review-foreign-writer');
+  });
+
+  it('refuses review-foreign-writer where the only success is a foreign one', () => {
+    const statuses = [{ state: 'success', description: '', time: 't', writer: 'jwloka' }];
+    expect(refusalOf(readings({ review: review({ statuses }), reviewWriter: 'plot-review[bot]' }))).toBe('review-foreign-writer');
+  });
+
+  it('refuses review-writer-unread where the Review app\'s login could not be resolved', () => {
+    expect(refusalOf(readings({ reviewWriter: 'unaskable' }))).toBe('review-writer-unread');
+  });
+
+  it('passes a success the Review app wrote', () => {
+    const statuses = [{ state: 'success', description: '', time: 't', writer: 'plot-review[bot]' }];
+    expect(refusalOf(readings({ review: review({ statuses }), reviewWriter: 'plot-review[bot]' }))).toBe('decided');
+  });
+
   it('refuses review-not-passed when the review read fails', () => {
     expect(refusalOf(readings({ review: 'unaskable' }))).toBe('review-not-passed');
   });
@@ -316,6 +338,7 @@ describe('mergeAt — the workflow wired to its ports', () => {
           ? { ok: false, why: 'unaskable' as const }
           : { ok: true, value: lookup }),
         prReview: async () => ({ ok: true, value: { sha: lookup === 'unaskable' ? '' : (lookup?.headSha ?? ''), state: 'success', description: '', time: '', bypass: false } }),
+        reviewWriter: async () => ({ ok: true, value: '' }),
       },
       scripts: {
         hostSaid: async (args: string[]) => {
@@ -333,6 +356,14 @@ describe('mergeAt — the workflow wired to its ports', () => {
     } as unknown as MergePorts;
     return { p, calls };
   };
+
+  it('refuses review-writer-unread when the Review app writer cannot be resolved', async () => {
+    const { p, calls } = ports(prFixture());
+    (p.host as unknown as { reviewWriter: () => Promise<unknown> }).reviewWriter = async () => ({ ok: false, why: 'unaskable' });
+    const out = await mergeAt(p, 7, HEAD2);
+    expect(out).toMatchObject({ merged: false, reason: 'review-writer-unread' });
+    expect(calls).toEqual([]);
+  });
 
   it('passes the head the caller read to the host as --match-head', async () => {
     const { p, calls } = ports(prFixture());
@@ -576,6 +607,7 @@ describe('mergeAt — the repair PR on a red default branch', () => {
         backend: async () => ({ ok: true, value: 'github' }),
         prState: async () => ({ ok: true, value: lookup }),
         prReview: async () => ({ ok: true, value: { sha: head, state: 'success', description: '', time: '', bypass: false } }),
+        reviewWriter: async () => ({ ok: true, value: '' }),
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: red }) },

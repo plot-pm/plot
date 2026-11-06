@@ -3,6 +3,7 @@ import type { Pr } from '../entities/pr.js';
 import type { BuildPort } from '../ports/build.js';
 import type { DefaultBranchStore } from '../ports/default-branch.js';
 import type { Host, PrReviewReading } from '../ports/host.js';
+import { checkedReview, reviewPasses } from '../rules/checked-review.js';
 import type { Refs } from '../ports/refs.js';
 import type { RepairRecordStore } from '../ports/repair-record.js';
 import type { Scripts } from '../ports/scripts.js';
@@ -38,6 +39,8 @@ export type MergeRefusal =
   | 'default-branch-unsettled'
   | 'default-branch-unread'
   | 'review-not-passed'
+  | 'review-foreign-writer'
+  | 'review-writer-unread'
   | 'release-pr'
   | Exclude<RepairMergeRefusal, 'unaskable'>;
 
@@ -67,6 +70,12 @@ export interface MergeReadings {
    * never folded from the checks rollup. `'unaskable'` where the read failed.
    */
   readonly review: PrReviewReading | 'unaskable';
+  /**
+   * The Review app's bot login `plot/review` is judged against: `''` where no
+   * writer is declared, and `'unaskable'` where it could not be resolved.
+   * Absent reads as `''`.
+   */
+  readonly reviewWriter?: string | 'unaskable';
   /**
    * The repair record, its episode and the red commit's runs asked again,
    * read only where the default branch is settled red. Absent reads as no
@@ -207,9 +216,11 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
     return no('checks-unbound', `the green checks of PR #${input.pr} name ${short(pr.checksSha)}, not the head ${short(pr.headSha)}. A green that names no matching commit proves nothing about this head.`);
   }
   const review = readings.review;
-  if (review === 'unaskable' || review.state !== 'success' || review.sha !== pr.headSha) {
-    const seen = review === 'unaskable' ? 'the review read failed' : review.sha !== pr.headSha ? `'plot/review' names ${short(review.sha)}, not the head ${short(pr.headSha)}` : `'plot/review' reads '${review.state}'`;
-    return no('review-not-passed', `${seen} for PR #${input.pr}. Merge when review reads 'success' on this head.`);
+  const writer = readings.reviewWriter ?? '';
+  const judged = review === 'unaskable' ? review : checkedReview(review, writer === 'unaskable' ? null : writer);
+  const passes = reviewPasses(judged, pr.headSha, { plain: 'review-not-passed' });
+  if (!passes.pass) {
+    return no(passes.reason, `${passes.seen} for PR #${input.pr}. Merge when review reads 'success' on this head.`);
   }
   const defaultBranch = readings.defaultBranch;
   let admitted: RepairRole | undefined;
@@ -361,9 +372,10 @@ export const mergeAt = async (
   const reading = await ports.defaultBranch.read();
   const backend = await ports.host.backend();
   const settledReading = reading.ok && reading.value !== null && reading.value.settled !== undefined ? reading.value : null;
-  const [tip, review] = await Promise.all([
+  const [tip, review, writer] = await Promise.all([
     settledReading !== null ? ports.refs.remoteSha(settledReading.branch) : null,
     ports.host.prReview(pr),
+    ports.host.reviewWriter(),
   ]);
   // Read last, so the red commit's runs are asked immediately before the merge.
   const repair = settledReading !== null && settledReading.settled?.state === 'red'
@@ -376,6 +388,7 @@ export const mergeAt = async (
       defaultBranch: reading.ok ? reading.value : 'unaskable',
       defaultBranchTip: tip === null ? 'unaskable' : tip.ok && tip.value !== 'unknown' ? tip.value.sha : 'unaskable',
       review: review.ok ? review.value : 'unaskable',
+      reviewWriter: writer.ok ? writer.value : 'unaskable',
       ...(repair ? { repair } : {}),
     },
     {

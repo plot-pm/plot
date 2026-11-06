@@ -7,6 +7,7 @@ import { processesShell } from '@plot-pm/domain/adapters/processes/processes-she
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
+import { checkedReview, type JudgedReview } from '@plot-pm/domain/rules/checked-review';
 import type { Host, Pr, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
@@ -281,6 +282,22 @@ const prCommentBody = (text: (verdict: string) => string, verdictText: string, v
 };
 
 /**
+ * Reads the head's `plot/review` status as the Review app wrote it.
+ *
+ * A status from another writer is never this run's to read: a forged `success`
+ * does not end the run, and a foreign `pending` does not supersede it.
+ *
+ * @param deps - the ports.
+ * @param number - the PR number.
+ * @returns the judged reading, or null where the host did not answer the status or the Review app's login.
+ */
+const readTrusted = async (deps: ReviewDeps, number: number): Promise<JudgedReview | null> => {
+  const [read, writer] = await Promise.all([deps.host.prReview(number), deps.host.reviewWriter()]);
+  if (!read.ok || !writer.ok) return null;
+  return checkedReview(read.value, writer.value);
+};
+
+/**
  * Reads the head's `plot/review` status, then writes this run's `pending`
  * status with `run <run id>` in its description.
  *
@@ -298,10 +315,10 @@ const prCommentBody = (text: (verdict: string) => string, verdictText: string, v
  *   or a refused write.
  */
 const markPending = async (deps: ReviewDeps, pr: Pr, sha: string, lock: RunLock): Promise<ReviewOutcome | null> => {
-  const before = await deps.host.prReview(pr.number);
-  if (!before.ok) return refuse(`the host did not answer the review status of PR #${pr.number}`);
-  if (before.value.sha !== sha) return refuse(`the host read the review status of PR #${pr.number} on ${before.value.sha}, not on ${sha}`);
-  if (before.value.state === 'failure') return refuse(`${sha} already carries a failure status; no run replaces it`);
+  const before = await readTrusted(deps, pr.number);
+  if (before === null) return refuse(`the host did not answer the review status of PR #${pr.number}`);
+  if (before.sha !== sha) return refuse(`the host read the review status of PR #${pr.number} on ${before.sha}, not on ${sha}`);
+  if (before.state === 'failure') return refuse(`${sha} already carries a failure status; no run replaces it`);
   const pending = await deps.host.commitStatus({
     sha, state: 'pending', context: REVIEW_CONTEXT, description: `run ${lock.runId}`, targetUrl: pr.url,
   });
@@ -492,13 +509,13 @@ const finishReview = async (
     }
   }
 
-  const reading = await deps.host.prReview(pr.number);
-  if (reading.ok && reading.value.sha === sha) {
-    if (reading.value.state === 'failure') {
+  const reading = await readTrusted(deps, pr.number);
+  if (reading !== null && reading.sha === sha) {
+    if (reading.state === 'failure') {
       return { code: EXIT.refused, lines: [...lines, `plot-review: ${sha} already carries a failure status; no run replaces it`] };
     }
-    const newest = reading.value.description;
-    if (reading.value.state === 'pending' && newest !== `run ${lock.runId}`) {
+    const newest = reading.description;
+    if (reading.state === 'pending' && newest !== `run ${lock.runId}`) {
       return { code: EXIT.refused, lines: [...lines, `plot-review: superseded by ${newest || 'another run'} before the status could be written`] };
     }
   }
