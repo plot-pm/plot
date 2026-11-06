@@ -2774,11 +2774,12 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
         slices: spend.slices.length,
       };
     }
-    // Kept for the tile's Ready/In-progress badge; the column now says the same
-    // thing, but a Development card still benefits from the explicit flag. Gated
+    // The wire's Ready/In-progress flag. The card no longer renders it — its
+    // facts say the same thing through Start work's place in the action row —
+    // and it stays on the wire for the payload's other readers. Gated
     // on the card's OWN state, not the plan's: an approved plan whose slices have
     // all merged has been bumped out of Development, and the Ready/In-progress
-    // badge is a Development affordance that must not ride along into Testing.
+    // flag is a Development affordance that must not ride along into Testing.
     //
     // SETTLED 2026-08-26 (the-board-reads-approval-not-phase): the phase gate
     // is KEPT, not moved onto `started_raw`. The two conditions — `phase ===
@@ -2786,7 +2787,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // on every plan today and diverge in exactly one case: a plan bumped out of
     // Development that still carries `Started:` records (all its slices merged, so
     // its card sits in Testing as `deliverable`). There, `started` is true but
-    // the phase is not Development, and the gate is RIGHT to withhold the badge:
+    // the phase is not Development, and the gate is RIGHT to withhold the flag:
     // Ready/In-progress answers *can an agent pick this up*, and a plan whose
     // work has all landed is past that question. Gating on `started_raw` would
     // ride the Development affordance into Testing — the very thing this comment
@@ -3538,17 +3539,21 @@ const waitedOn = (slices: FleetReading['plans'][number]['slices']): string[] => 
 export const slicesFromPulse = (
   meta: PlanMeta, pulse: FleetReading | null, prByHead: ReadonlyMap<string, number>,
 ): PlanSlicesReading | null => {
-  if (meta.slices.length === 0) return null;
+  // A slice that names no branch (the pulse's `empty`) holds no work, so it is
+  // neither counted towards the total nor towards the complete slices.
+  const named = meta.slices.filter((slice) => slice.branches.length > 0).length;
+  if (named === 0) return null;
   const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
-  if (!plan) return { total: meta.slices.length, complete: null, eligible: null, waitsOn: [] };
+  if (!plan) return { total: named, complete: null, eligible: null, waitsOn: [] };
+  const working = plan.slices.filter((slice) => slice.branches.length > 0);
   let eligible = 0;
   for (const slice of plan.slices) {
     for (const b of slice.branches) if (b.state === 'open' && slice.verdict === 'eligible') eligible += 1;
   }
   const waitsOn = [...new Set(waitedOn(plan.slices))].map((branch) => ({ branch, pr: prByHead.get(branch) ?? null }));
   return {
-    total: meta.slices.length,
-    complete: plan.slices.filter((slice) => slice.verdict === 'complete').length,
+    total: working.length,
+    complete: working.filter((slice) => slice.verdict === 'complete').length,
     eligible,
     waitsOn,
   };

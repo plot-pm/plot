@@ -8,7 +8,7 @@ type Branch = Slice['branches'][number];
 const branch = (name: string, state: Branch['state'], over: Partial<Branch> = {}): Branch =>
   ({ branch: name, state, deferred: false, deferred_reason: '', waits_on: [], claimed: '', local_dirty: false, ...over }) as Branch;
 
-const meta = { file: '/repo/docs/plans/2026-11-06-p.md', slices: [{}, {}] } as unknown as PlanMeta;
+const meta = { file: '/repo/docs/plans/2026-11-06-p.md', slices: [{ branches: ['a'] }, { branches: ['b'] }] } as unknown as PlanMeta;
 
 const pulse = (slices: Slice[]): FleetReading =>
   ({ plans: [{ file: '2026-11-06-p.md', slices }] }) as unknown as FleetReading;
@@ -47,5 +47,27 @@ describe('slicesFromPulse: what Start work waits on', () => {
       { name: 'One', verdict: 'eligible', branches: [branch('feature/a', 'claimed'), branch('feature/m', 'merged')] },
     ]), prs);
     expect(read?.waitsOn).toEqual([{ branch: 'feature/a', pr: 7 }]);
+  });
+});
+
+describe('slicesFromPulse: a slice that names no branch', () => {
+  const metaWith = { file: '/repo/docs/plans/2026-11-06-p.md', slices: [{ branches: ['a'] }, { branches: [] }, { branches: ['b'] }] } as unknown as PlanMeta;
+
+  it('is left out of the total, so a fully merged plan reads done == total', () => {
+    const read = slicesFromPulse(metaWith, pulse([
+      { name: 'One', verdict: 'complete', branches: [branch('feature/a', 'merged')] },
+      { name: 'Prose', verdict: 'empty', branches: [] },
+      { name: 'Two', verdict: 'complete', branches: [branch('feature/b', 'merged')] },
+    ]), prs);
+    expect(read).toMatchObject({ total: 2, complete: 2 });
+  });
+
+  it('is left out of the total with no pulse too', () => {
+    expect(slicesFromPulse(metaWith, null, prs)).toMatchObject({ total: 2, complete: null });
+  });
+
+  it('a plan whose slices all name no branch has no work to count', () => {
+    const prose = { file: '/repo/docs/plans/2026-11-06-p.md', slices: [{ branches: [] }] } as unknown as PlanMeta;
+    expect(slicesFromPulse(prose, null, prs)).toBeNull();
   });
 });
