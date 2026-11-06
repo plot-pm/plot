@@ -275,6 +275,53 @@ describe('repairRevertTick — the arc to an open revert PR', () => {
   });
 });
 
+describe('repairRevertTick — the second look at the red', () => {
+  const LATER = 'l'.repeat(40);
+  const later = () => reading({ headSha: LATER, settled: { sha: LATER, state: 'red' } });
+
+  it('opens no revert PR when the first red SHA re-runs green and the settled SHA reads red', async () => {
+    const r = rig(record());
+    r.set({ reading: later() });
+    r.state.runs.set(LATER, [run(LATER, 'failure')]);
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+    r.state.runs.set(RED, [run(RED, 'success')]);
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    expect(r.calls).not.toContain('claim');
+    expect(r.stored()?.revertPr).toBeUndefined();
+  });
+
+  it('opens no revert PR when the settled SHA no longer reads red on a second look', async () => {
+    const r = rig(record());
+    r.set({ reading: later() });
+    r.state.runs.set(LATER, [run(LATER, 'failure')]);
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+    r.state.runs.set(LATER, [run(LATER, 'success')]);
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('held');
+    expect(r.calls).not.toContain('claim');
+  });
+
+  it('opens the revert PR when both SHAs read red', async () => {
+    const r = rig(record());
+    r.set({ reading: later() });
+    r.state.runs.set(LATER, [run(LATER, 'failure')]);
+    expect(await repairRevertTick(r.world)).toBe('rerun-asked');
+    r.set({ now: r.state.now + 30 * 60_000 });
+    expect(await repairRevertTick(r.world)).toBe('revert-opened');
+  });
+
+  it('closes no PR while the settled reading is red', async () => {
+    const r = rig(record({ state: 'idle', rerun: 'asked' }));
+    r.set({ reading: later() });
+    r.state.runs.set(RED, [run(RED, 'success')]);
+    r.state.runs.set(LATER, [run(LATER, 'failure')]);
+    expect(await repairRevertTick(r.world)).not.toBe('closed');
+    expect(r.calls.filter((c) => c.startsWith('pr-close'))).toEqual([]);
+    expect(r.stored()?.state).toBe('idle');
+  });
+});
+
 describe('repairRevertTick — the last green re-run', () => {
   it('asks a full re-run and exhausts when the new attempt of the last green SHA reads red', async () => {
     const r = rig(record());
@@ -525,6 +572,7 @@ describe('repairRevertTick — the anti-goal', () => {
       // on those and level with it on the rest; the settled SHA is a new red commit of the same episode each time.
       const settledSha = String(tick).padStart(40, 'e');
       const botAhead = tick % 2 === 1;
+      r.state.runs.set(settledSha, [run(settledSha, 'failure')]);
       r.state.prs.set(41, pr({ number: 41, head: 'feature/the-thing', state: 'MERGED' }));
       const revertPr = r.stored()?.revertPr;
       // The revert merges one tick before its merge commit settles: on that tick the settled SHA is still red.

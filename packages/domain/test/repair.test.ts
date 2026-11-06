@@ -119,8 +119,19 @@ describe('redMainStep', () => {
     expect(redMainStep(reading(), record({ state: 'rerun' }), input({ rerunSettled: 'pending' }))).toBe('await-rerun');
   });
 
-  it('a green re-run answers none (the episode ends with no agent)', () => {
-    expect(redMainStep(reading(), record({ state: 'rerun' }), input({ rerunSettled: 'green' }))).toBe('close-prs');
+  it('a green re-run with a settled green answers close-prs (the episode ends with no agent)', () => {
+    const green = reading({ settled: { sha: 'g'.repeat(40), state: 'green' } });
+    expect(redMainStep(green, record({ state: 'rerun' }), input({ rerunSettled: 'green' }))).toBe('close-prs');
+  });
+
+  it('a green re-run of the first red SHA with a later SHA settled red answers a repair step', () => {
+    const later = reading({ headSha: 'l'.repeat(40), settled: { sha: 'l'.repeat(40), state: 'red' } });
+    expect(redMainStep(later, record({ state: 'rerun' }), input({ rerunSettled: 'green' }))).toBe('start-repair');
+    expect(redMainStep(later, record({ state: 'idle' }), input({ rerunSettled: 'green' }))).toBe('start-repair');
+  });
+
+  it('a green re-run of the first red SHA while that SHA settles red awaits the next reading', () => {
+    expect(redMainStep(reading(), record({ state: 'rerun' }), input({ rerunSettled: 'green' }))).toBe('await-rerun');
   });
 
   it('red with no record answers hold', () => {
