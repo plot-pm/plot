@@ -218,6 +218,33 @@ describe('reviewPr', () => {
     expect(r.requests[0]!.prompt).toContain('Base branch: release/1.0');
   });
 
+  // Observed 2026-11-06: a throttled host read as "3198 has no pull request".
+  const THROTTLED = 'GraphQL: API rate limit already exceeded for user ID 870334.';
+  const throttled = (r: Rig): ReviewDeps => ({
+    ...r.deps,
+    host: {
+      ...r.deps.host,
+      prState: async () => ({ ok: false as const, why: 'failed' as const }),
+      lastRefusal: () => ({ kind: 'failed' as const, said: THROTTLED }),
+    },
+  });
+
+  for (const [name, run] of [['reviewPr', reviewPr], ['reviewStatusOnly', reviewStatusOnly]] as const) {
+    it(`${name} refuses a failed PR-state read with the host's reason, never as "has no pull request"`, async () => {
+      const r = rig(FINDINGS);
+      const out = await run(throttled(r), '3198');
+      expect(out.code).toBe(EXIT.refused);
+      expect(out.lines).toEqual([`plot-review: the host did not answer the PR state of #3198: ${THROTTLED}`]);
+      expect(r.allStatuses).toEqual([]);
+    });
+  }
+
+  it('keeps "has no pull request" for a read that answered with none', async () => {
+    const r = rig(FINDINGS, { prs: [] });
+    const out = await reviewPr(r.deps, '3198');
+    expect(out.lines).toEqual(['plot-review: 3198 has no pull request']);
+  });
+
   it('refuses a PR whose base the host did not name', async () => {
     const r = rig(FINDINGS, { prs: [pr({ base: '' })] });
     const out = await reviewPr(r.deps, '7');

@@ -2527,16 +2527,11 @@ gh_route() { # $1=op → graphql|rest
 # `gh pr view 7` infers the repo from the git remote, but `gh api repos/.../pulls/7`
 # has to be told. So the fallback needs one more fact than the path it replaces.
 #
-# `--repo` may already carry it (the caller passed `-R owner/repo`), in which
-# case no call is needed at all. Otherwise it has to be resolved.
-#
-# TODO(decision): resolve the repo when `--repo` was not supplied.
+# `--repo` may already carry it (the caller passed `-R owner/repo`). Otherwise
+# `gh api` fills `{owner}/{repo}` from the git remote, with no request. A path
+# naming no real repository answers 404, which `is_lookup_miss` reads as NONE.
 gh_rest_repo() {
-  if [ ${#repo_args[@]} -gt 0 ]; then
-    echo "${repo_args[1]}"
-    return 0
-  fi
-  echo "TODO"
+  if [ ${#repo_args[@]} -gt 0 ]; then echo "${repo_args[1]}"; else echo '{owner}/{repo}'; fi
 }
 
 rest_pr_to_state() {
