@@ -40,6 +40,7 @@ import {
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
+import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
 import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
@@ -2096,6 +2097,8 @@ export const startFreshSession = async (
  * @param tally - the host-call counter this step adds to, one per question
  *   actually asked — a memo hit still counts, as {@link worldForRepo}'s own
  *   `prMerged` counts a shared `merges` answer.
+ * @param askMergedHeads - asks the host for the head shas of a branch's
+ *   merged PRs; the host shell's `pr-merged-heads` by default.
  * @returns the desk-file, held-files, marker and ask reads.
  */
 export const freshAgentDeskReads = (
@@ -2103,6 +2106,8 @@ export const freshAgentDeskReads = (
   asks: Pick<EndingAskRecordStore, 'asked'>,
   askMerged: (branch: string) => ReturnType<Host['prMerged']>,
   tally: HostTally = { calls: 0 },
+  askMergedHeads: (branch: string) => ReturnType<Host['prMergedHeads']> = (branch) =>
+    hostShell(context).prMergedHeads(branch),
 ): {
   deskFile: (worktree: string, name: string) => string | null;
   loopAlive: (worktree: string) => boolean;
@@ -2162,10 +2167,33 @@ export const freshAgentDeskReads = (
         tally.calls += 1;
         return prOpenReading(await hostShell(context).prState(branch));
       },
-      // A failed read is `unanswerable`, never `none`: an unreadable range is not an empty one.
-      unpushedCommits: async (worktree) => {
-        const commits = await treesGit(context).unpushedCommits(worktree, []);
-        return !commits.ok ? 'unanswerable' : commits.value.length > 0 ? 'some' : 'none';
+      // THE REAPER'S MERGED-AWARE READING, NOT THE PLAIN RANGE. A squash or
+      // rebase merge rewrites the desk's commits, the host deletes the branch,
+      // and `fetch --prune` removes the one remote ref that held them; a
+      // commit a merged PR head holds therefore counts as pushed. Asked only
+      // for a merged branch. A failed read is `unanswerable`, never `none`:
+      // an unreadable range is not an empty one.
+      unpushedCommits: async (worktree, branch) => {
+        const trees = treesGit(context);
+        const head = await trees.originHead(worktree);
+        const commits = await unpushedAfterMerge(
+          {
+            trees,
+            host: {
+              prMergedHeads: async (name) => {
+                tally.calls += 1;
+                return askMergedHeads(name);
+              },
+            },
+            holdsCommit: async (tree, sha) =>
+              (await refsGit({ repoRoot: tree, scriptDir: context.scriptDir }).resolve(`${sha}^{commit}`)).ok,
+          },
+          worktree,
+          branch,
+          true,
+          head.ok ? head.value : 'main',
+        );
+        return commits === 'unknown' ? 'unanswerable' : commits.length > 0 ? 'some' : 'none';
       },
     },
   };

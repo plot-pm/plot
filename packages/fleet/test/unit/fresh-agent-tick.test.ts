@@ -1770,15 +1770,56 @@ describe('a merged holding-work desk with a real unpushed commit', () => {
     return path;
   };
 
-  const decide = async (path: string) => {
-    const reads = freshAgentDeskReads({ repoRoot: path, scriptDir: '/nonexistent' }, endingAskRecordFile({ home: path + '-home' }), async () => ({
-      ok: true,
-      value: 'merged',
-    }));
+  /**
+   * A desk whose branch `feature/x` the host merged by rewriting its commit
+   * onto `main` and then deleted, read after a `fetch --prune`: no remote ref
+   * holds the desk's own commit any more. `unpushed` adds one local commit
+   * made after the push.
+   */
+  const rewrittenDesk = (unpushed: boolean) => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-rewritten-desk-'));
+    roots.push(root);
+    const remote = join(root, 'remote.git');
+    const path = join(root, 'desk');
+    const host = join(root, 'host');
+    git(root, 'init', '--bare', '-b', 'main', remote);
+    git(root, 'clone', '-q', remote, path);
+    writeFileSync(join(path, 'a.txt'), 'a');
+    git(path, 'add', '.');
+    git(path, 'commit', '-m', 'first');
+    git(path, 'push', '-q', 'origin', 'main');
+    git(path, 'checkout', '-q', '-b', 'feature/x');
+    writeFileSync(join(path, 'b.txt'), 'b');
+    git(path, 'add', '.');
+    git(path, 'commit', '-m', 'feature');
+    git(path, 'push', '-q', 'origin', 'feature/x');
+    const pushedHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: path, encoding: 'utf8' }).trim();
+    git(root, 'clone', '-q', remote, host);
+    // A committer of its own makes the merged commit a new sha, as a host's squash does.
+    execFileSync('git', ['-c', 'user.name=merger', '-c', 'user.email=m@m', 'cherry-pick', 'origin/feature/x'], { cwd: host, stdio: 'pipe' });
+    git(host, 'push', '-q', 'origin', 'main', ':feature/x');
+    git(path, 'fetch', '-q', '--prune', 'origin');
+    git(path, 'remote', 'set-head', 'origin', 'main');
+    if (unpushed) {
+      writeFileSync(join(path, 'c.txt'), 'c');
+      git(path, 'add', '.');
+      git(path, 'commit', '-m', 'after the merge');
+    }
+    return { path, pushedHead };
+  };
+
+  const decide = async (path: string, heads: readonly string[] = [], branch = 'feature/x') => {
+    const reads = freshAgentDeskReads(
+      { repoRoot: path, scriptDir: '/nonexistent' },
+      endingAskRecordFile({ home: path + '-home' }),
+      async () => ({ ok: true, value: 'merged' }),
+      { calls: 0 },
+      async () => ({ ok: true, value: heads }),
+    );
     const deskFile = (_w: string, name: string) =>
       name === ENDING_FILENAME ? endingFile('holding-work') : null;
     const readings = await readFreshAgentCandidates(
-      [tree({ path })],
+      [tree({ path, branch })],
       deskFile,
       emptyStore,
       noHeldFiles,
@@ -1798,6 +1839,42 @@ describe('a merged holding-work desk with a real unpushed commit', () => {
   it('a merged desk with a clean tree and every commit pushed still leaves', async () => {
     const [decision] = await decide(desk(false));
     expect(decision?.verdict).toBe('leave');
+  });
+
+  it('a desk whose rewritten, pruned branch carried its merged PR head still leaves', async () => {
+    const { path, pushedHead } = rewrittenDesk(false);
+    const [decision] = await decide(path, [pushedHead]);
+    expect(decision?.verdict).toBe('leave');
+  });
+
+  it('a desk whose rewritten, pruned branch the host names no head for leaves by patch id', async () => {
+    const { path } = rewrittenDesk(false);
+    const [decision] = await decide(path, []);
+    expect(decision?.verdict).toBe('leave');
+  });
+
+  it('a desk with a commit past its rewritten, pruned branch\'s merged head asks a person', async () => {
+    const { path, pushedHead } = rewrittenDesk(true);
+    const [decision] = await decide(path, [pushedHead]);
+    expect(decision?.verdict).toBe('needs-a-person');
+  });
+
+  it('a desk whose rewritten, pruned branch the plain range reads as unpushed', () => {
+    const { path } = rewrittenDesk(false);
+    const plain = execFileSync('git', ['rev-list', 'HEAD', '--not', '--remotes'], { cwd: path, encoding: 'utf8' }).trim();
+    expect(plain).not.toBe('');
+  });
+
+  it('a host that cannot name the merged heads reads as unanswerable and asks a person', async () => {
+    const { path } = rewrittenDesk(false);
+    const reads = freshAgentDeskReads(
+      { repoRoot: path, scriptDir: '/nonexistent' },
+      endingAskRecordFile({ home: path + '-home' }),
+      async () => ({ ok: true, value: 'merged' }),
+      { calls: 0 },
+      async () => ({ ok: false, why: 'failed' }),
+    );
+    expect(await reads.asks.unpushedCommits(path, 'feature/x')).toBe('unanswerable');
   });
 
   it('reads the unpushed commits of a merged, clean holding-work desk and no other', async () => {

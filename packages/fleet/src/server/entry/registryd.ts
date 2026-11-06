@@ -1117,8 +1117,11 @@ export interface FreshAgentAskReads {
   commitBeyondClaim: (worktree: string) => Promise<CommitReading>;
   /** Whether an open PR still carries a branch; `'unanswerable'` where the host could not be asked. */
   prOpen: (branch: string) => Promise<PrOpenReading>;
-  /** Whether a desk's checkout holds a commit no remote has; `'unanswerable'` where git could not be asked. */
-  unpushedCommits: (worktree: string) => Promise<UnpushedReading>;
+  /**
+   * Whether a merged branch's checkout holds a commit neither a remote nor a
+   * merged PR head holds; `'unanswerable'` where git or the host could not be asked.
+   */
+  unpushedCommits: (worktree: string, branch: string) => Promise<UnpushedReading>;
 }
 
 /**
@@ -1179,7 +1182,7 @@ export const readFreshAgentCandidates = async (
     // on the `holding-work` row where the PR merged and the tree is clean.
     const unpushedCommits: UnpushedReading =
       ending === 'holding-work' && !endingAsked && prMerged === 'merged' && dirtyTreeReading(held) === 'no'
-        ? await asks.unpushedCommits(tree.path)
+        ? await asks.unpushedCommits(tree.path, tree.branch)
         : 'unanswerable';
     out.push({
       plan,
