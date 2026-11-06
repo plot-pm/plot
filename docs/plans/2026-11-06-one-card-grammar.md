@@ -9,7 +9,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Design:** 2026-11-06, jwloka, cli
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -192,6 +192,35 @@ neither needs a browser.
 | Every alert carries a label — no bare ⚠ | domain: alert kind; UI: label and icon | the mapping |
 | The same number links across kinds | domain: `lineage` references both ways | `CardFacts` |
 
+**`CardFacts` is computed on the server, once per board build**, where
+`planCardView` and `cardControls` run today (`board.ts`), from readings the build
+already holds — about 220 tickets, 60 plans and a handful of stories, each a pure
+function over values in memory, so no projection adds a read and the cost grows
+linearly with the estate. `/api/board` carries the facts; the browser only maps
+them. A cache keyed by a card's readings was considered and left out: it adds an
+invalidation to get wrong, and nothing has measured the build as slow.
+
+**`/api/board` changes shape one kind at a time.** Each slice adds `facts` beside
+its kind's existing fields and removes the old fields in the same slice once no
+reader reads them — the board app, `mock-fleet.ts` (which emits facts through the
+same projections rather than shapes of its own), `release-smoke.sh` and
+`plot-ask.mjs board`. **The old rules retire with their last caller, in the slice
+that converts it:** `planCardView` in the tracer, `storyCardView` in Stories,
+`ticketCardView`, `ticketCardShowsActions`, `ticketCardSubtitle` and
+`ticketCardAge` in Tickets — their tests move to the projection that replaces
+them, and no deprecated wrapper is left behind. `cardControls` stays, as `next`'s
+input.
+
+**The split is a gate in both directions, not a rule.** A schema test in the
+domain refuses a free-text string field on `CardFacts` other than a title, an id,
+a handle or a reference — the shape a sentence would have to take to sneak in.
+`scripts/check-card-presentation.sh` refuses an import in `card-presentation.ts`
+other than the `CardFacts` types and UI helpers, so the mapping cannot reach a
+reading and decide a fact. Both run with the existing `check-*.sh` set in CI and
+in the Local checks list. The split is revisited if a second presentation needs a
+word the mapping owns — that word then moves into the domain as a typed value,
+never as a string.
+
 **The tracer proves the grammar on the Plans board**, the richest card: it is
 the only one that exercises all five facets at once — `progress` with a PR
 summary, `next` with a disabled reason, `lineage` up to story and sprint — so a
@@ -267,7 +296,7 @@ _To be filled in during Design._
 
 ### Tracer
 
-- `feature/one-card-grammar-plans` — the `CardFacts` entity, `docs/domain/card-grammar.md`, `planCardFacts` extending `planCardView`, the presentation mapping and the shared `<Card>` on the Plans board only <!-- builds: CardFacts entity and planCardFacts projection --> <!-- spike -->
+- `feature/one-card-grammar-plans` — the `CardFacts` entity and its schema gate, `docs/domain/card-grammar.md`, `planCardFacts` replacing `planCardView`, plan `facts` in `/api/board`, the presentation mapping and its import gate, and the shared `<Card>` on the Plans board only <!-- builds: CardFacts entity and planCardFacts projection --> <!-- spike -->
 
 ### Stories
 
@@ -298,7 +327,7 @@ exactly as today.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {
       "q": "Which facet is visually strongest per board?",
@@ -354,6 +383,26 @@ exactly as today.
       "q": "Which field names a story's ticket?",
       "a": "issue:, with jira: read as legacy",
       "category": "domain"
+    },
+    {
+      "q": "Where are CardFacts computed?",
+      "a": "Server, once per board build, from readings in hand; no cache",
+      "category": "nonFunctional"
+    },
+    {
+      "q": "How do the old card rules retire?",
+      "a": "Deleted in the slice converting their last caller; tests move; cardControls stays",
+      "category": "technical"
+    },
+    {
+      "q": "Is the domain/UI split a rule or a gate?",
+      "a": "Gate both directions: CardFacts schema test and a check script on card-presentation imports",
+      "category": "tradeOffs"
+    },
+    {
+      "q": "How does /api/board change shape?",
+      "a": "Per kind: add facts, drop old fields in the same slice; mock-fleet uses the projections",
+      "category": "technical"
     }
   ],
   "deferredItems": [],
@@ -361,7 +410,7 @@ exactly as today.
     "technical": {
       "stack": true,
       "architecture": true,
-      "implementation": false
+      "implementation": true
     },
     "domain": true,
     "ux": {
@@ -372,8 +421,8 @@ exactly as today.
     },
     "nonFunctional": {
       "security": false,
-      "performance": false,
-      "scalability": false
+      "performance": true,
+      "scalability": true
     },
     "tradeOffs": true
   }
