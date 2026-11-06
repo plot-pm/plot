@@ -120,7 +120,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Idle slice
 
-- `bug/an-idle-episode-survives-a-restart` — the episode key drops fleetd's start time; fleetd's start only delays the first notification (#2933)
+- `bug/an-idle-episode-survives-a-restart` — the episode key drops fleetd's start time; fleetd's start only delays the first notification (#2933) → #3183
 
 ### Plan comment
 
