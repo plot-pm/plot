@@ -79,29 +79,29 @@ before(() => {
 ### Only
 - \`bug/plain-only\` — no marker
 `);
-  const design = (slug, slices) => write(`plans/2026-01-05-${slug}.md`, `# A design plan
+  const design = (slug, branch, slices) => write(`plans/2026-01-05-${slug}.md`, `# A design plan
 
 ## Status
 
 - **Phase:** Design
 - **Type:** feature
-- **Spike approved:** 2026-10-12, jwloka
+- **Spike approved:** 2026-10-12, jwloka, in-session, ${branch}
 
 ## Branches
 
 ${slices}
 `);
-  design('spike-alone', `### First
+  design('spike-alone', 'feature/alone-spike', `### First
 - \`feature/alone-spike\` — the spike <!-- spike -->
 
 ### Second
 - \`feature/alone-rest\` — the rest
 `);
-  design('spike-sibling', `### First
+  design('spike-sibling', 'feature/shared-spike', `### First
 - \`feature/shared-spike\` — the spike <!-- spike -->
 - \`feature/shared-sibling\` — a sibling added after the approval
 `);
-  design('two-spikes', `### First
+  design('two-spikes', 'feature/twin-one', `### First
 - \`feature/twin-one\` — one <!-- spike -->
 
 ### Second

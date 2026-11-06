@@ -213,7 +213,7 @@ const header = {
 };
 
 describe('assemblePlanWalk coverage of plan shapes', () => {
-  it('counts each branch state in the summary and marks a spike plan a tracer', () => {
+  it('counts each branch state in the summary and does not read a spike plan as a tracer', () => {
     const plan = { ...planOf('p.md', 'approved', [[
       { branch: 'feature/claimed', spike: true }, { branch: 'feature/def', deferred: true },
       { branch: 'feature/blocked', waitsOn: ['feature/x'] }, { branch: 'feature/waiting', waitsOn: ['feature/y'] },
@@ -227,8 +227,18 @@ describe('assemblePlanWalk coverage of plan shapes', () => {
         ['p.md', 'feature/waiting', open({ waits: [wait('feature/y', 'OPEN')] })],
       ),
     );
-    expect(value.plans[0]!.tracer).toBe(true);
+    expect(value.plans[0]!.tracer).toBe(false);
     expect(value.summary).toMatchObject({ claimed: 1, deferred: 1, prereqMissing: 1, waiting: 1, branches: 4 });
+  });
+
+  it('reads the plan\'s Tracer line, not a spike marker, as the tracer flag', () => {
+    const spikePlan = planOf('m.md', 'approved', [[{ branch: 'feature/m', spike: true }]]);
+    const tracerPlan = { ...planOf('t.md', 'approved', [[{ branch: 'feature/t' }]]), tracer: true } as PlanRecord;
+    const value = assembled(
+      estateOf(spikePlan, tracerPlan),
+      branchesOf(['m.md', 'feature/m', open()], ['t.md', 'feature/t', open()]),
+    );
+    expect(value.plans.map((p) => [p.file, p.tracer])).toEqual([['m.md', false], ['t.md', true]]);
   });
 
   it('lists no plan a slug does not name, and none that left or were delivered as docs', () => {
@@ -281,7 +291,7 @@ describe('offerAnswer', () => {
 
 describe('fleetReading', () => {
   it('prints a branch with a desk, a held worktree and a running worker', () => {
-    const estate = estateOf(planOf('docs/plans/p.md', 'approved', [[{ branch: 'feature/a', spike: true }]]));
+    const estate = estateOf({ ...planOf('docs/plans/p.md', 'approved', [[{ branch: 'feature/a' }]]), tracer: true } as PlanRecord);
     const doc = fleetReading(
       assembled(estate, branchesOf(['docs/plans/p.md', 'feature/a', open()]), { mainSha: 'm1', desks: [deskOn('feature/a')] }),
       header,

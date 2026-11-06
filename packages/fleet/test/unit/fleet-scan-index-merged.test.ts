@@ -60,4 +60,17 @@ describe('walkOnce reads the PR index for a subject-proven branch (#3055)', () =
       expect(allSlicesConfirmed({ file: PLAN }, reading, true)).toBe('unknown');
     }
   });
+
+  // A listing reused across beats still carries the OPEN row of a PR merged
+  // since it was read. Measured 2026-11-06 on PR #3105: the index read MERGED,
+  // the pulse kept `evidence: subject`, and auto-deliver never picked the plan.
+  it('confirms the merge from a MERGED index row over a stale OPEN listing row', async () => {
+    const stale = `${BRANCH.replaceAll('/', '_')}\tOPEN\t-\t-\n.branches\t1\t-\t-\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n`;
+    const reading = await walkOnce(worldWith([row(BRANCH, 'MERGED')]), stale);
+    expect(branchOf(reading).evidence).toBeUndefined();
+    expect(allSlicesConfirmed({ file: PLAN }, reading, true)).toBe('merged');
+    const reopened = await walkOnce(worldWith([row(BRANCH, 'MERGED'), { ...row(BRANCH, 'OPEN'), number: 3200 } as PrIndexRow]), stale);
+    expect(branchOf(reading).state).toBe('merged');
+    expect(branchOf(reopened).evidence).toBe('subject');
+  });
 });

@@ -8,7 +8,7 @@ import type { Host } from '../src/ports/host.js';
 import type { Refs } from '../src/ports/refs.js';
 import type { PlanRecordBranch } from '../src/ports/plan-store.js';
 import { branchState } from '../src/rules/branch-state.js';
-import { allSlicesConfirmed } from '../src/rules/deliverable.js';
+import { allSlicesConfirmed, deliveryLanding } from '../src/rules/deliverable.js';
 import { FleetReadingSchema } from '../src/entities/fleet.js';
 import { readCarriedPrStates } from '../src/rules/scan-listing.js';
 import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
@@ -613,6 +613,38 @@ describe('readBranchReadings — a subject-proven branch reads the host merge (#
     const open = readCarriedPrStates('feature_gone\tOPEN\t-\t-\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n')!;
     const reopened = await stage(host, { indexMerged: index, prs: { kind: 'listed', listing: open } });
     expect(reopened.stage.branches[0]!.readings.pr).toBe('OPEN');
+  });
+
+  // A REUSED LISTING CAN STILL CARRY THE OPEN ROW of a PR that merged since it
+  // was read. Measured 2026-11-06: PR #3105 merged and its index row read
+  // MERGED, while fleetd's carried listing kept the OPEN row, so its plan read
+  // `evidence: subject` and auto-deliver never picked it up.
+  it('reads MERGED from the index over a stale OPEN listing row where the index holds no OPEN row', async () => {
+    const { host, asked } = asking();
+    const open = readCarriedPrStates('feature_gone\tOPEN\t-\t-\n.list-complete\t1\t-\t-\n.list-arrived\t1\t-\t-\n')!;
+    const { estate, stage: out } = await stage(host, { indexMerged: new Set(['feature/gone']), indexOpen: new Set(), prs: { kind: 'listed', listing: open } });
+    expect(asked).toEqual([]);
+    expect(out.branches[0]!.readings.pr).toBe('MERGED');
+    const pulse = pulseOf(estate, out);
+    expect(pulse.plans[0]!.slices[0]!.branches[0]!.evidence).toBeUndefined();
+    expect(deliveryLanding({ file: PLAN }, pulse, true)).toBe('merged');
+  });
+
+  it('keeps the subject evidence where the index holds an OPEN row for the head beside its merged row', async () => {
+    const { host } = asking();
+    const { estate, stage: out } = await stage(host, { indexMerged: new Set(['feature/gone']), indexOpen: new Set(['feature/gone']) });
+    expect(out.branches[0]!.readings.pr).toBe('none');
+    const pulse = pulseOf(estate, out);
+    expect(pulse.plans[0]!.slices[0]!.branches[0]!.evidence).toBe('subject');
+    expect(deliveryLanding({ file: PLAN }, pulse, true)).toBe('merge-unconfirmed');
+  });
+
+  it('refuses as merge-unconfirmed where neither the index nor the host confirms the merge', async () => {
+    const { host } = asking();
+    const { estate, stage: out } = await stage(host, { indexMerged: new Set(), indexOpen: new Set() });
+    const pulse = pulseOf(estate, out);
+    expect(deliveryLanding({ file: PLAN }, pulse, true)).toBe('merge-unconfirmed');
+    expect(deliveryLanding({ file: PLAN }, null, true)).toBe('scan-incomplete');
   });
 });
 

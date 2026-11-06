@@ -58,7 +58,7 @@ export interface ImplementReadings {
   /** The `Started:` records the plan already carries. */
   startedRecords: readonly string[];
   /**
-   * The plan's spike branch where its `Spike approved:` record is present, else `''`.
+   * The branch `licensedSpike` names, else `''`.
    *
    * Absent reads as `''`. Admits only that branch of a `design` plan.
    */

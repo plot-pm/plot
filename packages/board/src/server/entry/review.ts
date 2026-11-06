@@ -8,11 +8,13 @@ import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { checkedReview, type JudgedReview } from '@plot-pm/domain/rules/checked-review';
-import type { Host, Pr, Trees } from '@plot-pm/domain';
+import type { Host, Pr, Refs, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
-import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
+import { roleFilesAt } from '@plot-pm/fleet/shared/role-files';
+import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import {
   reviewerCommand,
+  reviewerRoleFloor,
   reviewRequestBlock,
   reviewVerdict,
   type ReviewCounts,
@@ -96,6 +98,8 @@ export type ReviewChange =
 export interface ReviewDeps {
   host: Host;
   trees: Trees;
+  /** Reads the reviewer's role file from `origin/<default>`. */
+  refs: Pick<Refs, 'defaultBranch' | 'showFile'>;
   /** The agent connector that runs `command`, the reviewer's shell fragment. */
   agentRun: (command: string) => AgentRun;
   repoRoot: string;
@@ -112,8 +116,6 @@ export interface ReviewDeps {
    * with `sha`, the changed files, and the full diff.
    */
   readChange: (tree: string, base: string, sha: string) => Promise<ReviewChange>;
-  /** The charter file's text, or null where absent. */
-  readCharterText: () => string | null;
   readText: (file: string) => string | null;
   writeText: (file: string, text: string) => void;
   removeFile: (file: string) => void;
@@ -170,6 +172,21 @@ export interface ReviewOutcome {
 }
 
 const refuse = (why: string): ReviewOutcome => ({ code: EXIT.refused, lines: [`plot-review: ${why}`] });
+
+/**
+ * Refuses a run whose PR-state read failed. A failed read is not an absent PR,
+ * so it never says "has no pull request".
+ *
+ * @param deps - the ports; the host's last refusal names the reason.
+ * @param asked - the PR number or branch the run asked about.
+ * @param looked - the failed read.
+ * @returns the refusal naming the host's reason.
+ */
+const unanswered = (deps: ReviewDeps, asked: string, looked: { why: 'failed' } | { why: 'unaskable'; reason?: string }): ReviewOutcome => {
+  const said = looked.why === 'unaskable' ? looked.reason : deps.host.lastRefusal()?.said;
+  const subject = /^[0-9]+$/.test(asked) ? `#${asked}` : asked;
+  return refuse(`the host did not answer the PR state of ${subject}: ${said ?? 'no reason given'}`);
+};
 
 /** `deps.writeText(file, text)` fails with a message naming `file`, instead of throwing. */
 const writeTextOutcome = (deps: ReviewDeps, file: string, text: string): ReviewOutcome | null => {
@@ -336,7 +353,7 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const asked = ref === '' ? deps.currentBranch : ref;
   if (asked === '') return refuse('no PR number given and the current branch is unknown');
   const looked = await deps.host.prState(asked);
-  if (!looked.ok) return refuse(`the host did not answer for ${asked}`);
+  if (!looked.ok) return unanswered(deps, asked, looked);
   const pr = looked.value;
   if (pr === null) return refuse(`${asked} has no pull request`);
   if (pr.state !== 'OPEN') return refuse(`PR #${pr.number} is ${pr.state}, not open`);
@@ -345,11 +362,6 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   if (pr.url === '') return refuse(`the host named no URL for PR #${pr.number}`);
   if (pr.base === '') return refuse(`the host named no base branch for PR #${pr.number}`);
 
-  const charter = readCharter('reviewer', deps.readCharterText());
-  if (charter.read !== 'declared') {
-    return refuse(`${charterPath('reviewer')} is not usable: ${charter.read === 'unreadable' ? charter.why : charter.read}`);
-  }
-
   const key = `${pr.number}-${sha}`;
   const reviews = path.join(deps.commonDir, 'plot', 'state', 'reviews');
   const verdictFile = path.join(reviews, `${key}.md`);
@@ -357,7 +369,14 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const lockFile = path.join(reviews, `${key}.lock`);
   const lines: string[] = [];
 
-  const command = reviewerCommand(charter.charter, [reviews]);
+  const role = await roleFilesAt(
+    { repoRoot: deps.repoRoot, trees: deps.trees, refs: deps.refs },
+    { role: 'reviewer', outDir: path.join(deps.repoRoot, '.plot', 'state', 'reviewer'), settings: false },
+  );
+  if (role.read === 'refused') return refuse(`.claude/agents/reviewer.md is not usable: ${role.why}`);
+  const floor = reviewerRoleFloor(role.definition);
+  if (floor.read === 'refused') return refuse(`.claude/agents/reviewer.md is not usable: ${floor.why}`);
+  const command = reviewerCommand({ model: floor.model, effort: floor.effort, maxTurns: role.maxTurns, agentsFile: role.agentsFile }, [reviews]);
   if (command.read === 'refused') return refuse(command.why);
   const agentRun = deps.agentRun(command.command);
 
@@ -392,17 +411,17 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
       });
       ran = await agentRun.run({
         worktree: tree,
-        prompt: `${charter.charter.prompt}\n\n${request}`,
+        prompt: request,
         resumeId: '',
         role: 'reviewer',
-        harness: charter.charter.harness,
-        model: charter.charter.model,
-        effort: charter.charter.effort,
-        maxTurns: 0,
+        harness: '',
+        model: floor.model,
+        effort: floor.effort,
+        maxTurns: role.maxTurns,
         maxSpendUsd: 0,
         boundSeconds: REVIEW_BOUND_SECONDS,
         contextWindow: 0,
-        capabilities: [...new Set(['read-only', ...charter.charter.capabilities])],
+        capabilities: ['read-only'],
         env: {},
         logFile,
         onStarted: () => {},
@@ -439,7 +458,7 @@ export const reviewStatusOnly = async (deps: ReviewDeps, ref: string): Promise<R
   const asked = ref === '' ? deps.currentBranch : ref;
   if (asked === '') return refuse('no PR number given and the current branch is unknown');
   const looked = await deps.host.prState(asked);
-  if (!looked.ok) return refuse(`the host did not answer for ${asked}`);
+  if (!looked.ok) return unanswered(deps, asked, looked);
   const pr = looked.value;
   if (pr === null) return refuse(`${asked} has no pull request`);
   if (pr.state !== 'OPEN') return refuse(`PR #${pr.number} is ${pr.state}, not open`);
@@ -588,6 +607,7 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   return {
     host,
     trees: treesGit(context),
+    refs: refsGit(context),
     agentRun: (command) =>
       agentRunCommand({ boundedRun, fragment: command, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),
     repoRoot,
@@ -597,10 +617,6 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
     fetchSha: async (sha) => (await git(repoRoot, ['cat-file', '-e', `${sha}^{commit}`])).code === 0
       || (await git(repoRoot, ['fetch', '--quiet', 'origin', sha])).code === 0,
     readChange,
-    readCharterText: () => {
-      const file = path.join(repoRoot, charterPath('reviewer'));
-      return existsSync(file) ? readFileSync(file, 'utf8') : null;
-    },
     readText: (file) => (existsSync(file) ? readFileSync(file, 'utf8') : null),
     writeText: (file, text) => {
       mkdirSync(path.dirname(file), { recursive: true });

@@ -37,7 +37,7 @@ describe('plangate', () => {
     const reasons: PlanGateRefusal[] = [
       'plan-not-found', 'ref-unreadable', 'plan-unreadable', 'phase-draft', 'state-terminal',
       'state-unreadable', 'state-wrong', 'impl-same-branch', 'impl-other-repo', 'impl-none',
-      'impl-unrecognised', 'spike-only',
+      'impl-unrecognised', 'spike-only', 'spike-unlicensed',
     ];
     for (const reason of reasons) expect(planGateHint(reason, 'g', 'main')).toMatch(/\S/);
     expect(planGateHint('ref-unreadable', 'g', 'trunk')).toContain('git fetch origin trunk');
@@ -52,6 +52,10 @@ describe('plangate', () => {
     expect(no({ refResolved: false, file: '' }, { allowLocal: true })).toBe('plan-not-found');
     expect(no({ file: '' })).toBe('plan-not-found');
     expect(no({ parsed: false })).toBe('plan-unreadable');
+  });
+
+  it('names the re-approval command in the spike-unlicensed hint', () => {
+    expect(planGateHint('spike-unlicensed', 'my-plan', 'main')).toContain('plot-approve.mjs --spike my-plan --who <handle>');
   });
 
   it('names the slug and the next command in the spike-only hint', () => {

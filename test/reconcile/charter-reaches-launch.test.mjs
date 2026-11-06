@@ -385,59 +385,57 @@ test('--help still ends where it did, with --agent inside it', () => {
 // THE DECLARED CHARTER
 // ---------------------------------------------------------------------------
 
-test('the reviewer charter exists, parses, and declares a read-only reviewer', () => {
-  // THE FIRST DECLARATION ON THE ESTATE. The mechanism shipped in v2.17.0 and
-  // not one agent had ever been declared, so every field it reads was read from
-  // nothing.
-  const file = path.join(repoRoot, '.plot', 'charters', 'reviewer.json');
-  const charter = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.equal(charter.name, 'reviewer', 'the name is the identity and the file stem');
-  assert.ok(charter.capabilities?.includes('read-only'),
-    'read-only is the ONE mapped capability in the shipped template');
-  // IT NAMES NO HARNESS, AND THAT IS LOAD-BEARING RATHER THAN AN OMISSION.
-  // `resolve_launch` refuses a harness not on PATH; `test:contracts` runs on
-  // ubuntu-latest and ci.yml installs no Claude CLI. A charter naming `claude`
-  // would be green on a workstation and red in CI —
-  // `launch-resolution.test.mjs` records exactly that failure.
-  assert.ok(!charter.harness, 'a charter naming a harness would refuse wherever that harness is absent');
-  // The loop refuses a prompt file that does not exist.
-  assert.ok(fs.existsSync(path.join(repoRoot, charter.prompt)),
-    `the charter's prompt file must exist: ${charter.prompt}`);
-});
+// A SAMPLE CHARTER IN A TEMP ROOT. The estate declares none since the reviewer
+// loads `.claude/agents/reviewer.md` instead; the mechanism still serves other
+// agents, so the chain is proved against a charter this test writes.
+const sampleRoot = () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'charter-sample-'));
+  fs.mkdirSync(path.join(root, '.plot', 'charters'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.plot', 'worker-prompt.sh'), '#!/bin/sh\n');
+  fs.writeFileSync(path.join(root, '.plot', 'charters', 'reviewer.json'), JSON.stringify({
+    name: 'reviewer', prompt: '.plot/worker-prompt.sh', model: 'opus', effort: 'high', capabilities: ['read-only'],
+  }));
+  return root;
+};
 
-test('the reviewer charter reaches an argv through the real resolution', () => {
+test('a declared charter reaches an argv through the real resolution', () => {
+  const sample = sampleRoot();
+  try {
   // THE WHOLE CHAIN, END TO END, and it is the assertion the plan asks for by
   // name: read from the PRINTED ARGV, never inferred from the charter file. An
   // unmapped capability runs unbounded, so a bound that failed to apply looks
   // identical to one that applied — only the flag on the command line separates
   // them.
-  const resolve = `
-    PLOT_DISPATCH_SOURCED=1
-    . "${dispatch}"
-    resolve_launch "${repoRoot}" reviewer >/dev/null 2>&1 || { echo REFUSED; exit 1; }
-    printf '%s\\t%s\\t%s\\n' "$launch_harness" "$launch_model" "$launch_effort"
-  `;
-  const line = execFileSync('bash', ['-c', resolve], { encoding: 'utf8', timeout: 60_000 });
-  assert.doesNotMatch(line, /REFUSED/, 'the declared charter must resolve');
-  const [harness, model, effort] = line.replace(/\n$/, '').split('\t');
-  const caps = execFileSync('node',
-    [path.join(scripts, 'board', 'plot-prompt.mjs'), '--capabilities', repoRoot, 'reviewer'],
-    { encoding: 'utf8', timeout: 60_000 }).trim();
+    const resolve = `
+      PLOT_DISPATCH_SOURCED=1
+      . "${dispatch}"
+      resolve_launch "${sample}" reviewer >/dev/null 2>&1 || { echo REFUSED; exit 1; }
+      printf '%s\\t%s\\t%s\\n' "$launch_harness" "$launch_model" "$launch_effort"
+    `;
+    const line = execFileSync('bash', ['-c', resolve], { encoding: 'utf8', timeout: 60_000 });
+    assert.doesNotMatch(line, /REFUSED/, 'the declared charter must resolve');
+    const [harness, model, effort] = line.replace(/\n$/, '').split('\t');
+    const caps = execFileSync('node',
+      [path.join(scripts, 'board', 'plot-prompt.mjs'), '--capabilities', sample, 'reviewer'],
+      { encoding: 'utf8', timeout: 60_000 }).trim();
 
-  const got = argv(localPrompt, {
-    PLOT_HARNESS: harness, PLOT_MODEL: model, PLOT_EFFORT: effort, PLOT_CAPABILITIES: caps,
-  });
-  const mat = got.indexOf('--model');
-  assert.notEqual(mat, -1, `the charter's model must reach the argv\n${got.join(' ')}`);
-  assert.equal(got[mat + 1], 'opus', got.join(' '));
-  const eat = got.findIndex((a) => /^--(reasoning-)?effort$/.test(a));
-  assert.notEqual(eat, -1, `the charter's effort must reach the argv\n${got.join(' ')}`);
-  assert.equal(got[eat + 1], 'high', got.join(' '));
-  const dat = got.indexOf('--disallowedTools');
-  assert.notEqual(dat, -1, `the charter's capability must reach the argv\n${got.join(' ')}`);
-  const denied = (got[dat + 1] ?? '').split(/[\s,]+/).filter(Boolean);
-  for (const tool of ['Write', 'Edit', 'Bash']) {
-    assert.ok(denied.includes(tool),
-      `a read-only reviewer must be denied ${tool}\ngot: ${denied.join(' ')}`);
+    const got = argv(localPrompt, {
+      PLOT_HARNESS: harness, PLOT_MODEL: model, PLOT_EFFORT: effort, PLOT_CAPABILITIES: caps,
+    });
+    const mat = got.indexOf('--model');
+    assert.notEqual(mat, -1, `the charter's model must reach the argv\n${got.join(' ')}`);
+    assert.equal(got[mat + 1], 'opus', got.join(' '));
+    const eat = got.findIndex((a) => /^--(reasoning-)?effort$/.test(a));
+    assert.notEqual(eat, -1, `the charter's effort must reach the argv\n${got.join(' ')}`);
+    assert.equal(got[eat + 1], 'high', got.join(' '));
+    const dat = got.indexOf('--disallowedTools');
+    assert.notEqual(dat, -1, `the charter's capability must reach the argv\n${got.join(' ')}`);
+    const denied = (got[dat + 1] ?? '').split(/[\s,]+/).filter(Boolean);
+    for (const tool of ['Write', 'Edit', 'Bash']) {
+      assert.ok(denied.includes(tool),
+        `a read-only reviewer must be denied ${tool}\ngot: ${denied.join(' ')}`);
+    }
+  } finally {
+    fs.rmSync(sample, { recursive: true, force: true });
   }
 });

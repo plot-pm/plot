@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterAll, describe, it, expect } from 'vitest';
 import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
 import type { Pr } from '@plot-pm/domain/entities/pr';
 import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
@@ -11,7 +14,21 @@ import { bitbucketReview } from '@plot-pm/domain/rules/bitbucket-pr-reading';
 const answered = <T>(value: T) => ({ ok: true as const, value });
 const HEAD = 'a'.repeat(40);
 const MOVED = 'b'.repeat(40);
-const CHARTER = JSON.stringify({ name: 'reviewer', prompt: '.plot/worker-prompt.sh', model: 'opus', effort: 'high', capabilities: ['read-only'] });
+const REVIEWER_MD = `---
+description: Reviews one pull request.
+prompt: .plot/worker-prompt.sh
+model: opus
+effort: high
+tools:
+  - Read
+  - Grep
+  - Glob
+maxTurns: 40
+isolation: worktree
+---
+
+You review one pull request.
+`;
 
 const pr = (over: Partial<Pr> = {}): Pr => ({
   number: 7, repo: '', head: 'feature/x', base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '', draft: false,
@@ -41,7 +58,9 @@ const RUN = '2026-10-19T16:44:37Z';
 const MERGE_BASE = 'c'.repeat(40);
 const DIFF = 'diff --git a/docs/review-status-rollout.md b/docs/review-status-rollout.md\n+one line\n';
 const CHANGE: ReviewChange = { ok: true, mergeBase: MERGE_BASE, files: ['docs/review-status-rollout.md'], diff: DIFF };
-const TREE = '/repo/.worktrees/review-7-aaaaaaa';
+const ROOT = mkdtempSync(path.join(tmpdir(), 'review-role-'));
+afterAll(() => rmSync(ROOT, { recursive: true, force: true }));
+const TREE = `${ROOT}/.worktrees/review-7-aaaaaaa`;
 const REVIEWS = '/repo/.git/plot/state/reviews';
 const DIFF_FILE = `${REVIEWS}/7-${HEAD}.diff`;
 
@@ -80,6 +99,10 @@ const rig = (
     prior?: CommitStatusWrite[];
     /** Which host's status store `prReview` replays: GitHub's list, or Bitbucket's one status per key. */
     backend?: 'github' | 'bitbucket';
+    /** The text `origin/main` holds for `.claude/agents/reviewer.md`; null models an absent file. */
+    roleText?: string | null;
+    /** Every ref and path the role loader read. */
+    reads?: string[];
   } = {},
 ): Rig => {
   const allStatuses: CommitStatusWrite[] = [];
@@ -143,12 +166,19 @@ const rig = (
   } as unknown as Trees;
   const deps: ReviewDeps = {
     host,
-    trees,
+    trees: { ...trees, fetch: async () => answered(undefined) } as unknown as Trees,
+    refs: {
+      defaultBranch: async () => answered('main'),
+      showFile: async (ref: string, file: string) => {
+        opts.reads?.push(`${ref}:${file}`);
+        const text = opts.roleText === undefined ? REVIEWER_MD : opts.roleText;
+        return text === null ? { ok: false as const, why: 'absent' } : answered(text);
+      },
+    },
     agentRun: (command) => { commands.push(command); return agentRun; },
-    repoRoot: '/repo', commonDir: '/repo/.git', base: 'main', currentBranch: 'feature/x',
+    repoRoot: ROOT, commonDir: '/repo/.git', base: 'main', currentBranch: 'feature/x',
     fetchSha: async () => true,
     readChange: async (_tree, base) => { changeBases.push(base); return opts.change ?? CHANGE; },
-    readCharterText: () => CHARTER,
     readText: (f) => files.get(f) ?? locks.get(f) ?? null,
     writeText: (f, t) => { written.push(f); files.set(f, t); },
     removeFile: (f) => { files.delete(f); },
@@ -186,6 +216,33 @@ describe('reviewPr', () => {
     expect(out.code).toBe(EXIT.ok);
     expect(r.changeBases).toEqual(['release/1.0']);
     expect(r.requests[0]!.prompt).toContain('Base branch: release/1.0');
+  });
+
+  // Observed 2026-11-06: a throttled host read as "3198 has no pull request".
+  const THROTTLED = 'GraphQL: API rate limit already exceeded for user ID 870334.';
+  const throttled = (r: Rig): ReviewDeps => ({
+    ...r.deps,
+    host: {
+      ...r.deps.host,
+      prState: async () => ({ ok: false as const, why: 'failed' as const }),
+      lastRefusal: () => ({ kind: 'failed' as const, said: THROTTLED }),
+    },
+  });
+
+  for (const [name, run] of [['reviewPr', reviewPr], ['reviewStatusOnly', reviewStatusOnly]] as const) {
+    it(`${name} refuses a failed PR-state read with the host's reason, never as "has no pull request"`, async () => {
+      const r = rig(FINDINGS);
+      const out = await run(throttled(r), '3198');
+      expect(out.code).toBe(EXIT.refused);
+      expect(out.lines).toEqual([`plot-review: the host did not answer the PR state of #3198: ${THROTTLED}`]);
+      expect(r.allStatuses).toEqual([]);
+    });
+  }
+
+  it('keeps "has no pull request" for a read that answered with none', async () => {
+    const r = rig(FINDINGS, { prs: [] });
+    const out = await reviewPr(r.deps, '3198');
+    expect(out.lines).toEqual(['plot-review: 3198 has no pull request']);
   });
 
   it('refuses a PR whose base the host did not name', async () => {
@@ -271,8 +328,8 @@ describe('reviewPr', () => {
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
     await reviewPr(r.deps, '7');
     expect(r.requests[0]!.role).toBe('reviewer');
-    expect(r.requests[0]!.worktree).toBe('/repo/.worktrees/review-7-aaaaaaa');
-    expect(r.removed).toEqual(['/repo/.worktrees/review-7-aaaaaaa']);
+    expect(r.requests[0]!.worktree).toBe(TREE);
+    expect(r.removed).toEqual([TREE]);
   });
 
   it('removes the tree when the run throws', async () => {
@@ -333,15 +390,47 @@ describe('reviewPr', () => {
     expect(r.requests[0]!.prompt).not.toContain('Write your verdict to');
   });
 
-  it('refuses a charter whose harness is not claude, and runs nothing', async () => {
+  it('runs the reviewer with the role file\'s model, effort and turn limit and loads it as the agent', async () => {
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
-    r.deps.readCharterText = () => JSON.stringify({ name: 'reviewer', prompt: 'p', harness: 'codex', capabilities: [] });
+    await reviewPr(r.deps, '7');
+    const command = r.commands[0]!;
+    expect(command).toContain("--model 'opus'");
+    expect(command).toContain("--effort 'high'");
+    expect(command).toContain('--max-turns 40');
+    expect(command).toContain('--agent reviewer --agents "$(cat -- ');
+    expect(command).toContain(`${ROOT}/.plot/state/reviewer/agents.json`);
+    expect(r.requests[0]!.maxTurns).toBe(40);
+  });
+
+  it('runs with the origin/main text of reviewer.md, not the checkout', async () => {
+    const reads: string[] = [];
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { reads, roleText: REVIEWER_MD.replace('model: opus', 'model: sonnet') });
+    await reviewPr(r.deps, '7');
+    expect(reads).toContain('origin/main:.claude/agents/reviewer.md');
+    expect(r.commands[0]).toContain("--model 'sonnet'");
+  });
+
+  it('refuses an absent reviewer.md, naming the file, and runs nothing', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { roleText: null });
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.refused);
-    expect(out.lines[0]).toContain("harness 'codex'");
+    expect(out.lines.join('\n')).toContain('.claude/agents/reviewer.md is not on origin/main');
+    expect(r.commands).toHaveLength(0);
+    expect(r.allStatuses).toHaveLength(0);
+  });
+
+  it.each([
+    ['tools', REVIEWER_MD.replace('  - Glob', '  - Glob\n  - Bash')],
+    ['mcpServers', REVIEWER_MD.replace('maxTurns: 40', 'maxTurns: 40\nmcpServers:\n  - evil')],
+    ['permissionMode', REVIEWER_MD.replace('maxTurns: 40', 'maxTurns: 40\npermissionMode: bypassPermissions')],
+  ])('refuses a reviewer.md that widens %s: nothing starts, no status', async (key, roleText) => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { roleText });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain(`reviewer-role-widens: ${key}`);
     expect(r.commands).toHaveLength(0);
     expect(r.requests).toHaveLength(0);
-    expect(r.statuses).toHaveLength(0);
+    expect(r.allStatuses).toHaveLength(0);
   });
 
   it('refuses a stale verdict from an earlier run when the reviewer answers nothing', async () => {

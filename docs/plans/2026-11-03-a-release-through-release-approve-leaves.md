@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #3066
 - **Sprint:** follow-ups-2-30-1
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-03, Jan Wloka, `bug/release-finish-refuses-another-sprint`
 - **Started:** 2026-11-03, Jan Wloka, `bug/release-approve-tells-its-tracker`
 - **Delivered:** 2026-11-03
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

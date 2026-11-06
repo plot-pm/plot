@@ -5,6 +5,7 @@ import {
   VIEWS_PER_PASS,
   blockingBranches,
   indexMergedHeads,
+  indexOpenHeads,
   knownPrFor,
   landedSource,
   mergedSetWindowFor,
@@ -56,6 +57,13 @@ describe('knownPrFor', () => {
   it('names the newest number among several PRs for one head', () => {
     const rows = [row(7, 'feature/a', 'CLOSED'), row(12, 'feature/a', 'OPEN'), row(9, 'feature/a', 'CLOSED')];
     expect(knownPrFor(rows, 'feature/a')).toEqual({ indexMerged: false, number: 12 });
+  });
+});
+
+describe('indexOpenHeads', () => {
+  it('names every head with an open row, in either case, and no other', () => {
+    const rows = [row(1, 'feature/a', 'OPEN'), row(2, 'feature/b', 'open'), row(3, 'feature/c', 'MERGED'), row(4, 'feature/d', 'CLOSED')];
+    expect([...indexOpenHeads(rows)]).toEqual(['feature/a', 'feature/b']);
   });
 });
 

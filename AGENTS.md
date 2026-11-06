@@ -106,8 +106,8 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Design command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 - **Auto-design:** false
 - **Auto-review:** true
-- **Review app:** 5317669 /Users/jwloka/.config/plot/plot-review.5317669.private-key.pem
-- **Merger app:** 5599192 /Users/jwloka/.config/plot/plot-merger.2026-11-03.private-key.pem
+- **Review app:** 5317669 /Users/jwloka/.plot/plot-review.2026-11-06.private-key.pem
+- **Merger app:** 5599192 /Users/jwloka/.plot/plot-merger.2026-11-06.private-key.pem
 - **Review required since:** 2026-10-15T02:17:59Z
 - **Plan PRs:** required
 

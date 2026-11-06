@@ -1,6 +1,6 @@
 import type { PlanRecord } from '../ports/plan-store.js';
 import type { SliceReadings } from './eligible.js';
-import { spikeOf } from './spike.js';
+import { licensedSpike, spikeOf } from './spike.js';
 
 /**
  * One plan's slices as {@link SliceReadings}, read the same way by every
@@ -23,7 +23,7 @@ export const sliceReadingsOf = (
   outstanding: readonly number[],
 ): SliceReadings[] => {
   const spike = spikeOf(plan.slices);
-  const spikeApproved = plan.spikeApprovedRaw !== undefined && plan.spikeApprovedRaw !== '';
+  const spikeApproved = licensedSpike(plan.spikeApprovedRaw ?? '', plan.slices).licensed;
   return plan.slices.map((slice, s) => ({
     outstanding: outstanding[s]!,
     phase: plan.phase,

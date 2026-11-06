@@ -11,7 +11,7 @@ export interface DraftPlacementReadings {
   readonly planPhase: string;
   /**
    * Whether this branch is the one the plan's `Spike approved:` record
-   * licenses. Absent reads as `false`.
+   * licenses (`licensedSpike` answered `licensed: true`). Absent reads as `false`.
    */
   readonly approvedSpike?: boolean;
   /** The branch's state from the pulse, verbatim. */
@@ -34,7 +34,7 @@ export type DraftPlacement =
  * not decide.
  *
  * A `design` plan's branches place as a Draft plan's do, except the branch its
- * `Spike approved:` record licenses (`approvedSpike`): that branch answers
+ * `Spike approved:` record licenses per `licensedSpike` (`approvedSpike`): that branch answers
  * `null` and takes the arm of any dispatchable branch.
  *
  * Answers only where a Draft plan's branch would otherwise read NOT STARTED,

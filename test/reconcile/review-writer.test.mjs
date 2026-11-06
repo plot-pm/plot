@@ -122,3 +122,31 @@ test('a Review app naming an unreadable key file exits 4', async () => {
   assert.equal(r.status, 4);
   assert.match(r.stderr, /key file that cannot be read/);
 });
+
+/** `run` with a config home holding the key for App `id`. */
+const runWithFolder = (cwd, id) => {
+  const xdg = tmp('review-writer-xdg');
+  fs.mkdirSync(path.join(xdg, 'plot'));
+  fs.copyFileSync(keyPath, path.join(xdg, 'plot', `plot-review.${id}.private-key.pem`));
+  return new Promise((resolve) => {
+    const child = spawn('node', [script], { cwd, env: { ...process.env, GITHUB_API_URL: apiUrl, XDG_CONFIG_HOME: xdg } });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+};
+
+test('an id-only Review app line resolves its key from the config folder', async () => {
+  const r = await runWithFolder(repo({ pushed: '1234' }), '1234');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'plot-review[bot]\n');
+});
+
+test('a working-tree Review app with another id does not replace the pushed one', async () => {
+  // The folder holds a key for 1234 only: a read of the working tree's 9999 would refuse.
+  const r = await runWithFolder(repo({ pushed: '1234', work: '9999' }), '1234');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'plot-review[bot]\n');
+});

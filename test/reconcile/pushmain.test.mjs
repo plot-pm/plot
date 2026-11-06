@@ -271,16 +271,16 @@ test('push-main: a declared but unreadable Writer app key refuses by name and pu
   assert.equal(helperRes.status, 4, 'the helper itself refuses with exit 4');
 });
 
-test('push-main: a malformed Writer app key refuses with exit 4 and pushes nothing', () => {
+test('push-main: an id-only Writer app line with no key in the config folder refuses with exit 4 and pushes nothing', () => {
   const { work, bare } = githubRepo('## Plot Config\n\n- **Writer app:** 999001\n');
   const before = mainLog(bare);
   const helperRes = spawnSync('node', [writerHelper, 'plot/tmp', 'main'], {
     cwd: work,
     encoding: 'utf8',
-    env: { ...process.env, PLOT_REPO_ROOT: work },
+    env: { ...process.env, PLOT_REPO_ROOT: work, XDG_CONFIG_HOME: path.join(work, 'no-such-xdg') },
   });
   assert.equal(helperRes.status, 4);
-  assert.match(helperRes.stderr, /needs a 'Writer app' key/);
+  assert.match(helperRes.stderr, /plot-writer\.999001\.private-key\.pem/);
   assert.notEqual(pushGithub(work).code, 0);
   assert.equal(mainLog(bare), before);
 });

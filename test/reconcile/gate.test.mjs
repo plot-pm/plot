@@ -35,7 +35,7 @@ const gate = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-phas
 // `noRemote` drops the remote entirely, for the offline/fail-open tests.
 function repoWith({
   branch, planPhase, stage, unstaged = [], extraPlans = {},
-  localPhase = null, noRemote = false,
+  localPhase = null, noRemote = false, planText = null,
 }) {
   const tmp = scratch('plot-gate-');
   const dir = path.join(tmp, 'repo');
@@ -49,7 +49,7 @@ function repoWith({
   const planBody = (phase) => `# P\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n`;
   if (planPhase) {
     mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
-    writeFileSync(planPath, planBody(planPhase));
+    writeFileSync(planPath, planText ?? planBody(planPhase));
   }
   for (const [name, phase] of Object.entries(extraPlans)) {
     mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
@@ -387,4 +387,51 @@ test('gate: an unshared plan allows the commit and says the phase went unverifie
   assert.equal(r.code, 0, 'an unpushed plan must not block the bootstrap');
   assert.match(r.stderr, /phase unverified/);
   assert.match(r.stderr, /Push the plan/);
+});
+
+// A Design plan's `Spike approved:` record licenses one branch: its fourth
+// field, where it equals the one branch the plan marks.
+const designPlan = (record, marked) => `# P
+
+## Status
+
+- **Phase:** Design
+- **Type:** feature
+${record === '' ? '' : `- **Spike approved:** ${record}\n`}
+## Branches
+
+### First
+- \`feature/a\` — a${marked === 'feature/a' ? ' <!-- spike -->' : ''}
+- \`feature/x\` — x${marked === 'feature/x' ? ' <!-- spike -->' : ''}
+`;
+
+test('gate: a record bound to the marked branch admits that branch', () => {
+  const planText = designPlan('2026-11-03, jwloka, in-session, feature/x', 'feature/x');
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Design', planText, stage: ['src/a.js'] });
+  assert.equal(runGate(dir).code, 0);
+});
+
+test('gate: a marker moved off the recorded branch refuses and names spike-marker-moved', () => {
+  const planText = designPlan('2026-11-03, jwloka, in-session, feature/a', 'feature/x');
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Design', planText, stage: ['src/a.js'] });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, r.stderr);
+  assert.match(r.stderr, /spike-marker-moved/);
+  assert.match(r.stderr, /plot-approve\.mjs --spike x --who/);
+});
+
+test('gate: a branchless record refuses and names spike-record-branchless', () => {
+  const planText = designPlan('2026-11-03, jwloka, in-session', 'feature/x');
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Design', planText, stage: ['src/a.js'] });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, r.stderr);
+  assert.match(r.stderr, /spike-record-branchless/);
+});
+
+test('gate: a Design plan with no record refuses without a reason line', () => {
+  const planText = designPlan('', 'feature/x');
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Design', planText, stage: ['src/a.js'] });
+  const r = runGate(dir);
+  assert.equal(r.code, 2, r.stderr);
+  assert.doesNotMatch(r.stderr, /spike-record/);
 });

@@ -108,7 +108,7 @@ export interface AssembledPlan {
   file: string;
   /** The plan's phase. */
   phase: string;
-  /** Whether the plan is a tracer plan (it names a spike). */
+  /** Whether the plan is a tracer plan (its `## Status` says `Tracer: yes`). */
   tracer: boolean;
   /** The slices in plan order. */
   slices: readonly AssembledSlice[];
@@ -329,10 +329,6 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
       }).length;
     });
     const sliceReadings: SliceReadings[] = sliceReadingsOf(record, outstandingPerSlice);
-    const planSpikes = record.slices.reduce(
-      (sum, slice) => sum + slice.branches.filter((b) => b.spike === true).length,
-      0,
-    );
     const verdicts = sliceVerdicts(sliceReadings);
 
     const slices: AssembledSlice[] = record.slices.map((sliceRecord, s) => {
@@ -384,7 +380,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
     const assembledPlan: AssembledPlan = {
       file: record.file,
       phase: record.phase,
-      tracer: planSpikes > 0,
+      tracer: record.tracer === true,
       slices,
       unreadBranchItems: record.unreadBranchItems,
     };

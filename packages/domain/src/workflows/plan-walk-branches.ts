@@ -106,6 +106,14 @@ export interface BranchStageInput {
    * never `none`. Absent, no branch reads from the index.
    */
   indexMerged?: ReadonlySet<string>;
+  /**
+   * The heads the PR index holds an `OPEN` row for. Where present, this set
+   * and not the PR listing decides whether an `OPEN` row blocks
+   * {@link BranchStageInput.indexMerged}: a listing reused across beats can
+   * still carry the `OPEN` row of a PR that has merged since. Absent, an `OPEN`
+   * row in the listing blocks the index.
+   */
+  indexOpen?: ReadonlySet<string>;
   /** How many pull requests each host list call asks for; {@link PR_LIST_LIMIT} where absent. */
   listLimit?: number;
 }
@@ -486,8 +494,10 @@ export const readBranchReadings = async (
         const listedPr = refTip === null && !proven && !commitsLanded ? await askedPrFor(line.branch) : prFor(line.branch);
         // The index confirms a landing a subject or a named commit proves, with
         // a terminal answer only: a head it does not hold keeps the list's word.
+        // An OPEN row blocks it; the index's own OPEN rows decide where given.
+        const openRow = input.indexOpen === undefined ? listedPr === 'OPEN' : input.indexOpen.has(line.branch);
         const pr: PrReading =
-          refTip === null && (proven || commitsLanded) && listedPr !== 'OPEN' && indexMerged.has(line.branch) ? 'MERGED' : listedPr;
+          refTip === null && (proven || commitsLanded) && !openRow && indexMerged.has(line.branch) ? 'MERGED' : listedPr;
         branches.push({
           plan: record.file,
           branch: line.branch,

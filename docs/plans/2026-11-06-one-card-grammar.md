@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Design
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** card-alignment
 - **Review:** pr
@@ -13,10 +13,11 @@
 - **Rounds:** 5
 - **Spike approved:** 2026-11-06, jwloka, plan-PR #3192 merged, feature/one-card-grammar-plans
 - **Started:** 2026-11-06, jwloka, `feature/one-card-grammar-plans`
+- **Approved:** 2026-11-07, jwloka, in-session
 
 ## Changelog
 
-- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who owns it since when. A ticket links to the plan and the story that answer it instead of offering to create them again, and *Create plan* on a ticket inside a story creates the plan in that story. A story names its ticket in an `issue:` frontmatter field.
+- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who owns it since when. A ticket links to the plan and the story that answer it instead of offering to create them again, and *Create plan* on a ticket inside a story creates the plan in that story. A story names its ticket in an `issue:` frontmatter field. Each card leads with an icon for its kind, its actions sit in a separate band, and a disabled action shows why on hover or keyboard focus.
 
 <!-- Board impact: board rendering, the domain package, the story format and two
      endpoints. No change to the plan format, the plan template, helper scripts or
@@ -142,13 +143,25 @@ neither is rewritten for a card this plan has not reached yet.
 - **Every card opens and acts the same way.** The title is the card's only open
   link, on every board, so no card carries a separate *Open* word and none opens
   on a click anywhere — Stories' whole-card button goes, because an action nested
-  inside a clickable card is a trap for keyboard and screen-reader users. Below
-  the facts sits one action row: the primary action from `next` first, styled as
-  the primary, then the secondary actions as text links in a fixed order per
-  kind. A disabled primary stays visible with its reason beside it (*Start work —
-  waits on #3105*); a disabled secondary is omitted. A ticket's *Create plan* /
-  *Create story* pair and a plan's *Approve* / *Interrogate* pair both become one
-  primary plus secondaries in that row.
+  inside a clickable card is a trap for keyboard and screen-reader users. The
+  title row leads with the card's kind icon — ticket, story or plan, from
+  `identity.kind` — with the kind as its accessible name, in the same place on
+  every kind; a lineage link to another item carries that item's kind icon. The
+  subtype is a tag beside it: a plan's `feature` / `bug` / `docs` / `infra`, and
+  a ticket's tracker issue type, which stops being an icon of its own. Below the
+  facts sits the action band, visually separate from the facts above it (a top
+  divider, its own tint and padding) and omitted when the card offers no action.
+  It holds the primary action from `next` first, styled as the primary, then the
+  secondary actions in a fixed order per kind. Every action renders as a control
+  — a `<button>` or a link — and never as plain text. A disabled primary stays
+  visible as a control with `aria-disabled="true"`, focusable, in a muted style;
+  its reason (*waits on #3105*) shows in a tooltip that opens on hover and on
+  keyboard focus, closes on Escape, and is the control's `aria-describedby`, and
+  a tap on touch shows it and does nothing else. The native `title` attribute is
+  not the carrier, because it shows on neither focus nor touch. A disabled
+  secondary is omitted. A ticket's *Create plan* / *Create story* pair and a
+  plan's *Approve* / *Interrogate* pair both become one primary plus secondaries
+  in that band.
 - **Creating is a `next` action, and `lineage` decides which create is offered.**
   An item offers to create only the relation it does not have yet, so a ticket
   whose plan exists can never offer *Create plan* again — the 3102 defect is
@@ -176,8 +189,9 @@ neither is rewritten for a card this plan has not reached yet.
   unknown*, never *0 failing* and never nothing. Absent facts are omitted.
 - **No meaning by colour alone.** Emphasis may use colour, but every alert, check
   state and disabled reason also carries text, in both themes. Each card is one
-  focus group in a fixed tab order — title link, primary action, secondaries,
-  then expanders — and each expander is a `<button>` with `aria-expanded`. The
+  focus group in a fixed tab order — title link, primary action (disabled or
+  not), secondaries, then expanders — and each expander is a `<button>` with
+  `aria-expanded`. The
   mapping's tests assert the text exists; the browser test asserts the tab order.
 - **One `<Card>` component** renders that mapping on all three boards; one browser
   test per board proves it shows what the mapping returned.
@@ -479,10 +493,11 @@ and `StoryModal.tsx` reads that alert through the mapping.
 
 ### Presentation (board — `card-presentation.ts`, `<Card>`, detail views)
 
-`presentCard(facts, board) → rows`, fixed order: title (the `opens` link), type
-and labelled alerts; the lineage line; the progress line (work, PR summary,
-design rounds and spike, verification, cost); the action row; the ownership
-line. It returns the emphasised row — `lineage` on discovery's ticket lanes,
+`presentCard(facts, board) → rows`, fixed order: kind icon and title (the
+`opens` link), subtype tag and labelled alerts; the lineage line; the progress
+line (work, PR summary, design rounds and spike, verification, cost); the
+action band; the ownership line. The mapping names the kind icon and its
+accessible name per `identity.kind`; `<Card>` draws it. It returns the emphasised row — `lineage` on discovery's ticket lanes,
 `progress` on discovery's story lanes, `next` on the planning and delivery
 boards and in swimlanes — and every word: summaries, reasons (*waits on
 feature/x #3105*, *no fleet scan yet*, *linked from 2 stories*, *plans unread —
@@ -490,7 +505,9 @@ host throttled*), unknowns (*checks unknown*, *cost not measured here*) and aler
 labels. **Every list with two or more entries collapses to a count and expands
 in place** — lineage relations and the PR list alike. `<Card>` renders rows and
 decides nothing; tab order is title, primary, secondaries, expanders; each
-expander is a `<button aria-expanded>`. Every string from `CardFacts` renders as
+expander is a `<button aria-expanded>`. The action band renders every action as
+a control; a disabled one is `aria-disabled`, focusable, and described by a
+tooltip holding the mapping's reason. Every string from `CardFacts` renders as
 text, never as HTML.
 
 **Detail views.** Plans open `PlanModal`, stories `StoryModal`, and **tickets a
@@ -515,10 +532,14 @@ and admits `http(s)` link schemes only.
   renders through `<Card>` from `facts`, and `planCardView` is gone. Type, rounds,
   spike state, verification, cost, `not-pushed` and the PR list all still show.
   No plan card shows *not measured here* or *checks not asked* as a chip of its
-  own; each shows as an unknown in its row. A disabled *Start work* names its
-  reason on the card, not only on hover. A fixture with a throttled host reads
+  own; each shows as an unknown in its row. Every plan card leads with the plan
+  kind icon, with an accessible name, and its type as a tag. The action band is
+  visually separate, and no action renders as plain text. A disabled *Start
+  work* is a focusable `aria-disabled` control whose reason appears on hover and
+  on focus and is its `aria-describedby`. A fixture with a throttled host reads
   *checks unknown*, never zero. Both gates fail on a seeded violation. One
-  browser test proves rows and tab order.
+  browser test proves rows, the tooltip on focus, and tab order through the
+  action band including the disabled control.
 - **Stories:** story *Nothing changed, nothing runs* links ticket #3170, and
   #3170 offers no *Create story*. A ticket whose plan names a story shows that
   story. The ⚠ reads as a labelled alert. An `issue:` to another repository
@@ -531,7 +552,8 @@ and admits `http(s)` link schemes only.
   ticket in two stories gets a disabled *Create plan* naming both, and
   `POST /api/idea` for it refuses `linked-from-many-stories`. A ticket in one
   live story produces a brief carrying its slug above the issue body.
-  `TicketModal` opens from the title.
+  `TicketModal` opens from the title. A ticket's issue type shows as a tag, and
+  the ticket kind icon leads its title row.
 
 
 ## Slices
