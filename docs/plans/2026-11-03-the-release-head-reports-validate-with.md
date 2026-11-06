@@ -15,7 +15,7 @@
 
 ## Changelog
 
-- The release PR reports `validate` on its pinned head in what GitHub's ruleset counts, with no person approving a held run, through the mechanism the 2.31.0 measurement selects.
+- The release PR reports `validate` on its pinned head in what GitHub's ruleset counts, with no person approving a held run, through a status relay that copies the dispatched CI run's result to the pinned head.
 
 Board impact: the release row's stage reads #3070's `checks-missing` rule. Under Outcome A that rule also counts a `validate` check run from integration 15368 on the pinned head, so a head whose only `validate` is the dispatched run reads `ready` instead of `preparing`. Under Outcome B the row's reading is unchanged and the new `validate` reaches the rollup the rule already reads. The row's shape is unchanged in both outcomes.
 
