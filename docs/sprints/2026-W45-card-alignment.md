@@ -30,7 +30,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
 ### Should Have
-- [x] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate -->
+- [ ] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate --> <!-- reason: live proof failed on 2.31.0, merged: #3209, remaining: bug/the-release-run-relays-validate -->
 
 <!-- add items here -->
 
