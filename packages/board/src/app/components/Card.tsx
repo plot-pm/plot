@@ -1,6 +1,8 @@
 import { useId, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Ref } from '@plot-pm/domain/entities/card-facts';
 import { Badge, typeVariant } from './ui/badge.js';
+import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { GLYPH_PATH, type GlyphKind } from '../lib/glyphs.js';
 import { cn } from '../lib/utils.js';
 import type { CardRows, Facet, IconKind, KindIcon, Part, Piece, PresentedAction, Tone } from '../lib/card-presentation.js';
 
@@ -41,40 +43,32 @@ const TONE: Readonly<Record<Tone, string>> = {
   type: '',
 };
 
-/** One 16-unit path per kind of item; drawn in the current text colour. */
-const ICON_PATH: Readonly<Record<IconKind, string>> = {
-  // A document with a folded corner.
-  plan: 'M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13 M6 8h5 M6 10.5h5',
-  // An open book.
-  story: 'M2 3.5c2-1 4-1 6 0v10c-2-1-4-1-6 0z M8 3.5c2-1 4-1 6 0v10c-2-1-4-1-6 0z',
-  // A ticket stub with a notch.
-  ticket: 'M1.5 4.5h13v2.5a1.5 1.5 0 0 0 0 3v2.5h-13V10a1.5 1.5 0 0 0 0-3z',
-  // A calendar page.
-  sprint: 'M2 3.5h12v10H2z M2 6.5h12 M5 2v3 M11 2v3',
-  // A branch.
-  slice: 'M5 2v12 M5 10c0-3 6-3 6-6 M11 2.5v1.5',
+/** The glyph each kind of item is drawn with; a slice wears the tuple rows' slice glyph. */
+const GLYPH_OF: Readonly<Record<IconKind, GlyphKind>> = {
+  ticket: 'ticket',
+  story: 'story',
+  plan: 'plan',
+  sprint: 'sprint',
+  slice: 'wave',
 };
 
 /**
- * A kind icon. Named by its kind where it is the only carrier (the title row),
+ * A kind icon from the board's glyph table, as large as the text beside it
+ * (`1em`). Named by its kind where it is the only carrier (the title row),
  * hidden from assistive technology where text beside it already names the kind.
  */
 const KindIconView = ({ icon, named }: { icon: KindIcon; named: boolean }) => (
   <svg
     viewBox="0 0 16 16"
-    width="14"
-    height="14"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.3"
-    strokeLinecap="round"
-    strokeLinejoin="round"
+    width="1em"
+    height="1em"
+    fill="currentColor"
     className="inline-block shrink-0 text-slate-500 dark:text-slate-400"
     data-kind-icon={icon.kind}
     {...(named ? { role: 'img', 'aria-label': icon.label } : { 'aria-hidden': true })}
   >
     {named && <title>{icon.label}</title>}
-    <path d={ICON_PATH[icon.kind]} />
+    <path d={GLYPH_PATH[GLYPH_OF[icon.kind]]} />
   </svg>
 );
 
@@ -175,37 +169,19 @@ const PartsRow = ({ facet, parts, emphasis, linkFor, className }: {
  * focus, closes on Escape, and a tap shows it and does nothing else.
  */
 const DisabledAction = ({ action }: { action: PresentedAction }) => {
-  const reasonId = useId();
-  const [open, setOpen] = useState(false);
+  const tip = useReasonTooltip(action.reason);
   return (
-    <span
-      className="relative inline-flex"
-      data-action={action.action}
-      data-action-disabled
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <span {...tip.wrapperProps} className="relative inline-flex" data-action={action.action} data-action-disabled>
       <button
         type="button"
         aria-disabled="true"
-        aria-describedby={reasonId}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
-        onClick={(e) => { e.preventDefault(); setOpen(true); }}
+        {...tip.triggerProps}
+        onClick={(e) => { e.preventDefault(); tip.show(); }}
         className="cursor-not-allowed rounded px-1.5 py-0.5 text-xs font-medium text-slate-400 ring-1 ring-slate-200 dark:text-slate-500 dark:ring-slate-700"
       >
         {action.label}
       </button>
-      <span
-        id={reasonId}
-        role="tooltip"
-        data-action-reason
-        hidden={!open}
-        className="absolute bottom-full left-0 z-20 mb-1 w-max max-w-64 rounded bg-slate-800 px-2 py-1 text-xs text-white shadow dark:bg-slate-200 dark:text-slate-900"
-      >
-        {action.reason}
-      </span>
+      {tip.tooltip}
     </span>
   );
 };
@@ -247,8 +223,9 @@ export const Card = ({
       )}
     >
       <div data-card-row="identity" className="order-1 flex flex-col gap-1.5">
-        <div className="flex items-start gap-1.5">
-        <span className="mt-0.5"><KindIconView icon={rows.kind} named /></span>
+        <div className="flex items-start gap-1.5 text-sm leading-snug">
+        {/* One line tall and centred in it, so the icon sits on the title's first line when it wraps. */}
+        <span className="inline-flex h-[1lh] shrink-0 items-center"><KindIconView icon={rows.kind} named /></span>
         <a
           href={titleHref}
           data-plan-ref

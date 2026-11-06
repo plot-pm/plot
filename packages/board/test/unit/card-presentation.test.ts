@@ -229,3 +229,12 @@ describe('presentCard: an unpushed plan', () => {
     expect(alert?.kind === 'piece' && alert.piece.tone).toBe('neutral');
   });
 });
+
+describe('presentCard: kind icons', () => {
+  it('names the card\'s kind icon and the icon of each lineage item', () => {
+    const r = rows({ sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active' } } });
+    expect(r.kind).toEqual({ kind: 'plan', label: 'Plan' });
+    const sprint = r.lineage.find((p) => p.kind === 'piece' && p.piece.data.lineage === 'sprints');
+    expect(sprint?.kind === 'piece' && sprint.piece.icon).toEqual({ kind: 'sprint', label: 'Sprint' });
+  });
+});

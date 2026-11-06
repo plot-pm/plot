@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, board, card, column, type Catalogue } from '../catalogue/index.js';
+import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
 
 /**
  * A PLAN CARD RENDERS THE CARD GRAMMAR — what only a rendered page can settle.
@@ -22,7 +23,7 @@ const DRAFT = card({
 
 const STARTABLE_COLD = card({
   slug: 'cold', title: 'Waiting for a scan', phase: 'Development', status: 'approved', started: false,
-  path: 'docs/plans/2026-11-06-cold.md',
+  path: 'docs/plans/2026-11-06-cold.md', sprint: 'card-alignment',
   sliceSummary: { slices: 2, branches: 2, deferred: 0 },
 });
 
@@ -116,6 +117,38 @@ describe('a plan card renders the card grammar', () => {
     }
   });
 
+  it('draws the kind icons from the board\'s Octicon table, as large as the text beside them', async () => {
+    const page = await open();
+    try {
+      const identity = page.locator('#plan-grammar [data-card-row="identity"]');
+      const sizes = await identity.evaluate((row) => {
+        const icon = row.querySelector('svg[data-kind-icon="plan"]')!.getBoundingClientRect();
+        const title = row.querySelector('[data-card-title]')!;
+        const titleBox = title.getBoundingClientRect();
+        const lineHeight = parseFloat(getComputedStyle(title).lineHeight);
+        return {
+          icon: icon.height,
+          font: parseFloat(getComputedStyle(title).fontSize),
+          // The icon's centre against the centre of the title's first line.
+          offset: (icon.top + icon.height / 2) - (titleBox.top + lineHeight / 2),
+        };
+      });
+      expect(Math.abs(sizes.icon - sizes.font)).toBeLessThanOrEqual(1);
+      expect(Math.abs(sizes.offset)).toBeLessThanOrEqual(1);
+      expect(await identity.locator('svg[data-kind-icon="plan"] path').getAttribute('d')).toBe(GLYPH_PATH.plan);
+
+      const sprint = page.locator('#plan-cold [data-lineage="sprints"]');
+      expect(await sprint.locator('svg path').getAttribute('d')).toBe(GLYPH_PATH.sprint);
+      const linkSizes = await sprint.evaluate((el) => ({
+        icon: el.querySelector('svg')!.getBoundingClientRect().height,
+        font: parseFloat(getComputedStyle(el).fontSize),
+      }));
+      expect(Math.abs(linkSizes.icon - linkSizes.font)).toBeLessThanOrEqual(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('sets the action band apart: a top divider and its own tint', async () => {
     const page = await open();
     try {
@@ -150,6 +183,18 @@ describe('a plan card renders the card grammar', () => {
       expect(await reason.textContent()).toBe('no fleet scan yet');
       await page.keyboard.press('Escape');
       expect(await reason.isVisible()).toBe(false);
+
+      // It opens below the control, never over the facts above it. Focus moves
+      // away and back, because Escape closed it while the control kept focus.
+      await page.locator('#plan-cold [data-card-title]').focus();
+      await button.focus();
+      expect(await reason.isVisible()).toBe(true);
+      const boxes = await slot.evaluate((el) => ({
+        control: el.querySelector('button')!.getBoundingClientRect().bottom,
+        tip: el.querySelector('[role="tooltip"]')!.getBoundingClientRect().top,
+      }));
+      expect(boxes.tip).toBeGreaterThanOrEqual(boxes.control);
+      await page.keyboard.press('Escape');
 
       // Pointer: hover opens it too.
       await page.locator('#plan-cold [data-card-title]').focus();
