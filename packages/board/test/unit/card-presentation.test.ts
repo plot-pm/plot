@@ -44,7 +44,7 @@ describe('presentCard: every fact today\'s plan card shows still shows', () => {
       controls: cardControls({ state: 'design', status: 'draft', slices: spikeSlices }),
       rounds: 3,
       notPushed: true,
-      prs: { value: [{ number: 12, branch: 'feature/s', checks: 'green', mergeable: 'mergeable' }] },
+      prs: { value: [{ number: 12, branch: 'feature/s', checks: 'green', mergeable: 'mergeable', checksLookup: null }] },
       cost: { value: { tokens: null, measured: 0, absent: 2, unreadable: 0, fromRuns: 0, slices: 2 } },
     });
     const w = allWords(design);
@@ -79,7 +79,7 @@ describe('presentCard: every fact today\'s plan card shows still shows', () => {
 describe('presentCard: absence is not content', () => {
   it('no plan card shows *not measured here* or *checks not asked* as a chip of its own', () => {
     const r = rows({
-      prs: { value: [{ number: 1, branch: 'a', checks: 'unknown', mergeable: 'unknown' }, { number: 2, branch: 'b', checks: 'green', mergeable: 'mergeable' }] },
+      prs: { value: [{ number: 1, branch: 'a', checks: 'unknown', mergeable: 'unknown', checksLookup: null }, { number: 2, branch: 'b', checks: 'green', mergeable: 'mergeable', checksLookup: null }] },
       cost: { value: { tokens: null, measured: 0, absent: 2, unreadable: 0, fromRuns: 0, slices: 2 } },
     });
     const all = allWords(r);
@@ -101,7 +101,7 @@ describe('presentCard: absence is not content', () => {
 
 describe('presentCard: a throttled host', () => {
   it('reads *checks unknown*, never zero', () => {
-    const throttled = rows({ prs: { value: [{ number: 7, branch: 'feature/a', checks: 'unknown', mergeable: 'unknown' }] } });
+    const throttled = rows({ prs: { value: [{ number: 7, branch: 'feature/a', checks: 'unknown', mergeable: 'unknown', checksLookup: null }] } });
     const all = allWords(throttled);
     expect(all).toContain('#7 checks unknown');
     expect(all.some((w) => /\b0\b/.test(w) && w.includes('check'))).toBe(false);
@@ -109,8 +109,8 @@ describe('presentCard: a throttled host', () => {
 
   it('counts unknown checks apart from the rest, per PR', () => {
     const prs = [
-      ...[1, 2, 3, 4, 5].map((n) => ({ number: n, branch: `b${n}`, checks: 'green' as const, mergeable: 'mergeable' as const })),
-      { number: 6, branch: 'b6', checks: 'unknown' as const, mergeable: 'unknown' as const },
+      ...[1, 2, 3, 4, 5].map((n) => ({ number: n, branch: `b${n}`, checks: 'green' as const, mergeable: 'mergeable' as const, checksLookup: null })),
+      { number: 6, branch: 'b6', checks: 'unknown' as const, mergeable: 'unknown' as const, checksLookup: null },
     ];
     const part = rows({ prs: { value: prs } }).progress.find((p) => p.kind === 'list');
     expect(part?.kind === 'list' && part.summary.text).toBe('6 PRs · 1 checks unknown');
@@ -119,7 +119,7 @@ describe('presentCard: a throttled host', () => {
 
 describe('presentCard: lists of two or more collapse and expand', () => {
   it('a PR list is one summary line with every PR behind it', () => {
-    const prs = [{ number: 1, branch: 'a', checks: 'failing' as const, mergeable: 'mergeable' as const }, { number: 2, branch: 'b', checks: 'pending' as const, mergeable: 'mergeable' as const }];
+    const prs = [{ number: 1, branch: 'a', checks: 'failing' as const, mergeable: 'mergeable' as const, checksLookup: null }, { number: 2, branch: 'b', checks: 'pending' as const, mergeable: 'mergeable' as const, checksLookup: null }];
     const part = rows({ prs: { value: prs } }).progress.find((p) => p.kind === 'list');
     expect(part).toMatchObject({ kind: 'list', id: 'prs', summary: { text: '2 PRs · 1 failing · 1 running', tone: 'warn' } });
     expect(part?.kind === 'list' && part.items.map((i) => i.text)).toEqual(['#1 checks failing', '#2 checks running']);
@@ -171,10 +171,10 @@ describe('presentCard: emphasis is per board, never position', () => {
 
 describe('presentCard: a PR with no checks because it conflicts', () => {
   it('says so, and warns, where a plain no-checks PR is quiet', () => {
-    const r = rows({ prs: { value: [{ number: 60, branch: 'b', checks: 'none', mergeable: 'conflicting' }] } });
+    const r = rows({ prs: { value: [{ number: 60, branch: 'b', checks: 'none', mergeable: 'conflicting', checksLookup: null }] } });
     const p = r.progress.find((x) => x.kind === 'piece' && 'pr-checks' in x.piece.data);
     expect(p?.kind === 'piece' && [p.piece.text, p.piece.tone]).toEqual(['#60 no checks — conflicts', 'warn']);
-    const quiet = rows({ prs: { value: [{ number: 58, branch: 'b', checks: 'none', mergeable: 'mergeable' }] } });
+    const quiet = rows({ prs: { value: [{ number: 58, branch: 'b', checks: 'none', mergeable: 'mergeable', checksLookup: null }] } });
     const q = quiet.progress.find((x) => x.kind === 'piece' && 'pr-checks' in x.piece.data);
     expect(q?.kind === 'piece' && [q.piece.text, q.piece.tone]).toEqual(['#58 no checks', 'neutral']);
   });
@@ -199,5 +199,33 @@ describe('presentCard: a plan answering two issues', () => {
 
   it('a plan with one issue repeats nothing in the lineage row', () => {
     expect(rows({ issues: ['3101'] }).lineage).toEqual([]);
+  });
+});
+
+describe('presentCard: a collapsed PR list keeps what needs action', () => {
+  it('counts a conflicting PR apart and warns, as checksProminence does', () => {
+    const r = rows({ prs: { value: [
+      { number: 1, branch: 'a', checks: 'green', mergeable: 'mergeable', checksLookup: null },
+      { number: 2, branch: 'b', checks: 'none', mergeable: 'conflicting', checksLookup: null },
+    ] } });
+    const part = r.progress.find((p) => p.kind === 'list');
+    expect(part).toMatchObject({ kind: 'list', summary: { text: '2 PRs · 1 conflicting', tone: 'warn' } });
+  });
+
+  it('tells a PR not looked up yet from one whose checks could not be asked', () => {
+    const r = rows({ prs: { value: [
+      { number: 1, branch: 'a', checks: 'unknown', mergeable: 'unknown', checksLookup: 'skipped' },
+      { number: 2, branch: 'b', checks: 'unknown', mergeable: 'unknown', checksLookup: null },
+    ] } });
+    const part = r.progress.find((p) => p.kind === 'list');
+    expect(part?.kind === 'list' && part.summary.text).toBe('2 PRs · 1 checks unknown · 1 not looked up yet');
+    expect(part?.kind === 'list' && part.items.map((i) => i.text)).toEqual(['#1 checks not looked up yet', '#2 checks unknown']);
+  });
+});
+
+describe('presentCard: an unpushed plan', () => {
+  it('reads not pushed in the neutral tone — a normal moment while writing a plan', () => {
+    const alert = rows({ notPushed: true }).identity.find((p) => p.kind === 'piece' && p.piece.data.alert === 'not-pushed');
+    expect(alert?.kind === 'piece' && alert.piece.tone).toBe('neutral');
   });
 });

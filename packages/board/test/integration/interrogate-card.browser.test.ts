@@ -129,7 +129,7 @@ describe('a Draft card offers Interrogate', () => {
       const btn = slot.getByRole('button', { name: 'Interrogate' });
       await expect.poll(() => btn.count(), { timeout: 10_000 }).toBe(1);
       expect(await btn.getAttribute('aria-disabled')).toBe('true');
-      expect(await btn.getAttribute('title')).toContain('Interrogate command');
+      expect(await btn.getAttribute('aria-describedby')).toBe(await slot.locator('[data-action-reason]').getAttribute('id'));
       expect(await slot.locator('[data-action-reason]').textContent()).toContain('Interrogate command');
       // Playwright will not click an aria-disabled control; the event reaches
       // the handler, which is the guard under test.

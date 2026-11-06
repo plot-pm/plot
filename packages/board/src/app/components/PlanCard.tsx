@@ -174,7 +174,18 @@ export function PlanCard({
         data-card-unreadable
         className={`flex flex-col gap-1.5 rounded-md border border-l-4 bg-white p-3 shadow-sm dark:bg-slate-900 ${PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral}`}
       >
-        <span data-card-title className="text-sm font-medium text-slate-900 dark:text-slate-100">{card.title}</span>
+        <a
+          href={planRoute(card.path)}
+          data-card-title
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            onOpen(card);
+          }}
+          className="text-sm font-medium text-slate-900 hover:underline dark:text-slate-100"
+        >
+          {card.title}
+        </a>
         <span data-alert="unreadable-card" className="text-xs text-amber-700 dark:text-amber-400">{UNREADABLE_CARD}</span>
       </article>
     );

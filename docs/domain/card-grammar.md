@@ -56,7 +56,9 @@ card shows the rest in its lineage row.
 
 An **action** is `{ action, enabled, reason }`; `reason` is set exactly when
 `enabled` is false. Opening is not an action: the title is the card's only open
-link. A disabled primary stays on the card with its reason beside it. A
+link. Every action is a control. A disabled one is a focusable button with
+`aria-disabled="true"`; its reason is the button's `aria-describedby`, in a
+tooltip that opens on hover and on keyboard focus and closes on Escape. A
 secondary the plan's own state disables is omitted; one the board's
 configuration refuses stays, disabled, with `action-unavailable`.
 
@@ -91,7 +93,10 @@ names. `scripts/check-card-presentation.sh` refuses any import in
 
 ## Rows and lists
 
-`presentCard` returns the rows in a fixed order: title (with type and alerts),
-lineage, progress, the action row, ownership. A list of two or more entries
-collapses to a count and expands in place under a `<button aria-expanded>`. The
-tab order is title, primary, secondaries, then the rows' links and expanders.
+`presentCard` returns the rows in a fixed order: kind icon and title (with type
+and alerts), lineage, progress, the action band, ownership. The kind icon is
+named by the kind ("Plan"); a lineage link carries the icon of the item it
+names. The action band has a top divider and its own tint, and is not drawn
+when no action renders. A list of two or more entries collapses to a count and
+expands in place under a `<button aria-expanded>`. The tab order is title,
+primary (disabled or not), secondaries, then the rows' links and expanders.

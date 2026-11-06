@@ -15,6 +15,8 @@ describe('PlanCard renders safely', () => {
     delete bare.facts;
     const html = render(bare as Card);
     expect(html).toContain('A bare card');
+    // The title is still the card's open link.
+    expect(html).toMatch(/<a href="\/plan\/2026-08-24-a-plan\.md"[^>]*data-card-title[^>]*>A bare card<\/a>/);
     expect(html).toContain('data-card-unreadable');
     expect(html).toContain('unreadable card');
   });
@@ -33,5 +35,24 @@ describe('PlanCard renders safely', () => {
     const html = render(ready, { dispatch: { available: true, reason: '' } });
     expect(html).toContain('data-card-row="next"');
     expect(html).toContain('data-action-slot="primary"');
+  });
+
+  it('leads the title row with the plan kind icon, named Plan', () => {
+    const html = render(card({ slug: 'p', title: 'P' }));
+    expect(html).toMatch(/<svg[^>]*data-kind-icon="plan"[^>]*role="img"[^>]*aria-label="Plan"/);
+  });
+
+  it('draws a disabled action as a focusable control described by its reason, with no native title', () => {
+    const cold = card({ slug: 'cold', title: 'Cold', phase: 'Development', started: false, sliceSummary: { slices: 2, branches: 2, deferred: 0 } });
+    expect(cold.facts.next.primary).toMatchObject({ action: 'start-work', enabled: false });
+    const html = render(cold, { dispatch: { available: true, reason: '' } });
+    const button = html.match(/<button[^>]*aria-disabled="true"[^>]*>Start work<\/button>/)?.[0] ?? '';
+    expect(button).not.toBe('');
+    expect(button).not.toContain('title=');
+    expect(button).not.toContain(' disabled');
+    const describedBy = button.match(/aria-describedby="([^"]+)"/)?.[1];
+    expect(html).toContain(`id="${describedBy}" role="tooltip"`);
+    expect(html).toContain('no fleet scan yet');
+    expect(html).toContain('data-action-band');
   });
 });

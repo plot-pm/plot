@@ -145,10 +145,10 @@ describe('Start work refuses before the click when it cannot know', () => {
       await button.waitFor({ timeout: 10_000 });
 
       expect(await button.getAttribute('aria-disabled')).toBe('true');
-      // The reason is ON THE CARD, visible beside the control and named as its
-      // description — not only in a hover title a touch or keyboard reader
-      // never sees.
+      // The reason is the control's description, in a tooltip that opens on
+      // keyboard focus as well as hover — never only a native `title`.
       const reason = cardFor(page, SLICED_TITLE).locator('[data-action="start-work"] [data-action-reason]');
+      await button.focus();
       expect(await reason.isVisible()).toBe(true);
       expect(await reason.textContent()).toMatch(/no fleet scan yet/);
       expect(await button.getAttribute('aria-describedby')).toBe(await reason.getAttribute('id'));
@@ -157,7 +157,7 @@ describe('Start work refuses before the click when it cannot know', () => {
     }
   });
 
-  it('does not fall back to `card.started` — a STARTED plan offers no enabled Start work either', async () => {
+  it('a started plan with no fleet scan offers no Start work', async () => {
     // This plan carries a `Started:` record, so the flag the button used to
     // watch is true. If the code fell back to it here, the button would offer a
     // click it could never report on. On a started plan Start work is a
