@@ -138,8 +138,15 @@ describe('planCardFacts: lineage', () => {
     expect(facts({ story: { unknown: 'failed' } }).lineage.stories).toEqual({ unknown: 'failed' });
   });
 
-  it('a named ticket the plan card does not read is unasked', () => {
-    expect(facts({ issues: ['12'] }).lineage.tickets).toEqual({ unknown: 'unasked' });
+  it('every issue key the plan names is a ticket ref, read from the plan; the first is the key', () => {
+    const f = facts({ issues: ['3101', 'PROJ-12'] });
+    expect(f.identity.key).toBe('3101');
+    expect(f.lineage.tickets).toEqual({
+      value: [
+        { kind: 'ticket', key: '3101', title: '3101', lane: null },
+        { kind: 'ticket', key: 'PROJ-12', title: 'PROJ-12', lane: null },
+      ],
+    });
   });
 });
 

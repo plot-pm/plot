@@ -197,8 +197,9 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
  * The owner is the plan's assignee before approval and the `Approved:` record's
  * approver once one exists, resolved through `People`. `ownership.since` is the
  * newest dated record (`transitioned`), else the plan file's date prefix
- * (`opened`). `lineage.tickets` is `unasked` where the plan names an issue: the
- * plan card does not read tickets.
+ * (`opened`). `identity.key` is the plan's first issue key, and `lineage.tickets`
+ * holds every key the plan names, each a ticket ref with no lane: the plan card
+ * reads the plan's `Issue:` field, not the tickets.
  *
  * @param readings - the plan's fields, controls and readings, as the board build holds them.
  * @param directory - the declared `People` spellings; `{}` where none is declared.
@@ -228,7 +229,7 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
       alerts: readings.notPushed ? [{ kind: 'not-pushed', commits: null }] : [],
     },
     lineage: {
-      tickets: readings.issues.length > 0 ? { unknown: 'unasked' } : { value: [] },
+      tickets: { value: readings.issues.map((key): Ref => ({ kind: 'ticket', key, title: key, lane: null })) },
       stories: knownList(readings.story, (s) => ({ kind: 'story', ...s })),
       plans: { value: [] },
       sprints: knownList(readings.sprint, (s) => ({ kind: 'sprint', ...s })),

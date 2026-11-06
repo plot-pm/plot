@@ -133,7 +133,7 @@ const sliceWords = (ref: Ref): string =>
 /** How any ref reads by name. */
 const refWords = (ref: Ref): string => {
   switch (ref.kind) {
-    case 'ticket': return `#${ref.key} ${ref.title}`;
+    case 'ticket': return ref.title === ref.key ? `ticket ${ref.key}` : `${ref.key}: ${ref.title}`;
     case 'slice': return sliceWords(ref);
     default: return ref.title;
   }
@@ -180,11 +180,10 @@ const RELATION_WORD: Readonly<Record<keyof CardFacts['lineage'], [string, string
 const relationParts = (relation: keyof CardFacts['lineage'], known: Known<Ref[]>, facts: CardFacts): Part[] => {
   const [singular, many] = RELATION_WORD[relation];
   if ('unknown' in known) {
-    // A ticket the title already names by key is shown there; the plan card does not read tickets.
-    if (relation === 'tickets' && known.unknown === 'unasked' && facts.identity.key !== null) return [];
     return [one(piece(`${many} unknown — ${REACH[known.unknown]}`, { tone: 'muted', data: { lineage: relation, unknown: known.unknown } }))];
   }
-  const refs = known.value;
+  // The ticket the title already names by its key is shown there; every other one shows here.
+  const refs = relation === 'tickets' ? known.value.filter((r) => !(r.kind === 'ticket' && r.key === facts.identity.key)) : known.value;
   const items = refs.map((ref) => piece(
     ref.kind === 'story' || ref.kind === 'sprint' ? `${singular} ${ref.title}` : refWords(ref),
     { ref, data: { lineage: relation } },

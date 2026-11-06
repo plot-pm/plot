@@ -45,7 +45,8 @@ same<z.infer<typeof StoryStandingSchema>, StoryStanding>(true);
  * Another board item a card points at, with the phase of the kind it points at.
  */
 export const RefSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('ticket'), key: z.string(), title: z.string(), lane: TicketLaneSchema }),
+  /** `lane: null` names a ticket by key alone, as the item that names it reads it; its `title` is then the key. */
+  z.object({ kind: z.literal('ticket'), key: z.string(), title: z.string(), lane: TicketLaneSchema.nullable() }),
   /** `status: null` names a story no story file exists for; its `title` is then the slug. */
   z.object({
     kind: z.literal('story'), slug: z.string(), title: z.string(), status: StoryStatusSchema.nullable(), archived: z.boolean(),

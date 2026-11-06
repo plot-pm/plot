@@ -48,6 +48,9 @@ A **ref** names another board item with the phase of the kind it names:
 `ticket` (lane), `story` (status, archived), `plan` (status), `sprint` (state)
 and `slice` (plan, branch, PR). A story or sprint a plan names with no file
 behind it is a ref whose status or state is `null` and whose title is its slug.
+A ticket a plan names by its `Issue:` key is a ref whose lane is `null` and
+whose title is the key; the first key is the plan's `identity.key`, and the
+card shows the rest in its lineage row.
 
 ## Actions and reasons
 

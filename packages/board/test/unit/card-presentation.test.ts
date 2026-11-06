@@ -189,3 +189,15 @@ describe('presentCard: an action this board will not run', () => {
       .toBe('only on localhost');
   });
 });
+
+describe('presentCard: a plan answering two issues', () => {
+  it('shows every key: the first in the title, the rest in the lineage row', () => {
+    const r = rows({ issues: ['3101', 'PROJ-12'] });
+    expect(r.title.text).toBe('3101: X');
+    expect(words(r.lineage)).toEqual(['ticket PROJ-12']);
+  });
+
+  it('a plan with one issue repeats nothing in the lineage row', () => {
+    expect(rows({ issues: ['3101'] }).lineage).toEqual([]);
+  });
+});
