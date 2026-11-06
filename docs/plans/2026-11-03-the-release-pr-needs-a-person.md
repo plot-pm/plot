@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3065
@@ -12,6 +12,7 @@
 - **Started:** 2026-11-03, Jan Wloka, `feature/the-release-review-is-switched-on`
 - **Started:** 2026-11-05, Jan Wloka, `feature/the-release-checks-are-counted`
 - **Started:** 2026-11-05, Jan Wloka, `feature/the-release-head-is-the-version-step`
+- **Delivered:** 2026-11-06
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
