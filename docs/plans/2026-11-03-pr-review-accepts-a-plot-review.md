@@ -214,7 +214,7 @@ Each test fails on `origin/main` before the change unless it says otherwise.
 
 ### Writer check
 
-- `feature/pr-review-accepts-a-plot-review` — `pr-review` reports every `plot/review` status with its writer, `githubReview` and `reviewPasses` judge it, `Host.reviewWriter` resolves the Review app's bot login from the default branch's config, `mergeAt` and `releaseApproveAt` refuse a newer foreign status, the board's review run reads only the trusted status, and the index judges an unchecked `success` or `failure` row into `plotReviewJudged`, which a later rollup write keeps <!-- builds: the writer check on both read paths --> <!-- waits: feature/the-release-checks-are-counted -->
+- `feature/pr-review-accepts-a-plot-review` — `pr-review` reports every `plot/review` status with its writer, `githubReview` and `reviewPasses` judge it, `Host.reviewWriter` resolves the Review app's bot login from the default branch's config, `mergeAt` and `releaseApproveAt` refuse a newer foreign status, the board's review run reads only the trusted status, and the index judges an unchecked `success` or `failure` row into `plotReviewJudged`, which a later rollup write keeps <!-- builds: the writer check on both read paths --> <!-- waits: feature/the-release-checks-are-counted --> → #3187
 
 ### Review write gate
 
