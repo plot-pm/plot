@@ -1,5 +1,5 @@
 import type { Issue } from '../entities/issue.js';
-import { reviewVerdict, type ReviewCounts } from './review-verdict.js';
+import { reviewVerdict } from './review-verdict.js';
 
 /** The label on the finding tickets and revert tickets that fleetd opens. */
 export const REVIEW_ISSUE_LABEL = 'ai-generated';
