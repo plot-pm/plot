@@ -19,6 +19,8 @@ export type CardFields = Omit<Card, 'facts'>;
 
 /** What a plan's facts read beyond the card's own fields. */
 export interface PlanFactsExtras {
+  /** The plan's `State:` as the file writes it; absent reads as unreadable. */
+  state?: string;
   /** The plan's dated records; absent reads as none recorded. */
   records?: PlanRecordsReading;
   /**
@@ -92,6 +94,7 @@ export const planFactsOf = (card: CardFields, extras: PlanFactsExtras = {}): Car
     path: card.path,
     type: card.type,
     assignee: card.assignee ?? '',
+    state: extras.state ?? '',
     issues: card.issues,
     records: extras.records ?? NO_RECORDS,
     status: card.status ?? 'approved',

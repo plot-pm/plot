@@ -46,14 +46,14 @@ describe('a story card carries its owner from storyCardView', () => {
 });
 
 describe('an absent owner reads as null', () => {
-  it('a plan card with no type and no owner says so in its facts', () => {
+  it('a plan card with no type and no assignee says so in its facts', () => {
     const fields = CardSchema.omit({ facts: true }).parse({
       slug: 'x', title: 'X', type: '', phase: 'Discovery',
       path: 'docs/plans/x.md', prs: [], phaseDate: '', controls: controlsFor({ phase: 'Discovery' }),
     });
     const facts = planFactsOf(fields);
     expect(facts.identity.type).toBeNull();
-    expect(facts.ownership.owner).toBeNull();
+    expect(facts.ownership.assignees).toEqual({ value: [] });
   });
 
   it('defaults a story card with no owner to null', () => {
