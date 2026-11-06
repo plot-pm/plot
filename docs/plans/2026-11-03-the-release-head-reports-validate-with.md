@@ -12,6 +12,7 @@
 - **Delivered:** 2026-11-06
 - **Sprint:** card-alignment
 - **Issue:** #3073
+- **Started:** 2026-11-06, Jan Wloka, `bug/the-release-run-relays-validate`
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
