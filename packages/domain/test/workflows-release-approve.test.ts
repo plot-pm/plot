@@ -3,6 +3,7 @@ import { releaseApprove, releaseApproveAt, type ReleaseApproveReadings } from '.
 import type { MergePorts } from '../src/workflows/merge.js';
 import type { Pr } from '../src/entities/pr.js';
 import type { PrReviewReading } from '../src/ports/host.js';
+import type { FileChange } from '../src/ports/refs.js';
 
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -46,6 +47,14 @@ const readings = (over: Partial<ReleaseApproveReadings> = {}): ReleaseApproveRea
   ciAsked: true,
   ...over,
 });
+
+const edit = (path: string, removed: string, added: string, section = ''): FileChange =>
+  ({ path, status: 'modified', hunks: [{ section, removed: [removed], added: [added] }] });
+const VERSION_STEP: readonly FileChange[] = [
+  { path: '.changeset/a.md', status: 'deleted', hunks: [] },
+  edit('package.json', '  "version": "2.30.0",', '  "version": "2.31.0",'),
+  edit('skills/plot/SKILL.md', '  version: 0.19.0', '  version: 0.20.0', 'metadata:'),
+];
 
 const refusalOf = (r: ReleaseApproveReadings, sha = HEAD, minHexLen = CLOCK.minHexLen) => {
   const out = releaseApprove(r, { pr: 42, sha, minHexLen });
@@ -123,33 +132,97 @@ describe('releaseApprove — the controller for a release PR approval', () => {
   });
 });
 
+describe('releaseApprove — the release head provenance', () => {
+  it('passes a head holding only the version step\'s changes', () => {
+    expect(refusalOf(readings({ head: VERSION_STEP }))).toBe('decided');
+  });
+
+  it('refuses a head that changes .github/workflows/ci.yml, naming the path and the pinned head', () => {
+    const r = readings({ head: [...VERSION_STEP, edit('.github/workflows/ci.yml', 'a', 'b')] });
+    expect(refusalOf(r)).toBe('release-head-foreign');
+    const out = releaseApprove(r, { pr: 42, sha: HEAD, minHexLen: 7 });
+    expect((out as { detail: string }).detail).toContain('.github/workflows/ci.yml');
+    expect((out as { detail: string }).detail).toContain(HEAD.slice(0, 12));
+  });
+
+  it('refuses a head that changes a SKILL.md body line', () => {
+    expect(refusalOf(readings({ head: [edit('skills/plot/SKILL.md', 'old', 'new', '## Steps')] }))).toBe('release-head-foreign');
+  });
+
+  it('refuses a head that changes a package.json dependency beside the version line', () => {
+    const swapped: FileChange = {
+      path: 'package.json',
+      status: 'modified',
+      hunks: [
+        { section: '', removed: ['  "version": "2.30.0",'], added: ['  "version": "2.31.0",'] },
+        { section: '"dependencies": {', removed: ['    "x": "1.0.0"'], added: ['    "x": "9.0.0"'] },
+      ],
+    };
+    expect(refusalOf(readings({ head: [swapped] }))).toBe('release-head-foreign');
+  });
+
+  it('refuses an unread or empty diff as unaskable, never as a clean head', () => {
+    expect(refusalOf(readings({ head: 'unaskable' }))).toBe('unaskable');
+    expect(refusalOf(readings({ head: [] }))).toBe('unaskable');
+  });
+
+  it('refuses a moved head before it reads the diff', () => {
+    expect(refusalOf(readings({ head: [edit('x', 'a', 'b')] }), OTHER)).toBe('head-moved');
+  });
+});
+
 describe('releaseApproveAt — the workflow wired to its ports', () => {
   const NOW = Date.parse('2026-10-11T12:00:00Z');
 
   /** Ports that answer as given and record every host read and script call. */
-  const ports = (lookup: Pr, reviewed: PrReviewReading = review()) => {
+  const ports = (lookup: Pr, reviewed: PrReviewReading = review(), changes: unknown = { ok: true, value: VERSION_STEP }, backend = 'github') => {
     const reads: string[] = [];
+    const diffed: string[] = [];
     const calls: string[][] = [];
     const p = {
       host: {
-        backend: async () => ({ ok: true, value: 'github' }),
+        backend: async () => ({ ok: true, value: backend }),
         prState: async () => { reads.push('prState'); return { ok: true, value: lookup }; },
         prReview: async () => { reads.push('prReview'); return { ok: true, value: reviewed }; },
       },
       scripts: { hostSaid: async (args: string[]) => { calls.push(args); return { answer: 'answered', said: '' }; } },
       defaultBranch: { read: async () => ({ ok: true, value: null }) },
-      refs: { remoteSha: async () => ({ ok: true, value: 'unknown' }) },
+      refs: { remoteSha: async () => ({ ok: true, value: 'unknown' }), headChanges: async (sha: string) => { diffed.push(sha); return changes; } },
       checksWaitMs: 3_600_000,
       now: () => NOW,
       caller: 'person',
     } as unknown as MergePorts;
-    return { p, reads, calls };
+    return { p, reads, calls, diffed };
   };
 
   it('merges a reviewed release PR pinned to the head the person read', async () => {
     const { p, calls } = ports(pr());
     expect(await releaseApproveAt(p, 42, HEAD)).toEqual({ approved: true, pr: 42, sha: HEAD, alreadyMerged: false });
     expect(calls).toEqual([['pr-merge', '42', '--match-head', HEAD]]);
+  });
+
+  it('reads the diff at the pinned sha and merges a clean head', async () => {
+    const { p, diffed } = ports(pr());
+    expect((await releaseApproveAt(p, 42, HEAD)).approved).toBe(true);
+    expect(diffed).toEqual([HEAD]);
+  });
+
+  it('refuses a foreign head with no host write', async () => {
+    const { p, calls } = ports(pr(), review(), { ok: true, value: [edit('.github/workflows/ci.yml', 'a', 'b')] });
+    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'release-head-foreign' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses where the diff read failed, with no host write', async () => {
+    const { p, calls } = ports(pr(), review(), { ok: false, why: 'unaskable' });
+    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'unaskable' });
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps its behaviour on a host with no release workflows: no diff is read', async () => {
+    const { p, diffed } = ports(pr(), review(), { ok: false, why: 'unaskable' }, 'bitbucket');
+    expect((await releaseApproveAt(p, 42, HEAD)).approved).toBe(true);
+    expect(diffed).toEqual([]);
   });
 
   it('refuses an unattended caller before any host read', async () => {

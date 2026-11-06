@@ -2,6 +2,7 @@ import type { PrIndexRow } from '../entities/pr-index.js';
 import type { RunLogLine } from '../ports/run-log.js';
 import { planSlug } from './auto-dispatch.js';
 import { ciCounted } from './release-checks-counted.js';
+import { releaseHeadVerdict, type ReleaseHeadReading } from './release-head.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { ReviewRunReading } from './slice-pr-next.js';
 import type { SprintScope } from './sprint-scope.js';
@@ -10,6 +11,7 @@ import type { SprintScope } from './sprint-scope.js';
 export type ReleaseStage =
   | 'waiting-scope'
   | 'preparing'
+  | 'release-head-foreign'
   | 'ready'
   | 'merged'
   | 'publishing'
@@ -25,6 +27,7 @@ export interface ReleaseStageView {
 const STAGE_LABEL: Readonly<Record<ReleaseStage, string>> = {
   'waiting-scope': 'waiting for the sprint scope',
   preparing: 'preparing',
+  'release-head-foreign': 'held: the release head changes more than the version step writes',
   ready: 'ready to approve',
   merged: 'merged',
   publishing: 'publishing',
@@ -88,6 +91,11 @@ export interface ReleasePrepareReadings {
   readonly checks: ReleaseChecksReading;
   /** The changesets on the head; `unaskable` where they could not be listed. */
   readonly changesets: readonly ReleaseChangeset[] | 'unaskable';
+  /**
+   * What the head changes against its merge base, read at the head's sha; `unaskable` where the read failed.
+   * A host with no release workflows passes `null`, which skips the provenance check.
+   */
+  readonly headChanges: ReleaseHeadReading | null;
   /** The run log's lines; `unaskable` where it could not be read. */
   readonly log: readonly RunLogLine[] | 'unaskable';
   readonly reviewRun: ReviewRunReading | null;
@@ -107,7 +115,7 @@ export interface ReleaseChangesetGroups {
 /** The one step fleetd takes on the release PR. */
 export type ReleasePrepareStep =
   | { step: 'none'; why: string }
-  | { step: 'hold'; reason: 'waiting-scope' | 'unaskable' }
+  | { step: 'hold'; reason: 'waiting-scope' | 'unaskable' | 'release-head-foreign' }
   | { step: 'review'; head: string }
   | { step: 'notify'; head: string; first: boolean; changesets: ReleaseChangesetGroups };
 
@@ -219,7 +227,11 @@ export const releaseStage = (readings: ReleasePrepareReadings): ReleaseStage => 
   if (!scope.slugs.every((slug) => phases.get(slug) === 'delivered')) return 'waiting-scope';
   if (pr === 'none' || pr === 'unaskable' || pr.state !== 'OPEN' || pr.headSha === undefined) return 'preparing';
   const green = requiredChecks(readings.checks, readings.config.requiredWorkflow) === 'green';
-  return green && reviewPassed(pr) && ciCounted(pr.ciChecks) && pr.checksSha === pr.headSha ? 'ready' : 'preparing';
+  const head = readings.headChanges === null ? null : releaseHeadVerdict(readings.headChanges).read;
+  if (head === 'foreign') return 'release-head-foreign';
+  return green && reviewPassed(pr) && ciCounted(pr.ciChecks) && pr.checksSha === pr.headSha && (head === null || head === 'clean')
+    ? 'ready'
+    : 'preparing';
 };
 
 /**
@@ -232,6 +244,10 @@ export const releaseStage = (readings: ReleasePrepareReadings): ReleaseStage => 
  * that only where the head's changeset list differs from the last
  * notification's. Outside work is listed and never holds the release.
  *
+ * A head whose changes include one the changesets version step does not write
+ * holds as `release-head-foreign` before any review starts or notice is sent,
+ * and a head whose changes could not be read, or are empty, holds as `unaskable`.
+ *
  * Every failed reading holds. The index never says there is no release PR:
  * `none` is the caller's host answer, and an absent index row is the caller's
  * to turn into a host question.
@@ -242,6 +258,7 @@ export const releaseStage = (readings: ReleasePrepareReadings): ReleaseStage => 
 export const releasePrepareNext = (readings: ReleasePrepareReadings): ReleasePrepareStep => {
   const stage = releaseStage(readings);
   if (stage === 'merged' || stage === 'publishing' || stage === 'released' || stage === 'failed') return none(stage);
+  if (stage === 'release-head-foreign') return { step: 'hold', reason: 'release-head-foreign' };
   if (stage === 'waiting-scope') {
     const unread = readings.scope.read === 'scope' && readings.phases === 'unaskable';
     return { step: 'hold', reason: unread ? 'unaskable' : 'waiting-scope' };
@@ -255,6 +272,9 @@ export const releasePrepareNext = (readings: ReleasePrepareReadings): ReleasePre
   const head = pr.headSha;
 
   if (stage === 'preparing') {
+    if (readings.headChanges !== null && releaseHeadVerdict(readings.headChanges).read !== 'clean') {
+      return { step: 'hold', reason: 'unaskable' };
+    }
     const checks = requiredChecks(readings.checks, config.requiredWorkflow);
     if (checks === 'unknown') return { step: 'hold', reason: 'unaskable' };
     if (checks !== 'green') return none(`checks-${checks}`);

@@ -55,6 +55,12 @@ describe('handleRestart', () => {
     expect(out).toMatchObject({ status: 404, body: { ok: false, reason: 'unknown-branch', branch: 'feature/nope' } });
   });
 
+  it('refuses pulse-partial with 404 where the scan has not finished and the last one misses the branch', async () => {
+    const { res, out } = response();
+    await handleRestart(request({ branch: 'nope' }), res, opts, { pulse: () => pulse, pulseComplete: () => false, lastComplete: () => null });
+    expect(out).toMatchObject({ status: 404, body: { ok: false, reason: 'pulse-partial', branch: 'nope' } });
+  });
+
   it('refuses no-pulse with 404 where there is no fleet reading', async () => {
     const { res, out } = response();
     await handleRestart(request({ branch: 'nope' }), res, opts, { pulse: () => null });

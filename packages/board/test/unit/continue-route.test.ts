@@ -787,8 +787,22 @@ describe('what cannot be continued is refused, never spawned', () => {
   const refusal = (out: { status: number; body: unknown }) =>
     (out.body as { reason: ContinueRefusal }).reason;
 
-  it('refuses a branch the board has never heard of', async () => {
+  it('refuses no-pulse where the board has no fleet reading', async () => {
     const out = await post({ branch: 'feature/nothing', answer: 'go' }, deps(null), '/tmp/no-such-worktree');
+    assert.equal(out.status, 404);
+    assert.equal(refusal(out), 'no-pulse');
+    assert.match(JSON.stringify(out.body), /no current fleet reading to look the branch up in/);
+  });
+
+  it('refuses pulse-partial where the scan has not finished and the last one misses the branch', async () => {
+    const d = { ...deps('/tmp/no-such-worktree'), pulseComplete: () => false, lastComplete: () => null };
+    const out = await post({ branch: 'nothing', answer: 'go' }, d, '/tmp/no-such-worktree');
+    assert.equal(out.status, 404);
+    assert.equal(refusal(out), 'pulse-partial');
+  });
+
+  it('refuses unknown-branch where the pulse does not list the branch', async () => {
+    const out = await post({ branch: 'nothing', answer: 'go' }, deps('/tmp/no-such-worktree'), '/tmp/no-such-worktree');
     assert.equal(out.status, 404);
     assert.equal(refusal(out), 'unknown-branch');
   });
@@ -890,11 +904,13 @@ describe('what cannot be continued is refused, never spawned', () => {
   });
 
   it('gives each refusal its own reason', async () => {
-    // Five distinct reasons, five different next moves. Collapsing any two
+    // Six distinct reasons, six different next moves. Collapsing any two
     // into one message is the defect the three-way answers elsewhere in this
     // server exist to prevent.
     const reasons: ContinueRefusal[] = [
       'unknown-branch',
+      'no-pulse',
+      'pulse-partial',
       'no-worktree',
       'no-question',
       'no-worker-command',

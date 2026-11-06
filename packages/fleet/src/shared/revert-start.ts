@@ -132,7 +132,7 @@ const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): P
  *   A re-run not accepted or not settled by `lastGreenRerunOverdue` ends the
  *   episode at `exhausted`.
  * - `revert` with the record `reverting`: confirms the breaking commit is on
- *   the default branch and not yet reverted, re-reads the first red SHA's runs,
+ *   the default branch and not yet reverted, re-reads the runs of the first red SHA and the settled SHA,
  *   claims `bug/revert-<pr>` before the revert commit is made, reverts, pushes,
  *   opens the revert PR, records it as `revertPr` and starts its review. The
  *   reverted PR, its branch and its plan are recorded with the first write.
@@ -332,10 +332,14 @@ const makeRevert = async (
   if (open === null) {
     if (onMain.value === 'no') return exhaust(world, record, `${breaking.sha} is no longer on ${ref}`);
     if (already.value) return exhaust(world, record, `${breaking.sha} is already reverted on ${ref}`);
-    const runs = await world.slot(() => world.build.runsForSha(reading.branch, record.firstRedSha));
-    if (!runs.ok || foldRuns(declaredRuns(runs.value, world.checks)) !== 'red') {
-      warn(`plot-fleetd: revert held — ${record.firstRedSha} does not read red on a second look`);
-      return 'held';
+    const asks = [record.firstRedSha];
+    if (reading.settled !== undefined && reading.settled.sha !== record.firstRedSha) asks.push(reading.settled.sha);
+    for (const sha of asks) {
+      const runs = await world.slot(() => world.build.runsForSha(reading.branch, sha));
+      if (!runs.ok || foldRuns(declaredRuns(runs.value, world.checks)) !== 'red') {
+        warn(`plot-fleetd: revert held — ${sha} does not read red on a second look`);
+        return 'held';
+      }
     }
   }
 

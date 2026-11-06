@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { pulseFor } from './fleet.js';
+import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 import { BOARD_ANSWER_AUTHOR, type FleetReading } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 import type { DeskMonitors } from '@plot-pm/domain';
@@ -62,6 +62,10 @@ export interface ContinueOptions extends BuildBoardOptions {
 export interface ContinueDeps {
   /** The cached pulse — where the branch → worktree lookup comes from. */
   pulse?: (opts: BuildBoardOptions) => FleetReading | null;
+  /** Whether the scan behind the cached pulse finished. */
+  pulseComplete?: (opts: BuildBoardOptions) => boolean;
+  /** The pulse of the last scan that finished. */
+  lastComplete?: (opts: BuildBoardOptions) => FleetReading | null;
   /** The configured `Worker command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** Starts the desk's monitor; defaults to the shell script under `scriptsDir`. */
@@ -193,6 +197,8 @@ export async function handleContinue(
     opts,
     readCfg,
     pulse: readPulse(opts),
+    pulseComplete: (deps.pulseComplete ?? pulseCompleteFor)(opts),
+    lastCompletePulse: (deps.lastComplete ?? lastCompletePulseFor)(opts),
     branch,
     // A browser hitting this same-origin route is always a person.
     caller: 'person',

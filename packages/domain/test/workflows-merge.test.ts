@@ -505,7 +505,7 @@ describe('merge — the repair PR on a red default branch', () => {
   });
 
   it('admits a revert PR the record names on a bug/revert-<pr> branch', () => {
-    const out = merge(onRed({ pr: pr({ head: 'bug/revert-2937' }), repair: repair({ record: record({ repairPr: undefined, revertPr: 42 }) }) }), { pr: 42, sha: HEAD, ...CLOCK });
+    const out = merge(onRed({ pr: pr({ head: 'bug/revert-2937' }), repair: repair({ record: record({ repairPr: undefined, revertPr: 42, revertedPr: 2937 }) }) }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome === 'decided' && out.detail.repair).toBe('revert');
   });
 

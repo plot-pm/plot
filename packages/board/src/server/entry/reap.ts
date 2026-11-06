@@ -42,6 +42,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
 
 /**
  * The `node` entry point `plot-reap.sh` now launches, once per estate sweep.
@@ -589,34 +590,25 @@ const tipPastMergedHeads = async (ctx: Context, branch: string): Promise<boolean
  * patch id against `origin/<defaultBranch>` instead. Every failed reading,
  * the host's included, answers `'unknown'`.
  */
-const unpushedCommits = async (
+const unpushedCommits = (
   ctx: Context,
   worktree: string,
   branch: string,
   merge: 'merged' | 'not-merged',
   defaultBranch: string,
-): Promise<readonly string[] | 'unknown'> => {
-  const plain = await ctx.trees.unpushedCommits(worktree, []);
-  if (!plain.ok) return 'unknown';
-  if (plain.value.length === 0) return [];
-  if (branch === '' || merge !== 'merged') return plain.value;
-
-  const heads = await ctx.host.prMergedHeads(branch);
-  if (!heads.ok) return 'unknown';
-
-  const treeRefs = refsGit({ repoRoot: worktree, scriptDir: ctx.scriptDir });
-  const reachable: string[] = [];
-  for (const head of heads.value) {
-    const found = await treeRefs.resolve(`${head}^{commit}`);
-    if (found.ok) reachable.push(head);
-  }
-
-  const reading =
-    reachable.length > 0
-      ? await ctx.trees.unpushedCommits(worktree, reachable)
-      : await ctx.trees.unpushedPatches(worktree, `origin/${defaultBranch}`);
-  return reading.ok ? reading.value : 'unknown';
-};
+): Promise<readonly string[] | 'unknown'> =>
+  unpushedAfterMerge(
+    {
+      trees: ctx.trees,
+      host: ctx.host,
+      holdsCommit: async (tree, sha) =>
+        (await refsGit({ repoRoot: tree, scriptDir: ctx.scriptDir }).resolve(`${sha}^{commit}`)).ok,
+    },
+    worktree,
+    branch,
+    merge === 'merged',
+    defaultBranch,
+  );
 
 // ===========================================================================
 // --sweep-temp — a SEPARATE mode, run instead of the four kinds.

@@ -33,13 +33,13 @@ describe('the routes are thin', () => {
     const source = read('restart.ts');
     const imports = importsOf(source);
     assert.ok(imports.includes('@plot-pm/fleet/shared/restart-command'));
-    assert.doesNotMatch(source, /continueOnDesk|restartWorker|branchFromPulse/);
+    assert.doesNotMatch(source, /continueOnDesk|restartWorker|branchFromPulse|lookupBranch/);
   });
 
   it('continue.ts calls continueBranch and not continueOnDesk', () => {
     const source = read('continue.ts');
     const imports = importsOf(source);
     assert.ok(imports.includes('@plot-pm/fleet/shared/continue-command'));
-    assert.doesNotMatch(source, /continueOnDesk|branchFromPulse/);
+    assert.doesNotMatch(source, /continueOnDesk|branchFromPulse|lookupBranch/);
   });
 });

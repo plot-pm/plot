@@ -14,7 +14,7 @@ export const REPAIR_BRANCH_SHA_LENGTH = 12;
 export const EPISODE_LINE_DEPTH = 200;
 
 /** The revert branch: `bug/revert-<pr>`, where `<pr>` is the reverted PR's number. */
-const REVERT_BRANCH = /^bug\/revert-[1-9][0-9]*$/;
+const REVERT_BRANCH = /^bug\/revert-([1-9][0-9]*)$/;
 
 /**
  * The one branch a fix PR for this episode may come from.
@@ -28,15 +28,17 @@ export const mainRepairBranchOf = (lastGreenSha: string | undefined): string | n
     : `bug/main-repair-${lastGreenSha.slice(0, REPAIR_BRANCH_SHA_LENGTH)}`;
 
 /**
- * Whether a branch name has the revert branch's shape, `bug/revert-<pr>`.
- *
- * The record holds no number for the reverted PR, so this checks the shape and
- * not the number.
+ * Whether a branch name is the revert branch of the PR the record reverts.
  *
  * @param branch - the PR's head branch.
- * @returns true for `bug/revert-` followed by a PR number.
+ * @param revertedPr - the record's `revertedPr`, absent where none is recorded.
+ * @returns true for `bug/revert-<revertedPr>`; false for any other number, any
+ *   other shape, and an absent `revertedPr`.
  */
-export const isRevertBranch = (branch: string): boolean => REVERT_BRANCH.test(branch);
+export const isRevertBranch = (branch: string, revertedPr: number | undefined): boolean => {
+  const match = REVERT_BRANCH.exec(branch);
+  return match !== null && revertedPr !== undefined && Number(match[1]) === revertedPr;
+};
 
 /** Which of the record's two PR fields names a PR. */
 export type RepairRole = 'repair' | 'revert';
@@ -61,10 +63,10 @@ export const repairRoleOf = (record: RepairRecord, pr: number): RepairRole | nul
  * @param role - the field of the record that names the PR.
  * @param head - the PR's head branch.
  * @returns true for a fix PR from {@link mainRepairBranchOf} the record's last
- *   green SHA, or a revert PR from `bug/revert-<pr>`.
+ *   green SHA, or a revert PR from `bug/revert-<revertedPr>`.
  */
 export const repairBranchMatches = (record: RepairRecord, role: RepairRole, head: string): boolean => {
-  if (role === 'revert') return isRevertBranch(head);
+  if (role === 'revert') return isRevertBranch(head, record.revertedPr);
   const expected = mainRepairBranchOf(record.lastGreenSha);
   return expected !== null && head === expected;
 };
@@ -149,7 +151,7 @@ export type RepairMergeVerdict =
  * `repair-episode-closed` where {@link repairEpisode} reads `closed`;
  * `repair-branch-mismatch` where a fix PR's head is not
  * {@link mainRepairBranchOf} the record's last green SHA, or a revert PR's head
- * is not `bug/revert-<pr>`; `repair-red-unconfirmed` where the settled commit's
+ * is not `bug/revert-<revertedPr>` (a record with no `revertedPr` always refuses); `repair-red-unconfirmed` where the settled commit's
  * runs, asked again, no longer read `red`. A failed episode walk or a failed
  * re-ask refuses as `unaskable`.
  *
@@ -174,7 +176,7 @@ export const repairMergeVerdict = (
   }
   if (!repairBranchMatches(record, role, pr.head)) {
     const expected = mainRepairBranchOf(record.lastGreenSha);
-    const wanted = role === 'repair' ? (expected ?? 'no branch: the record has no last green SHA') : 'bug/revert-<pr>';
+    const wanted = role === 'repair' ? (expected ?? 'no branch: the record has no last green SHA') : record.revertedPr === undefined ? 'no branch: the record names no reverted PR' : `bug/revert-${record.revertedPr}`;
     return { verdict: 'refused', reason: 'repair-branch-mismatch', detail: `PR #${pr.number} comes from '${pr.head}', but the ${role} PR of this episode must come from ${wanted}. Nothing was merged.` };
   }
   if (reading.redRuns === 'unaskable') {

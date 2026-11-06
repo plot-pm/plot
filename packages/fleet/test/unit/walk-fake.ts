@@ -21,6 +21,7 @@ export const withWalkRefs = (refs: Partial<Refs> = {}): Refs =>
     mergeSubjects: async () => ok([]),
     commitFiles: async () => ok([]),
     changedFiles: async () => ok([]),
+    headChanges: async () => ok([]),
     commitSubjects: async () => ok([]),
     containsMany: async () => ok(new Map()),
     planAdditions: async () => ok(new Map()),

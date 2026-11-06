@@ -69,6 +69,17 @@ export interface EndingActionReadings {
    */
   readonly dirtyTree: CommitReading;
   /**
+   * Whether the desk's checkout holds a commit no remote-tracking ref holds,
+   * from `Trees.unpushedCommits`.
+   *
+   * Read by the `holding-work` row where the PR merged and the tree is clean:
+   * `dirtyTree` lists dirty paths and cannot see a committed-but-unpushed
+   * change, which an `unpushed-commits` ending also reaches this row for.
+   * `'unanswerable'` where the read failed, which takes the same arm as
+   * `'some'` — an unreadable range is not an empty one.
+   */
+  readonly unpushedCommits: UnpushedReading;
+  /**
    * Whether the host merged a PR for the branch; `'unanswerable'` where the
    * host could not be asked, which takes the same arm as `'not-merged'`.
    *
@@ -118,6 +129,9 @@ export interface EndingActionReadings {
 
 /** Whether an open PR carries a branch, or `'unanswerable'` where the host could not be asked. */
 export type PrOpenReading = boolean | 'unanswerable';
+
+/** Whether a checkout holds a commit no remote has, or `'unanswerable'` where git could not be asked. */
+export type UnpushedReading = 'none' | 'some' | 'unanswerable';
 
 /** Whether the host merged a PR for a branch, or `'unanswerable'` where the host could not be asked. */
 export type PrMergedReading = 'merged' | 'not-merged' | 'unanswerable';
@@ -349,7 +363,11 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
   if (readings.hasManifest) return 'leave';
   if (readings.ending === 'holding-work') {
     if (takeUpRefused(readings.refusedAssignment, readings.branch)) return 'release-claim';
-    if (readings.prMerged === 'merged' && readings.dirtyTree === 'no') return 'leave';
+    if (readings.prMerged === 'merged' && readings.dirtyTree === 'no') {
+      // A merged PR leaves a fresh session nothing to continue, so a commit the
+      // merge did not carry is stranded work only a person can judge.
+      return readings.unpushedCommits === 'none' ? 'leave' : 'needs-a-person';
+    }
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
   if (readings.ending !== null && FRESH_SESSION_ENDINGS.has(readings.ending)) {

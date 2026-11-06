@@ -1,7 +1,7 @@
 import { processesShell, shellContext } from '@plot-pm/domain/adapters';
-import { isAnswered } from '@plot-pm/domain';
+import { isAnswered, pulseBranchReading } from '@plot-pm/domain';
 import { readConfigAsync, type BuildBoardOptions } from './board.js';
-import { pulseFor } from './fleet.js';
+import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 import { transcriptFacts, type TranscriptFacts } from '@plot-pm/fleet/shared/transcript';
 
 /**
@@ -60,11 +60,15 @@ export type AgentPanel =
 export type AgentPanelMiss =
   /** No worktree for the branch on this machine — ask the machine that holds it. */
   | 'no-worktree'
-  /** The pulse knows the branch but reports no worktree path for it. */
-  | 'unknown-branch';
+  /** No scan has reported this branch. */
+  | 'unknown-branch'
+  /** The board's scan has not finished, and neither it nor the last finished scan lists this branch. */
+  | 'pulse-partial'
+  /** No current fleet reading exists to look the branch up in. */
+  | 'no-pulse';
 
-export { branchFromPulse } from '@plot-pm/fleet/shared/continue-command';
 import { branchFromPulse } from '@plot-pm/fleet/shared/continue-command';
+export { branchFromPulse };
 
 /**
  * `ps -o etime=` output → seconds, or null for anything it does not recognise.
@@ -157,8 +161,20 @@ export async function agentPanel(
   opts: BuildBoardOptions,
   branch: string,
   env: { home?: string } = {},
+  deps: {
+    pulse?: (opts: BuildBoardOptions) => ReturnType<typeof pulseFor>;
+    pulseComplete?: (opts: BuildBoardOptions) => boolean;
+    lastComplete?: (opts: BuildBoardOptions) => ReturnType<typeof lastCompletePulseFor>;
+  } = {},
 ): Promise<AgentPanel> {
-  const found = branchFromPulse(pulseFor(opts), branch);
+  const reading = pulseBranchReading(
+    (deps.pulse ?? pulseFor)(opts),
+    (deps.pulseComplete ?? pulseCompleteFor)(opts),
+    (deps.lastComplete ?? lastCompletePulseFor)(opts),
+    branch,
+  );
+  if (reading.kind !== 'listed') return { ok: false, branch, reason: reading.kind };
+  const found = branchFromPulse(reading.pulse, branch);
   if (!found) return { ok: false, branch, reason: 'unknown-branch' };
   if (!found.worktree) return { ok: false, branch, reason: 'no-worktree' };
 

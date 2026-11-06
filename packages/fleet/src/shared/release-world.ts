@@ -5,6 +5,7 @@ import {
   planSlug,
   type ReleaseChangeset,
   type ReleaseChecksReading,
+  type ReleaseHeadReading,
   type ReleasePrReading,
   type RunLog,
 } from '@plot-pm/domain';
@@ -70,6 +71,12 @@ export const releasePortsFor = (world: ReleaseWorld): ReleaseTickPorts => ({
     return runs.ok
       ? { read: 'runs', runs: runs.value.map((run) => ({ workflow: run.workflow, status: run.status, conclusion: run.conclusion })) }
       : { read: 'unaskable' };
+  },
+  headChanges: async (sha): Promise<ReleaseHeadReading | null> => {
+    const backend = await world.host.backend();
+    if (backend.ok && backend.value !== 'github') return null;
+    const changes = await world.refs.headChanges(sha);
+    return changes.ok ? changes.value : 'unaskable';
   },
   changesets: async (): Promise<readonly ReleaseChangeset[] | 'unaskable'> => {
     const blobs = await world.refs.listBlobs(world.ref, CHANGESET_DIR);

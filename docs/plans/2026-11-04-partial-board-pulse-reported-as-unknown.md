@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3118
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3127 merged
 - **Started:** 2026-11-05, Jan Wloka, `feature/partial-pulse-names-itself`
+- **Delivered:** 2026-11-06
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
@@ -93,7 +94,7 @@ The delivery gate already separates the readings: `deliver.ts:314` passes `pulse
 
 ### Refusal
 
-- `feature/partial-pulse-names-itself` <!-- waits: feature/restart-refuses-no-pulse --> <!-- waits: feature/continue-refuses-no-pulse --> — the domain rule `pulseBranchReading` chooses between `listed`, `no-pulse`, `pulse-partial` and `unknown-branch`; restart, continue and the agent panel pass `pulseCompleteFor` and `lastCompletePulseFor` to it <!-- builds: the partial-pulse refusal for restart and continue -->
+- `feature/partial-pulse-names-itself` <!-- waits: feature/restart-refuses-no-pulse --> <!-- waits: feature/continue-refuses-no-pulse --> — the domain rule `pulseBranchReading` chooses between `listed`, `no-pulse`, `pulse-partial` and `unknown-branch`; restart, continue and the agent panel pass `pulseCompleteFor` and `lastCompletePulseFor` to it <!-- builds: the partial-pulse refusal for restart and continue --> → #3181
 
 Files the slice changes:
 
