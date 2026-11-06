@@ -9,7 +9,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Design:** 2026-11-06, jwloka, cli
-- **Rounds:** 4
+- **Rounds:** 5
 
 ## Changelog
 
@@ -452,7 +452,7 @@ exactly as today.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 4,
+  "round": 5,
   "questionHistory": [
     {
       "q": "Which facet is visually strongest per board?",
@@ -548,6 +548,11 @@ exactly as today.
       "q": "What does the issue: parser accept?",
       "a": "Only this repo's host issue URLs or configured tracker keys; else an alert, never indexed",
       "category": "nonFunctional"
+    },
+    {
+      "q": "Panel of four lenses on the Spec (operator, domain, implementer, security)",
+      "a": "unanimous amend; six blocking findings in .plot/panels/2026-11-06-one-card-grammar/spec-panel.md",
+      "category": "tradeOffs"
     }
   ],
   "deferredItems": [],
