@@ -107,6 +107,40 @@ export const allSlicesConfirmed = (
 ): Landed => landed(meta, pulse, complete, true);
 
 /**
+ * Why a delivery may or may not start, from one pulse.
+ *
+ * - `merged`: {@link allSlicesConfirmed} answers `'merged'`.
+ * - `not-merged`: it answers `'not-merged'`.
+ * - `merge-unconfirmed`: every non-deferred slice is complete, and at least one
+ *   branch is proven landed only by a merge commit's subject. Neither the
+ *   host nor the PR index has confirmed that branch's merge yet.
+ * - `scan-incomplete`: no finished scan judged the plan.
+ */
+export type DeliveryLanding = 'merged' | 'not-merged' | 'merge-unconfirmed' | 'scan-incomplete';
+
+/**
+ * Names the reason behind {@link allSlicesConfirmed}'s answer, so a refusal can
+ * tell an unfinished scan from an unconfirmed merge.
+ *
+ * @param meta The plan, by file path, as {@link allSlicesMerged} takes it.
+ * @param pulse The scan's report, or `null` when none has been read.
+ * @param complete Whether the scan finished.
+ * @returns `merged` and `not-merged` as {@link allSlicesConfirmed} answers
+ *   them. Where it answers `'unknown'`: `merge-unconfirmed` when
+ *   {@link allSlicesMerged} answers `'merged'` on the same pulse, else
+ *   `scan-incomplete`.
+ */
+export const deliveryLanding = (
+  meta: PlanFile,
+  pulse: FleetReading | null,
+  complete: boolean,
+): DeliveryLanding => {
+  const confirmed = landed(meta, pulse, complete, true);
+  if (confirmed !== 'unknown') return confirmed;
+  return landed(meta, pulse, complete, false) === 'merged' ? 'merge-unconfirmed' : 'scan-incomplete';
+};
+
+/**
  * The plan's slices counted off the pulse: how many hold at least one
  * non-deferred branch (the denominator {@link sliceProgress} reports), and how
  * many of those read `complete` (its numerator) — plus the same-ordered
