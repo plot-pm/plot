@@ -50,7 +50,7 @@ Measured 2026-10-29 by a read-only recon of `packages/fleet` and `packages/domai
 | A spent budget gets one fresh session | **automatic** (`rules/fresh-agent.ts`); a second failure asks a person |
 | Deliver a plan whose slices all merged; tick the sprint; write the `delivered` issue label | **automatic** (`auto-deliver.ts:406`, `rules/sprint-tick.ts`) |
 | Answer `PLOT-BLOCKED` | **manual**; fleetd only escalates (`escalations.tsv`) |
-| Review a slice PR (`plot-review.mjs`) | **manual**; fleetd never calls it, and its `plot/review` status is required, so no slice PR merges without it. It opens one follow-up issue for any finding and comments on it per head (`review.ts:58-66`) |
+| Review a slice PR (`plot-review.mjs`) | fleetd calls it through `packages/fleet/src/shared/auto-review.ts` when `Auto-review: true`, and its `plot/review` status is required, so no slice PR merges without it. It opens no follow-up issue: every finding goes into one PR comment that later heads edit in place |
 | Merge a slice PR | **manual** (`plot-ask.mjs merge`); fleetd merges nothing |
 | Repair a red main | **none**; `default-branch-red` only holds the queue |
 | Restart a dead desk | **manual**; `restart` refuses an unattended caller |
