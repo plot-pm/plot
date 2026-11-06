@@ -3287,6 +3287,31 @@ export function prsByNumber(opts: BuildBoardOptions): Map<number, PrRecord> | nu
 }
 
 /**
+ * The prefix for this repository's branch pages on its host, as the scan read
+ * it from `origin`; `''` where the host's branch-page shape is not known or no
+ * scan has run.
+ */
+export const branchUrlBaseFor = (opts: BuildBoardOptions): string => ensureCache(opts).branchUrlBase;
+
+/**
+ * The prefix for this repository's issue pages on its host, where the git host
+ * answers the repository's issues: `https://github.com/org/repo/issues/` on
+ * GitHub, `https://bitbucket.org/ws/repo/issues/` on Bitbucket Cloud.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param declaredTracker - the `Tracker` config value as read; `null` where it could not be read.
+ * @returns the prefix, or `''` where a `Tracker` names another service, the
+ *   config could not be read, or the host's page shape is unknown.
+ */
+export const issueUrlBaseFor = (opts: BuildBoardOptions, declaredTracker: string | null): string => {
+  const entry = ensureCache(opts);
+  const repo = entry.branchUrlBase.match(/^(.*\/)(?:tree|branch)\/$/)?.[1];
+  if (repo === undefined || declaredTracker === null) return '';
+  const source = issueSource({ declared: declaredTracker, gitHost: entry.backend ?? '', listers: TRACKER_LISTERS });
+  return source.ask === 'git-host' ? `${repo}issues/` : '';
+};
+
+/**
  * The cached fleet pulse, or null while none has landed.
  *
  * The same shape and the same rules as `prsByNumber` above — synchronous, never

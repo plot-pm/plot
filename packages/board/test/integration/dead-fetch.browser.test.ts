@@ -61,7 +61,7 @@ describe('a dead fetch is not a slow one', () => {
     page.locator('article', { hasText: 'Plant heirloom tomatoes' });
 
   async function openPlanModal(page: Page) {
-    await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+    await tomatoCard(page).locator('[data-card-title]').click();
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5_000 });
     return dialog;

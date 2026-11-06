@@ -20,6 +20,7 @@ import {
   type SprintState,
 } from '@plot-pm/domain';
 import { AgentStateSchema, AgentIdentitySchema, type AgentState, type AgentIdentity } from '@plot-pm/fleet/shared/agent-wire';
+import { CardFactsSchema } from '@plot-pm/domain/entities/card-facts';
 
 /**
  * The contract between Plot's plan-format helper (`plot-plan-meta.sh`) and the
@@ -304,6 +305,11 @@ export const CardPrSchema = z.object({
   number: z.number(),
   url: z.string().default(''),
   /**
+   * The PR's checks page on the host, from the PR's own `url`; `''` where the
+   * URL is unknown or the host has no checks page of its own.
+   */
+  checksUrl: z.string().default(''),
+  /**
    * The build, summarized onto this PR — the five states of `ChecksSchema`.
    *
    * `none` AND `unknown` ARE DIFFERENT ANSWERS AND MUST NOT RENDER THE SAME.
@@ -481,18 +487,6 @@ export const CardSchema = z.object({
   author: z.string().optional(),
   /** The name from the plan's `approved_raw` record's second field. */
   approver: z.string().optional(),
-  /**
-   * The type badge's text, from the domain's `planCardView`: the plan's own
-   * `Type:` word, lowercased. `null` where the plan states none, and the card
-   * then renders no badge. `type` stays as the colour key.
-   */
-  typeLabel: z.string().nullable().default(null),
-  /**
-   * The owner's handle, from the domain's `planCardView` and resolved through
-   * `People`: the plan's `Assignee:` before approval, the `Approved:` record's
-   * approver after. `null` where the plan names nobody.
-   */
-  owner: z.string().nullable().default(null),
   /**
    * Approved cards only: true once the plan has a `Started:` record —
    * the board's Ready (approved, idle) vs In-progress split.
@@ -746,6 +740,12 @@ export const CardSchema = z.object({
    * `"EWZKUS-3430"`. The plan row prints them before its slug.
    */
   issues: z.array(z.string()).default([]),
+  /**
+   * What is true about this plan in the card grammar's five facets, from the
+   * domain's `planCardFacts`. The card renders from these; the fields above stay
+   * for the filters, swimlanes, modal and menus that still read them.
+   */
+  facts: CardFactsSchema,
 });
 export type Card = z.infer<typeof CardSchema>;
 
@@ -1527,6 +1527,19 @@ export const BoardSchema = z.object({
    * plan-named ticket as unnamed; see `ticketLane`'s own doc comment.
    */
   plansUnreadable: z.boolean().default(false),
+  /**
+   * The prefix for this repository's branch pages on its host, read from
+   * `origin` by the fleet scan (`https://github.com/org/repo/tree/`); `''`
+   * where the host's branch-page shape is unknown or no scan has run.
+   */
+  branchUrlBase: z.string().default(''),
+  /**
+   * The prefix for this repository's issue pages on its host
+   * (`https://github.com/org/repo/issues/`), where the git host answers the
+   * repository's issues; `''` where a declared tracker names another service
+   * or the host's page shape is unknown.
+   */
+  issueUrlBase: z.string().default(''),
   /**
    * Whether the tracker can be asked at all, read from the SAME cache entry
    * `Fleet.issueAnswer` reads — so Discovery's Create plan/Create story

@@ -48,9 +48,10 @@ import {
   type SliceSpendRecord,
   type Trees,
   planSpend,
-  planCardView,
   storyCardView,
   type PersonDirectory,
+  type PlanSlicesReading,
+  FINISHED_PHASES,
   DEFAULT_PHASE_MAP,
   parsePhaseMap,
   phaseColumns,
@@ -85,7 +86,8 @@ import {
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
-import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
+import { planFactsOf, type CardFields, type PlanFactsExtras } from './plan-facts.js';
+import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 
@@ -2363,17 +2365,32 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   return board;
 }
 
+/**
+ * A PR's checks page on the host, from the PR's own URL: GitHub's `<pr>/checks`.
+ *
+ * @param prUrl - the PR's URL as the host reported it; `''` where unknown.
+ * @param branchBase - the repository's branch-page prefix; its `/tree/` shape
+ *   names a GitHub host.
+ * @returns the checks page, or `''` where the URL is unknown or the host has
+ *   no checks page of its own.
+ */
+export const checksUrlOf = (prUrl: string, branchBase: string): string =>
+  prUrl !== '' && branchBase.endsWith('/tree/') && /\/pull\/\d+$/.test(prUrl) ? `${prUrl}/checks` : '';
+
 async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Board> {
-  // FOUR INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
+  // FIVE INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
   // `plot-config.sh` spawn and none needs another's answer, so awaiting them
-  // in sequence would serialise four ~58 ms waits for nothing. They are off
+  // in sequence would serialise five ~58 ms waits for nothing. They are off
   // the event loop now, which is what makes the concurrency free — the point
   // of this migration in one line.
-  const [planDir, sprintDir, storyDir, phasesValue] = await Promise.all([
+  // `Tracker` keeps its whole answer: an unread key gives no issue page, where an
+  // empty one means the git host answers the issues.
+  const [planDir, sprintDir, storyDir, phasesValue, tracker] = await Promise.all([
     readConfigAsync(opts, 'Plan directory', 'docs/plans/'),
     readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
     readConfigAsync(opts, 'Story directory', 'docs/stories/'),
     readConfigAsync(opts, 'Workflow phases', ''),
+    configFor(opts).config('Tracker', ''),
   ]);
   const { map: phaseMap, refusal: phaseMapRefusal } = declaredPhaseMap(phasesValue);
 
@@ -2492,6 +2509,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // until the first fetch lands, which costs a card its link and never a wrong
   // one.
   const prLinks = prsByNumber(opts);
+  // The host's branch-page prefix, read from `origin` by the scan; `''` where unknown.
+  const urlBase = branchUrlBaseFor(opts);
+  // The host's issue-page prefix, where the git host answers the issues; `''` otherwise.
+  const issueBase = issueUrlBaseFor(opts, tracker.ok ? tracker.value : null);
   // Claims live in git refs, so the card's occupancy counts are read from the
   // same cached pulse the Delivery tab classifies from — one source, so a card
   // and a row can no longer disagree about whether work is in flight. null on a
@@ -2507,7 +2528,14 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // below still reads `pulse`, because a partial answer is the honest one for
   // a count and a wrong one only for a decision.
   const lastComplete = lastCompletePulseFor(opts);
-  const cards: Card[] = [];
+  const cards: CardFields[] = [];
+  // What each card's facts read beyond its own fields, keyed by the plan's
+  // repo-relative path (two plans may share a slug), and completed once the
+  // stories and sprints below are read.
+  const factsExtras = new Map<string, PlanFactsExtras>();
+  // Each PR's head branch, for the facts' per-PR branch and the slice refs.
+  const prHeads = new Map<number, string>([...(prLinks?.values() ?? [])].map((r) => [r.number, r.head]));
+  const prByHead = new Map<string, number>([...prHeads].map(([n, h]) => [h, n]));
   const deliveredReadings = new Map<string, { text: string; deliveryCommit: string | null }>();
   let metas: PlanMeta[];
   try {
@@ -2662,16 +2690,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     const phase = phaseOfPlan(phaseMap, { state: meta.phase, deliverable: status === 'deliverable', tracer: meta.tracer });
     if (!phase) continue;
     const slug = planSlug(relPath);
-    const cardView = planCardView(
-      { type: meta.type, assignee: meta.assignee, approvedRaw: meta.approved_raw },
-      directory,
-    );
-    const card: Card = {
+    const card: CardFields = {
       slug,
       title: meta.title || slug,
       type: meta.type || 'unknown',
-      typeLabel: cardView.type,
-      owner: cardView.owner,
       phase,
       controls: cardControls({
         state: meta.phase,
@@ -2695,9 +2717,11 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
       // from `none` and must not be rendered as one. That is the whole plan.
       prs: meta.prs.map((number): CardPr => {
         const record = prLinks?.get(number);
+        const url = record?.url ?? '';
         return {
           number,
-          url: record?.url ?? '',
+          url,
+          checksUrl: checksUrlOf(url, urlBase),
           checks: asChecks(record?.checks),
           mergeable: asMergeability(record?.mergeable),
           author: record?.author ?? '',
@@ -2762,11 +2786,12 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
         slices: spend.slices.length,
       };
     }
-    // Kept for the tile's Ready/In-progress badge; the column now says the same
-    // thing, but a Development card still benefits from the explicit flag. Gated
+    // The wire's Ready/In-progress flag. The card no longer renders it — its
+    // facts say the same thing through Start work's place in the action row —
+    // and it stays on the wire for the payload's other readers. Gated
     // on the card's OWN state, not the plan's: an approved plan whose slices have
     // all merged has been bumped out of Development, and the Ready/In-progress
-    // badge is a Development affordance that must not ride along into Testing.
+    // flag is a Development affordance that must not ride along into Testing.
     //
     // SETTLED 2026-08-26 (the-board-reads-approval-not-phase): the phase gate
     // is KEPT, not moved onto `started_raw`. The two conditions — `phase ===
@@ -2774,7 +2799,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // on every plan today and diverge in exactly one case: a plan bumped out of
     // Development that still carries `Started:` records (all its slices merged, so
     // its card sits in Testing as `deliverable`). There, `started` is true but
-    // the phase is not Development, and the gate is RIGHT to withhold the badge:
+    // the phase is not Development, and the gate is RIGHT to withhold the flag:
     // Ready/In-progress answers *can an agent pick this up*, and a plan whose
     // work has all landed is past that question. Gating on `started_raw` would
     // ride the Development affordance into Testing — the very thing this comment
@@ -2824,14 +2849,24 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // legitimately run and where five plans were each invisible for the minutes
     // between being written and being pushed.
     if (localOnlyPaths.has(relPath)) card.notPushed = true;
+    const spikeBranch = spikeOf(meta.slices)?.branch;
+    factsExtras.set(relPath, {
+      state: meta.phase,
+      records: {
+        designRaw: meta.design_raw,
+        approvedRaw: meta.approved_raw,
+        startedRaw: meta.started_raw.join('\n'),
+        deliveredRaw: meta.delivered_raw,
+        releasedRaw: meta.released_raw,
+      },
+      slices: slicesFromPulse(meta, pulse, prByHead),
+      spike: spikeBranch === undefined ? null : { branch: spikeBranch, pr: prByHead.get(spikeBranch) ?? null },
+      prHeads,
+      spendRead: spendLines !== null,
+      directory,
+    });
     cards.push(card);
   }
-
-  const columns: Column[] = phaseColumns(phaseMap).map(({ name, ...drawing }) => ({
-    phase: name,
-    ...drawing,
-    cards: cards.filter((c) => c.phase === name),
-  }));
 
   const stories = await collectStories(
     repoRoot, storyDir, metas, `origin/${defaultBranch}`, refs, directory,
@@ -2851,9 +2886,24 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     readConfigAsync(opts, 'Release directory', 'docs/releases/'),
   ]);
 
+  // THE FACTS, once per build, after the stories and sprints they link to are read.
+  const allStories = [...stories, ...archivedStories];
+  const archived = new Set(archivedStories.map((s) => s.slug));
+  const withFacts: Card[] = cards.map((card) => ({
+    ...card,
+    facts: planFactsOf(card, { ...factsExtras.get(card.path), stories: allStories, archived, sprints }),
+  }));
+  const columns: Column[] = phaseColumns(phaseMap).map(({ name, ...drawing }) => ({
+    phase: name,
+    ...drawing,
+    cards: withFacts.filter((c) => c.phase === name),
+  }));
+
   return {
     generatedAt: new Date().toISOString(),
     columns,
+    branchUrlBase: urlBase,
+    issueUrlBase: issueBase,
     phaseMapRefusal,
     // WHERE THE PLANS ABOVE CAME FROM. Reported on every board, not only a
     // broken one: "these came from origin/main" is a fact a reader needs stated
@@ -3479,3 +3529,53 @@ export async function renderDesignDocPage(
 
   return renderMarkdownPage(md, docName, embed);
 }
+
+/**
+ * What a plan's next start waits for, by branch name.
+ *
+ * Read from the earliest incomplete slice: every later slice is blocked behind
+ * it, so it is the prerequisite. Its unmerged branches name themselves — the
+ * plan waits on them landing — except a branch the pulse reads `waiting` or
+ * `blocked` with a `waits_on` declaration, which names the branches it waits on.
+ */
+const waitedOn = (slices: FleetReading['plans'][number]['slices']): string[] => {
+  const pending = slices.find((slice) => slice.verdict !== 'complete' && slice.verdict !== 'empty');
+  return (pending?.branches ?? [])
+    .filter((b) => !b.deferred && b.state !== 'merged')
+    .flatMap((b) => ((b.state === 'waiting' || b.state === 'blocked') && b.waits_on.length > 0 ? b.waits_on : [b.branch]));
+};
+
+/**
+ * A plan's slices as the pulse reports them, for its card facts: the total the
+ * plan names, the complete and eligible counts where a pulse covers the plan,
+ * and the unmerged branches of the earliest incomplete slice.
+ *
+ * Joined on basename, as `summariseFromPulse` joins. `null` where the plan names
+ * no slices; `complete` and `eligible` are `null` where no pulse covers it.
+ */
+export const slicesFromPulse = (
+  meta: PlanMeta, pulse: FleetReading | null, prByHead: ReadonlyMap<string, number>,
+): PlanSlicesReading | null => {
+  // A slice that names no branch (the pulse's `empty`) holds no work, so it is
+  // neither counted towards the total nor towards the complete slices.
+  const named = meta.slices.filter((slice) => slice.branches.length > 0).length;
+  if (named === 0) return null;
+  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  // A delivered or released plan's slices are complete whether or not a scan
+  // covers it — the pulse's own rule (`sliceVerdict`), and the scan leaves such
+  // plans out. Read from the plan file, so it holds with no pulse at all.
+  if (!plan && FINISHED_PHASES.includes(meta.phase)) return { total: named, complete: named, eligible: 0, waitsOn: [] };
+  if (!plan) return { total: named, complete: null, eligible: null, waitsOn: [] };
+  const working = plan.slices.filter((slice) => slice.branches.length > 0);
+  let eligible = 0;
+  for (const slice of plan.slices) {
+    for (const b of slice.branches) if (b.state === 'open' && slice.verdict === 'eligible') eligible += 1;
+  }
+  const waitsOn = [...new Set(waitedOn(plan.slices))].map((branch) => ({ branch, pr: prByHead.get(branch) ?? null }));
+  return {
+    total: working.length,
+    complete: working.filter((slice) => slice.verdict === 'complete').length,
+    eligible,
+    waitsOn,
+  };
+};
