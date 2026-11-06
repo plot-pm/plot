@@ -423,8 +423,9 @@ const AssigneesView = ({ a }: { a: PresentedAssignees }) => {
 
 /**
  * A disabled action: a focusable, `aria-disabled` outline whose reason is its
- * description and tooltip. The tooltip holds plain text only; every branch and
- * PR the reason names has its own link elsewhere on the card.
+ * description and tooltip. The tooltip holds plain text only, so a branch or PR
+ * the reason names is not linked from it; a branch the reason names that has no
+ * PR on this card, such as one `nothing-eligible` waits on, is linked nowhere on it.
  */
 const DisabledAction = ({ action }: { action: PresentedAction }) => {
   const tip = useReasonTooltip(action.reason, 'reason');
