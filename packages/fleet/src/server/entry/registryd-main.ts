@@ -2162,6 +2162,11 @@ export const freshAgentDeskReads = (
         tally.calls += 1;
         return prOpenReading(await hostShell(context).prState(branch));
       },
+      // A failed read is `unanswerable`, never `none`: an unreadable range is not an empty one.
+      unpushedCommits: async (worktree) => {
+        const commits = await treesGit(context).unpushedCommits(worktree, []);
+        return !commits.ok ? 'unanswerable' : commits.value.length > 0 ? 'some' : 'none';
+      },
     },
   };
 };

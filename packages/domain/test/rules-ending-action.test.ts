@@ -27,6 +27,7 @@ const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReading
   commitBeyondClaim: 'no',
   prOpen: false,
   dirtyTree: 'no',
+  unpushedCommits: 'none',
   prMerged: 'not-merged',
   endingAsked: false,
   blockedMarker: false,
@@ -73,16 +74,33 @@ describe('endingAction', () => {
     expect(endingAction(afterPrompt)).toBe('start-fresh');
   });
 
-  it('answers leave for a holding-work ending only where the PR merged and the tree is clean, at either fresh-session count', () => {
+  it('answers leave for a holding-work ending only where the PR merged, the tree is clean and no commit is unpushed, at either fresh-session count', () => {
     for (const prMerged of ['merged', 'not-merged', 'unanswerable'] as const) {
       for (const dirtyTree of ['no', 'yes'] as const) {
-        for (const priorFreshSessions of [0, 1]) {
-          const answer = endingAction(readings({ ending: 'holding-work', prMerged, dirtyTree, priorFreshSessions }));
-          const expected =
-            prMerged === 'merged' && dirtyTree === 'no' ? 'leave' : priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
-          expect(answer, `${prMerged}/${dirtyTree}/${priorFreshSessions}`).toBe(expected);
+        for (const unpushedCommits of ['none', 'some', 'unanswerable'] as const) {
+          for (const priorFreshSessions of [0, 1]) {
+            const answer = endingAction(
+              readings({ ending: 'holding-work', prMerged, dirtyTree, unpushedCommits, priorFreshSessions }),
+            );
+            const merged = prMerged === 'merged' && dirtyTree === 'no';
+            const expected = merged
+              ? unpushedCommits === 'none'
+                ? 'leave'
+                : 'needs-a-person'
+              : priorFreshSessions > 0
+                ? 'needs-a-person'
+                : 'start-fresh';
+            expect(answer, `${prMerged}/${dirtyTree}/${unpushedCommits}/${priorFreshSessions}`).toBe(expected);
+          }
         }
       }
+    }
+  });
+
+  it('asks a person, never starts a session, for a merged clean holding-work desk with an unpushed commit', () => {
+    for (const unpushedCommits of ['some', 'unanswerable'] as const) {
+      const answer = endingAction(readings({ ending: 'holding-work', prMerged: 'merged', unpushedCommits }));
+      expect(answer).toBe('needs-a-person');
     }
   });
 

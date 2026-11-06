@@ -27,6 +27,7 @@ import {
   type EndingActionVerdict,
   type PrOpenReading,
   type PrMergedReading,
+  type UnpushedReading,
 } from '@plot-pm/domain/rules/ending-action';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import type { DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
@@ -934,6 +935,13 @@ export interface FreshAgentCandidateReadings {
    */
   heldFiles: readonly string[] | null;
   /**
+   * Whether the desk's checkout holds a commit no remote-tracking ref holds.
+   * Asked only for an after-prompt `holding-work` ending no person was asked
+   * about, whose PR merged and whose tree is clean — the one case
+   * {@link endingAction} reads it for; `'unanswerable'` for every other desk.
+   */
+  unpushedCommits: UnpushedReading;
+  /**
    * Whether the branch holds a commit beyond its claim. Asked only for a
    * `bound`/`unreadable`/`quiet` ending no person was asked about, which is
    * the one case in this population {@link endingAction} reads it for;
@@ -1109,6 +1117,8 @@ export interface FreshAgentAskReads {
   commitBeyondClaim: (worktree: string) => Promise<CommitReading>;
   /** Whether an open PR still carries a branch; `'unanswerable'` where the host could not be asked. */
   prOpen: (branch: string) => Promise<PrOpenReading>;
+  /** Whether a desk's checkout holds a commit no remote has; `'unanswerable'` where git could not be asked. */
+  unpushedCommits: (worktree: string) => Promise<UnpushedReading>;
 }
 
 /**
@@ -1156,6 +1166,21 @@ export const readFreshAgentCandidates = async (
     // AN UNREADABLE RECORD IS "NOT ASKED": a repeat ask is a no-overwrite
     // marker write, and a missed one leaves a stopped slice with nobody told.
     const endingAsked = asked !== null && asked.ok && asked.value;
+    // THE HOST IS ASKED ONLY WHERE ITS ANSWER CAN CHANGE THE VERDICT.
+    // `endingAction` reads `prMerged` for the five outright reasons and for
+    // `bound`/`unreadable`/`quiet`; an ending already asked about answers
+    // `leave` whatever the host says.
+    const prMerged: PrMergedReading =
+      (endingAsksPersonOutright(ending) || isBoundEnding(ending) || ending === 'holding-work') && !endingAsked
+        ? await asks.prMerged(tree.branch)
+        : 'unanswerable';
+    const held = await heldFiles(tree.path);
+    // ASK ONLY WHERE THE ANSWER DECIDES: `endingAction` reads `unpushedCommits`
+    // on the `holding-work` row where the PR merged and the tree is clean.
+    const unpushedCommits: UnpushedReading =
+      ending === 'holding-work' && !endingAsked && prMerged === 'merged' && dirtyTreeReading(held) === 'no'
+        ? await asks.unpushedCommits(tree.path)
+        : 'unanswerable';
     out.push({
       plan,
       branch: tree.branch,
@@ -1172,16 +1197,9 @@ export const readFreshAgentCandidates = async (
       escalated: await hasMarker(tree.path),
       endingAt: endingAt ?? '',
       endingAsked,
-      // THE HOST IS ASKED ONLY WHERE ITS ANSWER CAN CHANGE THE VERDICT.
-      // `endingAction` reads `prMerged` for the five outright reasons and for
-      // `bound`/`unreadable`/`quiet`; an ending already asked about answers
-      // `leave` whatever the host says.
-      prMerged:
-        (endingAsksPersonOutright(ending) || isBoundEnding(ending) || ending === 'holding-work') &&
-        !endingAsked
-          ? await asks.prMerged(tree.branch)
-          : 'unanswerable',
-      heldFiles: await heldFiles(tree.path),
+      prMerged,
+      heldFiles: held,
+      unpushedCommits,
       // `endingAction` reads these two for `bound`/`unreadable`/`quiet` only. Every
       // other ending, and an ending already asked about, reads
       // `'unanswerable'` without a git or host call.
@@ -1300,6 +1318,7 @@ export const freshAgentDecisions = (
       commitBeyondClaim: bound ? reading.commitBeyondClaim : 'no',
       prOpen: bound ? reading.prOpen : false,
       dirtyTree: bound || reading.ending === 'holding-work' ? dirtyTreeReading(reading.heldFiles) : 'no',
+      unpushedCommits: reading.unpushedCommits,
       prMerged: reading.prMerged,
       endingAsked: reading.endingAsked,
       blockedMarker: reading.escalated,
@@ -2007,6 +2026,9 @@ export const nothingDoneDecisions = async (
       // matching `commitBeyondClaim` and `prOpen`'s own filler pattern for
       // endings that don't need them.
       dirtyTree: 'no' as const,
+      // NOT READ HERE: only a merged, clean `holding-work` desk reads it, and
+      // the fresh-agent step reads that desk. Filler, like `prMerged`.
+      unpushedCommits: 'unanswerable' as const,
       endingAsked: false,
       blockedMarker: false,
       // `bound`/`unreadable`/`quiet` are filtered out above, so the row that

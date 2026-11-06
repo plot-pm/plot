@@ -1,5 +1,6 @@
 import { mkdtempSync, writeFileSync, utimesSync, readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 import { removeTree as rmTree } from '../rm-tree.mjs';
@@ -11,7 +12,7 @@ import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
 import { freshAgentRecordFile, endingAskRecordFile, deskFs, agentsFs, runLogFixture, type RunLogFixture } from '@plot-pm/domain/adapters';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import type { PrMergedReading, PrOpenReading } from '@plot-pm/domain/rules/ending-action';
+import type { PrMergedReading, PrOpenReading, UnpushedReading } from '@plot-pm/domain/rules/ending-action';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import { deskFixture, deskFixtureCalls } from '@plot-pm/domain/adapters/desk/desk-fixture';
 import { questionEscalation, parseQuestionEscalation } from '@plot-pm/domain/rules/question-escalation';
@@ -110,6 +111,7 @@ const noAsks: FreshAgentAskReads = {
   prMerged: async () => 'unanswerable',
   commitBeyondClaim: async () => 'unanswerable',
   prOpen: async () => 'unanswerable',
+  unpushedCommits: async () => 'unanswerable',
 };
 
 const endingFile = (reason: string, detail = '') =>
@@ -473,6 +475,7 @@ const spentReading = (over: Partial<FreshAgentCandidateReadings> = {}): FreshAge
   priorFreshSessions: 0,
   escalated: false,
   heldFiles: [],
+  unpushedCommits: 'unanswerable',
   endingAt: '',
   endingAsked: false,
   prMerged: 'unanswerable',
@@ -767,6 +770,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
     commitBeyondClaim: CommitReading;
     prOpen: PrOpenReading;
     heldFiles: readonly string[] | null;
+    unpushed: UnpushedReading;
     workAsks: number;
   } = {
     endingAt: '2026-10-05T11:00:00.000Z',
@@ -775,6 +779,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
     commitBeyondClaim: 'no',
     prOpen: false,
     heldFiles: [],
+    unpushed: 'none',
     workAsks: 0,
   };
   const starts: { branch: string; answer: string }[] = [];
@@ -829,6 +834,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
           world.workAsks += 1;
           return world.prOpen;
         },
+        unpushedCommits: async () => world.unpushed,
       },
     );
     return applyFreshAgentDecisions(freshAgentDecisions(readings, 2), ports);
@@ -1730,5 +1736,79 @@ describe('a killed worker and a stopped worker through startFreshSession and con
     expect(second.map((a) => a.outcome), out.join('')).toEqual(['escalated']);
     expect(starts).toHaveLength(1);
     expect(readFileSync(join(desk, 'PLOT-BLOCKED.md'), 'utf8')).toContain('already had its one fresh session (unreadable)');
+  });
+});
+
+describe('a merged holding-work desk with a real unpushed commit', () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmTree(root);
+  });
+
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, stdio: 'pipe' });
+
+  /** A checkout whose only commit is pushed, plus one more local commit when `unpushed` is set. */
+  const desk = (unpushed: boolean) => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-unpushed-desk-'));
+    roots.push(root);
+    const remote = join(root, 'remote.git');
+    const path = join(root, 'desk');
+    mkdirSync(path, { recursive: true });
+    git(root, 'init', '--bare', '-b', 'main', remote);
+    git(path, 'init', '-b', 'main');
+    git(path, 'remote', 'add', 'origin', remote);
+    writeFileSync(join(path, 'a.txt'), 'a');
+    git(path, 'add', '.');
+    git(path, 'commit', '-m', 'first');
+    git(path, 'push', 'origin', 'main');
+    if (unpushed) {
+      writeFileSync(join(path, 'b.txt'), 'b');
+      git(path, 'add', '.');
+      git(path, 'commit', '-m', 'second');
+    }
+    return path;
+  };
+
+  const decide = async (path: string) => {
+    const reads = freshAgentDeskReads({ repoRoot: path, scriptDir: '/nonexistent' }, endingAskRecordFile({ home: path + '-home' }), async () => ({
+      ok: true,
+      value: 'merged',
+    }));
+    const deskFile = (_w: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('holding-work') : null;
+    const readings = await readFreshAgentCandidates(
+      [tree({ path })],
+      deskFile,
+      emptyStore,
+      noHeldFiles,
+      noMarker,
+      { ...noAsks, prMerged: async () => 'merged', unpushedCommits: reads.asks.unpushedCommits },
+    );
+    return freshAgentDecisions(readings, 2);
+  };
+
+  it('a merged desk with a clean tree and an unpushed commit asks a person and starts no agent', async () => {
+    const [decision] = await decide(desk(true));
+    expect(decision?.verdict).toBe('needs-a-person');
+    expect(decision?.escalate).toBe(true);
+    expect(decision?.answer).toBe('');
+  });
+
+  it('a merged desk with a clean tree and every commit pushed still leaves', async () => {
+    const [decision] = await decide(desk(false));
+    expect(decision?.verdict).toBe('leave');
+  });
+
+  it('reads the unpushed commits of a merged, clean holding-work desk and no other', async () => {
+    const asked: string[] = [];
+    const asks = { ...noAsks, prMerged: async () => 'merged' as const, unpushedCommits: async (w: string) => (asked.push(w), 'none' as const) };
+    const holding = (_w: string, name: string) => (name === ENDING_FILENAME ? endingFile('holding-work') : null);
+    const turnLimit = (_w: string, name: string) => (name === ENDING_FILENAME ? endingFile('turn-limit') : null);
+    await readFreshAgentCandidates([tree()], turnLimit, emptyStore, noHeldFiles, noMarker, asks);
+    await readFreshAgentCandidates([tree()], holding, emptyStore, async () => ['x.ts'], noMarker, asks);
+    expect(asked).toEqual([]);
+    await readFreshAgentCandidates([tree()], holding, emptyStore, noHeldFiles, noMarker, asks);
+    expect(asked).toEqual(['/estate/.worktrees/feature-x']);
   });
 });
