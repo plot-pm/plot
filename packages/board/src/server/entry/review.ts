@@ -8,7 +8,7 @@ import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { reviewIssue } from '@plot-pm/domain/rules/review-issue';
-import { githubReview, type JudgedReview } from '@plot-pm/domain/rules/github-review';
+import { checkedReview, type JudgedReview } from '@plot-pm/domain/rules/checked-review';
 import type { Host, Pr, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
@@ -296,7 +296,7 @@ const prCommentBody = (text: (verdict: string) => string, verdictText: string, v
 const readTrusted = async (deps: ReviewDeps, number: number): Promise<JudgedReview | null> => {
   const [read, writer] = await Promise.all([deps.host.prReview(number), deps.host.reviewWriter()]);
   if (!read.ok || !writer.ok) return null;
-  return githubReview(read.value, writer.value);
+  return checkedReview(read.value, writer.value);
 };
 
 /**

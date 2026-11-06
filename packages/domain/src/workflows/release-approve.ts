@@ -6,7 +6,7 @@ import { readsReleaseHead } from '../adapters/host/release-head-backend.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { ciCounted } from '../rules/release-checks-counted.js';
 import { releaseHeadVerdict, type ReleaseHeadReading } from '../rules/release-head.js';
-import { githubReview, reviewPasses } from '../rules/github-review.js';
+import { checkedReview, reviewPasses } from '../rules/checked-review.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { type MergePorts, type MergeRefusal, mergeAt } from './merge.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
@@ -128,7 +128,7 @@ export const releaseApprove = (
   }
   const { review } = readings;
   const writer = readings.reviewWriter ?? '';
-  const judged = review === 'unaskable' ? review : githubReview(review, writer === 'unaskable' ? null : writer);
+  const judged = review === 'unaskable' ? review : checkedReview(review, writer === 'unaskable' ? null : writer);
   const passes = reviewPasses(judged, head, { plain: 'review-missing', sameHead: (a, b) => sameCommit(a, b, input.minHexLen) });
   if (!passes.pass) {
     return no(passes.reason, `${passes.seen} for PR #${input.pr}. Run the review on this head, then approve again.`);

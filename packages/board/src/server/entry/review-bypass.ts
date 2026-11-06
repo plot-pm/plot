@@ -1,6 +1,6 @@
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { githubReview, judgedReviewState } from '@plot-pm/domain/rules/github-review';
+import { checkedReview, judgedReviewState } from '@plot-pm/domain/rules/checked-review';
 import { reviewBypasses, type MergedReview, type ReviewState } from '@plot-pm/domain/rules/review-bypass';
 import type { Host } from '@plot-pm/domain';
 import { realpathSync } from 'node:fs';
@@ -67,7 +67,7 @@ export const readMerged = async (
     if (!Number.isNaN(cutoff) && Date.parse(pr.mergedAt) <= cutoff) continue;
     const read = await host.prReview(pr.number);
     // A success written by anyone but the Review app is no pass: its judged state is `absent`.
-    const judged = read.ok && writer.ok ? judgedReviewState(githubReview(read.value, writer.value)) : null;
+    const judged = read.ok && writer.ok ? judgedReviewState(checkedReview(read.value, writer.value)) : null;
     const review: ReviewState = judged === null
       ? 'unread'
       : (STATES.find((s) => s === judged) ?? 'absent');

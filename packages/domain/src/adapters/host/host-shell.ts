@@ -524,7 +524,7 @@ export const hostShell = (context: ShellContext): Host => {
       ask(['pr-review', String(number)], (stdout) => asJson<PrReviewReading>(stdout)),
 
     // BITBUCKET KEEPS NO WRITER, so it answers `''` without reading config:
-    // `githubReview` reads that as unchecked. `plot-review-writer.mjs` reads
+    // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads
     // `Review app` from `origin/<default>` and never from the working tree.
     reviewWriter: async (): Promise<PortResult<string>> => {
       const be = await runProcess('bash', [host, 'backend'], inRepo);

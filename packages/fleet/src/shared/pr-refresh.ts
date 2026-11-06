@@ -7,7 +7,7 @@ import {
   carriedChecks,
   concurrencyBound,
   foldPrIndex,
-  githubReview,
+  checkedReview,
   heldSlots,
   judgedReviewState,
   loweredConcurrency,
@@ -1235,7 +1235,7 @@ export const judgeReviews = async (host: Host, rows: PrIndexRow[]): Promise<void
     }
     const read = await host.prReview(row.number);
     if (!read.ok || read.value.sha !== row.headSha) continue;
-    const judged = judgedReviewState(githubReview(read.value, writer.value));
+    const judged = judgedReviewState(checkedReview(read.value, writer.value));
     if (judged !== null) Object.assign(row, { plotReviewJudged: judged, ...checked });
   }
 };

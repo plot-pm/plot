@@ -53,7 +53,7 @@ export interface JudgedReview {
  *   with `foreign: null` where `trusted` is `''`; `writer: 'unread'` where
  *   `trusted` is null, carrying `absent` so it cannot read as a pass.
  */
-export const githubReview = (reading: PrReviewReading, trusted: string | null): JudgedReview => {
+export const checkedReview = (reading: PrReviewReading, trusted: string | null): JudgedReview => {
   const base = { sha: reading.sha, bypass: reading.bypass, foreign: null };
   if (trusted === null) {
     return { ...base, state: 'absent', description: '', time: '', writer: 'unread' };
@@ -138,7 +138,7 @@ const JUDGED_STATES: readonly string[] = ['success', 'failure', 'pending', 'abse
  * standing and sends every other state back to `absent`, so the review arm
  * starts one run whose own statuses are newer than the foreign one.
  *
- * @param judged - the reading {@link githubReview} judged.
+ * @param judged - the reading {@link checkedReview} judged.
  * @returns the state to keep; null where the writer was unread, so the row stays unchecked.
  */
 export const judgedReviewState = (judged: JudgedReview): JudgedReviewState | null => {

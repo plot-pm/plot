@@ -124,7 +124,7 @@
 #                                 `writer` is `creator.login` (`""` where the
 #                                 host names none). GitHub reads every page of
 #                                 the head's statuses. The op reports and
-#                                 decides nothing: `githubReview` judges
+#                                 decides nothing: `checkedReview` judges
 #                                 `statuses` against the Review app's bot login.
 #                                 Bitbucket reads the same state words from the
 #                                 `plot/review` commit status (SUCCESSFUL,
@@ -4383,7 +4383,7 @@ case "$op" in
         || die3 "pr-review: the read failed"
       exit 0; fi
     # EVERY `plot/review` STATUS IS REPORTED WITH ITS WRITER, and nothing is
-    # decided here: `githubReview` judges the list against the Review app's bot
+    # decided here: `checkedReview` judges the list against the Review app's bot
     # login. The pages and the PR travel through stdin, never `--argjson` (the
     # 128 KB argv cap on Linux).
     out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api --paginate "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses?per_page=100")" \

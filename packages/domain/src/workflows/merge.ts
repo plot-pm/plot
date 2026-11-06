@@ -3,7 +3,7 @@ import type { Pr } from '../entities/pr.js';
 import type { BuildPort } from '../ports/build.js';
 import type { DefaultBranchStore } from '../ports/default-branch.js';
 import type { Host, PrReviewReading } from '../ports/host.js';
-import { githubReview, reviewPasses } from '../rules/github-review.js';
+import { checkedReview, reviewPasses } from '../rules/checked-review.js';
 import type { Refs } from '../ports/refs.js';
 import type { RepairRecordStore } from '../ports/repair-record.js';
 import type { Scripts } from '../ports/scripts.js';
@@ -217,7 +217,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   }
   const review = readings.review;
   const writer = readings.reviewWriter ?? '';
-  const judged = review === 'unaskable' ? review : githubReview(review, writer === 'unaskable' ? null : writer);
+  const judged = review === 'unaskable' ? review : checkedReview(review, writer === 'unaskable' ? null : writer);
   const passes = reviewPasses(judged, pr.headSha, { plain: 'review-not-passed' });
   if (!passes.pass) {
     return no(passes.reason, `${passes.seen} for PR #${input.pr}. Merge when review reads 'success' on this head.`);

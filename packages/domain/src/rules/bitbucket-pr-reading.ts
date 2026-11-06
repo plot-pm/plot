@@ -121,7 +121,7 @@ const REVIEW_STATE: Readonly<Record<string, string>> = {
  * writer, and a later write with the same key replaces the earlier one, so no
  * reading tells a forged `plot/review` from Plot's own. `statuses` holds the
  * one surviving status with `writer: ''`, and `Host.reviewWriter` answers `''`
- * on this backend, so `githubReview` reads `unchecked` and refuses nothing.
+ * on this backend, so `checkedReview` reads `unchecked` and refuses nothing.
  *
  * @param sha - the pull request's head commit.
  * @param statuses - the commit's build statuses, newest first.

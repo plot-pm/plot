@@ -162,7 +162,7 @@ export interface PrReviewReading {
    * Every `plot/review` status on `sha`, newest first, each with the login
    * that wrote it (`''` where the host names none: always on Bitbucket).
    * `state`, `description` and `time` name the newest of these from ANY
-   * writer; `githubReview` judges the list against the trusted writer.
+   * writer; `checkedReview` judges the list against the trusted writer.
    * Absent on a reading that predates the field, which reads as unchecked.
    */
   statuses?: ReadonlyArray<ReviewStatus>;

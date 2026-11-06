@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The login that Review app's `plot/review` statuses carry, as `<slug>[bot]`.
-// Read by the host adapter's `reviewWriter`; `githubReview` judges a
+// Read by the host adapter's `reviewWriter`; `checkedReview` judges a
 // `pr-review` reading against it.
 //
 //   plot-review-writer.mjs
