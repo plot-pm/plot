@@ -56,12 +56,19 @@ describe('every plan reference shows its issue (real browser renders the shipped
           .filter((el) => [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(title)));
         return owners.map((el) => {
           const ref = el.closest('[data-plan-ref]');
-          return { text: ((ref ?? el).textContent ?? '').trim(), inRef: ref !== null };
+          // A card's title names the key on its meta line and in its title attribute.
+          const card = el.closest('[data-card]');
+          const text = card && ref
+            ? (ref.getAttribute('title') ?? '')
+            : ((ref ?? el).textContent ?? '').trim();
+          return { text, inRef: ref !== null, metaKey: card?.querySelector('[data-key]')?.textContent ?? null };
         });
       }, TITLE);
       expect(named.length).toBeGreaterThan(0);
       expect(named.filter((n) => !n.inRef)).toEqual([]);
       for (const n of named) expect(n.text.startsWith('1089: ')).toBe(true);
+      // On the card, the number itself shows on the meta line under the title.
+      for (const n of named.filter((x) => x.metaKey !== null)) expect(n.metaKey).toBe('#1089');
     } finally { await page.close(); }
   });
 });

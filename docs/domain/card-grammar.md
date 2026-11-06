@@ -6,13 +6,13 @@ Every board item — a ticket, a story, a plan — renders as one card that answ
 
 | Term | Means |
 |---|---|
-| **card grammar** | The rule that every board item projects into the same five facets, and that every board shows them in the same four sections. |
+| **card grammar** | The rule that every board item projects into the same five facets, and that every board shows them in the same three sections. |
 | **`CardFacts`** | One item's facts in the five facets. Typed facts only: kinds, references, counts, enums, identifiers, ISO dates and content copied verbatim (`title`, `summary`, `value`). Never a generated word. |
 | **facet** | One of the five questions the model answers: `identity`, `lineage`, `progress`, `next`, `ownership`. |
-| **section** | One of the card's four places: `header`, `context`, `status`, `actions`. The mapping decides which facet parts go into which section. |
+| **section** | One of the card's three places, each on its own surface: `header`, `status`, `footer`. The mapping decides which facet parts go into which section. |
 | **projection** | A domain rule that builds `CardFacts` for one kind: `planCardFacts` (plans); `storyCardFacts` and `ticketCardFacts` follow in later slices. |
 | **mapping** | `presentCard(facts, board)`: the sections, every word on them, and which section is emphasised. Pure, tested without a browser. |
-| **emphasis** | The section a board's reader came for, drawn heavier. Weight only, never position: `actions` on the planning board and in swimlanes, `status` on the Stories lanes, `context` on the Tickets lanes. |
+| **emphasis** | The section a board's reader came for, on the stronger tint. Never position: the footer on Design, Development and in swimlanes, the status panel on Testing and the Stories lanes, the header's meta line on the Tickets lanes. |
 
 ## The five facets
 
@@ -24,14 +24,15 @@ Every board item — a ticket, a story, a plan — renders as one card that answ
 | `next` | What can be done now? | at most one primary action, then the secondaries | no action belongs here |
 | `ownership` | Whose, since when? | assignees, the dated event, the source | always present |
 
-## The four sections
+## The three sections
 
-| Section | Holds | From |
-|---|---|---|
-| `header` | kind icon, number, title (the open link), subtype tag and labelled alerts | `identity` |
-| `context` | the related ticket, story, plans and sprint, each with its kind icon; two or more fold to a count | `lineage` |
-| `status` | the state pill, then the measures, then the assignees and the relative age | `progress`, `ownership` |
-| `actions` | the action band: primary, then secondaries | `next` |
+| Section | Surface | Holds | From |
+|---|---|---|---|
+| `header` | the card | the kind icon and the title (the open link); one muted meta line below: number, subtype tag, alerts, then each related item as icon + identifier | `identity`, `lineage` |
+| `status` | an inset panel, one surface step from the card | line 1: the state pill and work done / total with a bar across the panel; line 2: PR check dots, rounds and spike, verification | `progress` |
+| `footer` | a tinted band flush at the bottom | the assignee avatar and the relative age on the left, the actions on the right | `ownership`, `next` |
+
+A related item reads as its icon and identifier, with its title and state in the tooltip: a sprint as its `Release:` copied verbatim (its title when it names none), a ticket as its key (`#3170`), a plan as its slug, a story as its slug, shortened. Two or more of one kind fold to a count that expands in place.
 
 The detail view holds what the card leaves out: the source path, the approver, and the cost unless it was measured.
 
@@ -39,7 +40,7 @@ The detail view holds what the card leaves out: the source path, the approver, a
 
 `progress.state` is the item's own state in its kind's vocabulary: a ticket's lane, a story's `status:`, a plan's `State:`. A state that could not be read is `unknown`, never an early state.
 
-`ownership.assignees` is the list of handles resolved through `People`: a ticket's tracker assignees, a story's `author:`, a plan's `Assignee:`. The approver is not an assignee. `{ value: [] }` reads *unassigned*; `unknown` reads *assignee unknown*; two or more read *@first +N*, with every name in the tooltip.
+`ownership.assignees` is the list of handles resolved through `People`: a ticket's tracker assignees, a story's `author:`, a plan's `Assignee:`. The approver is not an assignee. Nobody assigned is an empty dashed circle named *Unassigned*; an unread list is the same circle named *Assignee unknown*; two or more show the first one's initials and *+N*, with every name in the tooltip.
 
 ## Known, unknown and absent
 
@@ -83,4 +84,4 @@ Two gates hold the line. The schema gate (`packages/domain/test/card-facts.test.
 
 ## Drawing
 
-The kind icon is the board's Octicon glyph from `glyphs.ts`, 1 em of the text beside it, in the kind's hue, and named by the kind ("Plan"). The state is a pill with a dot and its word; slices show a slim segmented bar beside *5/6 slices*. The action band sits flush at the bottom with its own tint and a top hairline, and is not drawn when no action renders. A list of two or more entries collapses to a count and expands in place under a `<button aria-expanded>`. The tab order is title, primary (disabled or not), secondaries, then the other sections' links and expanders. Light and dark draw from the same tokens in `index.css`, and every colour sits beside a word.
+The kind icon is the board's Octicon glyph from `glyphs.ts`, 1 em of the text beside it, in the kind's hue, and named by the kind ("Plan"). The state is a pill with a dot and its word; the work bar stretches across the status panel so cards compare at a glance. A count takes a warning colour only when it reports a problem: a failing check or a conflict. The footer is drawn on every card, with or without actions. Spacing is 16 px inside the card, 12 px between sections, 4–6 px between lines in a section. A list of two or more entries collapses to a count and expands in place under a `<button aria-expanded>`. The tab order is title, primary (disabled or not), secondaries, then the meta line's items, the panel's expanders and the assignee. Light and dark draw from the same tokens in `index.css`, and every colour sits beside a word or in an accessible name.

@@ -78,6 +78,10 @@ body {
   --card-surface: #fff;
   --card-border: oklch(92.9% 0.013 255.508);
   --card-band: oklch(98.4% 0.003 247.858);
+  --card-band-strong: oklch(96.8% 0.007 247.896);
+  --card-panel: oklch(98.4% 0.003 247.858);
+  --card-panel-strong: oklch(96.8% 0.007 247.896);
+  --card-track: oklch(92.9% 0.013 255.508);
   --card-title: oklch(20.8% 0.042 265.755);
   --card-body: oklch(37.2% 0.044 257.287);
   --card-meta: oklch(55.4% 0.046 257.417);
@@ -120,7 +124,11 @@ body {
   :root {
     --card-surface: oklch(20.8% 0.042 265.755);
     --card-border: oklch(37.2% 0.044 257.287);
-    --card-band: rgb(30 41 59 / 0.6);
+    --card-band: rgb(30 41 59 / 0.45);
+    --card-band-strong: rgb(30 41 59 / 0.9);
+    --card-panel: rgb(30 41 59 / 0.55);
+    --card-panel-strong: rgb(51 65 85 / 0.6);
+    --card-track: oklch(37.2% 0.044 257.287);
     --card-title: oklch(98.4% 0.003 247.858);
     --card-body: oklch(86.9% 0.022 252.894);
     --card-meta: oklch(70.4% 0.04 256.788);

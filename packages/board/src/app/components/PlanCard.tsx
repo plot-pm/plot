@@ -199,7 +199,9 @@ export function PlanCard({
     interrogate: interrogate?.reason,
     deliver: deliver?.reason,
   };
-  const sections = presentCard(card.facts, board, { hide, unavailable, now: Date.now() });
+  // The Testing column emphasises the status panel; every other planning column the footer.
+  const where = board === 'plans' && accent === 'Testing' ? 'testing' : board;
+  const sections = presentCard(card.facts, where, { hide, unavailable, now: Date.now() });
   const storyPage = story ? storyHref(story) : '';
 
   const linkFor = (ref: Ref): RefLink | null => {
