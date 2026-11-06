@@ -10,6 +10,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-06, Jan Wloka, plan-PR #3202 merged
 - **Started:** 2026-11-06, Jan Wloka, `feature/app-keys-resolve-from-one-folder`
+- **Started:** 2026-11-06, Jan Wloka, `feature/fleetd-names-a-missing-app-key`
 
 ## Changelog
 
