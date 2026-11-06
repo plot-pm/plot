@@ -145,7 +145,7 @@ Each test fails on `origin/main` at `f10abe5a4`.
 
 ### Release finish scope
 
-- `feature/release-finish-names-unbooked-plans` — `releaseFinish` books a Delivered plan a shipped changeset's `plan:` line names, names every other Delivered plan outside the sprint, and skips and names a named plan that is not Delivered <!-- builds: a shipped-changesets reading and an outside-sprint rule in releaseFinish; scopeSlugs in the domain --> <!-- waits: bug/release-approve-tells-its-tracker, bug/release-finish-refuses-another-sprint -->
+- `feature/release-finish-names-unbooked-plans` — `releaseFinish` books a Delivered plan a shipped changeset's `plan:` line names, names every other Delivered plan outside the sprint, and skips and names a named plan that is not Delivered <!-- builds: a shipped-changesets reading and an outside-sprint rule in releaseFinish; scopeSlugs in the domain --> <!-- waits: bug/release-approve-tells-its-tracker, bug/release-finish-refuses-another-sprint --> → #3190
 
 ### Role-file loader
 
