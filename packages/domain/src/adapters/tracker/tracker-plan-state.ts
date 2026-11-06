@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { link, mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
@@ -75,10 +75,6 @@ const stateDirOf = async (cwd: string, env: Record<string, string | undefined>):
   return join(resolve(cwd, out), '.plot', 'state');
 };
 
-/** Whether a failure was the file simply not being there. */
-const isMissing = (error: unknown): boolean =>
-  typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
-
 /**
  * Reads the body-hash record, or an empty record where there is none or it
  * cannot be read — a cold or unreadable record never blocks a write; it only
@@ -88,21 +84,36 @@ const readWrittenHashes = async (path: string): Promise<WrittenHashes> => {
   try {
     const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
     return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as WrittenHashes) : {};
-  } catch (error) {
-    return isMissing(error) ? {} : {};
+  } catch {
+    return {};
   }
 };
+
+/** The lock name serialising every read-modify-write of the body-hash record. */
+const HASH_LOCK = 'written-hashes';
 
 /**
  * Records `issue`'s newly-written body hash, leaving every other issue's
  * entry untouched.
+ *
+ * The read-modify-write runs under the {@link HASH_LOCK} lock and replaces the
+ * file by temp file plus `rename`. Where the lock cannot be taken within
+ * {@link LOCK_WAIT_MS} the record is left as it was: it is an optimisation and
+ * a missed update costs one level trigger.
  */
 const writeWrittenHash = async (dir: string, issue: string, hash: string): Promise<void> => {
-  const path = join(dir, WRITTEN_FILE);
-  await mkdir(dir, { recursive: true });
-  const hashes = await readWrittenHashes(path);
-  hashes[issue] = hash;
-  await writeFile(path, `${JSON.stringify(hashes, null, 2)}\n`, 'utf8');
+  const release = await withIssueLock(dir, HASH_LOCK);
+  if (release === null) return;
+  try {
+    const path = join(dir, WRITTEN_FILE);
+    const hashes = await readWrittenHashes(path);
+    hashes[issue] = hash;
+    const temp = `${path}.${process.pid}.${Math.floor(Math.random() * 1e9)}.tmp`;
+    await writeFile(temp, `${JSON.stringify(hashes, null, 2)}\n`, 'utf8');
+    await rename(temp, path);
+  } finally {
+    await release();
+  }
 };
 
 /**
@@ -126,6 +137,36 @@ const LOCK_WAIT_MS = 5_000;
 const LOCK_RETRY_MS = 50;
 
 /**
+ * Removes the lock at `lockPath` only if it is still the stale file a caller
+ * observed. The lock is renamed to a name unique to the caller and examined
+ * there: a fresh lock another waiter took in the meantime is linked back, and
+ * the caller keeps waiting.
+ *
+ * @param lockPath - the lock file whose staleness was observed.
+ * @param marker - the caller's unique marker path, used to name the renamed file.
+ * @returns true where a stale lock was removed, false where none was taken or
+ *   the file taken was fresh and has been put back.
+ */
+const breakStaleLock = async (lockPath: string, marker: string): Promise<boolean> => {
+  const taken = `${marker}.broken`;
+  try {
+    await rename(lockPath, taken);
+  } catch {
+    return false;
+  }
+  try {
+    const age = Date.now() - (await stat(taken)).mtimeMs;
+    if (age > LOCK_STALE_MS) return true;
+    await link(taken, lockPath).catch(() => {});
+    return false;
+  } catch {
+    return false;
+  } finally {
+    await unlink(taken).catch(() => {});
+  }
+};
+
+/**
  * Acquires the per-issue lock at `<dir>/plan-state-<issue>.lock`, waiting out
  * contention up to {@link LOCK_WAIT_MS} and breaking a lock older than
  * {@link LOCK_STALE_MS}.
@@ -136,7 +177,7 @@ const LOCK_RETRY_MS = 50;
  *   the wait timed out or `link()` failed for a reason other than contention.
  *   A caller that gets `null` holds nothing and must not write or release.
  */
-const withIssueLock = async (dir: string, issue: string): Promise<(() => Promise<void>) | null> => {
+export const withIssueLock = async (dir: string, issue: string): Promise<(() => Promise<void>) | null> => {
   await mkdir(dir, { recursive: true });
   const lockPath = join(dir, `plan-state-${issue.replace(/[^A-Za-z0-9_-]/g, '_')}.lock`);
   const marker = `${lockPath}.${process.pid}.${Math.floor(Math.random() * 1e9)}`;
@@ -152,10 +193,7 @@ const withIssueLock = async (dir: string, issue: string): Promise<(() => Promise
       if ((error as { code?: string }).code !== 'EEXIST') break;
       try {
         const age = Date.now() - (await stat(lockPath)).mtimeMs;
-        if (age > LOCK_STALE_MS) {
-          await unlink(lockPath).catch(() => {});
-          continue;
-        }
+        if (age > LOCK_STALE_MS && (await breakStaleLock(lockPath, marker))) continue;
       } catch {
         // The lock file vanished between the failed link and this check — retry.
       }

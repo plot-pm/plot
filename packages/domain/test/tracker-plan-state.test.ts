@@ -1,8 +1,56 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Gates that let a test hold two callers at the same point of the adapter: one
+ * after a real `stat` has answered, one before a real `readFile` runs. Both are inert (null) outside the tests that
+ * set them.
+ */
+const gates = vi.hoisted(() => ({
+  stat: null as null | ((path: string) => Promise<void>),
+  readFile: null as null | ((path: string) => Promise<void>),
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    stat: async (...args: Parameters<typeof actual.stat>) => {
+      const observed = await actual.stat(...args);
+      await gates.stat?.(String(args[0]));
+      return observed;
+    },
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      await gates.readFile?.(String(args[0]));
+      return actual.readFile(...args);
+    },
+  };
+});
+
+/** A gate that holds each caller until another arrives, or `ms` passes. */
+const pairingGate = (ms: number): (() => Promise<void>) => {
+  let waiting: (() => void) | null = null;
+  return () =>
+    new Promise<void>((resolve) => {
+      if (waiting !== null) {
+        waiting();
+        waiting = null;
+        resolve();
+        return;
+      }
+      const timer = setTimeout(() => {
+        waiting = null;
+        resolve();
+      }, ms);
+      waiting = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+};
 
 import type { ShellContext } from '../src/adapters/scripts.js';
 import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
@@ -10,6 +58,7 @@ import { trackerJira } from '../src/adapters/tracker/tracker-jira.js';
 import { trackerNone } from '../src/adapters/tracker/tracker-none.js';
 import {
   githubPlanStateWrite,
+  withIssueLock,
   planStateLabelsToRemove,
   PLAN_STATE_WRITTEN_HOME_ENV,
 } from '../src/adapters/tracker/tracker-plan-state.js';
@@ -178,7 +227,7 @@ describe('D6: the ticket record is not this machine’s to hold', () => {
     expect(host.comments()[0]).toContain('[Fix it](https://x/9)');
   });
 
-  it('issues no host call for label or comment on a second identical write', async () => {
+  it('issues no label or comment call on a second identical write', async () => {
     const host = issueHost();
     const state = stateHome();
     const first = await githubPlanStateWrite(host.context, state.env, state.refuse)(write('approved'));
@@ -299,5 +348,68 @@ describe('the label and comment text', () => {
     const approved = planIssueComment(write('approved', { planLink: 'docs/plans/2026-10-17-p.md' }));
     expect(draft.split('\n')[0]).toBe('<!-- plot:plan-link -->');
     expect(approved.split('\n')[0]).toBe(draft.split('\n')[0]);
+  });
+});
+
+describe('the locks', () => {
+  it('two waiters on one stale lock leave exactly one holder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-plan-state-lock-'));
+    roots.push(dir);
+    const lock = join(dir, 'plan-state-owner_repo_7.lock');
+    writeFileSync(lock, '');
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(lock, old, old);
+
+    // Both waiters observe the stale lock before either breaks it, and the
+    // second breaks it only after the first has taken the lock for itself.
+    let arrivals = 0;
+    let bothSeen: () => void = () => {};
+    const seen = new Promise<void>((resolve) => (bothSeen = resolve));
+    gates.stat = async (path) => {
+      if (path !== lock || arrivals >= 2) return;
+      const mine = ++arrivals;
+      if (mine === 2) bothSeen();
+      await seen;
+      if (mine === 2) await new Promise((r) => setTimeout(r, 300));
+    };
+    try {
+      const outcomes: string[] = [];
+      const waiter = (name: string) =>
+        withIssueLock(dir, 'owner/repo#7').then((release) => {
+          outcomes.push(name);
+          return release;
+        });
+      const a = waiter('a');
+      const b = waiter('b');
+      await Promise.race([a, b]);
+      await new Promise((r) => setTimeout(r, 800));
+      expect(outcomes).toHaveLength(1);
+      const first = outcomes[0] === 'a' ? await a : await b;
+      await first?.();
+      const second = outcomes[0] === 'a' ? await b : await a;
+      await second?.();
+      expect(outcomes).toHaveLength(2);
+    } finally {
+      gates.stat = null;
+    }
+  });
+
+  it('two writes on different issues keep both hash entries', async () => {
+    const host = issueHost();
+    const dir = mkdtempSync(join(tmpdir(), 'plot-plan-state-written-'));
+    roots.push(dir);
+    const env = { PLOT_TRACKER: 'github-issues', [PLAN_STATE_WRITTEN_HOME_ENV]: dir };
+    const gate = pairingGate(300);
+    gates.readFile = (path) => (path.endsWith('plan-state-written.json') ? gate() : Promise.resolve());
+    try {
+      await Promise.all([
+        githubPlanStateWrite(host.context, env, () => {})({ ...write('approved'), issue: 'owner/repo#1' }),
+        githubPlanStateWrite(host.context, env, () => {})({ ...write('approved'), issue: 'owner/repo#2' }),
+      ]);
+    } finally {
+      gates.readFile = null;
+    }
+    const record = JSON.parse(readFileSync(join(dir, 'plan-state-written.json'), 'utf8')) as Record<string, string>;
+    expect(Object.keys(record).sort()).toEqual(['owner/repo#1', 'owner/repo#2']);
   });
 });
