@@ -44,6 +44,29 @@ describe('planStoreShell — deferred_prs maps to deferredPrs', () => {
   });
 });
 
+describe('planStoreShell — Tracer: yes maps to tracer', () => {
+  const plan = (status: string[], branchLine: string) =>
+    ['# Plan', '', '## Status', '', '- **State:** Approved', ...status, '', '## Slices', '', '### Work', '', branchLine, ''].join('\n');
+
+  it('reads the Tracer line and not the spike marker', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-tracer-'));
+    try {
+      const line = join(dir, '2026-11-04-line.md');
+      const marker = join(dir, '2026-11-04-marker.md');
+      writeFileSync(line, plan(['- **Tracer:** yes'], '- `feature/a` — work'));
+      writeFileSync(marker, plan([], '- `feature/b` <!-- spike --> — work'));
+      const store = planStoreShell(shellContext(REPO_ROOT));
+      const withLine = await store.readPlan(line);
+      const withMarker = await store.readPlan(marker);
+      if (!isAnswered(withLine) || !isAnswered(withMarker)) throw new Error('the adapter could not read the plan');
+      expect(withLine.value.tracer).toBe(true);
+      expect(withMarker.value.tracer).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 /**
  * `branchOf` renames one branch line from `plot-plan-meta.sh`'s wire shape into
  * the port's. `waits_on` is the field under test: the parser emits it only on a

@@ -43,6 +43,8 @@ export interface PlanRecord {
   deferredPrs: readonly number[];
   /** The plan's slices, in the order the file declares them. */
   slices: readonly PlanRecordSlice[];
+  /** `true` when the plan's `## Status` says `Tracer: yes`; absent otherwise. */
+  tracer?: boolean;
   /** The declared review channel — `pr`, `in-session`, `ballot`, `none`. */
   review: string;
   /** The declared implementation home, normalized. */
