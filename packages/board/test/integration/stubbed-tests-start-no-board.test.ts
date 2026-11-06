@@ -875,7 +875,11 @@ const EXPECTED_FILES = 82;
 // keeping its state in the closed More actions menu, and one in
 // `button-claims.browser.test.ts` for the dispatched notice outliving Start
 // work. The files already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 665;
+// 665 → 667 on 2026-11-06: one `it(` in `button-claims.browser.test.ts` for the
+// notice returning once the wait runs out, and one in
+// `plan-moves-through-sections.browser.test.ts` for the notice beside Start
+// work in an agent row's menu. `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 667;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

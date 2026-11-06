@@ -120,9 +120,9 @@ describe('the button claims only what it knows', () => {
       await button.waitFor({ timeout: 10_000 });
       await button.click();
 
-      // The button goes to `starting…` and stays there until the pulse resolves.
-      // With no git pulse ever landing, it waits out PULSES_BEFORE_GIVING_UP and
-      // then shows the reassurance — never a failure, never the log path.
+      // The 202 alone shows the reassurance in the card's message row, while
+      // the button stays `starting…` until the pulse resolves — never a
+      // failure, never the log path.
       await card.getByText(/Agent work will show up shortly/).waitFor({ timeout: 10_000 });
 
       const text = (await card.textContent()) ?? '';
@@ -180,6 +180,32 @@ describe('the button claims only what it knows', () => {
       await page.close();
     }
   });
+
+  it('when no pulse confirms the dispatch, the reassurance shows again once the wait runs out', async () => {
+    // No pulse lands in this scenario, so `claimed` never moves. The 202 shows
+    // the notice for 5 s; it clears; the button waits out
+    // PULSES_BEFORE_GIVING_UP refreshes and then shows it again.
+    const page = await cat.open('a-board-that-can-act', {
+      viewport: VIEWPORT,
+      route: {
+        '**/api/dispatch': (route) =>
+          route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ slug: 'fix-leaky-hose' }) }),
+      },
+    });
+    try {
+      const card = cardFor(page, 'Fix the leaky soaker hose');
+      const note = card.locator('[data-action-messages] [data-dispatched]');
+      await card.getByRole('button', { name: 'Start work' }).click();
+      await note.waitFor({ timeout: 5_000 });
+      await expect.poll(() => note.count(), { timeout: 8_000 }).toBe(0);
+      expect(await card.getByRole('button', { name: /starting…/ }).count()).toBe(1);
+      // The wait runs out: the spinner stops and the notice is back.
+      await expect.poll(() => note.count(), { timeout: 25_000, intervals: [250] }).toBe(1);
+      expect(await card.getByRole('button', { name: 'Start work' }).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  }, 45_000);
 
   it('the reassurance is not a failure colour', async () => {
     // Neutral (slate), not amber: an amber warning would re-assert the very
