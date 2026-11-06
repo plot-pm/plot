@@ -274,15 +274,12 @@ describe('presentCard: the footer\'s actions', () => {
     const cold = sections({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
     expect(cold.footer.primary).toEqual({
       action: 'start-work', label: 'Start work', enabled: false, reason: 'no fleet scan yet',
-      reasonParts: [{ text: 'no fleet scan yet', ref: null }],
     });
     const blocked = sections({ slices: { total: 2, complete: 0, eligible: 0, waitsOn: [{ branch: 'feature/x', pr: 3105 }] } });
-    expect(blocked.footer.primary?.reason).toBe('waits on feature/x #3105');
-    // The branch and PR it names are their own part, so the tooltip can link them.
-    expect(blocked.footer.primary?.reasonParts).toEqual([
-      { text: 'waits on ', ref: null },
-      { text: 'feature/x #3105', ref: { kind: 'slice', plan: 'x', branch: 'feature/x', pr: 3105 } },
-    ]);
+    // The reason is one plain sentence: a tooltip holds no links.
+    expect(blocked.footer.primary).toEqual({
+      action: 'start-work', label: 'Start work', enabled: false, reason: 'waits on feature/x #3105',
+    });
   });
 
   it('every reason kind has words', () => {
