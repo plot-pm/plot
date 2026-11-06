@@ -56,6 +56,30 @@ let tmp, repo;
 function git(cwd, ...args) {
   return execFileSync('git', args, { encoding: 'utf8', cwd });
 }
+
+/**
+ * Runs git in a desk a live agent works in, and retries while another git
+ * process holds the desk's `index.lock`.
+ *
+ * The agent's monitors run `git status` in the desk, and `git status` takes
+ * `index.lock` for its index refresh. A write that lands in that window fails
+ * with "File exists" (CI run 42263510863). Any other failure throws at once.
+ *
+ * @param cwd the desk.
+ * @param args the git arguments.
+ * @returns git's stdout.
+ */
+function gitInLiveDesk(cwd, ...args) {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try {
+      return git(cwd, ...args);
+    } catch (err) {
+      if (!/index\.lock': File exists/.test(String(err.stderr ?? err.message)) || Date.now() > deadline) throw err;
+      execFileSync('sleep', ['0.1']);
+    }
+  }
+}
 function run(args, cwd = repo) {
   return execFileSync('bash', [dispatch, ...args], { encoding: 'utf8', cwd });
 }
@@ -4653,7 +4677,7 @@ test('dispatch: --stop from another group ends its own agent and its monitors, a
       const manifest = stampedManifest(checkout, desk);
       assert.ok(manifest !== undefined, `desk ${desk} must carry a stamped manifest`);
       const branch = `feature/sibling-${i}`;
-      git(desk, 'checkout', '-q', '-b', branch);
+      gitInLiveDesk(desk, 'checkout', '-q', '-b', branch);
       fs.writeFileSync(manifest.file,
         fs.readFileSync(manifest.file, 'utf8').replace(/^  "branch": "[^"]*",$/m, `  "branch": "${branch}",`));
       const stampedAt = fs.statSync(manifest.file).mtimeMs;
