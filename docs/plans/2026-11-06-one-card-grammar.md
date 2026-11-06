@@ -665,7 +665,9 @@ and admits `http(s)` link schemes only.
   on focus and is its `aria-describedby`. A fixture with a throttled host reads
   *checks unknown*, never zero. Both gates fail on a seeded violation. One
   browser test proves the section order, the tooltip on focus, and tab order
-  through the action band including the disabled control.
+  through the action band including the disabled control. At 320 px card width the action
+  group sits on its own row below the assignee and every button shows its whole
+  label.
 - **Stories:** story *Nothing changed, nothing runs* links ticket #3170, and
   #3170 offers no *Create story*. A ticket whose plan names a story shows that
   story. The ⚠ reads as a labelled alert. An `issue:` to another repository
