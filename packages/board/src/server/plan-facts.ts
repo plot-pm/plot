@@ -46,12 +46,16 @@ const NO_RECORDS: PlanRecordsReading = {
   designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '',
 };
 
-/** The slices a card's summary can say: a total, and the eligible count where a pulse covers the plan. */
+/**
+ * The slices a card's summary can say: a total, and the eligible count where a
+ * pulse covers the plan. The summary counts no complete slices, so `complete`
+ * is never read from it.
+ */
 const slicesOfSummary = (card: CardFields): PlanSlicesReading | null => {
   const s = card.sliceSummary;
   if (!s || s.slices === 0) return null;
   const scanned = s.claimed !== undefined && s.eligible !== undefined;
-  return { total: s.slices, complete: scanned ? 0 : null, eligible: scanned ? s.eligible ?? 0 : null, waitsOn: [] };
+  return { total: s.slices, complete: null, eligible: scanned ? s.eligible ?? 0 : null, waitsOn: [] };
 };
 
 const storyOf = (

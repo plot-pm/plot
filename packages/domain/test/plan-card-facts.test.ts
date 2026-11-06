@@ -198,6 +198,12 @@ describe('planCardFacts: next', () => {
     });
   });
 
+  it('an uncounted complete total leaves Start work to the eligible count', () => {
+    const f = facts({ slices: { total: 2, complete: null, eligible: 1, waitsOn: [] } });
+    expect(f.progress?.work?.done).toEqual({ unknown: 'unasked' });
+    expect(f.next.primary).toEqual({ action: 'start-work', enabled: true, reason: null });
+  });
+
   it('a plan with no slices lets Start work through to the dispatcher', () => {
     expect(facts({ slices: null }).next.primary?.enabled).toBe(true);
   });

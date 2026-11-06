@@ -44,7 +44,7 @@ export interface PlanSliceBranch {
 export interface PlanSlicesReading {
   /** How many slices the plan names. */
   total: number;
-  /** How many slices the pulse reports complete; `null` where no pulse covers the plan. */
+  /** How many slices the pulse reports complete; `null` where no pulse covers the plan or none was counted. */
   complete: number | null;
   /** How many open branches sit in an eligible slice; `null` where no pulse covers the plan. */
   eligible: number | null;
@@ -153,7 +153,7 @@ const startWork = (readings: PlanCardFactsReadings): Action | null => {
   if (!readings.controls.dispatch) return null;
   const slices = readings.slices;
   if (slices === null) return enabled('start-work');
-  if (slices.complete === null || slices.eligible === null) return disabled('start-work', { kind: 'awaiting-fleet-scan' });
+  if (slices.eligible === null) return disabled('start-work', { kind: 'awaiting-fleet-scan' });
   if (slices.eligible === 0) {
     return disabled('start-work', {
       kind: 'nothing-eligible', waitsOn: slices.waitsOn.map((b) => sliceRef(readings.slug, b)),
