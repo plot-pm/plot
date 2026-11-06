@@ -142,6 +142,27 @@ neither is rewritten for a card this plan has not reached yet.
   waits on #3105*); a disabled secondary is omitted. A ticket's *Create plan* /
   *Create story* pair and a plan's *Approve* / *Interrogate* pair both become one
   primary plus secondaries in that row.
+- **Creating is a `next` action, and `lineage` decides which create is offered.**
+  An item offers to create only the relation it does not have yet, so a ticket
+  whose plan exists can never offer *Create plan* again — the 3102 defect is
+  ruled out by the shape rather than by a check:
+
+  | Card | Its `lineage` holds | Primary | Secondary |
+  |---|---|---|---|
+  | ticket | no plan, no story | *Create plan* | *Create story* |
+  | ticket | a story, no plan | *Create plan*, inside that story | — |
+  | ticket | a plan, no story | — the plan shows in `lineage` | *Create story* |
+  | ticket | a plan and a story | — | — |
+  | ticket | done lane | — | — |
+  | story | no plans | *Add plan* | — |
+  | story | plans | its lifecycle action, if any | *Add plan* |
+  | plan | — | its lifecycle action (*Approve*, *Start work*, *Deliver*) | *Interrogate* where the phase allows |
+
+  *Create plan* is the primary on a bare ticket because most tickets become one
+  plan; *Create story* is the secondary for work that will span several, which is
+  the same choice `/plot-idea` makes when it declines a story the problem does not
+  need. A plan card creates nothing: what it could create — a story around it —
+  belongs to the ticket or the story.
 - **An unknown fact shows one muted word in its own place** — *6 PRs · checks
   unknown*, never *0 failing* and never nothing. Absent facts are omitted.
 - **No meaning by colour alone.** Emphasis may use colour, but every alert, check
@@ -189,10 +210,15 @@ all three boards would leave every card half in the old layout.
       and drops the plan's identity, so the ticket knows *that* a plan exists and
       how far it is, never *which*. `ticketPhase` uses it only for the lane label;
       `ticketCardShowsActions` ignores it. **Consequence for scope:** adding the
-      plan's slug and title to `TicketPlan` is enough for `lineage` and for `next`
-      to offer *Open plan*; it stays inside this plan. Plan → story is the plan's
-      `Story:` field and story → plans already feeds the story card's counts. Ticket
-      → story is not yet checked.
+      plan's slug and title to `TicketPlan` is enough for `lineage` to link the
+      plan and for `next` to withdraw *Create plan*; it stays inside this plan. Plan
+      → story is the plan's `Story:` field and story → plans already feeds the story
+      card's counts.
+- [ ] **Does the domain know ticket → story, and can *Create plan* from a ticket
+      inside a story write the plan's `Story:` field?** The create-action table
+      depends on both: without the first a ticket cannot tell *a story, no plan*
+      from *no story*, and without the second the created plan lands outside its
+      story. `/api/idea/<number>` takes only the issue number today.
 - [x] **What does each board's primary reader look for first?** Tickets: is this
       answered yet? Stories: how far along is the umbrella? Plans: what can I do
       now? Settled as per-board emphasis over identical positions (Approach).
@@ -233,7 +259,7 @@ _To be filled in during Design._
 
 ### Implementation
 
-- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan that answers a ticket and `next` offering *Open plan* in place of *Create plan*; the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
+- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan that answers a ticket and `next` offering only the creates its lineage lacks (no *Create plan* once a plan exists); the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
 - `feature/one-card-grammar-stories` — `storyCardFacts`, with plans in `lineage` and progress as delivered out of total; the Stories board renders through the shared `<Card>` <!-- builds: storyCardFacts projection -->
 
 ## Notes
@@ -293,6 +319,11 @@ _To be filled in during Design._
       "q": "What accessibility bar do cards meet?",
       "a": "No meaning by colour alone; one focus group per card; expanders are buttons with aria-expanded",
       "category": "ux"
+    },
+    {
+      "q": "Where do Create plan and Create story fit?",
+      "a": "next actions decided by lineage; a bare ticket's primary is Create plan, Create story secondary",
+      "category": "domain"
     }
   ],
   "deferredItems": [],
