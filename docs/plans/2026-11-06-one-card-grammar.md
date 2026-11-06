@@ -146,7 +146,13 @@ neither is rewritten for a card this plan has not reached yet.
   inside a clickable card is a trap for keyboard and screen-reader users. The
   title row leads with the card's kind icon — ticket, story or plan, from
   `identity.kind` — with the kind as its accessible name, in the same place on
-  every kind; a lineage link to another item carries that item's kind icon. The
+  every kind; a lineage link to another item carries that item's kind icon.
+  Every kind icon comes from the board's one Octicon glyph set — the
+  `KIND_ICON_PATH` table in `lib/tuple-row.ts` that the tuple rows already draw
+  for ticket, plan, slice, PR and branch — which gains Octicons `iterations` for
+  a sprint and `book` for a story; no second icon set exists. An icon is as
+  large as the text it sits beside (`1em`), so the title's icon matches the
+  title and a link's icon matches the link. The
   subtype is a tag beside it: a plan's `feature` / `bug` / `docs` / `infra`, and
   a ticket's tracker issue type, which stops being an icon of its own. Below the
   facts sits the action band, visually separate from the facts above it (a top
@@ -155,11 +161,15 @@ neither is rewritten for a card this plan has not reached yet.
   secondary actions in a fixed order per kind. Every action renders as a control
   — a `<button>` or a link — and never as plain text. A disabled primary stays
   visible as a control with `aria-disabled="true"`, focusable, in a muted style;
-  its reason (*waits on #3105*) shows in a tooltip that opens on hover and on
-  keyboard focus, closes on Escape, and is the control's `aria-describedby`, and
-  a tap on touch shows it and does nothing else. The native `title` attribute is
-  not the carrier, because it shows on neither focus nor touch. A disabled
-  secondary is omitted. A ticket's *Create plan* / *Create story* pair and a
+  its reason (*waits on #3105*) shows in a tooltip that opens below the control
+  on hover and on keyboard focus, so it never covers the card's facts, closes on
+  Escape, and is the control's `aria-describedby`, and a tap on touch shows it
+  and does nothing else. The native `title` attribute is not the carrier,
+  because it shows on neither focus nor touch; this holds for an action the
+  board disables (a frozen page, an unconfigured command) as much as for one the
+  plan's state disables. A secondary disabled by the item's own state is
+  omitted; a secondary the board's configuration refuses stays visible as a
+  disabled control with its reason. A ticket's *Create plan* / *Create story* pair and a
   plan's *Approve* / *Interrogate* pair both become one primary plus secondaries
   in that band.
 - **Creating is a `next` action, and `lineage` decides which create is offered.**
@@ -366,7 +376,7 @@ type CardFacts = {
   };
   next: {
     primary: Action | null;           // null: this card has no primary action
-    secondary: Action[];              // enabled only; a disabled secondary is omitted
+    secondary: Action[];              // a secondary disabled by the item's state is omitted; one the board refuses carries its reason
   };
   ownership: {
     owner: string | null;
@@ -533,7 +543,9 @@ and admits `http(s)` link schemes only.
   spike state, verification, cost, `not-pushed` and the PR list all still show.
   No plan card shows *not measured here* or *checks not asked* as a chip of its
   own; each shows as an unknown in its row. Every plan card leads with the plan
-  kind icon, with an accessible name, and its type as a tag. The action band is
+  kind icon from `KIND_ICON_PATH`, sized to the title text, with an accessible
+  name, and its type as a tag; its sprint and story links carry the `iterations`
+  and `book` glyphs at link-text size. The action band is
   visually separate, and no action renders as plain text. A disabled *Start
   work* is a focusable `aria-disabled` control whose reason appears on hover and
   on focus and is its `aria-describedby`. A fixture with a throttled host reads
