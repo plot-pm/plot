@@ -5,7 +5,9 @@ import { buildShell } from '@plot-pm/domain/adapters/build/build-resolve';
 import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
 import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { callerOf, type Caller } from '@plot-pm/domain/workflows/decision';
+import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { MergePorts } from './merge.js';
+import type { FinishContext } from './release-finish.js';
 
 /**
  * The ports `mergeAt` takes, for the two board-free arms that merge.
@@ -47,3 +49,27 @@ export const mergePortsFor = async (
   };
 };
 
+
+/**
+ * What `finishRelease` reads and writes through, over the ports a release
+ * approval just used.
+ *
+ * @param opts - the board options the entry resolved.
+ * @param ports - the ports {@link mergePortsFor} built.
+ * @returns the finish's context; its caller is the approval's.
+ */
+export const finishContextFor = (opts: BuildBoardOptions, ports: MergePorts): FinishContext => {
+  const estate = realEstate(opts);
+  return {
+    repoRoot: opts.repoRoot,
+    refs: estate.refs,
+    host: estate.host,
+    planStore: estate.planStore,
+    scripts: ports.scripts,
+    trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    scriptDir: opts.scriptsDir,
+    caller: ports.caller,
+    tagWaitMs: ports.checksWaitMs,
+    pollMs: 15_000,
+  };
+};

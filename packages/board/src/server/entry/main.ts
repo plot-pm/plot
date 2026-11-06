@@ -14,9 +14,8 @@ import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt, nameRepairPrAt } from './merge.js';
 import { releaseApproveAt } from './release-approve.js';
-import { mergePortsFor } from './merge-ports.js';
+import { finishContextFor, mergePortsFor } from './merge-ports.js';
 import { finishRelease } from './release-finish.js';
-import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
 
@@ -189,20 +188,8 @@ export const run = async (
     write(`${JSON.stringify(result)}\n`);
     if (!result.approved) return 1;
     // The finish runs as the person: an unattended caller was refused above.
-    const estate = realEstate(opts);
     return finishRelease(
-      {
-        repoRoot: opts.repoRoot,
-        refs: estate.refs,
-        host: estate.host,
-        planStore: estate.planStore,
-        scripts: ports.scripts,
-        trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-        scriptDir: opts.scriptsDir,
-        caller: ports.caller,
-        tagWaitMs: ports.checksWaitMs,
-        pollMs: 15_000,
-      },
+      finishContextFor(opts, ports),
       Number(pr),
       (s) => write(s),
       (s) => process.stderr.write(s),

@@ -6,6 +6,7 @@ import type { FleetReading } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 import type { DeskMonitors } from '@plot-pm/domain';
 import { callerOf } from '@plot-pm/domain/workflows/decision';
+import { optionalProof, type PasskeyDeps } from './passkey.js';
 import { restartBranch, type RestartReaders } from '@plot-pm/fleet/shared/restart-command';
 import { BODY_LIMIT, type ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
 
@@ -29,6 +30,8 @@ export interface RestartDeps {
   monitors?: DeskMonitors;
   /** The pull-request and process readings; the adapters where absent. */
   readers?: RestartReaders;
+  /** The passkey store, challenges and clock behind an optional assertion. */
+  passkey?: PasskeyDeps;
 }
 
 /**
@@ -65,6 +68,13 @@ export const handleRestart = async (
     json(400, { error: 'branch is required' });
     return;
   }
+  // A verified assertion reads `person` whatever this board's own
+  // `PLOT_UNATTENDED` reads; without one the environment reading applies.
+  const proof = await optionalProof(body, { action: 'restart', branch }, opts, deps.passkey);
+  if (proof.kind === 'refused') {
+    json(403, { ok: false, branch, reason: proof.reason, detail: proof.detail });
+    return;
+  }
   const started = await restartBranch({
     opts,
     readCfg: deps.config ?? readConfig,
@@ -74,7 +84,7 @@ export const handleRestart = async (
     branch,
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.
-    caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
+    caller: proof.kind === 'verified' ? 'person' : callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
     monitors: deps.monitors,
     readers: deps.readers,
   });
