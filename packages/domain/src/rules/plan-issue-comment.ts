@@ -80,7 +80,7 @@ export interface PriorPlanLines {
  * @returns the progress line and the ticket links it held.
  */
 export const priorPlanLinesOf = (body: string): PriorPlanLines => {
-  const lines = body.split('\n').slice(2);
+  const lines = body.split(/\r?\n/).slice(2);
   const highTickets: PlanHighTicket[] = [];
   let sliceProgress: string | null = null;
   for (const line of lines) {

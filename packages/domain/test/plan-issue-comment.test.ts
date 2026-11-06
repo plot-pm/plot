@@ -91,6 +91,19 @@ describe('priorPlanLinesOf', () => {
     });
   });
 
+  it('reads the first ticket line of a comment with \\r\\n line ends', () => {
+    const body = planIssueComment(
+      write({ highTickets: [{ title: 'Fix it', url: 'https://x/9' }, { title: 'Then this', url: 'https://x/10' }] }),
+    ).replaceAll('\n', '\r\n');
+    expect(priorPlanLinesOf(body)).toEqual({
+      sliceProgress: null,
+      highTickets: [
+        { title: 'Fix it', url: 'https://x/9' },
+        { title: 'Then this', url: 'https://x/10' },
+      ],
+    });
+  });
+
   it('skips the marker and phase line whatever they say', () => {
     const prior = priorPlanLinesOf('garbage\nalso garbage\nsurvivor line');
     expect(prior.sliceProgress).toBe('survivor line');
