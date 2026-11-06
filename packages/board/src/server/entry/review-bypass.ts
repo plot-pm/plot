@@ -1,5 +1,6 @@
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
+import { githubReview, judgedReviewState } from '@plot-pm/domain/rules/github-review';
 import { reviewBypasses, type MergedReview, type ReviewState } from '@plot-pm/domain/rules/review-bypass';
 import type { Host } from '@plot-pm/domain';
 import { realpathSync } from 'node:fs';
@@ -41,6 +42,10 @@ const DEFAULT_LIMIT = 100;
  * Bitbucket `mergedAt` is `updated_on`, never earlier than the merge itself,
  * so the skip drops no PR merged after `since`.
  *
+ * A merged PR whose only `success` came from another writer reads `absent`
+ * and is reported as a bypass. A Review app login that cannot be resolved
+ * leaves every reading `unread`.
+ *
  * @param host - the host to ask.
  * @param limit - how many merged PRs to list.
  * @param since - ISO-8601 time the rule turned on, or `null` to examine every merge.
@@ -56,13 +61,16 @@ export const readMerged = async (
   if (!listed.ok) return null;
   const cutoff = since === null ? NaN : Date.parse(since);
   const readings: MergedReview[] = [];
+  const writer = await host.reviewWriter();
   for (const pr of listed.value) {
     if (pr.mergedAt === null) continue;
     if (!Number.isNaN(cutoff) && Date.parse(pr.mergedAt) <= cutoff) continue;
     const read = await host.prReview(pr.number);
-    const review: ReviewState = !read.ok
+    // A success written by anyone but the Review app is no pass: its judged state is `absent`.
+    const judged = read.ok && writer.ok ? judgedReviewState(githubReview(read.value, writer.value)) : null;
+    const review: ReviewState = judged === null
       ? 'unread'
-      : (STATES.find((s) => s === read.value.state) ?? 'absent');
+      : (STATES.find((s) => s === judged) ?? 'absent');
     readings.push({
       number: pr.number,
       mergedAt: pr.mergedAt,
