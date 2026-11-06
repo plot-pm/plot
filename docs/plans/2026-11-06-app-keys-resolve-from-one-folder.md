@@ -46,7 +46,7 @@
 
 ### Resolver
 
-- `feature/app-keys-resolve-from-one-folder` — `resolveApp` takes an id-only line and resolves the key by the three steps above; `plot-review-writer.mjs` calls it; tests for each step and for the refusal's path; `docs/review-status-rollout.md` names the fixed location and the env variables; the changeset <!-- builds: appKeyPath, the key lookup in resolveApp -->
+- `feature/app-keys-resolve-from-one-folder` — `resolveApp` takes an id-only line and resolves the key by the three steps above; `plot-review-writer.mjs` calls it; tests for each step and for the refusal's path; `docs/review-status-rollout.md` names the fixed location and the env variables; the changeset <!-- builds: appKeyPath, the key lookup in resolveApp --> → #3203
 
 ### Probe
 
