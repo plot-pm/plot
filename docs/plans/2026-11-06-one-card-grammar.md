@@ -603,6 +603,15 @@ apart by surface and spacing rather than by rules:
 - **Footer**: the primary is a small solid button; secondaries are ghost
   buttons of the same height; a disabled control is an outline in the muted
   tone with a not-allowed cursor.
+- **Footer wrapping**: the assignees and age sit left and the action group
+  right on one row while both fit. When they do not, the whole action group
+  moves to its own row, aligned right, and never splits: the primary and its
+  secondaries stay together and in order. Button text never shrinks, truncates
+  or wraps; the card grows by a row instead. More than two secondaries put the
+  rest into a `⋯` button named *More actions*, whose menu lists them in the same
+  order, a disabled one with its reason. Wrapping changes no tab order: title
+  links, primary, secondaries, `⋯`. The layout is a wrapping flex row with the
+  action group as one item; no script measures it.
 - **Every colour carries a word** beside it or in its accessible name.
 
 The mapping names the kind icon and its accessible name per `identity.kind`;
@@ -656,7 +665,9 @@ and admits `http(s)` link schemes only.
   on focus and is its `aria-describedby`. A fixture with a throttled host reads
   *checks unknown*, never zero. Both gates fail on a seeded violation. One
   browser test proves the section order, the tooltip on focus, and tab order
-  through the action band including the disabled control.
+  through the action band including the disabled control. At 320 px card width the action
+  group sits on its own row below the assignee and every button shows its whole
+  label.
 - **Stories:** story *Nothing changed, nothing runs* links ticket #3170, and
   #3170 offers no *Create story*. A ticket whose plan names a story shows that
   story. The ⚠ reads as a labelled alert. An `issue:` to another repository
