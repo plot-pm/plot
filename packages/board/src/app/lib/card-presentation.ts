@@ -160,7 +160,10 @@ export interface CardSections {
     assignees: PresentedAssignees;
     age: Piece | null;
     primary: PresentedAction | null;
+    /** The first two secondaries, in order. */
     secondary: PresentedAction[];
+    /** The secondaries past the second, in order, behind the `⋯` *More actions* control; `[]` for none. */
+    more: PresentedAction[];
   };
 }
 
@@ -349,6 +352,9 @@ const presentAction = (
   reason: a.reason === null ? null : reasonWords(a.reason, unavailable),
   reasonParts: a.reason === null ? null : reasonParts(a.reason, unavailable),
 });
+
+/** How many secondaries the footer shows before the rest go behind `⋯`. */
+const SHOWN_SECONDARIES = 2;
 
 const RELATION_WORD: Readonly<Record<keyof CardFacts['lineage'], [string, string]>> = {
   tickets: ['ticket', 'tickets'],
@@ -647,7 +653,8 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
       assignees: presentAssignees(ownership.assignees, ownership.assignedFrom),
       age,
       primary: next.primary === null ? null : presentAction(next.primary, options.unavailable),
-      secondary: next.secondary.map((a) => presentAction(a, options.unavailable)),
+      secondary: next.secondary.slice(0, SHOWN_SECONDARIES).map((a) => presentAction(a, options.unavailable)),
+      more: next.secondary.slice(SHOWN_SECONDARIES).map((a) => presentAction(a, options.unavailable)),
     },
   };
 };

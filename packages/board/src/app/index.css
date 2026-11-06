@@ -186,6 +186,8 @@ body {
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
   text-decoration: none;
   transition: background-color 120ms, border-color 120ms, color 120ms;
 }
@@ -196,11 +198,13 @@ body {
 [data-action-band] [data-action-slot="primary"] button:not([aria-disabled="true"]):hover {
   background: var(--card-primary-hover);
 }
-[data-action-band] [data-action-slot="secondary"] button:not([aria-disabled="true"]) {
+[data-action-band] [data-action-slot="secondary"] button:not([aria-disabled="true"]),
+[data-action-band] [data-action-slot="more"] button {
   background: transparent;
   color: var(--hue-blue);
 }
-[data-action-band] [data-action-slot="secondary"] button:not([aria-disabled="true"]):hover {
+[data-action-band] [data-action-slot="secondary"] button:not([aria-disabled="true"]):hover,
+[data-action-band] [data-action-slot="more"] button:hover {
   background: var(--hue-blue-soft);
 }
 [data-action-band] [data-action-slot] button[aria-pressed="true"]:not([aria-disabled="true"]) {
