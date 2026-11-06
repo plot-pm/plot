@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Browser, type Page } from 'playwright';
 import {
-  openCatalogue, expandAgentFolds, scenario, board, fleet, row, slice,
+  openCatalogue, expandAgentFolds, scenario, board, fleet, row, slice, card, column,
   type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type Fleet } from '../../src/contract/schema.js';
@@ -827,6 +827,40 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       // The scrim is decoration and says nothing: announcing an empty box
       // beside the message would be noise.
       expect(await scrim(page).getAttribute('aria-hidden')).toBe('true');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('dims a card\'s Deliver on a frozen page, as the row menu is', async () => {
+    // The card read the payload's last `deliver: available` while the row menu
+    // was dimmed, so a keyboard could still deliver from stale data.
+    const shipping = board({
+      columns: [column({
+        phase: 'Testing',
+        cards: [card({
+          slug: 'ready-to-ship', title: 'Ready to ship', phase: 'Testing',
+          path: 'docs/plans/2026-11-06-ready-to-ship.md', status: 'deliverable', deliverable: true,
+        })],
+      })],
+      deliver: { available: true, reason: '' },
+    });
+    let dead = false;
+    const page = await browser.newPage();
+    try {
+      const reply = (route: Parameters<Parameters<Page['route']>[1]>[0], body: unknown) =>
+        dead ? route.abort('connectionrefused') : route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+      await page.route('**/api/board', (route) => reply(route, shipping));
+      await page.route('**/api/fleet', (route) => reply(route, localFleet()));
+      await page.goto(baseURL);
+      const deliver = page.locator('#plan-ready-to-ship [data-deliver="ready-to-ship"]');
+      await deliver.waitFor({ timeout: 10_000 });
+      expect(await deliver.getAttribute('aria-disabled')).toBeNull();
+
+      dead = true;
+      await failPolls(page, DIM_AFTER_FAILURES);
+      await overlay(page).waitFor({ timeout: 10_000 });
+      expect(await deliver.getAttribute('aria-disabled')).toBe('true');
     } finally {
       await page.close();
     }
