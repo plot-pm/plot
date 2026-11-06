@@ -3299,16 +3299,15 @@ export const branchUrlBaseFor = (opts: BuildBoardOptions): string => ensureCache
  * GitHub, `https://bitbucket.org/ws/repo/issues/` on Bitbucket Cloud.
  *
  * @param opts - the board's repo root and scripts directory.
+ * @param declaredTracker - the `Tracker` config value as read; `null` where it could not be read.
  * @returns the prefix, or `''` where a `Tracker` names another service, the
- *   config cannot be read, or the host's page shape is unknown.
+ *   config could not be read, or the host's page shape is unknown.
  */
-export const issueUrlBaseFor = async (opts: BuildBoardOptions): Promise<string> => {
-  const branchBase = ensureCache(opts).branchUrlBase;
-  const repo = branchBase.match(/^(.*\/)(?:tree|branch)\/$/)?.[1];
-  if (repo === undefined) return '';
-  const declared = await scriptsFor(opts).config('Tracker', '');
-  if (!declared.ok) return '';
-  const source = issueSource({ declared: declared.value, gitHost: ensureCache(opts).backend ?? '', listers: TRACKER_LISTERS });
+export const issueUrlBaseFor = (opts: BuildBoardOptions, declaredTracker: string | null): string => {
+  const entry = ensureCache(opts);
+  const repo = entry.branchUrlBase.match(/^(.*\/)(?:tree|branch)\/$/)?.[1];
+  if (repo === undefined || declaredTracker === null) return '';
+  const source = issueSource({ declared: declaredTracker, gitHost: entry.backend ?? '', listers: TRACKER_LISTERS });
   return source.ask === 'git-host' ? `${repo}issues/` : '';
 };
 

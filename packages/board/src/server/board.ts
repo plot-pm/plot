@@ -2378,16 +2378,19 @@ export const checksUrlOf = (prUrl: string, branchBase: string): string =>
   prUrl !== '' && branchBase.endsWith('/tree/') && /\/pull\/\d+$/.test(prUrl) ? `${prUrl}/checks` : '';
 
 async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Board> {
-  // FOUR INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
+  // FIVE INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
   // `plot-config.sh` spawn and none needs another's answer, so awaiting them
-  // in sequence would serialise four ~58 ms waits for nothing. They are off
+  // in sequence would serialise five ~58 ms waits for nothing. They are off
   // the event loop now, which is what makes the concurrency free — the point
   // of this migration in one line.
-  const [planDir, sprintDir, storyDir, phasesValue] = await Promise.all([
+  // `Tracker` keeps its whole answer: an unread key gives no issue page, where an
+  // empty one means the git host answers the issues.
+  const [planDir, sprintDir, storyDir, phasesValue, tracker] = await Promise.all([
     readConfigAsync(opts, 'Plan directory', 'docs/plans/'),
     readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
     readConfigAsync(opts, 'Story directory', 'docs/stories/'),
     readConfigAsync(opts, 'Workflow phases', ''),
+    configFor(opts).config('Tracker', ''),
   ]);
   const { map: phaseMap, refusal: phaseMapRefusal } = declaredPhaseMap(phasesValue);
 
@@ -2509,7 +2512,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // The host's branch-page prefix, read from `origin` by the scan; `''` where unknown.
   const urlBase = branchUrlBaseFor(opts);
   // The host's issue-page prefix, where the git host answers the issues; `''` otherwise.
-  const issueBase = await issueUrlBaseFor(opts);
+  const issueBase = issueUrlBaseFor(opts, tracker.ok ? tracker.value : null);
   // Claims live in git refs, so the card's occupancy counts are read from the
   // same cached pulse the Delivery tab classifies from — one source, so a card
   // and a row can no longer disagree about whether work is in flight. null on a
