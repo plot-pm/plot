@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { pulseFor } from './fleet.js';
+import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 import type { FleetReading } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 import type { DeskMonitors } from '@plot-pm/domain';
@@ -19,6 +19,10 @@ export interface RestartOptions extends BuildBoardOptions {
 export interface RestartDeps {
   /** The cached pulse the branch → worktree lookup comes from. */
   pulse?: (opts: BuildBoardOptions) => FleetReading | null;
+  /** Whether the scan behind the cached pulse finished. */
+  pulseComplete?: (opts: BuildBoardOptions) => boolean;
+  /** The pulse of the last scan that finished. */
+  lastComplete?: (opts: BuildBoardOptions) => FleetReading | null;
   /** The configured `Worker command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** Starts the desk's monitor; the shell script under `scriptsDir` where absent. */
@@ -65,6 +69,8 @@ export const handleRestart = async (
     opts,
     readCfg: deps.config ?? readConfig,
     pulse: (deps.pulse ?? pulseFor)(opts),
+    pulseComplete: (deps.pulseComplete ?? pulseCompleteFor)(opts),
+    lastCompletePulse: (deps.lastComplete ?? lastCompletePulseFor)(opts),
     branch,
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.

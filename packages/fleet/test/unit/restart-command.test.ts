@@ -76,6 +76,21 @@ describe('restartBranch', () => {
     expect(r).toMatchObject({ kind: 'refused', status: 409, reason: 'unattended' });
   });
 
+  it('refuses pulse-partial with 404 where a partial pulse and the last finished one both miss the branch', async () => {
+    const r = await restartBranch({ opts, pulse: pulseOf('feature/other', '/w/other'), pulseComplete: false, lastCompletePulse: null, branch: 'nope', caller: 'person' });
+    expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'pulse-partial' });
+  });
+
+  it('a named worktree still restarts past a partial pulse', async () => {
+    const r = await restartBranch({ opts, pulse: pulseOf('feature/other', '/w/other'), pulseComplete: false, lastCompletePulse: null, branch: 'nope', worktree: '/w/nope', caller: 'unattended' });
+    expect(r).toMatchObject({ kind: 'refused', status: 409, reason: 'unattended' });
+  });
+
+  it('reads the desk from the last finished pulse, so an empty worktree there refuses no-worktree', async () => {
+    const r = await restartBranch({ opts, pulse: pulseOf('feature/other', '/w/other'), pulseComplete: false, lastCompletePulse: pulseOf('no-desk', ''), branch: 'no-desk', caller: 'person' });
+    expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-worktree' });
+  });
+
   it('refuses no-worktree with 404 where the pulse lists the branch with no desk', async () => {
     const r = await restartBranch({ opts, pulse: pulseOf('feature/no-desk', ''), branch: 'feature/no-desk', caller: 'person' });
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'no-worktree' });

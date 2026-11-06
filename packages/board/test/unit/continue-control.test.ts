@@ -58,6 +58,7 @@ describe('every refusal says something different', () => {
   const reasons: ContinueRefusal[] = [
     'unknown-branch',
     'no-pulse',
+    'pulse-partial',
     'no-worktree',
     'no-question',
     'no-worker-command',

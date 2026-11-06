@@ -40,6 +40,11 @@ describe('continueBranch', () => {
     expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'unknown-branch' });
   });
 
+  it('refuses pulse-partial with 404 where a partial pulse and the last finished one both miss the branch', async () => {
+    const r = await continueBranch({ opts, pulse, pulseComplete: false, lastCompletePulse: null, branch: 'feature/nope', caller: 'person', answer: 'yes' });
+    expect(r).toMatchObject({ kind: 'refused', status: 404, reason: 'pulse-partial' });
+  });
+
   it('refuses no-pulse where there is no pulse at all', async () => {
     const r = await continueBranch({ opts, pulse: null, branch: 'feature/has-desk', caller: 'person', answer: 'yes' });
     expect(r).toEqual({

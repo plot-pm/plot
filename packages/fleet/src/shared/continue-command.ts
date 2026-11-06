@@ -1,4 +1,4 @@
-import type { Caller, FleetReading } from '@plot-pm/domain';
+import { pulseBranchReading, type Caller, type FleetReading } from '@plot-pm/domain';
 import {
   continueOnDesk,
   type ContinuationOptions,
@@ -68,6 +68,26 @@ export const branchFromPulse = (pulse: FleetReading | null, branch: string): Pul
   return lookup.kind === 'found' ? lookup.desk : null;
 };
 
+const REFUSAL_DETAIL = {
+  'no-pulse': 'no current fleet reading to look the branch up in',
+  'pulse-partial':
+    "the board's scan has not finished and the last finished scan does not name that branch; ask again after the next pulse",
+  'unknown-branch': 'no plan on this board names that branch',
+} as const;
+
+/**
+ * The 404 refusal for a pulse lookup that found no branch.
+ *
+ * @param reason - the rule's answer other than `listed`.
+ * @returns a refusal carrying the reason's detail.
+ */
+export const refusal = (reason: keyof typeof REFUSAL_DETAIL): DeskContinuation => ({
+  kind: 'refused',
+  status: 404,
+  reason,
+  detail: REFUSAL_DETAIL[reason],
+});
+
 /** What {@link continueBranch} needs. */
 export interface ContinueBranchInput {
   opts: ContinuationOptions;
@@ -75,6 +95,10 @@ export interface ContinueBranchInput {
   readCfg?: (opts: ContinuationOptions, key: string, fallback: string) => string;
   /** The fleet reading the branch is looked up in; `null` where there is none. */
   pulse: FleetReading | null;
+  /** Whether the scan behind `pulse` finished; absent reads as `true`. */
+  pulseComplete?: boolean;
+  /** The pulse of the last scan that finished; absent reads as `null`. */
+  lastCompletePulse?: FleetReading | null;
   branch: string;
   /** Who is asking; an unattended caller is refused before any read. */
   caller: Caller;
@@ -95,9 +119,10 @@ export interface ContinueBranchInput {
 /**
  * Continues the work on a branch's desk with a person's answer.
  *
- * Refuses `no-pulse` where there is no fleet reading, `unknown-branch` where
- * the reading does not list the branch, and `no-worktree` where it lists no
- * worktree on this machine. All three come before the `unattended` check. A
+ * Refuses `no-pulse` where there is no fleet reading, `pulse-partial` where an
+ * unfinished scan and the last finished one both miss the branch,
+ * `unknown-branch` where a finished reading does not list it, and
+ * `no-worktree` where it lists no worktree on this machine. All four come before the `unattended` check. A
  * missing reading is unknown, so it refuses rather than starting an agent in a
  * directory it guessed.
  *
@@ -105,24 +130,15 @@ export interface ContinueBranchInput {
  * @returns what {@link continueOnDesk} answers, or a 404 refusal.
  */
 export const continueBranch = async (input: ContinueBranchInput): Promise<DeskContinuation> => {
-  const lookup = lookupBranch(input.pulse, input.branch);
-  if (lookup.kind === 'no-pulse') {
-    return {
-      kind: 'refused',
-      status: 404,
-      reason: 'no-pulse',
-      detail: 'no current fleet reading to look the branch up in',
-    };
-  }
-  if (lookup.kind === 'unknown-branch') {
-    return {
-      kind: 'refused',
-      status: 404,
-      reason: 'unknown-branch',
-      detail: 'no plan on this board names that branch',
-    };
-  }
-  const found = lookup.desk;
+  const reading = pulseBranchReading(
+    input.pulse,
+    input.pulseComplete ?? true,
+    input.lastCompletePulse ?? null,
+    input.branch,
+  );
+  if (reading.kind !== 'listed') return refusal(reading.kind);
+  const found = branchFromPulse(reading.pulse, input.branch);
+  if (!found) return refusal('unknown-branch');
   if (!found.worktree) {
     return {
       kind: 'refused',
