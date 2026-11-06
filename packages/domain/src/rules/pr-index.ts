@@ -314,6 +314,21 @@ export const needsReviewJudgment = (row: PrIndexRow): boolean =>
   && row.plotReviewCheckedSha !== row.headSha;
 
 /**
+ * The `plot/review` state a decision may act on for a row: the judgment where
+ * one holds for the head, `'unchecked'` where the rollup reads `success` or
+ * `failure` on the head and none does, and the rollup's own state otherwise.
+ *
+ * @param row - the stored row.
+ * @returns the trusted state, `'unchecked'`, or `undefined` for a row never asked.
+ */
+export const trustedReview = (row: PrIndexRow): NonNullable<PrIndexRow['plotReviewJudged']> | 'unchecked' | undefined => {
+  if (row.plotReviewJudged !== undefined && row.headSha !== undefined && row.plotReviewCheckedSha === row.headSha) {
+    return row.plotReviewJudged;
+  }
+  return needsReviewJudgment(row) ? 'unchecked' : row.plotReview;
+};
+
+/**
  * The open, non-draft, in-scope rows whose `plot/review` state is not yet
  * settled for the commit CI has already passed.
  *

@@ -20,6 +20,7 @@ import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { declaredRuns, foldRuns } from '@plot-pm/domain/rules/default-branch';
 import { planForBranch, plansMentioning } from '@plot-pm/domain/rules/plan-for-branch';
+import { trustedReview } from '@plot-pm/domain/rules/pr-index';
 import { prNumberOf, type RedMainCandidate } from '@plot-pm/domain/rules/repair';
 
 import { REVIEW_RUN_LIMIT } from './auto-review.js';
@@ -164,7 +165,7 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
       if (!backend.ok) return false;
       const store = await prIndexFile({ cwd: options.repoRoot }).read(backend.value);
       if (!store.ok || store.value === null) return false;
-      return store.value.rows.some((row) => row.number === pr && row.state === 'OPEN' && row.plotReview === 'failure');
+      return store.value.rows.some((row) => row.number === pr && row.state === 'OPEN' && trustedReview(row) === 'failure');
     },
     reviewStarted: async (pr, head) =>
       readReviewStarts(options.repoRoot)?.some((start) => start.pr === pr && start.head === head) ?? false,
