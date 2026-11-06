@@ -59,7 +59,11 @@ export const RefSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('plan'), slug: z.string(), title: z.string(), status: PlanStatusSchema }),
   /** `state: null` names a sprint no sprint file exists for; its `title` is then the slug. */
-  z.object({ kind: z.literal('sprint'), slug: z.string(), title: z.string(), state: SprintStateSchema.nullable() }),
+  /** `release` is the sprint's `Release:`, verbatim; `null` where it names none. */
+  z.object({
+    kind: z.literal('sprint'), slug: z.string(), title: z.string(), state: SprintStateSchema.nullable(),
+    release: z.string().nullable(),
+  }),
   z.object({ kind: z.literal('slice'), plan: z.string(), branch: z.string(), pr: z.number().nullable() }),
 ]);
 export type Ref = z.infer<typeof RefSchema>;

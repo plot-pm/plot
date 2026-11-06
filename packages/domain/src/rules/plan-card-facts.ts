@@ -53,6 +53,8 @@ export interface PlanSprintReading {
   title: string;
   /** The sprint's state; `null` where no sprint file exists. */
   state: SprintState | null;
+  /** The sprint's `Release:`, verbatim; `null` where it names none. */
+  release: string | null;
 }
 
 /** The plan's dated records, verbatim; `''` where the plan has none. */
