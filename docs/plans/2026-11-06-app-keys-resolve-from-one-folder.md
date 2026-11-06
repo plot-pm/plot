@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-11-06, Jan Wloka, plan-PR #3202 merged
 
 ## Changelog
 
