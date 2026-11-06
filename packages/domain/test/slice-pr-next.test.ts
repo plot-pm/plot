@@ -596,9 +596,9 @@ describe('a success the writer check has not judged', () => {
   const foreign = row({ plotReview: 'success', plotReviewSha: HEAD, plotReviewJudged: 'absent', plotReviewCheckedSha: HEAD });
   const TIP = 'c'.repeat(40);
   const green = {
-    v: 1, branch: 'main', headSha: TIP, head: 'green', settled: { sha: TIP, state: 'green' }, failingRuns: [],
+    v: 1 as const, branch: 'main', headSha: TIP, head: 'green' as const, settled: { sha: TIP, state: 'green' as const }, failingRuns: [],
     headSince: '2026-10-30T11:00:00Z', askedAt: '2026-10-30T11:55:00Z', at: '2026-10-30T11:55:00Z',
-  } as const;
+  };
 
   it('holds review-writer-unchecked in the review arm, the merge arm and the HIGH arm', () => {
     expect(slicePrNext(readings({ row: unjudged('success'), defaultBranch: green }))).toEqual({ step: 'hold', reason: 'review-writer-unchecked' });
@@ -613,7 +613,7 @@ describe('a success the writer check has not judged', () => {
   });
 
   it('answers none once the head\'s review start budget is spent', () => {
-    const spent = { head: HEAD, count: 99, lastAt: new Date(NOW).toISOString() };
+    const spent = { head: HEAD, count: 99, lastAt: NOW };
     expect(slicePrNext(readings({ row: foreign, defaultBranch: green, reviewStarts: spent }))).toMatchObject({ step: 'none', why: 'budget-spent' });
   });
 });

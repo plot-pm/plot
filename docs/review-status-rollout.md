@@ -118,6 +118,8 @@ shape of #1687.
 prints that the section was not evaluated.
 
 Direct pushes to the default branch are not PRs and are not examined.
+
+**The writer is checked.** `pr-review` also returns every `plot/review` status on the head with its `writer`, the login that created it. Merge, release approval, the review run and the PR index treat a `success` as a pass only when the newest status was written by `<slug>[bot]`, the Review app's bot. `plot-review-writer.mjs` resolves the slug through `GET /app` and reads `Review app` from `origin/<default>:CLAUDE.md` (then `AGENTS.md`), never from the working tree, so a PR head cannot choose the login its own status is judged against. A foreign status newer than the trusted one refuses `review-foreign-writer`. A writer that cannot be resolved refuses `review-writer-unread`, and an index row not yet judged holds `review-writer-unchecked`. With no `Review app` key the reading is unchecked and the status state passes through. Bitbucket statuses carry no writer (`writer: ''`), so Bitbucket stays unchecked.
 `pr-review` reads the `plot/review` commit status on both hosts. On Bitbucket the status words SUCCESSFUL, FAILED, INPROGRESS and STOPPED map to `success`, `failure`, `pending` and `error`.
 
 ## For this repository
