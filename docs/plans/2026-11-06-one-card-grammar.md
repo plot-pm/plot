@@ -75,7 +75,7 @@ reader, no row numbers, no icons, no order on screen:
   | `identity` | what is it? | kind (`ticket` · `story` · `plan`), number, title, the item's own reference that *open* resolves to, alerts as typed kinds | — always present |
   | `lineage` | what is it part of? | references to the related ticket, story, plans and sprints, each as kind + id + phase | that relation does not exist — never a placeholder value |
   | `progress` | how far is it? | done / total and the unit (`slices`, `plans`), plus PR counts by check state | nothing was measured |
-  | `next` | what can be done now? | one primary action kind, `enabled`, and when disabled a typed reason with its subject (`waits-on` #3105); then the secondary action kinds this item offers | no action belongs here |
+  | `next` | what can be done now? | at most one primary action — kind, `enabled`, and when disabled a typed reason — then the enabled secondary actions | no action belongs here: `primary` is null and `secondary` empty |
   | `ownership` | whose, since when? | owner handle, last change, source reference (`repo#N` or plan path) | — always present |
 
   **Absent and unknown are different values, and the schema keeps them apart.**
@@ -195,13 +195,14 @@ neither needs a browser.
 | Every alert carries a label — no bare ⚠ | domain: alert kind; UI: label and icon | the mapping |
 | The same number links across kinds | domain: `lineage` references both ways | `CardFacts` |
 
-**`CardFacts` is computed on the server, once per board build**, where
-`planCardView` and `cardControls` run today (`board.ts`), from readings the build
-already holds — about 220 tickets, 60 plans and a handful of stories, each a pure
-function over values in memory, so no projection adds a read and the cost grows
-linearly with the estate. `/api/board` carries the facts; the browser only maps
-them. A cache keyed by a card's readings was considered and left out: it adds an
-invalidation to get wrong, and nothing has measured the build as slow.
+**`CardFacts` is computed on the server**, where each kind's rows are already
+assembled: plans and stories in the `board.ts` build, tickets in
+`discovery-lanes.ts` beside `ticketLanes` — which moves the ticket card rule out
+of the browser, where it runs today (`StoriesTab.tsx:488`). Each projection is a
+pure function over readings already in memory, so none adds a read and the cost
+grows linearly with the estate. `/api/board` carries the facts; the browser only
+maps them. A cache keyed by a card's readings was considered and left out: it
+adds an invalidation to get wrong, and nothing has measured the build as slow.
 
 **`/api/board` changes shape one kind at a time.** Each slice adds `facts` beside
 its kind's existing fields and removes the old fields in the same slice once no
@@ -224,19 +225,18 @@ in the Local checks list. The split is revisited if a second presentation needs 
 word the mapping owns — that word then moves into the domain as a typed value,
 never as a string.
 
-**No new input crosses the trust boundary.** *Create plan* still sends the
-issue number and nothing else — the contract `CreatePlanButton.tsx` states — and
-the server finds the ticket's story in its own ticket → story index, so no slug a
-browser could forge reaches the idea agent's prompt. A ticket linked from two or
-more stories gets a disabled *Create plan* naming them, because which umbrella a
-plan belongs to is a person's call and the domain never guesses it; a done or
-archived story does not receive new plans, and the ticket falls back to a plain
-*Create plan* outside any story with that reason shown. A story's `issue:` value
-is written by a person or an agent, so the parser accepts only an issue URL on
-this repository's configured git host or a key matching its configured tracker;
-anything else is an `issue-link-unreadable` alert on the story card and is never
-indexed, so a stray cross-repository link cannot attach a story to the wrong
-ticket.
+**No untrusted input decides anything.** *Create plan* still sends the issue
+number and nothing else — the contract `CreatePlanButton.tsx` states — and the
+server re-derives the ticket's stories from `origin/<default>` at click time, so
+no slug a browser could forge reaches the idea agent's prompt. *Add plan* on a
+story card is the one new request that names an item, and it names it the way
+`/api/approve` names a plan: the slug must match an existing live story on the
+default branch, and the agent's brief is built from that story's committed file,
+never from the request. A ticket linked from two or more stories refuses rather
+than guesses; an index that could not be built refuses rather than reading as
+*no story*. A story's `issue:` is accepted only when it names this repository's
+own issues — owner and repository, not merely the host — or a declared Jira
+project; anything else is an alert and never indexed (Spec).
 
 **The tracer proves the grammar on the Plans board**, the richest card: it is
 the only one that exercises all five facets at once — `progress` with a PR
@@ -298,8 +298,8 @@ all three boards would leave every card half in the old layout.
       `roundsBadge`, `dispatch`, `readyToStart`, `approveSpike`, `confirmSlices`,
       `spikeState` — which is the plan's *capability set*, not one next action, and
       carries no reason when a flag is false. `next` derives from it: choose the one
-      primary action from the set, and name why it is disabled (`started`, awaiting
-      the spike, unapproved). The secondary flags stay available to the UI for
+      primary action from the set, and name why it is disabled (no fleet scan yet,
+      nothing eligible, awaiting the spike, the action unavailable on this board). The secondary flags stay available to the UI for
       secondary links. `cardControls` keeps its schema and both callers unchanged.
 - [x] **Where exactly is the line between a fact and a word?** The second-UI
       test, with existing domain phrases migrating as their card is converted
@@ -311,111 +311,225 @@ all three boards would leave every card half in the old layout.
 
 ```ts
 type CardKind = 'ticket' | 'story' | 'plan';
-type Ref = { kind: CardKind | 'sprint'; id: string; title: string; phase: string | null };
-type Unknown = { unknown: 'throttled' | 'not-asked' | 'unreadable' };
-type Known<T> = T | Unknown;
+
+// A relation's phase is typed by the kind it points at — never free text.
+type Ref =
+  | { kind: 'ticket'; key: string; title: string; lane: TicketLane }
+  | { kind: 'story'; slug: string; title: string; status: StoryStatus; archived: boolean }
+  | { kind: 'plan'; slug: string; title: string; status: PlanStatus }
+  | { kind: 'sprint'; slug: string; title: string; state: SprintState }
+  | { kind: 'slice'; plan: string; branch: string; pr: number | null };
+
+// One unknown vocabulary, the domain's own: HostReach without 'ok'.
+type Known<T> = { value: T } | { unknown: Exclude<HostReach, 'ok'> };
 
 type CardFacts = {
   identity: {
     kind: CardKind;
-    id: string;                     // issue key, story slug or plan slug
-    number: number | null;          // the shared #N, where the item has one
-    title: string;
-    opens: Ref;                     // the board's own detail view of this item
+    id: string;                       // issue key, story slug or plan slug
+    key: string | null;               // the shared issue key ('3102', 'PROJ-12'), where one exists
+    title: string;                    // content, verbatim
+    summary: string | null;           // content, verbatim: a story's objective, ≤ 280 chars
+    type: PlanType | null;            // feature | bug | docs | infra, where the item has one
+    opens: Ref;                       // the board's own detail view of this item
     alerts: Alert[];
   };
-  lineage: Ref[];                   // ordered ticket, story, plan, sprint; absent relations omitted
-  progress: null | {                // null: nothing measured
-    unit: 'slices' | 'plans';
-    done: Known<number>;
-    total: number;
-    prs: null | { total: number; byChecks: Known<Record<'green' | 'running' | 'failing' | 'none', number>> };
+  lineage: {                          // each relation separately; absent = read, and none exists
+    tickets: Known<Ref[]>;
+    stories: Known<Ref[]>;
+    plans: Known<Ref[]>;
+    sprints: Known<Ref[]>;
   };
-  next: null | {                    // null: no action belongs to this card
-    primary: { action: ActionKind; enabled: boolean; reason: Reason | null };
-    secondary: ActionKind[];        // enabled only; a disabled secondary is omitted
+  progress: null | {                  // null: nothing to measure for this item
+    work: null | { unit: 'slices' | 'plans'; done: Known<number>; total: number };
+    prs: Known<{ number: number; branch: string; checks: Checks }[]>;   // Checks incl. 'pending', 'unknown'
+    design: null | { rounds: number | null; spike: SpikeCardState | null };
+    verification: VerificationReading | null;
+    cost: Known<CostReading>;
   };
-  ownership: { owner: string | null; changedAt: string | null; source: Ref | { path: string } };
+  next: {
+    primary: Action | null;           // null: this card has no primary action
+    secondary: Action[];              // enabled only; a disabled secondary is omitted
+  };
+  ownership: {
+    owner: string | null;
+    since: null | { at: string; event: 'opened' | 'updated' | 'transitioned' };
+    source: Ref | { path: string };
+  };
 };
 
-type Alert =
-  | { kind: 'status-behind'; proven: StoryStanding }
-  | { kind: 'issue-link-unreadable'; value: string };
-
-type Reason =
-  | { kind: 'waits-on'; ref: Ref }
-  | { kind: 'started' }
-  | { kind: 'awaits-spike' }
-  | { kind: 'linked-from-many-stories'; stories: Ref[] }
-  | { kind: 'story-not-live'; story: Ref };
+type Action = { action: ActionKind; enabled: boolean; reason: Reason | null };
 
 type ActionKind =
   | 'create-plan' | 'create-story' | 'add-plan'
-  | 'approve' | 'approve-spike' | 'confirm-slices' | 'interrogate'
+  | 'needs-design' | 'interrogate' | 'approve' | 'approve-spike' | 'confirm-slices'
   | 'start-work' | 'deliver';
+
+type Reason =
+  | { kind: 'action-unavailable'; action: ActionKind }   // board-wide; the board's own action entry says why
+  | { kind: 'awaiting-fleet-scan' }
+  | { kind: 'nothing-eligible'; waitsOn: Ref[] }        // slice refs from the pulse's blockedBy; [] when none is named
+  | { kind: 'awaits-spike'; spike: Ref }
+  | { kind: 'linked-from-many-stories'; stories: Ref[] }
+  | { kind: 'lineage-unknown'; relation: 'plans' | 'stories'; reach: Exclude<HostReach, 'ok'> };
+
+type Alert =
+  | { kind: 'status-behind'; proven: StoryStanding }
+  | { kind: 'issue-link-unreadable'; value: string }    // value capped at 120 chars
+  | { kind: 'not-pushed'; commits: number };
 ```
 
-**Invariants, each a unit test on the schema or a projection:**
+`PlanType`, `TicketLane`, `StoryStatus`, `PlanStatus`, `SprintState`, `Checks`,
+`HostReach`, `SpikeCardState`, `StoryStanding` are the domain's existing types,
+imported, not redeclared. `VerificationReading` and `CostReading` are the
+readings `PlanCard.tsx` renders today (`card.verification`, `card.cost`), moved
+into the domain as types; the words built from them (`plan-spend.ts:138-144`,
+`slice-spend-record.ts:279`, `checks-reading.ts:216`) move to the mapping.
 
-1. No string field other than `title`, `id`, `owner`, `path`, `value`, `phase` and the
-   ISO dates — the schema gate refuses any other.
-2. `lineage` holds each relation at most once per referenced item, in the fixed
-   kind order; an item never appears in its own `lineage`.
-3. `next.primary.reason` is non-null exactly when `enabled` is false.
-4. A ticket offers `create-plan` only when no plan's `Issue:` names it, and
-   `create-story` only when no story's `issue:` names it.
-5. A value read from a host that did not answer is `Unknown`, never `0` and never
-   omitted.
+**Invariants, each a unit test:**
 
-### Projections (domain — `rules/`)
+1. **No generated words.** The only string fields are identifiers (`id`, `key`,
+   `slug`, `branch`, `plan`, `owner`, `path`), ISO dates (`at`), and **content
+   copied verbatim from the item** (`title`, `summary`, `value`). The schema gate
+   refuses any other string field.
+2. A `Known` relation is `unknown` whenever its input was not read —
+   `plansUnreadable` from `discovery-lanes.ts`, a failed story read, a host
+   reach other than `ok` — and `{ value: [] }` only when the read succeeded and
+   found none.
+3. `reason` is non-null exactly when `enabled` is false.
+4. A ticket offers `create-plan` only when `lineage.plans` is `{ value: [] }`, and
+   `create-story` only when `lineage.stories` is `{ value: [] }`. Either relation
+   `unknown` gives a disabled `create-plan` with `lineage-unknown`, never an
+   enabled one.
+5. A ticket's `lineage.stories` is the union of stories whose `issue:` names it
+   **and** stories named by the `Story:` field of any plan in its
+   `lineage.plans`.
+6. `start-work` follows `cardControls.dispatch`: enabled while the plan is
+   approved or in progress and the pulse has an eligible slice — started or not.
+   It is primary when `cardControls.readyToStart`, secondary otherwise.
 
-| Projection | Reads | Replaces |
-|---|---|---|
-| `planCardFacts(reading, controls, directory)` | plan meta, pulse slices, PR index rows, `cardControls` | `planCardView` |
-| `storyCardFacts(story, plans, issueIndex, directory)` | story frontmatter incl. `issue:`, its plans | `storyCardView`; `statusDrift`'s phrase becomes the `status-behind` alert |
-| `ticketCardFacts(row, plans, stories, directory)` | ticket row, `TicketPlan` (now with slug and title), ticket → story index | `ticketCardView`, `ticketCardShowsActions`, `ticketCardSubtitle`, `ticketCardAge` |
+### Projections (domain — `rules/`) and where each runs
 
-`TicketPlan` gains `slug` and `title`. The ticket → story index is built where the
-build reads stories, keyed by issue key, from `issue:` values that passed
-validation.
+| Projection | Runs in | Reads | Replaces |
+|---|---|---|---|
+| `planCardFacts` | `board.ts` build, where `planCardView` and `cardControls` run | plan meta, `cardControls`, pulse slices and `blockedBy`, PR index rows with reach, spend readings, verification | `planCardView` |
+| `storyCardFacts` | `board.ts` story read (`:2225-2262`) | story frontmatter incl. `issue:`, its plans, `derivedStanding` | `storyCardView` |
+| `ticketCardFacts` | `discovery-lanes.ts`, server side, beside `ticketLanes` | ticket row, `TicketPlan` (now `slug`, `title`, `story`), the ticket → story index, `plansUnreadable` | `ticketCardView`, `ticketCardShowsActions`, `ticketCardSubtitle`, `ticketCardAge` — today run in the browser at `StoriesTab.tsx:488` |
 
-### Presentation (board — `card-presentation.ts`, `<Card>`)
+**`ownership.since`**: a plan's newest transition record (`Approved:`,
+`Started:`, `Delivered:`, `Design:`), else its file date — `transitioned`; a
+story's `updated:` — `updated`; a ticket's `createdAt` — `opened`.
 
-`presentCard(facts, board) → rows` returns, in this fixed order: title (the
-`opens` link) with labelled alerts; the lineage line; the progress line with an
-expander for each list longer than one; the action row; the ownership line. It
-returns which row is emphasised — `lineage` on Tickets, `progress` on Stories,
-`next` on Plans — and every word: summaries (*6 PRs · 1 running*), reasons
-(*waits on #3105*, *linked from 2 stories*), unknowns (*checks unknown*) and alert
-labels. `<Card>` renders the rows and decides nothing; its tab order is title,
-primary, secondaries, expanders; each expander is a `<button aria-expanded>`.
-The import gate allows `card-presentation.ts` the `CardFacts` types and UI
-helpers only.
+**Ticket `progress.work`**: no plan — `null`; one plan — that plan's slices; two or
+more — `unit: 'plans'`, `done` counting plans Delivered or Released.
 
-### Endpoints and formats
+**`statusDrift`** keeps its phrase for its non-board callers (`standing.ts:83` →
+`plot-story-lint.sh`), which are a second presentation of their own. The board
+stops calling it: `storyCardFacts` emits `status-behind` from `derivedStanding`,
+and `StoryModal.tsx` reads that alert through the mapping.
 
-- `/api/board`: each kind's items carry `facts: CardFacts`; that kind's old card
-  fields are removed in the same slice.
-- `POST /api/idea`: body unchanged, `{number, type}`. When the ticket → story
-  index names exactly one live story, the idea agent's brief carries that story's
-  slug and the created plan's `## Status` has `Story: <slug>`.
-- `POST /api/story`: the story it creates carries `issue: <issue URL>`.
-- Story frontmatter: `issue:` holds an issue URL on this repository's git host or
-  a key of its configured tracker; `jira:` is read when `issue:` is absent. The
-  story-tracking template writes `issue:`.
+### The ticket → story link
+
+- **The field** is `issue:` in story frontmatter, as `DESIGN-story.md:484`
+  already specifies it (inbound ticket; `published:` is the outbound one and out
+  of scope). `jira:` is read when `issue:` is absent; the template's unfilled
+  `{JIRA_TICKET_URL}` placeholder reads as absent.
+- **Accepted values**, all reduced to the issue key the ticket rows already use
+  (`issueKey`):
+  - on GitHub: `https://github.com/<owner>/<repo>/issues/<n>` or `#<n>`, where
+    `<owner>/<repo>` equals the repository's own, read from `origin` through the
+    `host` adapter — the host alone is not enough;
+  - on Bitbucket: the same with the workspace and repository slug;
+  - on Jira: a key `<PROJECT>-<n>` whose project is declared. **`Tracker: jira`
+    gains an optional project list** (`Tracker: jira <url> PROJ, OPS`); with
+    none declared, a Jira key is `issue-link-unreadable` rather than trusted.
+- **Anything else** is an `issue-link-unreadable` alert on the story card and is
+  never indexed.
+- **The index is built from `origin/<default>`**, as `ticketPlansOf` reads plans —
+  never from the working tree, so an uncommitted story cannot redirect a create.
+- **"Live"** means `status` other than `done` and not archived; Draft is live.
+
+### Endpoints
+
+- **`POST /api/idea`** — body unchanged, `{number, type}`. At click time the
+  server re-derives the ticket's stories from `origin/<default>` and refuses, by
+  name, exactly as the card would have rendered it:
+  `stories-unread` (the index could not be built — never *outside any story*),
+  `linked-from-many-stories` (naming them). One live story → the brief carries
+  its slug; only a done or archived story, or none → the plan is created outside
+  any story, and the response says which. A slug enters the brief only after it
+  matches `^[a-z0-9-]+$` and names an existing story, on a line **above** the
+  quoted issue body.
+- **`POST /api/story-plan`** (new) — body `{slug}`. Refuses `unknown-story`
+  unless the slug matches `^[a-z0-9-]+$` and names a live story on
+  `origin/<default>`, and `unattended` like its siblings. It starts the idea
+  agent with a brief built from the story's committed file — never from the
+  request — and the created plan carries `Story: <slug>`. Same spawn path and
+  allow-list entry as `/api/idea`; nothing from the body reaches `sh -c`.
+- **`POST /api/story`** — the story agent's brief instructs `issue: <issue URL>`
+  in the frontmatter it writes; the test asserts the brief, since an agent's
+  output cannot be asserted.
+- **`/api/board`** — each kind's items carry `facts: CardFacts`. Fields a reader
+  still needs stay until that reader converts: filters, swimlanes (`Swimlanes.tsx`),
+  `PlanModal`, `StoryModal` and menus are converted in the slice of their kind,
+  and a field is removed only in the slice that converts its last reader.
+
+### Presentation (board — `card-presentation.ts`, `<Card>`, detail views)
+
+`presentCard(facts, board) → rows`, fixed order: title (the `opens` link), type
+and labelled alerts; the lineage line; the progress line (work, PR summary,
+design rounds and spike, verification, cost); the action row; the ownership
+line. It returns the emphasised row — `lineage` on discovery's ticket lanes,
+`progress` on discovery's story lanes, `next` on the planning and delivery
+boards and in swimlanes — and every word: summaries, reasons (*waits on
+feature/x #3105*, *no fleet scan yet*, *linked from 2 stories*, *plans unread —
+host throttled*), unknowns (*checks unknown*, *cost not measured here*) and alert
+labels. **Every list with two or more entries collapses to a count and expands
+in place** — lineage relations and the PR list alike. `<Card>` renders rows and
+decides nothing; tab order is title, primary, secondaries, expanders; each
+expander is a `<button aria-expanded>`. Every string from `CardFacts` renders as
+text, never as HTML.
+
+**Detail views.** Plans open `PlanModal`, stories `StoryModal`, and **tickets a
+new `TicketModal`**: title, body read through the existing issue read, the
+`lineage` relations as links, the action row, and a link out to the host
+issue. `StoryModal.renderMarkdown` (`StoryModal.tsx:14-31`) is fixed in the
+Stories slice before the story title becomes its only way in: it escapes `"`
+and admits `http(s)` link schemes only.
+
+### Gates
+
+- **Schema gate** — a domain test enumerating `CardFacts`' string fields against
+  invariant 1's list.
+- **Import gate** — `scripts/check-card-presentation.sh`: `card-presentation.ts`
+  may import only from `@plot-pm/domain/entities/card-facts` and
+  `packages/board/src/app/ui/`. Added to `ci.yml` and to the `Local checks` key,
+  then `./scripts/check-agents-md.sh --write`.
 
 ### Done when
 
-- **Tracer:** the Plans board renders every plan through `<Card>` from `facts`;
-  `planCardView` is gone; both gates fail on a seeded violation and pass on the
-  branch; one browser test proves the Plans board shows the mapping's rows and tab
-  order.
-- **Stories:** story 3170's card links ticket #3170; ticket #3170 no longer offers
-  *Create story*; the ⚠ reads as a labelled alert; a story with an `issue:` to
-  another repository shows `issue-link-unreadable` and is not indexed.
-- **Tickets:** ticket #3102 links its plan and offers no *Create plan*; *Create
-  plan* on a ticket in one live story produces a plan whose `Story:` names it; a
-  ticket linked from two stories shows a disabled *Create plan* naming both.
+- **Tracer:** every plan card on the planning and delivery boards and in swimlanes
+  renders through `<Card>` from `facts`, and `planCardView` is gone. Type, rounds,
+  spike state, verification, cost, `not-pushed` and the PR list all still show.
+  No plan card shows *not measured here* or *checks not asked* as a chip of its
+  own; each shows as an unknown in its row. A disabled *Start work* names its
+  reason on the card, not only on hover. A fixture with a throttled host reads
+  *checks unknown*, never zero. Both gates fail on a seeded violation. One
+  browser test proves rows and tab order.
+- **Stories:** story *Nothing changed, nothing runs* links ticket #3170, and
+  #3170 offers no *Create story*. A ticket whose plan names a story shows that
+  story. The ⚠ reads as a labelled alert. An `issue:` to another repository
+  shows `issue-link-unreadable` and is not indexed. *Add plan* on a live story
+  reaches `/api/story-plan`, whose brief names the story. A fixture story with 62
+  plans and 9 sprints renders collapsed at uniform height. `StoryModal` refuses
+  a `javascript:` link.
+- **Tickets:** #3102 links its plan and offers no *Create plan*. With plans
+  unreadable, every ticket's *Create plan* is disabled with *plans unread*. A
+  ticket in two stories gets a disabled *Create plan* naming both, and
+  `POST /api/idea` for it refuses `linked-from-many-stories`. A ticket in one
+  live story produces a brief carrying its slug above the issue body.
+  `TicketModal` opens from the title.
+
 
 ## Slices
 
@@ -425,11 +539,11 @@ helpers only.
 
 ### Stories
 
-- `feature/one-card-grammar-stories` — the story's `issue:` field (parsed, `jira:` read as legacy, the story-tracking template and `POST /api/story` writing it), the ticket → story reverse index, and `storyCardFacts` with its ticket and plans in `lineage` and progress as delivered out of total; the Stories board renders through the shared `<Card>` <!-- builds: storyCardFacts projection and the story issue field -->
+- `feature/one-card-grammar-stories` — the story's `issue:` field and its validator (`jira:` read as legacy, the story-tracking template and `/api/story`'s brief writing it, `Tracker: jira` project keys), the ticket → story index from `origin/<default>`, `storyCardFacts`, `POST /api/story-plan` for *Add plan*, the `StoryModal` link fix, and the Stories lanes rendering through `<Card>` <!-- builds: storyCardFacts projection, the story issue field and the story-plan endpoint -->
 
 ### Tickets
 
-- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan and the story that answer a ticket and `next` offering only the creates its lineage lacks; `POST /api/idea` still takes only the issue number and the server derives the story, so *Create plan* on a ticket inside a story writes the plan's `Story:`; the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
+- `feature/one-card-grammar-tickets` — `ticketCardFacts` in `discovery-lanes.ts` (moved out of the browser), `TicketPlan` gaining `slug`, `title` and `story`, `/api/idea`'s click-time story derivation and refusals, a new `TicketModal`, and the Tickets lanes rendering through `<Card>` <!-- builds: ticketCardFacts projection and TicketModal -->
 
 The Tickets slice follows the Stories slice rather than running beside it: its
 *a story, no plan* row needs the ticket → story index that Stories builds, and a
@@ -438,6 +552,10 @@ exactly as today.
 
 ## Notes
 
+- 2026-11-06: The panel (round 5) returned a unanimous *amend*; the author chose
+  to grow the plan rather than narrow the Spec, so the Spec now builds a
+  `TicketModal` and a `POST /api/story-plan` endpoint, and addresses the six
+  blocking findings and the should-fixes in `.plot/panels/2026-11-06-one-card-grammar/spec-panel.md`.
 - Earlier card work this builds on, all Released: `2026-10-14-the-discovery-ticket-card-shows-its`
   (number, state, age), `2026-10-15-discovery-and-planning-cards-show-the` (type,
   owner), `2026-10-15-discovery-story-cards-read-invalid-date` (dates, quoting).
