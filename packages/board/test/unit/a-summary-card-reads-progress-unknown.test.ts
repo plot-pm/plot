@@ -16,3 +16,23 @@ describe('a card built from its summary never reads unmeasured progress as zero'
   });
 
 });
+
+describe('a story or sprint list that could not be read', () => {
+  const fields = (over: Partial<Card> = {}) => ({
+    slug: 'p', title: 'P', type: 'feature', phase: 'Development', path: 'docs/plans/2026-11-06-p.md',
+    prs: [], issues: [], phaseDate: '',
+    controls: { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null },
+    story: 's', sprint: 'sp', ...over,
+  });
+
+  it('reads as unknown, never as a story or sprint with no file', () => {
+    const facts = planFactsOf(fields(), { stories: null, sprints: null });
+    expect(facts.lineage.stories).toEqual({ unknown: 'failed' });
+    expect(facts.lineage.sprints).toEqual({ unknown: 'failed' });
+  });
+
+  it('an absent list still reads as read and holding no file for the name', () => {
+    const facts = planFactsOf(fields());
+    expect(facts.lineage.stories).toEqual({ value: [{ kind: 'story', slug: 's', title: 's', status: null, archived: false }] });
+  });
+});

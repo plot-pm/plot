@@ -111,8 +111,8 @@ export const planFactsOf = (card: CardFields, extras: PlanFactsExtras = {}): Car
       : extras.spendRead === false
         ? { unknown: 'failed' }
         : { value: { ...cost, fromRuns: cost.fromRuns ?? 0 } },
-    story: card.story ? storyOf(card.story, extras.stories ?? [], extras.archived ?? new Set()) : null,
-    sprint: card.sprint ? sprintOf(card.sprint, extras.sprints ?? []) : null,
+    story: card.story ? storyOf(card.story, extras.stories === undefined ? [] : extras.stories, extras.archived ?? new Set()) : null,
+    sprint: card.sprint ? sprintOf(card.sprint, extras.sprints === undefined ? [] : extras.sprints) : null,
     notPushed: card.notPushed === true,
   }, extras.directory ?? {});
 };
