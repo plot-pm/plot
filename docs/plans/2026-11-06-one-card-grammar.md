@@ -429,7 +429,7 @@ helpers only.
 
 ### Tickets
 
-- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan and the story that answer a ticket and `next` offering only the creates its lineage lacks; `POST /api/idea` still takes only the issue number and the server derives the story, so *Create plan* on a ticket inside a tory writes the plan's `Story:`; the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
+- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan and the story that answer a ticket and `next` offering only the creates its lineage lacks; `POST /api/idea` still takes only the issue number and the server derives the story, so *Create plan* on a ticket inside a story writes the plan's `Story:`; the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
 
 The Tickets slice follows the Stories slice rather than running beside it: its
 *a story, no plan* row needs the ticket → story index that Stories builds, and a
