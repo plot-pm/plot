@@ -37,7 +37,7 @@ const row = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
   url: 'u',
   headSha: HEAD,
   checksSha: HEAD,
-  ciChecks: 'none',
+  ciChecks: 'green',
   plotReview: 'success',
   plotReviewSha: HEAD,
   ...over,
@@ -132,7 +132,7 @@ describe('releaseTick', () => {
     expect(first.notified).toBe('sent');
     expect(sent[0]).toContain('Sprint sprint-1: a.md.');
     expect(sent[0]).toContain('Outside work: b.md.');
-    const moved = row({ headSha: OLD, plotReviewSha: OLD });
+    const moved = row({ headSha: OLD, checksSha: OLD, plotReviewSha: OLD });
     const second = await releaseTick(ports(moved, log), config, start(), NOW + 60_000);
     expect(second.step).toEqual({ step: 'none', why: 'notified' });
     expect(sent).toHaveLength(1);

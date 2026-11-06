@@ -1,8 +1,10 @@
 import type { Pr } from '../entities/pr.js';
 import type { PrReviewReading } from '../ports/host.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
+import { reportsCiChecks } from '../adapters/host/reports-ci-checks.js';
 import { readsReleaseHead } from '../adapters/host/release-head-backend.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
+import { ciCounted } from '../rules/release-checks-counted.js';
 import { releaseHeadVerdict, type ReleaseHeadReading } from '../rules/release-head.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { type MergePorts, type MergeRefusal, mergeAt } from './merge.js';
@@ -16,7 +18,14 @@ const short = (sha: string | undefined): string =>
  * Why `releaseApprove` refused. Each is the end of the action: nothing
  * merges, and no caller retries with the pin dropped.
  */
-export type ReleaseApproveRefusal = 'unattended' | 'unaskable' | 'not-release-pr' | 'head-moved' | 'review-missing' | 'release-head-foreign';
+export type ReleaseApproveRefusal =
+  | 'unattended'
+  | 'unaskable'
+  | 'not-release-pr'
+  | 'head-moved'
+  | 'review-missing'
+  | 'checks-missing'
+  | 'release-head-foreign';
 
 /** What `releaseApprove` reads. Every reading is the host's, taken fresh for this call. */
 export interface ReleaseApproveReadings {
@@ -32,6 +41,12 @@ export interface ReleaseApproveReadings {
    * never folded from the checks rollup. `'unaskable'` where the read failed.
    */
   readonly review: PrReviewReading | 'unaskable';
+  /**
+   * Whether the PR's CI-only rollup is asked of this host. `false` on a host
+   * whose `pr-state` carries none (Bitbucket, Jenkins), where `checks-missing`
+   * does not apply.
+   */
+  readonly ciAsked: boolean;
   /**
    * What the pinned head changes against its merge base with the default
    * branch, read at the pinned sha and never at the branch name. Absent where
@@ -72,6 +87,9 @@ export interface ReleaseApproveDetail {
  * A PR the host already holds merged on a release branch decides with
  * `alreadyMerged`, and no review or head is asked of it.
  *
+ * Refuses `checks-missing` where the head's CI-only rollup is not a counted
+ * success; see {@link ciCounted}. Skipped where the host reports no such rollup.
+ *
  * @param readings - the host's PR answer and the review reading.
  * @param input - the PR, the head commit the caller read, and the sha floor.
  * @returns a decision, or the first refusal, naming the reading it saw.
@@ -107,6 +125,9 @@ export const releaseApprove = (
         ? `'plot/review' names ${short(review.sha)}, not the head ${short(head)}`
         : `'plot/review' reads '${review.state}'`;
     return no('review-missing', `${seen} for PR #${input.pr}. Run the review on this head, then approve again.`);
+  }
+  if (readings.ciAsked && !(ciCounted(pr.ciChecks) && pr.checksSha === head)) {
+    return no('checks-missing', `the CI checks the merge counts read '${pr.ciChecks ?? 'unreported'}' on ${short(pr.checksSha)} for PR #${input.pr}, head ${short(head)}. 'plot/review' alone satisfies no required check; a CI check must succeed on this head.`);
   }
   if (readings.head !== undefined) {
     const verdict = releaseHeadVerdict(readings.head);
@@ -161,6 +182,7 @@ export const releaseApproveAt = async (
       caller: ports.caller,
       pr: asked?.[0].ok ? asked[0].value : 'unaskable',
       review: asked?.[1].ok ? asked[1].value : 'unaskable',
+      ciAsked: asked?.[2].ok === true && reportsCiChecks(asked[2].value),
       ...(changes === null ? {} : { head: changes.ok ? changes.value : 'unaskable' as const }),
     },
     { pr, sha, minHexLen: minHexLenFor(asked?.[2].ok ? asked[2].value : '') },

@@ -1,6 +1,7 @@
 import type { PrIndexRow } from '../entities/pr-index.js';
 import type { RunLogLine } from '../ports/run-log.js';
 import { planSlug } from './auto-dispatch.js';
+import { ciCounted } from './release-checks-counted.js';
 import { releaseHeadVerdict, type ReleaseHeadReading } from './release-head.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { ReviewRunReading } from './slice-pr-next.js';
@@ -228,7 +229,9 @@ export const releaseStage = (readings: ReleasePrepareReadings): ReleaseStage => 
   const green = requiredChecks(readings.checks, readings.config.requiredWorkflow) === 'green';
   const head = readings.headChanges === null ? null : releaseHeadVerdict(readings.headChanges).read;
   if (head === 'foreign') return 'release-head-foreign';
-  return green && reviewPassed(pr) && (head === null || head === 'clean') ? 'ready' : 'preparing';
+  return green && reviewPassed(pr) && ciCounted(pr.ciChecks) && pr.checksSha === pr.headSha && (head === null || head === 'clean')
+    ? 'ready'
+    : 'preparing';
 };
 
 /**
