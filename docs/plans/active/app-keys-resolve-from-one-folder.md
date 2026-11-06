@@ -1,0 +1,1 @@
+../2026-11-06-app-keys-resolve-from-one-folder.md
