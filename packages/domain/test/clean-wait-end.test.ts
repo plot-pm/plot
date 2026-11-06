@@ -18,6 +18,7 @@ const endingReadings = (over: Partial<EndingActionReadings> = {}): EndingActionR
   commitBeyondClaim: 'no',
   prOpen: false,
   dirtyTree: 'no',
+  unpushedCommits: 'none',
   prMerged: 'merged',
   endingAsked: false,
   blockedMarker: false,
