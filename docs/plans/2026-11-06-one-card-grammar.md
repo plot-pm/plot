@@ -9,7 +9,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Design:** 2026-11-06, jwloka, cli
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -68,11 +68,25 @@ reader, no row numbers, no icons, no order on screen:
 
   | Facet | Answers | Holds | Absent means |
   |---|---|---|---|
-  | `identity` | what is it? | kind (`ticket` · `story` · `plan`), number, title, alerts as typed kinds | — always present |
+  | `identity` | what is it? | kind (`ticket` · `story` · `plan`), number, title, the item's own reference that *open* resolves to, alerts as typed kinds | — always present |
   | `lineage` | what is it part of? | references to the related ticket, story, plans and sprints, each as kind + id + phase | that relation does not exist — never a placeholder value |
   | `progress` | how far is it? | done / total and the unit (`slices`, `plans`), plus PR counts by check state | nothing was measured |
-  | `next` | what can be done now? | one action kind, `enabled`, and when disabled a typed reason with its subject (`waits-on` #3105) | no action belongs here |
+  | `next` | what can be done now? | one primary action kind, `enabled`, and when disabled a typed reason with its subject (`waits-on` #3105); then the secondary action kinds this item offers | no action belongs here |
   | `ownership` | whose, since when? | owner handle, last change, source reference (`repo#N` or plan path) | — always present |
+
+  **Absent and unknown are different values, and the schema keeps them apart.**
+  Every fact the board reads from somewhere that can fail to answer — a PR's
+  checks, a host lookup, a merge state — is either a value or `unknown` with the
+  reason it was not read (`throttled`, `not-asked`, `unreadable`). Absent means the
+  board read and nothing is there; `unknown` means it did not read. The same
+  invariant as *the index never says no*: a throttled host must never make a card
+  read as finished, unstarted or check-free. `checks not asked` and `not measured
+  here` on today's plan cards are this distinction, rendered as noise.
+
+  **Opening is not an action.** It is a property of `identity`: every item opens to
+  the board's own detail view of that item — ticket, story and plan alike — and
+  the detail view links out to the host issue, the PR or the plan file. `next`
+  holds only actions that change something.
 
 - **`docs/domain/card-grammar.md`** — the vocabulary: *card grammar*, the five
   facet names, *lineage*, *progress*, *next*, and the alert and reason kinds. Code
@@ -118,6 +132,23 @@ neither is rewritten for a card this plan has not reached yet.
   is a ranking the reader cannot see, and a detail-drawer-only list was rejected
   because it takes the reader off the board for the most common question about
   a PR list: is anything red?
+- **Every card opens and acts the same way.** The title is the card's only open
+  link, on every board, so no card carries a separate *Open* word and none opens
+  on a click anywhere — Stories' whole-card button goes, because an action nested
+  inside a clickable card is a trap for keyboard and screen-reader users. Below
+  the facts sits one action row: the primary action from `next` first, styled as
+  the primary, then the secondary actions as text links in a fixed order per
+  kind. A disabled primary stays visible with its reason beside it (*Start work —
+  waits on #3105*); a disabled secondary is omitted. A ticket's *Create plan* /
+  *Create story* pair and a plan's *Approve* / *Interrogate* pair both become one
+  primary plus secondaries in that row.
+- **An unknown fact shows one muted word in its own place** — *6 PRs · checks
+  unknown*, never *0 failing* and never nothing. Absent facts are omitted.
+- **No meaning by colour alone.** Emphasis may use colour, but every alert, check
+  state and disabled reason also carries text, in both themes. Each card is one
+  focus group in a fixed tab order — title link, primary action, secondaries,
+  then expanders — and each expander is a `<button>` with `aria-expanded`. The
+  mapping's tests assert the text exists; the browser test asserts the tab order.
 - **One `<Card>` component** renders that mapping on all three boards; one browser
   test per board proves it shows what the mapping returned.
 
@@ -221,19 +252,68 @@ _To be filled in during Design._
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Which facet is visually strongest per board?", "a": "Per board: Tickets lineage, Stories progress, Plans next; positions identical", "category": "ux"},
-    {"q": "Where is the line between a domain fact and a UI word?", "a": "Second-UI test; existing domain phrases migrate when their card is touched", "category": "technical"},
-    {"q": "How do long lists collapse?", "a": "Count plus inline expand", "category": "ux"},
-    {"q": "Which card does the tracer prove the grammar on?", "a": "Plans board", "category": "tradeOffs"}
+    {
+      "q": "Which facet is visually strongest per board?",
+      "a": "Per board: Tickets lineage, Stories progress, Plans next; positions identical",
+      "category": "ux"
+    },
+    {
+      "q": "Where is the line between a domain fact and a UI word?",
+      "a": "Second-UI test; existing domain phrases migrate when their card is touched",
+      "category": "technical"
+    },
+    {
+      "q": "How do long lists collapse?",
+      "a": "Count plus inline expand",
+      "category": "ux"
+    },
+    {
+      "q": "Which card does the tracer prove the grammar on?",
+      "a": "Plans board",
+      "category": "tradeOffs"
+    },
+    {
+      "q": "How are actions presented consistently on every card?",
+      "a": "Title is the open link; one action row: primary from next, then secondaries in fixed order",
+      "category": "ux"
+    },
+    {
+      "q": "Where does open take the reader?",
+      "a": "The board's own detail view for every kind; detail links out to host",
+      "category": "ux"
+    },
+    {
+      "q": "How does a card show a fact it could not read?",
+      "a": "CardFacts separates absent from unknown; unknown shows one muted word in its facet",
+      "category": "domain"
+    },
+    {
+      "q": "What accessibility bar do cards meet?",
+      "a": "No meaning by colour alone; one focus group per card; expanders are buttons with aria-expanded",
+      "category": "ux"
+    }
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": true, "architecture": true, "implementation": false},
+    "technical": {
+      "stack": true,
+      "architecture": true,
+      "implementation": false
+    },
     "domain": true,
-    "ux": {"happyPath": true, "edgeCases": false, "errors": false, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "ux": {
+      "happyPath": true,
+      "edgeCases": true,
+      "errors": true,
+      "accessibility": true
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": false,
+      "scalability": false
+    },
     "tradeOffs": true
   }
 }
