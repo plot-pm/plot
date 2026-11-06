@@ -606,8 +606,15 @@ export function App() {
    * has already been narrowed to non-null, and a nullable variable would carry
    * that null into props that do not accept one.
    */
-  const withEffectiveDispatch = (b: Board): Board =>
-    dispatchInfo ? { ...b, dispatch: dispatchInfo } : b;
+  const withEffectiveDispatch = (b: Board): Board => ({
+    ...b,
+    ...(dispatchInfo ? { dispatch: dispatchInfo } : {}),
+    // The card's other controls read the board the same way, so a frozen page
+    // dims them here too: Approve, Interrogate and Deliver, as the rows are.
+    ...(approveInfo ? { approve: approveInfo } : {}),
+    ...(interrogateInfo ? { interrogate: interrogateInfo } : {}),
+    deliver: deliverInfo,
+  });
 
   /**
    * The SAME treatment for approving, and it travels to the Delivery tab.
@@ -624,6 +631,11 @@ export function App() {
   const approveInfo = dimmed
     ? { available: false, reason: BLOCKED_REASON }
     : board?.approve;
+
+  /** Interrogate, dimmed on a frozen page by the same rule; it starts a panel agent. */
+  const interrogateInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.interrogate;
 
   /**
    * The SAME treatment again for continuing an answered agent.
