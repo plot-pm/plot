@@ -97,7 +97,7 @@ const REVIEW_CONTEXT_FIELD = /(?:^|\s)(?:-[fF]\s*|--(?:raw-)?field(?:\s+|=))['"]
 export const writesReviewStatus = (command: string): boolean => {
   const text = withoutComments(command);
   const words = withoutQuotes(text);
-  if (runsNamed(command, 'plot-host.sh') && /\bcommit-status\b[^\n;&|]*\bplot\/review\b/.test(text)) return true;
+  if (callsCommitStatus(command) && /\bcommit-status\b[^\n;&|]*\bplot\/review\b/.test(text)) return true;
   return runsNamed(command, 'gh') && /\bapi\b/.test(words) && /\bstatuses\/[^\s'"]+/.test(text) && REVIEW_CONTEXT_FIELD.test(text);
 };
 
