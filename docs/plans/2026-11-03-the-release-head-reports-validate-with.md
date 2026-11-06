@@ -51,6 +51,10 @@ Taken by the person (jwloka) on 2026-11-06, after the record:
 6. **Outcome B, candidate (a): the status relay.** The 2.31.0 record reads Outcome B. Candidate (b) needs a new App and secret and a measurement of its own, because GitHub may hold a `pull_request` run on an App-authored PR as well. Decision 3 and the Outcome A slice do not apply.
 7. **The relay is a new workflow on `workflow_run` of `CI`, not a final job in `ci.yml`.** A `workflow_run` workflow runs its file from `main`, which the ruleset protects; a final `ci.yml` job on the `workflow_dispatch` event runs the file from the unprotected `changeset-release/main`, where the release commit's author could change it. The relay acts only on a completed `CI` run whose event is `workflow_dispatch`, under the constraints in `### Candidate mechanisms`.
 
+Taken by the person (jwloka) on 2026-11-06, after the first release head with the relay:
+
+8. **The relay runs inside `release.yml`, not on `workflow_run`.** Measured on 2.31.0 head `ce1ef4a1`: the dispatched `CI` run 42288492530 completed `success` at 20:40:35Z and started no `Release validate relay` run; the only relay run, 42290352662, came from the push run on `main` and skipped. `dispatch-ci` starts `CI` with `GITHUB_TOKEN` (triggering actor `github-actions[bot]`), and GitHub starts no workflow run from an event that token caused, except `workflow_dispatch` and `repository_dispatch`. A new job in `release.yml`, after `dispatch-ci`, waits for the dispatched run on the pinned head and writes the `validate` status. `release.yml` runs from `main` on a push, so Decision 7's reason holds. Dispatching with an App token instead was the rejected alternative: it adds a key secret to Actions and breaks the relay's own `github-actions[bot]` actor check.
+
 ### Scope
 
 GitHub only. The changesets action, the `action_required` hold and ruleset `24412719` have no Bitbucket or Jenkins arm. Bitbucket and Jenkins are out of scope: a new host reading answers `unaskable` there, and `release-approve` keeps its current behaviour on those hosts.
@@ -155,7 +159,7 @@ This plan is delivered only after this record exists. It also closes #3070's lin
 
 - [x] What does the 2.31.0 measurement record? Outcome B, recorded under `### Measurement` on 2026-11-06.
 - [x] Under Outcome B, which candidate does the person choose: (a) the relay or (b) the non-bypass token? (a), as a `workflow_run` workflow (Decisions 6 and 7).
-- [ ] Does GitHub start a `workflow_run` workflow for a dispatched run on the release head without holding it? The live proof answers it on the first release head after the slice merges.
+- [x] Does GitHub start a `workflow_run` workflow for a dispatched run on the release head without holding it? No: it starts none, because `GITHUB_TOKEN` started the dispatched run (Decision 8, measured on head `ce1ef4a1` on 2026-11-06).
 - [x] Does `mergeStateStatus` read `BLOCKED` for a viewer with bypass `always`? Yes: `jwloka` read `BLOCKED` at Reading 1 and `CLEAN` at Reading 2 on the same head.
 
 ## Slices
@@ -163,6 +167,10 @@ This plan is delivered only after this record exists. It also closes #3070's lin
 ### Relay
 
 - `feature/the-release-head-gets-validate` — a new workflow on `workflow_run` of `CI` that copies a completed dispatched run's result to a `validate` commit status on the pinned release head with `GITHUB_TOKEN`, under the constraints of candidate (a); the contract test from `### Tests`; the comment corrections in `### Docs and comments` <!-- builds: the release status relay workflow --> → #3209
+
+### Relay in the release workflow
+
+- `bug/the-release-run-relays-validate` — a job in `release.yml` after `dispatch-ci` that waits, bounded, for the dispatched `CI` run on the pinned head and writes its result as the `validate` commit status with `GITHUB_TOKEN`, carrying over the relay's pin and run checks from `release-validate-relay.yml`; remove `release-validate-relay.yml`; update the comments at `release.yml:150-155` and the contract test from `### Tests` (Decision 8) <!-- builds: the release run's validate relay job -->
 
 ## Notes
 
