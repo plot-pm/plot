@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3072
@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3074 merged
 - **Started:** 2026-11-06, Jan Wloka, `feature/pr-review-accepts-a-plot-review`
 - **Started:** 2026-11-06, Jan Wloka, `feature/the-review-status-has-one-writer`
+- **Delivered:** 2026-11-06
 
 ## Changelog
 
