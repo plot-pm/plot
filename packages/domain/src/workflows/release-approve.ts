@@ -20,6 +20,7 @@ const short = (sha: string | undefined): string =>
  */
 export type ReleaseApproveRefusal =
   | 'unattended'
+  | 'person-unproven'
   | 'unaskable'
   | 'not-release-pr'
   | 'head-moved'
@@ -31,6 +32,13 @@ export type ReleaseApproveRefusal =
 export interface ReleaseApproveReadings {
   /** Who is asking for the approval; an unattended caller is refused before anything else is read. */
   readonly caller: Caller;
+  /**
+   * The user-verified passkey assertion behind this call: the credential id of
+   * a verified WebAuthn assertion, or `'none'` where the entrance carries no
+   * assertion. `'none'` refuses `person-unproven` whatever `caller` reads,
+   * because `caller` is read from a process environment any local process can set.
+   */
+  readonly personProof: { readonly credentialId: string } | 'none';
   /**
    * The PR as the host answers now; null where the host holds none, and
    * `'unaskable'` where the host did not answer.
@@ -80,7 +88,7 @@ export interface ReleaseApproveDetail {
  * caller read.
  *
  * Refuses `unattended` before any other reading, the same way `merge` does,
- * and `unaskable` where the host did not answer for the PR.
+ * then `person-unproven` where `readings.personProof` is `'none'`, and `unaskable` where the host did not answer for the PR.
  * Where `readings.head` is present, a head that changes a path or a line the
  * changesets version step does not write refuses `release-head-foreign`, and
  * an empty or unread diff refuses `unaskable`.
@@ -101,6 +109,9 @@ export const releaseApprove = (
   const no = (reason: ReleaseApproveRefusal, detail: string) => refuse('release-approve', reason, detail);
   if (readings.caller === 'unattended') {
     return no('unattended', `an unattended caller does not approve release PR #${input.pr}. Approval is reviewed as an action, and this one had no reviewer.`);
+  }
+  if (readings.personProof === 'none') {
+    return no('person-unproven', `release PR #${input.pr} is approved with a passkey, and this call carries no verified assertion. Approve it with the release row's button on the board; nothing was merged.`);
   }
   const { pr } = readings;
   if (pr === 'unaskable') {
@@ -152,7 +163,8 @@ export type ReleaseApproveResult =
 /**
  * Approves a release PR at the head commit the person read, merges it, or refuses.
  *
- * An unattended caller is refused before any host read. Otherwise the PR and its
+ * An unattended caller, and a call with no verified passkey assertion, are
+ * refused before any host read. Otherwise the PR and its
  * `plot/review` reading are asked of the host fresh, never from the PR index. On
  * a pass the merge goes through {@link mergeAt}, so its pin, check, review and
  * default-branch rules apply unchanged. A PR the host already holds merged skips
@@ -161,6 +173,7 @@ export type ReleaseApproveResult =
  * @param ports - the ports {@link mergeAt} takes.
  * @param pr - the PR number.
  * @param sha - the head commit the person read the review for.
+ * @param personProof - the credential id of the verified assertion, or `'none'`.
  * @returns the approval, or the refusal naming its reason; `host-refused`
  *   carries the host's own words.
  */
@@ -168,10 +181,11 @@ export const releaseApproveAt = async (
   ports: MergePorts,
   pr: number,
   sha: string,
+  personProof: ReleaseApproveReadings['personProof'],
 ): Promise<ReleaseApproveResult> => {
   const refusedAs = (reason: ReleaseApproveRefusal | MergeRefusal | 'host-refused', detail: string): ReleaseApproveResult =>
     ({ approved: false, reason, detail });
-  const asked = ports.caller === 'unattended'
+  const asked = ports.caller === 'unattended' || personProof === 'none'
     ? null
     : await Promise.all([ports.host.prState(pr), ports.host.prReview(pr), ports.host.backend()]);
   // Only a host that answered with another backend skips the read; a failed backend answer still reads the head.
@@ -180,6 +194,7 @@ export const releaseApproveAt = async (
   const out = releaseApprove(
     {
       caller: ports.caller,
+      personProof,
       pr: asked?.[0].ok ? asked[0].value : 'unaskable',
       review: asked?.[1].ok ? asked[1].value : 'unaskable',
       ciAsked: asked?.[2].ok === true && reportsCiChecks(asked[2].value),

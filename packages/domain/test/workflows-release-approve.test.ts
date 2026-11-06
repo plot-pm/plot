@@ -40,8 +40,11 @@ const review = (over: Partial<PrReviewReading> = {}): PrReviewReading => ({
   ...over,
 });
 
+const PROOF = { credentialId: 'cred-1' } as const;
+
 const readings = (over: Partial<ReleaseApproveReadings> = {}): ReleaseApproveReadings => ({
   caller: 'person',
+  personProof: PROOF,
   pr: pr(),
   review: review(),
   ciAsked: true,
@@ -132,6 +135,24 @@ describe('releaseApprove — the controller for a release PR approval', () => {
   });
 });
 
+describe('releaseApprove — the passkey proof', () => {
+  it('refuses person-unproven for a person caller with no proof', () => {
+    expect(refusalOf(readings({ personProof: 'none' }))).toBe('person-unproven');
+  });
+
+  it('refuses unattended before person-unproven', () => {
+    expect(refusalOf(readings({ caller: 'unattended', personProof: 'none' }))).toBe('unattended');
+  });
+
+  it('refuses person-unproven before any host reading is looked at', () => {
+    expect(refusalOf(readings({ personProof: 'none', pr: 'unaskable' }))).toBe('person-unproven');
+  });
+
+  it('passes a person caller with a proof to the merge', () => {
+    expect(refusalOf(readings())).toBe('decided');
+  });
+});
+
 describe('releaseApprove — the release head provenance', () => {
   it('passes a head holding only the version step\'s changes', () => {
     expect(refusalOf(readings({ head: VERSION_STEP }))).toBe('decided');
@@ -197,69 +218,76 @@ describe('releaseApproveAt — the workflow wired to its ports', () => {
 
   it('merges a reviewed release PR pinned to the head the person read', async () => {
     const { p, calls } = ports(pr());
-    expect(await releaseApproveAt(p, 42, HEAD)).toEqual({ approved: true, pr: 42, sha: HEAD, alreadyMerged: false });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toEqual({ approved: true, pr: 42, sha: HEAD, alreadyMerged: false });
     expect(calls).toEqual([['pr-merge', '42', '--match-head', HEAD]]);
   });
 
   it('reads the diff at the pinned sha and merges a clean head', async () => {
     const { p, diffed } = ports(pr());
-    expect((await releaseApproveAt(p, 42, HEAD)).approved).toBe(true);
+    expect((await releaseApproveAt(p, 42, HEAD, PROOF)).approved).toBe(true);
     expect(diffed).toEqual([HEAD]);
   });
 
   it('refuses a foreign head with no host write', async () => {
     const { p, calls } = ports(pr(), review(), { ok: true, value: [edit('.github/workflows/ci.yml', 'a', 'b')] });
-    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'release-head-foreign' });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toMatchObject({ approved: false, reason: 'release-head-foreign' });
     expect(calls).toEqual([]);
   });
 
   it('refuses where the diff read failed, with no host write', async () => {
     const { p, calls } = ports(pr(), review(), { ok: false, why: 'unaskable' });
-    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'unaskable' });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toMatchObject({ approved: false, reason: 'unaskable' });
     expect(calls).toEqual([]);
   });
 
   it('keeps its behaviour on a host with no release workflows: no diff is read', async () => {
     const { p, diffed } = ports(pr(), review(), { ok: false, why: 'unaskable' }, 'bitbucket');
-    expect((await releaseApproveAt(p, 42, HEAD)).approved).toBe(true);
+    expect((await releaseApproveAt(p, 42, HEAD, PROOF)).approved).toBe(true);
     expect(diffed).toEqual([]);
   });
 
   it('refuses an unattended caller before any host read', async () => {
     const { p, reads, calls } = ports(pr());
     p.caller = 'unattended';
-    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'unattended' });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toMatchObject({ approved: false, reason: 'unattended' });
+    expect(reads).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a person caller with no passkey proof before any host read', async () => {
+    const { p, reads, calls } = ports(pr());
+    expect(await releaseApproveAt(p, 42, HEAD, 'none')).toMatchObject({ approved: false, reason: 'person-unproven' });
     expect(reads).toEqual([]);
     expect(calls).toEqual([]);
   });
 
   it('refuses a head that moved after the person read it, with no host write', async () => {
     const { p, calls } = ports(pr({ headSha: OTHER }), review({ sha: OTHER }));
-    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'head-moved' });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toMatchObject({ approved: false, reason: 'head-moved' });
     expect(calls).toEqual([]);
   });
 
   it('refuses a review recorded on an older sha, with no host write', async () => {
     const { p, calls } = ports(pr({ headSha: OTHER }), review({ sha: HEAD }));
-    expect(await releaseApproveAt(p, 42, OTHER)).toMatchObject({ approved: false, reason: 'review-missing' });
+    expect(await releaseApproveAt(p, 42, OTHER, PROOF)).toMatchObject({ approved: false, reason: 'review-missing' });
     expect(calls).toEqual([]);
   });
 
   it('refuses a PR that is not a release PR, with no host write', async () => {
     const { p, calls } = ports(pr({ head: 'feature/x' }));
-    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'not-release-pr' });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toMatchObject({ approved: false, reason: 'not-release-pr' });
     expect(calls).toEqual([]);
   });
 
   it('skips the merge for a release PR the host already holds merged', async () => {
     const { p, calls } = ports(pr({ state: 'MERGED' }));
-    expect(await releaseApproveAt(p, 42, HEAD)).toEqual({ approved: true, pr: 42, sha: HEAD, alreadyMerged: true });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toEqual({ approved: true, pr: 42, sha: HEAD, alreadyMerged: true });
     expect(calls).toEqual([]);
   });
 
   it('carries the merge refusal through when merge holds the PR', async () => {
     const { p, calls } = ports(pr({ checks: 'failing', checksSha: HEAD }));
-    expect(await releaseApproveAt(p, 42, HEAD)).toMatchObject({ approved: false, reason: 'checks-not-green' });
+    expect(await releaseApproveAt(p, 42, HEAD, PROOF)).toMatchObject({ approved: false, reason: 'checks-not-green' });
     expect(calls).toEqual([]);
   });
 
