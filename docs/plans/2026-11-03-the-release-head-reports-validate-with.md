@@ -43,6 +43,11 @@ Taken by the person (jwloka) on 2026-11-03:
 4. **This plan takes over the tasks of #3070's removed CI slice:** the comment corrections at `.github/workflows/ci.yml:30-33` and `.github/workflows/release.yml:141-159`, the CI tests and the live proof.
 5. **Order:** the measurement record first, as a person step recorded before approval. Then exactly one build slice, for the outcome measured. This plan stays Draft until the record exists.
 
+Taken by the person (jwloka) on 2026-11-06, after the record:
+
+6. **Outcome B, candidate (a): the status relay.** The 2.31.0 record reads Outcome B. Candidate (b) needs a new App and secret and a measurement of its own, because GitHub may hold a `pull_request` run on an App-authored PR as well. Decision 3 and the Outcome A slice do not apply.
+7. **The relay is a new workflow on `workflow_run` of `CI`, not a final job in `ci.yml`.** A `workflow_run` workflow runs its file from `main`, which the ruleset protects; a final `ci.yml` job on the `workflow_dispatch` event runs the file from the unprotected `changeset-release/main`, where the release commit's author could change it. The relay acts only on a completed `CI` run whose event is `workflow_dispatch`, under the constraints in `### Candidate mechanisms`.
+
 ### Scope
 
 GitHub only. The changesets action, the `action_required` hold and ruleset `24412719` have no Bitbucket or Jenkins arm. Bitbucket and Jenkins are out of scope: a new host reading answers `unaskable` there, and `release-approve` keeps its current behaviour on those hosts.
@@ -146,10 +151,15 @@ This plan is delivered only after this record exists. It also closes #3070's lin
 ### Open Questions
 
 - [x] What does the 2.31.0 measurement record? Outcome B, recorded under `### Measurement` on 2026-11-06.
-- [ ] Under Outcome B, which candidate does the person choose: (a) the relay or (b) the non-bypass token?
+- [x] Under Outcome B, which candidate does the person choose: (a) the relay or (b) the non-bypass token? (a), as a `workflow_run` workflow (Decisions 6 and 7).
+- [ ] Does GitHub start a `workflow_run` workflow for a dispatched run on the release head without holding it? The live proof answers it on the first release head after the slice merges.
 - [x] Does `mergeStateStatus` read `BLOCKED` for a viewer with bypass `always`? Yes: `jwloka` read `BLOCKED` at Reading 1 and `CLEAN` at Reading 2 on the same head.
 
 ## Slices
+
+### Relay
+
+- `feature/the-release-head-gets-validate` — a new workflow on `workflow_run` of `CI` that copies a completed dispatched run's result to a `validate` commit status on the pinned release head with `GITHUB_TOKEN`, under the constraints of candidate (a); the contract test from `### Tests`; the comment corrections in `### Docs and comments` <!-- builds: the release status relay workflow -->
 
 ## Notes
 
