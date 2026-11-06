@@ -151,8 +151,12 @@ jobs:
   # THE DISPATCH ALONE DOES NOT LIFT `BLOCKED`. Measured on 2.31.0 (PR #3080,
   # 2026-11-06): the dispatched run completed `success` and `mergeStateStatus`
   # still read `BLOCKED` until a person approved the held `pull_request` run.
-  # `release-validate-relay.yml` copies the dispatched result to a `validate`
-  # commit status on the pinned head.
+  # The `relay-validate` job below copies the dispatched result to a `validate`
+  # commit status on the pinned head. A `workflow_run` relay was tried first and
+  # never fired: the dispatched run 42288492530 on 2.31.0 head `ce1ef4a1`
+  # completed `success` at 2026-11-06T20:40:35Z and started no relay run,
+  # because `dispatch-ci` dispatches with `GITHUB_TOKEN` and GitHub starts no
+  # `workflow_run` from an event that token caused.
   #
   # ITS OWN JOB, AND THAT IS THE POINT. `actions: write` lives here and nowhere
   # else — the `release` job publishes to npm and runs `create-release.sh`, so
@@ -184,6 +188,110 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref changeset-release/main \
             -f expected_sha="$HEAD_SHA"
+
+  # ── Copy the dispatched result to the `validate` status ───────────────────
+  #
+  # Runs in this file because this file runs from `main` on a `push`, which the
+  # ruleset protects, so a release commit's author cannot edit it. It is not a
+  # job in `ci.yml` for the same reason: that file runs from the unprotected
+  # `changeset-release/main`.
+  #
+  # The pin is `needs.release.outputs.head_sha`, the local ref `changesets/action`
+  # just pushed. The remote branch is never read here. The dispatched run's own
+  # guard lives on the unprotected branch, so this job compares the run's
+  # `head_sha` to the pin itself.
+  #
+  # BOUNDS. The run appears a few seconds after `gh workflow run` returns, so the
+  # lookup polls for 120 s. The dispatched `validate` job has
+  # `timeout-minutes: 25` and the run may queue first, so the wait for
+  # `completed` is bounded at 33 min and the job at 40 min. This file's
+  # concurrency group has `cancel-in-progress: false`, so a wait holds the next
+  # release run in the queue for up to that long.
+  #
+  # A FAILED RELAY FAILS THIS JOB AND SO THE RELEASE RUN: it is the only signal
+  # that the release PR carries no `validate`. No error is swallowed. A red `CI`
+  # result is not a failure here: it is copied as the status and the job exits 0.
+  #
+  # Not named `validate`: a check run of that name from this workflow would be a
+  # second `validate` source.
+  relay-validate:
+    needs: [release, dispatch-ci]
+    if: ${{ needs.release.outputs.pr_number }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      statuses: write
+    steps:
+      - name: Relay the dispatched result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PINNED_SHA: ${{ needs.release.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$PINNED_SHA" ]; then
+            echo "::error::the release head is unknown"
+            exit 1
+          fi
+
+          # Zero matches inside the appearance window fail, and so do two.
+          FILTER='[.workflow_runs[] | select(.path == ".github/workflows/ci.yml" and .head_sha == "'"$PINNED_SHA"'" and .head_branch == "changeset-release/main" and .actor.login == "github-actions[bot]")]'
+          DEADLINE=$((SECONDS + 120))
+          while :; do
+            RUNS=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha=$PINNED_SHA&per_page=100" --jq "$FILTER")
+            COUNT=$(printf '%s' "$RUNS" | jq 'length')
+            if [ "$COUNT" -gt 1 ]; then
+              echo "::error::expected exactly one dispatched CI run on $PINNED_SHA, found $COUNT"
+              exit 1
+            fi
+            [ "$COUNT" -eq 1 ] && break
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "::error::expected exactly one dispatched CI run on $PINNED_SHA, found 0"
+              exit 1
+            fi
+            sleep 5
+          done
+          RUN_ID=$(printf '%s' "$RUNS" | jq -r '.[0].id')
+
+          DEADLINE=$((SECONDS + 1980))
+          while :; do
+            RUN=$(gh api "repos/$REPO/actions/runs/$RUN_ID")
+            STATUS=$(printf '%s' "$RUN" | jq -r '.status')
+            [ "$STATUS" = "completed" ] && break
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "::error::run $RUN_ID is still $STATUS after 33 minutes; no status written"
+              exit 1
+            fi
+            sleep 20
+          done
+
+          # The run is read again by id, so its head is compared once more.
+          RUN_SHA=$(printf '%s' "$RUN" | jq -r '.head_sha')
+          if [ "$RUN_SHA" != "$PINNED_SHA" ]; then
+            echo "::warning::run $RUN_ID tested $RUN_SHA, not $PINNED_SHA; no status written"
+            exit 0
+          fi
+          CONCLUSION=$(printf '%s' "$RUN" | jq -r '.conclusion')
+          RUN_URL=$(printf '%s' "$RUN" | jq -r '.html_url')
+
+          # A cancelled run is not a result: the release-dispatch concurrency
+          # group cancels a superseded dispatched run.
+          case "$CONCLUSION" in
+            success|failure) ;;
+            *)
+              echo "::notice::conclusion is $CONCLUSION; no status written"
+              exit 0
+              ;;
+          esac
+
+          gh api --method POST "repos/$REPO/statuses/$PINNED_SHA" \
+            -f state="$CONCLUSION" \
+            -f context=validate \
+            -f description="Relayed from the dispatched CI run" \
+            -f target_url="$RUN_URL"
+          echo "validate=$CONCLUSION written for $PINNED_SHA"
 
   board-release-candidate:
     # Publishes @plot-pm/board at the next X.Y.Z-rc.N to the npm `rc` dist-tag,
