@@ -173,6 +173,21 @@ export interface ReviewOutcome {
 
 const refuse = (why: string): ReviewOutcome => ({ code: EXIT.refused, lines: [`plot-review: ${why}`] });
 
+/**
+ * Refuses a run whose PR-state read failed. A failed read is not an absent PR,
+ * so it never says "has no pull request".
+ *
+ * @param deps - the ports; the host's last refusal names the reason.
+ * @param asked - the PR number or branch the run asked about.
+ * @param looked - the failed read.
+ * @returns the refusal naming the host's reason.
+ */
+const unanswered = (deps: ReviewDeps, asked: string, looked: { why: 'failed' } | { why: 'unaskable'; reason?: string }): ReviewOutcome => {
+  const said = looked.why === 'unaskable' ? looked.reason : deps.host.lastRefusal()?.said;
+  const subject = /^[0-9]+$/.test(asked) ? `#${asked}` : asked;
+  return refuse(`the host did not answer the PR state of ${subject}: ${said ?? 'no reason given'}`);
+};
+
 /** `deps.writeText(file, text)` fails with a message naming `file`, instead of throwing. */
 const writeTextOutcome = (deps: ReviewDeps, file: string, text: string): ReviewOutcome | null => {
   try {
@@ -338,7 +353,7 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const asked = ref === '' ? deps.currentBranch : ref;
   if (asked === '') return refuse('no PR number given and the current branch is unknown');
   const looked = await deps.host.prState(asked);
-  if (!looked.ok) return refuse(`the host did not answer for ${asked}`);
+  if (!looked.ok) return unanswered(deps, asked, looked);
   const pr = looked.value;
   if (pr === null) return refuse(`${asked} has no pull request`);
   if (pr.state !== 'OPEN') return refuse(`PR #${pr.number} is ${pr.state}, not open`);
@@ -443,7 +458,7 @@ export const reviewStatusOnly = async (deps: ReviewDeps, ref: string): Promise<R
   const asked = ref === '' ? deps.currentBranch : ref;
   if (asked === '') return refuse('no PR number given and the current branch is unknown');
   const looked = await deps.host.prState(asked);
-  if (!looked.ok) return refuse(`the host did not answer for ${asked}`);
+  if (!looked.ok) return unanswered(deps, asked, looked);
   const pr = looked.value;
   if (pr === null) return refuse(`${asked} has no pull request`);
   if (pr.state !== 'OPEN') return refuse(`PR #${pr.number} is ${pr.state}, not open`);
