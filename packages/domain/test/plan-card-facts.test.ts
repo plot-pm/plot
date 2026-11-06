@@ -152,8 +152,8 @@ describe('planCardFacts: progress', () => {
 
   it('keeps each PR\'s own check reading, unknown included', () => {
     const prs = [
-      { number: 1, branch: 'feature/a', checks: 'green' as const },
-      { number: 2, branch: 'feature/b', checks: 'unknown' as const },
+      { number: 1, branch: 'feature/a', checks: 'green' as const, mergeable: 'mergeable' as const },
+      { number: 2, branch: 'feature/b', checks: 'unknown' as const, mergeable: 'unknown' as const },
     ];
     expect(facts({ prs: { value: prs } }).progress?.prs).toEqual({ value: prs });
   });

@@ -189,11 +189,14 @@ const relationParts = (relation: keyof CardFacts['lineage'], known: Known<Ref[]>
 /** The PR list: one PR reads inline, two or more collapse to counts by check state. */
 const prParts = (prs: NonNullable<CardFacts['progress']>['prs'], plan: string): Part[] => {
   if ('unknown' in prs) return [one(piece(`PRs unknown — ${REACH[prs.unknown]}`, { tone: 'muted', data: { prs: 'unknown' } }))];
-  const items = prs.value.map((pr) => piece(`#${pr.number} ${CHECKS[pr.checks]}`, {
-    tone: pr.checks === 'failing' ? 'warn' : pr.checks === 'unknown' || pr.checks === 'pending' ? 'muted' : 'neutral',
+  const items = prs.value.map((pr) => {
+    const conflicting = pr.checks === 'none' && pr.mergeable === 'conflicting';
+    return piece(`#${pr.number} ${conflicting ? 'no checks — conflicts' : CHECKS[pr.checks]}`, {
+    tone: pr.checks === 'failing' || conflicting ? 'warn' : pr.checks === 'unknown' || pr.checks === 'pending' ? 'muted' : 'neutral',
     ref: { kind: 'slice', plan, branch: pr.branch, pr: pr.number },
     data: { 'pr-checks': '', 'pr-checks-state': pr.checks, 'pr-number': String(pr.number) },
-  }));
+    });
+  });
   if (items.length === 0) return [];
   if (items.length === 1) return [one(items[0])];
   const count = (state: CardPrFact['checks']) => prs.value.filter((pr) => pr.checks === state).length;

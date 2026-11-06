@@ -95,7 +95,9 @@ export const planFactsOf = (card: CardFields, extras: PlanFactsExtras = {}): Car
     slices: extras.slices !== undefined ? extras.slices : slicesOfSummary(card),
     spike: extras.spike ?? null,
     prs: {
-      value: card.prs.map((pr) => ({ number: pr.number, branch: extras.prHeads?.get(pr.number) ?? '', checks: pr.checks })),
+      value: card.prs.map((pr) => ({
+        number: pr.number, branch: extras.prHeads?.get(pr.number) ?? '', checks: pr.checks, mergeable: pr.mergeable,
+      })),
     },
     verification: card.verification ? { state: card.verification.state, refuted: card.verification.refuted } : null,
     cost: cost === undefined || cost.slices === 0

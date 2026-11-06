@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { ChecksSchema } from './pr.js';
+import { ChecksSchema, MergeabilitySchema } from './pr.js';
 import { SprintStateSchema } from './sprint.js';
 import { StoryStatusSchema } from './story.js';
 import { TokenCountsSchema } from './slice-spend.js';
@@ -144,8 +144,10 @@ export const CostReadingSchema = z.object({
 });
 export type CostReading = z.infer<typeof CostReadingSchema>;
 
-/** One pull request of an item, with its own build reading. */
-export const CardPrSchema = z.object({ number: z.number(), branch: z.string(), checks: ChecksSchema });
+/** One pull request of an item, with its own build reading and whether it merges cleanly. */
+export const CardPrSchema = z.object({
+  number: z.number(), branch: z.string(), checks: ChecksSchema, mergeable: MergeabilitySchema,
+});
 export type CardPrFact = z.infer<typeof CardPrSchema>;
 
 /**

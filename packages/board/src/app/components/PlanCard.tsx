@@ -1,6 +1,6 @@
 import type { Card as PlanCardData, DispatchInfo, StoryCard } from '../../contract/schema.js';
 import type { Ref } from '@plot-pm/domain/entities/card-facts';
-import { planRoute } from '@plot-pm/domain';
+import { checksVerdict, planRoute } from '@plot-pm/domain';
 import { storyHref } from '../lib/plan.js';
 import { presentCard, type CardBoard, type PresentedAction } from '../lib/card-presentation.js';
 import { Card, type RefLink } from './Card.js';
@@ -174,8 +174,14 @@ export function PlanCard({
     }
     if (ref.kind === 'slice' && ref.pr !== null) {
       // The host adapter is the only thing that knows a PR's address; no URL, no link.
-      const url = card.prs.find((pr) => pr.number === ref.pr)?.url ?? '';
-      return url ? { href: url, external: true } : null;
+      const pr = card.prs.find((one) => one.number === ref.pr);
+      if (!pr?.url) return null;
+      // The hover keeps the build's whole sentence (the commit it ran against,
+      // a skipped lookup), from the same domain rule the rows read.
+      const { detail } = checksVerdict({
+        checks: pr.checks, mergeable: pr.mergeable, checksSha: pr.checksSha, checksLookup: pr.checksLookup,
+      });
+      return { href: pr.url, external: true, title: detail };
     }
     return null;
   };

@@ -58,7 +58,7 @@ const PieceView = ({ piece, linkFor }: { piece: Piece; linkFor?: CardProps['link
     );
   }
   const link = piece.ref !== null && linkFor ? linkFor(piece.ref) : null;
-  const attrs = dataAttrs(piece.data);
+  const attrs = { ...dataAttrs(piece.data), 'data-tone': piece.tone };
   const className = cn('text-xs', TONE[piece.tone]);
   if (link) {
     return (
