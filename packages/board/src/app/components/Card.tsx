@@ -144,19 +144,31 @@ const LinkView = ({ link, children, className, attrs, title }: {
   </a>
 );
 
-/** A pull request: its number links the PR, its build words link the run where one is known. */
-const PrInline = ({ pr, linkFor, withBranch }: { pr: PrView; linkFor?: LinkFor; withBranch: boolean }) => {
+/**
+ * A pull request: its number links the PR and its build words link the build.
+ * In a popover the branch link follows on a second line, under the number.
+ */
+const PrInline = ({ pr, linkFor, dot, withBranch }: { pr: PrView; linkFor?: LinkFor; dot: ReactNode; withBranch: boolean }) => {
   const prLink = linkFor?.(pr.prRef) ?? null;
   const showBranch = withBranch && pr.branch !== '';
   const branchLink = showBranch ? linkFor?.(pr.branchRef) ?? null : null;
   const buildLink = linkFor?.(pr.prRef, 'build') ?? null;
+  const branch = <span className="font-mono text-[11px] text-(--card-meta)">{pr.branch}</span>;
   return (
-    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5">
-      {prLink ? <LinkView link={prLink} className="tabular-nums" attrs={{ 'data-pr-link': String(pr.number) }}>#{pr.number}</LinkView> : <span className="tabular-nums">#{pr.number}</span>}
-      {showBranch && (branchLink
-        ? <LinkView link={branchLink} className="font-mono text-[11px]" attrs={{ 'data-branch-link': pr.branch }}>{pr.branch}</LinkView>
-        : <span className="font-mono text-[11px]">{pr.branch}</span>)}
-      {buildLink ? <LinkView link={buildLink} attrs={{ 'data-build-link': String(pr.number) }}>{pr.checks}</LinkView> : <span data-build={String(pr.number)}>{pr.checks}</span>}
+    <span className="inline-grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-1.5 gap-y-0.5">
+      {dot ?? <span />}
+      <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5">
+        {prLink ? <LinkView link={prLink} className="tabular-nums" attrs={{ 'data-pr-link': String(pr.number) }}>#{pr.number}</LinkView> : <span className="tabular-nums">#{pr.number}</span>}
+        {buildLink ? <LinkView link={buildLink} attrs={{ 'data-build-link': String(pr.number) }}>{pr.checks}</LinkView> : <span data-build={String(pr.number)}>{pr.checks}</span>}
+      </span>
+      {showBranch && (
+        <>
+          <span />
+          {branchLink
+            ? <LinkView link={branchLink} className="min-w-0 truncate" attrs={{ 'data-branch-link': pr.branch }}>{branch}</LinkView>
+            : <span className="min-w-0 truncate">{branch}</span>}
+        </>
+      )}
     </span>
   );
 };
@@ -177,8 +189,7 @@ const PieceView = ({ piece, linkFor, inPopover = false }: { piece: Piece; linkFo
   if (piece.pr) {
     return (
       <span className={className} {...attrs}>
-        {piece.dot && <DotView h={piece.dot} />}
-        <PrInline pr={piece.pr} linkFor={linkFor} withBranch={inPopover} />
+        <PrInline pr={piece.pr} linkFor={linkFor} dot={piece.dot && <DotView h={piece.dot} />} withBranch={inPopover} />
       </span>
     );
   }
@@ -281,7 +292,7 @@ const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; li
             e.stopPropagation();
             close(true);
           }}
-          className="absolute left-0 top-full z-30 mt-1.5 flex w-max max-w-80 flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none"
+          className="absolute left-0 top-full z-30 mt-1.5 flex w-max max-w-[28rem] flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none"
         >
           <ul className="flex flex-col gap-1.5">
             {part.items.map((item, i) => (
