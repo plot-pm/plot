@@ -37,8 +37,10 @@ import {
   startChannel,
   fleetdStartFile,
   writeProbeShell,
+  appKeyShell,
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
+import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
 import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
 import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
@@ -2640,7 +2642,22 @@ export interface RunSeams {
   readIssueWrites?: () => Promise<void>;
   /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
   notifier?: () => Promise<Notifier>;
+  /** The App key probe at start; reads every declared key through the adapter by default. */
+  probeAppKeys?: (repoRoot: string, scriptsDir: string, write: (line: string) => void) => void;
 }
+
+/**
+ * Reads each declared App key once through the adapter and writes one line per
+ * key that is missing or unreadable.
+ *
+ * @param repoRoot - the checkout whose `## Plot Config` declares the keys.
+ * @param scriptsDir - the directory holding the helper scripts.
+ * @param write - receives each line.
+ */
+const probeAppKeysFor = (repoRoot: string, scriptsDir: string, write: (line: string) => void): void => {
+  const context = { repoRoot, scriptDir: scriptsDir };
+  probeAppKeysAtStart((configKey) => appKeyShell(context, configKey), write);
+};
 
 /**
  * Builds the IndexMonitor's run over the files fleetd writes and the plans it
@@ -2784,6 +2801,14 @@ export const run = async (
     if (!written.ok) warn(`plot-fleetd: could not write fleetd-start.json — spawner status will read unknown\n`);
   } else {
     warn(`plot-fleetd: could not hash ${fleetdBundlePath(here)} — spawner status will read unknown\n`);
+  }
+
+  // ONCE PER START, AFTER THE START RECORD: a missing or unreadable App key
+  // logs one line each. It holds nothing and never stops the start.
+  try {
+    (seams.probeAppKeys ?? probeAppKeysFor)(repoRoot, scriptsDir, (line) => warn(`plot-fleetd: ${line}\n`));
+  } catch (error) {
+    warn(`plot-fleetd: the App key probe failed — ${error instanceof Error ? error.message : String(error)}\n`);
   }
 
   const tally: HostTally = { calls: 0 };

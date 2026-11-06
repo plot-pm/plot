@@ -30,6 +30,8 @@ export interface AnnounceReadyOptions {
   host: string;
   /** Resolves the mesh address to print as `tailscale:`, when `host` is the wildcard. */
   privateAddress?: () => Promise<string | undefined>;
+  /** Runs once after the ready line printed; a throw is not caught here, so pass one that does not throw. */
+  afterReady?: () => void;
 }
 
 /**
@@ -54,6 +56,7 @@ export const announceReady = (boundPort: number, options: AnnounceReadyOptions):
       if (address) log(`  tailscale:  http://${address}:${boundPort}`);
     });
   }
+  options.afterReady?.();
 };
 
 /**
