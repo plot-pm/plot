@@ -17,6 +17,7 @@
 - **Started:** 2026-11-05, Jan Wloka, `bug/a-red-main-stays-acted-on`
 - **Started:** 2026-11-06, Jan Wloka, `bug/an-idle-episode-survives-a-restart`
 - **Started:** 2026-11-06, Jan Wloka, `bug/the-plan-comment-parses-what-it-wrote`
+- **Started:** 2026-11-06, Jan Wloka, `bug/the-review-comment-tests-can-fail`
 
 ## Changelog
 
