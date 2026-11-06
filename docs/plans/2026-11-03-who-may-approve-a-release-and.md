@@ -155,7 +155,7 @@ Each test fails on `origin/main` at `f10abe5a4`.
 
 ### Reviewer role
 
-- `feature/the-reviewer-loads-its-role-file` — the reviewer starts from `.claude/agents/reviewer.md` read through the loader, keeps its read-only flags as a floor, refuses a widening role file by name, and `.plot/charters/reviewer.json` is retired <!-- builds: reviewer role-file start and widening refusal --> <!-- waits: feature/one-loader-reads-a-role-file, feature/the-release-review-is-switched-on -->
+- `feature/the-reviewer-loads-its-role-file` — the reviewer starts from `.claude/agents/reviewer.md` read through the loader, keeps its read-only flags as a floor, refuses a widening role file by name, and `.plot/charters/reviewer.json` is retired <!-- builds: reviewer role-file start and widening refusal --> <!-- waits: feature/one-loader-reads-a-role-file, feature/the-release-review-is-switched-on --> → #3193
 
 ## Notes
 
