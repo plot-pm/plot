@@ -163,8 +163,9 @@ const startWork = (readings: PlanCardFactsReadings): Action | null => {
 };
 
 /**
- * The plan's actions: at most one primary, then the enabled secondaries in the
- * order Start work, Deliver, Interrogate.
+ * The plan's actions: at most one primary, then the secondaries in the order
+ * Start work, Deliver, Interrogate. A secondary the plan's own state disables is
+ * left out; `withActionAvailability` later marks one the board refuses.
  *
  * The primary is the first that holds of: Approve spike; Approve (or Confirm
  * slices) while the plan is under review; Approve disabled with `awaits-spike`

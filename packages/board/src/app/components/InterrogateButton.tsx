@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
+import { useReasonTooltip } from './ui/reason-tooltip.js';
 
 /**
  * *Interrogate* — sends a Draft plan to `/plot-panel`, beside *Approve*.
@@ -53,6 +54,8 @@ export const InterrogateButton = ({ card, interrogate, pulse = 0, onActing }: In
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [log, setLog] = useState('');
   const running = state.kind === 'running';
+  // The board's own refusal, in a tooltip the button names as its description.
+  const tip = useReasonTooltip(interrogate.available ? null : interrogate.reason);
 
   // Two clicks inside one render both read `idle`; a ref stops the second.
   const inFlight = useRef(false);
@@ -160,20 +163,26 @@ export const InterrogateButton = ({ card, interrogate, pulse = 0, onActing }: In
 
   const blocked = !interrogate.available;
   const onClick = () => {
-    // `aria-disabled` does not stop a click; this does.
-    if (blocked || inFlight.current) return;
+    // `aria-disabled` does not stop a click; this does. A tap shows the reason.
+    if (blocked) {
+      tip.show();
+      return;
+    }
+    if (inFlight.current) return;
     inFlight.current = true;
     void run();
   };
 
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span {...tip.wrapperProps}>
       <button
         type="button"
         data-interrogate={card.slug}
         onClick={onClick}
+        {...tip.triggerProps}
         aria-disabled={blocked || undefined}
-        title={interrogate.available ? `Run /plot-panel on ${card.slug}` : interrogate.reason}
+        title={interrogate.available ? `Run /plot-panel on ${card.slug}` : undefined}
         className={
           blocked
             ? 'cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600'
@@ -181,10 +190,9 @@ export const InterrogateButton = ({ card, interrogate, pulse = 0, onActing }: In
         }
       >
         Interrogate
-        {blocked && interrogate.reason && (
-          <span className="sr-only"> — unavailable: {interrogate.reason}</span>
-        )}
       </button>
+      {tip.tooltip}
+      </span>
       {state.kind === 'failed' && (
         <span
           data-interrogate-error={card.slug}

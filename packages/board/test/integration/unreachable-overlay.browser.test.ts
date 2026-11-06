@@ -861,6 +861,11 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
       expect(await deliver.getAttribute('aria-disabled')).toBe('true');
+      // The board's reason is the control's description, in the tooltip — no native title.
+      expect(await deliver.getAttribute('title')).toBeNull();
+      const reasonId = await deliver.getAttribute('aria-describedby');
+      expect(reasonId).toBeTruthy();
+      expect(await page.locator(`[id="${reasonId}"]`).getAttribute('role')).toBe('tooltip');
     } finally {
       await page.close();
     }
