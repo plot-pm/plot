@@ -3,6 +3,7 @@ import type { RunLogLine } from '../ports/run-log.js';
 import { planSlug } from './auto-dispatch.js';
 import { ciCounted } from './release-checks-counted.js';
 import { releaseHeadVerdict, type ReleaseHeadReading } from './release-head.js';
+import { trustedReview } from './pr-index.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { ReviewRunReading } from './slice-pr-next.js';
 import type { SprintScope } from './sprint-scope.js';
@@ -115,7 +116,7 @@ export interface ReleaseChangesetGroups {
 /** The one step fleetd takes on the release PR. */
 export type ReleasePrepareStep =
   | { step: 'none'; why: string }
-  | { step: 'hold'; reason: 'waiting-scope' | 'unaskable' | 'release-head-foreign' }
+  | { step: 'hold'; reason: 'waiting-scope' | 'unaskable' | 'release-head-foreign' | 'review-writer-unchecked' }
   | { step: 'review'; head: string }
   | { step: 'notify'; head: string; first: boolean; changesets: ReleaseChangesetGroups };
 
@@ -199,13 +200,14 @@ const requiredChecks = (
  * Whether the head's `plot/review` is a pass on the head, which `releaseApprove` requires.
  *
  * `plotReviewSha` pairs with `plotReview` and is read only beside it; a pass
- * naming another commit is not a pass on this head.
+ * naming another commit is not a pass on this head. A `success` no judgment
+ * covers is not a pass: see {@link trustedReview}.
  *
  * @param row - the release PR's row; its `headSha` is set.
  * @returns `true` where the review passed on the row's head.
  */
 const reviewPassed = (row: PrIndexRow): boolean =>
-  row.plotReview === 'success' && row.plotReviewSha === row.headSha;
+  trustedReview(row) === 'success' && row.plotReviewSha === row.headSha;
 
 /**
  * Where the release is.
@@ -279,13 +281,15 @@ export const releasePrepareNext = (readings: ReleasePrepareReadings): ReleasePre
     if (checks === 'unknown') return { step: 'hold', reason: 'unaskable' };
     if (checks !== 'green') return none(`checks-${checks}`);
     if (pr.plotReview === undefined) return none('not-asked');
+    const trusted = trustedReview(pr);
+    if (trusted === 'unchecked') return { step: 'hold', reason: 'review-writer-unchecked' };
     if (readings.reviewRun !== null && readings.reviewRun.live && readings.reviewRun.head === head) {
       return none('review-in-flight');
     }
     const startedAt = pr.plotReviewAt === undefined ? Number.NaN : Date.parse(pr.plotReviewAt);
     const onHead = pr.plotReviewSha === head;
-    const stalePending = pr.plotReview === 'pending' && onHead && now - startedAt > config.reviewBoundMs;
-    const needs = pr.plotReview === 'absent' || pr.plotReview === 'error' || !onHead || stalePending;
+    const stalePending = trusted === 'pending' && onHead && now - startedAt > config.reviewBoundMs;
+    const needs = trusted === 'absent' || trusted === 'error' || !onHead || stalePending;
     if (!needs) return none('review-pending');
     const allowed = reviewStartAllowed(readings.reviewStarts, head, config.startBudget, now);
     return allowed === 'ok' ? { step: 'review', head } : none(allowed);

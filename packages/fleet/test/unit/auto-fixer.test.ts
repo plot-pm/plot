@@ -51,7 +51,7 @@ const baseRow: PrIndexRow = {
   headSha: HEAD,
 };
 
-const highRow: PrIndexRow = { ...baseRow, plotReview: 'failure', plotReviewSha: HEAD };
+const highRow: PrIndexRow = { ...baseRow, plotReview: 'failure', plotReviewSha: HEAD, plotReviewJudged: 'failure', plotReviewCheckedSha: HEAD };
 const ciRedRow: PrIndexRow = { ...baseRow, ciChecks: 'failing', checksSha: HEAD, failing_checks: ['unit', 'lint'] };
 
 const baseReadings: FixerTickReadings = {
@@ -248,7 +248,7 @@ describe('fixerTick', () => {
 
   it('does not start on a HIGH finding whose head has gone stale', async () => {
     const { repoRoot, scriptsDir } = fixture();
-    const row = { ...highRow, plotReviewSha: OTHER_HEAD };
+    const row = { ...highRow, plotReviewSha: OTHER_HEAD, plotReviewCheckedSha: OTHER_HEAD };
     const starts: Started[] = [];
     const w = world({ agentRunStarts: starts });
     const [result] = await fixerTick([row], baseReadings, { repoRoot, scriptsDir }, w);
@@ -726,7 +726,7 @@ describe('fixerTick against a real git repository', () => {
 
   it('creates the fixer worktree detached at the head, and removes it after a failed start so a retry succeeds', async () => {
     const { repoRoot, head } = repo();
-    const row: PrIndexRow = { ...highRow, headSha: head, plotReviewSha: head };
+    const row: PrIndexRow = { ...highRow, headSha: head, plotReviewSha: head, plotReviewCheckedSha: head };
     const runDir = fixerRunDir(repoRoot, 7);
     const opts = { repoRoot, scriptsDir: repoRoot, runLog: runLogFixture() };
 
@@ -763,7 +763,7 @@ describe('fixerTick against a real git repository', () => {
 
   it('removes the ended fixer worktree through git, so the next start can create it again', async () => {
     const { repoRoot, head } = repo();
-    const row: PrIndexRow = { ...highRow, headSha: head, plotReviewSha: head };
+    const row: PrIndexRow = { ...highRow, headSha: head, plotReviewSha: head, plotReviewCheckedSha: head };
     const opts = { repoRoot, scriptsDir: repoRoot, runLog: runLogFixture() };
     let check: PidCheck = 'alive';
     const starts: Started[] = [];
@@ -973,7 +973,7 @@ describe('fixerTick records a failed start', () => {
     expect(again!.started).toEqual({ started: false, why: 'fixer-start-failed' });
     expect(opts.runLog.lines.filter((l) => l.outcome === 'failed: fixer-start-failed')).toHaveLength(1);
 
-    const newHead: PrIndexRow = { ...highRow, headSha: OTHER_HEAD, plotReviewSha: OTHER_HEAD };
+    const newHead: PrIndexRow = { ...highRow, headSha: OTHER_HEAD, plotReviewSha: OTHER_HEAD, plotReviewCheckedSha: OTHER_HEAD };
     const fresh = world({ attempts: (await w.attempts(opts).read(7)).ok ? ((await w.attempts(opts).read(7)) as { value: FixerAttemptsRecord }).value : 'none', prState: { number: 7, state: 'OPEN', headSha: OTHER_HEAD } });
     const [next] = await fixerTick([newHead], baseReadings, opts, fresh, logged);
     expect(next!.started).toMatchObject({ started: true });

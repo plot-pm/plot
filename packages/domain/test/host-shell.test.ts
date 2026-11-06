@@ -397,6 +397,46 @@ describe('prReview', () => {
   });
 });
 
+describe('reviewWriter', () => {
+  /** A host whose `backend` answers `backend` and a writer script that runs `writer`. */
+  const withWriter = (backend: string, writer: string): ShellContext => {
+    const context = hostThat(`[ "$1" = backend ] && { echo ${backend}; exit 0; }; exit 1`);
+    writeFileSync(join(context.scriptDir, 'plot-review-writer.mjs'), writer);
+    return context;
+  };
+
+  it('answers the login the script prints', async () => {
+    const answer = await hostShell(withWriter('github', "console.log('plot-review[bot]');")).reviewWriter();
+    expect(answer).toEqual({ ok: true, value: 'plot-review[bot]' });
+  });
+
+  it('answers an empty login where the script prints nothing: no key is declared', async () => {
+    const answer = await hostShell(withWriter('github', '')).reviewWriter();
+    expect(answer).toEqual({ ok: true, value: '' });
+  });
+
+  it('answers an empty login on a backend that keeps no writer, without running the script', async () => {
+    const answer = await hostShell(withWriter('bitbucket', "console.log('plot-review[bot]');")).reviewWriter();
+    expect(answer).toEqual({ ok: true, value: '' });
+  });
+
+  it('answers unaskable or failed where the script exits non-zero', async () => {
+    const answer = await hostShell(withWriter('github', 'process.exit(4);')).reviewWriter();
+    expect(answer.ok).toBe(false);
+  });
+});
+
+describe('prReview statuses', () => {
+  it('passes the statuses the script reports through to the reading', async () => {
+    const reading = {
+      sha: 'abc', state: 'success', description: '', time: 't', bypass: false,
+      statuses: [{ state: 'success', description: '', time: 't', writer: 'jwloka' }],
+    };
+    const answer = await hostShell(hostThat(`echo '${JSON.stringify(reading)}'`)).prReview(7);
+    expect(answer).toEqual({ ok: true, value: reading });
+  });
+});
+
 describe('prReady', () => {
   it('passes the PR number and reads exit 0 as taken out of draft', async () => {
     const answer = await hostShell(hostThat('[ "$1 $2" = "pr-ready 7" ] || exit 1')).prReady(7);

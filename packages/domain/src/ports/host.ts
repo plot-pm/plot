@@ -158,6 +158,23 @@ export interface PrReviewReading {
   time: string;
   /** Whether any PR comment starts with `review-bypass:`. */
   bypass: boolean;
+  /**
+   * Every `plot/review` status on `sha`, newest first, each with the login
+   * that wrote it (`''` where the host names none: always on Bitbucket).
+   * `state`, `description` and `time` name the newest of these from ANY
+   * writer; `checkedReview` judges the list against the trusted writer.
+   * Absent on a reading that predates the field, which reads as unchecked.
+   */
+  statuses?: ReadonlyArray<ReviewStatus>;
+}
+
+/** One `plot/review` status as the host recorded it. */
+export interface ReviewStatus {
+  state: string;
+  description: string;
+  time: string;
+  /** The login that wrote it, or `''` where the host names none. */
+  writer: string;
 }
 
 /**
@@ -428,6 +445,20 @@ export interface Host {
    *   `failed` otherwise, with the reason in {@link lastRefusal}.
    */
   prReview(number: number): Promise<PortResult<PrReviewReading>>;
+
+  /**
+   * The login the Review app's `plot/review` statuses carry: `<slug>[bot]`.
+   *
+   * Reads `Review app` from the default branch's committed config
+   * (`origin/<default>`, never the working tree), and resolves the App's slug
+   * through `GET /app`. Does not fetch.
+   *
+   * @returns the login; `''` where no `Review app` key is declared or the
+   *   backend keeps no writer (Bitbucket), which reads as unchecked;
+   *   `unaskable` where `origin/<default>` is missing, the key cannot be read,
+   *   the JWT does not sign or `GET /app` fails.
+   */
+  reviewWriter(): Promise<PortResult<string>>;
 
   /**
    * Why the most recent call did not answer, or null where it did.

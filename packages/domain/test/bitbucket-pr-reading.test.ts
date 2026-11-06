@@ -119,7 +119,8 @@ describe('bitbucketReview', () => {
       { key: 'plot/review', state: 'FAILED' },
       { key: 'plot/review', state: 'SUCCESSFUL' },
     ];
-    expect(bitbucketReview('s', statuses, [])).toEqual({ sha: 's', state: 'failure', description: '', time: '', bypass: false });
+    expect(bitbucketReview('s', statuses, [])).toEqual({ sha: 's', state: 'failure', description: '', time: '', bypass: false,
+      statuses: [{ state: 'failure', description: '', time: '', writer: '' }] });
   });
 
   it.each([
@@ -137,6 +138,7 @@ describe('bitbucketReview', () => {
     ];
     expect(bitbucketReview('s', statuses, [])).toEqual({
       sha: 's', state: 'pending', description: 'run r-2', time: '2026-10-30T10:00:05Z', bypass: false,
+      statuses: [{ state: 'pending', description: 'run r-2', time: '2026-10-30T10:00:05Z', writer: '' }],
     });
   });
 
@@ -147,7 +149,7 @@ describe('bitbucketReview', () => {
 
   it('answers no description and no time for a plot/review status whose word has no mapping', () => {
     const reading = bitbucketReview('s', [{ key: 'plot/review', state: 'UNKNOWN', description: 'run r-1', updated_on: 't' }], []);
-    expect(reading).toEqual({ sha: 's', state: 'absent', description: '', time: '', bypass: false });
+    expect(reading).toEqual({ sha: 's', state: 'absent', description: '', time: '', bypass: false, statuses: [] });
   });
 
   it('answers absent where no plot/review status exists', () => {

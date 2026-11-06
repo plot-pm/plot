@@ -45,11 +45,11 @@ const stubGh = ({ prs = {} } = {}) => {
       headRefOid: `sha${num}`, comments: (p.comments ?? []).map((body) => ({ body })),
     }))}`}
     ;;
-  "api repos/{owner}/{repo}/commits/sha${num}/statuses")
+  "api --paginate repos/{owner}/{repo}/commits/sha${num}/statuses?per_page=100")
     printf '%s' ${JSON.stringify(JSON.stringify(p.state === undefined ? [
       { context: 'ci/build', state: 'success' },
     ] : [
-      { context: 'ci/build', state: 'success' }, { context: 'plot/review', state: p.state },
+      { context: 'ci/build', state: 'success' }, { context: 'plot/review', state: p.state, creator: { login: 'plot-review[bot]', type: 'Bot' } },
     ]))}
     ;;`).join('\n');
   const script = `#!/usr/bin/env bash

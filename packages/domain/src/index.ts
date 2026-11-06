@@ -46,6 +46,7 @@ export * from './entities/fleet-stopped.js';
 export * from './entities/fixer-attempts.js';
 export * from './entities/ticket-record.js';
 export * from './rules/deliverable.js';
+export * from './rules/checked-review.js';
 export * from './rules/plan-walk-estate.js';
 export * from './workflows/plan-walk-estate.js';
 export * from './rules/story-date.js';

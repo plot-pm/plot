@@ -117,27 +117,44 @@ const REVIEW_STATE: Readonly<Record<string, string>> = {
  * `run <run id>` text a review run wrote, and `time` carries the status's
  * `updated_on` (its `created_on` where `updated_on` is missing).
  *
+ * BITBUCKET IS A NAMED LIMIT OF THE WRITER CHECK. A status object carries no
+ * writer, and a later write with the same key replaces the earlier one, so no
+ * reading tells a forged `plot/review` from Plot's own. `statuses` holds the
+ * one surviving status with `writer: ''`, and `Host.reviewWriter` answers `''`
+ * on this backend, so `checkedReview` reads `unchecked` and refuses nothing.
+ *
  * @param sha - the pull request's head commit.
  * @param statuses - the commit's build statuses, newest first.
  * @param comments - the pull request's comments.
  * @returns the newest `plot/review` status in GitHub's words (`absent` where
  *   none exists or its state has no mapping), its description and time (`''`
- *   where the state is `absent`), and whether a comment starts
- *   `review-bypass:`.
+ *   where the state is `absent`), whether a comment starts `review-bypass:`,
+ *   and `statuses`: that status alone with `writer: ''`, or none where the
+ *   state is `absent`.
  */
 export const bitbucketReview = (
   sha: string,
   statuses: ReadonlyArray<{ key?: string; state?: string; description?: string; updated_on?: string; created_on?: string }>,
   comments: ReadonlyArray<{ content?: { raw?: string } }>,
-): { sha: string; state: string; description: string; time: string; bypass: boolean } => {
+): {
+  sha: string;
+  state: string;
+  description: string;
+  time: string;
+  bypass: boolean;
+  statuses: Array<{ state: string; description: string; time: string; writer: string }>;
+} => {
   const newest = statuses.find((s) => s.key === 'plot/review');
   const state = REVIEW_STATE[newest?.state ?? ''] ?? 'absent';
   const named = state === 'absent' ? undefined : newest;
+  const description = named?.description ?? '';
+  const time = named?.updated_on ?? named?.created_on ?? '';
   return {
     sha,
     state,
-    description: named?.description ?? '',
-    time: named?.updated_on ?? named?.created_on ?? '',
+    description,
+    time,
     bypass: comments.some((c) => (c.content?.raw ?? '').startsWith('review-bypass:')),
+    statuses: named === undefined ? [] : [{ state, description, time, writer: '' }],
   };
 };

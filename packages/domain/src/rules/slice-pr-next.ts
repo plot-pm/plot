@@ -5,6 +5,7 @@ import { defaultBranchAgeMs } from './default-branch.js';
 import { mergeIdentity, type MergerAppReading } from './merge-identity.js';
 import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './repair-pr.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
+import { trustedReview } from './pr-index.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import type { SprintScope } from './sprint-scope.js';
 import type { TicketReading } from './ticket.js';
@@ -109,6 +110,7 @@ export interface SlicePrNextReadings {
 /** Why a hold holds. An open string set: a sibling plan adds its own. */
 export type HoldReason =
   | 'review-in-flight'
+  | 'review-writer-unchecked'
   | 'fixer-in-flight'
   | 'ci-red-attempts-spent'
   | 'default-branch-red'
@@ -199,7 +201,9 @@ export const restatusArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (verdict.read === 'unread') return hold('unread');
   if (verdict.read !== 'verdict') return none('no-verdict');
   if (row === null || row.headSha === undefined || row.plotReview === undefined) return none('not-asked');
-  if (row.plotReview === verdict.state && row.plotReviewSha === row.headSha) return none('status-written');
+  const trusted = trustedReview(row);
+  if (trusted === 'unchecked') return hold('review-writer-unchecked');
+  if (trusted === verdict.state && row.plotReviewSha === row.headSha) return none('status-written');
   return {
     step: 'write-status',
     head: row.headSha,
@@ -244,7 +248,9 @@ export const highArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (fixer === undefined) return none('fixer-not-built');
   if (fixer.read === 'unread') return hold('unread');
   if (row === null || row.headSha === undefined || row.plotReview === undefined) return none('not-asked');
-  if (row.plotReview !== 'failure' || row.plotReviewSha !== row.headSha) return none('no-high');
+  const trusted = trustedReview(row);
+  if (trusted === 'unchecked') return hold('review-writer-unchecked');
+  if (trusted !== 'failure' || row.plotReviewSha !== row.headSha) return none('no-high');
   if (!fixer.highExhausted) return { step: 'fixer', head: row.headSha, evidence: 'high' };
   if (ticket === undefined) return none('ticket-not-built');
   if (ticket.ticket === 'pending') return hold('ticket-pending');
@@ -310,11 +316,13 @@ export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (row.checksSha !== row.headSha || row.ciChecks === undefined) return none('checks-unbound');
   if (row.ciChecks !== 'green') return none('ci-not-green');
 
+  const trusted = trustedReview(row);
+  if (trusted === 'unchecked') return hold('review-writer-unchecked');
   const onHead = row.plotReviewSha === row.headSha;
   const startedAt = row.plotReviewAt === undefined ? Number.NaN : Date.parse(row.plotReviewAt);
-  const pendingStale = row.plotReview === 'pending' && onHead && now - startedAt > config.reviewBoundMs;
+  const pendingStale = trusted === 'pending' && onHead && now - startedAt > config.reviewBoundMs;
   const needs =
-    row.plotReview === 'absent' || row.plotReview === 'error' || !onHead || pendingStale;
+    trusted === 'absent' || trusted === 'error' || !onHead || pendingStale;
   if (!needs) return none('reviewed');
 
   const allowed = reviewStartAllowed(reviewStarts, row.headSha, config.startBudget, now);
@@ -347,7 +355,9 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   const { row, defaultBranch, newestMerged, config, now } = readings;
   if (readings.repair?.read === 'unread') return hold('unread');
   if (row === null || row.headSha === undefined) return none('not-asked');
-  if (row.plotReview !== 'success' || row.plotReviewSha !== row.headSha) return none('not-passed');
+  const trusted = trustedReview(row);
+  if (trusted === 'unchecked') return hold('review-writer-unchecked');
+  if (trusted !== 'success' || row.plotReviewSha !== row.headSha) return none('not-passed');
   if (defaultBranch === null) return hold('default-branch-unread');
   const age = defaultBranchAgeMs(defaultBranch, now);
   if (age === null || age > config.checksWaitMs) return hold('default-branch-stale');

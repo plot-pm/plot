@@ -9,7 +9,7 @@ import {
 } from '../src/entities/pr-index.js';
 import {
   answerKind, boundShasFor, carriedChecks, foldPrIndex, pendingOpenPrNumbers, prWindowFor,
-  reviewReaskPrNumbers, watermarkOf,
+  needsReviewJudgment, reviewReaskPrNumbers, trustedReview, watermarkOf,
 } from '../src/rules/pr-index.js';
 
 /**
@@ -464,9 +464,13 @@ describe('the numbers whose review a delta re-asks about', () => {
   // once `ciChecks` already reads green on the row's own `headSha` — a row CI
   // has not finished with is `pendingOpenPrNumbers`'s to re-ask instead.
   const sha = 'a'.repeat(40);
-  const greenRow = (number: number, over: Partial<PrIndexRow> = {}): PrIndexRow => row(number, {
-    state: 'OPEN', checks: 'green', headSha: sha, checksSha: sha, ciChecks: 'green', ...over,
-  });
+  // A success or failure on the head carries its judgment unless the test names `plotReviewJudged`.
+  const greenRow = (number: number, over: Partial<PrIndexRow> = {}): PrIndexRow => {
+    const r = row(number, { state: 'OPEN', checks: 'green', headSha: sha, checksSha: sha, ciChecks: 'green', ...over });
+    return 'plotReviewJudged' in over || (r.plotReview !== 'success' && r.plotReview !== 'failure') || r.plotReviewSha !== sha
+      ? r
+      : { ...r, plotReviewJudged: r.plotReview, plotReviewCheckedSha: sha };
+  };
 
   it('returns an open PR whose review is absent on an otherwise-green row', () => {
     const held = store([greenRow(1, { plotReview: 'absent' })]);
@@ -1064,5 +1068,55 @@ describe('the bound map leaves out a carried colour a lookup can still change', 
     expect(boundShasFor(held, new Set([1, 2]))).toEqual({
       'feature/b1': HEAD, 'feature/b3': OTHER, 'feature/b4': HEAD,
     });
+  });
+});
+
+describe('the writer check on a row', () => {
+  const sha = 'a'.repeat(40);
+  const open = (over: Partial<PrIndexRow> = {}): PrIndexRow =>
+    row(1, { state: 'OPEN', headSha: sha, plotReviewSha: sha, ...over });
+
+  it.each([
+    ['success', true],
+    ['failure', true],
+    ['pending', false],
+    ['absent', false],
+    ['error', false],
+  ] as const)('a %s rollup on the head with no judgment needs one: %s', (plotReview, needs) => {
+    expect(needsReviewJudgment(open({ plotReview }))).toBe(needs);
+  });
+
+  it('needs no judgment once one names the head, and needs one again on a new head', () => {
+    const judged = open({ plotReview: 'success', plotReviewJudged: 'success', plotReviewCheckedSha: sha });
+    expect(needsReviewJudgment(judged)).toBe(false);
+    expect(needsReviewJudgment({ ...judged, headSha: 'b'.repeat(40), plotReviewSha: 'b'.repeat(40) })).toBe(true);
+  });
+
+  it('needs no judgment for a rollup naming another commit', () => {
+    expect(needsReviewJudgment(open({ plotReview: 'success', plotReviewSha: 'b'.repeat(40) }))).toBe(false);
+  });
+
+  it('trusts the judgment over the rollup where one names the head', () => {
+    const r = open({ plotReview: 'success', plotReviewJudged: 'absent', plotReviewCheckedSha: sha });
+    expect(trustedReview(r)).toBe('absent');
+  });
+
+  it('reads unchecked for a success or failure no judgment covers, and the rollup for any other state', () => {
+    expect(trustedReview(open({ plotReview: 'success' }))).toBe('unchecked');
+    expect(trustedReview(open({ plotReview: 'failure' }))).toBe('unchecked');
+    expect(trustedReview(open({ plotReview: 'pending' }))).toBe('pending');
+    expect(trustedReview(open({ plotReview: undefined, plotReviewSha: undefined }))).toBeUndefined();
+  });
+
+  it('ignores a judgment made for an older head', () => {
+    const r = open({ plotReview: 'success', plotReviewJudged: 'success', plotReviewCheckedSha: 'b'.repeat(40) });
+    expect(trustedReview(r)).toBe('unchecked');
+  });
+
+  it('re-asks a success with no judgment whatever CI reads, and leaves a judged one alone', () => {
+    const unjudged = open({ plotReview: 'success', checks: 'pending', ciChecks: 'pending', checksSha: sha });
+    const judged = open({ plotReview: 'success', plotReviewJudged: 'success', plotReviewCheckedSha: sha });
+    const held = { v: PR_INDEX_VERSION, rows: [unjudged, { ...judged, number: 2, head: 'feature/b2' }] } as unknown as PrIndex;
+    expect(reviewReaskPrNumbers(held, [unjudged.head, 'feature/b2'])).toEqual([1]);
   });
 });
