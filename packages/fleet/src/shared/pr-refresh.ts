@@ -7,8 +7,11 @@ import {
   carriedChecks,
   concurrencyBound,
   foldPrIndex,
+  githubReview,
   heldSlots,
+  judgedReviewState,
   loweredConcurrency,
+  needsReviewJudgment,
   pendingOpenPrNumbers,
   prWindowFor,
   reactionTo,
@@ -460,6 +463,12 @@ export interface PrRecord {
   plotReviewSha?: string;
   /** The `plot/review` status context's `startedAt`; absent where `plotReview` is. */
   plotReviewAt?: string;
+  /** The writer check's state for `plotReviewCheckedSha`; see the row field. */
+  plotReviewJudged?: 'success' | 'failure' | 'pending' | 'absent' | 'error';
+  /** The head `plotReviewJudged` read. */
+  plotReviewCheckedSha?: string;
+  /** The rollup's `plotReviewAt` when the judgment was made. */
+  plotReviewCheckedAt?: string;
   /** `checks` folded with `plot/review` excluded; the GitHub rollup arm only. */
   ciChecks?: 'green' | 'pending' | 'failing' | 'none' | 'unknown';
 }
@@ -1181,7 +1190,54 @@ const storeRow = (
   if (typeof pr.plotReviewSha === 'string' && pr.plotReviewSha !== '') row.plotReviewSha = pr.plotReviewSha;
   if (typeof pr.plotReviewAt === 'string' && pr.plotReviewAt !== '') row.plotReviewAt = pr.plotReviewAt;
   if (pr.ciChecks !== undefined) row.ciChecks = pr.ciChecks;
+  // THE JUDGMENT SURVIVES A ROLLUP WRITE ONLY WHILE THE ROLLUP STILL NAMES THE
+  // STATUS IT READ: same head, and a `plotReviewAt` equal to the one judged. A
+  // newer status or a new head drops it, and the next pass judges again.
+  if (
+    predecessor?.plotReviewJudged !== undefined
+    && predecessor.headSha !== undefined
+    && predecessor.headSha === pr.headSha
+    && predecessor.plotReviewCheckedSha === pr.headSha
+    && pr.plotReviewAt !== undefined
+    && predecessor.plotReviewCheckedAt === pr.plotReviewAt
+  ) {
+    row.plotReviewJudged = predecessor.plotReviewJudged;
+    row.plotReviewCheckedSha = predecessor.plotReviewCheckedSha;
+    row.plotReviewCheckedAt = predecessor.plotReviewCheckedAt;
+  }
   return row;
+};
+
+/**
+ * Judges the `plot/review` rollup of every row that has none against the Review
+ * app's bot login, in place.
+ *
+ * `reviewWriter` is asked once for the pass, and only where a row needs it. With
+ * no `Review app` key the rollup state is the judgment and no `pr-review` is
+ * asked. A writer that cannot be resolved, a failed `pr-review` and a head that
+ * moved between the two reads leave the row unjudged, which its consumers hold
+ * as `review-writer-unchecked`.
+ *
+ * @param host - the host port the pass reads through.
+ * @param rows - this pass's rows; the judged ones gain `plotReviewJudged`,
+ *   `plotReviewCheckedSha` and `plotReviewCheckedAt`.
+ */
+const judgeReviews = async (host: Host, rows: PrIndexRow[]): Promise<void> => {
+  const due = rows.filter((row) => row.state === 'OPEN' && !row.draft && row.plotReviewAt !== undefined && needsReviewJudgment(row));
+  if (due.length === 0) return;
+  const writer = await host.reviewWriter();
+  if (!writer.ok) return;
+  for (const row of due) {
+    const checked = { plotReviewCheckedSha: row.headSha, plotReviewCheckedAt: row.plotReviewAt };
+    if (writer.value === '') {
+      Object.assign(row, { plotReviewJudged: row.plotReview, ...checked });
+      continue;
+    }
+    const read = await host.prReview(row.number);
+    if (!read.ok || read.value.sha !== row.headSha) continue;
+    const judged = judgedReviewState(githubReview(read.value, writer.value));
+    if (judged !== null) Object.assign(row, { plotReviewJudged: judged, ...checked });
+  }
 };
 
 /**
@@ -1232,6 +1288,9 @@ const recordOf = (row: PrIndexRow): PrRecord => {
   if (row.plotReviewSha !== undefined) pr.plotReviewSha = row.plotReviewSha;
   if (row.plotReviewAt !== undefined) pr.plotReviewAt = row.plotReviewAt;
   if (row.ciChecks !== undefined) pr.ciChecks = row.ciChecks;
+  if (row.plotReviewJudged !== undefined) pr.plotReviewJudged = row.plotReviewJudged;
+  if (row.plotReviewCheckedSha !== undefined) pr.plotReviewCheckedSha = row.plotReviewCheckedSha;
+  if (row.plotReviewCheckedAt !== undefined) pr.plotReviewCheckedAt = row.plotReviewCheckedAt;
   return pr;
 };
 
@@ -1831,6 +1890,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // host was already asked and that cost is sunk, so the pass still serves
       // what it read — only the WRITE is skipped, the same shape a fold that
       // found no store to write already falls back to below.
+      await judgeReviews(world.host, rows);
       const folded = (await world.fenceFold?.()) === false ? null : await writePrStore(backend, rows, kind, prStore);
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this

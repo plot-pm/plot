@@ -6,6 +6,7 @@ import { readsReleaseHead } from '../adapters/host/release-head-backend.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
 import { ciCounted } from '../rules/release-checks-counted.js';
 import { releaseHeadVerdict, type ReleaseHeadReading } from '../rules/release-head.js';
+import { githubReview, reviewPasses } from '../rules/github-review.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { type MergePorts, type MergeRefusal, mergeAt } from './merge.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
@@ -24,6 +25,8 @@ export type ReleaseApproveRefusal =
   | 'not-release-pr'
   | 'head-moved'
   | 'review-missing'
+  | 'review-foreign-writer'
+  | 'review-writer-unread'
   | 'checks-missing'
   | 'release-head-foreign';
 
@@ -41,6 +44,12 @@ export interface ReleaseApproveReadings {
    * never folded from the checks rollup. `'unaskable'` where the read failed.
    */
   readonly review: PrReviewReading | 'unaskable';
+  /**
+   * The Review app's bot login `plot/review` is judged against: `''` where no
+   * writer is declared, and `'unaskable'` where it could not be resolved.
+   * Absent reads as `''`.
+   */
+  readonly reviewWriter?: string | 'unaskable';
   /**
    * Whether the PR's CI-only rollup is asked of this host. `false` on a host
    * whose `pr-state` carries none (Bitbucket, Jenkins), where `checks-missing`
@@ -118,13 +127,11 @@ export const releaseApprove = (
     return no('head-moved', `the head of PR #${input.pr} is ${seen}; the caller approved ${short(input.sha)}. Re-review the new head.`);
   }
   const { review } = readings;
-  if (review === 'unaskable' || review.state !== 'success' || !sameCommit(review.sha, head, input.minHexLen)) {
-    const seen = review === 'unaskable'
-      ? 'the review read failed'
-      : !sameCommit(review.sha, head, input.minHexLen)
-        ? `'plot/review' names ${short(review.sha)}, not the head ${short(head)}`
-        : `'plot/review' reads '${review.state}'`;
-    return no('review-missing', `${seen} for PR #${input.pr}. Run the review on this head, then approve again.`);
+  const writer = readings.reviewWriter ?? '';
+  const judged = review === 'unaskable' ? review : githubReview(review, writer === 'unaskable' ? null : writer);
+  const passes = reviewPasses(judged, head, { plain: 'review-missing', sameHead: (a, b) => sameCommit(a, b, input.minHexLen) });
+  if (!passes.pass) {
+    return no(passes.reason, `${passes.seen} for PR #${input.pr}. Run the review on this head, then approve again.`);
   }
   if (readings.ciAsked && !(ciCounted(pr.ciChecks) && pr.checksSha === head)) {
     return no('checks-missing', `the CI checks the merge counts read '${pr.ciChecks ?? 'unreported'}' on ${short(pr.checksSha)} for PR #${input.pr}, head ${short(head)}. 'plot/review' alone satisfies no required check; a CI check must succeed on this head.`);
@@ -173,7 +180,7 @@ export const releaseApproveAt = async (
     ({ approved: false, reason, detail });
   const asked = ports.caller === 'unattended'
     ? null
-    : await Promise.all([ports.host.prState(pr), ports.host.prReview(pr), ports.host.backend()]);
+    : await Promise.all([ports.host.prState(pr), ports.host.prReview(pr), ports.host.backend(), ports.host.reviewWriter()]);
   // Only a host that answered with another backend skips the read; a failed backend answer still reads the head.
   const otherHost = asked?.[2].ok === true && !readsReleaseHead(asked[2].value);
   const changes = asked === null || otherHost ? null : await ports.refs.headChanges(sha);
@@ -182,6 +189,7 @@ export const releaseApproveAt = async (
       caller: ports.caller,
       pr: asked?.[0].ok ? asked[0].value : 'unaskable',
       review: asked?.[1].ok ? asked[1].value : 'unaskable',
+      reviewWriter: asked?.[3].ok ? asked[3].value : 'unaskable',
       ciAsked: asked?.[2].ok === true && reportsCiChecks(asked[2].value),
       ...(changes === null ? {} : { head: changes.ok ? changes.value : 'unaskable' as const }),
     },

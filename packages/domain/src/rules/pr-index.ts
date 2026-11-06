@@ -301,6 +301,19 @@ export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] =>
 };
 
 /**
+ * Whether a row's `plot/review` rollup reads `success` or `failure` on its head
+ * and no judgment holds for that head.
+ *
+ * @param row - the stored row.
+ * @returns true where fleetd has yet to judge the status against the Review app's login.
+ */
+export const needsReviewJudgment = (row: PrIndexRow): boolean =>
+  row.headSha !== undefined
+  && (row.plotReview === 'success' || row.plotReview === 'failure')
+  && row.plotReviewSha === row.headSha
+  && row.plotReviewCheckedSha !== row.headSha;
+
+/**
  * The open, non-draft, in-scope rows whose `plot/review` state is not yet
  * settled for the commit CI has already passed.
  *
@@ -322,6 +335,12 @@ export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] =>
  * settled. A `success`, `failure` or `error` bound to the CURRENT sha is
  * settled and not re-asked.
  *
+ * **A `success` OR `failure` ROW WITH NO JUDGMENT ON ITS HEAD IS ASKED TOO,
+ * WHATEVER CI READS.** The rollup carries no writer, so fleetd judges these
+ * rows against the Review app's bot login; the HIGH arm and a revert act on a
+ * `failure` while CI is red. A row whose `plotReviewCheckedSha` is its head is
+ * not asked again.
+ *
  * @param held - the store as it was read, or null where there was none.
  * @param branches - the branches in scope for this pass; a row on any other
  * head is not this pass's to re-ask.
@@ -337,13 +356,14 @@ export const reviewReaskPrNumbers = (
     .filter((row) => row.state === 'OPEN'
       && !row.draft
       && inScope.has(row.head)
-      && row.ciChecks === 'green'
-      && row.checksSha !== undefined
-      && row.checksSha === row.headSha
-      && (row.plotReview === undefined
-        || row.plotReview === 'absent'
-        || row.plotReview === 'pending'
-        || row.plotReviewSha !== row.checksSha))
+      && (needsReviewJudgment(row)
+        || (row.ciChecks === 'green'
+          && row.checksSha !== undefined
+          && row.checksSha === row.headSha
+          && (row.plotReview === undefined
+            || row.plotReview === 'absent'
+            || row.plotReview === 'pending'
+            || row.plotReviewSha !== row.checksSha))))
     .map((row) => row.number);
 };
 
