@@ -125,7 +125,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Plan comment
 
-- `bug/the-plan-comment-parses-what-it-wrote` — the stale-lock break race, `\r\n` parsing, an atomic hash file, the docstring, the dead ternary, and the changelog text through the changeset (#2935)
+- `bug/the-plan-comment-parses-what-it-wrote` — the stale-lock break race, `\r\n` parsing, an atomic hash file, the docstring, the dead ternary, and the changelog text through the changeset (#2935) → #3184
 
 ### Review comment tests
 
