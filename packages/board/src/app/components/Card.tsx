@@ -355,7 +355,7 @@ const StatePill = ({ piece }: { piece: Piece }) => (
  * or an unread list, is an empty dashed circle named for it.
  */
 const AssigneesView = ({ a }: { a: PresentedAssignees }) => {
-  const tip = useReasonTooltip(a.label, 'detail');
+  const tip = useReasonTooltip(a.detail, 'detail');
   return (
     <span {...tip.wrapperProps} className="relative inline-flex">
       <span
@@ -374,6 +374,7 @@ const AssigneesView = ({ a }: { a: PresentedAssignees }) => {
           </span>
         )}
         {a.more > 0 && <span aria-hidden className="text-xs tabular-nums text-(--card-meta)">+{a.more}</span>}
+        {a.word !== null && <span aria-hidden className="text-xs text-(--card-meta)" data-assignee-word>{a.word}</span>}
       </span>
       {tip.tooltip}
     </span>

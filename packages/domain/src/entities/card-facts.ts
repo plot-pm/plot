@@ -233,6 +233,15 @@ export const CardFactsSchema = z.object({
   ownership: z.object({
     /** Handles resolved through `People`; `{ value: [] }` is read and unassigned. */
     assignees: knownSchema(z.array(z.string())),
+    /**
+     * Where the assignees come from: the item's own assignment, or the newest
+     * `Started:` record and its ISO date; `null` where nobody is assigned or
+     * the assignees could not be read.
+     */
+    assignedFrom: z.discriminatedUnion('source', [
+      z.object({ source: z.literal('assigned') }),
+      z.object({ source: z.literal('started'), at: z.string() }),
+    ]).nullable(),
     since: z.object({ at: z.string(), event: SinceEventSchema }).nullable(),
     source: z.union([RefSchema, z.object({ path: z.string() })]),
   }),

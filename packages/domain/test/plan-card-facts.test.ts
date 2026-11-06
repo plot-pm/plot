@@ -77,6 +77,36 @@ describe('planCardFacts: ownership', () => {
 
   it('a plan naming nobody is read and unassigned', () => {
     expect(facts().ownership.assignees).toEqual({ value: [] });
+    expect(facts().ownership.assignedFrom).toBeNull();
+  });
+
+  it('an Assignee: line wins over a Started: record', () => {
+    const f = facts({ assignee: 'eins78', records: { ...reading().records, startedRaw: '2026-11-06, jwloka, `feature/x`' } });
+    expect(f.ownership.assignees).toEqual({ value: ['eins78'] });
+    expect(f.ownership.assignedFrom).toEqual({ source: 'assigned' });
+  });
+
+  it('with no Assignee: line, the newest Started: record names the assignee, resolved through People', () => {
+    const startedRaw = [
+      'not a record',
+      '2026-11-06, Jan Wloka, feature/app-keys-resolve-from-one-folder',
+      '2026-10-01, eins78, `feature/older`',
+      '2026-11-06, jwloka, feature/same-day-later-line',
+    ].join('\n');
+    const f = facts({ records: { ...reading().records, startedRaw } }, { 'jan wloka': 'jwloka', 'max albrecht': 'eins78' });
+    expect(f.ownership.assignees).toEqual({ value: ['jwloka'] });
+    expect(f.ownership.assignedFrom).toEqual({ source: 'started', at: '2026-11-06' });
+    const resolved = facts({ records: { ...reading().records, startedRaw: '2026-11-06, Jan Wloka, feature/x' } }, { 'jan wloka': 'jwloka' });
+    expect(resolved.ownership.assignees).toEqual({ value: ['jwloka'] });
+  });
+
+  it('an approved plan with no Assignee: and no Started: is unassigned, never its approver', () => {
+    const f = facts(
+      { state: 'approved', records: { ...reading().records, approvedRaw: '2026-10-15, Max Albrecht, plan-PR #1753 merged' } },
+      { 'max albrecht': 'eins78' },
+    );
+    expect(f.ownership.assignees).toEqual({ value: [] });
+    expect(f.ownership.assignedFrom).toBeNull();
   });
 
   it('several assignees, comma-separated, are each resolved; an undeclared spelling stays as written', () => {
@@ -87,6 +117,7 @@ describe('planCardFacts: ownership', () => {
     const f = facts({ records: { ...reading().records, designRaw: '2026-11-02, a, cli', approvedRaw: '2026-11-04, a, pr' } });
     expect(f.ownership.since).toEqual({ at: '2026-11-04', event: 'transitioned' });
     expect(facts().ownership.since).toEqual({ at: '2026-11-01', event: 'opened' });
+    expect(facts({ path: 'undated.md' }).ownership.since).toBeNull();
   });
 
   it('names the plan file as its source', () => {
@@ -290,5 +321,28 @@ describe('withActionAvailability', () => {
   it('keeps an already-disabled primary\'s own reason', () => {
     const cold = facts({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
     expect(withActionAvailability(cold, { 'start-work': false }).next.primary?.reason).toEqual({ kind: 'awaiting-fleet-scan' });
+  });
+});
+
+describe('planCardFacts: the remaining arms', () => {
+  it('a merged spike on a plan that confirms no slices offers Approve as the secondary', () => {
+    const f = facts({ controls: { ...controls(), approveSpike: true, approve: true, confirmSlices: false } });
+    expect(f.next.primary?.action).toBe('approve-spike');
+    expect(f.next.secondary.map((a) => a.action)).toContain('approve');
+  });
+
+  it('a deliverable plan with another primary offers Deliver as a secondary', () => {
+    const f = facts({ controls: { ...controls(), approve: true }, deliverable: true });
+    expect(f.next.primary?.action).toBe('approve');
+    expect(f.next.secondary.map((a) => a.action)).toContain('deliver');
+  });
+
+  it('PRs that could not be read stay unknown', () => {
+    expect(facts({ prs: { unknown: 'failed' } }).progress.prs).toEqual({ unknown: 'failed' });
+  });
+
+  it('a spike line on a plan not under review carries no rounds', () => {
+    const f = facts({ rounds: 3, controls: { ...controls(), roundsBadge: false, spikeState: 'spike-merged' } });
+    expect(f.progress.design).toEqual({ rounds: null, spike: 'spike-merged' });
   });
 });

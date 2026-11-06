@@ -121,8 +121,12 @@ export interface PresentedAssignees {
   initials: string | null;
   /** How many more assignees the `+N` beside the avatar counts. */
   more: number;
-  /** The accessible name and the tooltip: every name, `Unassigned` or `Assignee unknown`. */
+  /** The accessible name: every name, `Unassigned` or `Assignee unknown`. */
   label: string;
+  /** The tooltip: the names and where they come from (`Assigned: @a`, `Started by @a on <date>`), else `label`. */
+  detail: string;
+  /** A muted word beside the empty circle (`unassigned`), so the circle is not the only sign; `null` for none. */
+  word: string | null;
 }
 
 /** A card's three sections. An empty section, and an empty line in one, is not drawn. */
@@ -520,16 +524,20 @@ const initialsOf = (handle: string): string => {
   return letters.toUpperCase();
 };
 
-const presentAssignees = (assignees: Known<string[]>): PresentedAssignees => {
-  if ('unknown' in assignees) return { kind: 'unknown', initials: null, more: 0, label: 'Assignee unknown' };
+const presentAssignees = (
+  assignees: Known<string[]>, from: CardFacts['ownership']['assignedFrom'],
+): PresentedAssignees => {
+  if ('unknown' in assignees) {
+    return { kind: 'unknown', initials: null, more: 0, label: 'Assignee unknown', detail: 'Assignee unknown', word: null };
+  }
   const names = assignees.value;
-  if (names.length === 0) return { kind: 'unassigned', initials: null, more: 0, label: 'Unassigned' };
-  return {
-    kind: 'named',
-    initials: initialsOf(names[0]),
-    more: names.length - 1,
-    label: names.map((n) => `@${n}`).join(', '),
-  };
+  if (names.length === 0) {
+    return { kind: 'unassigned', initials: null, more: 0, label: 'Unassigned', detail: 'Unassigned', word: 'unassigned' };
+  }
+  const label = names.map((n) => `@${n}`).join(', ');
+  const detail = from?.source === 'started' ? `Started by ${label} on ${from.at}`
+    : from?.source === 'assigned' ? `Assigned: ${label}` : label;
+  return { kind: 'named', initials: initialsOf(names[0]), more: names.length - 1, label, detail, word: null };
 };
 const DAY_MS = 86_400_000;
 
@@ -636,7 +644,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
     },
     status: { state, work: workPart, signals },
     footer: {
-      assignees: presentAssignees(ownership.assignees),
+      assignees: presentAssignees(ownership.assignees, ownership.assignedFrom),
       age,
       primary: next.primary === null ? null : presentAction(next.primary, options.unavailable),
       secondary: next.secondary.map((a) => presentAction(a, options.unavailable)),
