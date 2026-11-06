@@ -21,14 +21,18 @@ const tmp = (tag) => {
 };
 after(() => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
 
-/** A `gh` answering `pr view` and the statuses read; `view` and `statuses` are the JSON bodies. */
-const ghStub = ({ view, statuses, failOn = null }) => {
+/**
+ * A `gh` answering `pr view` and the paginated statuses read. `view` is the JSON
+ * body; `statuses` is one page, or `pages` several, printed back to back the way
+ * `gh api --paginate` prints them.
+ */
+const ghStub = ({ view, statuses, pages = [statuses], failOn = null }) => {
   const dir = tmp('pr-review');
   const body = `#!/usr/bin/env bash
 case "$*" in
   *${failOn ?? 'NEVER-MATCHES'}*) echo "HTTP 502" >&2; exit 1 ;;
   "pr view 7 --json headRefOid,comments") printf '%s' ${JSON.stringify(JSON.stringify(view))} ;;
-  "api repos/{owner}/{repo}/commits/abc123/statuses") printf '%s' ${JSON.stringify(JSON.stringify(statuses))} ;;
+  "api --paginate repos/{owner}/{repo}/commits/abc123/statuses?per_page=100") printf '%s' ${JSON.stringify(pages.map((page) => JSON.stringify(page)).join(''))} ;;
   *) exit 9 ;;
 esac
 `;
@@ -56,7 +60,39 @@ test('pr-review reads the newest plot/review status, not the CI status beside it
       { context: 'plot/review', state: 'success' }],
   }));
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'failure', description: '', time: '', bypass: false });
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'failure', description: '', time: '', bypass: false,
+    statuses: [{ state: 'failure', description: '', time: '', writer: '' }, { state: 'success', description: '', time: '', writer: '' }] });
+});
+
+test('pr-review reports a forged success and the App failure, each with its writer', () => {
+  const r = prReview(ghStub({
+    view: view(),
+    statuses: [
+      { context: 'plot/review', state: 'success', description: 'ok', updated_at: '2026-11-03T10:05:00Z', creator: { login: 'jwloka', type: 'User' } },
+      { context: 'plot/review', state: 'failure', description: 'run r-1', updated_at: '2026-11-03T10:00:00Z', creator: { login: 'plot-review[bot]', type: 'Bot' } },
+    ],
+  }));
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.state, 'success');
+  assert.deepEqual(out.statuses, [
+    { state: 'success', description: 'ok', time: '2026-11-03T10:05:00Z', writer: 'jwloka' },
+    { state: 'failure', description: 'run r-1', time: '2026-11-03T10:00:00Z', writer: 'plot-review[bot]' },
+  ]);
+});
+
+test('pr-review reads every page of statuses', () => {
+  const r = prReview(ghStub({
+    view: view(),
+    pages: [
+      [{ context: 'ci/build', state: 'success' }],
+      [{ context: 'plot/review', state: 'failure', creator: { login: 'plot-review[bot]' } }],
+    ],
+  }));
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.state, 'failure');
+  assert.deepEqual(out.statuses.map((x) => x.writer), ['plot-review[bot]']);
 });
 
 test('pr-review answers absent for a PR with green CI and no plot/review status', () => {
@@ -128,7 +164,7 @@ test('pr-review on Bitbucket reads the newest plot/review commit status and maps
   for (const [word, state] of cases) {
     const out = bbPrReview(bbStub({ statuses: { values: [status('ci/build', 'SUCCESSFUL'), status('plot/review', word)] } }));
     assert.equal(out.status, 0, out.stderr);
-    assert.deepEqual(JSON.parse(out.stdout), { sha: 'abc123', state, description: '', time: '', bypass: false }, word);
+    assert.deepEqual(JSON.parse(out.stdout), { sha: 'abc123', state, description: '', time: '', bypass: false, statuses: [{ state, description: '', time: '', writer: '' }] }, word);
   }
 });
 
@@ -137,7 +173,8 @@ test('pr-review on Bitbucket carries the plot/review status description and upda
     { key: 'plot/review', state: 'INPROGRESS', description: 'run r-1', updated_on: '2026-10-30T10:00:00Z' },
   ] } }));
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', bypass: false });
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', bypass: false,
+    statuses: [{ state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', writer: '' }] });
 });
 
 test('pr-review carries the newest plot/review status description and updated_at on GitHub', () => {
@@ -146,13 +183,14 @@ test('pr-review carries the newest plot/review status description and updated_at
     statuses: [{ context: 'plot/review', state: 'pending', description: 'run r-1', updated_at: '2026-10-30T10:00:00Z' }],
   }));
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', bypass: false });
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', bypass: false,
+    statuses: [{ state: 'pending', description: 'run r-1', time: '2026-10-30T10:00:00Z', writer: '' }] });
 });
 
 test('pr-review on Bitbucket answers absent with green CI and no plot/review status', () => {
   const r = bbPrReview(bbStub({ statuses: { values: [status('ci/build', 'SUCCESSFUL')] } }));
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'absent', description: '', time: '', bypass: false });
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'absent', description: '', time: '', bypass: false, statuses: [] });
 });
 
 test('pr-review on Bitbucket reports a comment starting review-bypass:', () => {

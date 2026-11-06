@@ -70,6 +70,10 @@ export interface HostFixture {
    * failed read, so a test can prove an unreadable PR is named.
    */
   reviews?: Readonly<Record<number, PrReviewReading>>;
+  /** What `reviewWriter` answers: the trusted bot login, `''` (the default) for unchecked. */
+  reviewWriter?: string;
+  /** Makes `reviewWriter` answer `unaskable`. */
+  reviewWriterUnaskable?: boolean;
   /**
    * The PR comments `prComment` leaves, in post order.
    *
@@ -205,6 +209,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     prReview: async (number: number): Promise<PortResult<PrReviewReading>> => {
       const reading = fixture.reviews?.[number];
       return reading === undefined ? failed() : answered(reading);
+    },
+
+    reviewWriter: async (): Promise<PortResult<string>> => {
+      if (fixture.reviewWriterUnaskable === true) return unaskable();
+      return answered(fixture.reviewWriter ?? '');
     },
 
     prComment: async (pr: number, body: string, marker?: string): Promise<PortResult<true>> => {
