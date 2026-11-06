@@ -11,6 +11,7 @@ import {
   roleDeniesCommand,
   roleDeniesPath,
   roleOwnBranch,
+  writesReviewStatus,
 } from '../src/rules/role-gate.js';
 
 describe('callsCommitStatus', () => {
@@ -23,6 +24,42 @@ describe('callsCommitStatus', () => {
 
   it.each(['plot-host.sh pr-merge 1 abc123', 'echo "plot-host.sh commit-status"', 'git status'])('allows %s', (command) => {
     expect(callsCommitStatus(command)).toBe(false);
+  });
+});
+
+describe('writesReviewStatus', () => {
+  it.each([
+    'plot-host.sh commit-status abc123 success plot/review',
+    'skills/plot/scripts/plot-host.sh commit-status abc123 failure "plot/review" --description x',
+    'gh api repos/o/r/statuses/abc123 -f context=plot/review -f state=success',
+    'gh api repos/o/r/statuses/abc123 -F context=plot/review -F state=success',
+    'gh api repos/o/r/statuses/abc123 --field context=plot/review -f state=success',
+    'gh api repos/o/r/statuses/abc123 --raw-field context=plot/review -f state=success',
+    "gh api repos/o/r/statuses/abc123 -f 'context=plot/review' -f state=success",
+    'gh api repos/o/r/statuses/abc123 -f "context=plot/review" -f state=success',
+    'gh api -X POST repos/o/r/statuses/$SHA -f state=success -f context=plot/review',
+  ])('is true for %s', (command) => {
+    expect(writesReviewStatus(command)).toBe(true);
+  });
+
+  it.each([
+    'plot-review.mjs 42',
+    'node skills/plot/scripts/board/plot-review.mjs 42',
+    'plot-host.sh commit-status abc123 success ci/build',
+    'gh api repos/o/r/statuses/abc123',
+    'gh api repos/o/r/statuses/abc123 -f context=ci/build -f state=success',
+    'gh api repos/o/r/pulls/42 -f context=plot/review',
+    'git commit -m "gh api repos/o/r/statuses/x -f context=plot/review"',
+    'echo "plot-host.sh commit-status abc plot/review"',
+    'git status # gh api repos/o/r/statuses/x -f context=plot/review',
+  ])('is false for %s', (command) => {
+    expect(writesReviewStatus(command)).toBe(false);
+  });
+
+  it('is refused for a role through roleDeniesCommand', () => {
+    expect(roleDeniesCommand('gh api repos/o/r/statuses/abc -f context=plot/review -f state=success', 'main', 'fix/x')).toContain(
+      'writes the PR review status',
+    );
   });
 });
 

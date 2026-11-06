@@ -75,6 +75,32 @@ const runsNamed = (command: string, name: string): boolean => commandRunsScript(
 export const callsCommitStatus = (command: string): boolean =>
   runsNamed(command, 'plot-host.sh') && /\bcommit-status\b/.test(withoutComments(withoutQuotes(command)));
 
+/** `-f`, `-F`, `--field` or `--raw-field` naming the `plot/review` context, with or without quotes. */
+const REVIEW_CONTEXT_FIELD = /(?:^|\s)(?:-[fF]\s*|--(?:raw-)?field(?:\s+|=))['"]?context=['"]?plot\/review['"]?(?=\s|$)/;
+
+/**
+ * Whether a command writes the `plot/review` commit status by hand: a
+ * `plot-host.sh commit-status` call that names `plot/review`, or a `gh api`
+ * call to a `statuses/<sha>` path with a `context` field of `plot/review`
+ * through `-f`, `-F`, `--field` or `--raw-field`, quoted or not. A read of the
+ * statuses path, a `commit-status` with another context, and `plot-review.mjs`
+ * answer false.
+ *
+ * The reading covers the command line only. A script file the agent writes and
+ * then runs, and `gh api … --input <file>` whose `context` lies in the file,
+ * are not read. A command word inside a quoted span (a commit message that
+ * quotes the call) does not count; the field value is read with its quotes.
+ *
+ * @param command - the Bash command line.
+ * @returns whether the command writes `plot/review`.
+ */
+export const writesReviewStatus = (command: string): boolean => {
+  const text = withoutComments(command);
+  const words = withoutQuotes(text);
+  if (callsCommitStatus(command) && /\bcommit-status\b[^\n;&|]*\bplot\/review\b/.test(text)) return true;
+  return runsNamed(command, 'gh') && /\bapi\b/.test(words) && /\bstatuses\/[^\s'"]+/.test(text) && REVIEW_CONTEXT_FIELD.test(text);
+};
+
 /**
  * Whether a command runs `plot-review.mjs` — the review this role must never
  * run on its own change.
@@ -273,7 +299,7 @@ export const roleDenyRefusal = (reason: string): string =>
  * @returns the refusal, or `null` where the command is allowed.
  */
 export const roleDeniesCommand = (command: string, defaultBranch: string, currentBranch: string, ownBranch = ''): string | null => {
-  if (callsCommitStatus(command)) return roleDenyRefusal('this command writes the PR review status (plot-host.sh commit-status)');
+  if (callsCommitStatus(command) || writesReviewStatus(command)) return roleDenyRefusal('this command writes the PR review status (plot-host.sh commit-status or gh api statuses)');
   if (callsReviewRun(command)) return roleDenyRefusal('this command runs the reviewer (plot-review.mjs)');
   if (callsMerge(command)) return roleDenyRefusal('this command merges a pull request');
   if (pushesDefaultBranch(command, defaultBranch, currentBranch)) return roleDenyRefusal('this command pushes the default branch');

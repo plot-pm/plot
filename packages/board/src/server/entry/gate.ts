@@ -27,7 +27,7 @@ import {
   treeStrandingResetDirs,
 } from '@plot-pm/domain/rules/main-checkout-write';
 import { SPAWN_CONTRACT, spawnContractReading } from '@plot-pm/domain/rules/spawn-contract';
-import { gateInsideTree, gateInsideTreeRefusal, roleDeniesCommand, roleDeniesPath, roleOwnBranch } from '@plot-pm/domain/rules/role-gate';
+import { gateInsideTree, gateInsideTreeRefusal, roleDeniesCommand, roleDeniesPath, roleOwnBranch, writesReviewStatus } from '@plot-pm/domain/rules/role-gate';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 
 /**
@@ -912,6 +912,9 @@ export interface ControllerReadings {
   readonly backend: (cwd: string, scriptDir: string) => Promise<string>;
 }
 
+const reviewStatusRefusal = (): string =>
+  'plot-controller-gate: refused — plot/review has one writer. Run plot-review.mjs <pr>; it writes the status itself. A hand-written commit-status or gh api statuses call does not count.';
+
 /**
  * `controller`: refuses a command that runs a controller-owned action
  * (`dispatch`, `approve`, `deliver`, `release`) without the controller's
@@ -942,12 +945,17 @@ export interface ControllerReadings {
  */
 export const controllerGateOf = (readings: ControllerReadings): Gate => ({
   name: 'controller',
-  wants: (command) => (process.env.PLOT_UNATTENDED === '1' && command !== '') || mayRunController(command),
+  wants: (command) => (process.env.PLOT_UNATTENDED === '1' && command !== '') || mayRunController(command) || writesReviewStatus(command),
   ask: async (command) => {
     const stripped = withoutMessageSinks(withoutQuotedHeredocs(command));
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     const named = mayRunController(stripped);
+
+    // The review status has one writer, plot-review.mjs. This refuses before
+    // git is read and before the linked-worktree return, so neither a failing
+    // read nor a desk lets the write through.
+    if (writesReviewStatus(stripped)) return reviewStatusRefusal();
 
     // A release approval, and an HTTP POST to a gated board route, refuse
     // unconditionally: before a desk is distinguished from the main
