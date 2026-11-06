@@ -22,6 +22,7 @@ import {
   failed,
 } from '../src/index.js';
 import { planRecord } from '../src/adapters/index.js';
+import type { PlanRecord } from '../src/ports/plan-store.js';
 import { assemblePlanWalk, planRow } from '../src/workflows/plan-walk-assembly.js';
 
 type St = 'open' | 'merged' | 'deferred';
@@ -356,7 +357,7 @@ describe('planAutoDeliver over a walked pulse', () => {
       },
     ];
     const record = (file: string, branch: string, extra: object) =>
-      ({ file, phase: 'approved', type: 'feature', slices: lines(branch, 'spike' in extra), unreadBranchItems: [], ...extra }) as never;
+      ({ file, phase: 'approved', type: 'feature', slices: lines(branch, 'spike' in extra), unreadBranchItems: [], ...extra }) as unknown as PlanRecord;
     const m = record('docs/plans/2026-11-04-m-spike.md', 'feature/m', { spike: true });
     const t = record('docs/plans/2026-11-04-t-tracer.md', 'feature/t', { tracer: true });
     const gone = {
