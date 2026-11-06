@@ -15,7 +15,7 @@
 
 ## Changelog
 
-- The release PR reports `validate` on its pinned head in what GitHub's ruleset counts, with no person approving a held run, through the mechanism the 2.30.1 measurement selects.
+- The release PR reports `validate` on its pinned head in what GitHub's ruleset counts, with no person approving a held run, through the mechanism the 2.31.0 measurement selects.
 
 Board impact: the release row's stage reads #3070's `checks-missing` rule. Under Outcome A that rule also counts a `validate` check run from integration 15368 on the pinned head, so a head whose only `validate` is the dispatched run reads `ready` instead of `preparing`. Under Outcome B the row's reading is unchanged and the new `validate` reaches the rollup the rule already reads. The row's shape is unchanged in both outcomes.
 
@@ -29,7 +29,7 @@ Ruleset `24412719` on `main`, read on 2026-11-03:
 - `pull_request`: `required_approving_review_count: 0` and `require_extra_approval_for_unattributed_changes: true`.
 - `bypass_actors`: RepositoryRole 5 (admin) and Integration 5173644 (`plot-build`), both `bypass_mode: always`. jwloka holds `admin`.
 
-[The release PR needs a person for its review and its CI](2026-11-03-the-release-pr-needs-a-person.md) (issue #3065, plan #3070) builds Plot's own guard: `release-approve` refuses `checks-missing` when `validate` has no success in the PR's `statusCheckRollup` on the pinned head. Its Notes move the CI measurement and the CI mechanism to this plan. Release 2.30.1 is cut after #3070, so this plan starts on the 2.30.1 release head.
+[The release PR needs a person for its review and its CI](2026-11-03-the-release-pr-needs-a-person.md) (issue #3065, plan #3070) builds Plot's own guard: `release-approve` refuses `checks-missing` when `validate` has no success in the PR's `statusCheckRollup` on the pinned head. Its Notes move the CI measurement and the CI mechanism to this plan. Release 2.31.0 is the first release cut after #3070, so this plan starts on the 2.31.0 release head.
 
 ## Design
 
@@ -37,7 +37,7 @@ Ruleset `24412719` on `main`, read on 2026-11-03:
 
 Taken by the person (jwloka) on 2026-11-03:
 
-1. **The measurement reads and merges nothing.** On the 2.30.1 release head, before anyone approves the held `pull_request` run, jwloka records the readings in `### Measurement`. The release then proceeds as today: jwloka approves the held run once, and the sprint notes record that approval as an intervention.
+1. **The measurement reads and merges nothing.** On the 2.31.0 release head, before anyone approves the held `pull_request` run, jwloka records the readings in `### Measurement`. The release then proceeds as today: jwloka approves the held run once, and the sprint notes record that approval as an intervention.
 2. **Two candidates for Outcome B.** A status relay from a new job, and a non-bypass token for the changesets action. The candidate "a controller approves the held run" is dropped: the held run uses `ci.yml` from the unprotected `changeset-release/main` with the repository secrets, including the `plot-build` App key (integration 5173644, a ruleset bypass actor). The mechanism for Outcome B stays open until the measurement.
 3. **This plan owns Outcome A.** Its build slice widens #3070's `checks-missing` reading so it counts a `validate` check run from integration 15368 on the pinned head, not only the PR rollup.
 4. **This plan takes over the tasks of #3070's removed CI slice:** the comment corrections at `.github/workflows/ci.yml:30-33` and `.github/workflows/release.yml:141-159`, the CI tests and the live proof.
@@ -51,7 +51,7 @@ Every candidate keeps these invariants: `validate` stays required with integrati
 
 ### Measurement
 
-**Owner:** jwloka. **When:** on the 2.30.1 release head, after the dispatched run's `validate` reads `success` and `plot/review` exists on the head, and before anyone approves the held `pull_request` run. **Where:** the `Record:` list below, in a commit to this plan on `idea/the-release-head-reports-validate-with` (plan PR #3076).
+**Owner:** jwloka. **When:** on the 2.31.0 release head, after the dispatched run's `validate` reads `success` and `plot/review` exists on the head, and before anyone approves the held `pull_request` run. **Where:** the `Record:` list below, in a commit to this plan on `idea/the-release-head-reports-validate-with` (plan PR #3076).
 
 `plot-ask.mjs release-approve` is not part of the measurement. After #3070's checks slice, it refuses `checks-missing` on this head before it calls GitHub. That answer is expected and the record notes it.
 
@@ -140,7 +140,7 @@ This plan is delivered only after this record exists. It also closes #3070's lin
 
 ### Open Questions
 
-- [ ] What does the 2.30.1 measurement record? Answered by `### Measurement`; this plan stays Draft until the record exists.
+- [ ] What does the 2.31.0 measurement record? Answered by `### Measurement`; this plan stays Draft until the record exists.
 - [ ] Under Outcome B, which candidate does the person choose: (a) the relay or (b) the non-bypass token?
 - [ ] Does `mergeStateStatus` read `BLOCKED` for a viewer with bypass `always`? The record names the reading identity, and reading 2 checks the answer against the approved run.
 
