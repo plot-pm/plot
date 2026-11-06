@@ -198,6 +198,11 @@ export const CardFactsSchema = z.object({
       cost: knownSchema(CostReadingSchema),
     })
     .nullable(),
+  /**
+   * At most one primary action, enabled or not, then the secondaries. A
+   * secondary the item's own state disables is omitted; one the board's
+   * configuration refuses stays, disabled with `action-unavailable`.
+   */
   next: z.object({
     primary: ActionSchema.nullable(),
     secondary: z.array(ActionSchema),

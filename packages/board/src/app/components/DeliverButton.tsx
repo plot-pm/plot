@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
+import { useReasonTooltip } from './ui/reason-tooltip.js';
 
 /**
  * *Deliver* — the decision a person makes about a plan the board has measured
@@ -75,6 +76,8 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
+  // The board's own refusal, in a tooltip the button names as its description.
+  const tip = useReasonTooltip(deliver.available ? null : deliver.reason);
 
   /**
    * IS ONE OF MINE ALREADY RUNNING? — the guard `ResliceButton` measured into
@@ -186,8 +189,11 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
   const onClick = () => {
     // `aria-disabled` does not stop a click the way `disabled` does, so the
     // refusal has to be stated here as well: the attribute is what assistive
-    // technology reads, this is what makes it true.
-    if (blocked) return;
+    // technology reads, this is what makes it true. A tap shows the reason.
+    if (blocked) {
+      tip.show();
+      return;
+    }
     if (state.kind === 'idle' || state.kind === 'failed') {
       // A failed attempt re-arms rather than re-runs: the reason has just been
       // read, and the next click should be as deliberate as the first was.
@@ -203,9 +209,11 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
 
   return (
     <span ref={rootRef} className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span {...tip.wrapperProps}>
       <button
         type="button"
         data-deliver={slug}
+        {...tip.triggerProps}
         onClick={onClick}
         // `aria-disabled` rather than the native attribute, the decision #160
         // settled: a natively disabled button leaves the tab order, taking the
@@ -214,7 +222,7 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
         aria-disabled={blocked || undefined}
         aria-busy={running}
         aria-pressed={armed}
-        title={deliver.available ? `Deliver ${slug} — flip its phase to Delivered` : deliver.reason}
+        title={deliver.available ? `Deliver ${slug} — flip its phase to Delivered` : undefined}
         className={
           armed
             ? 'rounded-sm bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900 hover:underline dark:bg-amber-900/40 dark:text-amber-200'
@@ -227,11 +235,9 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
         {/* Beside the word, never instead of it — motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {running && <ActingSpinner />}
-        {/* Why it will not act, for a reader with no pointer to hover. */}
-        {!deliver.available && deliver.reason && (
-          <span className="sr-only"> — unavailable: {deliver.reason}</span>
-        )}
       </button>
+      {tip.tooltip}
+      </span>
       {state.kind === 'failed' && (
         <span
           data-deliver-error={slug}
