@@ -5,8 +5,8 @@
 ## Status
 
 - **State:** Planning
-- **Start:** YYYY-MM-DD
-- **End:** YYYY-MM-DD
+- **Start:** 2026-11-06
+- **End:** 2026-11-13
 <!-- Optional. The version this sprint is working toward, named before it is
      cut. With it, /plot-release refuses to cut past an unfinished Must Have
      and asks about unfinished Should Haves. Without it, nothing changes. -->
