@@ -17,7 +17,7 @@
 
 ## Changelog
 
-- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who is assigned since when. Each card has four sections, header, context, status and actions, and its status opens with the item's own state. A ticket links to the plan and the story that answer it instead of offering to create them again, and *Create plan* on a ticket inside a story creates the plan in that story. A story names its ticket in an `issue:` frontmatter field. Each card leads with an icon for its kind, its actions sit in a separate band, and a disabled action shows why on hover or keyboard focus.
+- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who is assigned since when. Each card has three sections, a header, a status panel and a footer, and its status opens with the item's own state. A related sprint reads as its release number, the way a ticket reads as its number. A ticket links to the plan and the story that answer it instead of offering to create them again, and *Create plan* on a ticket inside a story creates the plan in that story. A story names its ticket in an `issue:` frontmatter field. Each card leads with an icon for its kind, its actions sit in a separate band, and a disabled action shows why on hover or keyboard focus.
 
 <!-- Board impact: board rendering, the domain package, the story format and two
      endpoints. No change to the plan format, the plan template, helper scripts or
@@ -120,8 +120,8 @@ neither is rewritten for a card this plan has not reached yet.
 **The UI answers *how it looks*, and decides no fact.** In `packages/board`:
 
 - **A presentation mapping** (`card-presentation.ts`, pure, unit-tested without a
-  browser) turns `CardFacts` into the card's four sections (header, context, status,
-  actions), wording (`4/6 slices
+  browser) turns `CardFacts` into the card's three sections (header, status,
+  footer), wording (`4/6 slices
   merged · 1 PR running`, `waits on #3105`), alert labels, icons, which chips
   show, and what collapses (*in 9 sprints*, a PR list behind one line).
 - **Every board uses the same section positions; each board emphasises a different
@@ -345,7 +345,7 @@ type Ref =
   | { kind: 'ticket'; key: string; title: string; lane: TicketLane }
   | { kind: 'story'; slug: string; title: string; status: StoryStatus; archived: boolean }
   | { kind: 'plan'; slug: string; title: string; status: PlanStatus }
-  | { kind: 'sprint'; slug: string; title: string; state: SprintState }
+  | { kind: 'sprint'; slug: string; title: string; state: SprintState; release: string | null }   // release: the sprint's Release:, verbatim
   | { kind: 'slice'; plan: string; branch: string; pr: number | null };
 
 // One unknown vocabulary, the domain's own: HostReach without 'ok'.
@@ -422,7 +422,7 @@ into the domain as types; the words built from them (`plan-spend.ts:138-144`,
 
 **Invariants, each a unit test:**
 
-1. **No generated words.** The only string fields are identifiers (`id`, `key`,
+1. **No generated words.** The only string fields are identifiers (`id`, `key`, `release`,
    `slug`, `branch`, `plan`, the handles in `assignees`, `path`), ISO dates (`at`), and **content
    copied verbatim from the item** (`title`, `summary`, `value`). The schema gate
    refuses any other string field.
@@ -515,56 +515,75 @@ and `StoryModal.tsx` reads that alert through the mapping.
 ### Presentation (board — `card-presentation.ts`, `<Card>`, detail views)
 
 `presentCard(facts, board) → sections`. The five facets are the model; the card
-has four sections, each in a fixed place on every kind, and the mapping decides
-which facet parts go into which section. An empty section is not drawn.
+has three sections, each in a fixed place on every kind and each on its own
+surface, and the mapping decides which facet parts go into which section. An
+empty section, and an empty line inside one, is not drawn.
 
-| Section | Holds | From |
+| Section | Surface | Holds | From |
+|---|---|---|---|
+| **Header** | the card surface | the kind icon and the title (the `opens` link, at most two lines); below it one muted meta line: number, subtype tag, labelled alerts, then each related item as icon + identifier | `identity`, `lineage` |
+| **Status** | an inset panel, rounded, one surface step lighter (dark) or darker (light) than the card | line 1: the state pill, then work done / total with a progress bar stretched to the panel's width; line 2, the signals: PR check dots and counts, design rounds and spike state, verification | `progress` |
+| **Footer** | a tinted band flush at the bottom with a top hairline | the assignees and the age on the left, the actions on the right: primary, then secondaries | `ownership`, `next` |
+
+**A related item reads as icon + identifier**, the way a ticket reads as its
+number, with its title and state in the tooltip:
+
+| Item | On the card | Tooltip |
 |---|---|---|
-| **Header** | kind icon, number, title (the `opens` link), subtype tag and labelled alerts | `identity` |
-| **Context** | the related ticket, story, plans and sprint, each a link with its kind icon; two or more fold to a count | `lineage` |
-| **Status** | the state first, then the measures, then the assignees and the age: *● Development · 5/6 slices · 6 PRs: 3 green, 3 unknown · @jwloka · 2 days ago* | `progress`, `ownership` |
-| **Actions** | the action band: primary, then secondaries | `next` |
+| ticket | `◎ #3170` or `◎ PROJ-12` | title, tracker state |
+| story | `▥ <slug>`, shortened to fit | title, status |
+| plan | `▤ 3092` (its issue key) or `▤ <slug>` | title, phase |
+| sprint | `↻ 2.32.0` — the sprint's `Release:` copied verbatim; its short title when it names none | title, release, state |
+
+Two or more of one kind fold to a count (*↻ 2 sprints*) that expands in place.
+The release is not validated, as `/plot-sprint` states: it is named before it
+is cut, so the card copies it.
 
 The card shows what a reader scans for; the detail view holds the rest. **Not on
 the card**: the source path or `repo#N` (`ownership.source`), the author or
 approver, and cost unless it was measured — these show in `PlanModal`,
 `StoryModal` and `TicketModal`. Age reads relative (*2 days ago*) with the
 exact date and its event (*opened*, *updated*, *transitioned*) in the same
-tooltip that carries disabled reasons. A sprint link is its icon and title; the
-icon's accessible name says *Sprint*, so the word does not repeat. Two or more
-assignees fold to the first plus a count (*@jwloka +1*), all names in the
-tooltip; none reads *unassigned*; an unread assignee reads *assignee unknown*.
+tooltip that carries disabled reasons. Assignees are round initials avatars;
+two or more show the first plus a count, all names in the tooltip; nobody
+assigned is an empty dashed circle whose accessible name and tooltip say
+*Unassigned*; an unread assignee is the same circle named *Assignee unknown*.
+The footer is drawn on a card with no actions too, because it holds the
+assignees and the age.
 
-**Visual design.** The card reads as one calm object with a clear hierarchy:
+**Visual design.** The card reads as one calm object with three groups, told
+apart by surface and spacing rather than by rules:
 
-- **Surface**: rounded corners (`rounded-xl`), a 1 px hairline border, a soft
-  shadow that deepens on hover and on keyboard focus within the card, and
-  generous padding (16 px) with 8–12 px between sections. The left edge keeps a
-  3 px accent in the state's colour.
-- **Type scale**: three steps only — title 15 px semibold with at most two lines
-  before truncation (full title in the tooltip and the detail view); body 13 px;
-  meta 12 px. The number precedes the title in tabular figures and a muted tone.
-  No italics for facts: italics read as an apology. An unknown is a muted word
-  with a dotted underline, the same treatment everywhere.
-- **Kind icon**: the board's Octicon glyph, 1 em of the title, in the kind's
-  colour (ticket, story, plan, sprint each one hue, chosen for AA contrast in
-  both themes).
-- **Status**: the state is a pill with a coloured dot and its word; slices show
-  a slim segmented progress bar beside *5/6*; the PR summary shows one dot per
-  check state with its count (green, pending, failing, unknown), the dots paired
-  with words in the tooltip; assignees are round initials avatars aligned to the
-  right with the age.
-- **Actions**: the band sits flush at the bottom with its own tint and a top
-  hairline. The primary is a small solid button; secondaries are ghost buttons
-  of the same height; a disabled control is an outline in the muted tone with a
-  not-allowed cursor.
-- **Both themes** use the same tokens, and every colour carries a word beside it
-  (no meaning by colour alone).
+- **Surface steps**: column → card → status panel, each one step apart, the same
+  tokens in both themes; the footer has its own tint and a top hairline. The
+  emphasised section takes the stronger tint: the status panel on the Testing
+  column and discovery's story lanes, the footer on Design and Development and
+  in swimlanes, the header's meta line on discovery's ticket lanes.
+- **Spacing**: 16 px card padding, 12 px between sections, 4–6 px between lines
+  inside a section, 12 px between cards. Every section aligns to the card's
+  left padding; only the title is indented past the kind icon.
+- **Card**: rounded corners (`rounded-xl`), a 1 px hairline border, a soft
+  shadow that deepens on hover and on keyboard focus within the card, and a
+  3 px left accent in the state's colour.
+- **Type scale**: three steps only — title 15 px semibold; body 13 px; meta 12
+  px in tabular figures. No italics for facts. An unknown is a muted word with a
+  dotted underline, the same treatment everywhere. A measure takes a warning or
+  error tone only when it reports one (a failing check, a conflict), never
+  because it is a count.
+- **Kind icon**: the board's Octicon glyph, 1 em of the text beside it, in the
+  kind's hue (ticket, story, plan, sprint each one hue, AA contrast in both
+  themes).
+- **Status panel**: the state is a pill with a coloured dot and its word; the
+  progress bar fills the panel's width so cards compare at a glance; the PR
+  summary shows one dot per check state with its count, the words in the
+  tooltip.
+- **Footer**: the primary is a small solid button; secondaries are ghost
+  buttons of the same height; a disabled control is an outline in the muted
+  tone with a not-allowed cursor.
+- **Every colour carries a word** beside it or in its accessible name.
 
 The mapping names the kind icon and its accessible name per `identity.kind`;
-`<Card>` draws it. It returns the emphasised section — the context on discovery's ticket lanes,
-the status on discovery's story lanes, the actions on the planning and delivery
-boards and in swimlanes — and every word: summaries, reasons (*waits on
+`<Card>` draws it. It returns the emphasised section as the visual design above names it — and every word: summaries, reasons (*waits on
 feature/x #3105*, *no fleet scan yet*, *linked from 2 stories*, *plans unread —
 host throttled*), unknowns (*checks unknown*, *cost not measured here*) and alert
 labels. **Every list with two or more entries collapses to a count and expands
@@ -594,7 +613,7 @@ and admits `http(s)` link schemes only.
 ### Done when
 
 - **Tracer:** every plan card on the planning and delivery boards and in swimlanes
-  renders through `<Card>` from `facts` in the four sections, and `planCardView`
+  renders through `<Card>` from `facts` in the three sections, and `planCardView`
   is gone. Type, rounds, spike state, verification, `not-pushed` and the PR list
   all still show on the card; the plan path, the approver and an unmeasured cost
   show in `PlanModal` instead. The status section opens with the plan's phase,
@@ -603,7 +622,7 @@ and admits `http(s)` link schemes only.
   the tooltip; an approved plan still shows its assignee, not its approver. A
   spike merged with no `Spike approved:` record offers *Approve spike* as the
   primary and *Confirm slices* as a secondary. The card follows the visual
-  design above in both themes.
+  design above in both themes. A plan in a sprint with a `Release:` shows `↻ <release>` in its meta line. The status panel and footer keep their lines aligned across cards: a card with no PRs has no empty signals line, and the assignee and age sit in the footer on every card.
   No plan card shows *not measured here* or *checks not asked* as a chip of its
   own; each shows as an unknown in its row. Every plan card leads with the plan
   kind icon from `KIND_ICON_PATH`, sized to the title text, with an accessible
