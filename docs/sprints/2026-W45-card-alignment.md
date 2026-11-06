@@ -30,6 +30,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
 ### Should Have
+- [x] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate -->
 
 <!-- add items here -->
 
@@ -54,6 +55,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 
 <!-- Session log, decisions, links -->
 - 2026-11-06: Created for `one-card-grammar` (docs/plans/2026-11-06-one-card-grammar.md,
+- 2026-11-06: Added [the-release-head-reports-validate-with] to Should — carried from 2026-W45-follow-ups-2-30-1: the relay slice failed its live proof on 2.31.0; fix slice bug/the-release-run-relays-validate
   in Design on `idea/one-card-grammar`, PR #3192). The plan joins the sprint
   through `plot-sprint-member.mjs add card-alignment one-card-grammar` once its
   plan PR merges on approval — the writer sets the plan's `Sprint:` field, which
