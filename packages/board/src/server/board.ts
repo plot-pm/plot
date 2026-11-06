@@ -25,7 +25,7 @@ import {
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
 import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
-import { spikeOf } from '@plot-pm/domain/rules/spike';
+import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
   allSlicesMerged,
@@ -1388,17 +1388,6 @@ export const spikeBranchMerged = (meta: Pick<PlanMeta, 'file' | 'slices'>, pulse
  */
 export const approvedSpikeKey = (planFile: string, branch: string): string =>
   `${path.basename(planFile)}\u0000${branch}`;
-
-/**
- * The branch a `design` plan's `Spike approved:` record licenses, or undefined.
- *
- * The branch is the one `spikeOf` names. A plan in another phase, a plan with
- * no record, and a plan with no annotation or more than one answer undefined.
- */
-export const approvedSpikeOf = (meta: Pick<PlanMeta, 'phase' | 'slices' | 'spike_approved_raw'>): string | undefined =>
-  meta.phase.toLowerCase() === 'design' && meta.spike_approved_raw.trim() !== ''
-    ? spikeOf(meta.slices)?.branch
-    : undefined;
 
 /**
  * A plan's MEASURED status — one of seven, derived every scan and stored
@@ -3146,8 +3135,10 @@ async function readPlanEstate(
       fieldsBySlug.set(slug, ownerFields);
       const draft = draftPlanOf(meta, relPath, ownerFields);
       if (draft) draftPlans.push(draft);
-      const spike = approvedSpikeOf(meta);
-      if (spike !== undefined) approvedSpikes.add(approvedSpikeKey(relPath, spike));
+      if (meta.phase.toLowerCase() === 'design') {
+        const spike = licensedSpike(meta.spike_approved_raw, meta.slices);
+        if (spike.licensed) approvedSpikes.add(approvedSpikeKey(relPath, spike.branch));
+      }
     }
   } finally {
     // Same removal, same reading — see the longer note on the other stage-dir

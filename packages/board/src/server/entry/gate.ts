@@ -29,6 +29,8 @@ import {
 import { SPAWN_CONTRACT, spawnContractReading } from '@plot-pm/domain/rules/spawn-contract';
 import { gateInsideTree, gateInsideTreeRefusal, roleDeniesCommand, roleDeniesPath, roleOwnBranch, writesReviewStatus } from '@plot-pm/domain/rules/role-gate';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
+import { licensedSpike, type LicensedSpike } from '@plot-pm/domain/rules/spike';
+import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -558,23 +560,30 @@ const sprintMemberGate: Gate = {
 };
 
 /**
- * The plan's spike branch where it records `Spike approved:`, else `''`.
+ * The branch a plan's `Spike approved:` record licenses, or why it licenses none.
  *
- * Parses the plan text in a private scratch directory; an unparseable plan
- * admits nothing.
+ * @param record - the plan as the plan store parsed it.
+ * @returns `licensedSpike`'s answer over the record and the plan's slices.
  */
-const approvedSpikeOf = async (text: string, planPath: string, cwd: string, scriptDir: string): Promise<string> => {
+export const spikeBranchOfRecord = (record: PlanRecord): LicensedSpike =>
+  licensedSpike(record.spikeApprovedRaw, record.slices);
+
+/**
+ * The plan text's licensed spike, parsed in a private scratch directory.
+ *
+ * An unparseable plan answers `spike-record-absent`: it admits nothing.
+ */
+const licensedSpikeOf = async (text: string, planPath: string, cwd: string, scriptDir: string): Promise<LicensedSpike> => {
   const { planStoreShell } = await import('@plot-pm/domain/adapters/plan-store/plan-store-shell');
-  const { spikeOf } = await import('@plot-pm/domain/rules/spike');
   const store = planStoreShell({ repoRoot: cwd, scriptDir });
   const dir = mkdtempSync(join(tmpdir(), 'plot-gate-plan-'));
   try {
     const scratch = join(dir, basename(planPath));
     const written = await store.writeText(scratch, text);
-    if (!written.ok) return '';
+    if (!written.ok) return { licensed: false, reason: 'spike-record-absent' };
     const read = await store.readPlan(scratch);
-    if (!read.ok || read.value.spikeApprovedRaw.trim() === '') return '';
-    return spikeOf(read.value.slices.map((slice) => ({ branches: slice.branches })))?.branch ?? '';
+    if (!read.ok) return { licensed: false, reason: 'spike-record-absent' };
+    return spikeBranchOfRecord(read.value);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -755,8 +764,12 @@ const phaseGate: Gate = {
       if (!text.ok) continue;
       const phase = planPhaseOf(text.value);
       // Only a Design plan can admit a branch, so only then is the plan parsed.
-      const spikeBranch = phase === 'design' ? await approvedSpikeOf(text.value, planPath, root, scriptDir) : '';
-      const refusal = phaseGateRefusal({ branch, slug, ref, phase, paths, planDir: homes.planDir, spikeBranch });
+      const spike = phase === 'design' ? await licensedSpikeOf(text.value, planPath, root, scriptDir) : undefined;
+      const refusal = phaseGateRefusal({
+        branch, slug, ref, phase, paths, planDir: homes.planDir,
+        spikeBranch: spike?.licensed ? spike.branch : '',
+        ...(spike && !spike.licensed ? { spikeUnlicensed: spike.reason } : {}),
+      });
       if (refusal !== null) return refusal;
     }
     return null;
