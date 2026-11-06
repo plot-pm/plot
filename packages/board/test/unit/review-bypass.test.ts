@@ -44,6 +44,37 @@ describe('plot-review-bypass', () => {
     expect(lines).toEqual(['  (none — every examined merge carries a passing plot/review or a bypass note)']);
   });
 
+  it('reports a merge whose only success came from a writer other than the Review app', async () => {
+    const { lines } = await output({
+      prs: [pr(10, AFTER)],
+      reviewWriter: 'plot-review[bot]',
+      reviews: { 10: { sha: 'a', state: 'success', description: '', time: 't', bypass: false,
+        statuses: [{ state: 'success', description: '', time: 't', writer: 'jwloka' }] } },
+    });
+    expect(lines.filter((l) => l.startsWith('  PR #'))).toEqual([
+      '  PR #10 merged with no passing plot/review and no review-bypass: comment',
+    ]);
+  });
+
+  it('does not report a success the Review app wrote', async () => {
+    const { lines } = await output({
+      prs: [pr(11, AFTER)],
+      reviewWriter: 'plot-review[bot]',
+      reviews: { 11: { sha: 'a', state: 'success', description: '', time: 't', bypass: false,
+        statuses: [{ state: 'success', description: '', time: 't', writer: 'plot-review[bot]' }] } },
+    });
+    expect(lines).toEqual(['  (none — every examined merge carries a passing plot/review or a bypass note)']);
+  });
+
+  it('names every PR unread where the Review app\'s login could not be resolved', async () => {
+    const { lines } = await output({
+      prs: [pr(12, AFTER)],
+      reviewWriterUnaskable: true,
+      reviews: { 12: { sha: 'a', state: 'success', description: '', time: '', bypass: false } },
+    });
+    expect(lines).toEqual(['  unread PR #12 — the host read failed; its review is unknown']);
+  });
+
   it('names an unread PR and never prints none while a read failed', async () => {
     const { lines } = await output({
       prs: [pr(3, AFTER), pr(4, AFTER)],

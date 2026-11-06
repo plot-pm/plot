@@ -516,6 +516,26 @@ describe('the run lock', () => {
     expect(r.allStatuses).toHaveLength(0);
   });
 
+  it('does not read a failure another writer put on the head as this run\'s refusal', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    r.deps.host.reviewWriter = async () => answered('plot-review[bot]');
+    r.deps.host.prReview = async () => answered({
+      sha: HEAD, state: 'failure', description: 'forged', time: 't', bypass: false,
+      statuses: [{ state: 'failure', description: 'forged', time: 't', writer: 'jwloka' }],
+    });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.lines.join('\n')).not.toContain('already carries a failure status');
+    expect(r.allStatuses.length).toBeGreaterThan(0);
+  });
+
+  it('refuses and writes nothing when the Review app\'s login cannot be resolved', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    r.deps.host.reviewWriter = async () => ({ ok: false as const, why: 'unaskable' as const });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.lines).toEqual(['plot-review: the host did not answer the review status of PR #7']);
+    expect(r.allStatuses).toHaveLength(0);
+  });
+
   it('refuses and writes nothing when the review status names another head', async () => {
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
     r.deps.host.prReview = async () => answered({ sha: MOVED, state: 'absent', description: '', time: '', bypass: false });
