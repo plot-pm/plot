@@ -2,7 +2,7 @@ import type { Card as PlanCardData, DispatchInfo, StoryCard } from '../../contra
 import type { Ref } from '@plot-pm/domain/entities/card-facts';
 import { checksVerdict, planRoute } from '@plot-pm/domain';
 import { storyHref } from '../lib/plan.js';
-import { presentCard, type CardBoard, type PresentedAction } from '../lib/card-presentation.js';
+import { presentCard, UNREADABLE_CARD, type CardBoard, type PresentedAction } from '../lib/card-presentation.js';
 import { Card, type RefLink } from './Card.js';
 import { StartWorkButton } from './StartWorkButton.js';
 import { ApproveButton } from './ApproveButton.js';
@@ -164,6 +164,21 @@ export function PlanCard({
   onOpenStory,
   highlighted = false,
 }: PlanCardProps) {
+  // A card the payload carries no facts for cannot be worded; it shows its
+  // title and says so, rather than taking the whole board down with it.
+  if ((card as Partial<Card>).facts === undefined) {
+    return (
+      <article
+        id={`plan-${card.slug}`}
+        data-card
+        data-card-unreadable
+        className={`flex flex-col gap-1.5 rounded-md border border-l-4 bg-white p-3 shadow-sm dark:bg-slate-900 ${PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral}`}
+      >
+        <span data-card-title className="text-sm font-medium text-slate-900 dark:text-slate-100">{card.title}</span>
+        <span data-alert="unreadable-card" className="text-xs text-amber-700 dark:text-amber-400">{UNREADABLE_CARD}</span>
+      </article>
+    );
+  }
   const hide = [...(showStory ? [] : ['stories' as const]), ...(showSprint ? [] : ['sprints' as const])];
   const unavailable = {
     'start-work': dispatch?.reason,

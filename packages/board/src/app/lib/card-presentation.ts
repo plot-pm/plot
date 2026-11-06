@@ -19,6 +19,9 @@ import type {
  * would be a fact decided in the UI.
  */
 
+/** The alert a card shows in place of its rows when the board sent it no facts. */
+export const UNREADABLE_CARD = 'unreadable card';
+
 /** The board a card renders on. */
 export type CardBoard = 'plans' | 'swimlanes' | 'stories' | 'tickets';
 

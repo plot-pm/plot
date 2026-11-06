@@ -160,10 +160,15 @@ export const Card = ({
   id, rows, titleHref, onOpenTitle, linkFor, renderAction, className, highlighted = false,
 }: CardProps) => {
   const { primary, secondary } = rows.next;
-  const actions = [
+  // An enabled action whose control renders nothing (no capability answer to
+  // act on) leaves no empty slot, and a row with no slot left is not drawn.
+  const slots = [
     ...(primary === null ? [] : [{ action: primary, primary: true }]),
     ...secondary.map((action) => ({ action, primary: false })),
-  ];
+  ].flatMap(({ action, primary: isPrimary }) => {
+    const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} />;
+    return control === null || control === undefined || control === false ? [] : [{ action, isPrimary, control }];
+  });
   return (
     <article
       id={id}
@@ -196,7 +201,7 @@ export const Card = ({
           </div>
         )}
       </div>
-      {actions.length > 0 && (
+      {slots.length > 0 && (
         <div
           data-card-row="next"
           data-emphasis={rows.emphasis === 'next' ? 'true' : undefined}
@@ -205,9 +210,9 @@ export const Card = ({
             rows.emphasis === 'next' && 'rounded bg-slate-50 px-1.5 py-1 dark:bg-slate-800/60',
           )}
         >
-          {actions.map(({ action, primary: isPrimary }) => (
+          {slots.map(({ action, isPrimary, control }) => (
             <span key={action.action} className="inline-flex" data-action-slot={isPrimary ? 'primary' : 'secondary'}>
-              {action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} />}
+              {control}
             </span>
           ))}
         </div>
