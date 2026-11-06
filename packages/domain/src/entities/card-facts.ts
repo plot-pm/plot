@@ -12,6 +12,8 @@ import type { Verification } from '../rules/verification-record.js';
 import type { PlanState } from '../transitions/plan.js';
 import type { StoryStanding } from '../transitions/story.js';
 
+export type { SpikeCardState };
+
 /** Holds only when `A` and `B` are the same type; a mismatch fails to compile. */
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const same = <A, B>(proof: Same<A, B>): Same<A, B> => proof;

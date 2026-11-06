@@ -8,6 +8,7 @@ import type {
   Known,
   Reason,
   Ref,
+  SpikeCardState,
   UnknownReach,
 } from '@plot-pm/domain/entities/card-facts';
 
@@ -225,7 +226,8 @@ const CHECKS_HUE: Readonly<Record<CardPrFact['checks'], Hue>> = {
   unknown: 'slate',
 };
 
-const SPIKE: Readonly<Record<string, string>> = {
+/** The line a card shows for each spike state. */
+const SPIKE: Readonly<Record<SpikeCardState, string>> = {
   'spike-not-approved': 'spike not approved yet',
   'spike-approved': 'spike approved — waiting for its PR to merge',
   'spike-merged': 'spike merged — confirm the slices to approve',
