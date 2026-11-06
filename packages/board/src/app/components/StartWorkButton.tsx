@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
-import { ActionMessage } from './ui/action-message.js';
-import { noteDispatched } from '../lib/dispatch-notice.js';
+import { ActionMessage, ActionMessageTarget } from './ui/action-message.js';
+import { noteDispatched, useDispatchNotice } from '../lib/dispatch-notice.js';
 
 /**
  * WHAT THE BUTTON WATCHES — the count its own action moves.
@@ -177,6 +177,10 @@ type State =
 export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWorkButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const starting = state.kind === 'starting';
+  // Inside a card, the card's own message row shows the dispatched notice (see
+  // `PlanCard`). Anywhere else, such as an agent row's menu, the button shows it.
+  const inCard = useContext(ActionMessageTarget) !== null;
+  const dispatched = useDispatchNotice(card.slug);
 
   /**
    * IS ONE OF MINE ALREADY RUNNING? — and nothing else.
@@ -354,6 +358,13 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
       </button>
       {tip.tooltip}
       </span>
+      {dispatched && !inCard && (
+        // Reassurance, not a verdict, and no log path: neutral slate, never a
+        // failure colour. The row's `Status` menu holds the dispatcher's log.
+        <ActionMessage attrs={{ 'data-dispatched': '' }} className="text-xs text-slate-500 dark:text-slate-400">
+          {DISPATCHED_WORD}
+        </ActionMessage>
+      )}
       {state.kind === 'failed' && (
         <ActionMessage className="text-xs text-red-700 dark:text-red-400">{state.message}</ActionMessage>
       )}
