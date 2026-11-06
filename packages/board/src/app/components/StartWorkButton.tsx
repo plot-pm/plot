@@ -4,6 +4,7 @@ import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
 import { ActionMessage } from './ui/action-message.js';
+import { noteDispatched } from '../lib/dispatch-notice.js';
 
 /**
  * WHAT THE BUTTON WATCHES — the count its own action moves.
@@ -161,10 +162,6 @@ export interface StartWorkButtonProps {
 type State =
   | { kind: 'idle' }
   | { kind: 'starting'; since: number }
-  // The click has been dispatched and the button has stopped watching for the
-  // row to move. NOT a failure and NOT a log path: the button reassures and the
-  // pulse confirms — see DISPATCHED_WORD. The dispatcher log lives in the menu.
-  | { kind: 'dispatched' }
   | { kind: 'failed'; message: string };
 
 /**
@@ -241,10 +238,13 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
     if (verdict === 'confirmed') setState({ kind: 'idle' });
     // The wait elapsed without the row moving. The button does not conclude a
     // FAILURE from that — a claim can still be in flight — so it drops the
-    // spinner and shows the reassurance, nothing more. The dispatcher log is a
-    // menu entry away for anyone who wants to know what actually happened.
-    else if (verdict === 'gave-up') setState({ kind: 'dispatched' });
-  }, [pulse, claimed, state]);
+    // spinner and shows the reassurance again, nothing more. The dispatcher log
+    // is a menu entry away for anyone who wants to know what actually happened.
+    else if (verdict === 'gave-up') {
+      noteDispatched(card.slug);
+      setState({ kind: 'idle' });
+    }
+  }, [pulse, claimed, state, card.slug]);
 
   const start = async () => {
     // Disabled until the next pulse confirms, so a double click does not fire
@@ -286,8 +286,11 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         });
         return;
       }
-      // Stay `starting` on success — the spinner runs until the pulse confirms
-      // the row moved (idle) or the wait elapses (dispatched). Nothing to store.
+      // The card shows the reassurance from here, in its own message row: the
+      // next refresh can disable or remove this button, and the notice lives
+      // outside it (`noteDispatched`). The spinner runs until the pulse
+      // confirms the row moved or the wait elapses.
+      noteDispatched(card.slug);
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });
     }
@@ -351,16 +354,6 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
       </button>
       {tip.tooltip}
       </span>
-      {state.kind === 'dispatched' && (
-        // Reassurance, not a verdict — and no log path. The button dispatched;
-        // whether the agent started is a fact the next pulse carries, not one
-        // this render can claim. Neutral (slate), not amber: an amber warning
-        // would re-assert the failure the old message wrongly implied. Anyone
-        // who wants the dispatcher's own words opens the row's `Status` menu.
-        <ActionMessage attrs={{ 'data-dispatched': '' }} className="text-xs text-slate-500 dark:text-slate-400">
-          {DISPATCHED_WORD}
-        </ActionMessage>
-      )}
       {state.kind === 'failed' && (
         <ActionMessage className="text-xs text-red-700 dark:text-red-400">{state.message}</ActionMessage>
       )}

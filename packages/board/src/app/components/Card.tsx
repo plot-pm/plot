@@ -39,6 +39,8 @@ export interface CardProps {
   renderAction: (action: PresentedAction, primary: boolean) => ReactNode;
   /** Marks the card as the one just arrived at. */
   highlighted?: boolean;
+  /** A message in the card's action-message row that no control owns; absent shows none. */
+  message?: ReactNode;
 }
 
 /** A hue as the three tokens `index.css` defines for it. */
@@ -455,7 +457,7 @@ const DisabledAction = ({ action }: { action: PresentedAction }) => {
  * Light and dark draw from the same tokens (`index.css`).
  */
 export const Card = ({
-  id, sections, titleHref, onOpenTitle, linkFor, renderAction, highlighted = false,
+  id, sections, titleHref, onOpenTitle, linkFor, renderAction, highlighted = false, message,
 }: CardProps) => {
   const { header, status, footer, emphasis, accent } = sections;
   const controlsOf = (actions: { action: PresentedAction; primary: boolean }[]) => actions.flatMap(({ action, primary: isPrimary }) => {
@@ -578,7 +580,9 @@ export const Card = ({
           {footer.age && <span>{footer.age.text}</span>}
         </div>
         {/* An action's refusal or confirmation: its own full-width row under the footer row, wrapping normally. */}
-        <div ref={setMessages} data-action-messages className="order-3 flex basis-full flex-col gap-1 px-4 pb-2.5 [overflow-wrap:anywhere] empty:hidden" />
+        <div ref={setMessages} data-action-messages className="order-3 flex basis-full flex-col gap-1 px-4 pb-2.5 [overflow-wrap:anywhere] empty:hidden">
+          {message}
+        </div>
       </div>
 
       {/* HEADER, meta line — number, type, alerts and related items. */}
