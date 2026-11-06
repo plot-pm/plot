@@ -140,7 +140,7 @@ Each test fails on `origin/main` at `f10abe5a4`.
 
 ### Passkey release approval
 
-- `feature/a-release-is-approved-with-a-passkey` — the board registers one passkey, approves a release through `POST /api/release-approve` with a verified user-verification assertion, records the credential id in the receipt, and `plot-ask.mjs release-approve` refuses `person-unproven`; release and restart accept an optional assertion <!-- builds: passkey port and adapter, passkeyVerdict rule, release-approve board route, personProof reading --> <!-- waits: feature/one-rule-reads-the-caller, feature/the-release-checks-are-counted, bug/release-approve-tells-its-tracker -->
+- `feature/a-release-is-approved-with-a-passkey` — the board registers one passkey, approves a release through `POST /api/release-approve` with a verified user-verification assertion, records the credential id in the receipt, and `plot-ask.mjs release-approve` refuses `person-unproven`; release and restart accept an optional assertion <!-- builds: passkey port and adapter, passkeyVerdict rule, release-approve board route, personProof reading --> <!-- waits: feature/one-rule-reads-the-caller, feature/the-release-checks-are-counted, bug/release-approve-tells-its-tracker --> → #3186
 
 ### Release finish scope
 
