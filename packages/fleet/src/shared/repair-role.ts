@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
@@ -6,16 +6,10 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { HARNESS_START_REFUSALS } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { failedStart } from '@plot-pm/domain/rules/failed-start';
-import { roleAgentsJson, roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
+import { roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 import type { RoleRunReading } from '@plot-pm/domain/rules/repair-start';
 import { roleRunAlive } from '@plot-pm/domain/rules/role-run-alive';
-
-/** The role file and its settings, read from the default branch. */
-const ROLE_FILE = '.claude/agents/main-repair.md';
-const SETTINGS_FILE = '.claude/settings/main-repair.json';
-
-/** The turn limit of the role's session, the `maxTurns` its definition declares. */
-export const MAIN_REPAIR_MAX_TURNS = 80;
+import { roleFilesAt } from './role-files.js';
 
 /** What the starter reads and acts through. */
 export interface RepairRoleDeps {
@@ -75,8 +69,8 @@ const writeRun = (repoRoot: string, run: RunRecord): void => {
  * The world's role half: the desk check, the role start and the run read.
  *
  * `startRole` fetches the claimed branch, creates the desk on it where none
- * exists, writes the role's `--agents` JSON and settings file from the default
- * branch's copies into `.plot/state/main-repair/` (outside the desk), and
+ * exists, loads the role's files through {@link roleFilesAt} (a fetched default
+ * branch's copies) into `.plot/state/main-repair/` (outside the desk), and
  * starts the role through `runnerOf` without awaiting it. `PLOT_ROLE_GATE`
  * names the gate bundle under `scriptsDir`, outside the desk. The run record
  * `.plot/state/main-repair/run.json` names the branch, the pid and the start
@@ -105,23 +99,6 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
     return alive ? 'alive' : 'crashed';
   };
 
-  /** Writes the role's two files from the default branch; null names why it could not. */
-  const writeRoleFiles = async (): Promise<RoleAgentRef | string> => {
-    const base = await deps.refs.defaultBranch();
-    if (!base.ok) return 'the default branch could not be read';
-    const definition = await deps.refs.showFile(`origin/${base.value}`, ROLE_FILE);
-    const settings = await deps.refs.showFile(`origin/${base.value}`, SETTINGS_FILE);
-    if (!definition.ok || !settings.ok) return `${ROLE_FILE} or ${SETTINGS_FILE} is not on origin/${base.value}`;
-    const json = roleAgentsJson('main-repair', definition.value);
-    if (json.read === 'refused') return json.why;
-    mkdirSync(dir, { recursive: true });
-    const agentsFile = join(dir, 'agents.json');
-    const settingsFile = join(dir, 'settings.json');
-    writeFileSync(agentsFile, json.json);
-    writeFileSync(settingsFile, settings.value);
-    return { name: 'main-repair', agentsFile, settingsFile };
-  };
-
   const startRole = async (branch: string): Promise<'started' | 'failed'> => {
     const desk = deps.deskPath(branch);
     if (!(await hasDesk(branch))) {
@@ -130,19 +107,20 @@ export const repairRoleOf = (deps: RepairRoleDeps) => {
       const added = await deps.trees.addBranch(desk, branch, `origin/${branch}`);
       if (!added.ok) return 'failed';
     }
-    const role = await writeRoleFiles();
-    if (typeof role === 'string') {
-      deps.warn(`plot-fleetd: repair-start held — ${role}`);
+    const files = await roleFilesAt(deps, { role: 'main-repair', outDir: dir, settings: true });
+    if (files.read === 'refused') {
+      deps.warn(`plot-fleetd: repair-start held — ${files.why}`);
       return 'failed';
     }
-    const command = roleCommand(role, MAIN_REPAIR_MAX_TURNS);
+    const role: RoleAgentRef = { name: 'main-repair', agentsFile: files.agentsFile, settingsFile: files.settingsFile };
+    const command = roleCommand(role, files.maxTurns);
     if (command.read === 'refused') {
       deps.warn(`plot-fleetd: repair-start held — ${command.why}`);
       return 'failed';
     }
     const started = new Promise<boolean>((resolve) => {
       let record: RunRecord | null = null;
-      const run = agentRunOf(deps, deps.runnerOf(command.command), role, desk, branch, (pid) => {
+      const run = agentRunOf(deps, deps.runnerOf(command.command), role, files.maxTurns, desk, branch, (pid) => {
         record = { branch, pid, startedAt: deps.now() };
         writeRun(deps.repoRoot, record);
         resolve(true);
@@ -175,6 +153,7 @@ const agentRunOf = async (
   deps: RepairRoleDeps,
   agentRun: AgentRun,
   role: RoleAgentRef,
+  maxTurns: number,
   desk: string,
   branch: string,
   onStarted: (pid: number) => void,
@@ -188,7 +167,7 @@ const agentRunOf = async (
     harness: '',
     model: '',
     effort: '',
-    maxTurns: MAIN_REPAIR_MAX_TURNS,
+    maxTurns,
     maxSpendUsd: 0,
     boundSeconds: deps.boundSeconds,
     contextWindow: 0,

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,6 +69,7 @@ import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domai
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed, mainRepairBoundMsOf } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
+import type { Trees } from '@plot-pm/domain/ports/trees';
 import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
@@ -81,7 +82,7 @@ import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
-import { roleCommand, roleAgentsJson, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
+import { roleCommand, type RoleAgentRef } from '@plot-pm/domain/rules/role-command';
 import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 
@@ -111,6 +112,7 @@ import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading, markerText } from '../../shared/worker-question.js';
 import { mainCheckout } from '../../shared/main-checkout.js';
 import { deskDeadFromWorkerState } from '../../shared/auto-fixer.js';
+import { roleFilesAt } from '../../shared/role-files.js';
 import {
   appendEscalation,
   escalationMemory,
@@ -1209,12 +1211,6 @@ export const idleWorldForRepo = (
 /** The `## Plot Config` key naming the most `started` answer rows a desk may ever reach. */
 export const CORRECTION_BUDGET_KEY = 'Correction budget';
 
-/** The turn limit `roleCommand` enforces for the unblocker, read from its own frontmatter rather than hardcoded. */
-const unblockerMaxTurns = (text: string): number => {
-  const match = /^maxTurns:\s*(\d+)\s*$/m.exec(text);
-  return match ? Number(match[1]) : 0;
-};
-
 /**
  * What the tick reads to decide whether fleetd should answer a desk's own
  * question: the marker, the desk's liveness (through `Processes.workerState`,
@@ -1292,8 +1288,10 @@ export const unblockWorldForRepo = (
  * @param deps.repoRoot - the repository root.
  * @param deps.scriptsDir - where the helper scripts are.
  * @param deps.boardOpts - `{ repoRoot, scriptsDir }`, read for `Worker command`.
- * @param deps.readRoleFile - reads the `unblocker` role's `.claude/agents/unblocker.md`
- *   definition from the main checkout; real `fs` by default.
+ * @param deps.trees - the `Trees` port the default branch is fetched through;
+ *   the git adapter by default.
+ * @param deps.refs - the `Refs` port the role's files are read from
+ *   `origin/<default>` through; the git adapter by default.
  * @param deps.agentSettingsFile - the main checkout's `.plot/agent-settings.json`,
  *   or `null` where it does not exist; real `fs` by default.
  * @param deps.agentRun - builds the runner for a command fragment;
@@ -1304,13 +1302,14 @@ export const unblockPortsFor = (deps: {
   repoRoot: string;
   scriptsDir: string;
   boardOpts: { repoRoot: string; scriptsDir: string };
-  readRoleFile?: (main: string, role: string) => string | null;
+  trees?: Pick<Trees, 'fetch'>;
+  refs?: Pick<Refs, 'defaultBranch' | 'showFile'>;
   agentSettingsFile?: (main: string) => string | null;
   agentRun?: (fragment: string) => AgentRun;
 }): UnblockPorts => {
   const record = answerRecordFile({ cwd: deps.repoRoot });
-  const readRoleFile =
-    deps.readRoleFile ?? ((main: string, role: string) => fileOrNull(join(main, '.claude', 'agents', `${role}.md`)));
+  const roleTrees = deps.trees ?? treesGit({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir });
+  const roleRefs = deps.refs ?? refsGit({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir });
   const agentSettingsFile =
     deps.agentSettingsFile ??
     ((main: string) => {
@@ -1332,15 +1331,13 @@ export const unblockPortsFor = (deps: {
     question: (worktree) => markerText(worktree),
     run: async ({ worktree, branch, question }) => {
       const main = mainCheckout(deps.repoRoot);
-      const text = readRoleFile(main, 'unblocker');
-      if (text === null) return { ok: false, detail: `no .claude/agents/unblocker.md in ${main}` };
-      const agentsJson = roleAgentsJson('unblocker', text);
-      if (agentsJson.read === 'refused') return { ok: false, detail: agentsJson.why };
-      const agentsFile = join(deps.repoRoot, '.plot', 'state', 'unblocker.agents.json');
-      mkdirSync(dirname(agentsFile), { recursive: true });
-      writeFileSync(agentsFile, agentsJson.json, 'utf8');
-      const roleAgent: RoleAgentRef = { name: 'unblocker', agentsFile, settingsFile: join(main, '.claude', 'settings', 'unblocker.json') };
-      const command = roleCommand(roleAgent, unblockerMaxTurns(text));
+      const files = await roleFilesAt(
+        { repoRoot: deps.repoRoot, trees: roleTrees, refs: roleRefs },
+        { role: 'unblocker', outDir: join(deps.repoRoot, '.plot', 'state', 'unblocker'), settings: true },
+      );
+      if (files.read === 'refused') return { ok: false, detail: files.why };
+      const roleAgent: RoleAgentRef = { name: 'unblocker', agentsFile: files.agentsFile, settingsFile: files.settingsFile };
+      const command = roleCommand(roleAgent, files.maxTurns);
       if (command.read === 'refused') return { ok: false, detail: command.why };
       const logFile = join(deps.repoRoot, '.plot', 'state', 'unblocker.log');
       const settings = agentSettingsFile(main);
