@@ -859,7 +859,10 @@ const EXPECTED_FILES = 82;
 // (kind icon, disabled control); one in `unreachable-overlay.browser.test.ts`
 // (Deliver dims on a frozen page). The files already drove a page, so
 // `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 657;
+// 657 → 658 on 2026-11-06: one `it(` in `plan-card-grammar.browser.test.ts`
+// for the Octicon kind icons drawn at the text's size. The file already drove
+// a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 658;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
