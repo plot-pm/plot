@@ -13,12 +13,15 @@
 
 ## Changelog
 
-- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who owns it since when. A ticket whose plan exists links to that plan instead of offering *Create plan*.
+- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who owns it since when. A ticket links to the plan and the story that answer it instead of offering to create them again, and *Create plan* on a ticket inside a story creates the plan in that story. A story names its ticket in an `issue:` frontmatter field.
 
-<!-- Board impact: board rendering and the domain package. No change to the plan
-     format, the plan template, helper scripts or the docs/plans layout — unless
-     the Design finds the lineage in row 2 is not readable today (Open Question 1),
-     in which case that becomes its own plan. -->
+<!-- Board impact: board rendering, the domain package, the story format and two
+     endpoints. No change to the plan format, the plan template, helper scripts or
+     the docs/plans layout. The story format gains a parsed `issue:` frontmatter
+     field (legacy `jira:` still read), and the story-tracking template writes it —
+     a skill change, bumped in the changeset. `POST /api/idea` accepts an optional
+     story slug and passes it to the idea agent, which writes the plan's `Story:`;
+     `POST /api/story` writes `issue:` into the story it creates. -->
 
 ## Motivation
 
@@ -214,11 +217,20 @@ all three boards would leave every card half in the old layout.
       plan and for `next` to withdraw *Create plan*; it stays inside this plan. Plan
       → story is the plan's `Story:` field and story → plans already feeds the story
       card's counts.
-- [ ] **Does the domain know ticket → story, and can *Create plan* from a ticket
-      inside a story write the plan's `Story:` field?** The create-action table
-      depends on both: without the first a ticket cannot tell *a story, no plan*
-      from *no story*, and without the second the created plan lands outside its
-      story. `/api/idea/<number>` takes only the issue number today.
+- [x] **Does the domain know ticket → story, and can *Create plan* from a ticket
+      inside a story write the plan's `Story:` field?** Neither, and both are in
+      this plan. The `Story` entity holds no ticket; the one link the domain
+      defines, `trackerKeyOf(slug)` (`entities/story.ts:56`), reads a Jira key from
+      a slug prefix, has no caller, and cannot match a GitHub number. What gets
+      written disagrees with itself: the story-tracking template writes `jira:`,
+      the one story created from a ticket wrote `issue:`, and nothing parses
+      either — which is why ticket 3170 offers *Create story* while its story
+      *Nothing changed, nothing runs* sits in Draft, the 3102 defect for stories.
+      And `POST /api/idea` takes `{number, type}` only, so the idea agent never
+      learns the story. **The field is `issue:`** — what was actually written, the
+      name plans already use, and neutral between a GitHub URL and a Jira key;
+      the parser still reads `jira:`. `trackerKeyOf` stays until a caller needs a
+      slug-only link, which no story here relies on.
 - [x] **What does each board's primary reader look for first?** Tickets: is this
       answered yet? Stories: how far along is the umbrella? Plans: what can I do
       now? Settled as per-board emphasis over identical positions (Approach).
@@ -257,10 +269,18 @@ _To be filled in during Design._
 
 - `feature/one-card-grammar-plans` — the `CardFacts` entity, `docs/domain/card-grammar.md`, `planCardFacts` extending `planCardView`, the presentation mapping and the shared `<Card>` on the Plans board only <!-- builds: CardFacts entity and planCardFacts projection --> <!-- spike -->
 
-### Implementation
+### Stories
 
-- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan that answers a ticket and `next` offering only the creates its lineage lacks (no *Create plan* once a plan exists); the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
-- `feature/one-card-grammar-stories` — `storyCardFacts`, with plans in `lineage` and progress as delivered out of total; the Stories board renders through the shared `<Card>` <!-- builds: storyCardFacts projection -->
+- `feature/one-card-grammar-stories` — the story's `issue:` field (parsed, `jira:` read as legacy, the story-tracking template and `POST /api/story` writing it), the ticket → story reverse index, and `storyCardFacts` with its ticket and plans in `lineage` and progress as delivered out of total; the Stories board renders through the shared `<Card>` <!-- builds: storyCardFacts projection and the story issue field -->
+
+### Tickets
+
+- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan and the story that answer a ticket and `next` offering only the creates its lineage lacks; `POST /api/idea` takes an optional story slug so *Create plan* on a ticket inside a story writes the plan's `Story:`; the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
+
+The Tickets slice follows the Stories slice rather than running beside it: its
+*a story, no plan* row needs the ticket → story index that Stories builds, and a
+Tickets card that could not yet see stories would offer *Create story* on 3170
+exactly as today.
 
 ## Notes
 
@@ -323,6 +343,16 @@ _To be filled in during Design._
     {
       "q": "Where do Create plan and Create story fit?",
       "a": "next actions decided by lineage; a bare ticket's primary is Create plan, Create story secondary",
+      "category": "domain"
+    },
+    {
+      "q": "How does this plan handle ticket -> story?",
+      "a": "All in this plan: parse the link, reverse index, /api/idea takes a story slug, template writes it",
+      "category": "technical"
+    },
+    {
+      "q": "Which field names a story's ticket?",
+      "a": "issue:, with jira: read as legacy",
       "category": "domain"
     }
   ],
