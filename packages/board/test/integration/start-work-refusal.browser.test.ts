@@ -157,15 +157,20 @@ describe('Start work refuses before the click when it cannot know', () => {
     }
   });
 
-  it('a started plan with no fleet scan offers no Start work', async () => {
+  it('a started plan with no fleet scan keeps Start work, disabled, with its reason', async () => {
     // This plan carries a `Started:` record, so the flag the button used to
     // watch is true. If the code fell back to it here, the button would offer a
     // click it could never report on. On a started plan Start work is a
-    // secondary, and a disabled secondary is omitted rather than greyed.
+    // secondary; the board cannot answer it before the first scan, so it stays
+    // disabled with its reason rather than being omitted.
     const page = await openBoard(true);
     try {
-      await cardFor(page, SLICED_TITLE).waitFor({ timeout: 10_000 });
-      expect(await cardFor(page, SLICED_TITLE).getByRole('button', { name: /Start work/ }).count()).toBe(0);
+      const button = cardFor(page, SLICED_TITLE).getByRole('button', { name: /Start work/ });
+      await button.waitFor({ timeout: 10_000 });
+      expect(await button.getAttribute('aria-disabled')).toBe('true');
+      const reason = cardFor(page, SLICED_TITLE).locator('[data-action="start-work"] [data-action-reason]');
+      await button.focus();
+      expect(await reason.textContent()).toMatch(/no fleet scan yet/);
     } finally {
       await page.close();
     }

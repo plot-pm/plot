@@ -16,8 +16,8 @@ import { openCatalogue, board, card, column, fleet, sprint, story, type Catalogu
  *
  * `SprintModal` is reached through the SAME chain on both tabs: a story card's
  * sprint link opens it, by `slug`, looked up in `board.sprints`
- * (`App.tsx`'s `onOpenSprint`). Planning reaches the story through a plan
- * card's story badge (`PlanCard.tsx`) and `StoryModal`'s own sprint list;
+ * (`App.tsx`'s `onOpenSprint`). Planning reaches the story through the story
+ * link on a plan card's meta line (`PlanCard.tsx`) and `StoryModal`'s own sprint list;
  * Discovery shows the sprint list directly on the story card
  * (`StoriesTab.tsx`). Both end at the one `SprintModal` instance this file
  * asserts against.
@@ -68,6 +68,9 @@ describe('a sprint member with no card renders as text, not a button', () => {
 
   const sprintModal = (page: Page) => page.getByRole('dialog', { name: /Sprint:/ });
 
+  /** The plan card's story link, on its meta line. */
+  const storyLink = (page: Page) => page.locator(`#plan-${KNOWN_SLUG} a[data-lineage="stories"]`);
+
   /** The unknown member's row, located by the slug it names rather than by role. */
   const unknownRow = (page: Page) => sprintModal(page).locator('li', { hasText: UNKNOWN_SLUG });
 
@@ -103,7 +106,7 @@ describe('a sprint member with no card renders as text, not a button', () => {
     const page = await open('planning');
     try {
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
-      await page.getByTitle(`Open the ${STORY_SLUG} story`).click();
+      await storyLink(page).click();
       await page.getByRole('button', { name: SPRINT_SLUG }).click();
       await assertUnknownMemberIsText(page);
     } finally { await page.close(); }
@@ -115,7 +118,7 @@ describe('a sprint member with no card renders as text, not a button', () => {
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Delivery' }).click();
       await page.getByRole('button', { name: 'Planning' }).click();
-      await page.getByTitle(`Open the ${STORY_SLUG} story`).click();
+      await storyLink(page).click();
       await page.getByRole('button', { name: SPRINT_SLUG }).click();
       await assertUnknownMemberIsText(page);
     } finally { await page.close(); }

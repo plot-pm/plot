@@ -270,4 +270,28 @@ describe('a plan moves through the sections — approve it, and Start work takes
       await page.close();
     }
   });
+
+  it('a dispatch from the row menu shows the reassurance beside the button', async () => {
+    // A row menu has no card message row, so `StartWorkButton` shows the
+    // notice itself. Without it the spinner stops and the button reads
+    // `Start work` again with nothing said.
+    const page = await openAgents();
+    await page.route('**/api/dispatch', (route) =>
+      route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ slug: APPROVED_SLUG }) }));
+    try {
+      await expandAgentFolds(page);
+      const menuButton = notStarted(page).locator('[data-slice-actions="Sown"]');
+      await menuButton.waitFor({ timeout: 10_000 });
+      await menuButton.click();
+      const start = page.getByRole('button', { name: 'Start work' });
+      await start.waitFor({ timeout: 10_000 });
+      await start.click();
+      const note = page.locator('[data-dispatched]');
+      await note.waitFor({ timeout: 5_000 });
+      expect(await note.textContent()).toBe('Agent work will show up shortly');
+      expect(await page.locator('[data-action-messages] [data-dispatched]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
 });

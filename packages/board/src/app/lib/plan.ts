@@ -62,9 +62,27 @@ export interface BoardLinks {
 }
 
 /**
+ * Whether an address is an `http:` or `https:` URL, the only schemes a card links.
+ *
+ * @param href - the address as a reading carries it.
+ * @returns `true` for an absolute `http:` or `https:` URL; `false` for any other
+ *   scheme, such as `javascript:`, and for text that does not parse as a URL.
+ */
+const isHttpUrl = (href: string): boolean => {
+  try {
+    const { protocol } = new URL(href);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+/**
  * The board's lookups for the items a card names. Every address comes from a
  * reading or from the repository's host address, never from free text: a
  * ticket's from its issue row or `issueUrlBase`, a branch's from `branchUrlBase`.
+ * A ticket address whose scheme is not `http:` or `https:` gives no link, and the
+ * card shows the number as text.
  *
  * @param board - the board payload; `tickets` may be absent.
  * @returns the lookups; each answers `undefined` where the board holds no answer.
@@ -72,11 +90,12 @@ export interface BoardLinks {
 export const boardLinksOf = (
   board: Pick<Board, 'tickets' | 'branchUrlBase' | 'stories' | 'columns'> & Partial<Pick<Board, 'issueUrlBase'>>,
 ): BoardLinks => {
-  const tickets = new Map<string, string>();
+  // A row whose URL has another scheme maps to `null`: no link, and no fallback to the issue page.
+  const tickets = new Map<string, string | null>();
   const groups = board.tickets;
   if (groups) {
     for (const row of [...groups.open, ...groups['in-progress'], ...groups.done]) {
-      if (row.url) tickets.set(String(row.id), row.url);
+      if (row.url) tickets.set(String(row.id), isHttpUrl(row.url) ? row.url : null);
     }
   }
   const stories = new Map(board.stories.map((s) => [s.slug, s]));
@@ -85,7 +104,12 @@ export const boardLinksOf = (
   const issueBase = board.issueUrlBase ?? '';
   return {
     // Only a number names an issue on the host; any other key belongs to another tracker.
-    ticketHref: (key) => tickets.get(key) ?? (issueBase !== '' && /^\d+$/.test(key) ? `${issueBase}${key}` : undefined),
+    ticketHref: (key) => {
+      const row = tickets.get(key);
+      if (row !== undefined) return row ?? undefined;
+      const href = issueBase !== '' && /^\d+$/.test(key) ? `${issueBase}${key}` : '';
+      return isHttpUrl(href) ? href : undefined;
+    },
     // Encoded per path segment, as the fleet rows encode a branch link.
     branchHref: (branch) => (base === '' || branch === '' ? undefined : `${base}${branch.split('/').map(encodeURIComponent).join('/')}`),
     storyOf: (slug) => stories.get(slug),
@@ -104,7 +128,9 @@ export interface LinkTarget {
 
 /**
  * Where an item a plan card names links. A story, a plan and a sprint open
- * their board view; a ticket, a branch, a PR and its build open the host. A
+ * their board view on a plain click, and their href is a route the board reads
+ * (`/story/<slug>`, `/plan/<file>`, `/?sprint=<slug>`); a ticket, a branch, a PR
+ * and its build open the host. A
  * slice links its PR where the card holds that PR's reading, else its branch.
  *
  * @param ref - the item.
@@ -127,7 +153,8 @@ export const linkTargetOf = (
       return card ? { href: planRoute(card.path), external: false, opens: { kind: 'plan', card } } : null;
     }
     case 'sprint':
-      return { href: `#sprint-${encodeURIComponent(ref.slug)}`, external: false, opens: { kind: 'sprint', slug: ref.slug } };
+      // The board's own sprint filter route: loading it opens the board filtered to the sprint.
+      return { href: `/?sprint=${encodeURIComponent(ref.slug)}`, external: false, opens: { kind: 'sprint', slug: ref.slug } };
     case 'ticket': {
       const href = links.ticketHref(ref.key);
       return href ? { href, external: true, opens: null } : null;

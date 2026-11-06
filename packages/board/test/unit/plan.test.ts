@@ -41,7 +41,7 @@ describe('linkTargetOf: what each item on a card links to', () => {
 
   it('a sprint, a plan and a story open their board view in place', () => {
     expect(linkTargetOf({ kind: 'sprint', slug: 'sp', title: 'T', state: 'Active', release: '2.31.0' }, 'item', prs, links))
-      .toEqual({ href: '#sprint-sp', external: false, opens: { kind: 'sprint', slug: 'sp' } });
+      .toEqual({ href: '/?sprint=sp', external: false, opens: { kind: 'sprint', slug: 'sp' } });
     expect(linkTargetOf({ kind: 'plan', slug: 'other', key: null, title: 'O', status: 'approved' }, 'item', prs, links))
       .toMatchObject({ href: '/plan/2026-11-01-other.md', external: false, opens: { kind: 'plan', card: { slug: 'other' } } });
     expect(linkTargetOf({ kind: 'story', slug: 'st', title: 'S', status: 'active', archived: false }, 'item', prs, links))
@@ -67,6 +67,24 @@ describe('linkTargetOf: what each item on a card links to', () => {
     expect(ticket('7')).toEqual({ href: 'https://tracker.example/7', external: true, opens: null });
     expect(ticket('3069')).toEqual({ href: 'https://github.com/o/r/issues/3069', external: true, opens: null });
     expect(ticket('PROJ-12')).toBeNull();
+  });
+
+  it('a ticket whose address is not http or https stays text, with no fallback to the issue page', () => {
+    const unsafe = boardLinksOf({
+      tickets: {
+        open: [{ id: 7, url: 'javascript:alert(1)' }, { id: 8, url: 'data:text/html,x' }, { id: 9, url: 'http://tracker.example/9' }],
+        'in-progress': [], done: [],
+      } as unknown as Board['tickets'],
+      branchUrlBase: '', stories: [], columns: [], issueUrlBase: 'https://github.com/o/r/issues/',
+    });
+    const ticket = (key: string) => linkTargetOf({ kind: 'ticket', key, title: key, lane: null }, 'item', [], unsafe);
+    expect(unsafe.ticketHref('7')).toBeUndefined();
+    expect(ticket('7')).toBeNull();
+    expect(ticket('8')).toBeNull();
+    expect(ticket('9')).toEqual({ href: 'http://tracker.example/9', external: true, opens: null });
+    // An issue page prefix with another scheme gives no link either.
+    const badBase = boardLinksOf({ tickets: null, branchUrlBase: '', stories: [], columns: [], issueUrlBase: 'javascript:void//' });
+    expect(badBase.ticketHref('12')).toBeUndefined();
   });
 
   it('an item the board holds no reading for stays text', () => {

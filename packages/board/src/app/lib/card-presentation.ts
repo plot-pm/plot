@@ -104,14 +104,6 @@ export interface PresentedAction {
   enabled: boolean;
   /** Why it is disabled, in words; `null` when enabled. */
   reason: string | null;
-  /** The same sentence in parts, each item it names its own link; `null` when enabled. */
-  reasonParts: ReasonPart[] | null;
-}
-
-/** A stretch of a sentence, and the item it names where it names one. */
-export interface ReasonPart {
-  text: string;
-  ref: Ref | null;
 }
 
 /** Who the item is assigned to, as the footer's avatars show it. */
@@ -322,29 +314,6 @@ export const reasonWords = (reason: Reason, unavailable: PresentOptions['unavail
   }
 };
 
-/** The slice refs a reason names, joined into parts: each one a link, the commas between them text. */
-const sliceParts = (lead: string, refs: readonly Ref[]): ReasonPart[] => [
-  { text: lead, ref: null },
-  ...refs.flatMap((ref, i): ReasonPart[] => [
-    ...(i === 0 ? [] : [{ text: ', ', ref: null }]),
-    { text: sliceWords(ref), ref },
-  ]),
-];
-
-/**
- * Why an action is disabled, in parts: the words `reasonWords` gives, with each
- * branch or PR it names its own part, so the renderer can link it.
- *
- * @param reason - the typed reason from `CardFacts`.
- * @param unavailable - the board's own sentence per action it will not run.
- * @returns the sentence in parts.
- */
-export const reasonParts = (reason: Reason, unavailable: PresentOptions['unavailable'] = {}): ReasonPart[] => {
-  if (reason.kind === 'nothing-eligible' && reason.waitsOn.length > 0) return sliceParts('waits on ', reason.waitsOn);
-  if (reason.kind === 'awaits-spike') return sliceParts('waits on its spike ', [reason.spike]);
-  return [{ text: reasonWords(reason, unavailable), ref: null }];
-};
-
 const presentAction = (
   a: NonNullable<CardFacts['next']['primary']>, unavailable: PresentOptions['unavailable'],
 ): PresentedAction => ({
@@ -352,7 +321,6 @@ const presentAction = (
   label: LABEL[a.action],
   enabled: a.enabled,
   reason: a.reason === null ? null : reasonWords(a.reason, unavailable),
-  reasonParts: a.reason === null ? null : reasonParts(a.reason, unavailable),
 });
 
 /** How many secondaries the footer shows before the rest go behind `⋯`. */

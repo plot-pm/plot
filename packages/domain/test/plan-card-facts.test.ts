@@ -235,6 +235,17 @@ describe('planCardFacts: next', () => {
     expect(f.next).toEqual({ primary: null, secondary: [] });
   });
 
+  it('an in-progress plan with no fleet scan yet keeps Start work as a disabled secondary', () => {
+    const f = facts({
+      status: 'in-progress', controls: controls({ status: 'in-progress', started: true }),
+      slices: { total: 2, complete: null, eligible: null, waitsOn: [] },
+    });
+    expect(f.next).toEqual({
+      primary: null,
+      secondary: [{ action: 'start-work', enabled: false, reason: { kind: 'awaiting-fleet-scan' } }],
+    });
+  });
+
   it('a draft offers Approve with Interrogate as a secondary', () => {
     const f = facts({ status: 'draft', controls: controls({ state: 'draft', status: 'draft' }) });
     expect(f.next).toEqual({

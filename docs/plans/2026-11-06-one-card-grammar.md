@@ -132,9 +132,9 @@ neither is rewritten for a card this plan has not reached yet.
   one board can still find every fact on the other two. The mapping takes the
   board as an input and returns the emphasised facet; nothing in `CardFacts`
   knows which board renders it.
-- **A long list collapses to a count and expands in place.** Nine sprints read
+- **A long list collapses to a count that opens a popover.** Nine sprints read
   *in 9 sprints*, six PRs read *6 PRs · 1 running*, sixty-two plans read *62
-  plans · 60 delivered*, and one click expands the list inside the card, so every
+  plans · 60 delivered*, and one click opens the list in a popover dialog under the count, so every
   card is the same height until a reader asks for more. The count comes from
   `CardFacts`; the summary sentence, the collapsed state and the expander are
   presentation. A first-three preview was rejected because which three to show
@@ -318,7 +318,7 @@ all three boards would leave every card half in the old layout.
       `statusDrift` returns a phrase today (`BEHIND[derived]`) — a word made in the
       domain, which this plan's split moves to the mapping.
 - [x] **Where does a sprint list go on a story with nine sprints?** It collapses
-      to *in 9 sprints* and expands in place, like every long list (Approach).
+      to *in 9 sprints* and opens a popover, like every long list (Approach).
 - [x] **Does `cardControls` become the `next` facet, or stay beside it?**
       *Answered 2026-11-06: beside it, as `next`'s input.* `cardControls`
       (`rules/card-controls.ts:62`, two callers: `board.ts:2687`, `mock-fleet.ts:498`)
@@ -619,10 +619,10 @@ The mapping names the kind icon and its accessible name per `identity.kind`;
 `<Card>` draws it. It returns the emphasised section as the visual design above names it — and every word: summaries, reasons (*waits on
 feature/x #3105*, *no fleet scan yet*, *linked from 2 stories*, *plans unread —
 host throttled*), unknowns (*checks unknown*, *cost not measured here*) and alert
-labels. **Every list with two or more entries collapses to a count and expands
-in place** — lineage relations and the PR list alike. `<Card>` renders sections and
+labels. **Every list with two or more entries collapses to a count that opens a
+popover dialog** — lineage relations and the PR list alike. `<Card>` renders sections and
 decides nothing; tab order is title, primary, secondaries, expanders; each
-expander is a `<button aria-expanded>`. The action band renders every action as
+expander is a `<button aria-haspopup="dialog" aria-expanded>`. The action band renders every action as
 a control; a disabled one is `aria-disabled`, focusable, and described by a
 tooltip holding the mapping's reason. Every string from `CardFacts` renders as
 text, never as HTML.

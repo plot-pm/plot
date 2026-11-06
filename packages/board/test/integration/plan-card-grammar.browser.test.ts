@@ -28,7 +28,10 @@ const DRAFT = card({
   facts: planFactsOf(card(DRAFT_INPUT), { state: stateFor(DRAFT_INPUT), prHeads: new Map([[11, 'feature/a'], [12, 'feature/b']]) }),
 });
 
-const SPRINT = sprint({ slug: 'card-alignment', title: 'The fleet delivers a scope alone', release: '2.31.0' });
+const SPRINT = sprint({
+  slug: 'card-alignment', title: 'The fleet delivers a scope alone', release: '2.31.0',
+  members: [{ slug: 'cold', text: '', tier: 'must', checked: false, known: true }],
+});
 const COLD_INPUT = {
   slug: 'cold', title: 'Waiting for a scan', phase: 'Development', status: 'approved', started: false,
   path: 'docs/plans/2026-11-06-cold.md', sprint: 'card-alignment',
@@ -235,6 +238,23 @@ describe('a plan card renders the card grammar', () => {
     }
   });
 
+  it('a sprint link\'s address is the board\'s sprint route, and loading it opens the board filtered to the sprint', async () => {
+    const page = await open();
+    try {
+      const href = await page.locator('#plan-cold a[data-lineage="sprints"]').getAttribute('href');
+      expect(href).toBe('/?sprint=card-alignment');
+      // A middle-click or a copied link loads the address on its own.
+      await page.goto(new URL(href!, page.url()).toString());
+      await page.locator('#plan-cold').waitFor({ timeout: 10_000 });
+      expect(new URL(page.url()).searchParams.get('sprint')).toBe('card-alignment');
+      // The plan in no sprint is filtered out; the sprint's plan stays.
+      await expect.poll(() => page.locator('#plan-grammar').count()).toBe(0);
+      expect(await page.locator('#plan-cold').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('leads the title row with the plan kind icon, named Plan, and its type as a tag', async () => {
     const page = await open();
     try {
@@ -413,10 +433,48 @@ describe('a plan card renders the card grammar', () => {
       expect(await disabled.getAttribute('aria-disabled')).toBe('true');
       const reasonId = await disabled.getAttribute('aria-describedby');
       expect(await page.locator(`[id="${reasonId}"]`).textContent()).toBe('no fleet scan yet');
+      // The reason is plain text: a tooltip holds no links.
+      expect(await page.locator(`[id="${reasonId}"] a`).count()).toBe(0);
       await page.keyboard.press('Escape');
       await expect.poll(() => menu.count()).toBe(0);
       expect(await more.evaluate((el) => el === document.activeElement)).toBe(true);
     } finally {
+      await page.close();
+    }
+  });
+
+  it('a running action inside More actions keeps its state when the menu closes and reopens', async () => {
+    // The approve request never answers while the test runs, so the action stays running.
+    const held: Route[] = [];
+    const page = await open({ '**/api/approve': (r: Route) => { held.push(r); } });
+    try {
+      const more = page.locator('#plan-many').getByRole('button', { name: 'More actions' });
+      const menu = page.getByRole('dialog', { name: 'More actions' });
+      await more.click();
+      await menu.waitFor({ timeout: 5_000 });
+      const confirm = menu.locator('[data-menu-action="confirm-slices"] button');
+      // By keyboard: the menu focuses its first control on open, and that
+      // disabled control's reason tooltip lies over the item below it.
+      await confirm.focus();
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+      await expect.poll(() => confirm.textContent(), { timeout: 5_000 }).toMatch(/approving…/);
+
+      // Escape closes the menu and returns focus to `⋯`.
+      await confirm.focus();
+      await page.keyboard.press('Escape');
+      await expect.poll(() => menu.count()).toBe(0);
+      expect(await more.evaluate((el) => el === document.activeElement)).toBe(true);
+      // The closed menu is hidden, not removed.
+      expect(await page.locator('#plan-many [data-popover="more-actions"]').count()).toBe(1);
+      expect(await page.locator('#plan-many [data-popover="more-actions"]').isVisible()).toBe(false);
+
+      await more.click();
+      await menu.waitFor({ timeout: 5_000 });
+      expect(await confirm.textContent()).toMatch(/approving…/);
+      expect(await confirm.getAttribute('aria-busy')).toBe('true');
+    } finally {
+      for (const r of held) await r.abort().catch(() => {});
       await page.close();
     }
   });

@@ -170,9 +170,18 @@ const startWork = (readings: PlanCardFactsReadings): Action | null => {
 };
 
 /**
+ * Whether a disabled secondary stays on the card. One the plan's own state
+ * disables (`nothing-eligible`) is left out; one the board cannot answer yet
+ * (`awaiting-fleet-scan`) stays, disabled, with its reason.
+ */
+const keepsSecondary = (action: Action): boolean =>
+  action.reason === null || action.reason.kind === 'awaiting-fleet-scan';
+
+/**
  * The plan's actions: at most one primary, then the secondaries in the order
  * Start work, Deliver, Interrogate. A secondary the plan's own state disables is
- * left out; `withActionAvailability` later marks one the board refuses.
+ * left out, and one the board cannot answer yet stays disabled with its reason;
+ * `withActionAvailability` later marks one the board refuses.
  *
  * The primary is the first that holds of: Approve spike; Approve (or Confirm
  * slices) while the plan is under review; Approve disabled with `awaits-spike`
@@ -194,7 +203,7 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
     primary = disabled('approve', { kind: 'awaits-spike', spike: sliceRef(readings.slug, readings.spike) });
   } else if (start !== null && controls.readyToStart) primary = start;
 
-  if (start !== null && start !== primary && start.enabled) secondary.push(start);
+  if (start !== null && start !== primary && keepsSecondary(start)) secondary.push(start);
   if (readings.deliverable) {
     if (primary === null) primary = enabled('deliver');
     else secondary.push(enabled('deliver'));

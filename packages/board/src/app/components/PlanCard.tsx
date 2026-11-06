@@ -3,7 +3,8 @@ import { checksVerdict, planRoute } from '@plot-pm/domain';
 import { linkTargetOf, type BoardLinks } from '../lib/plan.js';
 import { presentCard, UNREADABLE_CARD, type CardBoard, type PresentedAction } from '../lib/card-presentation.js';
 import { Card, type LinkFor } from './Card.js';
-import { StartWorkButton } from './StartWorkButton.js';
+import { DISPATCHED_WORD, StartWorkButton } from './StartWorkButton.js';
+import { useDispatchNotice } from '../lib/dispatch-notice.js';
 import { ApproveButton } from './ApproveButton.js';
 import { InterrogateButton } from './InterrogateButton.js';
 import { DeliverButton } from './DeliverButton.js';
@@ -169,6 +170,9 @@ export function PlanCard({
   links,
   highlighted = false,
 }: PlanCardProps) {
+  // The dispatched confirmation outlives the Start work control: a refresh can
+  // disable or remove the control while the notice still shows.
+  const dispatched = useDispatchNotice(card.slug);
   // A card the payload carries no facts for cannot be worded; it shows its
   // title and says so, rather than taking the whole board down with it.
   if ((card as Partial<Card>).facts === undefined) {
@@ -268,6 +272,11 @@ export function PlanCard({
       linkFor={linkFor}
       renderAction={renderAction}
       highlighted={highlighted}
+      message={dispatched && (
+        // Reassurance, not a verdict, and no log path: neutral slate, never a
+        // failure colour. The row's `Status` menu holds the dispatcher's log.
+        <span data-dispatched="" className="text-xs text-slate-500 dark:text-slate-400">{DISPATCHED_WORD}</span>
+      )}
     />
   );
 }

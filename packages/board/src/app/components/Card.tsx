@@ -5,7 +5,7 @@ import { ActionMessageTarget } from './ui/action-message.js';
 import { GLYPH_PATH, type GlyphKind } from '../lib/glyphs.js';
 import { cn } from '../lib/utils.js';
 import type {
-  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, PrView, ReasonPart, Tone,
+  CardSections, Dot, Hue, IconKind, KindIcon, Part, Piece, PresentedAction, PresentedAssignees, PrView, Tone,
 } from '../lib/card-presentation.js';
 
 /** Where a piece naming another item links, or `null` to leave it as text. */
@@ -39,6 +39,8 @@ export interface CardProps {
   renderAction: (action: PresentedAction, primary: boolean) => ReactNode;
   /** Marks the card as the one just arrived at. */
   highlighted?: boolean;
+  /** A message in the card's action-message row that no control owns; absent shows none. */
+  message?: ReactNode;
 }
 
 /** A hue as the three tokens `index.css` defines for it. */
@@ -235,9 +237,10 @@ const DotsView = ({ dots }: { dots: Dot[] }) => (
 /**
  * A button that opens a popover. The popover is a dialog: it opens on click,
  * Enter or Space, takes focus, and closes on Escape or a click outside,
- * returning focus to the button.
+ * returning focus to the button. With `keepMounted`, a closed popover stays in
+ * the DOM, hidden, so the controls inside keep their state across a close.
  */
-const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, align = 'left', popoverId, children, trigger }: {
+const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, align = 'left', popoverId, keepMounted = false, children, trigger }: {
   /** The dialog's accessible name. */
   label: string;
   /** The button's accessible name, where its text does not give one. */
@@ -248,6 +251,8 @@ const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, al
   /** Which edge of the button the popover lines up with. */
   align?: 'left' | 'right';
   popoverId: string;
+  /** Keeps the closed popover's content mounted and hidden rather than removing it. */
+  keepMounted?: boolean;
   children: ReactNode;
   trigger: ReactNode;
 }) => {
@@ -283,13 +288,14 @@ const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, al
       >
         {trigger}
       </button>
-      {open && (
+      {(open || keepMounted) && (
         <div
           ref={dialogRef}
           id={dialogId}
           role="dialog"
           aria-label={label}
           tabIndex={-1}
+          hidden={!open}
           data-popover={popoverId}
           onKeyDown={(e) => {
             if (e.key !== 'Escape') return;
@@ -298,7 +304,9 @@ const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, al
             buttonRef.current?.focus();
           }}
           className={cn(
-            'absolute top-full z-30 mt-1.5 flex w-max max-w-[28rem] flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none',
+            // The class and the attribute agree, so `flex` never shows a closed popover.
+            open ? 'flex' : 'hidden',
+            'absolute top-full z-30 mt-1.5 w-max max-w-[28rem] flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none',
             align === 'right' ? 'right-0' : 'left-0',
           )}
         >
@@ -413,20 +421,14 @@ const AssigneesView = ({ a }: { a: PresentedAssignees }) => {
   );
 };
 
-/** A reason's parts: the words as text, each branch or PR it names a link. */
-const ReasonView = ({ parts, linkFor }: { parts: ReasonPart[]; linkFor?: LinkFor }) => (
-  <>
-    {parts.map((part, i) => {
-      const link = part.ref !== null ? linkFor?.(part.ref) ?? null : null;
-      return link ? <LinkView key={i} link={link} className="underline-offset-2">{part.text}</LinkView> : <span key={i}>{part.text}</span>;
-    })}
-  </>
-);
-
-/** A disabled action: a focusable, `aria-disabled` outline whose reason is its description and tooltip. */
-const DisabledAction = ({ action, linkFor }: { action: PresentedAction; linkFor?: LinkFor }) => {
-  const content = action.reasonParts ? <ReasonView parts={action.reasonParts} linkFor={linkFor} /> : undefined;
-  const tip = useReasonTooltip(action.reason, 'reason', content);
+/**
+ * A disabled action: a focusable, `aria-disabled` outline whose reason is its
+ * description and tooltip. The tooltip holds plain text only, so a branch or PR
+ * the reason names is not linked from it; a branch the reason names that has no
+ * PR on this card, such as one `nothing-eligible` waits on, is linked nowhere on it.
+ */
+const DisabledAction = ({ action }: { action: PresentedAction }) => {
+  const tip = useReasonTooltip(action.reason, 'reason');
   return (
     <span {...tip.wrapperProps} className="relative inline-flex" data-action={action.action} data-action-disabled>
       <button
@@ -456,11 +458,11 @@ const DisabledAction = ({ action, linkFor }: { action: PresentedAction; linkFor?
  * Light and dark draw from the same tokens (`index.css`).
  */
 export const Card = ({
-  id, sections, titleHref, onOpenTitle, linkFor, renderAction, highlighted = false,
+  id, sections, titleHref, onOpenTitle, linkFor, renderAction, highlighted = false, message,
 }: CardProps) => {
   const { header, status, footer, emphasis, accent } = sections;
   const controlsOf = (actions: { action: PresentedAction; primary: boolean }[]) => actions.flatMap(({ action, primary: isPrimary }) => {
-    const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} linkFor={linkFor} />;
+    const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} />;
     return control === null || control === undefined || control === false ? [] : [{ action, isPrimary, control }];
   });
   const slots = controlsOf([
@@ -555,6 +557,7 @@ export const Card = ({
                 buttonLabel="More actions"
                 popoverId="more-actions"
                 align="right"
+                keepMounted
                 buttonClass="cursor-pointer"
                 buttonAttrs={{ 'data-more-actions': '' }}
                 trigger={<span aria-hidden>⋯</span>}
@@ -578,7 +581,9 @@ export const Card = ({
           {footer.age && <span>{footer.age.text}</span>}
         </div>
         {/* An action's refusal or confirmation: its own full-width row under the footer row, wrapping normally. */}
-        <div ref={setMessages} data-action-messages className="order-3 flex basis-full flex-col gap-1 px-4 pb-2.5 [overflow-wrap:anywhere] empty:hidden" />
+        <div ref={setMessages} data-action-messages className="order-3 flex basis-full flex-col gap-1 px-4 pb-2.5 [overflow-wrap:anywhere] empty:hidden">
+          {message}
+        </div>
       </div>
 
       {/* HEADER, meta line — number, type, alerts and related items. */}
