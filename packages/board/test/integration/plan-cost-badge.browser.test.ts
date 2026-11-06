@@ -7,8 +7,8 @@ import { board, card, column } from '../catalogue/build.js';
  * WHAT THE COST BADGE SHOWS — the half only a real page can settle.
  *
  * The badge's WORDS are pure functions pinned without a browser in
- * `test/unit/plan-cost.test.ts`: every edge case of `costBadgeText` and
- * `costBadgeDetail` is asserted there, which is this repo's standing rule that
+ * `test/unit/plan-cost.test.ts`: every edge case of the cost piece
+ * `presentCard` returns is asserted there, which is this repo's standing rule that
  * a view state which cannot be tested without a browser has not been extracted
  * yet. What is left for a page, and only for a page:
  *

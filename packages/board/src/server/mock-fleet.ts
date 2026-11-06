@@ -487,7 +487,7 @@ export const MOCK_KINDS = RowKindSchema.options;
  * looks a card up.
  *
  * `phase: 'Development'` with `started: false` is what makes a plan startable —
- * see `PlanCard`'s `isReadyToStart`, which read `phase === 'Design'` until #289.
+ * see `cardControls`' `readyToStart`, which makes Start work the card's primary action.
  */
 export function mockCards(): Column[] {
   // Each card states the plan's state and status, and `cardControls` answers its
