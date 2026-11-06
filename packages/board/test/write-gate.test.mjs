@@ -101,6 +101,13 @@ const WRITE_ROUTES = [
   // Needs design moves a Draft plan to Design: it writes `State:` and pushes, so it
   // is gated by the same loopback boundary as /api/approve.
   { path: '/api/needs-design', body: { slug: 'ship-the-widget' } },
+  // Release-approve approves a release PR on a verified passkey assertion, and
+  // the two passkey routes issue its challenge and register its credential. A
+  // passkey binds to `localhost`, so none of the three may answer a request
+  // that arrives off loopback.
+  { path: '/api/release-approve', body: { pr: 1, sha: 'abcdef1' } },
+  { path: '/api/passkey/challenge', body: { action: 'release-approve', pr: 1, sha: 'abcdef1' } },
+  { path: '/api/passkey/register', body: { credentialId: 'x', publicKey: 'y', alg: -7 } },
 ];
 
 /** Give a spawn that should NOT have happened time to leave its mark. */
