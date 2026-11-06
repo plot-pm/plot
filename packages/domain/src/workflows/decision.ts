@@ -709,8 +709,8 @@ export interface IdleNotifyWrite {
   readonly kind: 'idle-notify';
   /** The slice's branch — half the episode key. */
   readonly branch: string;
-  /** The idle episode's clock start, ISO-8601 — the other half of the episode key. */
-  readonly clockStart: string;
+  /** The idle episode's start, ISO-8601 — the other half of the episode key. */
+  readonly episodeStart: string;
   /** The message to send. */
   readonly message: string;
 }

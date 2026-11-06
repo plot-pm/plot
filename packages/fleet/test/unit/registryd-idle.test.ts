@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { decodeRunLogLine } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
-import { idleEpisodeKey } from '@plot-pm/domain/rules/slice-idle';
+import { idleEpisodeKey, sliceIdle } from '@plot-pm/domain/rules/slice-idle';
 
 import { notifyIdleSlices, idleWorldForRepo } from '../../src/server/entry/registryd-main.js';
 import type { TickReport } from '../../src/server/entry/registryd.js';
@@ -40,7 +40,7 @@ const readRunLog = (root: string) => {
     .filter((l): l is NonNullable<typeof l> => l !== null);
 };
 
-const idleTick = (branch: string, clockStart: string, message = 'idle'): TickReport => ({
+const idleTick = (branch: string, episodeStart: string, message = 'idle'): TickReport => ({
   startedAt: 0,
   costMs: 1,
   agents: 1,
@@ -49,7 +49,7 @@ const idleTick = (branch: string, clockStart: string, message = 'idle'): TickRep
   decision: {
     outcome: 'decided',
     workflow: 'supervise',
-    writes: [{ kind: 'idle-notify', branch, clockStart, message }],
+    writes: [{ kind: 'idle-notify', branch, episodeStart, message }],
     detail: {
       agents: [],
       left: [],
@@ -151,7 +151,7 @@ describe('notifyIdleSlices — applies the tick\'s idle-notify writes, once each
     const writes = ['feature/a', 'feature/b', 'feature/c'].map((branch) => ({
       kind: 'idle-notify' as const,
       branch,
-      clockStart: '2026-10-01T00:00:00.000Z',
+      episodeStart: '2026-10-01T00:00:00.000Z',
       message: branch,
     }));
     await notifyIdleSlices(
@@ -202,6 +202,49 @@ describe('idleWorldForRepo', () => {
     const reader = idleWorldForRepo(root, '/nonexistent', Date.now(), async () => []);
     const recorded = await reader.recordedEpisodes();
     expect(recorded.has(idleEpisodeKey('feature/x', clockStart))).toBe(true);
+    delete process.env[RUN_LOG_HOME_ENV];
+  });
+
+  it('an unmoved slice round-trips its sentinel episode start through the run log', async () => {
+    const root = repo();
+    process.env[RUN_LOG_HOME_ENV] = root;
+    const notifier: Notifier = { notify: async () => ({ ok: true }) };
+    const [verdict] = sliceIdle({
+      slices: [{ pr: { branch: 'feature/x', createdAt: '' }, lines: [], blocked: false }],
+      fleetdStartedAt: 0,
+      boundMs: 1,
+      recordedEpisodes: new Set(),
+      now: () => 10,
+    });
+    expect(verdict.isNew).toBe(true);
+    await notifyIdleSlices(idleTick('feature/x', verdict.episodeStart), root, async () => notifier, async () => 'plan-a', () => {}, () => {});
+    const recorded = await idleWorldForRepo(root, '/nonexistent', Date.now(), async () => []).recordedEpisodes();
+    expect(recorded.has(idleEpisodeKey('feature/x', verdict.episodeStart))).toBe(true);
+    delete process.env[RUN_LOG_HOME_ENV];
+  });
+
+  it('a fleetd restart over the same run log reads no new episode', async () => {
+    const root = repo();
+    process.env[RUN_LOG_HOME_ENV] = root;
+    const notifier: Notifier = { notify: async () => ({ ok: true }) };
+    const desks = async () => [{ worktree: root, branch: 'feature/x' }];
+    const notMerged = async () => ({ ok: true as const, value: 'none' as never });
+    const verdictAfter = async (fleetdStartedAt: number) => {
+      const reader = idleWorldForRepo(root, '/nonexistent', fleetdStartedAt, desks, notMerged);
+      return sliceIdle({
+        slices: await reader.readings(),
+        fleetdStartedAt,
+        boundMs: 1,
+        recordedEpisodes: await reader.recordedEpisodes(),
+        now: () => fleetdStartedAt + 10,
+      })[0];
+    };
+    const first = await verdictAfter(1_000);
+    expect(first.isNew).toBe(true);
+    await notifyIdleSlices(idleTick('feature/x', first.episodeStart), root, async () => notifier, async () => 'plan-a', () => {}, () => {});
+    const second = await verdictAfter(5_000_000);
+    expect(second.idle).toBe(true);
+    expect(second.isNew).toBe(false);
     delete process.env[RUN_LOG_HOME_ENV];
   });
 });
