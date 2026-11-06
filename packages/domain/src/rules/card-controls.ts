@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { PlanStatus } from './phase.js';
-import { spikeOf, type SpikeSlice } from './spike.js';
+import { licensedSpike, spikeOf, type SpikeSlice } from './spike.js';
 import { awaitsSpike, spikeCardState, type SpikeCardState } from './spike-confirm.js';
 
 /** The controls a plan card offers. Each boolean answers whether the card renders that control. */
@@ -67,7 +67,7 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
   const spike = spikeOf(slices);
   const approveSpike =
     readings.state === 'design' &&
-    (readings.spikeApproved ?? '').trim() === '' &&
+    !licensedSpike(readings.spikeApproved ?? '', slices).licensed &&
     spike !== undefined &&
     spike.slice === 0 &&
     slices[0].branches.length === 1;

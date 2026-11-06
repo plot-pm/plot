@@ -1,4 +1,4 @@
-import { spikeOf } from '@plot-pm/domain/rules/spike';
+import { licensedSpike } from '@plot-pm/domain/rules/spike';
 import { plangate, planGateHint, type PlanGateRefusal } from '@plot-pm/domain/workflows/dispatch';
 
 /** What `plot-ask.mjs plangate` was told, after flag parsing. */
@@ -48,22 +48,6 @@ export const planGateAskFrom = (argv: readonly string[]): PlanGateAsk | null => 
 };
 
 /**
- * The spike branch of a plan-meta record that carries `Spike approved:`, else `''`.
- *
- * @param meta - one `plot-plan-meta.sh` record, or null.
- */
-const spikeBranchOf = (meta: Record<string, unknown> | null): string => {
-  const raw = meta?.spike_approved_raw;
-  if (typeof raw !== 'string' || raw.trim() === '') return '';
-  const slices = meta?.slices ?? meta?.waves;
-  if (!Array.isArray(slices)) return '';
-  const shaped = slices.map((slice: { branches?: { branch?: string; spike?: boolean }[] }) => ({
-    branches: (slice.branches ?? []).map((b) => ({ branch: b.branch ?? '', ...(b.spike === true ? { spike: true } : {}) })),
-  }));
-  return spikeOf(shaped)?.branch ?? '';
-};
-
-/**
  * Run the dispatch plan gate over the plan-meta JSON the caller read.
  *
  * Exit 0 where the plan may be fanned out, 1 on a refusal with the rule's
@@ -86,6 +70,13 @@ export const planGateAnswer = (ask: PlanGateAsk, metaJson: string): PlanGateAnsw
     const value = meta?.[key];
     return typeof value === 'string' ? value : '';
   };
+  const rawSlices = meta?.slices ?? meta?.waves;
+  const shaped = Array.isArray(rawSlices)
+    ? rawSlices.map((slice: { branches?: { branch?: string; spike?: boolean }[] }) => ({
+      branches: (slice.branches ?? []).map((b) => ({ branch: b.branch ?? '', ...(b.spike === true ? { spike: true } : {}) })),
+    }))
+    : [];
+  const spike = licensedSpike(text('spike_approved_raw'), shaped);
   const refusal = plangate(
     {
       inRepository: true,
@@ -102,7 +93,8 @@ export const planGateAnswer = (ask: PlanGateAsk, metaJson: string): PlanGateAnsw
         phase: text('phase'),
         impl: text('impl'),
         source: ask.source,
-        spikeBranch: spikeBranchOf(meta),
+        spikeBranch: spike.licensed ? spike.branch : '',
+        ...(spike.licensed ? {} : { spikeUnlicensed: spike.reason }),
       },
     },
     { allowLocal: ask.allowLocal, ...(ask.branch ? { branch: ask.branch } : {}) },

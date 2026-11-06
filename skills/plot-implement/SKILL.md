@@ -44,7 +44,7 @@ before.
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 1. Locate Plan | Small | plot-plan-meta.sh lookup; the Design spike exception reads two parsed fields, `spike_approved_raw` and each branch's `spike` flag |
+| 1. Locate Plan | Small | plot-plan-meta.sh lookup; the Design spike exception reads two parsed fields, `spike_approved_raw` (its fourth field names the branch) and each branch's `spike` flag |
 | 2. Staleness Preflight | Mid–Frontier | Comparing plan assumptions against repo drift is judgment |
 | 3. Branch Setup | Small | Git commands per recorded answers; `plot-fleet-scan.sh --next` picks the branch and the ref push claims it — no judgment needed. **`--brief-only` skips this step**: no checkout, no claim push, no worktree |
 | 4. Hand-off Brief | Frontier | Interpretation, not extraction: naming which alternatives a plan rejected and which assertions a naive implementation would pass without is judgment. Smaller tiers fill the header fields and the plan's own `Done when`, then say which sections they could not write. **Under `--brief-only`, writing the already-composed text to a scratch file and booking it is Small** — the judgment is in composing the brief, not in the one call that lands it |
@@ -66,7 +66,7 @@ find `<slug>`. Requirements:
   bullet still answering whether the approach works; implementation only
   ever references an *approved* plan, so it waits.) Delivered/Released →
   nothing to start.
-- **One exception: the approved spike of a Design plan.** A Design plan that carries a `Spike approved:` record (parsed field `spike_approved_raw`) admits its spike branch, and only that branch. The spike branch is the one branch whose parsed `spike` flag is true; it must be the only annotated branch in the plan, and its slice must name no other branch. Name that branch as the branch to start, in step 3 and in the brief. If `PLOT_BRIEF_BRANCH` or `--next` names any other branch of the plan, stop: "Only the approved spike `<spike>` may start while `<slug>` is in Design — `<branch>` waits for `/plot-approve <slug>`." If the plan has no `Spike approved:` record, no annotated branch, more than one annotated branch, or a sibling in the spike's slice, stop with the Draft-or-Design message above.
+- **One exception: the approved spike of a Design plan.** A Design plan that carries a `Spike approved:` record (parsed field `spike_approved_raw`) admits its spike branch, and only that branch. The spike branch is the record's fourth field, and only where it equals the one branch whose parsed `spike` flag is true; it must be the only annotated branch in the plan, and its slice must name no other branch. Name that branch as the branch to start, in step 3 and in the brief. If `PLOT_BRIEF_BRANCH` or `--next` names any other branch of the plan, stop: "Only the approved spike `<spike>` may start while `<slug>` is in Design — `<branch>` waits for `/plot-approve <slug>`." A record with no fourth field, or one that names another branch, stops with: "The `Spike approved:` record of `<slug>` licenses no branch — re-run `plot-approve.mjs --spike <slug> --who <handle>`." If the plan has no `Spike approved:` record, no annotated branch, more than one annotated branch, or a sibling in the spike's slice, stop with the Draft-or-Design message above.
 - If no slug given and exactly one approved plan has no `Started:`
   records, propose it. Several → list them (Ready first) and ask.
 
@@ -82,7 +82,7 @@ The plan was approved at a point in time; check whether time has broken
 it. Gather mechanically, judge with care:
 
 - **Age:** days since the `Approved:` record (parsed field
-  `approved_raw`). For the spike of a Design plan, read the `Spike approved:` record (parsed field `spike_approved_raw`) instead.
+  `approved_raw`). For the spike of a Design plan, read the `Spike approved:` record (parsed field `spike_approved_raw`, fourth field = the licensed branch) instead.
 - **Base drift:** has the default branch moved over the plan's territory?
   `git log --oneline <approved-date>.. -- <paths the plan touches>` —
   the plan's Design/Branches sections name the areas.

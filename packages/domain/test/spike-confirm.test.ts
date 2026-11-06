@@ -19,16 +19,22 @@ describe('spikeCardState', () => {
     expect(spikeCardState({ state: 'design', slices, spikeApproved: '  ', spikeMerged: true })).toBe('spike-not-approved');
   });
 
+  it('answers spike-not-approved for a record that licenses no branch', () => {
+    for (const spikeApproved of ['2026-11-03', '2026-10-13, jwloka, in-session, feature/rest', '2026-10-13, jwloka, in-session, feature/gone']) {
+      expect(spikeCardState({ state: 'design', slices, spikeApproved })).toBe('spike-not-approved');
+    }
+  });
+
   it('answers spike-not-approved when no record was read', () => {
     expect(spikeCardState({ state: 'design', slices })).toBe('spike-not-approved');
   });
 
   it('answers spike-approved while the approved spike has not merged', () => {
-    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13 by jwloka' })).toBe('spike-approved');
+    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13, jwloka, in-session, feature/spike' })).toBe('spike-approved');
   });
 
   it('answers spike-merged once the spike has merged', () => {
-    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13 by jwloka', spikeMerged: true })).toBe('spike-merged');
+    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13, jwloka, in-session, feature/spike', spikeMerged: true })).toBe('spike-merged');
   });
 });
 

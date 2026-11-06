@@ -1,4 +1,4 @@
-import { spikeOf, type SpikeSlice } from './spike.js';
+import { licensedSpike, spikeOf, type SpikeSlice } from './spike.js';
 
 /** Where a Design plan stands against its spike, as its card words it. */
 export type SpikeCardState = 'spike-not-approved' | 'spike-approved' | 'spike-merged';
@@ -25,7 +25,7 @@ export interface SpikeCardReadings {
 /**
  * Which of three states a Design plan's card shows for its spike.
  *
- * `spike-not-approved` holds until the `Spike approved:` record exists,
+ * `spike-not-approved` holds until the `Spike approved:` record licenses a branch (`licensedSpike`),
  * `spike-approved` while the approved spike has not merged, and `spike-merged`
  * once it has: the slices are then ready to confirm.
  *
@@ -35,8 +35,9 @@ export interface SpikeCardReadings {
  */
 export const spikeCardState = (readings: SpikeCardReadings): SpikeCardState | null => {
   if (readings.state !== 'design') return null;
-  if (spikeOf(readings.slices ?? []) === undefined) return null;
-  if ((readings.spikeApproved ?? '').trim() === '') return 'spike-not-approved';
+  const slices = readings.slices ?? [];
+  if (spikeOf(slices) === undefined) return null;
+  if (!licensedSpike(readings.spikeApproved ?? '', slices).licensed) return 'spike-not-approved';
   return readings.spikeMerged === true ? 'spike-merged' : 'spike-approved';
 };
 

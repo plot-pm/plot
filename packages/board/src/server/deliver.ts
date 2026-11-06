@@ -3,12 +3,11 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
-import { type Refs } from '@plot-pm/domain';
+import { deliveryLanding, type Refs } from '@plot-pm/domain';
 import { refsGit } from '@plot-pm/domain/adapters';
 import { agentLogPath } from './agent-log.js';
 import {
   readConfig,
-  allSlicesConfirmed,
   deliveryPulse,
   scriptsFor,
   type BuildBoardOptions,
@@ -129,6 +128,13 @@ export type DeliverRefusal =
    * not — and they went looking for it.
    */
   | 'scan-incomplete'
+  /**
+   * Every slice reads complete, and at least one branch is proven landed only
+   * by a merge commit's subject: its ref is gone and neither the host nor the
+   * PR index has confirmed its merge yet. A delivery rests on the host's
+   * `mergedAt`, so it waits for that answer.
+   */
+  | 'merge-unconfirmed'
   /**
    * The plan is already `delivered` (or past it). The row that offers this
    * control never shows on such a plan — the card carries `deliverable` only
@@ -268,6 +274,9 @@ const phaseAtRef = async (
  *    says go finish the branch, this one says wait and ask again. Folding it in
  *    is the defect measured 2026-08-27, when a plan whose two PRs had merged the
  *    day before was told a branch of its had not.
+ *  - `merge-unconfirmed` — every slice reads complete, and a branch is proven
+ *    landed only by a merge commit's subject. The host's `mergedAt` decides a
+ *    delivery, so this waits for the host or the PR index to confirm it.
  *  - `deliverable` — Development phase, every non-deferred branch merged. The
  *    exact card `buildBoard` moves into Testing and marks `deliverable`.
  *
@@ -282,6 +291,7 @@ export type Deliverability =
   | { verdict: 'already-delivered' }
   | { verdict: 'not-merged' }
   | { verdict: 'scan-incomplete' }
+  | { verdict: 'merge-unconfirmed' }
   | { verdict: 'deliverable' };
 
 export async function deliverability(opts: BuildBoardOptions, slug: string): Promise<Deliverability> {
@@ -328,21 +338,22 @@ export async function deliverability(opts: BuildBoardOptions, slug: string): Pro
   if (phase === 'delivered' || phase === 'released') return { verdict: 'already-delivered' };
   // Then the measurement, against the same pulse the board renders from, so the
   // route agrees with the card by construction.
-  // THREE ANSWERS FROM THE MEASUREMENT, mapped one-to-one onto verdicts. The
-  // `unknown` arm is the one that earns this shape, and it now carries two
-  // cases: the scan not having finished, and a branch whose landing only a
-  // merge commit's subject proves. Neither is a statement about any branch
-  // being unmerged, and `scan-incomplete` is what a person reads for both.
+  // FOUR ANSWERS FROM THE MEASUREMENT, mapped one-to-one onto verdicts.
+  // `deliveryLanding` splits `allSlicesConfirmed`'s `unknown` into the scan not
+  // having finished and a branch whose landing only a merge commit's subject
+  // proves. Neither states that a branch is unmerged.
   //
-  // `allSlicesConfirmed` RATHER THAN `allSlicesMerged`, so this control does
-  // not offer a delivery the re-gate behind it would refuse: `/plot-deliver`
-  // asks the host, where a throttled answer counts as not merged. The wave
-  // gate still reads the subject and still opens the next slice.
-  switch (allSlicesConfirmed(meta, judging, judging !== null)) {
+  // CONFIRMED RATHER THAN MERGED, so this control does not offer a delivery
+  // the re-gate behind it would refuse: `/plot-deliver` asks the host, where a
+  // throttled answer counts as not merged. The wave gate still reads the
+  // subject and still opens the next slice.
+  switch (deliveryLanding(meta, judging, judging !== null)) {
     case 'merged':
       return { verdict: 'deliverable' };
-    case 'unknown':
+    case 'scan-incomplete':
       return { verdict: 'scan-incomplete' };
+    case 'merge-unconfirmed':
+      return { verdict: 'merge-unconfirmed' };
     default:
       return { verdict: 'not-merged' };
   }
@@ -565,6 +576,17 @@ export async function handleDeliver(
       'scan-incomplete',
       slug,
       `the fleet scan has not finished, so the board cannot yet say whether plan \`${slug}\` has landed every branch — nothing is known to be unmerged; wait for the next pulse and try again`,
+    );
+    return;
+  }
+  // NAMES THE MISSING CONFIRMATION. The scan finished; what it lacks is the
+  // host's answer for a branch whose ref is gone.
+  if (state.verdict === 'merge-unconfirmed') {
+    refuse(
+      409,
+      'merge-unconfirmed',
+      slug,
+      `every slice of plan \`${slug}\` reads complete, but a merge commit's subject is the only proof for at least one branch — neither the host nor the PR index has confirmed that merge yet, and a delivery waits for that answer; try again after the next PR read`,
     );
     return;
   }

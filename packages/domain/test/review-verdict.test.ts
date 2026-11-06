@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   REVIEWER_DENY,
   REVIEWER_TOOLS,
   reviewerCommand,
+  reviewerRoleFloor,
   OUTSIDE_THE_CHANGE_HEADING,
   REVIEW_ARGUMENT_LIMIT,
   REVIEW_INLINE_DIFF_LIMIT,
@@ -128,32 +130,34 @@ describe('reviewRequestBlock', () => {
   });
 });
 
-const command = (charter: { harness: string; model: string; effort: string }): string => {
-  const built = reviewerCommand(charter, []);
+const ROLE = { model: '', effort: '', maxTurns: 0, agentsFile: '/repo/.plot/state/reviewer/agents.json' };
+const AGENT_TAIL = " --agent reviewer --agents \"$(cat -- '/repo/.plot/state/reviewer/agents.json')\"";
+
+const command = (role: Partial<typeof ROLE>): string => {
+  const built = reviewerCommand({ ...ROLE, ...role }, []);
   if (built.read !== 'command') throw new Error(`expected a command, got ${built.why}`);
   return built.command;
 };
 
 describe('reviewerCommand', () => {
   it('runs claude with read and search tools only, no MCP, user settings only, and no bypass', () => {
-    expect(command({ harness: '', model: '', effort: '' })).toBe(
+    expect(command({})).toBe(
       'claude -p --tools Read,Grep,Glob --disallowedTools Write,Edit,NotebookEdit,Bash,Agent,Task,WebFetch,WebSearch'
-        + ' --setting-sources user --permission-mode dontAsk --strict-mcp-config',
+        + ` --setting-sources user --permission-mode dontAsk --strict-mcp-config${AGENT_TAIL}`,
     );
   });
 
   it('adds each read directory before the tool list, single-quoted with a quote escaped', () => {
-    const built = reviewerCommand({ harness: '', model: '', effort: '' }, ['/repo/.git/plot/state/reviews', "/it's here"]);
+    const built = reviewerCommand(ROLE, ['/repo/.git/plot/state/reviews', "/it's here"]);
     if (built.read !== 'command') throw new Error(built.why);
     expect(built.command).toContain(
       "claude -p --add-dir '/repo/.git/plot/state/reviews' --add-dir '/it'\\''s here' --tools Read,Grep,Glob ",
     );
-    expect(built.command.endsWith(' --strict-mcp-config')).toBe(true);
   });
 
-  it('names the charter model and effort, single-quoted', () => {
-    const built = command({ harness: 'claude', model: 'claude-opus-4[1m]', effort: 'high' });
-    expect(built).toContain("--model 'claude-opus-4[1m]' --effort 'high' ");
+  it('names the role model, effort and turn limit', () => {
+    const built = command({ model: 'claude-opus-4[1m]', effort: 'high', maxTurns: 40 });
+    expect(built).toContain("--model 'claude-opus-4[1m]' --effort 'high' --max-turns 40 ");
     expect(built).not.toContain('bypassPermissions');
   });
 
@@ -164,21 +168,77 @@ describe('reviewerCommand', () => {
     }
   });
 
-  it('refuses a harness other than claude', () => {
-    expect(reviewerCommand({ harness: 'codex', model: '', effort: '' }, [])).toEqual({
-      read: 'refused',
-      why: "the reviewer runs read-only on claude only; the charter names harness 'codex'",
-    });
-  });
-
   it('refuses a model or effort that is not one word', () => {
-    expect(reviewerCommand({ harness: '', model: "opus' --permission-mode bypassPermissions '", effort: '' }, [])).toMatchObject({
+    expect(reviewerCommand({ ...ROLE, model: "opus' --permission-mode bypassPermissions '" }, [])).toMatchObject({
       read: 'refused',
-      why: expect.stringContaining("model"),
+      why: expect.stringContaining('model'),
     });
-    expect(reviewerCommand({ harness: '', model: 'opus', effort: 'high; rm -rf /' }, [])).toMatchObject({
+    expect(reviewerCommand({ ...ROLE, effort: 'high; rm -rf /' }, [])).toMatchObject({
       read: 'refused',
       why: expect.stringContaining('effort'),
     });
+  });
+
+  it('refuses a turn limit that is not a whole number', () => {
+    expect(reviewerCommand({ ...ROLE, maxTurns: -1 }, [])).toMatchObject({ read: 'refused' });
+  });
+});
+
+const REVIEWER_MD = `---
+description: Reviews one pull request.
+prompt: .plot/worker-prompt.sh
+model: opus
+effort: high
+tools:
+  - Read
+  - Grep
+  - Glob
+maxTurns: 40
+isolation: worktree
+---
+
+Body.
+`;
+
+const withKey = (line: string): string => REVIEWER_MD.replace('maxTurns: 40', `maxTurns: 40\n${line}`);
+
+describe('reviewerRoleFloor', () => {
+  it('admits the shipped reviewer.md and reads its model and effort', () => {
+    expect(reviewerRoleFloor(readFileSync(new URL('../../../.claude/agents/reviewer.md', import.meta.url), 'utf8')))
+      .toEqual({ read: 'floor', model: 'opus', effort: 'high' });
+    expect(reviewerRoleFloor(REVIEWER_MD)).toEqual({ read: 'floor', model: 'opus', effort: 'high' });
+  });
+
+  it.each([
+    ['tools', REVIEWER_MD.replace('  - Glob', '  - Glob\n  - Bash')],
+    ['tools', REVIEWER_MD.replace(/tools:\n(  - .*\n)+/, 'tools: Read, Bash\n')],
+    ['mcpServers', withKey('mcpServers:\n  - evil')],
+    ['permissionMode', withKey('permissionMode: bypassPermissions')],
+    ['disallowedTools', withKey('disallowedTools: Write')],
+  ])('refuses %s that widens the floor, naming the key', (key, text) => {
+    expect(reviewerRoleFloor(text)).toEqual({ read: 'refused', why: `reviewer-role-widens: ${key}` });
+  });
+
+  it('admits a disallowedTools list that holds the whole floor', () => {
+    expect(reviewerRoleFloor(withKey(`disallowedTools: ${REVIEWER_DENY.join(', ')}`)).read).toBe('floor');
+  });
+
+  it('reads a file that declares no tools, model or effort, skipping a line that is no key', () => {
+    expect(reviewerRoleFloor('---\ndescription: x\n# a comment\n---\nBody\n')).toEqual({ read: 'floor', model: '', effort: '' });
+  });
+
+  it('reads an inline, quoted tools list', () => {
+    expect(reviewerRoleFloor(REVIEWER_MD.replace(/tools:\n(  - .*\n)+/, 'tools: [Read, "Grep"]\n')).read).toBe('floor');
+  });
+
+  it.each([
+    ['model', REVIEWER_MD.replace('model: opus', "model: 'opus; x'")],
+    ['effort', REVIEWER_MD.replace('effort: high', 'effort: hi gh')],
+  ])('refuses a %s that is not one word', (key, text) => {
+    expect(reviewerRoleFloor(text)).toMatchObject({ read: 'refused', why: expect.stringContaining(`reviewer's ${key}`) });
+  });
+
+  it('refuses a file with no frontmatter', () => {
+    expect(reviewerRoleFloor('no frontmatter')).toMatchObject({ read: 'refused' });
   });
 });

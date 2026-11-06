@@ -41,7 +41,7 @@ describe('the queue admits the approved spike', () => {
     const plan = planOf(
       'design',
       [[{ branch: 'feature/spike', spike: true }], [{ branch: 'feature/after' }]],
-      '2026-11-03',
+      '2026-11-03, jwloka, in-session, feature/spike',
     );
     const queued = planQueue(plan, new Set(), new Set(), true);
     expect(queued.find((q) => q.branch === 'feature/spike')?.claimable).toBe(true);
@@ -92,7 +92,7 @@ describe('the queue admits nothing — the admission stays closed', () => {
     const plan = planOf(
       'design',
       [[{ branch: 'feature/spike', spike: true }], [{ branch: 'feature/after' }]],
-      '2026-11-03',
+      '2026-11-03, jwloka, in-session, feature/spike',
     );
     const queued = planQueue(plan, new Set(), new Set(['feature/spike']), true);
     expect(queued.some((q) => q.claimable)).toBe(false);
@@ -106,7 +106,7 @@ describe('blockingBranches asks about the approved spike', () => {
     const plan = planOf(
       'design',
       [[{ branch: 'feature/spike', spike: true }], [{ branch: 'feature/after' }]],
-      '2026-11-03',
+      '2026-11-03, jwloka, in-session, feature/spike',
     );
     expect(blockingBranches(plan, none)).toEqual(['feature/spike']);
   });
@@ -164,8 +164,25 @@ describe('sliceReadingsOf — the builder, every branch for the 100% gate', () =
   });
 
   it('reads spikeApproved true for a record', () => {
-    const plan = planOf('design', [[{ branch: 'feature/a' }]], '2026-11-03');
+    const plan = planOf('design', [[{ branch: 'feature/a', spike: true }]], '2026-11-03, jwloka, in-session, feature/a');
     expect(sliceReadingsOf(plan, [0])[0]!.spikeApproved).toBe(true);
+  });
+
+  it('reads spikeApproved false for a record that licenses no branch', () => {
+    const marked = [[{ branch: 'feature/a' }], [{ branch: 'feature/b', spike: true }]];
+    for (const record of ['2026-11-03', '2026-11-03, jwloka, in-session, feature/a', '2026-11-03, jwloka, in-session, feature/c']) {
+      expect(sliceReadingsOf(planOf('design', marked, record), [0, 0]).map((r) => r.spikeApproved)).toEqual([false, false]);
+    }
+    const renamed = planOf('design', [[{ branch: 'feature/c', spike: true }]], '2026-11-03, jwloka, in-session, feature/a');
+    expect(sliceReadingsOf(renamed, [0])[0]!.spikeApproved).toBe(false);
+  });
+
+  it('answers unapproved for a moved marker, a renamed branch and a date-only record', () => {
+    const marked = [[{ branch: 'feature/a' }], [{ branch: 'feature/b', spike: true }]];
+    for (const record of ['2026-11-03, jwloka, in-session, feature/a', '2026-11-03']) {
+      const plan = planOf('design', marked, record);
+      expect(planQueue(plan, new Set(), new Set(), true).find((q) => q.branch === 'feature/b')?.claimable).toBe(false);
+    }
   });
 });
 
