@@ -223,6 +223,21 @@ describe('reviewerRoleFloor', () => {
     expect(reviewerRoleFloor(withKey(`disallowedTools: ${REVIEWER_DENY.join(', ')}`)).read).toBe('floor');
   });
 
+  it('reads a file that declares no tools, model or effort, skipping a line that is no key', () => {
+    expect(reviewerRoleFloor('---\ndescription: x\n# a comment\n---\nBody\n')).toEqual({ read: 'floor', model: '', effort: '' });
+  });
+
+  it('reads an inline, quoted tools list', () => {
+    expect(reviewerRoleFloor(REVIEWER_MD.replace(/tools:\n(  - .*\n)+/, 'tools: [Read, "Grep"]\n')).read).toBe('floor');
+  });
+
+  it.each([
+    ['model', REVIEWER_MD.replace('model: opus', "model: 'opus; x'")],
+    ['effort', REVIEWER_MD.replace('effort: high', 'effort: hi gh')],
+  ])('refuses a %s that is not one word', (key, text) => {
+    expect(reviewerRoleFloor(text)).toMatchObject({ read: 'refused', why: expect.stringContaining(`reviewer's ${key}`) });
+  });
+
   it('refuses a file with no frontmatter', () => {
     expect(reviewerRoleFloor('no frontmatter')).toMatchObject({ read: 'refused' });
   });
