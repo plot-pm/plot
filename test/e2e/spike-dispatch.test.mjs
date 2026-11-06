@@ -156,7 +156,7 @@ test('scan and dispatch: a sibling in the spike slice leaves both branches unoff
 
 // The phase gate finds the plan by the branch's slug, so the branch under test
 // carries the plan's slug. It is the spike in one plan text and a sibling of the
-// spike in the other; the `Spike approved:` record the bundle wrote stays.
+// spike in the other; the `Spike approved:` record the bundle wrote follows the rename.
 test('phase gate: a commit passes on the approved spike branch and refuses on a sibling', () => {
   const branch = 'feature/spiked';
   const file = path.join(sb.work, 'docs/plans/2026-10-12-spiked.md');
@@ -180,7 +180,9 @@ test('phase gate: a commit passes on the approved spike branch and refuses on a 
       return { code: e.status, stderr: String(e.stderr) + String(e.stdout) };
     }
   };
-  const asSpike = approved.replace(`- \`${SPIKE}\` — the spike <!-- spike -->`, `- \`${branch}\` — the spike <!-- spike -->`);
+  // The record's fourth field names the licensed branch, so it follows the rename.
+  const asSpike = approved.replace(`- \`${SPIKE}\` — the spike <!-- spike -->`, `- \`${branch}\` — the spike <!-- spike -->`)
+    .replace(`in-session, ${SPIKE}`, `in-session, ${branch}`);
   publish(asSpike);
   assert.equal(gateOn().code, 0);
   publish(asSpike.replace(`- \`${branch}\` — the spike <!-- spike -->`, `- \`${branch}\` — a sibling`)

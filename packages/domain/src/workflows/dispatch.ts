@@ -1,3 +1,4 @@
+import type { SpikeUnlicensed } from '../rules/spike.js';
 import { type Outcome, type Refusal, type Write, decide, refuse } from './decision.js';
 
 /**
@@ -28,6 +29,8 @@ export type DispatchRefusal =
   | 'impl-unrecognised'
   /** A `design` plan's spike is approved, and this branch is not the spike. */
   | 'spike-only'
+  /** A `design` plan's `Spike approved:` record licenses no branch of the plan. */
+  | 'spike-unlicensed'
   | 'branch-missing'
   | 'no-worktree'
   | 'reached-review'
@@ -108,11 +111,13 @@ export interface PlanGateReadings {
   /** What the gate read, for a message: the ref and sha, or the working tree. */
   source: string;
   /**
-   * The plan's spike branch where its `Spike approved:` record is present, else `''`.
+   * The branch `licensedSpike` names, else `''`.
    *
    * Absent reads as `''`: a caller that did not read the record admits nothing.
    */
   spikeBranch?: string;
+  /** Why the record licenses no branch, where `licensedSpike` answered `licensed: false`. */
+  spikeUnlicensed?: SpikeUnlicensed;
 }
 
 /** One branch the fleet scan offered, and what this machine holds for it. */
@@ -502,7 +507,7 @@ export type PlanGateRefusal = Extract<
   DispatchRefusal,
   | 'plan-not-found' | 'ref-unreadable' | 'plan-unreadable' | 'phase-draft' | 'state-terminal'
   | 'state-unreadable' | 'state-wrong' | 'impl-same-branch' | 'impl-other-repo' | 'impl-none'
-  | 'impl-unrecognised' | 'spike-only'
+  | 'impl-unrecognised' | 'spike-only' | 'spike-unlicensed'
 >;
 
 /**
@@ -541,6 +546,8 @@ export const planGateHint = (
       return 'There is nothing to implement. To start new work: /plot-idea';
     case 'spike-only':
       return `Only the approved spike may run while the plan is in Design. Merge the spike, then: /plot-approve ${slug}`;
+    case 'spike-unlicensed':
+      return `Re-approve the spike: plot-approve.mjs --spike ${slug} --who <handle>`;
     case 'impl-unrecognised':
       return "Set the plan's 'Impl:' line to one of: own branches, same branch, other repo, none — then push it.";
   }
@@ -608,6 +615,13 @@ export const plangate = (
       // than the spike is refused by name.
       const spike = gate.spikeBranch ?? '';
       if (spike === '') {
+        const why = gate.spikeUnlicensed;
+        if (why !== undefined && why !== 'spike-record-absent') {
+          return no(
+            'spike-unlicensed',
+            `plan '${slug}' is in Design and its 'Spike approved:' record licenses no branch (${why}).`,
+          );
+        }
         return no('state-wrong', `plan '${slug}' is in state 'design', not Approved.`);
       }
       if (input.branch !== undefined && input.branch !== spike) {

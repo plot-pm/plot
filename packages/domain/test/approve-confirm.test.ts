@@ -23,7 +23,7 @@ const readings = (over: Partial<ApproveReadings> = {}): ApproveReadings => ({
   sprint: '',
   sprintFile: '',
   approvedRecord: '',
-  spikeApprovedRecord: '2026-10-12, jwloka, in-session',
+  spikeApprovedRecord: '2026-10-12, jwloka, in-session, feature/spike',
   spikeMerged: MERGED,
   slicesPushed: PUSHED,
   pr: { number: 42, state: 'OPEN', draft: false, branch: 'idea/a-plan' },

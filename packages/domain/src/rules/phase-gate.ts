@@ -1,3 +1,4 @@
+import type { SpikeUnlicensed } from './spike.js';
 import { statusStateOf } from './state-transition.js';
 
 /** The phases a plan can be read as, the words `plot-plan-meta.sh` normalises to. */
@@ -175,11 +176,13 @@ export interface PhaseReadings {
   /** The repository-relative paths the commit carries. */
   paths: readonly string[];
   /**
-   * The plan's spike branch where its `Spike approved:` record is present, else `''`.
+   * The branch `licensedSpike` names, else `''`.
    *
    * Absent reads as `''`: a caller that did not read the record admits nothing.
    */
   spikeBranch?: string;
+  /** Why the record licenses no branch, where `licensedSpike` answered `licensed: false`. */
+  spikeUnlicensed?: SpikeUnlicensed;
 }
 
 /**
@@ -188,17 +191,24 @@ export interface PhaseReadings {
  * A commit carrying only paths under the plan directory passes, as does an
  * unreadable phase: the gate refuses only on a phase it read. A commit on the
  * approved spike branch of a `design` plan passes; every other branch of that
- * plan still refuses.
+ * plan still refuses. Where the plan's record licenses no branch for a reason
+ * other than `spike-record-absent`, the refusal adds a line naming the reason
+ * and the re-approval command.
  */
 export const phaseGateRefusal = ({
-  branch, slug, ref, phase, paths, planDir, spikeBranch = '',
+  branch, slug, ref, phase, paths, planDir, spikeBranch = '', spikeUnlicensed,
 }: PhaseReadings): string | null => {
   if (phase !== 'draft' && phase !== 'design') return null;
   if (phase === 'design' && spikeBranch !== '' && branch === spikeBranch) return null;
   if (!paths.some((path) => outsidePlanDir(path, planDir))) return null;
   const title = `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
+  const unlicensed = phase === 'design' && spikeBranch === ''
+    && spikeUnlicensed !== undefined && spikeUnlicensed !== 'spike-record-absent'
+    ? [`The plan's \`Spike approved:\` record licenses no branch (${spikeUnlicensed}): re-run \`plot-approve.mjs --spike ${slug} --who <handle>\`.`]
+    : [];
   return [
     `plot phase gate: branch '${branch}' implements plan '${slug}', which is still ${title} on ${ref}.`,
+    ...unlicensed,
     `The plan is still ${title} — implementation only ever references an approved plan (Manifesto P2).`,
     `Either: review and approve it (/plot-approve ${slug}), or — if this commit only refines the plan — stage only the plan file.`,
   ].join('\n');

@@ -148,6 +148,17 @@ describe('dispatch — the approved spike of a Design plan', () => {
     expect(plangate(estate({ gate: spiked }), { branch: 'feature/spike' })).toBeUndefined();
   });
 
+  it('refuses a record that licenses no branch as spike-unlicensed and names the reason', () => {
+    const out = dispatch(estate({ gate: gate({ phase: 'design', spikeBranch: '', spikeUnlicensed: 'spike-marker-moved' }), candidates: [spike] }));
+    expect(refused(out) && out.reason).toBe('spike-unlicensed');
+    expect(refused(out) && out.detail).toContain('spike-marker-moved');
+  });
+
+  it('keeps a plan with no record on state-wrong', () => {
+    const out = dispatch(estate({ gate: gate({ phase: 'design', spikeBranch: '', spikeUnlicensed: 'spike-record-absent' }), candidates: [spike] }));
+    expect(refused(out) && out.reason).toBe('state-wrong');
+  });
+
   it('keeps a Design plan with no approved spike closed', () => {
     const out = dispatch(estate({ gate: gate({ phase: 'design', spikeBranch: '' }), candidates: [spike] }));
     expect(refused(out) && out.reason).toBe('state-wrong');

@@ -149,6 +149,15 @@ describe('phaseGateRefusal', () => {
     expect(phaseGateRefusal({ ...base, phase: 'draft', branch: 'feature/spike', spikeBranch: 'feature/spike' })).toContain('still Draft');
   });
 
+  it('names the reason and the re-approval command where the record licenses no branch', () => {
+    const design = { ...base, phase: 'design' as const, spikeBranch: '' };
+    const text = phaseGateRefusal({ ...design, spikeUnlicensed: 'spike-marker-moved' });
+    expect(text).toContain('spike-marker-moved');
+    expect(text).toContain('plot-approve.mjs --spike x --who <handle>');
+    expect(phaseGateRefusal({ ...design, spikeUnlicensed: 'spike-record-absent' })).not.toContain('--spike');
+    expect(phaseGateRefusal({ ...design })).not.toContain('--spike');
+  });
+
   it.each(['approved', 'delivered', 'released', null] as const)('allows phase %s', (phase) => {
     expect(phaseGateRefusal({ ...base, phase })).toBeNull();
   });

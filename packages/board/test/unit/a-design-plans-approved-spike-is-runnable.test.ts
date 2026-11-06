@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { classify, rowsFromPulse } from '../../src/server/fleet.js';
-import { approvedSpikeKey, approvedSpikeOf, spikeBranchMerged } from '../../src/server/board.js';
+import { licensedSpike } from '@plot-pm/domain/rules/spike';
+import { approvedSpikeKey, spikeBranchMerged } from '../../src/server/board.js';
 import type { BranchState, FleetReading, PlanMeta, WorkerState } from '../../src/contract/schema.js';
 
 // A DESIGN PLAN'S BRANCHES WAIT ON ITS APPROVAL, EXCEPT THE APPROVED SPIKE.
@@ -141,7 +142,7 @@ describe('rowsFromPulse — a Design plan with an approved spike', () => {
 const meta = (over: Partial<PlanMeta> = {}) => ({
   file: `/repo/docs/plans/${FILE}`,
   phase: 'design',
-  spike_approved_raw: '2026-10-12, jwloka, in-session',
+  spike_approved_raw: `2026-10-12, jwloka, in-session, ${SPIKE}`,
   slices: [
     { name: 'The spike', branches: [{ branch: SPIKE, spike: true }] },
     { name: 'The rest', branches: [{ branch: REST, spike: false }] },
@@ -149,17 +150,15 @@ const meta = (over: Partial<PlanMeta> = {}) => ({
   ...over,
 }) as unknown as PlanMeta;
 
-describe('approvedSpikeOf', () => {
-  it('names the spike of a Design plan that records its approval', () => {
-    expect(approvedSpikeOf(meta())).toBe(SPIKE);
+describe('licensedSpike over a plan meta', () => {
+  const licensed = (m: PlanMeta) => licensedSpike(m.spike_approved_raw, m.slices);
+
+  it('names the spike of a plan whose record names it', () => {
+    expect(licensed(meta())).toMatchObject({ licensed: true, branch: SPIKE });
   });
 
   it('names nothing before the spike is approved', () => {
-    expect(approvedSpikeOf(meta({ spike_approved_raw: '' }))).toBeUndefined();
-  });
-
-  it('names nothing outside design', () => {
-    expect(approvedSpikeOf(meta({ phase: 'approved' }))).toBeUndefined();
+    expect(licensed(meta({ spike_approved_raw: '' }))).toEqual({ licensed: false, reason: 'spike-record-absent' });
   });
 });
 

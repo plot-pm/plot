@@ -4111,7 +4111,7 @@ function classifyGroup(
   fetchAt: number | null = null,
   /**
    * Whether this branch is the spike a `design` plan's `Spike approved:`
-   * record licenses — `spikeOf` over the plan's slices, plus the record. That
+   * record licenses — where `licensedSpike` answers `licensed: true`. That
    * branch places as a branch of an approved plan: `draftPlacement` answers
    * `null` for it, and the unrecognised-phase arms below let it through.
    * Defaults to `false`, so every caller that does not know reads as before.
