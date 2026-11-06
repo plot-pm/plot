@@ -3,6 +3,7 @@ import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { ActionMessage } from './ui/action-message.js';
 
 /**
  * *Interrogate* — sends a Draft plan to `/plot-panel`, beside *Approve*.
@@ -194,13 +195,10 @@ export const InterrogateButton = ({ card, interrogate, pulse = 0, onActing }: In
       {tip.tooltip}
       </span>
       {state.kind === 'failed' && (
-        <span
-          data-interrogate-error={card.slug}
-          className="whitespace-pre-line text-xs text-red-700 dark:text-red-400"
-        >
+        <ActionMessage attrs={{ 'data-interrogate-error': card.slug }} className="whitespace-pre-line text-xs text-red-700 dark:text-red-400">
           {state.message}
           {log ? ` (log: ${log})` : ''}
-        </span>
+        </ActionMessage>
       )}
     </span>
   );

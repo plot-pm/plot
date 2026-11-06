@@ -3,6 +3,7 @@ import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { ActionMessage } from './ui/action-message.js';
 
 /**
  * *Deliver* — the decision a person makes about a plan the board has measured
@@ -239,12 +240,9 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
       {tip.tooltip}
       </span>
       {state.kind === 'failed' && (
-        <span
-          data-deliver-error={slug}
-          className="whitespace-pre-line text-xs text-red-700 dark:text-red-400"
-        >
+        <ActionMessage attrs={{ 'data-deliver-error': slug }} className="whitespace-pre-line text-xs text-red-700 dark:text-red-400">
           {state.message}
-        </span>
+        </ActionMessage>
       )}
     </span>
   );

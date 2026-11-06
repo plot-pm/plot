@@ -3,6 +3,7 @@ import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { ActionMessage } from './ui/action-message.js';
 
 /**
  * WHAT THE BUTTON WATCHES — the count its own action moves.
@@ -356,12 +357,12 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         // this render can claim. Neutral (slate), not amber: an amber warning
         // would re-assert the failure the old message wrongly implied. Anyone
         // who wants the dispatcher's own words opens the row's `Status` menu.
-        <span data-dispatched className="text-xs text-slate-500 dark:text-slate-400">
+        <ActionMessage attrs={{ 'data-dispatched': '' }} className="text-xs text-slate-500 dark:text-slate-400">
           {DISPATCHED_WORD}
-        </span>
+        </ActionMessage>
       )}
       {state.kind === 'failed' && (
-        <span className="text-xs text-red-700 dark:text-red-400">{state.message}</span>
+        <ActionMessage className="text-xs text-red-700 dark:text-red-400">{state.message}</ActionMessage>
       )}
     </>
   );

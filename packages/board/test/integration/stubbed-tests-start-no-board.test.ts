@@ -868,7 +868,9 @@ const EXPECTED_FILES = 82;
 // 659 → 661 on 2026-11-06: two `it(` in `plan-card-grammar.browser.test.ts`,
 // for the footer's action group wrapping whole at 320 px and for the `⋯` More
 // actions menu. `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 661;
+// 661 → 662 on 2026-11-06: one `it(` in `plan-card-grammar.browser.test.ts`
+// for a long action refusal wrapping in its own row inside a 320 px card.
+const EXPECTED_TESTS = 662;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

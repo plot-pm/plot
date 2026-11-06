@@ -3,6 +3,7 @@ import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { ActionMessage } from './ui/action-message.js';
 
 /**
  * How often to ask what happened, once a click is outstanding.
@@ -277,9 +278,9 @@ export function ApproveButton({ card, approve, onApproving, spike = false, confi
       {state.kind === 'failed' && (
         // The command's own message, on the card. Pre-wrapped: /plot-approve
         // writes sentences, and a merge refusal can carry more than one line.
-        <span className="whitespace-pre-line text-xs text-red-700 dark:text-red-400">
+        <ActionMessage className="whitespace-pre-line text-xs text-red-700 dark:text-red-400">
           {state.message}
-        </span>
+        </ActionMessage>
       )}
     </span>
   );
