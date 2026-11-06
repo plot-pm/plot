@@ -28,9 +28,10 @@ on:
   #
   # SO `release.yml` DISPATCHES THIS WORKFLOW ITSELF, in its own `dispatch-ci`
   # job holding `actions: write` and nothing else. A dispatched run creates its
-  # check runs under the job name `validate`, which is the context the branch
-  # protection requires, so the required check reports and the merge stays a
-  # human act with nothing to override.
+  # check runs under the job name `validate`, but measured on 2.31.0 (PR #3080,
+  # 2026-11-06) that `validate` did not lift `BLOCKED`: the ruleset counts the
+  # held `pull_request` run's. `release-validate-relay.yml` carries the
+  # dispatched result to a `validate` commit status on the pinned head.
   #
   # The run is PINNED, and both pins are refusals in every job's first step:
   # `expected_sha` is the head `release.yml` just wrote, and the ref must be

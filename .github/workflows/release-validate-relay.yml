@@ -1,0 +1,91 @@
+name: Release validate relay
+
+# Copies a completed, dispatched `CI` run's result to a `validate` commit status
+# on the release PR's pinned head.
+#
+# Measured on 2.31.0 (PR #3080, head 756660c6): at 2026-11-06T17:14:23Z the
+# dispatched run 42257612120 had completed `success` with seven check runs from
+# app 15368 reading `success`, and `mergeStateStatus` still read `BLOCKED`. After
+# a person approved the held `pull_request` run 42257438360, it read `CLEAN` at
+# 17:27:24Z. The dispatched run's `validate` is not what the ruleset counts, so
+# this workflow writes the status that is.
+#
+# A `workflow_run` workflow runs its file from `main`, which the ruleset
+# protects. A job in `ci.yml` on the dispatched event would run the file from
+# `changeset-release/main`, which has no branch protection (404 on 2026-10-01).
+#
+# The job is not named `validate`: a check run of that name from this workflow
+# would be a second `validate` source.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  relay:
+    # Every `CI` run on a pull request or a push also fires `workflow_run`.
+    if: ${{ github.event.workflow_run.event == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      statuses: write
+    steps:
+      - name: Relay the dispatched result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TRIGGER_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGER_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+
+          # The pin is read here, from the branch ref. The dispatched run's own
+          # guard lives on the unprotected branch and cannot be trusted.
+          PINNED_SHA=$(gh api "repos/$REPO/git/ref/heads/changeset-release/main" --jq .object.sha)
+          if [ -z "$PINNED_SHA" ]; then
+            echo "::error::the head of changeset-release/main is unreadable"
+            exit 1
+          fi
+
+          if [ "$TRIGGER_BRANCH" != "changeset-release/main" ] || [ "$TRIGGER_SHA" != "$PINNED_SHA" ]; then
+            echo "::warning::run $TRIGGER_ID tested $TRIGGER_SHA on $TRIGGER_BRANCH, not the current head $PINNED_SHA of changeset-release/main; no status written"
+            exit 0
+          fi
+
+          RUNS=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha=$PINNED_SHA&per_page=100" \
+            --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml" and .head_sha == "'"$PINNED_SHA"'" and .head_branch == "changeset-release/main" and .actor.login == "github-actions[bot]")]')
+          COUNT=$(printf '%s' "$RUNS" | jq 'length')
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::expected exactly one dispatched CI run on $PINNED_SHA, found $COUNT"
+            exit 1
+          fi
+
+          STATUS=$(printf '%s' "$RUNS" | jq -r '.[0].status')
+          CONCLUSION=$(printf '%s' "$RUNS" | jq -r '.[0].conclusion')
+          RUN_URL=$(printf '%s' "$RUNS" | jq -r '.[0].html_url')
+          if [ "$STATUS" != "completed" ]; then
+            echo "::warning::run is $STATUS, not completed; no status written"
+            exit 0
+          fi
+
+          # A cancelled run is not a result: the release-dispatch concurrency
+          # group cancels a superseded dispatched run.
+          case "$CONCLUSION" in
+            success|failure) ;;
+            *)
+              echo "::notice::conclusion is $CONCLUSION; no status written"
+              exit 0
+              ;;
+          esac
+
+          gh api --method POST "repos/$REPO/statuses/$PINNED_SHA" \
+            -f state="$CONCLUSION" \
+            -f context=validate \
+            -f description="Relayed from the dispatched CI run" \
+            -f target_url="$RUN_URL"
+          echo "validate=$CONCLUSION written for $PINNED_SHA"
