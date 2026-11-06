@@ -22,6 +22,7 @@ import {
   failed,
 } from '../src/index.js';
 import { planRecord } from '../src/adapters/index.js';
+import { assemblePlanWalk, planRow } from '../src/workflows/plan-walk-assembly.js';
 
 type St = 'open' | 'merged' | 'deferred';
 
@@ -343,5 +344,53 @@ describe('rules/auto-deliver', () => {
       const reading = answered(planRecord({ deliveredRaw: '- **Delivered:** 2026-10-15' }));
       expect(holdFromRejection(reading)).toBeNull();
     });
+  });
+});
+
+describe('planAutoDeliver over a walked pulse', () => {
+  it('names the spike-marker plan and holds the Tracer: yes plan', () => {
+    const lines = (branch: string, spike?: boolean) => [
+      {
+        name: 'slice-1',
+        branches: [{ branch, deferred: false, deferredReason: '', claimed: '', waitsOn: [], ...(spike ? { spike } : {}) }],
+      },
+    ];
+    const record = (file: string, branch: string, extra: object) =>
+      ({ file, phase: 'approved', type: 'feature', slices: lines(branch, 'spike' in extra), unreadBranchItems: [], ...extra }) as never;
+    const m = record('docs/plans/2026-11-04-m-spike.md', 'feature/m', { spike: true });
+    const t = record('docs/plans/2026-11-04-t-tracer.md', 'feature/t', { tracer: true });
+    const gone = {
+      deferredByPlan: false, refTip: null, mainTip: 'm1', mergeSubjectFound: false, hostReach: 'ok',
+      pr: 'MERGED', prListComplete: true, commitsAhead: 0, realCommitsAhead: 0, waits: [],
+    };
+    const header = {
+      main: 'main', readRef: 'abc', localHead: 'def', fetchFailed: false, fetchError: '',
+      planDir: 'docs/plans/', host: 'github', mergeDetect: 'host', nowSeconds: 1000,
+    };
+    const walked = assemblePlanWalk(
+      {
+        estate: answered({
+          mainSha: 'm1', indexes: [], dangling: [],
+          plans: [m, t].map((r) => ({ blob: 'b', record: r })),
+        } as never),
+        branches: answered({
+          mainSha: 'm1', backend: 'github', origin: '', merges: [], added: new Map(),
+          branches: [['m', 'feature/m'], ['t', 'feature/t']].map(([p, branch]) => ({
+            plan: p === 'm' ? m.file : t.file, branch, readings: gone, landed: [], changedPaths: [],
+          })),
+        } as never),
+        desks: answered({ mainSha: 'm1', desks: [] }),
+      },
+      { slug: '', offer: false },
+    );
+    if (!walked.ok) throw new Error('the walk failed');
+    const pulse = FleetReadingSchema.parse({
+      main: 'main',
+      head: 'abc1234',
+      plans: walked.value.plans.map((p) => planRow(p, header)),
+      summary: { plans: 2, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    });
+    const named = planAutoDeliver({ pulse, inFlight: new Set() }).map((p) => p.slug);
+    expect(named).toEqual(['m-spike']);
   });
 });
