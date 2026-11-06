@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3074 merged
+- **Started:** 2026-11-06, Jan Wloka, `feature/pr-review-accepts-a-plot-review`
 
 ## Changelog
 
