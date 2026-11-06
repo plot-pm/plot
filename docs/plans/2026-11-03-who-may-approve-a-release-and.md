@@ -150,7 +150,7 @@ Each test fails on `origin/main` at `f10abe5a4`.
 
 ### Role-file loader
 
-- `feature/one-loader-reads-a-role-file` — fixer and main-repair load their role files through one loader that fetches the default branch first and takes `maxTurns` from the file <!-- builds: roleFilesAt loader shared by fixer, main-repair and reviewer -->
+- `feature/one-loader-reads-a-role-file` — fixer and main-repair load their role files through one loader that fetches the default branch first and takes `maxTurns` from the file <!-- builds: roleFilesAt loader shared by fixer, main-repair and reviewer --> → #3191
 
 ### Reviewer role
 
