@@ -121,7 +121,7 @@ bumps:
 
 ### Tracer flag
 
-- `feature/the-pulse-s-tracer-flag-means` <!-- waits: bug/the-queue-hands-out-an-approved-spike --> — `PlanRecord.tracer` mapped by `planOf`; the walk reads it and drops the `planSpikes` sum; `tracer` moves to the corpus `FIELDS`; the adapter, walk, auto-deliver and fleet-row tests; the changeset
+- `feature/the-pulse-s-tracer-flag-means` <!-- waits: bug/the-queue-hands-out-an-approved-spike --> — `PlanRecord.tracer` mapped by `planOf`; the walk reads it and drops the `planSpikes` sum; `tracer` moves to the corpus `FIELDS`; the adapter, walk, auto-deliver and fleet-row tests; the changeset → #3194
 
 ## Notes
 
