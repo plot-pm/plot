@@ -161,7 +161,7 @@ This plan is delivered only after this record exists. It also closes #3070's lin
 
 ### Relay
 
-- `feature/the-release-head-gets-validate` — a new workflow on `workflow_run` of `CI` that copies a completed dispatched run's result to a `validate` commit status on the pinned release head with `GITHUB_TOKEN`, under the constraints of candidate (a); the contract test from `### Tests`; the comment corrections in `### Docs and comments` <!-- builds: the release status relay workflow -->
+- `feature/the-release-head-gets-validate` — a new workflow on `workflow_run` of `CI` that copies a completed dispatched run's result to a `validate` commit status on the pinned release head with `GITHUB_TOKEN`, under the constraints of candidate (a); the contract test from `### Tests`; the comment corrections in `### Docs and comments` <!-- builds: the release status relay workflow --> → #3209
 
 ## Notes
 
