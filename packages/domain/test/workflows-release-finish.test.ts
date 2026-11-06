@@ -25,6 +25,8 @@ const readings = (over: Partial<ReleaseFinishReadings> = {}): ReleaseFinishReadi
   version: 'v2.30.0',
   tagExists: true,
   scope: [plan('a'), plan('b', { type: 'docs' }), plan('c', { type: 'infra' })],
+  outside: [],
+  shipped: [],
   sprints: [sprint()],
   ...over,
 });
@@ -179,5 +181,58 @@ describe('releaseFinish — books a release in one commit', () => {
     const early = releaseFinish(readings({ sprints: [sprint({ start: '2026-11-01' })] }), input);
     expect(early).toMatchObject({ outcome: 'refused', reason: 'sprint-unclosable' });
     if (early.outcome === 'refused') expect(early.detail).toContain('close-date-before-start');
+  });
+});
+
+describe('releaseFinish — plans outside the sprint', () => {
+  const named = (slug: string) => ({ file: `${slug}.md`, plan: `docs/plans/2026-10-01-${slug}.md` });
+  const notesOf = (r: ReleaseFinishReadings): readonly string[] => {
+    const out = releaseFinish(r, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    return out.detail.notes;
+  };
+
+  it('books a Delivered plan outside the sprint that a shipped changeset names', () => {
+    const out = releaseFinish(readings({ outside: [plan('x')], shipped: [named('x')] }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c', 'x']);
+    expect(out.detail.notes).toEqual([]);
+    expect(out.writes.filter((w) => w.kind === 'plan-phase').map((w) => w.file)).toContain('docs/plans/2026-10-01-x.md');
+  });
+
+  it('names a Delivered plan no changeset names and does not book it', () => {
+    const r = readings({ outside: [plan('y')] });
+    const out = releaseFinish(r, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+    expect(notesOf(r).join('\n')).toContain('not booked: y');
+  });
+
+  it('skips and names a named Approved plan and a named missing path, and still books the scope', () => {
+    const r = readings({
+      outside: [plan('p', { phase: 'approved' })],
+      shipped: [named('p'), named('ghost')],
+    });
+    const out = releaseFinish(r, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+    const text = notesOf(r).join('\n');
+    expect(text).toContain('p (phase approved)');
+    expect(text).toContain('ghost (no plan file)');
+  });
+
+  it('books the scope and names shipped-unread where the changesets are unaskable', () => {
+    const r = readings({ outside: [plan('x')], shipped: 'unaskable' });
+    const out = releaseFinish(r, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+    expect(notesOf(r).join('\n')).toContain('shipped-unread');
+    expect(notesOf(r).join('\n')).toContain('not booked: x');
+  });
+
+  it('matches a plan: path to the scope through its slug', () => {
+    const out = releaseFinish(readings({ shipped: [named('a')] }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
   });
 });

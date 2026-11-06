@@ -10,6 +10,7 @@ import {
   type RunLog,
 } from '@plot-pm/domain';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
+import { parseChangeset } from '@plot-pm/domain/rules/changeset';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
@@ -38,7 +39,7 @@ export interface ReleaseWorld {
 const CHANGESET_DIR = '.changeset';
 
 /** The `plan:` line of a changeset's trailing comment block, or `''`. */
-const planOfChangeset = (text: string): string => /^plan:\s*(\S+)\s*$/m.exec(text)?.[1] ?? '';
+export const planOfChangeset = (text: string): string => parseChangeset(text).plan ?? '';
 
 /**
  * The production readings of the release tick.
