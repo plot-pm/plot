@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   allSlicesConfirmed,
   allSlicesMerged,
+  deliveryLanding,
   deliveryPulse,
   sliceProgress,
   FleetReadingSchema,
@@ -410,6 +411,35 @@ const sliceWithEvidence = (
     local_worktree: '',
     evidence,
   })),
+});
+
+describe('deliveryLanding — names why a delivery waits', () => {
+  it('answers merged where the host confirmed every branch', () => {
+    const p = pulse(BASE, [sliceWithEvidence('one', 'complete', [['feature/a', 'merged', undefined]])]);
+    expect(deliveryLanding({ file: PLAN }, p, true)).toBe('merged');
+  });
+
+  it('answers merge-unconfirmed, not scan-incomplete, where a finished scan proves a branch only by its merge subject', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', undefined]]),
+      sliceWithEvidence('two', 'complete', [['feature/b', 'merged', 'subject']]),
+    ]);
+    expect(deliveryLanding({ file: PLAN }, p, true)).toBe('merge-unconfirmed');
+  });
+
+  it('answers scan-incomplete where no finished scan judged the plan', () => {
+    const p = pulse(BASE, [sliceWithEvidence('one', 'complete', [['feature/a', 'merged', 'subject']])]);
+    expect(deliveryLanding({ file: PLAN }, null, true)).toBe('scan-incomplete');
+    expect(deliveryLanding({ file: PLAN }, p, false)).toBe('scan-incomplete');
+  });
+
+  it('answers not-merged for an unfinished slice beside a subject-proven one', () => {
+    const p = pulse(BASE, [
+      sliceWithEvidence('one', 'complete', [['feature/a', 'merged', 'subject']]),
+      sliceWithEvidence('two', 'eligible', [['feature/b', 'wip', undefined]]),
+    ]);
+    expect(deliveryLanding({ file: PLAN }, p, true)).toBe('not-merged');
+  });
 });
 
 describe('allSlicesConfirmed — the host has answered, not only the merge subject', () => {

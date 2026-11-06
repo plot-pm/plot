@@ -16,7 +16,7 @@ import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCach
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
-import { indexMergedHeads } from '@plot-pm/domain/rules/known-pr';
+import { indexMergedHeads, indexOpenHeads } from '@plot-pm/domain/rules/known-pr';
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
 import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
 import {
@@ -739,14 +739,18 @@ export const walkOnce = async (
 
   const carried = readCarriedPrStates(listing);
   const prs: BranchStagePrs = carried === null ? { kind: 'unread', said: listingSaid } : { kind: 'listed', listing: carried };
-  // A reused listing can lack a PR merged since it was read; the index's
-  // MERGED rows confirm a subject-proven branch, and its silence decides nothing.
-  const indexMerged = indexMergedHeads(walk.prIndexRows === undefined ? [] : await walk.prIndexRows());
+  // A reused listing can lack a PR merged since it was read, or still carry its
+  // OPEN row; the index's MERGED rows confirm a subject-proven branch, its own
+  // OPEN rows decide whether a second PR holds the name, and its silence
+  // decides nothing.
+  const indexRows = walk.prIndexRows === undefined ? null : await walk.prIndexRows();
+  const indexMerged = indexMergedHeads(indexRows ?? []);
+  const indexOpen = indexRows === null ? undefined : indexOpenHeads(indexRows);
   const estate = await readEstate(refs, plansAt, {
     mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
   const branches = estate.ok
-    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged })
+    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
     : estate;
   const desks = branches.ok
     ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)

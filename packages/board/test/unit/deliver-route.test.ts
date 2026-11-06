@@ -235,6 +235,14 @@ describe('an action that cannot work is not offered', () => {
     assert.ok(!fs.existsSync(deliverPromptPath(dir, SLUG)), 'nothing may be written');
   });
 
+  it('refuses a subject-only landing as merge-unconfirmed, never as scan-incomplete or not-deliverable', async () => {
+    const dir = repo();
+    const got = await post({ repoRoot: dir, check: () => ({ verdict: 'merge-unconfirmed' }) });
+    assert.equal(refusal(got), 'merge-unconfirmed');
+    assert.match(String(got.body.detail), /merge commit's subject/);
+    assert.ok(!fs.existsSync(deliverPromptPath(dir, SLUG)), 'nothing may be written');
+  });
+
   it('names the SCAN and not the branches when the scan is incomplete', async () => {
     // Item 3, and the reason this plan exists. On 2026-08-27 an operator was
     // told a plan had `a branch that is not merged` — about a plan whose two PRs
@@ -572,17 +580,16 @@ describe('the Deliver control reads a confirmed landing, not a merge subject', (
     }), 'utf8');
   }
 
-  it('answers scan-incomplete while only a merge subject proves the landing', async () => {
+  it('answers merge-unconfirmed while only a merge subject proves the landing', async () => {
     const dir = repo();
     mergedPlan(dir);
     bridge(dir, 'subject');
     // NOT `deliverable`, and not `not-merged` either: the work is probably in
-    // and unconfirmed, so the honest answer is that the board cannot say yet —
-    // which is the word an operator already reads for a scan that has not
-    // finished.
+    // and unconfirmed. NOT `scan-incomplete`: the scan finished, and what it
+    // lacks is the host's confirmation of the merge.
     assert.equal(
       (await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG)).verdict,
-      'scan-incomplete',
+      'merge-unconfirmed',
     );
   });
 
