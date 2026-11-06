@@ -172,7 +172,7 @@ export function PlanCard({
         id={`plan-${card.slug}`}
         data-card
         data-card-unreadable
-        className={`flex flex-col gap-1.5 rounded-md border border-l-4 bg-white p-3 shadow-sm dark:bg-slate-900 ${PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral}`}
+        className={`flex flex-col gap-1.5 rounded-xl border border-l-4 border-(--card-border) bg-(--card-surface) p-4 shadow-(--card-shadow) ${PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral}`}
       >
         <a
           href={planRoute(card.path)}
@@ -199,7 +199,7 @@ export function PlanCard({
     interrogate: interrogate?.reason,
     deliver: deliver?.reason,
   };
-  const rows = presentCard(card.facts, board, { hide, unavailable });
+  const sections = presentCard(card.facts, board, { hide, unavailable, now: Date.now() });
   const storyPage = story ? storyHref(story) : '';
 
   const linkFor = (ref: Ref): RefLink | null => {
@@ -246,12 +246,11 @@ export function PlanCard({
     <Card
       // What `?plan=<slug>` scrolls to.
       id={`plan-${card.slug}`}
-      rows={rows}
+      sections={sections}
       titleHref={planRoute(card.path)}
       onOpenTitle={() => onOpen(card)}
       linkFor={linkFor}
       renderAction={renderAction}
-      className={PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral}
       highlighted={highlighted}
     />
   );

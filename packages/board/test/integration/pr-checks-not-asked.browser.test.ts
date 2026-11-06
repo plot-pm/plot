@@ -136,7 +136,7 @@ describe('a PR says what the board could not ask', () => {
       // `note`, never `warn`. A board that could not ask must render neither an
       // alarm nobody can act on nor an all-clear it cannot stand behind — the
       // supervisor badge's rule, applied to the capability a team reads most.
-      expect(await note(page, 'not-asked').getAttribute('data-tone')).toBe('muted');
+      expect(await note(page, 'not-asked').getAttribute('data-tone')).toBe('unknown');
       // While a failing-adjacent state on the same board still does warn, so
       // the quiet above is a decision rather than the styling being absent.
       expect(await note(page, 'no-checks-conflicting').getAttribute('data-tone')).toBe('warn');

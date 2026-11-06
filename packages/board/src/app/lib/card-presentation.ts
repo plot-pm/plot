@@ -4,6 +4,7 @@ import type {
   CardKind,
   CardPrFact,
   CostReading,
+  ItemState,
   Known,
   Reason,
   Ref,
@@ -12,42 +13,52 @@ import type {
 
 /**
  * THE CARD GRAMMAR'S WORDS. `CardFacts` says what is true; this says how a card
- * reads it — the five rows in a fixed order, every sentence, and which row the
- * board emphasises. Pure and browser-free; `<Card>` renders what it returns.
+ * reads it — four sections in a fixed order (header, context, status, actions),
+ * every sentence, the colour each word sits beside, and which section the board
+ * emphasises. Pure and browser-free; `<Card>` renders what it returns.
  *
  * `scripts/check-card-presentation.sh` holds this file to two imports: the
  * `CardFacts` types and the board's UI helpers. A reading reached from here
  * would be a fact decided in the UI.
  */
 
-/** The alert a card shows in place of its rows when the board sent it no facts. */
+/** The alert a card shows in place of its sections when the board sent it no facts. */
 export const UNREADABLE_CARD = 'unreadable card';
 
 /** The board a card renders on. */
 export type CardBoard = 'plans' | 'swimlanes' | 'stories' | 'tickets';
 
-/** One of the five facets, which is also one row. */
-export type Facet = 'identity' | 'lineage' | 'progress' | 'next' | 'ownership';
+/** One of the card's four sections, each in a fixed place on every kind. */
+export type Section = 'header' | 'context' | 'status' | 'actions';
 
-/** How loudly a piece reads. Every tone also carries its meaning in words. */
-export type Tone = 'neutral' | 'muted' | 'warn' | 'alert' | 'type';
+/**
+ * How loudly a piece reads. Every tone also carries its meaning in words;
+ * `unknown` is a fact the board did not read.
+ */
+export type Tone = 'neutral' | 'muted' | 'unknown' | 'warn' | 'alert' | 'type';
 
-/** One rendered fact: its words, how loud, and what it links to. */
+/** A colour a word sits beside; never the only carrier of a meaning. */
+export type Hue = 'slate' | 'sky' | 'blue' | 'green' | 'teal' | 'violet' | 'orange' | 'amber' | 'red';
+
 /** The kinds of item an icon names: the three card kinds, and the items they link to. */
 export type IconKind = Ref['kind'];
 
-/** An icon for a kind of item, with the kind as its accessible name. */
+/** An icon for a kind of item: the kind, its accessible name and its hue. */
 export interface KindIcon {
   kind: IconKind;
   label: string;
+  hue: Hue;
 }
 
+/** One rendered fact: its words, how loud, what leads it and what it links to. */
 export interface Piece {
   text: string;
   tone: Tone;
   /** The kind icon this piece leads with; `null` for none. */
   icon: KindIcon | null;
-  /** Hover text for a reader who wants the rest of the sentence; `null` for none. */
+  /** A coloured dot this piece leads with, beside its words; `null` for none. */
+  dot: Hue | null;
+  /** The rest of the sentence, in the piece's tooltip; `null` for none. */
   detail: string | null;
   /** The item this piece names, which the renderer may link; `null` for none. */
   ref: Ref | null;
@@ -55,10 +66,18 @@ export interface Piece {
   data: Readonly<Record<string, string>>;
 }
 
-/** A single piece, or a list collapsed to a summary that expands in place. */
+/** One coloured count in a summary: its hue, the count and the word it stands for. */
+export interface Dot {
+  hue: Hue;
+  count: number;
+  word: string;
+}
+
+/** A single piece, a list collapsed to a summary that expands in place, or a work measure. */
 export type Part =
   | { kind: 'piece'; piece: Piece }
-  | { kind: 'list'; id: string; summary: Piece; items: Piece[] };
+  | { kind: 'list'; id: string; summary: Piece; dots: Dot[]; items: Piece[] }
+  | { kind: 'work'; piece: Piece; done: number | null; total: number };
 
 /** An action as the card shows it. */
 export interface PresentedAction {
@@ -69,22 +88,43 @@ export interface PresentedAction {
   reason: string | null;
 }
 
-/** A card's rows, in the fixed order title, lineage, progress, next, ownership. */
-export interface CardRows {
-  /** The facet this board emphasises. */
-  emphasis: Facet;
-  /** The card's kind icon, which leads the title row on every kind. */
-  kind: KindIcon;
-  title: { text: string; ref: Ref };
-  /** The type badge and the labelled alerts, beside the title. */
-  identity: Part[];
-  lineage: Part[];
-  progress: Part[];
-  next: { primary: PresentedAction | null; secondary: PresentedAction[] };
-  ownership: Part[];
+/** Who the item is assigned to, as the status section shows it. */
+export interface PresentedAssignees {
+  /** `@a`, `@a +1`, `unassigned` or `assignee unknown`. */
+  text: string;
+  tone: Tone;
+  /** Up to two initials, one per avatar drawn. */
+  initials: string[];
+  /** Every name, in the tooltip; `null` where there is nobody to list. */
+  detail: string | null;
 }
 
-/** What the board adds to a card: filters it already shows, and its own action entries. */
+/** A card's four sections. An empty section is not drawn. */
+export interface CardSections {
+  /** The section this board emphasises. */
+  emphasis: Section;
+  /** The accent colour of the card's left edge: its state's hue. */
+  accent: Hue;
+  header: {
+    kind: KindIcon;
+    /** The shared issue key the title leads with; `null` for none. */
+    key: string | null;
+    title: string;
+    ref: Ref;
+    /** The subtype tag and the labelled alerts. */
+    tags: Piece[];
+  };
+  context: Part[];
+  status: {
+    state: Piece;
+    measures: Part[];
+    assignees: PresentedAssignees;
+    age: Piece | null;
+  };
+  actions: { primary: PresentedAction | null; secondary: PresentedAction[] };
+}
+
+/** What the board adds to a card: filters it already shows, its own action entries and the clock. */
 export interface PresentOptions {
   /** Lineage relations the board's active filter already names. */
   hide?: readonly ('stories' | 'sprints')[];
@@ -94,13 +134,15 @@ export interface PresentOptions {
    * given.
    */
   unavailable?: Readonly<Partial<Record<ActionKind, string>>>;
+  /** Epoch milliseconds the relative age is measured from; absent shows no age. */
+  now?: number;
 }
 
-const EMPHASIS: Readonly<Record<CardBoard, Facet>> = {
-  plans: 'next',
-  swimlanes: 'next',
-  stories: 'progress',
-  tickets: 'lineage',
+const EMPHASIS: Readonly<Record<CardBoard, Section>> = {
+  plans: 'actions',
+  swimlanes: 'actions',
+  stories: 'status',
+  tickets: 'context',
 };
 
 const LABEL: Readonly<Record<ActionKind, string>> = {
@@ -131,6 +173,14 @@ const CHECKS: Readonly<Record<CardPrFact['checks'], string>> = {
   unknown: 'checks unknown',
 };
 
+const CHECKS_HUE: Readonly<Record<CardPrFact['checks'], Hue>> = {
+  green: 'green',
+  pending: 'amber',
+  failing: 'red',
+  none: 'slate',
+  unknown: 'slate',
+};
+
 const SPIKE: Readonly<Record<string, string>> = {
   'spike-not-approved': 'spike not approved yet',
   'spike-approved': 'spike approved — waiting for its PR to merge',
@@ -145,16 +195,49 @@ const KIND_LABEL: Readonly<Record<IconKind, string>> = {
   slice: 'Slice',
 };
 
+const KIND_HUE: Readonly<Record<IconKind, Hue>> = {
+  ticket: 'green',
+  story: 'violet',
+  plan: 'blue',
+  sprint: 'teal',
+  slice: 'slate',
+};
+
+/** Each state's word and hue, per kind of item. */
+const PLAN_STATE: Readonly<Record<string, [string, Hue]>> = {
+  draft: ['Draft', 'slate'],
+  design: ['Design', 'sky'],
+  approved: ['Approved', 'green'],
+  delivered: ['Delivered', 'violet'],
+  released: ['Released', 'orange'],
+  rejected: ['Rejected', 'slate'],
+  superseded: ['Superseded', 'slate'],
+};
+const STORY_STATE: Readonly<Record<string, [string, Hue]>> = {
+  draft: ['Draft', 'slate'],
+  ready: ['Ready', 'sky'],
+  active: ['Active', 'green'],
+  'in-review': ['In review', 'amber'],
+  paused: ['Paused', 'slate'],
+  done: ['Done', 'violet'],
+};
+const TICKET_STATE: Readonly<Record<string, [string, Hue]>> = {
+  open: ['Open', 'green'],
+  'in-progress': ['In progress', 'amber'],
+  done: ['Done', 'violet'],
+  hidden: ['Archived', 'slate'],
+};
+
 /**
- * The icon for a kind of item, named by the kind.
+ * The icon for a kind of item, named by the kind, in the kind's hue.
  *
  * @param kind - a card kind or the kind of a linked item.
- * @returns the icon and its accessible name.
+ * @returns the icon, its accessible name and its hue.
  */
-export const kindIcon = (kind: CardKind | IconKind): KindIcon => ({ kind, label: KIND_LABEL[kind] });
+export const kindIcon = (kind: CardKind | IconKind): KindIcon => ({ kind, label: KIND_LABEL[kind], hue: KIND_HUE[kind] });
 
 const piece = (text: string, over: Partial<Piece> = {}): Piece => ({
-  text, tone: 'neutral', icon: null, detail: null, ref: null, data: {}, ...over,
+  text, tone: 'neutral', icon: null, dot: null, detail: null, ref: null, data: {}, ...over,
 });
 const one = (p: Piece): Part => ({ kind: 'piece', piece: p });
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -166,7 +249,7 @@ const sliceWords = (ref: Ref): string =>
 /** How any ref reads by name. */
 const refWords = (ref: Ref): string => {
   switch (ref.kind) {
-    case 'ticket': return ref.title === ref.key ? `ticket ${ref.key}` : `${ref.key}: ${ref.title}`;
+    case 'ticket': return ref.title === ref.key ? ref.key : `${ref.key}: ${ref.title}`;
     case 'slice': return sliceWords(ref);
     default: return ref.title;
   }
@@ -209,180 +292,267 @@ const RELATION_WORD: Readonly<Record<keyof CardFacts['lineage'], [string, string
   sprints: ['sprint', 'sprints'],
 };
 
-/** One lineage relation: nothing when read and empty, a muted word when unread, a count past one. */
+/**
+ * One lineage relation: nothing when read and empty, an unknown word when
+ * unread, a count past one. Each item is its kind icon and its title; the
+ * icon's accessible name says the kind, so the word does not repeat.
+ */
 const relationParts = (relation: keyof CardFacts['lineage'], known: Known<Ref[]>, facts: CardFacts): Part[] => {
   const [singular, many] = RELATION_WORD[relation];
   if ('unknown' in known) {
-    return [one(piece(`${many} unknown — ${REACH[known.unknown]}`, { tone: 'muted', data: { lineage: relation, unknown: known.unknown } }))];
+    return [one(piece(`${many} unknown`, { tone: 'unknown', detail: REACH[known.unknown], data: { lineage: relation, unknown: known.unknown } }))];
   }
   // The ticket the title already names by its key is shown there; every other one shows here.
   const refs = relation === 'tickets' ? known.value.filter((r) => !(r.kind === 'ticket' && r.key === facts.identity.key)) : known.value;
-  const items = refs.map((ref) => piece(
-    ref.kind === 'story' || ref.kind === 'sprint' ? `${singular} ${ref.title}` : refWords(ref),
-    { ref, icon: kindIcon(ref.kind), data: { lineage: relation } },
-  ));
+  const items = refs.map((ref) => piece(refWords(ref), { ref, icon: kindIcon(ref.kind), data: { lineage: relation } }));
   if (items.length === 0) return [];
   if (items.length === 1) return [one(items[0])];
   const summary = relation === 'sprints' ? `in ${refs.length} sprints` : plural(refs.length, singular);
-  return [{ kind: 'list', id: `lineage-${relation}`, summary: piece(summary, { data: { lineage: relation } }), items }];
+  return [{ kind: 'list', id: `lineage-${relation}`, summary: piece(summary, { icon: kindIcon(refs[0].kind), data: { lineage: relation } }), dots: [], items }];
 };
 
-/** The PR list: one PR reads inline, two or more collapse to counts by check state. */
-const prParts = (prs: NonNullable<CardFacts['progress']>['prs'], plan: string): Part[] => {
-  if ('unknown' in prs) return [one(piece(`PRs unknown — ${REACH[prs.unknown]}`, { tone: 'muted', data: { prs: 'unknown' } }))];
+/** The PR list: one PR reads inline, two or more collapse to a count with one dot per check state. */
+const prParts = (prs: CardFacts['progress']['prs'], plan: string): Part[] => {
+  if ('unknown' in prs) return [one(piece('PRs unknown', { tone: 'unknown', detail: REACH[prs.unknown], data: { prs: 'unknown' } }))];
   const conflicts = (pr: CardPrFact) => pr.checks === 'none' && pr.mergeable === 'conflicting';
   const notLookedUp = (pr: CardPrFact) => pr.checks === 'unknown' && pr.checksLookup === 'skipped';
   const items = prs.value.map((pr) => {
     const conflicting = conflicts(pr);
     const words = conflicting ? 'no checks — conflicts' : notLookedUp(pr) ? 'checks not looked up yet' : CHECKS[pr.checks];
     return piece(`#${pr.number} ${words}`, {
-    tone: pr.checks === 'failing' || conflicting ? 'warn' : pr.checks === 'unknown' || pr.checks === 'pending' ? 'muted' : 'neutral',
-    ref: { kind: 'slice', plan, branch: pr.branch, pr: pr.number },
-    data: { 'pr-checks': '', 'pr-checks-state': pr.checks, 'pr-number': String(pr.number) },
+      tone: pr.checks === 'failing' || conflicting ? 'warn' : pr.checks === 'unknown' ? 'unknown' : 'neutral',
+      dot: conflicting ? 'red' : CHECKS_HUE[pr.checks],
+      ref: { kind: 'slice', plan, branch: pr.branch, pr: pr.number },
+      data: { 'pr-checks': '', 'pr-checks-state': pr.checks, 'pr-number': String(pr.number) },
     });
   });
   if (items.length === 0) return [];
   if (items.length === 1) return [one(items[0])];
   const count = (holds: (pr: CardPrFact) => boolean) => prs.value.filter(holds).length;
-  const words = [plural(items.length, 'PR')];
-  const failing = count((pr) => pr.checks === 'failing');
-  const conflicting = count(conflicts);
-  const pending = count((pr) => pr.checks === 'pending');
-  const none = count((pr) => pr.checks === 'none' && !conflicts(pr));
-  const unread = count(notLookedUp);
-  const unknown = count((pr) => pr.checks === 'unknown' && !notLookedUp(pr));
-  if (failing > 0) words.push(`${failing} failing`);
-  if (conflicting > 0) words.push(`${conflicting} conflicting`);
-  if (pending > 0) words.push(`${pending} running`);
-  if (none > 0) words.push(`${none} without checks`);
-  if (unknown > 0) words.push(`${unknown} checks unknown`);
-  if (unread > 0) words.push(`${unread} not looked up yet`);
-  if (words.length === 1) words.push('all green');
+  const candidates: Dot[] = [
+    { hue: 'green', count: count((pr) => pr.checks === 'green'), word: 'green' },
+    { hue: 'red', count: count((pr) => pr.checks === 'failing'), word: 'failing' },
+    { hue: 'red', count: count(conflicts), word: 'conflicting' },
+    { hue: 'amber', count: count((pr) => pr.checks === 'pending'), word: 'running' },
+    { hue: 'slate', count: count((pr) => pr.checks === 'none' && !conflicts(pr)), word: 'without checks' },
+    { hue: 'slate', count: count((pr) => pr.checks === 'unknown' && !notLookedUp(pr)), word: 'checks unknown' },
+    { hue: 'slate', count: count(notLookedUp), word: 'not looked up yet' },
+  ];
+  const dots = candidates.filter((dot) => dot.count > 0);
+  const warns = count((pr) => pr.checks === 'failing') + count(conflicts) > 0;
   return [{
     kind: 'list', id: 'prs',
-    summary: piece(words.join(' · '), { tone: failing + conflicting > 0 ? 'warn' : 'neutral', data: { prs: 'summary' } }),
+    summary: piece(plural(items.length, 'PR'), {
+      tone: warns ? 'warn' : 'neutral',
+      detail: dots.map((dot) => `${dot.count} ${dot.word}`).join(' · '),
+      data: { prs: 'summary' },
+    }),
+    dots,
     items,
   }];
 };
 
 /**
  * The cost as coverage: how many slices were measured here, never a summed
- * counter. The four counters ride on the detail, listed apart.
+ * counter. The four counters ride on the detail, listed apart. `null` where
+ * nothing was measured or the record could not be read: that reading belongs
+ * to the detail view, not the card.
  */
-const costParts = (cost: Known<CostReading>): Part[] => {
-  if ('unknown' in cost) {
-    return [one(piece(`cost unknown — spend record ${REACH[cost.unknown]}`, { tone: 'muted', data: { cost: 'unknown' } }))];
-  }
+const measuredCost = (cost: Known<CostReading>): Piece | null => {
+  if ('unknown' in cost) return null;
   const c = cost.value;
-  if (c.slices === 0) return [];
+  if (c.slices === 0 || c.tokens === null) return null;
   const scope =
     `${c.measured} of ${c.slices} slices measured on this machine` +
     (c.absent > 0 ? `, ${c.absent} not measured here` : '') +
     (c.unreadable > 0 ? `, ${c.unreadable} unreadable` : '');
-  if (c.tokens === null) {
-    const text = c.unreadable > 0 ? `cost not measured here (${c.unreadable} unreadable)` : 'cost not measured here';
-    return [one(piece(text, {
-      tone: 'muted',
-      detail: `${scope}. A run that was never measured here records nothing rather than zero.`,
-      data: { cost: 'unmeasured' },
-    }))];
-  }
   const t = c.tokens;
   const n = (v: number) => v.toLocaleString('en-US');
   const runs = c.fromRuns === 0
     ? ''
     : ` ${c.fromRuns} of the measured slices are read from SDK run lines, which include subagents and compaction; a seal line excludes them.`;
   const base = `measured on ${c.measured} of ${c.slices} slices`;
-  return [one(piece(c.unreadable > 0 ? `${base} · ${c.unreadable} unreadable` : base, {
+  return piece(c.unreadable > 0 ? `${base} · ${c.unreadable} unreadable` : base, {
     detail:
       `in ${n(t.inputTokens)} · out ${n(t.outputTokens)} · cache-write ${n(t.cacheCreationTokens)} · cache-read ${n(t.cacheReadTokens)}. ` +
       `${scope}. Counters are listed apart rather than summed — cache reads are the overwhelming majority of any total. ` +
       `Runs killed by the worker bound record nothing, so this is biased low.${runs}`,
     data: { cost: 'measured' },
-  }))];
+  });
+};
+
+/** A cost the card leaves out, in words for the detail view; `null` where the card shows it or there is none. */
+const unshownCost = (cost: Known<CostReading>): Piece | null => {
+  if ('unknown' in cost) {
+    return piece(`cost unknown — spend record ${REACH[cost.unknown]}`, { tone: 'unknown', data: { cost: 'unknown' } });
+  }
+  const c = cost.value;
+  if (c.slices === 0 || c.tokens !== null) return null;
+  const text = c.unreadable > 0 ? `cost not measured here (${c.unreadable} unreadable)` : 'cost not measured here';
+  return piece(text, {
+    tone: 'unknown',
+    detail: `${c.measured} of ${c.slices} slices measured on this machine${c.absent > 0 ? `, ${c.absent} not measured here` : ''}. A run that was never measured here records nothing rather than zero.`,
+    data: { cost: 'unmeasured' },
+  });
+};
+
+/** The item's state as a pill: its word, its hue, and `state unknown` where it was not read. */
+const statePiece = (state: Known<ItemState>): Piece => {
+  if ('unknown' in state) {
+    return piece('state unknown', { tone: 'unknown', dot: 'slate', detail: REACH[state.unknown], data: { state: 'unknown' } });
+  }
+  const s = state.value;
+  const [word, hue] = s.kind === 'plan'
+    ? PLAN_STATE[s.state]
+    : s.kind === 'story' ? STORY_STATE[s.status] : TICKET_STATE[s.lane];
+  const key = s.kind === 'plan' ? s.state : s.kind === 'story' ? s.status : s.lane;
+  return piece(word, { dot: hue, data: { state: key } });
+};
+
+/** Initials for an avatar: the first letters of a handle's words, else its first two letters. */
+const initialsOf = (handle: string): string => {
+  const words = handle.split(/[-_.\s]+/).filter((w) => w !== '');
+  const letters = words.length > 1 ? words[0][0] + words[1][0] : handle.slice(0, 2);
+  return letters.toUpperCase();
+};
+
+const presentAssignees = (assignees: Known<string[]>): PresentedAssignees => {
+  if ('unknown' in assignees) {
+    return { text: 'assignee unknown', tone: 'unknown', initials: [], detail: REACH[assignees.unknown] };
+  }
+  const names = assignees.value;
+  if (names.length === 0) return { text: 'unassigned', tone: 'muted', initials: [], detail: null };
+  return {
+    text: names.length === 1 ? `@${names[0]}` : `@${names[0]} +${names.length - 1}`,
+    tone: 'muted',
+    initials: names.slice(0, 2).map(initialsOf),
+    detail: names.map((n) => `@${n}`).join(', '),
+  };
+};
+
+const DAY_MS = 86_400_000;
+
+/**
+ * A date as a reader measures it from now: today, yesterday, N days, months or
+ * years ago.
+ *
+ * @param at - an ISO date, `YYYY-MM-DD`.
+ * @param now - epoch milliseconds to measure from.
+ * @returns the relative words, or the date itself where it does not parse.
+ */
+export const relativeAge = (at: string, now: number): string => {
+  const then = Date.parse(`${at}T00:00:00`);
+  if (Number.isNaN(then)) return at;
+  const today = new Date(now);
+  const days = Math.floor((Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) - Date.UTC(
+    new Date(then).getFullYear(), new Date(then).getMonth(), new Date(then).getDate(),
+  )) / DAY_MS);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  if (days < 365) return plural(Math.floor(days / 30), 'month') + ' ago';
+  return plural(Math.floor(days / 365), 'year') + ' ago';
 };
 
 const ALERT_DETAIL = 'This plan is in the board\'s working tree but not on the ref it reads — nobody else can see it yet';
 
 /**
- * A card's rows and every word on them, from its facts.
+ * A card's four sections and every word on them, from its facts.
  *
  * @param facts - the item's `CardFacts`.
- * @param board - the board the card renders on; it decides only the emphasised row.
- * @param options - lineage relations a board filter already names.
- * @returns the rows `<Card>` renders.
+ * @param board - the board the card renders on; it decides only the emphasised section.
+ * @param options - relations a board filter already names, the board's own action sentences, and the clock.
+ * @returns the sections `<Card>` renders.
  */
-export const presentCard = (facts: CardFacts, board: CardBoard, options: PresentOptions = {}): CardRows => {
+export const presentCard = (facts: CardFacts, board: CardBoard, options: PresentOptions = {}): CardSections => {
   const { identity, lineage, progress, next, ownership } = facts;
   const hide = new Set(options.hide ?? []);
 
-  const identityParts: Part[] = [];
-  if (identity.type !== null) identityParts.push(one(piece(identity.type, { tone: 'type', data: { type: identity.type } })));
+  const tags: Piece[] = [];
+  if (identity.type !== null) tags.push(piece(identity.type, { tone: 'type', data: { type: identity.type } }));
   for (const alert of identity.alerts) {
     if (alert.kind === 'not-pushed') {
       const text = alert.commits === null ? 'not pushed' : `not pushed · ${plural(alert.commits, 'commit')}`;
-      identityParts.push(one(piece(text, { tone: 'neutral', detail: ALERT_DETAIL, data: { alert: alert.kind } })));
+      tags.push(piece(text, { tone: 'neutral', detail: ALERT_DETAIL, data: { alert: alert.kind } }));
     } else if (alert.kind === 'status-behind') {
-      identityParts.push(one(piece(`status behind: ${alert.proven}`, { tone: 'warn', data: { alert: alert.kind } })));
+      tags.push(piece(`status behind: ${alert.proven}`, { tone: 'warn', data: { alert: alert.kind } }));
     } else {
-      identityParts.push(one(piece(`issue link unreadable: ${alert.value}`, { tone: 'warn', data: { alert: alert.kind } })));
+      tags.push(piece(`issue link unreadable: ${alert.value}`, { tone: 'warn', data: { alert: alert.kind } }));
     }
   }
 
-  const lineageParts = (['tickets', 'stories', 'plans', 'sprints'] as const)
+  const context = (['tickets', 'stories', 'plans', 'sprints'] as const)
     .filter((r) => !(r === 'stories' || r === 'sprints') || !hide.has(r))
     .flatMap((r) => relationParts(r, lineage[r], facts));
 
-  const progressParts: Part[] = [];
-  if (progress !== null) {
-    const { work, prs, design, verification, cost } = progress;
-    if (work !== null) {
-      progressParts.push(one('unknown' in work.done
-        ? piece(`${plural(work.total, work.unit.slice(0, -1))} · progress unknown`, { tone: 'muted', data: { work: 'unknown' } })
-        : piece(`${work.done.value}/${work.total} ${work.unit} complete`, { data: { work: 'known' } })));
-    }
-    progressParts.push(...prParts(prs, identity.id));
-    if (design !== null) {
-      if (design.spike !== null) {
-        progressParts.push(one(piece(SPIKE[design.spike], { tone: 'muted', data: { 'spike-state': design.spike } })));
-      }
-      progressParts.push(one(design.rounds === null
-        ? piece('not interrogated', { tone: 'muted', detail: 'No Rounds: field — nobody has interrogated this plan', data: { rounds: 'absent' } })
-        : piece(plural(design.rounds, 'round'), { detail: `Interrogated: ${plural(design.rounds, 'round')} recorded in the plan`, data: { rounds: 'recorded' } })));
-    }
-    if (verification !== null && verification.state === 'refuted' && verification.refuted > 0) {
-      progressParts.push(one(piece(`${verification.refuted} refuted`, {
-        tone: 'alert',
-        detail: 'Verification refuted claims of this delivered plan; see ## Verification in the plan',
-        data: { 'refuted-badge': identity.id },
-      })));
-    }
-    progressParts.push(...costParts(cost));
+  const { work, prs, design, verification, cost } = progress;
+  const measures: Part[] = [];
+  if (work !== null) {
+    const unit = work.total === 1 ? work.unit.slice(0, -1) : work.unit;
+    measures.push('unknown' in work.done
+      ? { kind: 'work', done: null, total: work.total, piece: piece(`${work.total} ${unit} · progress unknown`, { tone: 'unknown', detail: 'no fleet scan has read this plan yet', data: { work: 'unknown' } }) }
+      : { kind: 'work', done: work.done.value, total: work.total, piece: piece(`${work.done.value}/${work.total} ${unit}`, { data: { work: 'known' } }) });
   }
+  measures.push(...prParts(prs, identity.id));
+  if (design !== null) {
+    if (design.spike !== null) {
+      measures.push(one(piece(SPIKE[design.spike], { tone: 'muted', data: { 'spike-state': design.spike } })));
+    }
+    measures.push(one(design.rounds === null
+      ? piece('not interrogated', { tone: 'muted', detail: 'No Rounds: field — nobody has interrogated this plan', data: { rounds: 'absent' } })
+      : piece(plural(design.rounds, 'round'), { detail: `Interrogated: ${plural(design.rounds, 'round')} recorded in the plan`, data: { rounds: 'recorded' } })));
+  }
+  if (verification !== null && verification.state === 'refuted' && verification.refuted > 0) {
+    measures.push(one(piece(`${verification.refuted} refuted`, {
+      tone: 'alert',
+      dot: 'red',
+      detail: 'Verification refuted claims of this delivered plan; see ## Verification in the plan',
+      data: { 'refuted-badge': identity.id },
+    })));
+  }
+  const shownCost = measuredCost(cost);
+  if (shownCost !== null) measures.push(one(shownCost));
 
-  const ownershipParts: Part[] = [];
-  if (ownership.owner !== null) ownershipParts.push(one(piece(`@${ownership.owner}`, { tone: 'muted', data: { owner: '' } })));
-  if (ownership.since !== null) {
-    const verb = ownership.since.event === 'opened' ? 'opened' : ownership.since.event === 'updated' ? 'updated' : 'changed';
-    ownershipParts.push(one(piece(`${verb} ${ownership.since.at}`, { tone: 'muted', data: { since: ownership.since.event } })));
-  }
-  if ('path' in ownership.source) {
-    ownershipParts.push(one(piece(ownership.source.path, { tone: 'muted', data: { source: 'path' } })));
-  } else {
-    ownershipParts.push(one(piece(refWords(ownership.source), { tone: 'muted', ref: ownership.source, data: { source: 'ref' } })));
-  }
+  const state = statePiece(progress.state);
+  const age = ownership.since === null || options.now === undefined
+    ? null
+    : piece(relativeAge(ownership.since.at, options.now), {
+      tone: 'muted',
+      detail: `${ownership.since.event} ${ownership.since.at}`,
+      data: { since: ownership.since.event },
+    });
 
   return {
     emphasis: EMPHASIS[board],
-    kind: kindIcon(identity.kind),
-    title: { text: identity.key === null ? identity.title : `${identity.key}: ${identity.title}`, ref: identity.opens },
-    identity: identityParts,
-    lineage: lineageParts,
-    progress: progressParts,
-    next: {
+    accent: state.dot ?? 'slate',
+    header: { kind: kindIcon(identity.kind), key: identity.key, title: identity.title, ref: identity.opens, tags },
+    context,
+    status: { state, measures, assignees: presentAssignees(ownership.assignees), age },
+    actions: {
       primary: next.primary === null ? null : presentAction(next.primary, options.unavailable),
       secondary: next.secondary.map((a) => presentAction(a, options.unavailable)),
     },
-    ownership: ownershipParts,
   };
 };
+
+/** What a detail view shows that the card leaves out. */
+export interface PresentedDetails {
+  /** The item's source: a plan's path, or the reference it came from. */
+  source: Piece;
+  /** The cost, where the card does not show it; `null` where the card does or there is none. */
+  cost: Piece | null;
+}
+
+/**
+ * The facts a card leaves to its detail view: the source, and an unmeasured or
+ * unread cost.
+ *
+ * @param facts - the item's `CardFacts`.
+ * @returns the pieces the detail view shows.
+ */
+export const presentDetails = (facts: CardFacts): PresentedDetails => ({
+  source: 'path' in facts.ownership.source
+    ? piece(facts.ownership.source.path, { data: { source: 'path' } })
+    : piece(refWords(facts.ownership.source), { ref: facts.ownership.source, data: { source: 'ref' } }),
+  cost: unshownCost(facts.progress.cost),
+});

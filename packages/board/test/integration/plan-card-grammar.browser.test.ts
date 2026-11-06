@@ -8,7 +8,7 @@ import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
  *
  * `presentCard` decides the rows and the words, asserted in
  * `test/unit/card-presentation.test.ts` with no browser. This owns the half a
- * page states: the five rows land in their fixed order on screen, the tab order
+ * page states: the four sections land in their fixed order on screen, the tab order
  * runs title, primary, secondaries, expanders, and an expander is a
  * `<button aria-expanded>` that opens its list in place.
  */
@@ -55,15 +55,19 @@ describe('a plan card renders the card grammar', () => {
     return page;
   };
 
-  it('shows the five rows in their fixed order on screen', async () => {
+  it('shows the four sections in their fixed order on screen, the status opening with the state', async () => {
     const page = await open();
     try {
-      const tops = await page.locator('#plan-grammar [data-card-row]').evaluateAll((els) =>
-        els.map((el) => ({ row: el.getAttribute('data-card-row'), top: el.getBoundingClientRect().top })),
+      const tops = await page.locator('#plan-cold [data-section]').evaluateAll((els) =>
+        els.map((el) => ({ section: el.getAttribute('data-section'), top: el.getBoundingClientRect().top })),
       );
-      const order = [...tops].sort((a, b) => a.top - b.top).map((t) => t.row);
-      expect(order).toEqual(['identity', 'progress', 'next', 'ownership']);
-      expect(await page.locator('#plan-grammar [data-card-row="next"]').getAttribute('data-emphasis')).toBe('true');
+      const order = [...tops].sort((a, b) => a.top - b.top).map((t) => t.section);
+      expect(order).toEqual(['header', 'context', 'status', 'actions']);
+      expect(await page.locator('#plan-cold [data-section="actions"]').getAttribute('data-emphasis')).toBe('true');
+      // The status opens with the state pill, and ends with the assignee and the age.
+      const status = page.locator('#plan-grammar [data-section="status"]');
+      expect(await status.locator('[data-state-pill]').first().textContent()).toBe('Draft');
+      expect(await status.locator('[data-assignees]').textContent()).toContain('@jwloka');
     } finally {
       await page.close();
     }
@@ -96,7 +100,10 @@ describe('a plan card renders the card grammar', () => {
       const expander = page.locator('#plan-grammar [data-expander="prs"]');
       expect(await expander.evaluate((el) => el.tagName)).toBe('BUTTON');
       expect(await expander.getAttribute('aria-expanded')).toBe('false');
-      expect(await expander.textContent()).toBe('2 PRs · 1 checks unknown');
+      expect(await expander.textContent()).toBe('2 PRs1 green1 checks unknown');
+      // One dot and count per check state; the word rides beside it for assistive technology.
+      expect(await expander.locator('[data-dot]').evaluateAll((els) => els.map((el) => el.getAttribute('data-dot'))))
+        .toEqual(['green', 'checks unknown']);
       expect(await page.locator('#plan-grammar [data-pr-number="12"]').isVisible()).toBe(false);
       await expander.click();
       expect(await expander.getAttribute('aria-expanded')).toBe('true');

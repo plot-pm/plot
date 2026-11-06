@@ -66,3 +66,147 @@ body {
     color: var(--color-slate-100);
   }
 }
+
+/*
+ * THE CARD'S TOKENS — one set, redefined for dark, so both themes draw the
+ * card from the same names. `--hue-<name>` is the AA text colour of a hue on
+ * the card surface; `--hue-<name>-dot` its dot and accent; `--hue-<name>-soft`
+ * the pill behind a word. Every hue sits beside a word; none carries meaning
+ * alone.
+ */
+:root {
+  --card-surface: #fff;
+  --card-border: oklch(92.9% 0.013 255.508);
+  --card-band: oklch(98.4% 0.003 247.858);
+  --card-title: oklch(20.8% 0.042 265.755);
+  --card-body: oklch(37.2% 0.044 257.287);
+  --card-meta: oklch(55.4% 0.046 257.417);
+  --card-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.04);
+  --card-shadow-raised: 0 4px 12px rgb(15 23 42 / 0.08), 0 2px 4px rgb(15 23 42 / 0.06);
+  --card-primary: oklch(54.6% 0.245 262.881);
+  --card-primary-hover: oklch(48.8% 0.243 264.376);
+  --card-primary-text: #fff;
+
+  --hue-slate: oklch(44.6% 0.043 257.281);
+  --hue-slate-dot: oklch(70.4% 0.04 256.788);
+  --hue-slate-soft: oklch(96.8% 0.007 247.896);
+  --hue-sky: oklch(50% 0.134 242.749);
+  --hue-sky-dot: oklch(68.5% 0.169 237.323);
+  --hue-sky-soft: oklch(97.7% 0.013 236.62);
+  --hue-blue: oklch(48.8% 0.243 264.376);
+  --hue-blue-dot: oklch(62.3% 0.214 259.815);
+  --hue-blue-soft: oklch(97% 0.014 254.604);
+  --hue-green: oklch(52.7% 0.154 150.069);
+  --hue-green-dot: oklch(72.3% 0.219 149.579);
+  --hue-green-soft: oklch(98.2% 0.018 155.826);
+  --hue-teal: oklch(51.1% 0.096 186.391);
+  --hue-teal-dot: oklch(70.4% 0.14 182.503);
+  --hue-teal-soft: oklch(98.4% 0.014 180.72);
+  --hue-violet: oklch(49.1% 0.27 292.581);
+  --hue-violet-dot: oklch(60.6% 0.25 292.717);
+  --hue-violet-soft: oklch(96.9% 0.016 293.756);
+  --hue-orange: oklch(55.3% 0.195 38.402);
+  --hue-orange-dot: oklch(70.5% 0.213 47.604);
+  --hue-orange-soft: oklch(98% 0.016 73.684);
+  --hue-amber: oklch(55.5% 0.163 48.998);
+  --hue-amber-dot: oklch(76.9% 0.188 70.08);
+  --hue-amber-soft: oklch(98.7% 0.022 95.277);
+  --hue-red: oklch(50.5% 0.213 27.518);
+  --hue-red-dot: oklch(63.7% 0.237 25.331);
+  --hue-red-soft: oklch(97.1% 0.013 17.38);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --card-surface: oklch(20.8% 0.042 265.755);
+    --card-border: oklch(37.2% 0.044 257.287);
+    --card-band: rgb(30 41 59 / 0.6);
+    --card-title: oklch(98.4% 0.003 247.858);
+    --card-body: oklch(86.9% 0.022 252.894);
+    --card-meta: oklch(70.4% 0.04 256.788);
+    --card-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+    --card-shadow-raised: 0 6px 16px rgb(0 0 0 / 0.5), 0 2px 4px rgb(0 0 0 / 0.4);
+    --card-primary: oklch(62.3% 0.214 259.815);
+    --card-primary-hover: oklch(70.7% 0.165 254.624);
+    --card-primary-text: oklch(12.9% 0.042 264.695);
+
+    --hue-slate: oklch(86.9% 0.022 252.894);
+    --hue-slate-dot: oklch(70.4% 0.04 256.788);
+    --hue-slate-soft: rgb(51 65 85 / 0.5);
+    --hue-sky: oklch(82.8% 0.111 230.318);
+    --hue-sky-dot: oklch(74.6% 0.16 232.661);
+    --hue-sky-soft: rgb(12 74 110 / 0.4);
+    --hue-blue: oklch(80.9% 0.105 251.813);
+    --hue-blue-dot: oklch(70.7% 0.165 254.624);
+    --hue-blue-soft: rgb(30 58 138 / 0.4);
+    --hue-green: oklch(87.1% 0.15 154.449);
+    --hue-green-dot: oklch(79.2% 0.209 151.711);
+    --hue-green-soft: rgb(20 83 45 / 0.4);
+    --hue-teal: oklch(85.5% 0.138 181.071);
+    --hue-teal-dot: oklch(77.7% 0.152 181.912);
+    --hue-teal-soft: rgb(19 78 74 / 0.4);
+    --hue-violet: oklch(81.1% 0.111 293.571);
+    --hue-violet-dot: oklch(70.2% 0.183 293.541);
+    --hue-violet-soft: rgb(76 29 149 / 0.4);
+    --hue-orange: oklch(83.7% 0.128 66.29);
+    --hue-orange-dot: oklch(75% 0.183 55.934);
+    --hue-orange-soft: rgb(124 45 18 / 0.4);
+    --hue-amber: oklch(87.9% 0.169 91.605);
+    --hue-amber-dot: oklch(82.8% 0.189 84.429);
+    --hue-amber-soft: rgb(120 53 15 / 0.4);
+    --hue-red: oklch(80.8% 0.114 19.571);
+    --hue-red-dot: oklch(70.4% 0.191 22.216);
+    --hue-red-soft: rgb(127 29 29 / 0.4);
+  }
+}
+
+/*
+ * THE ACTION BAND'S CONTROLS. The action buttons are shared with the row
+ * menus and style themselves as text links there; inside a card's band they
+ * take the card's button shapes. Unlayered, so it outranks the utilities the
+ * components carry: the primary is a small solid button, a secondary a ghost
+ * button of the same height, a disabled control a muted outline.
+ */
+[data-action-band] [data-action-slot] button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: 0.375rem;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  transition: background-color 120ms, border-color 120ms, color 120ms;
+}
+[data-action-band] [data-action-slot="primary"] button:not([aria-disabled="true"]) {
+  background: var(--card-primary);
+  color: var(--card-primary-text);
+}
+[data-action-band] [data-action-slot="primary"] button:not([aria-disabled="true"]):hover {
+  background: var(--card-primary-hover);
+}
+[data-action-band] [data-action-slot="secondary"] button:not([aria-disabled="true"]) {
+  background: transparent;
+  color: var(--hue-blue);
+}
+[data-action-band] [data-action-slot="secondary"] button:not([aria-disabled="true"]):hover {
+  background: var(--hue-blue-soft);
+}
+[data-action-band] [data-action-slot] button[aria-pressed="true"]:not([aria-disabled="true"]) {
+  background: var(--hue-amber-soft);
+  border-color: var(--hue-amber-dot);
+  color: var(--hue-amber);
+}
+[data-action-band] [data-action-slot] button[aria-disabled="true"] {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--card-meta);
+  cursor: not-allowed;
+}
+[data-action-band] [data-action-slot] button:focus-visible {
+  outline: 2px solid var(--hue-blue-dot);
+  outline-offset: 2px;
+}

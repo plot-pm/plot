@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
+import { useReasonTooltip } from './ui/reason-tooltip.js';
 
 /**
  * WHAT THE BUTTON WATCHES — the count its own action moves.
@@ -297,11 +298,16 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
   // BEFORE the click rather than after three pulses of silence.
   const refusal = startRefusal(card, dispatch);
   const blocked = starting || refusal !== undefined;
+  // The refusal is the button's description, in the shared tooltip — never a
+  // native title. Not while starting: that state is announced by the label.
+  const tip = useReasonTooltip(!starting && refusal !== undefined ? refusal : null);
 
   return (
     <>
+      <span {...tip.wrapperProps}>
       <button
         type="button"
+        {...tip.triggerProps}
         onClick={() => {
           // `aria-disabled` does not stop a click the way `disabled` does, so
           // the refusal has to be stated here as well. Both are needed and
@@ -311,6 +317,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
           // The ref comes FIRST and answers a different question: `blocked`
           // reads state a render behind, so within one tick it is the ref that
           // knows one of these is already running.
+          if (!starting && refusal !== undefined) tip.show();
           if (inFlight.current || blocked) return;
           inFlight.current = true;
           void start();
@@ -324,11 +331,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         // will not act.
         aria-disabled={blocked || undefined}
         aria-busy={starting}
-        // The reason lives on the control itself where it is unavailable: a
-        // disabled button with no explanation reads as a bug. `title` for a
-        // pointer, and `aria-describedby` would need an id per card — the
-        // accessible NAME already carries it below.
-        title={refusal ?? `Dispatch the next eligible branch of ${card.slug}`}
+        title={refusal === undefined ? `Dispatch the next eligible branch of ${card.slug}` : undefined}
         // Dimmed while in flight, on the SAME state that drives the label —
         // `starting`, never a timer of its own — so the contrast comes back
         // exactly when the pulse resolves the click. The refused styling stays
@@ -344,14 +347,9 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         {/* Beside the word, never instead of it. Motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {starting && <ActingSpinner />}
-        {/* Why it will not act, for a reader with no pointer to hover and no
-            view of the dimmed page. Off screen, so the row is unchanged.
-            Suppressed while starting: that refusal is temporary and already
-            announced by the label and `aria-busy`. */}
-        {!starting && refusal && (
-          <span className="sr-only"> — unavailable: {refusal}</span>
-        )}
       </button>
+      {tip.tooltip}
+      </span>
       {state.kind === 'dispatched' && (
         // Reassurance, not a verdict — and no log path. The button dispatched;
         // whether the agent started is a fact the next pulse carries, not one
