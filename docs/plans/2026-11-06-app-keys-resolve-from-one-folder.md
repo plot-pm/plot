@@ -51,7 +51,7 @@
 
 ### Probe
 
-- `feature/fleetd-names-a-missing-app-key` <!-- waits: feature/app-keys-resolve-from-one-folder --> — fleetd and the board read every declared App key at start and log one line per missing or unreadable key, naming the path; a test per daemon
+- `feature/fleetd-names-a-missing-app-key` <!-- waits: feature/app-keys-resolve-from-one-folder --> — fleetd and the board read every declared App key at start and log one line per missing or unreadable key, naming the path; a test per daemon → #3205
 
 ### Config
 
