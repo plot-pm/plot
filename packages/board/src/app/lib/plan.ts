@@ -104,7 +104,9 @@ export interface LinkTarget {
 
 /**
  * Where an item a plan card names links. A story, a plan and a sprint open
- * their board view; a ticket, a branch, a PR and its build open the host. A
+ * their board view on a plain click, and their href is a route the board reads
+ * (`/story/<slug>`, `/plan/<file>`, `/?sprint=<slug>`); a ticket, a branch, a PR
+ * and its build open the host. A
  * slice links its PR where the card holds that PR's reading, else its branch.
  *
  * @param ref - the item.
@@ -127,7 +129,8 @@ export const linkTargetOf = (
       return card ? { href: planRoute(card.path), external: false, opens: { kind: 'plan', card } } : null;
     }
     case 'sprint':
-      return { href: `#sprint-${encodeURIComponent(ref.slug)}`, external: false, opens: { kind: 'sprint', slug: ref.slug } };
+      // The board's own sprint filter route: loading it opens the board filtered to the sprint.
+      return { href: `/?sprint=${encodeURIComponent(ref.slug)}`, external: false, opens: { kind: 'sprint', slug: ref.slug } };
     case 'ticket': {
       const href = links.ticketHref(ref.key);
       return href ? { href, external: true, opens: null } : null;

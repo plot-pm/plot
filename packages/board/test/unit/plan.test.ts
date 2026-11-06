@@ -41,7 +41,7 @@ describe('linkTargetOf: what each item on a card links to', () => {
 
   it('a sprint, a plan and a story open their board view in place', () => {
     expect(linkTargetOf({ kind: 'sprint', slug: 'sp', title: 'T', state: 'Active', release: '2.31.0' }, 'item', prs, links))
-      .toEqual({ href: '#sprint-sp', external: false, opens: { kind: 'sprint', slug: 'sp' } });
+      .toEqual({ href: '/?sprint=sp', external: false, opens: { kind: 'sprint', slug: 'sp' } });
     expect(linkTargetOf({ kind: 'plan', slug: 'other', key: null, title: 'O', status: 'approved' }, 'item', prs, links))
       .toMatchObject({ href: '/plan/2026-11-01-other.md', external: false, opens: { kind: 'plan', card: { slug: 'other' } } });
     expect(linkTargetOf({ kind: 'story', slug: 'st', title: 'S', status: 'active', archived: false }, 'item', prs, links))
