@@ -15,6 +15,7 @@
 - **Started:** 2026-11-03, Jan Wloka, `bug/holding-work-reads-unpushed-commits`
 - **Started:** 2026-11-05, Jan Wloka, `bug/a-high-gets-its-own-fixer-attempts`
 - **Started:** 2026-11-05, Jan Wloka, `bug/a-red-main-stays-acted-on`
+- **Started:** 2026-11-06, Jan Wloka, `bug/an-idle-episode-survives-a-restart`
 
 ## Changelog
 
