@@ -603,6 +603,15 @@ apart by surface and spacing rather than by rules:
 - **Footer**: the primary is a small solid button; secondaries are ghost
   buttons of the same height; a disabled control is an outline in the muted
   tone with a not-allowed cursor.
+- **Footer wrapping**: the assignees and age sit left and the action group
+  right on one row while both fit. When they do not, the whole action group
+  moves to its own row, aligned right, and never splits: the primary and its
+  secondaries stay together and in order. Button text never shrinks, truncates
+  or wraps; the card grows by a row instead. More than two secondaries put the
+  rest into a `⋯` button named *More actions*, whose menu lists them in the same
+  order, a disabled one with its reason. Wrapping changes no tab order: title
+  links, primary, secondaries, `⋯`. The layout is a wrapping flex row with the
+  action group as one item; no script measures it.
 - **Every colour carries a word** beside it or in its accessible name.
 
 The mapping names the kind icon and its accessible name per `identity.kind`;
