@@ -51,12 +51,17 @@ test('--check exits 5 with no Merger app key declared, and prints nothing on std
   assert.match(res.stderr, /Merger app not configured/);
 });
 
-test('--check exits 4 for a malformed Merger app key (no key path)', () => {
+test('--check exits 4 for an id-only Merger app line with no key in the config folder, naming that path', () => {
   const dir = sandbox('- **Merger app:** 999000\n');
+  const xdg = path.join(dir, 'no-such-xdg');
+  const prev = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = xdg;
   const res = check(dir);
+  if (prev === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = prev;
   assert.equal(res.code, 4);
   assert.equal(res.stdout, '');
-  assert.match(res.stderr, /needs a 'Merger app' key/);
+  assert.match(res.stderr, /plot-merger\.999000\.private-key\.pem/);
 });
 
 test('--check exits 4 for a Merger app key naming a file that cannot be read', () => {
