@@ -135,7 +135,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Merge gate
 
-- `bug/the-merge-gate-bounds-an-unknown-head` <!-- waits: feature/pr-review-accepts-a-plot-review --> — a person's merge passes a default-branch head that reads `unknown` past `Checks wait`, with no `settled` write; `mergeAt` reads the tip before any host call (#2922)
+- `bug/the-merge-gate-bounds-an-unknown-head` <!-- waits: feature/pr-review-accepts-a-plot-review --> — a person's merge passes a default-branch head that reads `unknown` past `Checks wait`, with no `settled` write; `mergeAt` reads the tip before any host call (#2922) → #3189
 
 ## Tests
 
