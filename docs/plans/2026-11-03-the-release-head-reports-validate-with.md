@@ -4,8 +4,9 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
+- **Approved:** 2026-11-06, Jan Wloka, plan-PR #3076 merged
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #3073
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
