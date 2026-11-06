@@ -129,6 +129,27 @@ export interface MergeDetail {
   readonly repair?: RepairRole;
 }
 
+/**
+ * Whether a person's merge may pass a default-branch head that reads `unknown`.
+ *
+ * A head with no run to wait for never settles, so the reading's `settled`
+ * stays on an older commit. The bound holds only where the caller is a person,
+ * the head reads `unknown`, the tip is the reading's own head, and that head
+ * has stood longer than `checksWaitMs` since `headSince`. It writes nothing
+ * and never applies to `fleetd`; a `headSince` that does not parse never passes.
+ */
+const unknownHeadBound = (
+  caller: Caller,
+  reading: DefaultBranchReading,
+  tip: string,
+  now: number,
+  checksWaitMs: number,
+): boolean => {
+  if (caller !== 'person' || reading.head !== 'unknown' || tip !== reading.headSha) return false;
+  const since = Date.parse(reading.headSince);
+  return !Number.isNaN(since) && now - since > checksWaitMs;
+};
+
 const short = (sha: string | undefined): string =>
   sha === undefined || sha === '' ? 'none' : sha.slice(0, 12);
 
@@ -161,7 +182,12 @@ const short = (sha: string | undefined): string =>
  * reading's `headSha` and its `settled.sha`; a failed tip read refuses as
  * `unaskable`, never as a pass. This check applies only where a reading
  * exists — a missing reading is `default-branch-unread` or holds nothing, as
- * above.
+ * above. One bound passes the check: where the caller is a person, the head
+ * reads `unknown`, the tip is the reading's `headSha` and `headSince` lies
+ * longer than `input.checksWaitMs` ago, the merge proceeds although `settled`
+ * names an older commit. The bound writes no `settled`, lifts no
+ * `default-branch-red` (it sits after that check), and never applies to
+ * `fleetd`; a `pending` head does not qualify.
  *
  * `default-branch-red` has one exception, read by {@link repairMergeVerdict}:
  * on a red, fresh reading, the PR that the repair record names as `repairPr`
@@ -250,7 +276,8 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
       if (tip === 'unaskable') {
         return no('unaskable', `the default branch's remote tip could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
       }
-      if (tip !== defaultBranch.headSha || defaultBranch.settled.sha !== tip) {
+      const bounded = unknownHeadBound(readings.caller, defaultBranch, tip, input.now, input.checksWaitMs);
+      if (!bounded && (tip !== defaultBranch.headSha || defaultBranch.settled.sha !== tip)) {
         return no('default-branch-unsettled', `${defaultBranch.branch}'s tip is now ${short(tip)}, but the reading names head ${short(defaultBranch.headSha)} and settled ${short(defaultBranch.settled.sha)}. A merge needs a reading of the settled tip.`);
       }
     }
@@ -347,7 +374,11 @@ export type MergeResult =
  * pass the merge goes through `plot-host.sh pr-merge --match-head <sha>`, so a
  * push between the reading and the merge fails at the host; a host that cannot
  * pin merges with no pin flag. A refusal ends the action; nothing retries
- * without the pin. A default-branch read or tip read that fails refuses as
+ * without the pin. The default-branch reading and the tip are read before any
+ * PR call: where the tip differs from the settled commit on a fresh, non-red
+ * reading — and the person's `unknown`-head bound does not apply — it refuses
+ * `default-branch-unsettled` with no `prState` and no `prReview` call. A
+ * default-branch read or tip read that fails refuses as
  * `unaskable`; an absent reading holds nothing unless `ports.requireReading`.
  * On a settled red reading it reads the repair record last; where the record
  * names the PR it walks the settled commit's first-parent line and asks the
@@ -368,12 +399,24 @@ export const mergeAt = async (
   sha: string,
   viaReleaseApprove = false,
 ): Promise<MergeResult> => {
-  const lookup = await ports.host.prState(pr, { withChecks: true });
   const reading = await ports.defaultBranch.read();
-  const backend = await ports.host.backend();
   const settledReading = reading.ok && reading.value !== null && reading.value.settled !== undefined ? reading.value : null;
-  const [tip, review, writer] = await Promise.all([
-    settledReading !== null ? ports.refs.remoteSha(settledReading.branch) : null,
+  const tip = settledReading !== null ? await ports.refs.remoteSha(settledReading.branch) : null;
+  const tipSha = tip === null ? 'unaskable' : tip.ok && tip.value !== 'unknown' ? tip.value.sha : 'unaskable';
+  if (settledReading !== null && tipSha !== 'unaskable' && ports.caller !== 'unattended' && settledReading.settled?.state !== 'red') {
+    const age = defaultBranchAgeMs(settledReading, ports.now());
+    if (age !== null && age <= ports.checksWaitMs && tipSha !== settledReading.settled?.sha
+      && !unknownHeadBound(ports.caller, settledReading, tipSha, ports.now(), ports.checksWaitMs)) {
+      return {
+        merged: false,
+        reason: 'default-branch-unsettled',
+        detail: `${settledReading.branch}'s tip is now ${short(tipSha)}, but the reading settled ${short(settledReading.settled?.sha)}. No PR was asked; a merge needs a reading of the settled tip.`,
+      };
+    }
+  }
+  const lookup = await ports.host.prState(pr, { withChecks: true });
+  const backend = await ports.host.backend();
+  const [review, writer] = await Promise.all([
     ports.host.prReview(pr),
     ports.host.reviewWriter(),
   ]);
@@ -386,7 +429,7 @@ export const mergeAt = async (
       caller: ports.caller,
       pr: lookup.ok ? lookup.value : 'unaskable',
       defaultBranch: reading.ok ? reading.value : 'unaskable',
-      defaultBranchTip: tip === null ? 'unaskable' : tip.ok && tip.value !== 'unknown' ? tip.value.sha : 'unaskable',
+      defaultBranchTip: tipSha,
       review: review.ok ? review.value : 'unaskable',
       reviewWriter: writer.ok ? writer.value : 'unaskable',
       ...(repair ? { repair } : {}),
