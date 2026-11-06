@@ -9,6 +9,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Design:** 2026-11-06, jwloka, cli
+- **Rounds:** 1
 
 ## Changelog
 
@@ -84,12 +85,39 @@ reader, no row numbers, no icons, no order on screen:
   it. Strings the existing rules produce for display (`ticketCardSubtitle`,
   `ticketCardAge`) move to the UI side rather than into `CardFacts`.
 
+**The line between a fact and a word is the second-UI test.** A value belongs in
+`CardFacts` if a second presentation — a CLI listing, a Slack digest — would need
+the same value; it belongs in the mapping if a second presentation would phrase
+or place it differently. So `merged: 2, total: 3` is a fact and *in progress 2/3*
+is a word; `status-behind` with the proven standing is a fact and *status behind:
+plans delivered* is a word. Two rules return words from the domain today —
+`ticketPhase`'s `label` and `statusDrift`'s phrase — and each migrates when the
+slice converting its card touches it, not before: the unit is the function, and
+neither is rewritten for a card this plan has not reached yet.
+
 **The UI answers *how it looks*, and decides no fact.** In `packages/board`:
 
 - **A presentation mapping** (`card-presentation.ts`, pure, unit-tested without a
   browser) turns `CardFacts` into rows: the five-row order, wording (`4/6 slices
   merged · 1 PR running`, `waits on #3105`), alert labels, icons, which chips
   show, and what collapses (*in 9 sprints*, a PR list behind one line).
+- **Every board uses the same row positions; each board emphasises a different
+  facet** — the one its reader came for. The Tickets reader asks *is this answered
+  yet?*, so `lineage` is strongest there; the Stories reader asks *how far is the
+  umbrella?*, so `progress`; the Plans reader asks *what can I do now?*, so `next`.
+  Emphasis is weight and colour only, never position, so a reader who learned
+  one board can still find every fact on the other two. The mapping takes the
+  board as an input and returns the emphasised facet; nothing in `CardFacts`
+  knows which board renders it.
+- **A long list collapses to a count and expands in place.** Nine sprints read
+  *in 9 sprints*, six PRs read *6 PRs · 1 running*, sixty-two plans read *62
+  plans · 60 delivered*, and one click expands the list inside the card, so every
+  card is the same height until a reader asks for more. The count comes from
+  `CardFacts`; the summary sentence, the collapsed state and the expander are
+  presentation. A first-three preview was rejected because which three to show
+  is a ranking the reader cannot see, and a detail-drawer-only list was rejected
+  because it takes the reader off the board for the most common question about
+  a PR list: is anything red?
 - **One `<Card>` component** renders that mapping on all three boards; one browser
   test per board proves it shows what the mapping returned.
 
@@ -109,6 +137,16 @@ neither needs a browser.
 | Every alert carries a label — no bare ⚠ | domain: alert kind; UI: label and icon | the mapping |
 | The same number links across kinds | domain: `lineage` references both ways | `CardFacts` |
 
+**The tracer proves the grammar on the Plans board**, the richest card: it is
+the only one that exercises all five facets at once — `progress` with a PR
+summary, `next` with a disabled reason, `lineage` up to story and sprint — so a
+facet that does not fit shows up in wave one rather than after two boards are
+converted. The cost is that the most visible defect, a ticket offering *Create
+plan* for a plan that exists, waits for wave two; the Tickets slice carries it
+first among its changes. A tracer that fixed only that defect would prove
+`lineage` and leave `progress` and `next` unproven, and converting one facet on
+all three boards would leave every card half in the old layout.
+
 ### Open Questions
 
 - [x] **Does the domain already hold ticket ↔ plan ↔ story links?** *Answered
@@ -124,9 +162,9 @@ neither needs a browser.
       to offer *Open plan*; it stays inside this plan. Plan → story is the plan's
       `Story:` field and story → plans already feeds the story card's counts. Ticket
       → story is not yet checked.
-- [ ] **What does each board's primary reader look for first?** Tickets: is this
+- [x] **What does each board's primary reader look for first?** Tickets: is this
       answered yet? Stories: how far along is the umbrella? Plans: what can I do
-      now? Confirm before fixing row emphasis.
+      now? Settled as per-board emphasis over identical positions (Approach).
 - [x] **What does the story card's ⚠ mean today?** *Answered 2026-11-06:* status
       drift — the story's written status is **behind** what its plans prove.
       `statusDrift` (`packages/domain/src/transitions/story.ts:468`) reports one
@@ -136,8 +174,8 @@ neither needs a browser.
       standing as its subject; the UI labels it (*status behind: plans delivered*).
       `statusDrift` returns a phrase today (`BEHIND[derived]`) — a word made in the
       domain, which this plan's split moves to the mapping.
-- [ ] **Where does a sprint list go on a story with nine sprints?** Proposed: row 2
-      collapses to *in 9 sprints*.
+- [x] **Where does a sprint list go on a story with nine sprints?** It collapses
+      to *in 9 sprints* and expands in place, like every long list (Approach).
 - [x] **Does `cardControls` become the `next` facet, or stay beside it?**
       *Answered 2026-11-06: beside it, as `next`'s input.* `cardControls`
       (`rules/card-controls.ts:62`, two callers: `board.ts:2687`, `mock-fleet.ts:498`)
@@ -148,10 +186,9 @@ neither needs a browser.
       primary action from the set, and name why it is disabled (`started`, awaiting
       the spike, unapproved). The secondary flags stay available to the UI for
       secondary links. `cardControls` keeps its schema and both callers unchanged.
-- [ ] **Where exactly is the line between a fact and a word?** Proposed test: a
-      value belongs in `CardFacts` if a second UI (a CLI, a Slack digest) would
-      need the same value; it belongs in the mapping if a second UI would phrase
-      or place it differently.
+- [x] **Where exactly is the line between a fact and a word?** The second-UI
+      test, with existing domain phrases migrating as their card is converted
+      (Approach).
 
 ## Spec
 
@@ -181,3 +218,23 @@ _To be filled in during Design._
 - A story was considered for problem exploration and declined: the problem is
   evidenced by the table above, and the uncertainty is in the solution, which is
   what Design is for. If Open Question 1 needs a new read, a story wraps both plans.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Which facet is visually strongest per board?", "a": "Per board: Tickets lineage, Stories progress, Plans next; positions identical", "category": "ux"},
+    {"q": "Where is the line between a domain fact and a UI word?", "a": "Second-UI test; existing domain phrases migrate when their card is touched", "category": "technical"},
+    {"q": "How do long lists collapse?", "a": "Count plus inline expand", "category": "ux"},
+    {"q": "Which card does the tracer prove the grammar on?", "a": "Plans board", "category": "tradeOffs"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": false},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
