@@ -9,7 +9,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Design:** 2026-11-06, jwloka, cli
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -19,8 +19,9 @@
      endpoints. No change to the plan format, the plan template, helper scripts or
      the docs/plans layout. The story format gains a parsed `issue:` frontmatter
      field (legacy `jira:` still read), and the story-tracking template writes it —
-     a skill change, bumped in the changeset. `POST /api/idea` accepts an optional
-     story slug and passes it to the idea agent, which writes the plan's `Story:`;
+     a skill change, bumped in the changeset. `POST /api/idea` still takes only the
+     issue number; the server finds the ticket's story itself and tells the idea
+     agent, which writes the plan's `Story:`;
      `POST /api/story` writes `issue:` into the story it creates. -->
 
 ## Motivation
@@ -153,7 +154,9 @@ neither is rewritten for a card this plan has not reached yet.
   | Card | Its `lineage` holds | Primary | Secondary |
   |---|---|---|---|
   | ticket | no plan, no story | *Create plan* | *Create story* |
-  | ticket | a story, no plan | *Create plan*, inside that story | — |
+  | ticket | a live story, no plan | *Create plan*, inside that story | — |
+  | ticket | two or more stories, no plan | *Create plan*, disabled: *linked from N stories*, naming them | — |
+  | ticket | only a done or archived story, no plan | *Create plan*, outside any story, saying why | — |
   | ticket | a plan, no story | — the plan shows in `lineage` | *Create story* |
   | ticket | a plan and a story | — | — |
   | ticket | done lane | — | — |
@@ -220,6 +223,20 @@ reading and decide a fact. Both run with the existing `check-*.sh` set in CI and
 in the Local checks list. The split is revisited if a second presentation needs a
 word the mapping owns — that word then moves into the domain as a typed value,
 never as a string.
+
+**No new input crosses the trust boundary.** *Create plan* still sends the
+issue number and nothing else — the contract `CreatePlanButton.tsx` states — and
+the server finds the ticket's story in its own ticket → story index, so no slug a
+browser could forge reaches the idea agent's prompt. A ticket linked from two or
+more stories gets a disabled *Create plan* naming them, because which umbrella a
+plan belongs to is a person's call and the domain never guesses it; a done or
+archived story does not receive new plans, and the ticket falls back to a plain
+*Create plan* outside any story with that reason shown. A story's `issue:` value
+is written by a person or an agent, so the parser accepts only an issue URL on
+this repository's configured git host or a key matching its configured tracker;
+anything else is an `issue-link-unreadable` alert on the story card and is never
+indexed, so a stray cross-repository link cannot attach a story to the wrong
+ticket.
 
 **The tracer proves the grammar on the Plans board**, the richest card: it is
 the only one that exercises all five facets at once — `progress` with a PR
@@ -290,7 +307,115 @@ all three boards would leave every card half in the old layout.
 
 ## Spec
 
-_To be filled in during Design._
+### `CardFacts` (domain — `entities/card-facts.ts`)
+
+```ts
+type CardKind = 'ticket' | 'story' | 'plan';
+type Ref = { kind: CardKind | 'sprint'; id: string; title: string; phase: string | null };
+type Unknown = { unknown: 'throttled' | 'not-asked' | 'unreadable' };
+type Known<T> = T | Unknown;
+
+type CardFacts = {
+  identity: {
+    kind: CardKind;
+    id: string;                     // issue key, story slug or plan slug
+    number: number | null;          // the shared #N, where the item has one
+    title: string;
+    opens: Ref;                     // the board's own detail view of this item
+    alerts: Alert[];
+  };
+  lineage: Ref[];                   // ordered ticket, story, plan, sprint; absent relations omitted
+  progress: null | {                // null: nothing measured
+    unit: 'slices' | 'plans';
+    done: Known<number>;
+    total: number;
+    prs: null | { total: number; byChecks: Known<Record<'green' | 'running' | 'failing' | 'none', number>> };
+  };
+  next: null | {                    // null: no action belongs to this card
+    primary: { action: ActionKind; enabled: boolean; reason: Reason | null };
+    secondary: ActionKind[];        // enabled only; a disabled secondary is omitted
+  };
+  ownership: { owner: string | null; changedAt: string | null; source: Ref | { path: string } };
+};
+
+type Alert =
+  | { kind: 'status-behind'; proven: StoryStanding }
+  | { kind: 'issue-link-unreadable'; value: string };
+
+type Reason =
+  | { kind: 'waits-on'; ref: Ref }
+  | { kind: 'started' }
+  | { kind: 'awaits-spike' }
+  | { kind: 'linked-from-many-stories'; stories: Ref[] }
+  | { kind: 'story-not-live'; story: Ref };
+
+type ActionKind =
+  | 'create-plan' | 'create-story' | 'add-plan'
+  | 'approve' | 'approve-spike' | 'confirm-slices' | 'interrogate'
+  | 'start-work' | 'deliver';
+```
+
+**Invariants, each a unit test on the schema or a projection:**
+
+1. No string field other than `title`, `id`, `owner`, `path`, `value`, `phase` and the
+   ISO dates — the schema gate refuses any other.
+2. `lineage` holds each relation at most once per referenced item, in the fixed
+   kind order; an item never appears in its own `lineage`.
+3. `next.primary.reason` is non-null exactly when `enabled` is false.
+4. A ticket offers `create-plan` only when no plan's `Issue:` names it, and
+   `create-story` only when no story's `issue:` names it.
+5. A value read from a host that did not answer is `Unknown`, never `0` and never
+   omitted.
+
+### Projections (domain — `rules/`)
+
+| Projection | Reads | Replaces |
+|---|---|---|
+| `planCardFacts(reading, controls, directory)` | plan meta, pulse slices, PR index rows, `cardControls` | `planCardView` |
+| `storyCardFacts(story, plans, issueIndex, directory)` | story frontmatter incl. `issue:`, its plans | `storyCardView`; `statusDrift`'s phrase becomes the `status-behind` alert |
+| `ticketCardFacts(row, plans, stories, directory)` | ticket row, `TicketPlan` (now with slug and title), ticket → story index | `ticketCardView`, `ticketCardShowsActions`, `ticketCardSubtitle`, `ticketCardAge` |
+
+`TicketPlan` gains `slug` and `title`. The ticket → story index is built where the
+build reads stories, keyed by issue key, from `issue:` values that passed
+validation.
+
+### Presentation (board — `card-presentation.ts`, `<Card>`)
+
+`presentCard(facts, board) → rows` returns, in this fixed order: title (the
+`opens` link) with labelled alerts; the lineage line; the progress line with an
+expander for each list longer than one; the action row; the ownership line. It
+returns which row is emphasised — `lineage` on Tickets, `progress` on Stories,
+`next` on Plans — and every word: summaries (*6 PRs · 1 running*), reasons
+(*waits on #3105*, *linked from 2 stories*), unknowns (*checks unknown*) and alert
+labels. `<Card>` renders the rows and decides nothing; its tab order is title,
+primary, secondaries, expanders; each expander is a `<button aria-expanded>`.
+The import gate allows `card-presentation.ts` the `CardFacts` types and UI
+helpers only.
+
+### Endpoints and formats
+
+- `/api/board`: each kind's items carry `facts: CardFacts`; that kind's old card
+  fields are removed in the same slice.
+- `POST /api/idea`: body unchanged, `{number, type}`. When the ticket → story
+  index names exactly one live story, the idea agent's brief carries that story's
+  slug and the created plan's `## Status` has `Story: <slug>`.
+- `POST /api/story`: the story it creates carries `issue: <issue URL>`.
+- Story frontmatter: `issue:` holds an issue URL on this repository's git host or
+  a key of its configured tracker; `jira:` is read when `issue:` is absent. The
+  story-tracking template writes `issue:`.
+
+### Done when
+
+- **Tracer:** the Plans board renders every plan through `<Card>` from `facts`;
+  `planCardView` is gone; both gates fail on a seeded violation and pass on the
+  branch; one browser test proves the Plans board shows the mapping's rows and tab
+  order.
+- **Stories:** story 3170's card links ticket #3170; ticket #3170 no longer offers
+  *Create story*; the ⚠ reads as a labelled alert; a story with an `issue:` to
+  another repository shows `issue-link-unreadable` and is not indexed.
+- **Tickets:** ticket #3102 links its plan and offers no *Create plan*; *Create
+  plan* on a ticket in one live story produces a plan whose `Story:` names it; a
+  ticket linked from two stories shows a disabled *Create plan* naming both.
 
 ## Slices
 
@@ -304,7 +429,7 @@ _To be filled in during Design._
 
 ### Tickets
 
-- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan and the story that answer a ticket and `next` offering only the creates its lineage lacks; `POST /api/idea` takes an optional story slug so *Create plan* on a ticket inside a story writes the plan's `Story:`; the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
+- `feature/one-card-grammar-tickets` — `ticketCardFacts`, with `lineage` naming the plan and the story that answer a ticket and `next` offering only the creates its lineage lacks; `POST /api/idea` still takes only the issue number and the server derives the story, so *Create plan* on a ticket inside a tory writes the plan's `Story:`; the Tickets board renders through the shared `<Card>` <!-- builds: ticketCardFacts projection -->
 
 The Tickets slice follows the Stories slice rather than running beside it: its
 *a story, no plan* row needs the ticket → story index that Stories builds, and a
@@ -327,7 +452,7 @@ exactly as today.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 3,
+  "round": 4,
   "questionHistory": [
     {
       "q": "Which facet is visually strongest per board?",
@@ -376,7 +501,7 @@ exactly as today.
     },
     {
       "q": "How does this plan handle ticket -> story?",
-      "a": "All in this plan: parse the link, reverse index, /api/idea takes a story slug, template writes it",
+      "a": "All in this plan: parse the link, reverse index, server derives the story for /api/idea, template writes issue:",
       "category": "technical"
     },
     {
@@ -403,6 +528,26 @@ exactly as today.
       "q": "How does /api/board change shape?",
       "a": "Per kind: add facts, drop old fields in the same slice; mock-fleet uses the projections",
       "category": "technical"
+    },
+    {
+      "q": "How does the server learn the story for Create plan?",
+      "a": "Server derives it from its ticket->story index; client still sends only the number",
+      "category": "nonFunctional"
+    },
+    {
+      "q": "Ticket linked from several stories?",
+      "a": "Disabled Create plan naming the stories",
+      "category": "domain"
+    },
+    {
+      "q": "Which stories may receive a new plan?",
+      "a": "Live only; otherwise plain Create plan outside any story, with the reason",
+      "category": "domain"
+    },
+    {
+      "q": "What does the issue: parser accept?",
+      "a": "Only this repo's host issue URLs or configured tracker keys; else an alert, never indexed",
+      "category": "nonFunctional"
     }
   ],
   "deferredItems": [],
@@ -420,7 +565,7 @@ exactly as today.
       "accessibility": true
     },
     "nonFunctional": {
-      "security": false,
+      "security": true,
       "performance": true,
       "scalability": true
     },
