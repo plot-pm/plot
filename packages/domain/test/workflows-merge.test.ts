@@ -248,6 +248,37 @@ describe('merge — the controller for a PR merge', () => {
     expect(refusalOf(readings({ defaultBranch: settledOld, defaultBranchTip: 'c'.repeat(40) }))).toBe('default-branch-unsettled');
   });
 
+  describe('an unknown default-branch head', () => {
+    const TIP = 'c'.repeat(40);
+    /** A head that reads unknown since `headSince`, past a green commit that settled earlier. */
+    const unknownHead = (headSince: string, over: Partial<DefaultBranchReading> = {}): DefaultBranchReading => ({
+      ...reading('green'), headSha: TIP, head: 'unknown', headSince, askedAt: '2026-10-10T00:20:00Z', ...over,
+    });
+    const LONG = '2026-10-09T22:00:00Z';
+
+    it('passes a person\u2019s merge past a head that reads unknown longer than Checks wait', () => {
+      expect(refusalOf(readings({ defaultBranch: unknownHead(LONG), defaultBranchTip: TIP }))).toBe('decided');
+    });
+
+    it('keeps default-branch-unsettled for fleetd on the same reading', () => {
+      expect(refusalOf(readings({ caller: 'fleetd', defaultBranch: unknownHead(LONG), defaultBranchTip: TIP }))).toBe('default-branch-unsettled');
+    });
+
+    it('keeps default-branch-unsettled at exactly Checks wait of unknown age', () => {
+      const since = new Date(CLOCK.now - WAIT_MS).toISOString();
+      expect(refusalOf(readings({ defaultBranch: unknownHead(since), defaultBranchTip: TIP }))).toBe('default-branch-unsettled');
+    });
+
+    it('keeps default-branch-unsettled when the tip is not the reading\u2019s head', () => {
+      expect(refusalOf(readings({ defaultBranch: unknownHead(LONG), defaultBranchTip: 'd'.repeat(40) }))).toBe('default-branch-unsettled');
+    });
+
+    it('keeps default-branch-red on a red settled reading whatever the head reads', () => {
+      const red = unknownHead(LONG, { settled: { sha: OTHER, state: 'red' } });
+      expect(refusalOf(readings({ defaultBranch: red, defaultBranchTip: TIP }))).toBe('default-branch-red');
+    });
+  });
+
   it('refuses default-branch-unsettled when the tip moved past the reading', () => {
     // The reading still names the pre-merge head; a naive check comparing the
     // reading with itself would pass.
@@ -356,6 +387,21 @@ describe('mergeAt — the workflow wired to its ports', () => {
     } as unknown as MergePorts;
     return { p, calls };
   };
+
+  it('asks the host nothing when the tip differs from the settled SHA', async () => {
+    const fresh = new Date(NOW - 60_000).toISOString();
+    const { p, calls } = ports(prFixture(), 'answered', { ok: true, value: settled('green', fresh) });
+    let asked = 0;
+    const host = p.host as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
+    for (const name of ['prState', 'prReview']) {
+      const real = host[name]!;
+      host[name] = async (...a) => { asked += 1; return real(...a); };
+    }
+    (p.refs as unknown as { remoteSha: () => Promise<unknown> }).remoteSha = async () => ({ ok: true, value: { sha: 'd'.repeat(40) } });
+    expect(await mergeAt(p, 7, HEAD2)).toMatchObject({ merged: false, reason: 'default-branch-unsettled' });
+    expect(asked).toBe(0);
+    expect(calls).toEqual([]);
+  });
 
   it('refuses review-writer-unread when the Review app writer cannot be resolved', async () => {
     const { p, calls } = ports(prFixture());
