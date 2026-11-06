@@ -24,6 +24,8 @@ const rowAt = (head: string): PrIndexRow => ({
   headSha: head,
   plotReview: 'failure',
   plotReviewSha: head,
+  plotReviewJudged: 'failure',
+  plotReviewCheckedSha: head,
 });
 
 const readings: TicketTickReadings = {

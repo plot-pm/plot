@@ -25,6 +25,8 @@ const row = (n: number, over: Partial<PrIndexRow> = {}): PrIndexRow => ({
   ciChecks: 'green',
   plotReview: 'success',
   plotReviewSha: head(n),
+  plotReviewJudged: 'success',
+  plotReviewCheckedSha: head(n),
   ...over,
 });
 
@@ -70,6 +72,7 @@ const portsFor = (said: 'answered' | 'failed') => {
         ok: true,
         value: { sha: head(n), state: 'success', description: '', time: '', bypass: false },
       }),
+      reviewWriter: async () => ({ ok: true, value: '' }),
     },
     scripts: {
       hostSaid: async (args: string[]) => {
