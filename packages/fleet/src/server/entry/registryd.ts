@@ -636,7 +636,7 @@ const idleNotifyWrites = async (reader: SliceIdleReader): Promise<readonly IdleN
     .map((verdict) => ({
       kind: 'idle-notify',
       branch: verdict.branch,
-      clockStart: verdict.clockStart,
+      episodeStart: verdict.episodeStart,
       message: idleMessage(verdict.branch),
     }));
 };

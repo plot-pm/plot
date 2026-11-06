@@ -122,11 +122,32 @@ describe('sliceIdle', () => {
     expect(result[0].clockStart).not.toBe(firstClockStart);
   });
 
+  it('an unmoved slice keeps one episode key across two fleetd starts', () => {
+    const slice = reading({ pr: { branch: 'feature/x', createdAt: '' } });
+    const firstStart = FLEETD_STARTED_AT;
+    const first = sliceIdle(world({ slices: [slice], fleetdStartedAt: firstStart, now: () => firstStart + BOUND_MS + 1 }));
+    expect(first[0].isNew).toBe(true);
+    const recorded = new Set([idleEpisodeKey('feature/x', first[0].episodeStart)]);
+    const secondStart = firstStart + 10 * BOUND_MS;
+    const second = sliceIdle(
+      world({ slices: [slice], fleetdStartedAt: secondStart, now: () => secondStart + BOUND_MS + 1, recordedEpisodes: recorded }),
+    );
+    expect(second[0].idle).toBe(true);
+    expect(second[0].isNew).toBe(false);
+    expect(second[0].episodeStart).toBe(first[0].episodeStart);
+  });
+
   it('a slice with a live `PLOT-BLOCKED` marker is never idle', () => {
     const slice = reading({ blocked: true });
     const now = FLEETD_STARTED_AT + BOUND_MS + 1_000_000;
     const result = sliceIdle(world({ slices: [slice], now: () => now }));
-    expect(result[0]).toEqual({ branch: 'feature/x', idle: false, isNew: false, clockStart: result[0].clockStart });
+    expect(result[0]).toEqual({
+      branch: 'feature/x',
+      idle: false,
+      isNew: false,
+      clockStart: result[0].clockStart,
+      episodeStart: result[0].episodeStart,
+    });
   });
 
   it('`none` (a null bound) is never idle, however old the slice', () => {

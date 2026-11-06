@@ -1146,12 +1146,12 @@ export const escalationWorldForRepo = (
  * answers a `PrLookup` typed from it, and neither `gh pr-list`'s `--rich`
  * fields nor Bitbucket's REST object (`plot-host.sh`) include one. Adding it
  * would touch the `Host` port, its shell adapter and `plot-host.sh` — a
- * larger change than this slice's write kind and rule. `sliceIdle`'s own
- * `clockStartMs` already treats an unparseable `createdAt` as absent from the
- * `max(...)`, so the clock still starts at `max(fleetdStartedAt, last moved
- * line)` — safe, if slightly more conservative than the design intent for a
- * brand-new slice with no run-log line yet, which now floors at fleetd's own
- * start rather than at the moment its PR opened.
+ * larger change than this slice's write kind and rule. `sliceIdle` treats an
+ * unparseable `createdAt` as absent from its clocks. The idle clock then
+ * starts at `max(fleetdStartedAt, last moved line)`, so a brand-new slice with
+ * no run-log line yet floors at fleetd's own start rather than at the moment
+ * its PR opened. The episode key excludes fleetd's start, so a slice with no
+ * `moved` line keeps one key across restarts.
  *
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
@@ -1862,8 +1862,8 @@ export const notifyEscalations = async (
  * pass; each result then appends one `notified` run-log line, status `sent`,
  * `unaskable` or `failed <code>`.
  *
- * **THE LINE'S `at` IS THE EPISODE'S CLOCK START, NOT THE SEND TIME.** The
- * idle rule's episode key is `(branch, clockStart)`
+ * **THE LINE'S `at` IS THE EPISODE'S START, NOT THE SEND TIME.** The
+ * idle rule's episode key is `(branch, episodeStart)`
  * ({@link import('@plot-pm/domain/rules/slice-idle').idleEpisodeKey}), and
  * the `notified` lines already in the run log ARE the recorded set — no
  * second ledger. Stamping `at` with the real send time would make every
@@ -1907,7 +1907,7 @@ export const notifyIdleSlices = async (
       head: '',
       step: 'notified',
       outcome: status,
-      at: item.clockStart,
+      at: item.episodeStart,
     });
     if (!appended.ok) warn(`plot-fleetd: could not append to the run log for ${item.branch}\n`);
     if (result.ok) write(`  ${item.branch}: idle notification sent\n`);
