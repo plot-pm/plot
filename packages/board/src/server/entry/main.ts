@@ -2,23 +2,20 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { scriptsFor, primeAgentSettings, readConfigAsync, refsFor, gateContractFor, type BuildBoardOptions } from '../board.js';
+import { scriptsFor, primeAgentSettings, refsFor, gateContractFor, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
-import { checkNamesOf, checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
-import { buildShell } from '@plot-pm/domain/adapters/build/build-resolve';
 import { repairRecordFile } from '@plot-pm/domain/adapters/repair-record/repair-record-file';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { fleetdStartFile } from '@plot-pm/domain/adapters';
-import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
 import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
-import { mergeAt, nameRepairPrAt, type MergePorts } from './merge.js';
+import { mergeAt, nameRepairPrAt } from './merge.js';
 import { releaseApproveAt } from './release-approve.js';
+import { finishContextFor, mergePortsFor } from './merge-ports.js';
 import { finishRelease } from './release-finish.js';
-import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
 
@@ -124,41 +121,6 @@ export const questionFrom = (argv: string[]): Question | null => {
 };
 
 /**
- * The ports `mergeAt` takes, for the two board-free arms that merge.
- *
- * The estate is the REAL one, whatever `PLOT_BOARD_MOCK` says: the merge reaches
- * the real host through `plot-host.sh`, so it reads the real default-branch
- * reading. A mock estate's null fixture would lift the red-main refusal on a
- * merge that still lands. The estate's `refsGit` answers `remoteSha` as
- * `unaskable`; `mergeAt` reads the default branch's tip through it on a settled
- * reading, so the tip comes from `refsRemoteGit` over `git ls-remote`, as
- * `design.ts` composes it.
- *
- * @param opts - the board options the entry resolved.
- * @returns the ports, with the caller read from `PLOT_UNATTENDED`.
- */
-const mergePortsFor = async (opts: BuildBoardOptions): Promise<MergePorts> => {
-  const estate = realEstate(opts);
-  const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
-  return {
-    host: estate.host,
-    scripts: scriptsFor(opts),
-    defaultBranch: estate.defaultBranch,
-    refs: { ...estate.refs, remoteSha: remote.remoteSha },
-    checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
-    now: Date.now,
-    // The repair exception on a red default branch: the record, and the
-    // CI connector that asks the red commit's runs again.
-    repair: repairRecordFile(opts.repoRoot),
-    build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-    checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
-    // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
-    // maps to 'unattended', never to 'fleetd'.
-    caller: callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
-  };
-};
-
-/**
  * Answer one question and print it.
  *
  * **`askOnce`, not `askOncePerEstate`, and the difference is the point.** One
@@ -220,24 +182,14 @@ export const run = async (
     const { opts } = contextFrom(here);
     recordActionReceipt(opts.repoRoot, 'release-approve', pr);
     const ports = await mergePortsFor(opts);
-    const result = await releaseApproveAt(ports, Number(pr), sha);
+    // The command line carries no passkey assertion, so it is refused
+    // `person-unproven` whatever its caller reads: the approval is the board button's.
+    const result = await releaseApproveAt(ports, Number(pr), sha, 'none');
     write(`${JSON.stringify(result)}\n`);
     if (!result.approved) return 1;
     // The finish runs as the person: an unattended caller was refused above.
-    const estate = realEstate(opts);
     return finishRelease(
-      {
-        repoRoot: opts.repoRoot,
-        refs: estate.refs,
-        host: estate.host,
-        planStore: estate.planStore,
-        scripts: ports.scripts,
-        trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-        scriptDir: opts.scriptsDir,
-        caller: ports.caller,
-        tagWaitMs: ports.checksWaitMs,
-        pollMs: 15_000,
-      },
+      finishContextFor(opts, ports),
       Number(pr),
       (s) => write(s),
       (s) => process.stderr.write(s),

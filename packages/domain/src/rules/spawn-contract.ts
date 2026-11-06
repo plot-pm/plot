@@ -27,7 +27,7 @@
 import type { BoardStatus } from './default-branch.js';
 
 /** The number every unattended spawn's environment carries today. */
-export const SPAWN_CONTRACT = 3;
+export const SPAWN_CONTRACT = 4;
 
 /** The variable an unattended spawn's environment carries {@link SPAWN_CONTRACT} in. */
 export const SPAWN_CONTRACT_ENV = 'PLOT_SPAWN_CONTRACT';
@@ -291,6 +291,7 @@ export const SPAWN_CONTRACT_SHAPE: readonly SpawnContractVariableShape[] = [
       'packages/board/src/server/deliver.ts',
       'packages/board/src/server/idea.ts',
       'packages/board/src/server/interrogate.ts',
+      'packages/board/src/server/release.ts',
       'packages/board/src/server/reslice.ts',
       'packages/board/src/server/story.ts',
       'packages/fleet/src/shared/auto-deliver.ts',

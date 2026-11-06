@@ -49,7 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel. A merged spike's changeset pairs with its Design plan |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `git mv` of any `vnext-checklist.md` |
-| 5b. Record the Release in the Plans | Small | `release-approve` already tells the tracker for each plan it books, as part of booking it Released. This step covers what that pass missed: one `plot-deliver.sh --release` call per plan still at `State: Delivered` (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
+| 5b. Record the Release in the Plans | Small | The release is approved on the board with a passkey (`POST /api/release-approve`); `plot-ask.mjs release-approve` refuses `person-unproven`. `release-approve` already tells the tracker for each plan it books, as part of booking it Released. This step covers what that pass missed: one `plot-deliver.sh --release` call per plan still at `State: Delivered` (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -433,6 +433,8 @@ The release exists; the plans it shipped do not know it. Until this step, no
 plan in this repo's history had ever reached `State: Released` — not once across
 sixteen versioned releases — because step 4 hands off to the project's release
 process and nothing came back afterwards.
+
+**The release is approved on the board with a passkey.** The board's *Approve release with passkey* button (opened at `http://localhost:<port>`) asks Touch ID, and `plot-ask.mjs release-approve` carries no assertion, so it refuses `person-unproven`. Register the passkey once with *Register passkey*; the panel shows the credential id and time, and the action receipt records the id.
 
 **`release-approve` already runs this for every plan it books.** The sprint
 booking pass tells the plan's tracker as part of booking it Released, the same

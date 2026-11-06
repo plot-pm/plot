@@ -18,6 +18,7 @@ import { dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatc
 import { agentLogDir, isUnderAgentLogDir, migrateAgentLogs, primeWorktreeRoot } from './agent-log.js';
 import { handleContinue } from './continue.js';
 import { handleRestart } from './restart.js';
+import { handlePasskeyChallenge, handlePasskeyRegister, handlePasskeyState, handleReleaseApprove } from './passkey.js';
 import { handleClaim } from './claim.js';
 import { handleFleetSettings } from './fleet-settings.js';
 import { handleTransition } from './transition.js';
@@ -265,6 +266,18 @@ async function handleRequest(
     // judgement a skill makes. No agent arm: unlike /api/deliver, there is no
     // partial-deliverable question here for an agent to answer.
     { path: '/api/release', verb: 'releasing', handle: handleRelease },
+    // POST /api/release-approve — a release PR is approved with a passkey.
+    //
+    // The same class of route as /api/release. It verifies a user-verified
+    // WebAuthn assertion bound to this (pr, sha) and calls `releaseApproveAt`
+    // with the credential id as `personProof`; without an assertion it refuses
+    // `person-unproven`, whatever this board's own PLOT_UNATTENDED reads.
+    { path: '/api/release-approve', verb: 'approving a release', handle: handleReleaseApprove },
+    // POST /api/passkey/challenge and /api/passkey/register — the two halves of
+    // the passkey the approval above needs. A challenge is single-use and
+    // bound to one subject; registration keeps the first credential.
+    { path: '/api/passkey/challenge', verb: 'asking for a passkey challenge', handle: handlePasskeyChallenge },
+    { path: '/api/passkey/register', verb: 'registering a passkey', handle: handlePasskeyRegister },
     // POST /api/continue — a NEW worker in an answered branch's worktree.
     //
     // Allow-listed here beside /api/dispatch and /api/approve because it is the
@@ -693,6 +706,12 @@ async function handleRequest(
         ? JSON.stringify(approveStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
+    return;
+  }
+
+  // The registered credential, for the board's registration line.
+  if (url.pathname === '/api/passkey') {
+    await handlePasskeyState(req, res, opts);
     return;
   }
 

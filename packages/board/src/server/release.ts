@@ -8,6 +8,7 @@ import {
   SLUG_RE,
 } from './dispatch.js';
 import { recordActionReceipt } from './action-receipt.js';
+import { optionalProof, type PasskeyDeps } from './passkey.js';
 
 /**
  * The board's EIGHTH state-changing route, and the one that cuts a Delivered
@@ -124,6 +125,7 @@ export async function handleRelease(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   opts: ReleaseOptions,
+  deps: PasskeyDeps = {},
 ): Promise<void> {
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -154,6 +156,15 @@ export async function handleRelease(
   const version = (body as { version?: unknown })?.version;
   if (typeof version !== 'string' || !VERSION_RE.test(version)) {
     json(400, { error: 'version must be a version such as 1.2.3 or v1.2.3' });
+    return;
+  }
+
+  // AN OPTIONAL PASSKEY ASSERTION. A verified one reads `person` whatever this
+  // board's own `PLOT_UNATTENDED` reads, so the script starts with it cleared;
+  // without one, the environment reading applies as before.
+  const proof = await optionalProof(body, { action: 'release', slug }, opts, deps);
+  if (proof.kind === 'refused') {
+    json(403, { ok: false, slug, reason: proof.reason, detail: proof.detail });
     return;
   }
 
@@ -207,8 +218,13 @@ export async function handleRelease(
   // this action apart from a bare `plot-deliver.sh <slug>` delivery — see the
   // note in `action-receipt.ts` on why `release` is a distinct action sharing
   // this script.
-  recordActionReceipt(opts.repoRoot, 'release', slug);
-  scriptsFor(opts).start(RELEASE_SCRIPT, ['--release', version, slug], { log: out, onExit, onError });
+  recordActionReceipt(opts.repoRoot, 'release', proof.kind === 'verified' ? `${slug} passkey:${proof.credentialId}` : slug);
+  scriptsFor(opts).start(RELEASE_SCRIPT, ['--release', version, slug], {
+    log: out,
+    onExit,
+    onError,
+    ...(proof.kind === 'verified' ? { env: { PLOT_UNATTENDED: '0' } } : {}),
+  });
   // `detached` WITHOUT `unref` — see `approve.ts` for why both matter and
   // neither substitutes for the other.
   fs.closeSync(out);

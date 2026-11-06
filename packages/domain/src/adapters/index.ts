@@ -174,6 +174,10 @@ export { ticketRecordFile, ticketRecordPath } from './ticket-record/ticket-recor
 // the machine, written by `plot-fleetd` only.
 export { repairRecordFile, repairRecordPath } from './repair-record/repair-record-file.js';
 
+// THE PASSKEY'S FILE ADAPTER. One file under `.plot/state/`, written by the
+// board's registration route; the signature check is `node:crypto`.
+export { passkeyFile, passkeyPath } from './passkey/passkey-file.js';
+
 // THE FLEET-STOPPED RECORD'S FILE ADAPTER. One file under `.plot/state/`,
 // written by `plot-fleetctl.sh --stop` and cleared by `--start`.
 export { fleetStoppedFile, fleetStoppedPath } from './fleet-stopped/fleet-stopped-file.js';
