@@ -7,7 +7,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 
 import { buildBoard } from '../../src/server/board.js';
 import { CardSchema, type Card } from '../../src/contract/schema.js';
-import { presentCard } from '../../src/app/lib/card-presentation.js';
+import { presentCard, presentDetails } from '../../src/app/lib/card-presentation.js';
 import { planFactsOf, type CardFields } from '../../src/server/plan-facts.js';
 import type { SliceSpendRecord } from '@plot-pm/domain';
 import { answered, failed, type PortResult } from '@plot-pm/domain';
@@ -270,11 +270,17 @@ describe('the cost a reader sees, worded by the card presentation', () => {
     },
     measured: 3, absent: 2, unreadable: 0, slices: 5, ...over,
   });
-  /** The cost piece of the card's progress row, or undefined where the row shows none. */
-  const costPiece = (over: Partial<Card> = {}, extras = {}) =>
-    presentCard(planFactsOf(card(over), extras), 'plans').progress
+  /**
+   * The cost piece a reader sees: on the card's status where it was measured,
+   * else in the detail view; undefined where neither shows one.
+   */
+  const costPiece = (over: Partial<Card> = {}, extras = {}) => {
+    const facts = planFactsOf(card(over), extras);
+    const onCard = presentCard(facts, 'plans').status.measures
       .flatMap((part) => (part.kind === 'piece' ? [part.piece] : []))
       .find((piece) => 'cost' in piece.data);
+    return onCard ?? presentDetails(facts).cost ?? undefined;
+  };
   const costText = (over: Partial<Card> = {}) => costPiece(over)?.text ?? '';
   const costDetail = (over: Partial<Card> = {}) => costPiece(over)?.detail ?? '';
 
@@ -309,11 +315,11 @@ describe('the cost a reader sees, worded by the card presentation', () => {
     expect(costDetail({ cost: cost() })).not.toContain('SDK run lines');
   });
 
-  it('says the cost was NOT MEASURED HERE, in the cost row, rather than a zero', () => {
+  it('says the cost was NOT MEASURED HERE, in the detail view, rather than a zero', () => {
     expect(costText({ cost: cost({ tokens: null, measured: 0, absent: 5 }) })).toBe('cost not measured here');
     expect(costText({ cost: cost({ tokens: null, measured: 0, absent: 0, unreadable: 5 }) }))
       .toBe('cost not measured here (5 unreadable)');
-    expect(costPiece({ cost: cost({ tokens: null, measured: 0, absent: 5 }) })?.tone).toBe('muted');
+    expect(costPiece({ cost: cost({ tokens: null, measured: 0, absent: 5 }) })?.tone).toBe('unknown');
   });
 
   it('names an unreadable record beside a partial sum', () => {

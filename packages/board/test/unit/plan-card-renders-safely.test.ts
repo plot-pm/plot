@@ -39,7 +39,7 @@ describe('PlanCard renders safely', () => {
 
   it('leads the title row with the plan kind icon, named Plan', () => {
     const html = render(card({ slug: 'p', title: 'P' }));
-    expect(html).toMatch(/<svg[^>]*data-kind-icon="plan"[^>]*role="img"[^>]*aria-label="Plan"/);
+    expect(html).toMatch(/<svg[^>]*role="img"[^>]*aria-label="Plan"[^>]*data-kind-icon="plan"/);
   });
 
   it('draws a disabled action as a focusable control described by its reason, with no native title', () => {

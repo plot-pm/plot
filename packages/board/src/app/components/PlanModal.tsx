@@ -2,6 +2,7 @@ import type { Card, StoryCard } from '../../contract/schema.js';
 import { planReference, planRoute } from '@plot-pm/domain';
 import { storyHref } from '../lib/plan.js';
 import { DocModal } from './DocModal.js';
+import { presentDetails } from '../lib/card-presentation.js';
 
 export interface PlanModalProps {
   card: Card;
@@ -40,6 +41,8 @@ export function PlanModal({ card, story, onClose, onShowInBoard, onOpenStory }: 
   const canOpenStory = Boolean(onOpenStory && story && storyHref(story));
 
   const { label, issues } = planReference({ file: card.path, slug: card.slug, issues: card.issues }, new Map());
+  // What the card leaves to this view: the path, the approver and an unmeasured cost.
+  const details = (card as Partial<Card>).facts ? presentDetails(card.facts) : null;
   const issuePrefix = issues.length > 0 ? `${issues.join(', ')}: ` : '';
 
   return (
@@ -73,6 +76,24 @@ export function PlanModal({ card, story, onClose, onShowInBoard, onOpenStory }: 
             Open story
           </button>
         </div>
+      )}
+      {details && (
+        <dl data-plan-details className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-b border-slate-200 px-4 py-2 text-xs dark:border-slate-700">
+          <dt className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Path</dt>
+          <dd data-plan-path className="min-w-0 truncate font-mono text-slate-700 dark:text-slate-200">{details.source.text}</dd>
+          {card.approver && (
+            <>
+              <dt className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Approver</dt>
+              <dd data-plan-approver className="text-slate-700 dark:text-slate-200">{card.approver}</dd>
+            </>
+          )}
+          {details.cost && (
+            <>
+              <dt className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Cost</dt>
+              <dd data-plan-cost className="text-slate-500 dark:text-slate-400" title={details.cost.detail ?? undefined}>{details.cost.text}</dd>
+            </>
+          )}
+        </dl>
       )}
       {/* Where this plan's work is checked out on THIS machine.
 

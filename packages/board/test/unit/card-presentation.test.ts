@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { cardControls, planCardFacts, type PlanCardFactsReadings } from '@plot-pm/domain';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
-import { presentCard, reasonWords, type CardRows, type Part } from '../../src/app/lib/card-presentation.js';
+import {
+  presentCard, presentDetails, reasonWords, relativeAge, type CardSections, type Part, type Piece,
+} from '../../src/app/lib/card-presentation.js';
+
+const NOW = Date.parse('2026-11-06T12:00:00');
 
 const reading = (over: Partial<PlanCardFactsReadings> = {}): PlanCardFactsReadings => ({
   slug: 'x',
@@ -9,6 +13,7 @@ const reading = (over: Partial<PlanCardFactsReadings> = {}): PlanCardFactsReadin
   path: 'docs/plans/2026-11-01-x.md',
   type: 'feature',
   assignee: 'jwloka',
+  state: 'approved',
   issues: [],
   records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '' },
   status: 'approved',
@@ -26,26 +31,75 @@ const reading = (over: Partial<PlanCardFactsReadings> = {}): PlanCardFactsReadin
   ...over,
 });
 
-const rows = (over: Partial<PlanCardFactsReadings> = {}): CardRows => presentCard(planCardFacts(reading(over)), 'plans');
+const sections = (over: Partial<PlanCardFactsReadings> = {}): CardSections =>
+  presentCard(planCardFacts(reading(over)), 'plans', { now: NOW });
 
-/** Every word a row shows, collapsed lists by their summary and their items. */
+const pieceWords = (p: Piece) => p.text;
+/** Every word a list of parts shows: pieces, summaries, dots and list items. */
 const words = (parts: Part[]): string[] =>
-  parts.flatMap((p) => (p.kind === 'piece' ? [p.piece.text] : [p.summary.text, ...p.items.map((i) => i.text)]));
-const allWords = (r: CardRows): string[] => [
-  r.title.text, ...words(r.identity), ...words(r.lineage), ...words(r.progress), ...words(r.ownership),
-  ...[r.next.primary, ...r.next.secondary].flatMap((a) => (a ? [a.label, a.reason ?? ''] : [])),
+  parts.flatMap((p) => (p.kind === 'list'
+    ? [p.summary.text, ...p.dots.map((d) => `${d.count} ${d.word}`), ...p.items.map(pieceWords)]
+    : [p.piece.text]));
+const allWords = (s: CardSections): string[] => [
+  s.header.title, ...s.header.tags.map(pieceWords), ...words(s.context),
+  s.status.state.text, ...words(s.status.measures), s.status.assignees.text, s.status.age?.text ?? '',
+  ...[s.actions.primary, ...s.actions.secondary].flatMap((a) => (a ? [a.label, a.reason ?? ''] : [])),
 ];
 
-describe('presentCard: every fact today\'s plan card shows still shows', () => {
-  it('type, rounds, spike, verification, cost, not-pushed and the PR list', () => {
+describe('presentCard: four sections', () => {
+  it('the header leads with the plan kind icon, the key, the title and the type tag', () => {
+    const s = sections({ issues: ['1089'] });
+    expect(s.header.kind).toEqual({ kind: 'plan', label: 'Plan', hue: 'blue' });
+    expect(s.header.key).toBe('1089');
+    expect(s.header.title).toBe('X');
+    expect(s.header.tags.map(pieceWords)).toEqual(['feature']);
+  });
+
+  it('the status opens with the state pill, then slices done of total, then assignees and the age', () => {
+    const s = sections();
+    expect(s.status.state).toMatchObject({ text: 'Approved', dot: 'green' });
+    expect(s.accent).toBe('green');
+    expect(s.status.measures[0]).toMatchObject({ kind: 'work', done: 1, total: 2, piece: { text: '1/2 slices' } });
+    expect(s.status.assignees).toEqual({ text: '@jwloka', tone: 'muted', initials: ['JW'], detail: '@jwloka' });
+    expect(s.status.age).toMatchObject({ text: '5 days ago', detail: 'opened 2026-11-01' });
+  });
+
+  it('an unread state reads state unknown, never an early state', () => {
+    expect(sections({ state: '' }).status.state).toMatchObject({ text: 'state unknown', tone: 'unknown' });
+  });
+
+  it('progress reads unknown only when no scan covers the plan', () => {
+    const cold = sections({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
+    expect(cold.status.measures[0]).toMatchObject({ kind: 'work', done: null, piece: { text: '2 slices · progress unknown', tone: 'unknown' } });
+  });
+
+  it('two assignees fold to the first plus a count, with every name in the tooltip; none reads unassigned', () => {
+    const two = sections({ assignee: 'jwloka, eins78' }).status.assignees;
+    expect(two).toEqual({ text: '@jwloka +1', tone: 'muted', initials: ['JW', 'EI'], detail: '@jwloka, @eins78' });
+    expect(sections({ assignee: '' }).status.assignees).toEqual({ text: 'unassigned', tone: 'muted', initials: [], detail: null });
+  });
+
+  it('an unread assignee list reads assignee unknown', () => {
+    const facts = planCardFacts(reading());
+    const s = presentCard({ ...facts, ownership: { ...facts.ownership, assignees: { unknown: 'throttled' } } }, 'plans');
+    expect(s.status.assignees).toMatchObject({ text: 'assignee unknown', tone: 'unknown' });
+  });
+
+  it('shows no age without a clock', () => {
+    expect(presentCard(planCardFacts(reading()), 'plans').status.age).toBeNull();
+  });
+});
+
+describe('presentCard: every fact the plan card shows still shows', () => {
+  it('type, rounds, spike, verification, not-pushed and the PR list', () => {
     const spikeSlices = [{ branches: [{ branch: 'feature/s', spike: true }] }, { branches: [{ branch: 'feature/b', spike: false }] }];
-    const design = rows({
+    const design = sections({
       status: 'draft',
+      state: 'design',
       controls: cardControls({ state: 'design', status: 'draft', slices: spikeSlices }),
       rounds: 3,
       notPushed: true,
       prs: { value: [{ number: 12, branch: 'feature/s', checks: 'green', mergeable: 'mergeable', checksLookup: null }] },
-      cost: { value: { tokens: null, measured: 0, absent: 2, unreadable: 0, fromRuns: 0, slices: 2 } },
     });
     const w = allWords(design);
     expect(w).toContain('feature');
@@ -53,92 +107,120 @@ describe('presentCard: every fact today\'s plan card shows still shows', () => {
     expect(w).toContain('spike not approved yet');
     expect(w).toContain('not pushed');
     expect(w).toContain('#12 checks green');
-    expect(w).toContain('cost not measured here');
+    expect(w).toContain('Design');
 
-    const delivered = rows({ status: 'delivered', controls: cardControls({ state: 'delivered', status: 'delivered', started: true }), verification: { state: 'refuted', refuted: 2 } });
+    const delivered = sections({
+      status: 'delivered', state: 'delivered',
+      controls: cardControls({ state: 'delivered', status: 'delivered', started: true }),
+      verification: { state: 'refuted', refuted: 2 },
+    });
     expect(allWords(delivered)).toContain('2 refuted');
   });
 
-  it('a story and a sprint show in the lineage row, unless a filter already names them', () => {
+  it('a measured cost shows on the card; an unmeasured or unread one goes to the detail view', () => {
+    const measured = { tokens: { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 3, cacheReadTokens: 4 }, measured: 2, absent: 0, unreadable: 0, fromRuns: 0, slices: 2 };
+    expect(allWords(sections({ cost: { value: measured } }))).toContain('measured on 2 of 2 slices');
+    const unmeasured = { tokens: null, measured: 0, absent: 2, unreadable: 0, fromRuns: 0, slices: 2 };
+    expect(allWords(sections({ cost: { value: unmeasured } })).join(' ')).not.toContain('measured');
+    expect(presentDetails(planCardFacts(reading({ cost: { value: unmeasured } }))).cost?.text).toBe('cost not measured here');
+    expect(presentDetails(planCardFacts(reading({ cost: { unknown: 'failed' } }))).cost?.text).toBe('cost unknown — spend record unreadable');
+  });
+
+  it('the path leaves the card for the detail view', () => {
+    expect(allWords(sections()).join(' ')).not.toContain('docs/plans');
+    expect(presentDetails(planCardFacts(reading())).source.text).toBe('docs/plans/2026-11-01-x.md');
+  });
+});
+
+describe('presentCard: context', () => {
+  it('a story and a sprint show as their icon and title, the word left to the icon\'s name', () => {
     const over = {
       story: { value: { slug: 's', title: 'The story', status: 'active' as const, archived: false } },
       sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active' as const } },
     };
-    expect(words(rows(over).lineage)).toEqual(['story The story', 'sprint card-alignment']);
+    const context = sections(over).context;
+    expect(words(context)).toEqual(['The story', 'card-alignment']);
+    const icons = context.flatMap((p) => (p.kind === 'piece' ? [p.piece.icon] : []));
+    expect(icons).toEqual([
+      { kind: 'story', label: 'Story', hue: 'violet' },
+      { kind: 'sprint', label: 'Sprint', hue: 'teal' },
+    ]);
     const filtered = presentCard(planCardFacts(reading(over)), 'plans', { hide: ['stories'] });
-    expect(words(filtered.lineage)).toEqual(['sprint card-alignment']);
-  });
-
-  it('the title carries the issue key; owner, date and path are on the ownership row', () => {
-    const r = rows({ issues: ['1089'] });
-    expect(r.title.text).toBe('1089: X');
-    expect(words(r.ownership)).toEqual(['@jwloka', 'opened 2026-11-01', 'docs/plans/2026-11-01-x.md']);
-  });
-});
-
-describe('presentCard: absence is not content', () => {
-  it('no plan card shows *not measured here* or *checks not asked* as a chip of its own', () => {
-    const r = rows({
-      prs: { value: [{ number: 1, branch: 'a', checks: 'unknown', mergeable: 'unknown', checksLookup: null }, { number: 2, branch: 'b', checks: 'green', mergeable: 'mergeable', checksLookup: null }] },
-      cost: { value: { tokens: null, measured: 0, absent: 2, unreadable: 0, fromRuns: 0, slices: 2 } },
-    });
-    const all = allWords(r);
-    expect(all).not.toContain('not measured here');
-    expect(all.some((w) => w.includes('checks not asked'))).toBe(false);
-    // The unknowns read inside their own facts: the cost row and the PR row.
-    expect(all).toContain('cost not measured here');
-    expect(all).toContain('2 PRs · 1 checks unknown');
+    expect(words(filtered.context)).toEqual(['card-alignment']);
   });
 
   it('a plan with no story says nothing about a story', () => {
-    expect(rows().lineage).toEqual([]);
+    expect(sections().context).toEqual([]);
   });
 
   it('a story that could not be read reads as unknown, never as none', () => {
-    expect(words(rows({ story: { unknown: 'failed' } }).lineage)).toEqual(['stories unknown — unreadable']);
-  });
-});
-
-describe('presentCard: a throttled host', () => {
-  it('reads *checks unknown*, never zero', () => {
-    const throttled = rows({ prs: { value: [{ number: 7, branch: 'feature/a', checks: 'unknown', mergeable: 'unknown', checksLookup: null }] } });
-    const all = allWords(throttled);
-    expect(all).toContain('#7 checks unknown');
-    expect(all.some((w) => /\b0\b/.test(w) && w.includes('check'))).toBe(false);
+    const part = sections({ story: { unknown: 'failed' } }).context[0];
+    expect(part).toMatchObject({ kind: 'piece', piece: { text: 'stories unknown', tone: 'unknown' } });
   });
 
-  it('counts unknown checks apart from the rest, per PR', () => {
-    const prs = [
-      ...[1, 2, 3, 4, 5].map((n) => ({ number: n, branch: `b${n}`, checks: 'green' as const, mergeable: 'mergeable' as const, checksLookup: null })),
-      { number: 6, branch: 'b6', checks: 'unknown' as const, mergeable: 'unknown' as const, checksLookup: null },
-    ];
-    const part = rows({ prs: { value: prs } }).progress.find((p) => p.kind === 'list');
-    expect(part?.kind === 'list' && part.summary.text).toBe('6 PRs · 1 checks unknown');
-  });
-});
-
-describe('presentCard: lists of two or more collapse and expand', () => {
-  it('a PR list is one summary line with every PR behind it', () => {
-    const prs = [{ number: 1, branch: 'a', checks: 'failing' as const, mergeable: 'mergeable' as const, checksLookup: null }, { number: 2, branch: 'b', checks: 'pending' as const, mergeable: 'mergeable' as const, checksLookup: null }];
-    const part = rows({ prs: { value: prs } }).progress.find((p) => p.kind === 'list');
-    expect(part).toMatchObject({ kind: 'list', id: 'prs', summary: { text: '2 PRs · 1 failing · 1 running', tone: 'warn' } });
-    expect(part?.kind === 'list' && part.items.map((i) => i.text)).toEqual(['#1 checks failing', '#2 checks running']);
+  it('every issue key shows: the first in the header, the rest in the context', () => {
+    const s = sections({ issues: ['3101', 'PROJ-12'] });
+    expect(s.header.key).toBe('3101');
+    expect(words(s.context)).toEqual(['PROJ-12']);
+    expect(sections({ issues: ['3101'] }).context).toEqual([]);
   });
 
   it('nine sprints read *in 9 sprints*', () => {
     const facts: CardFacts = planCardFacts(reading());
     const sprints = Array.from({ length: 9 }, (_, i) => ({ kind: 'sprint' as const, slug: `s${i}`, title: `S${i}`, state: 'Closed' as const }));
-    const r = presentCard({ ...facts, lineage: { ...facts.lineage, sprints: { value: sprints } } }, 'plans');
-    expect(r.lineage[0]).toMatchObject({ kind: 'list', summary: { text: 'in 9 sprints' } });
+    const s = presentCard({ ...facts, lineage: { ...facts.lineage, sprints: { value: sprints } } }, 'plans');
+    expect(s.context[0]).toMatchObject({ kind: 'list', summary: { text: 'in 9 sprints' } });
   });
 });
 
-describe('presentCard: the action row', () => {
+describe('presentCard: the PR list', () => {
+  const pr = (number: number, checks: 'green' | 'pending' | 'failing' | 'none' | 'unknown', over: Record<string, unknown> = {}) =>
+    ({ number, branch: `b${number}`, checks, mergeable: checks === 'unknown' ? 'unknown' as const : 'mergeable' as const, checksLookup: null, ...over });
+
+  it('a throttled host reads *checks unknown*, never zero', () => {
+    const w = allWords(sections({ prs: { value: [pr(7, 'unknown')] } }));
+    expect(w).toContain('#7 checks unknown');
+    expect(w.some((x) => /\b0\b/.test(x) && x.includes('check'))).toBe(false);
+  });
+
+  it('two or more collapse to a count with one dot and count per check state', () => {
+    const prs = [...[1, 2, 3, 4, 5].map((n) => pr(n, 'green')), pr(6, 'unknown')];
+    const part = sections({ prs: { value: prs } }).status.measures.find((p) => p.kind === 'list');
+    expect(part).toMatchObject({ kind: 'list', id: 'prs', summary: { text: '6 PRs', detail: '5 green · 1 checks unknown' } });
+    expect(part?.kind === 'list' && part.dots).toEqual([
+      { hue: 'green', count: 5, word: 'green' },
+      { hue: 'slate', count: 1, word: 'checks unknown' },
+    ]);
+    expect(part?.kind === 'list' && part.items.map(pieceWords)).toContain('#6 checks unknown');
+  });
+
+  it('counts a conflicting PR apart and warns, as checksProminence does', () => {
+    const part = sections({ prs: { value: [pr(1, 'green'), pr(2, 'none', { mergeable: 'conflicting' })] } }).status.measures.find((p) => p.kind === 'list');
+    expect(part).toMatchObject({ summary: { tone: 'warn' } });
+    expect(part?.kind === 'list' && part.dots.map((d) => d.word)).toEqual(['green', 'conflicting']);
+    expect(part?.kind === 'list' && part.items.map(pieceWords)).toContain('#2 no checks — conflicts');
+  });
+
+  it('tells a PR not looked up yet from one whose checks could not be asked', () => {
+    const part = sections({ prs: { value: [pr(1, 'unknown', { checksLookup: 'skipped' }), pr(2, 'unknown')] } }).status.measures.find((p) => p.kind === 'list');
+    expect(part?.kind === 'list' && part.dots.map((d) => d.word)).toEqual(['checks unknown', 'not looked up yet']);
+    expect(part?.kind === 'list' && part.items.map(pieceWords)).toEqual(['#1 checks not looked up yet', '#2 checks unknown']);
+  });
+
+  it('a PR with no checks because it conflicts warns, where a plain no-checks PR is quiet', () => {
+    const conflicting = sections({ prs: { value: [pr(60, 'none', { mergeable: 'conflicting' })] } }).status.measures.find((p) => p.kind === 'piece');
+    expect(conflicting).toMatchObject({ piece: { text: '#60 no checks — conflicts', tone: 'warn' } });
+    const quiet = sections({ prs: { value: [pr(58, 'none')] } }).status.measures.find((p) => p.kind === 'piece');
+    expect(quiet).toMatchObject({ piece: { text: '#58 no checks', tone: 'neutral' } });
+  });
+});
+
+describe('presentCard: the action band', () => {
   it('a disabled Start work carries its reason in words', () => {
-    const cold = rows({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
-    expect(cold.next.primary).toEqual({ action: 'start-work', label: 'Start work', enabled: false, reason: 'no fleet scan yet' });
-    const blocked = rows({ slices: { total: 2, complete: 0, eligible: 0, waitsOn: [{ branch: 'feature/x', pr: 3105 }] } });
-    expect(blocked.next.primary?.reason).toBe('waits on feature/x #3105');
+    const cold = sections({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
+    expect(cold.actions.primary).toEqual({ action: 'start-work', label: 'Start work', enabled: false, reason: 'no fleet scan yet' });
+    const blocked = sections({ slices: { total: 2, complete: 0, eligible: 0, waitsOn: [{ branch: 'feature/x', pr: 3105 }] } });
+    expect(blocked.actions.primary?.reason).toBe('waits on feature/x #3105');
   });
 
   it('every reason kind has words', () => {
@@ -151,90 +233,45 @@ describe('presentCard: the action row', () => {
     expect(reasonWords({ kind: 'lineage-unknown', relation: 'plans', reach: 'throttled' })).toBe('plans unread — host throttled');
   });
 
+  it('an action the board will not run reads the board\'s own sentence where its entry gives one', () => {
+    const facts = planCardFacts(reading());
+    const off = { ...facts, next: { primary: { action: 'start-work' as const, enabled: false, reason: { kind: 'action-unavailable' as const, action: 'start-work' as const } }, secondary: [] } };
+    expect(presentCard(off, 'plans').actions.primary?.reason).toBe('unavailable on this board');
+    expect(presentCard(off, 'plans', { unavailable: { 'start-work': 'only on localhost' } }).actions.primary?.reason).toBe('only on localhost');
+  });
+
   it('a draft offers Approve first, then Interrogate', () => {
-    const r = rows({ status: 'draft', controls: cardControls({ state: 'draft', status: 'draft' }) });
-    expect(r.next.primary?.label).toBe('Approve');
-    expect(r.next.secondary.map((a) => a.label)).toEqual(['Interrogate']);
+    const s = sections({ status: 'draft', state: 'draft', controls: cardControls({ state: 'draft', status: 'draft' }) });
+    expect(s.actions.primary?.label).toBe('Approve');
+    expect(s.actions.secondary.map((a) => a.label)).toEqual(['Interrogate']);
   });
 });
 
 describe('presentCard: emphasis is per board, never position', () => {
-  it('plans and swimlanes emphasise next; stories progress; tickets lineage', () => {
+  it('plans and swimlanes emphasise actions; stories status; tickets context', () => {
     const facts = planCardFacts(reading());
-    expect(presentCard(facts, 'plans').emphasis).toBe('next');
-    expect(presentCard(facts, 'swimlanes').emphasis).toBe('next');
-    expect(presentCard(facts, 'stories').emphasis).toBe('progress');
-    expect(presentCard(facts, 'tickets').emphasis).toBe('lineage');
-    expect(presentCard(facts, 'tickets').progress).toEqual(presentCard(facts, 'plans').progress);
-  });
-});
-
-describe('presentCard: a PR with no checks because it conflicts', () => {
-  it('says so, and warns, where a plain no-checks PR is quiet', () => {
-    const r = rows({ prs: { value: [{ number: 60, branch: 'b', checks: 'none', mergeable: 'conflicting', checksLookup: null }] } });
-    const p = r.progress.find((x) => x.kind === 'piece' && 'pr-checks' in x.piece.data);
-    expect(p?.kind === 'piece' && [p.piece.text, p.piece.tone]).toEqual(['#60 no checks — conflicts', 'warn']);
-    const quiet = rows({ prs: { value: [{ number: 58, branch: 'b', checks: 'none', mergeable: 'mergeable', checksLookup: null }] } });
-    const q = quiet.progress.find((x) => x.kind === 'piece' && 'pr-checks' in x.piece.data);
-    expect(q?.kind === 'piece' && [q.piece.text, q.piece.tone]).toEqual(['#58 no checks', 'neutral']);
-  });
-});
-
-describe('presentCard: an action this board will not run', () => {
-  it('reads the board\'s own sentence where its action entry gives one', () => {
-    const facts = planCardFacts(reading());
-    const off = { ...facts, next: { primary: { action: 'start-work' as const, enabled: false, reason: { kind: 'action-unavailable' as const, action: 'start-work' as const } }, secondary: [] } };
-    expect(presentCard(off, 'plans').next.primary?.reason).toBe('unavailable on this board');
-    expect(presentCard(off, 'plans', { unavailable: { 'start-work': 'only on localhost' } }).next.primary?.reason)
-      .toBe('only on localhost');
-  });
-});
-
-describe('presentCard: a plan answering two issues', () => {
-  it('shows every key: the first in the title, the rest in the lineage row', () => {
-    const r = rows({ issues: ['3101', 'PROJ-12'] });
-    expect(r.title.text).toBe('3101: X');
-    expect(words(r.lineage)).toEqual(['ticket PROJ-12']);
-  });
-
-  it('a plan with one issue repeats nothing in the lineage row', () => {
-    expect(rows({ issues: ['3101'] }).lineage).toEqual([]);
-  });
-});
-
-describe('presentCard: a collapsed PR list keeps what needs action', () => {
-  it('counts a conflicting PR apart and warns, as checksProminence does', () => {
-    const r = rows({ prs: { value: [
-      { number: 1, branch: 'a', checks: 'green', mergeable: 'mergeable', checksLookup: null },
-      { number: 2, branch: 'b', checks: 'none', mergeable: 'conflicting', checksLookup: null },
-    ] } });
-    const part = r.progress.find((p) => p.kind === 'list');
-    expect(part).toMatchObject({ kind: 'list', summary: { text: '2 PRs · 1 conflicting', tone: 'warn' } });
-  });
-
-  it('tells a PR not looked up yet from one whose checks could not be asked', () => {
-    const r = rows({ prs: { value: [
-      { number: 1, branch: 'a', checks: 'unknown', mergeable: 'unknown', checksLookup: 'skipped' },
-      { number: 2, branch: 'b', checks: 'unknown', mergeable: 'unknown', checksLookup: null },
-    ] } });
-    const part = r.progress.find((p) => p.kind === 'list');
-    expect(part?.kind === 'list' && part.summary.text).toBe('2 PRs · 1 checks unknown · 1 not looked up yet');
-    expect(part?.kind === 'list' && part.items.map((i) => i.text)).toEqual(['#1 checks not looked up yet', '#2 checks unknown']);
+    expect(presentCard(facts, 'plans').emphasis).toBe('actions');
+    expect(presentCard(facts, 'swimlanes').emphasis).toBe('actions');
+    expect(presentCard(facts, 'stories').emphasis).toBe('status');
+    expect(presentCard(facts, 'tickets').emphasis).toBe('context');
+    expect(presentCard(facts, 'tickets').status).toEqual(presentCard(facts, 'plans').status);
   });
 });
 
 describe('presentCard: an unpushed plan', () => {
   it('reads not pushed in the neutral tone — a normal moment while writing a plan', () => {
-    const alert = rows({ notPushed: true }).identity.find((p) => p.kind === 'piece' && p.piece.data.alert === 'not-pushed');
-    expect(alert?.kind === 'piece' && alert.piece.tone).toBe('neutral');
+    const tag = sections({ notPushed: true }).header.tags.find((t) => t.data.alert === 'not-pushed');
+    expect(tag?.tone).toBe('neutral');
   });
 });
 
-describe('presentCard: kind icons', () => {
-  it('names the card\'s kind icon and the icon of each lineage item', () => {
-    const r = rows({ sprint: { value: { slug: 'sp', title: 'card-alignment', state: 'Active' } } });
-    expect(r.kind).toEqual({ kind: 'plan', label: 'Plan' });
-    const sprint = r.lineage.find((p) => p.kind === 'piece' && p.piece.data.lineage === 'sprints');
-    expect(sprint?.kind === 'piece' && sprint.piece.icon).toEqual({ kind: 'sprint', label: 'Sprint' });
+describe('relativeAge', () => {
+  it('reads today, yesterday, days, months and years', () => {
+    expect(relativeAge('2026-11-06', NOW)).toBe('today');
+    expect(relativeAge('2026-11-05', NOW)).toBe('yesterday');
+    expect(relativeAge('2026-11-04', NOW)).toBe('2 days ago');
+    expect(relativeAge('2026-09-01', NOW)).toBe('2 months ago');
+    expect(relativeAge('2024-11-01', NOW)).toBe('2 years ago');
+    expect(relativeAge('not a date', NOW)).toBe('not a date');
   });
 });

@@ -30,9 +30,11 @@ export interface ReasonTooltip {
  * is empty and the control renders as it would without it.
  *
  * @param reason - the sentence to show; `null` or `''` for none.
+ * @param kind - `reason` for why a control will not act (`data-action-reason`),
+ *   `detail` for the rest of a fact's sentence (`data-detail`).
  * @returns the props for the wrapper and the control, `show`, and the tooltip element.
  */
-export const useReasonTooltip = (reason: string | null): ReasonTooltip => {
+export const useReasonTooltip = (reason: string | null, kind: 'reason' | 'detail' = 'reason'): ReasonTooltip => {
   const id = useId();
   const [open, setOpen] = useState(false);
   if (reason === null || reason.trim() === '') {
@@ -55,7 +57,7 @@ export const useReasonTooltip = (reason: string | null): ReasonTooltip => {
       <span
         id={id}
         role="tooltip"
-        data-action-reason
+        {...(kind === 'reason' ? { 'data-action-reason': '' } : { 'data-detail': '' })}
         hidden={!open}
         className="absolute left-0 top-full z-20 mt-1 w-max max-w-64 rounded bg-slate-800 px-2 py-1 text-xs font-normal text-white shadow dark:bg-slate-200 dark:text-slate-900"
       >
