@@ -232,23 +232,32 @@ const DotsView = ({ dots }: { dots: Dot[] }) => (
 );
 
 /**
- * A count that opens a popover listing its items, each a link. The popover is
- * a dialog: it opens on click, Enter or Space, takes focus, and closes on
- * Escape or a click outside, returning focus to the count.
+ * A button that opens a popover. The popover is a dialog: it opens on click,
+ * Enter or Space, takes focus, and closes on Escape or a click outside,
+ * returning focus to the button.
  */
-const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; linkFor?: LinkFor }) => {
+const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, align = 'left', popoverId, children, trigger }: {
+  /** The dialog's accessible name. */
+  label: string;
+  /** The button's accessible name, where its text does not give one. */
+  buttonLabel?: string;
+  buttonClass: string;
+  buttonAttrs?: Record<string, string>;
+  title?: string;
+  /** Which edge of the button the popover lines up with. */
+  align?: 'left' | 'right';
+  popoverId: string;
+  children: ReactNode;
+  trigger: ReactNode;
+}) => {
   const [open, setOpen] = useState(false);
-  const dialogId = `${useId()}-${part.id}`;
+  const dialogId = `${useId()}-${popoverId}`;
   const rootRef = useRef<HTMLSpanElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const close = (refocus: boolean) => {
-    setOpen(false);
-    if (refocus) buttonRef.current?.focus();
-  };
   useEffect(() => {
     if (!open) return;
-    // Focus the first link inside, else the dialog itself.
+    // Focus the first control inside, else the dialog itself.
     const first = dialogRef.current?.querySelector<HTMLElement>('a, button');
     (first ?? dialogRef.current)?.focus();
     const outside = (e: PointerEvent) => {
@@ -265,45 +274,67 @@ const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; li
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={dialogId}
-        data-expander={part.id}
-        title={part.summary.detail ?? undefined}
+        aria-label={buttonLabel}
+        title={title}
         onClick={() => setOpen((o) => !o)}
-        className={cn(
-          'inline-flex cursor-pointer items-center gap-1.5 rounded text-left no-underline decoration-1 underline-offset-2 hover:underline',
-          'focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--hue-blue-dot)',
-          TONE[part.summary.tone],
-        )}
-        {...dataAttrs(part.summary.data)}
+        className={buttonClass}
+        {...buttonAttrs}
       >
-        {part.summary.icon && <KindIconView icon={part.summary.icon} />}
-        <span>{part.summary.text}</span>
-        {part.dots.length > 0 && <DotsView dots={part.dots} />}
+        {trigger}
       </button>
       {open && (
         <div
           ref={dialogRef}
           id={dialogId}
           role="dialog"
-          aria-label={part.summary.text}
+          aria-label={label}
           tabIndex={-1}
-          data-popover={part.id}
+          data-popover={popoverId}
           onKeyDown={(e) => {
             if (e.key !== 'Escape') return;
             e.stopPropagation();
-            close(true);
+            setOpen(false);
+            buttonRef.current?.focus();
           }}
-          className="absolute left-0 top-full z-30 mt-1.5 flex w-max max-w-[28rem] flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none"
+          className={cn(
+            'absolute top-full z-30 mt-1.5 flex w-max max-w-[28rem] flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none',
+            align === 'right' ? 'right-0' : 'left-0',
+          )}
         >
-          <ul className="flex flex-col gap-1.5">
-            {part.items.map((item, i) => (
-              <li key={i}><PieceView piece={item} linkFor={linkFor} inPopover /></li>
-            ))}
-          </ul>
+          {children}
         </div>
       )}
     </span>
   );
 };
+
+/** A count that opens a popover listing its items, each a link. */
+const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; linkFor?: LinkFor }) => (
+  <PopoverButton
+    label={part.summary.text}
+    popoverId={part.id}
+    title={part.summary.detail ?? undefined}
+    buttonAttrs={{ 'data-expander': part.id, ...dataAttrs(part.summary.data) }}
+    buttonClass={cn(
+      'inline-flex cursor-pointer items-center gap-1.5 rounded text-left no-underline decoration-1 underline-offset-2 hover:underline',
+      'focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--hue-blue-dot)',
+      TONE[part.summary.tone],
+    )}
+    trigger={(
+      <>
+        {part.summary.icon && <KindIconView icon={part.summary.icon} />}
+        <span>{part.summary.text}</span>
+        {part.dots.length > 0 && <DotsView dots={part.dots} />}
+      </>
+    )}
+  >
+    <ul className="flex flex-col gap-1.5">
+      {part.items.map((item, i) => (
+        <li key={i}><PieceView piece={item} linkFor={linkFor} inPopover /></li>
+      ))}
+    </ul>
+  </PopoverButton>
+);
 
 /** Slices done of total, as words and a segmented bar stretched across the rest of the line. */
 const WorkView = ({ part }: { part: Extract<Part, { kind: 'work' }> }) => (
@@ -427,13 +458,15 @@ export const Card = ({
   id, sections, titleHref, onOpenTitle, linkFor, renderAction, highlighted = false,
 }: CardProps) => {
   const { header, status, footer, emphasis, accent } = sections;
-  const slots = [
-    ...(footer.primary === null ? [] : [{ action: footer.primary, primary: true }]),
-    ...footer.secondary.map((action) => ({ action, primary: false })),
-  ].flatMap(({ action, primary: isPrimary }) => {
+  const controlsOf = (actions: { action: PresentedAction; primary: boolean }[]) => actions.flatMap(({ action, primary: isPrimary }) => {
     const control = action.enabled ? renderAction(action, isPrimary) : <DisabledAction action={action} linkFor={linkFor} />;
     return control === null || control === undefined || control === false ? [] : [{ action, isPrimary, control }];
   });
+  const slots = controlsOf([
+    ...(footer.primary === null ? [] : [{ action: footer.primary, primary: true }]),
+    ...footer.secondary.map((action) => ({ action, primary: false })),
+  ]);
+  const more = controlsOf(footer.more.map((action) => ({ action, primary: false })));
   const statusTwoLines = status.work !== null && status.signals.length > 0;
   const numberLink = header.numberRef !== null ? linkFor?.(header.numberRef) ?? null : null;
   return (
@@ -442,11 +475,11 @@ export const Card = ({
       data-card
       data-highlighted={highlighted ? 'true' : undefined}
       className={cn(
-        'relative grid scroll-mt-20 grid-cols-[1fr_auto] rounded-xl border border-(--card-border) bg-(--card-surface)',
+        'relative grid scroll-mt-20 grid-cols-1 rounded-xl border border-(--card-border) bg-(--card-surface)',
         'shadow-(--card-shadow) transition-shadow duration-150 hover:shadow-(--card-shadow-raised) focus-within:shadow-(--card-shadow-raised)',
         highlighted && 'ring-2 ring-blue-500 ring-offset-2 ring-offset-(--card-surface)',
       )}
-      style={{ gridTemplateAreas: '"title title" "meta meta" "status status" "who actions"' }}
+      style={{ gridTemplateAreas: '"title" "meta" "status" "footer"' }}
     >
       {/* The 3 px accent in the state's colour; the state pill says it in words. */}
       <span aria-hidden className="absolute inset-y-0 left-0 z-10 w-[3px] rounded-l-xl" style={{ background: hue(accent).dot }} data-accent={accent} />
@@ -485,20 +518,62 @@ export const Card = ({
         </div>
       </div>
 
-      {/* FOOTER, actions half — second in the DOM so the actions follow the title in the tab order. */}
+      {/*
+        FOOTER — the band: one wrapping row, the assignees and age on the left and
+        the action group on the right. The group comes first in the DOM, so the
+        actions follow the title in the tab order; `order` draws it on the right
+        of the assignee group's space. Where both do not fit, the whole group wraps
+        to its own row and never splits.
+      */}
       <div
         data-section="footer"
-        data-card-row="next"
-        data-action-band
+        data-footer-band
         data-emphasis={emphasis === 'footer' ? 'true' : undefined}
-        className="relative z-[1] mt-3 flex flex-wrap items-center justify-end gap-1.5 py-2.5 pr-4 pl-2"
-        style={{ gridArea: 'actions' }}
+        className={cn(
+          'mt-3 flex flex-wrap items-center rounded-b-xl border-t border-(--card-border)',
+          emphasis === 'footer' ? 'bg-(--card-band-strong)' : 'bg-(--card-band)',
+        )}
+        style={{ gridArea: 'footer' }}
       >
-        {slots.map(({ action, isPrimary, control }) => (
-          <span key={action.action} className="inline-flex" data-action-slot={isPrimary ? 'primary' : 'secondary'}>
-            {control}
+        <div
+          data-card-row="next"
+          data-action-band
+          className="order-2 ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-1.5 py-2.5 pr-4 pl-2 whitespace-nowrap"
+        >
+          {slots.map(({ action, isPrimary, control }) => (
+            <span key={action.action} className="inline-flex" data-action-slot={isPrimary ? 'primary' : 'secondary'}>
+              {control}
+            </span>
+          ))}
+          {more.length > 0 && (
+            <span className="inline-flex" data-action-slot="more">
+              <PopoverButton
+                label="More actions"
+                buttonLabel="More actions"
+                popoverId="more-actions"
+                align="right"
+                buttonClass="cursor-pointer"
+                buttonAttrs={{ 'data-more-actions': '' }}
+                trigger={<span aria-hidden>⋯</span>}
+              >
+                <ul className="flex flex-col items-start gap-1.5" data-more-list>
+                  {more.map(({ action, control }) => (
+                    <li key={action.action} className="inline-flex" data-action-slot="secondary" data-menu-action={action.action}>{control}</li>
+                  ))}
+                </ul>
+              </PopoverButton>
+            </span>
+          )}
+        </div>
+        {/* The assignee group's space on the band; the group itself is drawn over it, last in the DOM. */}
+        <div aria-hidden inert data-ownership-space className="invisible order-1 flex items-center gap-2 py-2.5 pl-4 text-xs">
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-flex size-6" />
+            {footer.assignees.more > 0 && <span className="tabular-nums">+{footer.assignees.more}</span>}
+            {footer.assignees.word !== null && <span>{footer.assignees.word}</span>}
           </span>
-        ))}
+          {footer.age && <span>{footer.age.text}</span>}
+        </div>
       </div>
 
       {/* HEADER, meta line — number, type, alerts and related items. */}
@@ -538,22 +613,19 @@ export const Card = ({
         </div>
       </div>
 
-      {/* FOOTER, who half — the assignee and the age, on the left of the band. */}
-      <div data-card-row="ownership" className="relative z-[1] mt-3 flex items-center gap-2 py-2.5 pl-4 text-xs text-(--card-meta)" style={{ gridArea: 'who' }}>
+      {/*
+        FOOTER, assignee group — last in the DOM so it follows the status in the tab
+        order, drawn over its space at the band's top left (below the 12 px gap and
+        the hairline).
+      */}
+      <div
+        data-card-row="ownership"
+        className="relative z-[1] mt-[calc(0.75rem+1px)] flex items-center gap-2 self-start justify-self-start py-2.5 pl-4 text-xs text-(--card-meta)"
+        style={{ gridArea: 'footer' }}
+      >
         <AssigneesView a={footer.assignees} />
         {footer.age && <PieceView piece={footer.age} />}
       </div>
-
-      {/* The band's surface behind both halves: its tint and its top hairline. */}
-      <span
-        aria-hidden
-        className={cn(
-          'mt-3 rounded-b-xl border-t border-(--card-border)',
-          emphasis === 'footer' ? 'bg-(--card-band-strong)' : 'bg-(--card-band)',
-        )}
-        style={{ gridRow: 4, gridColumn: '1 / -1' }}
-        data-footer-band
-      />
     </article>
   );
 };

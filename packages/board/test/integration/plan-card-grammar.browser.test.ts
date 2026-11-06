@@ -53,6 +53,28 @@ const APP_KEYS = card({
 
 const STARTABLE_COLD = card({ ...COLD_INPUT, facts: planFactsOf(card(COLD_INPUT), { state: stateFor(COLD_INPUT), sprints: [SPRINT] }) });
 
+/** A plan offering more than two secondaries: the rest go behind `⋯`. */
+const MANY_INPUT = {
+  slug: 'many', title: 'A plan with many actions', phase: 'Development', status: 'approved', started: false,
+  path: 'docs/plans/2026-11-06-many.md', sliceSummary: { slices: 2, branches: 2, deferred: 0 },
+} satisfies Parameters<typeof card>[0];
+const MANY_BASE = card(MANY_INPUT);
+const MANY = card({
+  ...MANY_INPUT,
+  facts: {
+    ...MANY_BASE.facts,
+    next: {
+      primary: { action: 'approve', enabled: true, reason: null },
+      secondary: [
+        { action: 'interrogate', enabled: true, reason: null },
+        { action: 'deliver', enabled: true, reason: null },
+        { action: 'start-work', enabled: false, reason: { kind: 'awaiting-fleet-scan' } },
+        { action: 'confirm-slices', enabled: true, reason: null },
+      ],
+    },
+  },
+});
+
 describe('a plan card renders the card grammar', () => {
   let cat: Catalogue;
 
@@ -68,13 +90,14 @@ describe('a plan card renders the card grammar', () => {
     const page = await cat.open('an-empty-estate', {
       over: {
         board: board({
-          columns: [column({ phase: 'Discovery', cards: [DRAFT] }), column({ phase: 'Development', cards: [STARTABLE_COLD, APP_KEYS] })],
+          columns: [column({ phase: 'Discovery', cards: [DRAFT] }), column({ phase: 'Development', cards: [STARTABLE_COLD, APP_KEYS, MANY] })],
           branchUrlBase: 'https://example.invalid/tree/',
           issueUrlBase: 'https://example.invalid/issues/',
           sprints: [SPRINT],
           dispatch: { available: true, reason: '' },
           approve: { available: true, reason: '' },
           interrogate: { available: true, reason: '' },
+          deliver: { available: true, reason: '' },
         }),
       },
       tab: 'board',
@@ -328,6 +351,70 @@ describe('a plan card renders the card grammar', () => {
       await page.locator('#plan-cold [data-card-title]').focus();
       await button.hover();
       expect(await reason.isVisible()).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+  it('the action group wraps whole to its own row at 320 px, and every label shows in full', async () => {
+    const page = await open();
+    try {
+      const rect = (sel: string) => page.locator(sel).evaluate((el) => el.getBoundingClientRect().toJSON() as DOMRect);
+      // Wide enough, the assignees and the actions share one row.
+      const wide = { band: await rect('#plan-grammar [data-action-band]'), who: await rect('#plan-grammar [data-card-row="ownership"]') };
+      expect(wide.band.top).toBeLessThan(wide.who.bottom);
+
+      await page.locator('#plan-many').evaluate((el) => { el.style.width = '320px'; });
+      const band = await rect('#plan-many [data-action-band]');
+      const who = await rect('#plan-many [data-card-row="ownership"]');
+      expect(band.top).toBeGreaterThanOrEqual(who.bottom);
+      // The group stays on one row, right-aligned, in order: primary, two secondaries, then `⋯`.
+      const slots = await page.locator('#plan-many [data-action-band] > [data-action-slot]').evaluateAll((els) =>
+        els.map((el) => ({ slot: el.getAttribute('data-action-slot'), top: Math.round(el.getBoundingClientRect().top) })));
+      expect(slots.map((x) => x.slot)).toEqual(['primary', 'secondary', 'secondary', 'more']);
+      expect(new Set(slots.map((x) => x.top)).size).toBe(1);
+      const card = await rect('#plan-many');
+      expect(card.right - band.right).toBeLessThanOrEqual(2);
+      // No label is shrunk, cut or wrapped.
+      const widths = await page.locator('#plan-many [data-action-band] button').evaluateAll((els) =>
+        els.map((el) => ({ text: el.textContent, scroll: el.scrollWidth, client: el.clientWidth, height: el.getBoundingClientRect().height })));
+      for (const w of widths) {
+        expect(w.scroll, w.text ?? '').toBeLessThanOrEqual(w.client);
+        expect(w.height, w.text ?? '').toBeLessThanOrEqual(30);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('more than two secondaries put the rest behind More actions, in order, a disabled one with its reason', async () => {
+    const page = await open();
+    try {
+      const more = page.locator('#plan-many').getByRole('button', { name: 'More actions' });
+      expect(await more.textContent()).toBe('⋯');
+      // Tab order: title, primary, the two secondaries, then `⋯`.
+      await page.locator('#plan-many [data-card-title]').focus();
+      const order: string[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        await page.keyboard.press('Tab');
+        order.push(await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement;
+          return el.getAttribute('aria-label') ?? el.textContent?.trim() ?? '';
+        }));
+      }
+      expect(order).toEqual(['Approve', 'Interrogate', 'Deliver', 'More actions']);
+
+      await page.keyboard.press('Enter');
+      const menu = page.getByRole('dialog', { name: 'More actions' });
+      await menu.waitFor({ timeout: 5_000 });
+      expect(await menu.locator('[data-menu-action]').evaluateAll((els) => els.map((el) => el.getAttribute('data-menu-action'))))
+        .toEqual(['start-work', 'confirm-slices']);
+      const disabled = menu.locator('[data-action="start-work"] button');
+      expect(await disabled.getAttribute('aria-disabled')).toBe('true');
+      const reasonId = await disabled.getAttribute('aria-describedby');
+      expect(await page.locator(`[id="${reasonId}"]`).textContent()).toBe('no fleet scan yet');
+      await page.keyboard.press('Escape');
+      await expect.poll(() => menu.count()).toBe(0);
+      expect(await more.evaluate((el) => el === document.activeElement)).toBe(true);
     } finally {
       await page.close();
     }

@@ -255,6 +255,21 @@ describe('presentCard: the PR list', () => {
 });
 
 describe('presentCard: the footer\'s actions', () => {
+  it('shows two secondaries and puts the rest, in order, behind More actions', () => {
+    const base = planCardFacts(reading());
+    const on = (action: 'interrogate' | 'deliver' | 'confirm-slices') => ({ action, enabled: true, reason: null });
+    const s = presentCard({
+      ...base,
+      next: {
+        primary: on('confirm-slices'),
+        secondary: [on('interrogate'), on('deliver'), { action: 'start-work', enabled: false, reason: { kind: 'awaiting-fleet-scan' } }, on('confirm-slices')],
+      },
+    }, 'plans');
+    expect(s.footer.secondary.map((a) => a.action)).toEqual(['interrogate', 'deliver']);
+    expect(s.footer.more.map((a) => [a.action, a.reason])).toEqual([['start-work', 'no fleet scan yet'], ['confirm-slices', null]]);
+    expect(sections().footer.more).toEqual([]);
+  });
+
   it('a disabled Start work carries its reason in words', () => {
     const cold = sections({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
     expect(cold.footer.primary).toEqual({

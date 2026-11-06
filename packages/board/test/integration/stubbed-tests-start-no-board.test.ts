@@ -865,7 +865,10 @@ const EXPECTED_FILES = 82;
 // 658 → 659 on 2026-11-06: in `plan-card-grammar.browser.test.ts` the
 // expand-in-place PR test became the PR popover test, and one `it(` was added
 // for the sprint link and the link style. `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 659;
+// 659 → 661 on 2026-11-06: two `it(` in `plan-card-grammar.browser.test.ts`,
+// for the footer's action group wrapping whole at 320 px and for the `⋯` More
+// actions menu. `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 661;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
