@@ -3513,6 +3513,21 @@ export async function renderDesignDocPage(
 }
 
 /**
+ * What a plan's next start waits for, by branch name.
+ *
+ * Read from the earliest incomplete slice: every later slice is blocked behind
+ * it, so it is the prerequisite. Its unmerged branches name themselves — the
+ * plan waits on them landing — except a branch the pulse reads `waiting` or
+ * `blocked` with a `waits_on` declaration, which names the branches it waits on.
+ */
+const waitedOn = (slices: FleetReading['plans'][number]['slices']): string[] => {
+  const pending = slices.find((slice) => slice.verdict !== 'complete' && slice.verdict !== 'empty');
+  return (pending?.branches ?? [])
+    .filter((b) => !b.deferred && b.state !== 'merged')
+    .flatMap((b) => ((b.state === 'waiting' || b.state === 'blocked') && b.waits_on.length > 0 ? b.waits_on : [b.branch]));
+};
+
+/**
  * A plan's slices as the pulse reports them, for its card facts: the total the
  * plan names, the complete and eligible counts where a pulse covers the plan,
  * and the unmerged branches of the earliest incomplete slice.
@@ -3530,10 +3545,7 @@ export const slicesFromPulse = (
   for (const slice of plan.slices) {
     for (const b of slice.branches) if (b.state === 'open' && slice.verdict === 'eligible') eligible += 1;
   }
-  const pending = plan.slices.find((slice) => slice.verdict !== 'complete' && slice.verdict !== 'empty');
-  const waitsOn = (pending?.branches ?? [])
-    .filter((b) => !b.deferred && b.state !== 'merged')
-    .map((b) => ({ branch: b.branch, pr: prByHead.get(b.branch) ?? null }));
+  const waitsOn = [...new Set(waitedOn(plan.slices))].map((branch) => ({ branch, pr: prByHead.get(branch) ?? null }));
   return {
     total: meta.slices.length,
     complete: plan.slices.filter((slice) => slice.verdict === 'complete').length,
