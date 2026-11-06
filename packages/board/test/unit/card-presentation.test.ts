@@ -179,3 +179,13 @@ describe('presentCard: a PR with no checks because it conflicts', () => {
     expect(q?.kind === 'piece' && [q.piece.text, q.piece.tone]).toEqual(['#58 no checks', 'neutral']);
   });
 });
+
+describe('presentCard: an action this board will not run', () => {
+  it('reads the board\'s own sentence where its action entry gives one', () => {
+    const facts = planCardFacts(reading());
+    const off = { ...facts, next: { primary: { action: 'start-work' as const, enabled: false, reason: { kind: 'action-unavailable' as const, action: 'start-work' as const } }, secondary: [] } };
+    expect(presentCard(off, 'plans').next.primary?.reason).toBe('unavailable on this board');
+    expect(presentCard(off, 'plans', { unavailable: { 'start-work': 'only on localhost' } }).next.primary?.reason)
+      .toBe('only on localhost');
+  });
+});

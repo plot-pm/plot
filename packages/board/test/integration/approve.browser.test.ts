@@ -343,8 +343,13 @@ describe('approve: a board that cannot approve says so instead of offering', () 
       // Reachable by keyboard, which is the whole point of the attribute.
       await button.focus();
       expect(await button.evaluate((el) => el === document.activeElement)).toBe(true);
-      // And the reason travels with it, for a reader with no pointer to hover.
-      expect(await button.textContent()).toMatch(/localhost/);
+      // And the reason travels with it, for a reader with no pointer to hover:
+      // shown on the card beside it, and named as the button's description.
+      const reasonId = await button.getAttribute('aria-describedby');
+      expect(reasonId).toBeTruthy();
+      const reason = page.locator(`[id="${reasonId}"]`);
+      expect(await reason.isVisible()).toBe(true);
+      expect(await reason.textContent()).toMatch(/localhost/);
     } finally {
       await page.close();
     }

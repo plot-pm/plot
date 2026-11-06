@@ -165,7 +165,15 @@ export function PlanCard({
   highlighted = false,
 }: PlanCardProps) {
   const hide = [...(showStory ? [] : ['stories' as const]), ...(showSprint ? [] : ['sprints' as const])];
-  const rows = presentCard(card.facts, board, { hide });
+  const unavailable = {
+    'start-work': dispatch?.reason,
+    approve: approve?.reason,
+    'approve-spike': approve?.reason,
+    'confirm-slices': approve?.reason,
+    interrogate: interrogate?.reason,
+    deliver: deliver?.reason,
+  };
+  const rows = presentCard(card.facts, board, { hide, unavailable });
   const storyPage = story ? storyHref(story) : '';
 
   const linkFor = (ref: Ref): RefLink | null => {

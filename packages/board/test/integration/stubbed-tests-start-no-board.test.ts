@@ -522,7 +522,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // and `test/unit/panels-show-the-prefix.test.ts`, which imports the catalogue
 // builders (`drivesAPage` counts it) to prove PlanCard, PlanModal, StoryModal
 // and SprintModal print the prefix. Neither starts a board.
-const EXPECTED_FILES = 80;
+// 80 → 81 on 2026-11-06: `plan-card-grammar.browser.test.ts`, for the plan
+// card's rows, tab order and expander through the shared `<Card>`
+// (one-card-grammar). A plain addition; it serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 81;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -841,7 +845,9 @@ const EXPECTED_FILES = 80;
 // 638 → 644 on 2026-11-01: one `it(` in the new `every-plan-reference-shows-
 // its-issue.browser.test.ts` and five in the new `panels-show-the-prefix.test
 // .ts`. `EXPECTED_FILES` moves by 2, matching the two new files.
-const EXPECTED_TESTS = 645;
+// 645 → 649 on 2026-11-06: four `it(` in the new `plan-card-grammar.browser
+// .test.ts` (one-card-grammar). `EXPECTED_FILES` moves by 1, matching the file.
+const EXPECTED_TESTS = 649;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

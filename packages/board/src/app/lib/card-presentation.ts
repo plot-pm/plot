@@ -67,10 +67,16 @@ export interface CardRows {
   ownership: Part[];
 }
 
-/** What a board may leave off a card because a filter already says it. */
+/** What the board adds to a card: filters it already shows, and its own action entries. */
 export interface PresentOptions {
   /** Lineage relations the board's active filter already names. */
   hide?: readonly ('stories' | 'sprints')[];
+  /**
+   * The board's own sentence for each action it will not run, from its action
+   * entry. An `action-unavailable` reason reads as that sentence where one is
+   * given.
+   */
+  unavailable?: Readonly<Partial<Record<ActionKind, string>>>;
 }
 
 const EMPHASIS: Readonly<Record<CardBoard, Facet>> = {
@@ -137,11 +143,12 @@ const refWords = (ref: Ref): string => {
  * Why an action is disabled, in words.
  *
  * @param reason - the typed reason from `CardFacts`.
+ * @param unavailable - the board's own sentence per action it will not run.
  * @returns the sentence the card shows beside the action.
  */
-export const reasonWords = (reason: Reason): string => {
+export const reasonWords = (reason: Reason, unavailable: PresentOptions['unavailable'] = {}): string => {
   switch (reason.kind) {
-    case 'action-unavailable': return 'unavailable on this board';
+    case 'action-unavailable': return unavailable[reason.action]?.trim() || 'unavailable on this board';
     case 'awaiting-fleet-scan': return 'no fleet scan yet';
     case 'nothing-eligible':
       return reason.waitsOn.length === 0
@@ -153,11 +160,13 @@ export const reasonWords = (reason: Reason): string => {
   }
 };
 
-const presentAction = (a: NonNullable<CardFacts['next']['primary']>): PresentedAction => ({
+const presentAction = (
+  a: NonNullable<CardFacts['next']['primary']>, unavailable: PresentOptions['unavailable'],
+): PresentedAction => ({
   action: a.action,
   label: LABEL[a.action],
   enabled: a.enabled,
-  reason: a.reason === null ? null : reasonWords(a.reason),
+  reason: a.reason === null ? null : reasonWords(a.reason, unavailable),
 });
 
 const RELATION_WORD: Readonly<Record<keyof CardFacts['lineage'], [string, string]>> = {
@@ -330,7 +339,10 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
     identity: identityParts,
     lineage: lineageParts,
     progress: progressParts,
-    next: { primary: next.primary === null ? null : presentAction(next.primary), secondary: next.secondary.map(presentAction) },
+    next: {
+      primary: next.primary === null ? null : presentAction(next.primary, options.unavailable),
+      secondary: next.secondary.map((a) => presentAction(a, options.unavailable)),
+    },
     ownership: ownershipParts,
   };
 };
