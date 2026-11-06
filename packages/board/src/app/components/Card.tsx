@@ -235,9 +235,10 @@ const DotsView = ({ dots }: { dots: Dot[] }) => (
 /**
  * A button that opens a popover. The popover is a dialog: it opens on click,
  * Enter or Space, takes focus, and closes on Escape or a click outside,
- * returning focus to the button.
+ * returning focus to the button. With `keepMounted`, a closed popover stays in
+ * the DOM, hidden, so the controls inside keep their state across a close.
  */
-const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, align = 'left', popoverId, children, trigger }: {
+const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, align = 'left', popoverId, keepMounted = false, children, trigger }: {
   /** The dialog's accessible name. */
   label: string;
   /** The button's accessible name, where its text does not give one. */
@@ -248,6 +249,8 @@ const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, al
   /** Which edge of the button the popover lines up with. */
   align?: 'left' | 'right';
   popoverId: string;
+  /** Keeps the closed popover's content mounted and hidden rather than removing it. */
+  keepMounted?: boolean;
   children: ReactNode;
   trigger: ReactNode;
 }) => {
@@ -283,13 +286,14 @@ const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, al
       >
         {trigger}
       </button>
-      {open && (
+      {(open || keepMounted) && (
         <div
           ref={dialogRef}
           id={dialogId}
           role="dialog"
           aria-label={label}
           tabIndex={-1}
+          hidden={!open}
           data-popover={popoverId}
           onKeyDown={(e) => {
             if (e.key !== 'Escape') return;
@@ -298,7 +302,9 @@ const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, al
             buttonRef.current?.focus();
           }}
           className={cn(
-            'absolute top-full z-30 mt-1.5 flex w-max max-w-[28rem] flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none',
+            // The class and the attribute agree, so `flex` never shows a closed popover.
+            open ? 'flex' : 'hidden',
+            'absolute top-full z-30 mt-1.5 w-max max-w-[28rem] flex-col gap-1.5 rounded-lg border border-(--card-border) bg-(--card-surface) p-2.5 text-xs text-(--card-body) shadow-(--card-shadow-raised) outline-none',
             align === 'right' ? 'right-0' : 'left-0',
           )}
         >
@@ -555,6 +561,7 @@ export const Card = ({
                 buttonLabel="More actions"
                 popoverId="more-actions"
                 align="right"
+                keepMounted
                 buttonClass="cursor-pointer"
                 buttonAttrs={{ 'data-more-actions': '' }}
                 trigger={<span aria-hidden>⋯</span>}
