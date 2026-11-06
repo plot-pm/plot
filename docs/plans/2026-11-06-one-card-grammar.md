@@ -6,6 +6,7 @@
 
 - **State:** Design
 - **Type:** feature
+- **Sprint:** card-alignment
 - **Review:** pr
 - **Impl:** own branches
 - **Design:** 2026-11-06, jwloka, cli

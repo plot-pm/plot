@@ -21,6 +21,7 @@ semantic model, `CardFacts`, presented by one shared card — and converts the
 three boards to it: Plans first as the tracer, then Stories, then Tickets.
 
 ### Must Have
+- [ ] [one-card-grammar] Tickets, Stories and Plans cards share one five-row card
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`
