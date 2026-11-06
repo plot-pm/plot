@@ -449,7 +449,7 @@ into the domain as types; the words built from them (`plan-spend.ts:138-144`,
 | `storyCardFacts` | `board.ts` story read (`:2225-2262`) | story frontmatter incl. `issue:`, its plans, `derivedStanding` | `storyCardView` |
 | `ticketCardFacts` | `discovery-lanes.ts`, server side, beside `ticketLanes` | ticket row, `TicketPlan` (now `slug`, `title`, `story`), the ticket → story index, `plansUnreadable` | `ticketCardView`, `ticketCardShowsActions`, `ticketCardSubtitle`, `ticketCardAge` — today run in the browser at `StoriesTab.tsx:488` |
 
-**`ownership.assignees`**: a ticket's tracker `assignees`; a story's `author:` (the template's *who owns/drives this story*); a plan's assignee. The approver is not an assignee: the `Approved:` record names the approver, and the card no longer switches to them after approval. A tracker that did not answer gives `unknown`; a read with nobody assigned gives `{ value: [] }`.
+**`ownership.assignees`**: a ticket's tracker `assignees`; a story's `author:` (the template's *who owns/drives this story*); a plan's `Assignee:` handles, and where it has none the person on its newest `Started:` record — who took the work up; neither gives unassigned. The tooltip names the source (*Assigned: Jan Wloka*, *Started by Jan Wloka on 2026-11-06*). The approver is not an assignee: the `Approved:` record names the approver, and the card no longer switches to them after approval. A tracker that did not answer gives `unknown`; a read with nobody assigned gives `{ value: [] }`.
 
 **`progress.state`**: a ticket's lane, a story's `status:`, a plan's `State:`. A ticket whose tracker did not answer reads `unknown`, never *open*.
 
@@ -569,8 +569,8 @@ approver, and cost unless it was measured — these show in `PlanModal`,
 exact date and its event (*opened*, *updated*, *transitioned*) in the same
 tooltip that carries disabled reasons. Assignees are round initials avatars;
 two or more show the first plus a count, all names in the tooltip; nobody
-assigned is an empty dashed circle whose accessible name and tooltip say
-*Unassigned*; an unread assignee is the same circle named *Assignee unknown*.
+assigned is an empty dashed circle followed by a muted *unassigned*, whose
+tooltip says *Unassigned*; an unread assignee is the same circle named *Assignee unknown*.
 The footer is drawn on a card with no actions too, because it holds the
 assignees and the age.
 
