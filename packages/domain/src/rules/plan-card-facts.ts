@@ -1,3 +1,4 @@
+import { PlanStateSchema } from '../entities/card-facts.js';
 import type {
   Action,
   ActionKind,
@@ -9,28 +10,11 @@ import type {
   Ref,
   VerificationReading,
 } from '../entities/card-facts.js';
-import { namesAPerson, resolvePerson, type PersonDirectory } from '../entities/person.js';
+import { resolvePerson, type PersonDirectory } from '../entities/person.js';
 import type { SprintState } from '../entities/sprint.js';
 import type { StoryStatus } from '../entities/story.js';
 import type { CardControls } from './card-controls.js';
 import { PlanTypeSchema, type PlanStatus } from './phase.js';
-
-/**
- * The approver's raw spelling from an `Approved:` record, or `''` where the
- * record carries none.
- *
- * The record is `<date>, <who>, <channel detail>`; the `who` position is read
- * positionally. A bare-timestamp record and the template placeholder `<who>`
- * carry no name.
- *
- * @param approvedRaw - `PlanRecord.approvedRaw`, verbatim.
- * @returns the approver's raw spelling, or `''` where none is readable.
- */
-export const planCardApprover = (approvedRaw: string): string => {
-  const who = approvedRaw.split(',')[1]?.trim() ?? '';
-  if (who.startsWith('<') && who.endsWith('>')) return '';
-  return namesAPerson(who) ? who : '';
-};
 
 /** A branch of the plan, and the pull request the host reports for it. */
 export interface PlanSliceBranch {
@@ -90,8 +74,10 @@ export interface PlanCardFactsReadings {
   path: string;
   /** The plan's `Type:` word as the parser reports it; `''` where none is stated. */
   type: string;
-  /** The plan's `Assignee:` value; `''` where none is stated. */
+  /** The plan's `Assignee:` value, comma-separated where it names several; `''` where none is stated. */
   assignee: string;
+  /** The plan's `State:` as the file writes it, lowercased; `''` where it could not be read. */
+  state: string;
   /** The tracker keys the plan answers, without `#`. */
   issues: readonly string[];
   /** The plan's dated records. */
@@ -176,13 +162,17 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
   const { controls } = readings;
   const start = startWork(readings);
   let primary: Action | null = null;
-  if (controls.approveSpike) primary = enabled('approve-spike');
-  else if (controls.approve) primary = enabled(controls.confirmSlices ? 'confirm-slices' : 'approve');
+  const secondary: Action[] = [];
+  if (controls.approveSpike) {
+    primary = enabled('approve-spike');
+    // A merged spike with no `Spike approved:` record offers both: approve the
+    // spike alone, or confirm the slices and approve the plan.
+    if (controls.approve) secondary.push(enabled(controls.confirmSlices ? 'confirm-slices' : 'approve'));
+  } else if (controls.approve) primary = enabled(controls.confirmSlices ? 'confirm-slices' : 'approve');
   else if (controls.interrogate && controls.spikeState !== null && readings.spike !== null) {
     primary = disabled('approve', { kind: 'awaits-spike', spike: sliceRef(readings.slug, readings.spike) });
   } else if (start !== null && controls.readyToStart) primary = start;
 
-  const secondary: Action[] = [];
   if (start !== null && start !== primary && start.enabled) secondary.push(start);
   if (readings.deliverable) {
     if (primary === null) primary = enabled('deliver');
@@ -195,8 +185,9 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
 /**
  * What is true about one plan, as its card shows it.
  *
- * The owner is the plan's assignee before approval and the `Approved:` record's
- * approver once one exists, resolved through `People`. `ownership.since` is the
+ * The assignees are the plan's `Assignee:` names, resolved through `People`;
+ * the approver is not an assignee. `progress.state` is the plan's `State:`,
+ * `unknown` where it could not be read. `ownership.since` is the
  * newest dated record (`transitioned`), else the plan file's date prefix
  * (`opened`). `identity.key` is the plan's first issue key, and `lineage.tickets`
  * holds every key the plan names, each a ticket ref with no lane: the plan card
@@ -209,7 +200,9 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
 export const planCardFacts = (readings: PlanCardFactsReadings, directory: PersonDirectory = {}): CardFacts => {
   const type = PlanTypeSchema.safeParse(readings.type.trim().toLowerCase());
   const { records } = readings;
-  const rawOwner = records.approvedRaw.trim() === '' ? readings.assignee.trim() : planCardApprover(records.approvedRaw);
+  const assignees = readings.assignee.split(',').map((name) => name.trim()).filter((name) => name !== '')
+    .map((name) => resolvePerson(name, directory).handle);
+  const state = PlanStateSchema.safeParse(readings.state.trim().toLowerCase());
   const transitioned = newestDate([
     records.designRaw, records.approvedRaw, records.startedRaw, records.deliveredRaw, records.releasedRaw,
   ]);
@@ -236,6 +229,7 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
       sprints: knownList(readings.sprint, (s) => ({ kind: 'sprint', ...s })),
     },
     progress: {
+      state: state.success ? { value: { kind: 'plan', state: state.data } } : { unknown: 'failed' },
       work: readings.slices === null
         ? null
         : {
@@ -252,7 +246,7 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
     },
     next: nextOf(readings),
     ownership: {
-      owner: rawOwner === '' ? null : resolvePerson(rawOwner, directory).handle,
+      assignees: { value: assignees },
       since,
       source: { path: readings.path },
     },
