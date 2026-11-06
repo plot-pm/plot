@@ -1144,7 +1144,7 @@ export const prStoreFor = (repoRoot: string): PrIndexStore => {
  * @param pr - the record as the adapter reported and `refreshPrs` normalized it.
  * @returns the row to store.
  */
-const storeRow = (
+export const storeRow = (
   pr: PrRecord, predecessor?: PrIndexRow, now: number = Date.now(),
 ): PrIndexRow => {
   // `carriedChecks` decides the colour: the host's answer, or the stored one
@@ -1222,8 +1222,8 @@ const storeRow = (
  * @param rows - this pass's rows; the judged ones gain `plotReviewJudged`,
  *   `plotReviewCheckedSha` and `plotReviewCheckedAt`.
  */
-const judgeReviews = async (host: Host, rows: PrIndexRow[]): Promise<void> => {
-  const due = rows.filter((row) => row.state === 'OPEN' && !row.draft && row.plotReviewAt !== undefined && needsReviewJudgment(row));
+export const judgeReviews = async (host: Host, rows: PrIndexRow[]): Promise<void> => {
+  const due = rows.filter((row) => row.state === 'OPEN' && !row.draft && needsReviewJudgment(row));
   if (due.length === 0) return;
   const writer = await host.reviewWriter();
   if (!writer.ok) return;
