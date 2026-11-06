@@ -136,6 +136,51 @@ describe('the button claims only what it knows', () => {
     }
   });
 
+  it('the reassurance shows in the card for about five seconds after a refresh removes Start work', async () => {
+    // The next refresh after a dispatch can take Start work off the card, which
+    // unmounts the button. The notice is the card's, so it still shows, in the
+    // card's message row, and clears itself.
+    let dispatched = false;
+    const page = await cat.open('a-board-that-can-act', {
+      viewport: VIEWPORT,
+      route: {
+        '**/api/dispatch': (route) => {
+          dispatched = true;
+          return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ slug: 'fix-leaky-hose' }) });
+        },
+        // After the click, every refresh serves the card with no action at all.
+        '**/api/board*': async (route) => {
+          const response = await route.fetch();
+          const body = (await response.json()) as Board;
+          if (dispatched) {
+            for (const column of body.columns) {
+              for (const one of column.cards) {
+                if (one.slug === 'fix-leaky-hose') one.facts = { ...one.facts, next: { primary: null, secondary: [] } };
+              }
+            }
+          }
+          return route.fulfill({ response, json: body });
+        },
+      },
+    });
+    try {
+      const card = cardFor(page, 'Fix the leaky soaker hose');
+      const button = card.getByRole('button', { name: 'Start work' });
+      await button.waitFor({ timeout: 10_000 });
+      await button.click();
+      // The refresh removes the control, and the notice stays on the card.
+      const note = card.locator('[data-action-messages] [data-dispatched]');
+      await expect.poll(async () => (await button.count()) === 0 && (await note.count()) === 1, { timeout: 10_000, intervals: [100] })
+        .toBe(true);
+      expect(await note.textContent()).toBe('Agent work will show up shortly');
+      // It clears itself, and it never reached another plan's card.
+      expect(await page.locator('article:not(:has-text("Fix the leaky soaker hose")) [data-dispatched]').count()).toBe(0);
+      await expect.poll(() => note.count(), { timeout: 8_000 }).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('the reassurance is not a failure colour', async () => {
     // Neutral (slate), not amber: an amber warning would re-assert the very
     // failure the old *no change* message wrongly implied.
