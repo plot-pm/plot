@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { CardFactsSchema } from '../src/entities/card-facts.js';
 import { cardControls, type CardControlsReadings } from '../src/rules/card-controls.js';
 import {
-  planCardApprover,
   planCardFacts,
   withActionAvailability,
   type PlanCardFactsReadings,
@@ -17,6 +16,7 @@ const reading = (over: Partial<PlanCardFactsReadings> = {}): PlanCardFactsReadin
   path: 'docs/plans/2026-11-01-x.md',
   type: 'feature',
   assignee: '',
+  state: 'approved',
   issues: [],
   records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '' },
   status: 'approved',
@@ -41,24 +41,6 @@ const facts = (over: Partial<PlanCardFactsReadings> = {}, directory = {}) => {
   return out;
 };
 
-describe('planCardApprover', () => {
-  it('reads the who position from a well-formed record', () => {
-    expect(planCardApprover('2026-10-15, Jan Wloka, plan-PR #1753 merged')).toBe('Jan Wloka');
-  });
-
-  it('gives no approver for a legacy bare-timestamp record', () => {
-    expect(planCardApprover('2026-03-15T21:02:30Z')).toBe('');
-  });
-
-  it('gives no approver for the template placeholder', () => {
-    expect(planCardApprover('<date>, <who>, <channel>')).toBe('');
-  });
-
-  it('gives no approver for an empty record', () => {
-    expect(planCardApprover('')).toBe('');
-  });
-});
-
 describe('planCardFacts: identity', () => {
   it('reads the type lowercased', () => {
     expect(facts({ type: 'Bug' }).identity.type).toBe('bug');
@@ -81,29 +63,24 @@ describe('planCardFacts: identity', () => {
 });
 
 describe('planCardFacts: ownership', () => {
-  it('owner is the assignee on an unapproved plan', () => {
-    expect(facts({ assignee: 'jwloka' }).ownership.owner).toBe('jwloka');
+  it('the assignee is the plan\'s Assignee:, resolved through People', () => {
+    expect(facts({ assignee: 'Max Albrecht' }, { 'max albrecht': 'eins78' }).ownership.assignees).toEqual({ value: ['eins78'] });
   });
 
-  it('owner is the approver, resolved through People, on an Approved plan', () => {
+  it('an approved plan keeps its assignee, never the approver', () => {
     const f = facts(
       { assignee: 'jwloka', records: { ...reading().records, approvedRaw: '2026-10-15, Max Albrecht, plan-PR #1753 merged' } },
       { 'max albrecht': 'eins78' },
     );
-    expect(f.ownership.owner).toBe('eins78');
+    expect(f.ownership.assignees).toEqual({ value: ['jwloka'] });
   });
 
-  it('gives no owner where nobody is named', () => {
-    expect(facts().ownership.owner).toBeNull();
+  it('a plan naming nobody is read and unassigned', () => {
+    expect(facts().ownership.assignees).toEqual({ value: [] });
   });
 
-  it('renders an owner spelling undeclared in People as written', () => {
-    expect(facts({ assignee: 'nobody-declared' }).ownership.owner).toBe('nobody-declared');
-  });
-
-  it('gives no owner where an Approved record names no person, even with an assignee', () => {
-    const f = facts({ assignee: 'jwloka', records: { ...reading().records, approvedRaw: '2026-03-15T21:02:30Z' } });
-    expect(f.ownership.owner).toBeNull();
+  it('several assignees, comma-separated, are each resolved; an undeclared spelling stays as written', () => {
+    expect(facts({ assignee: 'jwloka, nobody-declared' }).ownership.assignees).toEqual({ value: ['jwloka', 'nobody-declared'] });
   });
 
   it('since is the newest dated record, else the file date', () => {
@@ -151,10 +128,16 @@ describe('planCardFacts: lineage', () => {
 });
 
 describe('planCardFacts: progress', () => {
+  it('opens with the plan\'s State:, and reads an unreadable one as unknown', () => {
+    expect(facts({ state: 'Design' }).progress.state).toEqual({ value: { kind: 'plan', state: 'design' } });
+    expect(facts({ state: '' }).progress.state).toEqual({ unknown: 'failed' });
+  });
+
+
   it('counts complete slices, or says the pulse was not read', () => {
-    expect(facts().progress?.work).toEqual({ unit: 'slices', done: { value: 0 }, total: 2 });
+    expect(facts().progress.work).toEqual({ unit: 'slices', done: { value: 0 }, total: 2 });
     const cold = facts({ slices: { total: 2, complete: null, eligible: null, waitsOn: [] } });
-    expect(cold.progress?.work?.done).toEqual({ unknown: 'unasked' });
+    expect(cold.progress.work?.done).toEqual({ unknown: 'unasked' });
   });
 
   it('keeps each PR\'s own check reading, unknown included', () => {
@@ -162,20 +145,20 @@ describe('planCardFacts: progress', () => {
       { number: 1, branch: 'feature/a', checks: 'green' as const, mergeable: 'mergeable' as const, checksLookup: null },
       { number: 2, branch: 'feature/b', checks: 'unknown' as const, mergeable: 'unknown' as const, checksLookup: null },
     ];
-    expect(facts({ prs: { value: prs } }).progress?.prs).toEqual({ value: prs });
+    expect(facts({ prs: { value: prs } }).progress.prs).toEqual({ value: prs });
   });
 
   it('carries rounds only while the plan is under review', () => {
     const draft = facts({ status: 'draft', controls: controls({ state: 'draft', status: 'draft' }), rounds: 2 });
-    expect(draft.progress?.design).toEqual({ rounds: 2, spike: null });
-    expect(facts({ rounds: 2 }).progress?.design).toBeNull();
+    expect(draft.progress.design).toEqual({ rounds: 2, spike: null });
+    expect(facts({ rounds: 2 }).progress.design).toBeNull();
   });
 
   it('carries verification and cost as read', () => {
     const cost = { tokens: null, measured: 0, absent: 3, unreadable: 0, fromRuns: 0, slices: 3 };
     const f = facts({ verification: { state: 'refuted', refuted: 2 }, cost: { value: cost } });
-    expect(f.progress?.verification).toEqual({ state: 'refuted', refuted: 2 });
-    expect(f.progress?.cost).toEqual({ value: cost });
+    expect(f.progress.verification).toEqual({ state: 'refuted', refuted: 2 });
+    expect(f.progress.cost).toEqual({ value: cost });
   });
 });
 
@@ -200,7 +183,7 @@ describe('planCardFacts: next', () => {
 
   it('an uncounted complete total leaves Start work to the eligible count', () => {
     const f = facts({ slices: { total: 2, complete: null, eligible: 1, waitsOn: [] } });
-    expect(f.progress?.work?.done).toEqual({ unknown: 'unasked' });
+    expect(f.progress.work?.done).toEqual({ unknown: 'unasked' });
     expect(f.next.primary).toEqual({ action: 'start-work', enabled: true, reason: null });
   });
 
@@ -246,6 +229,13 @@ describe('planCardFacts: next', () => {
       reason: { kind: 'awaits-spike', spike: { kind: 'slice', plan: 'x', branch: 'feature/spike', pr: 7 } },
     });
     expect(f.next.secondary).toEqual([{ action: 'interrogate', enabled: true, reason: null }]);
+  });
+
+  it('a merged spike with no Spike approved: record offers Approve spike, and Confirm slices as a secondary', () => {
+    const c = controls({ state: 'design', status: 'draft', slices: spikeSlices, spikeMerged: true });
+    const f = facts({ controls: c, spike: { branch: 'feature/spike', pr: 7 } });
+    expect(f.next.primary).toEqual({ action: 'approve-spike', enabled: true, reason: null });
+    expect(f.next.secondary[0]).toEqual({ action: 'confirm-slices', enabled: true, reason: null });
   });
 
   it('a merged spike offers Confirm slices', () => {

@@ -7,7 +7,7 @@ import { ActionSchema, CardFactsSchema } from '../src/entities/card-facts.js';
  * copied verbatim from the item. Any other string field is a word the domain
  * generated, and the gate refuses it.
  */
-const ALLOWED_STRING_FIELDS = new Set(['id', 'key', 'slug', 'branch', 'plan', 'owner', 'path', 'at', 'title', 'summary', 'value']);
+const ALLOWED_STRING_FIELDS = new Set(['id', 'key', 'slug', 'branch', 'plan', 'assignees', 'path', 'at', 'title', 'summary', 'value']);
 
 /** Every free-string leaf of a schema, as the dotted path of field names that reaches it. */
 const stringFields = (schema: z.ZodType, at: string[] = []): string[] => {
@@ -15,8 +15,12 @@ const stringFields = (schema: z.ZodType, at: string[] = []): string[] => {
   switch (def.type) {
     case 'string':
       return [at.join('.')];
-    case 'object':
-      return Object.entries(def.shape as Record<string, z.ZodType>).flatMap(([k, v]) => stringFields(v, [...at, k]));
+    case 'object': {
+      const shape = def.shape as Record<string, z.ZodType>;
+      // A `Known` value wrapper names nothing of its own: its strings belong to the field around it.
+      if (Object.keys(shape).length === 1 && 'value' in shape) return stringFields(shape.value, at);
+      return Object.entries(shape).flatMap(([k, v]) => stringFields(v, [...at, k]));
+    }
     case 'union':
       return (def.options as z.ZodType[]).flatMap((o) => stringFields(o, at));
     case 'array':
@@ -41,8 +45,9 @@ describe('the CardFacts schema gate', () => {
   it('finds a string leaf in every facet it walks', () => {
     const found = stringFields(CardFactsSchema);
     expect(found).toContain('identity.title');
-    expect(found).toContain('lineage.stories.value.[].slug');
+    expect(found).toContain('lineage.stories.[].slug');
     expect(found).toContain('ownership.since.at');
+    expect(found).toContain('ownership.assignees.[]');
   });
 
   it('holds no free-text string field beyond ids, dates and verbatim content', () => {
@@ -54,6 +59,11 @@ describe('the CardFacts schema gate', () => {
       next: z.object({ primary: ActionSchema.nullable(), secondary: z.array(ActionSchema), label: z.string() }),
     });
     expect(refused(seeded)).toEqual(['next.label']);
+  });
+
+  it('refuses a seeded word carried inside a Known list', () => {
+    const seeded = z.object({ labels: z.union([z.object({ value: z.array(z.string()) }), z.object({ unknown: z.string() })]) });
+    expect(refused(seeded)).toEqual(['labels.[]', 'labels.unknown']);
   });
 
   it('refuses a seeded word nested inside a union', () => {

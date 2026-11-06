@@ -9,6 +9,7 @@ import type { HostReach } from '../rules/branch-state.js';
 import type { SpikeCardState } from '../rules/spike-confirm.js';
 import type { TicketLane } from '../rules/ticket-lane.js';
 import type { Verification } from '../rules/verification-record.js';
+import type { PlanState } from '../transitions/plan.js';
 import type { StoryStanding } from '../transitions/story.js';
 
 /** Holds only when `A` and `B` are the same type; a mismatch fails to compile. */
@@ -30,6 +31,11 @@ same<UnknownReach, Exclude<HostReach, 'ok'>>(true);
 // plot-state: reading — the lane a ticket rendered in on one board build, re-derived every build.
 const TicketLaneSchema = z.enum(['open', 'in-progress', 'done', 'hidden']);
 same<z.infer<typeof TicketLaneSchema>, TicketLane>(true);
+
+/** {@link PlanState} without `none`, as a schema: the `State:` a plan file writes. */
+// plot-state: reading — the State: line one board build read from a plan file; transitions/plan.ts orders it.
+export const PlanStateSchema = z.enum(['draft', 'design', 'approved', 'delivered', 'released', 'rejected', 'superseded']);
+same<z.infer<typeof PlanStateSchema>, Exclude<PlanState, 'none'>>(true);
 
 /** {@link SpikeCardState} as a schema. */
 // plot-state: reading — where a Design plan stands against its spike; every board build re-reads it.
@@ -77,6 +83,17 @@ export const ActionKindSchema = z.enum([
   'start-work', 'deliver',
 ]);
 export type ActionKind = z.infer<typeof ActionKindSchema>;
+
+/**
+ * An item's own state, in its kind's vocabulary: a ticket's lane, a story's
+ * status, a plan's `State:`.
+ */
+export const ItemStateSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('ticket'), lane: TicketLaneSchema }),
+  z.object({ kind: z.literal('story'), status: StoryStatusSchema }),
+  z.object({ kind: z.literal('plan'), state: PlanStateSchema }),
+]);
+export type ItemState = z.infer<typeof ItemStateSchema>;
 
 /** A lineage relation an unread fact can name. */
 // plot-state: classification — which relation a reason names; one relation never becomes another.
@@ -187,8 +204,10 @@ export const CardFactsSchema = z.object({
     plans: knownSchema(z.array(RefSchema)),
     sprints: knownSchema(z.array(RefSchema)),
   }),
+  /** Always present: every item has a state. */
   progress: z
     .object({
+      state: knownSchema(ItemStateSchema),
       work: z
         .object({ unit: WorkUnitSchema, done: knownSchema(z.number()), total: z.number() })
         .nullable(),
@@ -196,8 +215,7 @@ export const CardFactsSchema = z.object({
       design: z.object({ rounds: z.number().nullable(), spike: SpikeCardStateSchema.nullable() }).nullable(),
       verification: VerificationReadingSchema.nullable(),
       cost: knownSchema(CostReadingSchema),
-    })
-    .nullable(),
+    }),
   /**
    * At most one primary action, enabled or not, then the secondaries. A
    * secondary the item's own state disables is omitted; one the board's
@@ -208,7 +226,8 @@ export const CardFactsSchema = z.object({
     secondary: z.array(ActionSchema),
   }),
   ownership: z.object({
-    owner: z.string().nullable(),
+    /** Handles resolved through `People`; `{ value: [] }` is read and unassigned. */
+    assignees: knownSchema(z.array(z.string())),
     since: z.object({ at: z.string(), event: SinceEventSchema }).nullable(),
     source: z.union([RefSchema, z.object({ path: z.string() })]),
   }),
