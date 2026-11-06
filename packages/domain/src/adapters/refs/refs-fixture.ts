@@ -8,6 +8,7 @@ import type {
   CommitLine,
   CommitSubject,
   Containment,
+  FileChange,
   MergeCommit,
   MergeStatus,
   RefScope,
@@ -44,6 +45,8 @@ export interface RefsFixture {
   shas?: Readonly<Record<string, string>>;
   /** Branch name to the files it changed. */
   changedFiles?: Readonly<Record<string, readonly string[]>>;
+  /** Commit sha to its line-level changes against the default branch, for {@link Refs.headChanges}. A sha absent here fails. */
+  headChanges?: Readonly<Record<string, readonly FileChange[]>>;
   /**
    * `<base> <branch>` to the paths their merge would conflict on — for
    * {@link Refs.conflictPaths}. A pair absent here merges cleanly; a pair
@@ -321,6 +324,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     },
 
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),
+
+    headChanges: async (sha) => {
+      const changes = fixture.headChanges?.[sha];
+      return changes === undefined ? failed<readonly FileChange[]>() : answered(changes);
+    },
 
     conflictPaths: async (base, branch) =>
       (fixture.unknownConflicts ?? []).includes(`${base} ${branch}`)

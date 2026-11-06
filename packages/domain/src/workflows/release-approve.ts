@@ -1,7 +1,9 @@
 import type { Pr } from '../entities/pr.js';
 import type { PrReviewReading } from '../ports/host.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
+import { readsReleaseHead } from '../adapters/host/release-head-backend.js';
 import { RELEASE_BRANCH } from '../rules/release-branch.js';
+import { releaseHeadVerdict, type ReleaseHeadReading } from '../rules/release-head.js';
 import { sameCommit } from '../rules/same-commit.js';
 import { type MergePorts, type MergeRefusal, mergeAt } from './merge.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
@@ -14,7 +16,7 @@ const short = (sha: string | undefined): string =>
  * Why `releaseApprove` refused. Each is the end of the action: nothing
  * merges, and no caller retries with the pin dropped.
  */
-export type ReleaseApproveRefusal = 'unattended' | 'unaskable' | 'not-release-pr' | 'head-moved' | 'review-missing';
+export type ReleaseApproveRefusal = 'unattended' | 'unaskable' | 'not-release-pr' | 'head-moved' | 'review-missing' | 'release-head-foreign';
 
 /** What `releaseApprove` reads. Every reading is the host's, taken fresh for this call. */
 export interface ReleaseApproveReadings {
@@ -30,6 +32,12 @@ export interface ReleaseApproveReadings {
    * never folded from the checks rollup. `'unaskable'` where the read failed.
    */
   readonly review: PrReviewReading | 'unaskable';
+  /**
+   * What the pinned head changes against its merge base with the default
+   * branch, read at the pinned sha and never at the branch name. Absent where
+   * the host has no release workflows (Bitbucket, Jenkins): the check is skipped there.
+   */
+  readonly head?: ReleaseHeadReading;
 }
 
 /** What the caller asks for. */
@@ -58,6 +66,9 @@ export interface ReleaseApproveDetail {
  *
  * Refuses `unattended` before any other reading, the same way `merge` does,
  * and `unaskable` where the host did not answer for the PR.
+ * Where `readings.head` is present, a head that changes a path or a line the
+ * changesets version step does not write refuses `release-head-foreign`, and
+ * an empty or unread diff refuses `unaskable`.
  * A PR the host already holds merged on a release branch decides with
  * `alreadyMerged`, and no review or head is asked of it.
  *
@@ -97,6 +108,18 @@ export const releaseApprove = (
         : `'plot/review' reads '${review.state}'`;
     return no('review-missing', `${seen} for PR #${input.pr}. Run the review on this head, then approve again.`);
   }
+  if (readings.head !== undefined) {
+    const verdict = releaseHeadVerdict(readings.head);
+    if (verdict.read === 'foreign') {
+      return no('release-head-foreign', `the head ${short(head)} of PR #${input.pr} changes ${verdict.path}, which the changesets version step does not write. Nothing was merged.`);
+    }
+    if (verdict.read !== 'clean') {
+      const why = verdict.read === 'empty'
+        ? 'changes nothing against its merge base, so no version step ran'
+        : 'could not be diffed against its merge base';
+      return no('unaskable', `the head ${short(head)} of PR #${input.pr} ${why}. A failed read is not a clean head; nothing was merged.`);
+    }
+  }
   return decide('release-approve', [], { pr: input.pr, sha: input.sha, alreadyMerged: false });
 };
 
@@ -130,11 +153,15 @@ export const releaseApproveAt = async (
   const asked = ports.caller === 'unattended'
     ? null
     : await Promise.all([ports.host.prState(pr), ports.host.prReview(pr), ports.host.backend()]);
+  // Only a host that answered with another backend skips the read; a failed backend answer still reads the head.
+  const otherHost = asked?.[2].ok === true && !readsReleaseHead(asked[2].value);
+  const changes = asked === null || otherHost ? null : await ports.refs.headChanges(sha);
   const out = releaseApprove(
     {
       caller: ports.caller,
       pr: asked?.[0].ok ? asked[0].value : 'unaskable',
       review: asked?.[1].ok ? asked[1].value : 'unaskable',
+      ...(changes === null ? {} : { head: changes.ok ? changes.value : 'unaskable' as const }),
     },
     { pr, sha, minHexLen: minHexLenFor(asked?.[2].ok ? asked[2].value : '') },
   );

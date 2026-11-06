@@ -8,6 +8,7 @@ import type {
   CommitLine,
   CommitSubject,
   Containment,
+  FileChange,
   MergeCommit,
   MergeStatus,
   RefScope,
@@ -30,6 +31,7 @@ import {
   runScriptSync,
   resultOf,
 } from '../run-script.js';
+import { parseDiff } from './diff-parse.js';
 import { agentsFs } from '../agents/agents-fs.js';
 import { hostShell } from '../host/host-shell.js';
 import { planStoreRef } from '../plan-store/plan-store-ref.js';
@@ -503,6 +505,18 @@ export const refsGit = (context: ShellContext): Refs => {
         // A full object id names the base itself; a branch name is read off `origin`.
         ['diff', '--name-only', `${/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(main.value) ? main.value : `origin/${main.value}`}...${branch}`],
         asLines,
+        inRepo,
+      );
+    },
+
+    headChanges: async (sha) => {
+      const main = await defaultBranch();
+      if (!main.ok) return main as PortResult<readonly FileChange[]>;
+      return runScript(
+        'git',
+        // The object id is the pin: a branch name can be force-pushed between the read and the merge.
+        ['-c', 'core.quotepath=off', 'diff', '--no-renames', '--no-color', '-U0', `origin/${main.value}...${sha}`, '--'],
+        parseDiff,
         inRepo,
       );
     },

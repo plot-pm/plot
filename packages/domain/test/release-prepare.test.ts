@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PrIndexRow } from '../src/entities/pr-index.js';
 import type { Sprint } from '../src/entities/sprint.js';
+import type { FileChange } from '../src/ports/refs.js';
 import type { RunLogLine } from '../src/ports/run-log.js';
 import {
   encodeNotifyOutcome,
@@ -48,11 +49,21 @@ const line = (over: Partial<RunLogLine> = {}): RunLogLine => ({
   ...over,
 });
 
+const CLEAN_HEAD: readonly FileChange[] = [
+  { path: '.changeset/a.md', status: 'deleted', hunks: [] },
+  { path: 'package.json', status: 'modified', hunks: [{ section: '', removed: ['  "version": "1.0.0",'], added: ['  "version": "1.1.0",'] }] },
+];
+const FOREIGN_HEAD: readonly FileChange[] = [
+  ...CLEAN_HEAD,
+  { path: '.github/workflows/ci.yml', status: 'modified', hunks: [{ section: '', removed: ['a'], added: ['b'] }] },
+];
+
 const readings = (over: Partial<ReleasePrepareReadings> = {}): ReleasePrepareReadings => ({
   scope: { read: 'scope', sprint: {} as Sprint, slugs: ['x', 'y'], branches: [] },
   phases: new Map([['x', 'delivered'], ['y', 'delivered']]),
   pr: row(),
   checks: greenRuns,
+  headChanges: CLEAN_HEAD,
   changesets: [{ file: 'a.md', plan: '2026-10-29-x' }],
   log: [],
   reviewRun: null,
@@ -61,6 +72,40 @@ const readings = (over: Partial<ReleasePrepareReadings> = {}): ReleasePrepareRea
   config: { requiredWorkflow: 'CI', reviewBoundMs: 3_600_000, startBudget: 3 },
   now: NOW,
   ...over,
+});
+
+describe('releasePrepareNext — the release head provenance', () => {
+  const needsReview = { pr: row({ plotReview: 'absent', plotReviewSha: undefined }) };
+
+  it('holds the review start and the stage on a foreign head whose CI run succeeded', () => {
+    const r = readings({ ...needsReview, headChanges: FOREIGN_HEAD });
+    expect(releaseStage(r)).toBe('release-head-foreign');
+    expect(releasePrepareNext(r)).toEqual({ step: 'hold', reason: 'release-head-foreign' });
+    expect(releaseStageView('release-head-foreign').approvable).toBe(false);
+    expect(releaseStageViewOf('release-head-foreign')).not.toBeNull();
+  });
+
+  it('starts the review on the same head with only the version step\'s changes', () => {
+    expect(releasePrepareNext(readings(needsReview))).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('holds a reviewed foreign head from ready and from the notice', () => {
+    const r = readings({ headChanges: FOREIGN_HEAD });
+    expect(releaseStage(r)).toBe('release-head-foreign');
+    expect(releasePrepareNext(r).step).toBe('hold');
+  });
+
+  it('holds unaskable, and is not ready, where the diff failed or is empty', () => {
+    for (const headChanges of ['unaskable', []] as const) {
+      const r = readings({ ...needsReview, headChanges });
+      expect(releaseStage(r)).toBe('preparing');
+      expect(releasePrepareNext(r)).toEqual({ step: 'hold', reason: 'unaskable' });
+    }
+  });
+
+  it('skips the check where the host has no release workflows', () => {
+    expect(releasePrepareNext(readings({ ...needsReview, headChanges: null }))).toEqual({ step: 'review', head: HEAD });
+  });
 });
 
 describe('releasePrepareNext', () => {
