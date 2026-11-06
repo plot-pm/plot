@@ -133,8 +133,10 @@ export interface CardSections {
   accent: Hue;
   header: {
     kind: KindIcon;
-    /** The ticket number the title leads with (`#3073`), part of the title link; `null` for none. */
+    /** The ticket number the title leads with (`#3073`), its own link to the ticket; `null` for none. */
     number: string | null;
+    /** The ticket the number links to; `null` where the title names none. */
+    numberRef: Ref | null;
     title: string;
     /** The title as a reader names the item: the key, then the title. */
     label: string;
@@ -626,6 +628,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
     header: {
       kind: kindIcon(identity.kind),
       number: identity.key === null ? null : ticketKey(identity.key),
+      numberRef: identity.key === null ? null : { kind: 'ticket', key: identity.key, title: identity.key, lane: null },
       title: identity.title,
       label: identity.key === null ? identity.title : `${identity.key}: ${identity.title}`,
       ref: identity.opens,

@@ -1534,6 +1534,13 @@ export const BoardSchema = z.object({
    */
   branchUrlBase: z.string().default(''),
   /**
+   * The prefix for this repository's issue pages on its host
+   * (`https://github.com/org/repo/issues/`), where the git host answers the
+   * repository's issues; `''` where a declared tracker names another service
+   * or the host's page shape is unknown.
+   */
+  issueUrlBase: z.string().default(''),
+  /**
    * Whether the tracker can be asked at all, read from the SAME cache entry
    * `Fleet.issueAnswer` reads — so Discovery's Create plan/Create story
    * controls work without a Delivery-tab fleet poll. `null` before the first

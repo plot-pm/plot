@@ -434,6 +434,7 @@ export const Card = ({
     return control === null || control === undefined || control === false ? [] : [{ action, isPrimary, control }];
   });
   const statusTwoLines = status.work !== null && status.signals.length > 0;
+  const numberLink = header.numberRef !== null ? linkFor?.(header.numberRef) ?? null : null;
   return (
     <article
       id={id}
@@ -453,23 +454,34 @@ export const Card = ({
       <div data-section="header" data-card-row="identity" className="flex items-start gap-2 px-4 pt-4 text-[15px] leading-snug" style={{ gridArea: 'title' }}>
         {/* One line tall and centred in it, so the icon sits on the title's first line when it wraps. */}
         <span className="inline-flex h-[1lh] shrink-0 items-center"><KindIconView icon={header.kind} /></span>
-        <a
-          href={titleHref}
-          data-plan-ref
-          data-card-title
-          title={header.label}
-          onClick={(e) => {
-            if (!plainClick(e)) return;
-            e.preventDefault();
-            onOpenTitle();
-          }}
-          className="line-clamp-2 rounded font-semibold text-(--card-title) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
+        {/* The ticket number is its own link to the ticket; the title after it opens the item. */}
+        <div className="line-clamp-2 min-w-0">
           {header.number !== null && (
-            <><span className="font-normal tabular-nums text-(--card-meta)" data-title-number>{header.number}</span>{' '}</>
+            <>
+              {numberLink
+                ? <LinkView link={numberLink} className="font-normal tabular-nums text-(--card-meta)" attrs={{ 'data-title-number': '' }}>{header.number}</LinkView>
+                : <span className="font-normal tabular-nums text-(--card-meta)" data-title-number>{header.number}</span>}
+              {' '}
+            </>
           )}
-          {header.title}
-        </a>
+          <a
+            href={titleHref}
+            data-plan-ref
+            data-card-title
+            title={header.label}
+            onClick={(e) => {
+              if (!plainClick(e)) return;
+              e.preventDefault();
+              onOpenTitle();
+            }}
+            className={cn(
+              'rounded font-semibold text-(--card-title) no-underline decoration-1 underline-offset-2 hover:underline',
+              'focus-visible:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--hue-blue-dot)',
+            )}
+          >
+            {header.title}
+          </a>
+        </div>
       </div>
 
       {/* FOOTER, actions half — second in the DOM so the actions follow the title in the tab order. */}

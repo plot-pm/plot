@@ -48,7 +48,10 @@ export function checksUnaskableOn(board: Pick<Board, 'columns'>): boolean {
 
 /** The board's lookups for the items a card names, each by its identifier. */
 export interface BoardLinks {
-  /** A ticket's host address, as the issue reading carries it; `undefined` for a key no row names. */
+  /**
+   * A ticket's host address: the URL its issue row carries, else the
+   * repository's issue-page prefix and the number; `undefined` where neither answers.
+   */
   ticketHref: (key: string) => string | undefined;
   /** A branch's page on the host, from the repository's branch-page prefix; `undefined` where it is unknown. */
   branchHref: (branch: string) => string | undefined;
@@ -61,13 +64,13 @@ export interface BoardLinks {
 /**
  * The board's lookups for the items a card names. Every address comes from a
  * reading or from the repository's host address, never from free text: a
- * ticket's from its issue row, a branch's from `branchUrlBase`.
+ * ticket's from its issue row or `issueUrlBase`, a branch's from `branchUrlBase`.
  *
  * @param board - the board payload; `tickets` may be absent.
  * @returns the lookups; each answers `undefined` where the board holds no answer.
  */
 export const boardLinksOf = (
-  board: Pick<Board, 'tickets' | 'branchUrlBase' | 'stories' | 'columns'>,
+  board: Pick<Board, 'tickets' | 'branchUrlBase' | 'stories' | 'columns'> & Partial<Pick<Board, 'issueUrlBase'>>,
 ): BoardLinks => {
   const tickets = new Map<string, string>();
   const groups = board.tickets;
@@ -79,8 +82,10 @@ export const boardLinksOf = (
   const stories = new Map(board.stories.map((s) => [s.slug, s]));
   const plans = new Map(board.columns.flatMap((c) => c.cards).map((c) => [c.slug, c]));
   const base = board.branchUrlBase ?? '';
+  const issueBase = board.issueUrlBase ?? '';
   return {
-    ticketHref: (key) => tickets.get(key),
+    // Only a number names an issue on the host; any other key belongs to another tracker.
+    ticketHref: (key) => tickets.get(key) ?? (issueBase !== '' && /^\d+$/.test(key) ? `${issueBase}${key}` : undefined),
     // Encoded per path segment, as the fleet rows encode a branch link.
     branchHref: (branch) => (base === '' || branch === '' ? undefined : `${base}${branch.split('/').map(encodeURIComponent).join('/')}`),
     storyOf: (slug) => stories.get(slug),
