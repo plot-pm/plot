@@ -115,7 +115,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Desk endings
 
-- `bug/holding-work-reads-unpushed-commits` — `endingAction` reads unpushed commits through `Trees.unpushedCommits`; a merged desk with an unpushed commit answers `needs-a-person` (#2925)
+- `bug/holding-work-reads-unpushed-commits` — `endingAction` reads unpushed commits through `Trees.unpushedCommits`; a merged desk with an unpushed commit answers `needs-a-person` (#2925) → #3182
 
 ### Idle slice
 
