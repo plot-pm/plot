@@ -526,7 +526,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // card's rows, tab order and expander through the shared `<Card>`
 // (one-card-grammar). A plain addition; it serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 81;
+// 81 → 82 on 2026-11-06: `test/unit/plan-card-renders-safely.test.ts`, which
+// imports the catalogue builders (`drivesAPage` counts it) to prove a plan card
+// with no facts and an action row with no control render safely. It renders
+// static markup and starts no board.
+const EXPECTED_FILES = 82;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -847,7 +851,9 @@ const EXPECTED_FILES = 81;
 // .ts`. `EXPECTED_FILES` moves by 2, matching the two new files.
 // 645 → 649 on 2026-11-06: four `it(` in the new `plan-card-grammar.browser
 // .test.ts` (one-card-grammar). `EXPECTED_FILES` moves by 1, matching the file.
-const EXPECTED_TESTS = 649;
+// 649 → 652 on 2026-11-06: three `it(` in the new `plan-card-renders-safely
+// .test.ts`. `EXPECTED_FILES` moves by 1, matching the file.
+const EXPECTED_TESTS = 652;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
