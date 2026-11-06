@@ -347,6 +347,7 @@ describe('finishRelease against a real remote', () => {
     expect(trackerCalls.filter((c) => c.script === 'plot-plan-state.sh')).toHaveLength(3);
   });
 
+  // The outside plan's changeset, if any, carries no `plan:` line, so the finish books none of it.
   it('keeps a shared issue open while an outside-the-release sibling still owes it', async () => {
     const { repo, ctx, trackerCalls } = estate({ tagged: true });
     for (const slug of ['alpha', 'beta', 'gamma']) {
@@ -380,6 +381,25 @@ describe('finishRelease against a real remote', () => {
     for (const call of statusCalls) expect(call.args).not.toEqual(expect.arrayContaining(['--skip-issue', '999']));
   });
 
+  it('books a shared-issue plan outside the sprint that a shipped changeset names, so it no longer holds the issue open', async () => {
+    const { repo, origin, ctx, trackerCalls } = estate({ tagged: true });
+    for (const slug of ['alpha', 'beta', 'gamma']) {
+      writeFileSync(path.join(repo, `docs/plans/2026-10-01-${slug}.md`), plan('feature', 'Delivered', '', '#999'));
+    }
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'share an issue across the booked plans');
+    git(repo, 'push', '-q', 'origin', 'main');
+    const host = landMerge(path.dirname(repo), origin, [['delta', 'Delivered', '#999']], [['one', '2026-10-02-delta']]);
+
+    const { code, out } = await run({ ...ctx, host });
+
+    expect(code).toBe(0);
+    expect(out).toMatch(/booked alpha, beta, gamma, delta/);
+    const statusCalls = trackerCalls.filter((c) => c.script === 'plot-issue-status.sh');
+    expect(statusCalls).toHaveLength(4);
+    for (const call of statusCalls) expect(call.args).not.toEqual(expect.arrayContaining(['--skip-issue', '999']));
+  });
+
   it('continues past one plan\'s tracker failure, prints it, and still writes the next plan', async () => {
     const { repo, ctx, trackerCalls } = estate({ tagged: true });
     writeFileSync(path.join(repo, 'docs/plans/2026-10-01-alpha.md'), plan('feature', 'Delivered', '', '#999'));
@@ -406,5 +426,81 @@ describe('finishRelease against a real remote', () => {
     expect(out).toContain('plan-state: boom');
     expect(out).toContain('left-open=1 (failed=1)');
     expect(trackerCalls.filter((c) => c.script === 'plot-plan-state.sh')).toHaveLength(3);
+  });
+
+  /**
+   * Lands a release as a real merge commit that deletes `changesets` — each `[file, plan name]` —
+   * and leaves `.changeset/` holding only its README on main. Returns a host naming that merge.
+   */
+  const landMerge = (
+    root: string,
+    origin: string,
+    plans: readonly (readonly [string, string, string])[],
+    changesets: readonly (readonly [string, string])[],
+  ): Host => {
+    const other = path.join(root, 'other-merge');
+    git(root, 'clone', '-q', origin, other);
+    for (const [slug, state, issue] of plans) {
+      writeFileSync(path.join(other, `docs/plans/2026-10-02-${slug}.md`), plan('feature', state, '', issue));
+    }
+    mkdirSync(path.join(other, '.changeset'), { recursive: true });
+    for (const [file, planName] of changesets) {
+      writeFileSync(
+        path.join(other, `.changeset/${file}.md`),
+        `---\n'plot': patch\n---\n\nA description long enough to publish.\n\n<!--\nplan: docs/plans/${planName}.md\nbumps:\n  skills:\n    plot: patch\n-->\n`,
+      );
+    }
+    writeFileSync(path.join(other, '.changeset/README.md'), '# changesets\n');
+    git(other, 'add', '-A');
+    git(other, 'commit', '-q', '-m', 'work');
+    git(other, 'push', '-q', 'origin', 'main');
+    git(other, 'checkout', '-q', '-b', 'changeset-release/main');
+    for (const [file] of changesets) git(other, 'rm', '-q', `.changeset/${file}.md`);
+    writeFileSync(path.join(other, 'package.json'), '{"name":"x","version":"1.3.0"}\n');
+    git(other, 'commit', '-q', '-am', 'release 1.3.0');
+    git(other, 'checkout', '-q', 'main');
+    git(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #9', 'changeset-release/main');
+    git(other, 'push', '-q', 'origin', 'main');
+    const merge = git(other, 'rev-parse', 'HEAD').trim();
+    git(other, 'tag', 'v1.3.0');
+    git(other, 'push', '-q', 'origin', 'v1.3.0');
+    expect(git(other, 'ls-tree', '--name-only', 'HEAD', '.changeset/')).toBe('.changeset/README.md\n');
+    return {
+      prState: async () => answered({ number: 9, head: 'changeset-release/main', base: 'main', state: 'MERGED', mergeCommit: merge }),
+    } as unknown as Host;
+  };
+
+  it('books a plan outside the sprint that a changeset removed by the release merge names, and names the rest', async () => {
+    const { repo, origin, ctx } = estate({ tagged: true });
+    const root = path.dirname(repo);
+    const host = landMerge(
+      root,
+      origin,
+      [['omega', 'Delivered', ''], ['zeta', 'Delivered', ''], ['appr', 'Approved', '']],
+      [['one', '2026-10-02-omega'], ['two', '2026-10-02-appr'], ['three', '2026-10-02-ghost']],
+    );
+
+    const { code, out } = await run({ ...ctx, host });
+
+    expect(code).toBe(0);
+    expect(out).toMatch(/finished: v1\.3\.0 booked alpha, beta, gamma, omega/);
+    expect(out).toContain('not booked: zeta');
+    expect(out).toContain('appr (phase approved)');
+    expect(out).toContain('ghost (no plan file)');
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    expect(onMain(repo, 'docs/plans/2026-10-02-omega.md')).toContain('- **State:** Released');
+    expect(onMain(repo, 'docs/plans/2026-10-02-zeta.md')).toContain('- **State:** Delivered');
+    expect(onMain(repo, 'docs/plans/2026-10-02-appr.md')).toContain('- **State:** Approved');
+  });
+
+  it('books the scope and names shipped-unread where the merge commit cannot be read', async () => {
+    const { repo, ctx } = estate({ tagged: true });
+
+    const { code, out } = await run(ctx);
+
+    expect(code).toBe(0);
+    expect(out).toContain('shipped-unread');
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    expect(onMain(repo, 'docs/plans/2026-10-01-alpha.md')).toContain('- **State:** Released');
   });
 });

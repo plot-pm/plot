@@ -1,6 +1,8 @@
 import { normalizeVersion } from '../entities/release.js';
 import type { SprintState } from '../entities/sprint.js';
 import { isRefusal, setSprintState } from '../transitions/sprint.js';
+import { namedOutsideScope } from '../rules/release-scope.js';
+import type { ReleaseChangeset } from '../rules/release-prepare.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
 
 /**
@@ -64,6 +66,16 @@ export interface ReleaseFinishReadings {
   readonly tagExists: boolean;
   /** The plans of the active sprint's scope, struck items excluded; empty unless exactly one sprint is active. */
   readonly scope: readonly ScopePlan[];
+  /**
+   * Every plan file outside the sprint's scope that the entry could read, `Delivered` or not.
+   * A plan is booked only where a shipped changeset names it.
+   */
+  readonly outside: readonly ScopePlan[];
+  /**
+   * The changesets the release merge removed, with the plan each names. `'unaskable'` where
+   * they could not be read; an empty list is an answer, not a failed read.
+   */
+  readonly shipped: readonly ReleaseChangeset[] | 'unaskable';
   /** Every sprint the active index holds. The scope is read from the only one. */
   readonly sprints: readonly FinishSprint[];
 }
@@ -94,6 +106,11 @@ export interface ReleaseFinishDetail {
   readonly booked: readonly string[];
   /** The sprint this run closes, or `null` where none closes. */
   readonly closeSprint: FinishSprintClose | null;
+  /**
+   * Lines naming what the finish did not book: Delivered plans outside the sprint that no
+   * shipped changeset names, named plans that are not Delivered, and `shipped-unread`.
+   */
+  readonly notes: readonly string[];
 }
 
 /**
@@ -105,7 +122,11 @@ export interface ReleaseFinishDetail {
  * then `plan-unbookable` for a scope plan whose file is absent or whose phase
  * is neither `delivered` nor `released`. An active sprint that is not closed
  * goes through `setSprintState` to `Closed`, and its refusal stops the finish as
- * `sprint-unclosable`. A plan already holding a `Released:` record is left
+ * `sprint-unclosable`. A Delivered plan outside the sprint that a shipped
+ * changeset names is booked with the scope. Any other Delivered plan outside the
+ * sprint, and any named plan that is not Delivered or has no file, is skipped and
+ * named in `notes`; none of them refuses. `shipped` of `'unaskable'` books the scope
+ * only and adds a `shipped-unread` note. A plan already holding a `Released:` record is left
  * alone. When nothing remains to book and no sprint closes, refuses
  * `already-released`. Otherwise one commit and one push book every remaining
  * scope plan, and the commit names the sprint file and its active index entry
@@ -147,7 +168,28 @@ export const releaseFinish = (
       .join(', ');
     return no('plan-unbookable', `${unbookable.length} scope plan(s) cannot be booked as Released: ${named}. Nothing is written.`);
   }
-  const pending = readings.scope.filter((p) => p.releasedRecord.trim() === '');
+  const notes: string[] = [];
+  const extra: ScopePlan[] = [];
+  const bySlug = new Map(readings.outside.map((p) => [p.slug, p]));
+  if (readings.shipped === 'unaskable') {
+    notes.push('shipped-unread: the release merge\'s changesets could not be read, so only the sprint scope is booked.');
+  } else {
+    const named = namedOutsideScope(readings.shipped, readings.scope.map((p) => p.slug));
+    const skipped: string[] = [];
+    for (const slug of named) {
+      const p = bySlug.get(slug);
+      if (p === undefined || p.file === '') skipped.push(`${slug} (no plan file)`);
+      else if (p.phase !== 'delivered') skipped.push(`${slug} (phase ${p.phase})`);
+      else extra.push(p);
+    }
+    if (skipped.length > 0) notes.push(`named by a shipped changeset and not booked: ${skipped.join(', ')}.`);
+  }
+  const booking = new Set(extra.map((p) => p.slug));
+  const unbooked = readings.outside
+    .filter((p) => p.phase === 'delivered' && p.releasedRecord.trim() === '' && !booking.has(p.slug))
+    .map((p) => p.slug);
+  if (unbooked.length > 0) notes.push(`Delivered outside the sprint, named by no shipped changeset, not booked: ${unbooked.join(', ')}.`);
+  const pending = [...readings.scope, ...extra].filter((p) => p.releasedRecord.trim() === '');
   const open = readings.sprints.find((s) => s.state.trim().toLowerCase() !== 'closed') ?? null;
   let closeSprint: FinishSprintClose | null = null;
   if (open !== null) {
@@ -187,6 +229,6 @@ export const releaseFinish = (
       { kind: 'commit', message: `plot: record ${version}`, paths },
       { kind: 'push', branch: `plot/release-${version}`, onto: 'default' },
     ],
-    { version, booked: pending.map((p) => p.slug), closeSprint },
+    { version, booked: pending.map((p) => p.slug), closeSprint, notes },
   );
 };

@@ -2,6 +2,9 @@ import { realpathSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import type { Caller, PlanStore, Refs, Host, Scripts, Trees } from '@plot-pm/domain';
+import { parseChangeset } from '@plot-pm/domain/rules/changeset';
+import { scopeSlugs } from '@plot-pm/domain/rules/release-scope';
+import { planSlug, type ReleaseChangeset } from '@plot-pm/domain';
 import { releaseFinish, type FinishSprint, type ScopePlan } from '@plot-pm/domain/workflows/release-finish';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
@@ -33,23 +36,30 @@ export interface FinishContext {
 }
 
 /**
- * The unstruck plan slugs under the Must, Should and Could headings of a sprint file.
+ * The changesets a release merge removed, with the plan each names.
  *
- * Not imported from `sprint-transition.ts`: that module runs its own entry when
- * bundled into `plot-ask.mjs`.
+ * Reads the merge's `.changeset/*.md` paths through `Refs.commitFiles`, and each
+ * file's text at the merge's first parent: the version commit deleted them, so the
+ * default branch holds none.
+ *
+ * @param refs - the refs port.
+ * @param mergeCommit - the release PR's merge commit.
+ * @returns the changesets, `[]` where the merge removed none, or `'unaskable'` where a read failed.
  */
-const scopeSlugs = (content: string): string[] => {
-  const slugs: string[] = [];
-  let inTier = false;
-  for (const line of content.split('\n')) {
-    if (/^#{2,3} /.test(line)) {
-      inTier = /^#{2,3} (Must|Should|Could)\b/i.test(line);
-      continue;
-    }
-    const m = inTier ? line.match(/^- \[[ x]\] \[([a-z0-9][a-z0-9-]*)\]/) : null;
-    if (m?.[1] !== undefined && !slugs.includes(m[1])) slugs.push(m[1]);
+const shippedChangesets = async (refs: Refs, mergeCommit: string): Promise<readonly ReleaseChangeset[] | 'unaskable'> => {
+  if (mergeCommit === '') return 'unaskable';
+  const changed = await refs.commitFiles(mergeCommit);
+  if (!changed.ok) return 'unaskable';
+  const files = changed.value.filter(
+    (f) => /^\.changeset\/[^/]+\.md$/.test(f) && f !== '.changeset/README.md',
+  );
+  const out: ReleaseChangeset[] = [];
+  for (const file of files) {
+    const text = await refs.showFile(`${mergeCommit}^1`, file);
+    if (!text.ok) return 'unaskable';
+    out.push({ file: path.basename(file), plan: parseChangeset(text.value).plan ?? '' });
   }
-  return slugs;
+  return out;
 };
 
 /**
@@ -151,6 +161,7 @@ export const finishRelease = async (
     await sleep(ctx.pollMs);
   }
 
+  const shipped = await shippedChangesets(ctx.refs, pr.value.mergeCommit);
   const on = localDate();
   const [planDirCfg, sprintDirCfg, worktreeCfg, userName] = await Promise.all([
     ctx.scripts.config('Plan directory', 'docs/plans/'),
@@ -172,6 +183,7 @@ export const finishRelease = async (
 
   let refusal: { reason: string; detail: string } | null = null;
   let booked: readonly string[] = [];
+  let notes: readonly string[] = [];
   let bookedFiles: readonly { slug: string; file: string }[] = [];
 
   /** Decides from the text `wt` holds now, applies the edits, and stages them. */
@@ -225,8 +237,22 @@ export const finishRelease = async (
       });
     }
 
+    const inScope = new Set(slugs);
+    const outside: ScopePlan[] = [];
+    for (const name of files.filter((f) => f.endsWith('.md'))) {
+      const slug = planSlug(name);
+      if (inScope.has(slug)) continue;
+      const rel = path.join(planDir, name);
+      const read = await ctx.planStore.readPlan(path.join(wt, rel));
+      if (!read.ok) {
+        outside.push({ slug, file: '', type: '', phase: 'none', releasedRecord: '' });
+        continue;
+      }
+      outside.push({ slug, file: rel, type: read.value.type, phase: String(read.value.phase), releasedRecord: read.value.releasedRaw });
+    }
+
     const out = releaseFinish(
-      { caller: ctx.caller, version: tag, tagExists, scope, sprints },
+      { caller: ctx.caller, version: tag, tagExists, scope, outside, shipped, sprints },
       { on },
     );
     if (out.outcome === 'refused') {
@@ -234,7 +260,8 @@ export const finishRelease = async (
       return;
     }
     booked = out.detail.booked;
-    const bookedScope = scope.filter((s) => out.detail.booked.includes(s.slug));
+    notes = out.detail.notes;
+    const bookedScope = [...scope, ...outside].filter((s) => out.detail.booked.includes(s.slug));
     bookedFiles = bookedScope.map((p) => ({ slug: p.slug, file: p.file }));
     const staged: string[] = [];
     for (const p of bookedScope) {
@@ -310,6 +337,7 @@ export const finishRelease = async (
     const reasons = Object.entries(tracker.issues.reasons)
       .map(([reason, count]) => `${reason}=${count}`)
       .join(' ');
+    for (const note of notes) write(`note: ${note}\n`);
     write(`finished: ${tag} booked ${booked.join(', ') || 'none'} (${pushed.pushed})\n`);
     write(`summary: issues closed=${tracker.issues.closed} left-open=${tracker.issues.leftOpen}${reasons === '' ? '' : ` (${reasons})`}\n`);
     await cleanup();
