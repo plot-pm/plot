@@ -172,7 +172,7 @@ This plan is delivered only after this record exists. It also closes #3070's lin
 
 ### Relay in the release workflow
 
-- `bug/the-release-run-relays-validate` — a job in `release.yml` after `dispatch-ci` that waits, bounded, for the dispatched `CI` run on the pinned head and writes its result as the `validate` commit status with `GITHUB_TOKEN`, carrying over the relay's pin and run checks from `release-validate-relay.yml`; remove `release-validate-relay.yml`; update the comments at `release.yml:150-155` and the contract test from `### Tests` (Decision 8) <!-- builds: the release run's validate relay job -->
+- `bug/the-release-run-relays-validate` — a job in `release.yml` after `dispatch-ci` that waits, bounded, for the dispatched `CI` run on the pinned head and writes its result as the `validate` commit status with `GITHUB_TOKEN`, carrying over the relay's pin and run checks from `release-validate-relay.yml`; remove `release-validate-relay.yml`; update the comments at `release.yml:150-155` and the contract test from `### Tests` (Decision 8) <!-- builds: the release run's validate relay job --> → #3211
 
 ## Notes
 
