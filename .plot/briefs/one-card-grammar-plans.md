@@ -1,83 +1,57 @@
-## Implementation brief — one-card-grammar (wave 1: Tracer)
+## Implementation brief — one-card-grammar (wave 1: Tracer, the approved spike)
 
-- **Plan (canonical):** `docs/plans/2026-11-06-one-card-grammar.md` on `main`
-- **Approved:** the plan is in Design. The spike is approved: `2026-11-06, jwloka, plan-PR #3192 merged, feature/one-card-grammar-plans`. Only this branch may start. `feature/one-card-grammar-stories` and `feature/one-card-grammar-tickets` wait for `/plot-approve one-card-grammar`.
-- **Branch:** `feature/one-card-grammar-plans` (base: `main`)
-- **Ends as:** one PR to `main`
-- **Review of the code:** PR review per the plan's `Review: pr`. The branch is a spike: it proves the grammar on the Plans board. The review answers one question first: does every plan-card fact find a facet?
+- **Plan (canonical):** `docs/plans/2026-11-06-one-card-grammar.md` — read its `## Spec`; this brief orients, the Spec decides
+- **Approved:** spike only — `Spike approved: 2026-11-06, jwloka, plan-PR #3192 merged, feature/one-card-grammar-plans`. The plan stays in **Design**; Stories and Tickets wait for a whole-plan approval after this merges.
+- **Branch:** `feature/one-card-grammar-plans` (base: **`sprint/card-alignment`**, not `main`)
+- **Ends as:** one PR into **`sprint/card-alignment`** — `plot-open-pr.sh --base sprint/card-alignment`. Sprint `card-alignment` (release 2.32.0) is an integration branch: nothing of this sprint reaches `main` until the sprint PR #3195 merges at sprint close. A PR against `main` is wrong.
+- **Review of the code:** `plot/review` (required) plus CI `validate`.
 
-The Stories wave and the Tickets wave build on this branch's `CardFacts` schema and `<Card>`. A facet that does not fit must show up here, so the schema stays open to change until this PR merges.
+Stories (`feature/one-card-grammar-stories`) and Tickets (`feature/one-card-grammar-tickets`) build on what this branch lands — `CardFacts`, the mapping, `<Card>` and both gates. A shape this slice gets wrong is paid for twice.
 
 ### What to build
 
-Plan cards answer a reader's questions in three different ways today, and one of them is a defect: a disabled *Start work* gives no reason, and `not measured here` and `checks not asked` render as chips with the same weight as real facts. The cause is structural. `planCardView` (`packages/domain/src/rules/plan-card.ts:58`) answers type and owner. `cardControls` (`rules/card-controls.ts:62`) answers nine independent flags. `PlanCard.tsx` (`packages/board/src/app/components/PlanCard.tsx`, 592 lines) decides the rest in the browser.
+The Plans board's cards — planning and delivery boards and swimlanes — render through one shared `<Card>` from a new domain value, `CardFacts`, instead of `PlanCard.tsx` reading ~16 loose `Card` fields (`controls`, `sliceSummary`, `rounds`, `cost`, `verification`, `prs`, `notPushed`, …) and deciding things itself. Today the same facts sit in different places per board, absence renders as content (`not measured here`, `checks not asked` once per PR — on the 3077 card those chips outweigh its five PRs), and a disabled *Start work* says why only on hover (`StartWorkButton.tsx:331`).
 
-Build, in this order:
-
-1. **`CardFacts`** in `packages/domain/src/entities/card-facts.ts` (Zod): the five facets `identity`, `lineage`, `progress`, `next`, `ownership`, exactly as the plan's `### CardFacts` Spec types them. Include the schema gate: a domain test that enumerates every string field and refuses any that is not an identifier, an ISO date or verbatim content (invariant 1).
-2. **`docs/domain/card-grammar.md`**: the vocabulary. Code follows it.
-3. **`planCardFacts`** in `packages/domain/src/rules/`. It extends `planCardView` and `cardControls`; it does not wrap them. `next` derives from the `cardControls` flags: pick one primary, name the reason when it is disabled.
-4. **`facts` on plan cards in `/api/board`**, computed in the `board.ts` build next to the `planCardView` call (`board.ts:2676`). The projection reads only what the build already holds, so it adds no read.
-5. **`card-presentation.ts`** in the board app (pure, unit-tested without a browser) and the shared **`<Card>`**, used by the Plans board in both `Board.tsx` and `Swimlanes.tsx`.
-6. **`scripts/check-card-presentation.sh`**, the import gate.
-7. **Retire `planCardView`** with its last caller: delete it and move `plan-card.test.ts` onto `planCardFacts`. Leave no wrapper. `cardControls` stays as `next`'s input.
-
-The plan is canonical; this brief orients.
+Concretely: `entities/card-facts.ts` (schema), `rules/plan-card-facts.ts` (`planCardFacts`, replacing `planCardView` in `rules/plan-card.ts`), plan `facts` in `/api/board` from the `board.ts` build, `docs/domain/card-grammar.md` (vocabulary), `card-presentation.ts` (`presentCard(facts, board)`), `<Card>`, the schema gate and `scripts/check-card-presentation.sh`.
 
 ### Decisions the plan settles — do not re-derive them
 
-**The domain holds facts, the UI holds words.** The test is: would a CLI listing or a Slack digest need the same value? If yes, it is a fact. `merged: 2, total: 3` is a fact; *in progress 2/3* is a word. A string field other than `title`, an id, a handle, a path or a reference is refused by the schema gate. Alternative rejected: domain-built labels. Two rules already do this (`ticketPhase.label`, `statusDrift`'s phrase), and they migrate only when their own card converts. `checks-reading.ts:216` (`label: 'checks not asked'`), `plan-spend.ts:138-144` and `slice-spend-record.ts:279` (*not measured here*) are the card words this slice must move into the mapping.
-
-**Absent and unknown are different values.** `Known<T>` is `{ value }` or `{ unknown: reason }`, with the reason from `HostReach` minus `ok`. Absent means the board read and nothing is there. Unknown means it did not read. A throttled host must never read as *0 failing*, *unstarted* or *no PR*. This is the same rule as *the index never says no*. A fixture with a throttled host reads *checks unknown*, never zero.
-
-**Opening is not an action.** `identity.opens` is the title link, the card's only open link. The card carries no *Open* word and no whole-card click. `next` holds only actions that change something.
-
-**`cardControls` stays beside `next`, unchanged.** It is the plan's capability set (nine flags with no reasons), not one next action. Its schema and both callers (`board.ts:2687`, `mock-fleet.ts:498`) do not change. `mock-fleet.ts` emits facts through the same projection, never through its own shape.
-
-**`start-work` follows `cardControls.dispatch`** (invariant 6): enabled while the plan is approved or in progress and the pulse has an eligible slice. It is primary when `readyToStart` holds, secondary otherwise. Its disabled reasons are typed, not sentences: `awaiting-fleet-scan`, `nothing-eligible` with `waitsOn` slice refs taken from the pulse's `blockedBy`, and `action-unavailable` for the board-wide refusal. `StartWorkButton.tsx:59-67` (`startRefusal`) holds today's three refusals; the server's `DispatchInfo.reason` is a free sentence and does not enter `CardFacts`.
-
-**The presentation mapping decides no fact.** `card-presentation.ts` may import only from `@plot-pm/domain/entities/card-facts` and `packages/board/src/app/ui/`, and the gate refuses anything else. The allowance is for types: `import type` from the entity passes, and a value import of a rule is the violation the gate exists to catch. Emphasis is weight and colour, never position: `next` on the planning and delivery boards and in swimlanes. `BoardTab` (`rules/board-tab.ts:2`) is `discovery | planning | delivery`, and discovery also hosts tickets and stories, so key the emphasis on `BoardTab` plus the facts' `kind`.
-
-**Every list of two or more collapses to a count and expands in place.** The PR list reads *6 PRs · 1 running* and expands in the card. Each expander is a `<button aria-expanded>`. A first-three preview was rejected because the reader cannot see which three; a drawer-only list was rejected because it takes the reader off the board to answer *is anything red?*.
-
-**No meaning by colour alone.** Every alert, check state and disabled reason carries text, in both themes. The tab order is title link, primary, secondaries, expanders. The mapping's unit tests assert the text exists; one browser test asserts rows and tab order.
-
-**The wire shape moves per kind.** This slice adds `facts` to plan cards and removes only the plan fields no reader still reads: `typeLabel` and `owner` are the two the panel found no other reader for. `Card.sprint`, `story`, `prs`, `controls` and `title` are read by `lib/filters.ts` (12 reads), `Swimlanes.tsx`, `PlanModal.tsx`, `agent-rows/menus.tsx` and `App.tsx`; they stay. Grep each before you remove it.
-
-**Rules carried over unchanged.** Absent is not false. Read the exit code, not the emptiness. The unit is the function: you write an arrow; you leave its 60 neighbours alone. `packages/domain` takes arrow functions, factual TSDoc (what it does, parameters, return, failure; no history), and no new `Wave` where `Slice` is meant. Reasoning goes in the commit message, not in comments.
-
-**Two gaps the plan leaves; settle each in one line and report it in the PR.** (a) `ActionKind` lists `deliver`, but `cardControls` has no deliver flag and `DeliverButton` renders only in `agent-rows/menus.tsx`. Emit no `deliver` action from `planCardFacts` in this slice; keep the button where it is. (b) `ownership.since` falls back to "the plan's file date". If that needs a new read, emit `null` and say so; the plan forbids a projection that adds a read.
+- **Facts in the domain, words in the UI.** `CardFacts` holds no generated string: identifiers, ISO dates, and content copied verbatim (`title`, `summary`, `value`) only. Every sentence — *6 PRs · 1 pending*, *waits on feature/x #3105*, *checks unknown*, *not measured here* — is the mapping's. The test for a borderline value: would a CLI or Slack digest need the same value (fact) or phrase it differently (word)? The schema gate enforces this; don't widen its allow-list to make a field pass.
+- **The domain's existing vocabulary, imported, not redeclared.** `Checks` (`entities/pr.ts:32`: `green|pending|failing|none|unknown` — not `running`), `HostReach` (`rules/branch-state.ts:34`) for every unknown (`Known<T> = {value} | {unknown: Exclude<HostReach,'ok'>}`), `SpikeCardState`, `PlanStatus`, `PlanType`. A third "unknown" vocabulary was the panel's finding against round 4.
+- **Unknown is per item, not per record.** `progress.prs` is a list of `{number, branch, checks}`; *5 green, 1 unknown* must be expressible. A throttled host reads *checks unknown*, never `0` and never omitted.
+- **`next.primary` is optional.** `null` is a valid answer (a plan whose only action is *Interrogate* has it as a secondary). `reason` is non-null exactly when `enabled` is false.
+- **Reasons come from the real refusals, not a wish list.** `startRefusal` (`StartWorkButton.tsx:59-68`) gives three: dispatch unavailable (`action-unavailable` — board-wide config; the card points at the action, the board's own action entry carries the sentence), no fleet scan yet (`awaiting-fleet-scan`), nothing eligible (`nothing-eligible` with the pulse's `blockedBy` slices as `waitsOn`). There is **no `started` reason**: *Start work* stays enabled on an in-progress plan to dispatch the next wave (`PlanCard.tsx:520`); `readyToStart` decides primary vs secondary only.
+- **`cardControls` stays** with its schema and callers; `planCardFacts` reads it as `next`'s input. Do not fold it away.
+- **Every fact today's plan card shows survives**: type, rounds, spike state, verification, cost, `not-pushed`, the PR list, story and sprint (as `lineage`), path (as `ownership.source`). The panel's top finding was that the first draft silently dropped six of them.
+- **Compute on the server, once per build**, in `board.ts` where `planCardView`/`cardControls` run. No cache — nothing has measured the build as slow.
+- **`/api/board` changes per kind:** add `facts` to plans; remove a plan field only once nothing reads it — check filters, `Swimlanes.tsx`, `PlanModal`, menus, `mock-fleet.ts` (emits facts through the same projection), `release-smoke.sh` (counts cards only), `plot-ask.mjs board`.
+- **`planCardView` retires in this slice** with its tests moved to `planCardFacts`; no deprecated wrapper.
+- **Title is the only open link; one action row.** No separate *Open* word; primary first, then enabled secondaries; a disabled primary shows its reason on the card. Planning/delivery boards and swimlanes emphasise `next`.
+- Carried over, because this repo keeps re-learning them: **absent is not false** (an unread input is `unknown`, never `[]`); **read the exit code, not the emptiness**; domain code is arrow functions with factual TSDoc — reasoning goes in commits, not comments.
 
 ### Done when
 
-The plan's `### Done when` **Tracer** item is the specification. Lift these assertions, because a naive implementation passes without them:
+The plan's Spec `### Done when → Tracer` is the specification. The assertions that exist because a naive implementation passes without them:
 
-- **A disabled primary carries a reason.** A unit test on `CardFacts`: `reason` is non-null exactly when `enabled` is false (invariant 3). Without it, *Start work* can stay greyed and mute.
-- **No chip for absence.** A mapping test on a plan with no cost reading and an unasked check: neither `not measured here` nor `checks not asked` appears as its own chip, and each shows as an unknown in its row.
-- **A throttled host never reads zero.** A fixture with `HostReach` not `ok` gives *checks unknown*, never a zero count.
-- **Both render sites move.** A browser test covers the Plans board (`Board.tsx`) and a swimlane (`Swimlanes.tsx`). The slice fails if one still renders the old card.
-- **Both gates fail on a seeded violation.** The schema gate refuses a free-text string field; `check-card-presentation.sh` refuses a rule import. Prove each: seed the violation, see the failure, remove it.
-- **Everything the old card showed still shows:** type, rounds, spike state, verification, cost, `not-pushed` and the PR list with number, link and checks.
+- **Every fact still shows** — type, rounds, spike state, verification, cost, `not-pushed`, PR list. Catches the facet-less field quietly disappearing when old `Card` fields go.
+- **No *not measured here* / *checks not asked* chip of its own** — each is an unknown inside its row. Catches re-rendering the old noise through the new component.
+- **A disabled *Start work* names its reason on the card**, not in a `title` tooltip. Catches porting the hover behaviour as-is.
+- **A throttled-host fixture reads *checks unknown*, never zero.** Catches `Known` collapsed to a default.
+- **Both gates fail on a seeded violation** (a free-text field on `CardFacts`; an import of a reading in `card-presentation.ts`) and pass on the branch. Catches gates that pass vacuously.
+- **One browser test** proves rows and tab order (title, primary, secondaries, expanders; expanders are `<button aria-expanded>`).
 
-Plus the repo gates:
-
-- Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` key run in CI, and a failure there comes back as a correction. Do not run `test:e2e`. Do not run board tests while an operator's board is open.
-- Add `scripts/check-card-presentation.sh` to `.github/workflows/ci.yml` and to the `Local checks` key in `CLAUDE.md`, then run `./scripts/check-agents-md.sh --write`. Add `test/reconcile/card-presentation-gate.test.mjs`. `test/reconcile/local-checks-coverage-gate.test.mjs` enforces the registration; run the whole reconcile glob, not only the files you suspect.
-- `scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. This slice adds shell only under `scripts/`, which that gate does not count. If you touch a `.sh` file under `skills/`, pay for the growth in the same change: remove shell elsewhere, or write the rule in the domain and ask it through a bundle. The gate counts commands, not lines, and has no override.
-- Add a changeset (description first, `bumps:` block last, package `plot` or `@plot-pm/board`). Do not commit a rebuilt `board-server.mjs` or any generated bundle: `scripts/check-no-bundle-diff.sh` refuses it. Use Node 26 (`nvm use`).
+Plus the repo's gates: wire `scripts/check-card-presentation.sh` into `ci.yml` and the `Local checks` key in `CLAUDE.md`, then `./scripts/check-agents-md.sh --write`. A changeset for `@plot-pm/board` (description first, `plan: docs/plans/2026-11-06-one-card-grammar.md` in the trailing block). Do not commit a generated bundle (`check-no-bundle-diff.sh`). For tests: run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints; the `CI suites` run in CI and a failure comes back as a correction. Do not run `test:e2e` locally. The shell gate (`scripts/check-shell-lines.sh`) counts shell under `skills/` only — the new check script lives in `scripts/`, so it costs nothing there; touch no `.sh` under `skills/`.
 
 ### Bookkeeping
 
 - Push the first real commit as soon as it exists.
-- Open the PR with `../plot/scripts/plot-open-pr.sh` (use `--draft` while the work moves). Never run `gh pr create`.
-- When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section.
+- Open the PR with `skills/plot/scripts/plot-open-pr.sh --base sprint/card-alignment` (`--draft` while moving) — never `gh pr create`.
+- When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` — on `sprint/card-alignment`.
 
 ### Scope guard
 
-This branch owns: `packages/domain/src/entities/card-facts.ts`, `packages/domain/src/rules/plan-card*.ts` and its new facts rule, `packages/domain/test/`, `docs/domain/card-grammar.md`, `packages/board/src/server/board.ts` (the plan-card build only), `packages/board/src/server/mock-fleet.ts`, `packages/board/src/contract/schema.ts` (plan `Card` only), the plan-card components under `packages/board/src/app/components/` (`PlanCard.tsx`, `Board.tsx`, `Swimlanes.tsx`), the new `card-presentation.ts` and `<Card>`, `scripts/check-card-presentation.sh`, `ci.yml`, and `CLAUDE.md`/`AGENTS.md` for the `Local checks` entry.
+This branch owns: `packages/domain/src/entities/card-facts.ts`, `packages/domain/src/rules/plan-card-facts.ts` and `rules/plan-card.ts` (retired), `docs/domain/card-grammar.md`, `packages/board/src/app/` card presentation, `<Card>`, `PlanCard.tsx`, the plan-card call sites in `Board.tsx` / `Swimlanes.tsx` / `PlanModal`, plan facts in `packages/board/src/server/board.ts` and `mock-fleet.ts`, `scripts/check-card-presentation.sh`, `.github/workflows/ci.yml`, the `Local checks` line in `CLAUDE.md` / `AGENTS.md`.
 
-Out of scope: story and ticket cards (`StoriesTab.tsx`, `ticket-card.ts`, `story-card.ts`, `discovery-lanes.ts`), `statusDrift`, `POST /api/idea`, `POST /api/story-plan`, `TicketModal`, the `issue:` story field, and the Delivery tab's ticket row (`IssueRowView`, `agent-rows/rows.tsx`).
-
-Verified at dispatch on `origin/main`: no remote branch for the Stories or Tickets slices exists, and the only other branch with a matching name, `sprint/card-alignment`, changes only plan and sprint files. A collision is not expected.
+Not this branch: story or ticket cards, `storyCardView`, `ticketCard*`, `discovery-lanes.ts`, `/api/idea`, `/api/story`, `StoryModal`, the story `issue:` field — all Stories/Tickets. Other work in flight: sprint `follow-ups-2-30-1` (another session, release 2.31.0) lands on `main` and may touch `packages/board`; merge `origin/main` into `sprint/card-alignment` (not into this branch) when it does.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.

@@ -4,9 +4,9 @@
 
 ## Status
 
-- **State:** Planning
-- **Start:** YYYY-MM-DD
-- **End:** YYYY-MM-DD
+- **State:** Active
+- **Start:** 2026-11-06
+- **End:** 2026-11-13
 <!-- Optional. The version this sprint is working toward, named before it is
      cut. With it, /plot-release refuses to cut past an unfinished Must Have
      and asks about unfinished Should Haves. Without it, nothing changes. -->
@@ -21,6 +21,7 @@ semantic model, `CardFacts`, presented by one shared card — and converts the
 three boards to it: Plans first as the tracer, then Stories, then Tickets.
 
 ### Must Have
+- [ ] [one-card-grammar] Tickets, Stories and Plans cards share one five-row card
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`

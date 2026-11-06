@@ -6,12 +6,13 @@
 
 - **State:** Design
 - **Type:** feature
+- **Sprint:** card-alignment
 - **Review:** pr
 - **Impl:** own branches
 - **Design:** 2026-11-06, jwloka, cli
 - **Rounds:** 5
 - **Spike approved:** 2026-11-06, jwloka, plan-PR #3192 merged, feature/one-card-grammar-plans
-- **Started:** 2026-11-06, Jan Wloka, `feature/one-card-grammar-plans`
+- **Started:** 2026-11-06, jwloka, `feature/one-card-grammar-plans`
 
 ## Changelog
 
