@@ -75,6 +75,18 @@ export const ActionKindSchema = z.enum([
 ]);
 export type ActionKind = z.infer<typeof ActionKindSchema>;
 
+/** A lineage relation an unread fact can name. */
+// plot-state: classification — which relation a reason names; one relation never becomes another.
+const LineageRelationSchema = z.enum(['plans', 'stories']);
+
+/** What a progress count counts. */
+// plot-state: classification — the unit a count is in; a count never changes unit.
+const WorkUnitSchema = z.enum(['slices', 'plans']);
+
+/** What happened at an item's `ownership.since` date. */
+// plot-state: classification — which record dated the item; each kind of item has its own.
+const SinceEventSchema = z.enum(['opened', 'updated', 'transitioned']);
+
 /** Why an action is disabled. */
 export const ReasonSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('action-unavailable'), action: ActionKindSchema }),
@@ -83,7 +95,7 @@ export const ReasonSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('awaits-spike'), spike: RefSchema }),
   z.object({ kind: z.literal('linked-from-many-stories'), stories: z.array(RefSchema) }),
   z.object({
-    kind: z.literal('lineage-unknown'), relation: z.enum(['plans', 'stories']), reach: UnknownReachSchema,
+    kind: z.literal('lineage-unknown'), relation: LineageRelationSchema, reach: UnknownReachSchema,
   }),
 ]);
 export type Reason = z.infer<typeof ReasonSchema>;
@@ -162,7 +174,7 @@ export const CardFactsSchema = z.object({
   progress: z
     .object({
       work: z
-        .object({ unit: z.enum(['slices', 'plans']), done: knownSchema(z.number()), total: z.number() })
+        .object({ unit: WorkUnitSchema, done: knownSchema(z.number()), total: z.number() })
         .nullable(),
       prs: knownSchema(z.array(CardPrSchema)),
       design: z.object({ rounds: z.number().nullable(), spike: SpikeCardStateSchema.nullable() }).nullable(),
@@ -176,7 +188,7 @@ export const CardFactsSchema = z.object({
   }),
   ownership: z.object({
     owner: z.string().nullable(),
-    since: z.object({ at: z.string(), event: z.enum(['opened', 'updated', 'transitioned']) }).nullable(),
+    since: z.object({ at: z.string(), event: SinceEventSchema }).nullable(),
     source: z.union([RefSchema, z.object({ path: z.string() })]),
   }),
 });
