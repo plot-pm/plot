@@ -6,6 +6,7 @@ import {
   storyIssueLink,
   storyIssueValue,
   ticketStoryIndex,
+  ticketStoryOffer,
   type IndexedStory,
   type StoryIssueContext,
 } from '../src/rules/story-issue.js';
@@ -46,8 +47,9 @@ describe('storyIssueLink', () => {
       .toEqual({ kind: 'unreadable', value: 'https://github.com/someone/else/issues/3170' });
   });
 
-  it("accepts this repository's own Bitbucket issue page", () => {
+  it("accepts this repository's own Bitbucket issue page, with or without its title segment", () => {
     expect(storyIssueLink('https://bitbucket.org/quatico/site/issues/12', bitbucket)).toEqual({ kind: 'key', key: '12' });
+    expect(storyIssueLink('https://bitbucket.org/quatico/site/issues/12/the-board-breaks', bitbucket)).toEqual({ kind: 'key', key: '12' });
   });
 
   it('accepts #<n>', () => {
@@ -145,5 +147,18 @@ describe('storyIsLive', () => {
     expect(storyIsLive({ status: 'done', archived: false })).toBe(false);
     expect(storyIsLive({ status: 'active', archived: true })).toBe(false);
     expect(storyIsLive({ status: null, archived: false })).toBe(false);
+  });
+});
+
+describe('ticketStoryOffer', () => {
+  const ref = { kind: 'story' as const, slug: 'a', title: 'A', status: 'draft' as const, archived: false };
+
+  it('offers Create story only where the index was read and names no story', () => {
+    expect(ticketStoryOffer({ value: {} }, '1')).toEqual({ stories: { value: [] }, createStory: true });
+    expect(ticketStoryOffer({ value: { 1: [ref] } }, '1')).toEqual({ stories: { value: [ref] }, createStory: false });
+  });
+
+  it('offers no Create story while the index is unknown', () => {
+    expect(ticketStoryOffer({ unknown: 'failed' }, '1')).toEqual({ stories: { unknown: 'failed' }, createStory: false });
   });
 });

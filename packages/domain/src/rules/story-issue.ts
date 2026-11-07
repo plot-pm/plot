@@ -1,4 +1,4 @@
-import type { Ref } from '../entities/card-facts.js';
+import type { Known, Ref } from '../entities/card-facts.js';
 import type { StoryStatus } from '../entities/story.js';
 
 /**
@@ -60,7 +60,8 @@ const declaredJiraKey = (candidate: string, projects: readonly string[]): string
  * Reads a story's issue value against this repository.
  *
  * Accepts `#<n>` and `<issuePrefix><n>` (this repository's own issue page, the
- * comparison case-insensitive, a trailing `/` or fragment allowed), and a Jira
+ * comparison case-insensitive, a trailing title segment, `/` or fragment
+ * allowed), and a Jira
  * key, bare or at the end of a `/browse/<KEY>` URL, whose project is declared.
  * Any other value is `unreadable`. A value that needs the repository's address
  * reads `unknown` while that address is unread.
@@ -79,14 +80,14 @@ export const storyIssueLink = (value: string, context: StoryIssueContext): Story
   if (jira !== null) return { kind: 'key', key: jira };
 
   const short = /^#(\d+)$/.exec(v);
-  const page = /^https?:\/\/\S+\/issues\/(\d+)\/?(?:#\S*)?$/.exec(v);
+  // A trailing title segment (`/issues/12/the-title`, Bitbucket's form), `/` or fragment is allowed.
+  const page = /^(https?:\/\/\S+\/issues\/(\d+))(?:\/[^\s/#]*)?\/?(?:#\S*)?$/.exec(v);
   if (short === null && page === null) return unreadable;
   if (context.issuePrefix === null) return { kind: 'unknown' };
   if (short !== null) return { kind: 'key', key: short[1] as string };
-  const number = (page as RegExpExecArray)[1] as string;
+  const [, named, number] = page as RegExpExecArray;
   const own = `${context.issuePrefix}${number}`.toLowerCase();
-  const named = v.replace(/#\S*$/, '').replace(/\/$/, '').toLowerCase();
-  return named === own ? { kind: 'key', key: number } : unreadable;
+  return (named as string).toLowerCase() === own ? { kind: 'key', key: number as string } : unreadable;
 };
 
 /**
@@ -185,3 +186,19 @@ export const STORY_SLUG_PATTERN = /^[a-z0-9-]+$/;
  */
 export const storyIsLive = (story: { status: StoryStatus | null; archived: boolean }): boolean =>
   !story.archived && story.status !== null && story.status !== 'done';
+
+/**
+ * The stories the index names for one ticket, and whether the ticket may offer
+ * *Create story*: only where the index was read and names none.
+ *
+ * @param index - the ticket → story index, or `unknown` where it was not built.
+ * @param key - the ticket's issue key.
+ * @returns the ticket's stories as a known list, and whether *Create story* applies.
+ */
+export const ticketStoryOffer = (
+  index: Known<Readonly<Record<string, readonly Ref[]>>>, key: string,
+): { stories: Known<Ref[]>; createStory: boolean } => {
+  if ('unknown' in index) return { stories: { unknown: index.unknown }, createStory: false };
+  const stories = [...(index.value[key] ?? [])];
+  return { stories: { value: stories }, createStory: stories.length === 0 };
+};

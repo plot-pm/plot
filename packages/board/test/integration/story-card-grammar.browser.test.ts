@@ -163,5 +163,21 @@ describe('a story card renders the card grammar', () => {
     } finally {
       await page.close();
     }
+    // While the index is unknown, no ticket offers Create story and each says why.
+    const unread = await cat.open('an-empty-estate', {
+      over: {
+        board: board({ tickets: TICKETS, ticketStories: { unknown: 'failed' }, idea: { available: true, reason: '' }, story: { available: true, reason: '' }, issueAnswer: 'answered' }),
+        fleet: fleet(),
+      },
+      tab: 'discovery',
+    });
+    try {
+      const ticket = unread.locator('[data-ticket-card="3170"]');
+      await ticket.waitFor({ timeout: 10_000 });
+      expect(await ticket.locator('[data-ticket-stories="unknown"]').innerText()).toBe('stories unknown');
+      expect(await ticket.locator('[data-create-story]').count()).toBe(0);
+    } finally {
+      await unread.close();
+    }
   });
 });

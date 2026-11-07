@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { discoveryGroups, lanesForReader, lanesForTopic, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
+import { discoveryGroups, lanesForReader, lanesForTopic, ticketCardIssueRow, ticketCardView, ticketStoryOffer, topicCountFor } from '@plot-pm/domain';
 import type { Known, Ref } from '@plot-pm/domain/entities/card-facts';
 import type { DiscoveryShow, MineMode, Reader } from '@plot-pm/domain';
 import type { Card as PlanCardData, StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
@@ -317,7 +317,7 @@ export function StoriesTab({
                         idea={idea}
                         story={story}
                         issueAnswer={issueAnswer}
-                        stories={ticketStories && 'value' in ticketStories ? ticketStories.value[String(row.id)] ?? [] : []}
+                        offer={ticketStoryOffer(ticketStories ?? { unknown: 'unasked' }, String(row.id))}
                         storyOf={links?.storyOf}
                         onOpenStory={onOpenStory}
                       />
@@ -461,8 +461,8 @@ interface TicketRowViewProps {
   idea: DispatchInfo;
   story: DispatchInfo;
   issueAnswer: IssueAnswer | null;
-  /** The committed stories that answer the ticket, from the ticket → story index. */
-  stories: readonly Ref[];
+  /** The committed stories that answer the ticket, and whether it may offer *Create story*. */
+  offer: { stories: Known<Ref[]>; createStory: boolean };
   /** The story the board collected under a slug. */
   storyOf?: (slug: string) => StoryCard | undefined;
   onOpenStory: (story: StoryCard) => void;
@@ -470,9 +470,11 @@ interface TicketRowViewProps {
 
 /**
  * A ticket row in the ticket lane group — the card helper's view, rendered. A
- * ticket a story answers links that story and offers no *Create story*.
+ * ticket a story answers links that story and offers no *Create story*; while
+ * the index is unread it offers none either, and says the stories are unknown.
  */
-function TicketRowView({ ticket, lane, idea, story, issueAnswer, stories, storyOf, onOpenStory }: TicketRowViewProps) {
+function TicketRowView({ ticket, lane, idea, story, issueAnswer, offer, storyOf, onOpenStory }: TicketRowViewProps) {
+  const stories = 'value' in offer.stories ? offer.stories.value : [];
   const view = useMemo(() => ticketCardView(ticket, lane, Date.now()), [ticket, lane]);
   const issue = useMemo(() => ticketCardIssueRow(ticket), [ticket]);
   return (
@@ -504,6 +506,15 @@ function TicketRowView({ ticket, lane, idea, story, issueAnswer, stories, storyO
       {view.subtitle ? (
         <p className="mt-1 truncate pl-[20px] text-slate-400 dark:text-slate-500">{view.subtitle}</p>
       ) : null}
+      {'unknown' in offer.stories ? (
+        <p
+          className="mt-1 pl-[20px] text-slate-400 underline decoration-dotted underline-offset-2 dark:text-slate-500"
+          data-ticket-stories="unknown"
+          title="The stories committed on the default branch could not be read"
+        >
+          stories unknown
+        </p>
+      ) : null}
       {stories.length > 0 ? (
         <p className="mt-1 flex flex-wrap items-center gap-x-2 pl-[20px] text-slate-500 dark:text-slate-400" data-ticket-stories>
           {stories.map((ref) => {
@@ -528,7 +539,7 @@ function TicketRowView({ ticket, lane, idea, story, issueAnswer, stories, storyO
       {view.showsActions ? (
         <div className="mt-2 flex items-center gap-2 pl-[20px]">
           <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
-          {stories.length === 0 && <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />}
+          {offer.createStory && <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />}
         </div>
       ) : null}
     </div>

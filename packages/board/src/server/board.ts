@@ -1553,7 +1553,7 @@ export const declaredPhaseMap = (value: string): { map: PhaseMap; refusal: strin
 };
 
 /** slug from a date-prefixed plan filename (YYYY-MM-DD-<slug>.md). */
-export function planSlug(file: string): string {
+function planSlug(file: string): string {
   const base = path.basename(file, '.md');
   const m = base.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
   return m ? m[1] : base;

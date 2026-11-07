@@ -231,6 +231,8 @@ const BOARD_DEFAULTS: BoardInput = {
   columns: [],
   sprints: [],
   stories: [],
+  // A fixture board read its stories and found none answering a ticket.
+  ticketStories: { value: {} },
   checklist: null,
   /**
    * WHAT THE SERVER SAYS ABOUT ITSELF, and it is stated rather than defaulted.
