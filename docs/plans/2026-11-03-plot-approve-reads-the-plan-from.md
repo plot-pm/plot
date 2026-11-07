@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3093
@@ -15,6 +15,7 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3097 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/plot-approve-reads-the-plan-from`
 - **Delivered:** 2026-11-05
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 
