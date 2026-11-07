@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Board, Card, Fleet, SprintCard, StoryCard } from '../contract/schema.js';
+import type { Board, Card, Fleet, SprintCard, StoryCard, TicketLaneGroups } from '../contract/schema.js';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
 import { Swimlanes } from './components/Swimlanes.js';
@@ -194,6 +195,15 @@ function parseTab(): Tab {
   }
   return tab;
 }
+
+/** The board's ticket card facts by ticket id, for the rows that offer *Create plan*. */
+const ticketFactsOf = (tickets: TicketLaneGroups | null | undefined): Map<string, CardFacts> => {
+  const byId = new Map<string, CardFacts>();
+  for (const lane of [tickets?.open, tickets?.['in-progress'], tickets?.done]) {
+    for (const row of lane ?? []) if (row.facts) byId.set(row.id, row.facts);
+  }
+  return byId;
+};
 
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
@@ -1392,7 +1402,6 @@ export function App() {
               onOpenSprint={onOpenSprint}
               onOpenPlan={onOpenPlanCard}
               links={discoveryLinks}
-              ticketStories={board.ticketStories}
               idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
               story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
               issueAnswer={board.issueAnswer ?? null}
@@ -1411,6 +1420,7 @@ export function App() {
             // here, which is why the hidden case is asserted at the component.
             <AgentList
               fleet={fleet}
+              ticketFacts={ticketFactsOf(board?.tickets)}
               pollSeconds={FLEET_POLL_MS / 1000}
               staleSeconds={fleetStaleSeconds}
               onOpenPlan={onOpenPlanFile}

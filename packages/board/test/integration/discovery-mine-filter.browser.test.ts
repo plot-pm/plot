@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, board as buildBoard, fleet as buildFleet, story as buildStory, type Catalogue } from '../catalogue/index.js';
 import type { TicketLaneGroups, TicketLaneRow } from '../../src/contract/schema.js';
+import { withTicketFacts } from '../catalogue/ticket-lanes.js';
 
 /**
  * DISCOVERY FILTERS TO MY WORK — the checkbox, widened from Planning onto the
@@ -65,7 +66,7 @@ describe('the discovery tab filters to my work', () => {
     cat.open('an-empty-estate', {
       over: {
         board: buildBoard({
-          tickets: TICKETS,
+          tickets: withTicketFacts(TICKETS),
           storyLanes: STORY_LANES,
           idea: { available: true, reason: '' },
           story: { available: true, reason: '' },
@@ -91,7 +92,7 @@ describe('the discovery tab filters to my work', () => {
   it('starts off, showing every story and ticket', async () => {
     const page = await open();
     try {
-      await expect.poll(() => page.locator('[data-ticket-card]').count(), { timeout: 10_000 }).toBe(3);
+      await expect.poll(() => page.locator('[id^="ticket-"][data-card]').count(), { timeout: 10_000 }).toBe(3);
       await expect.poll(() => toggle(page).isChecked()).toBe(false);
       const shown = await text(page);
       for (const t of ['My story', 'Their story', 'Nobodys story']) expect(shown).toContain(t);
@@ -104,7 +105,7 @@ describe('the discovery tab filters to my work', () => {
   it('hides only the colleague\'s story and ticket when checked, and restores both on uncheck', async () => {
     const page = await open();
     try {
-      await expect.poll(() => page.locator('[data-ticket-card]').count(), { timeout: 10_000 }).toBe(3);
+      await expect.poll(() => page.locator('[id^="ticket-"][data-card]').count(), { timeout: 10_000 }).toBe(3);
 
       await toggle(page).check();
       await expect.poll(async () => (await text(page)).includes('Their story')).toBe(false);

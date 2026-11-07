@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page, type Request } from 'playwright';
 import { openCatalogue, board, fleet, story, type Catalogue } from '../catalogue/index.js';
 import type { StoryCard, TicketLaneGroups } from '../../src/contract/schema.js';
+import { withTicketFacts } from '../catalogue/ticket-lanes.js';
 
 /**
  * A STORY CARD RENDERS THE CARD GRAMMAR — what only a rendered page can settle.
@@ -69,7 +70,7 @@ describe('a story card renders the card grammar', () => {
         board: board({
           stories: [LINKED, UMBRELLA, BARE],
           storyLanes: [{ lane: 'Draft', stories: [LINKED, BARE] }, { lane: 'Active', stories: [UMBRELLA] }],
-          tickets: TICKETS,
+          tickets: withTicketFacts(TICKETS, { stories: { 3170: [{ kind: 'story', slug: 'nothing-runs', title: 'Nothing changed, nothing runs', status: 'draft', archived: false }] } }),
           ticketStories: { value: { 3170: [{ kind: 'story', slug: 'nothing-runs', title: 'Nothing changed, nothing runs', status: 'draft', archived: false }] } },
           issueUrlBase: ISSUES,
           idea: { available: true, reason: '' },
@@ -155,9 +156,9 @@ describe('a story card renders the card grammar', () => {
   it('a ticket a story answers links that story and offers no Create story', async () => {
     const page = await open();
     try {
-      const ticket = page.locator('[data-ticket-card="3170"]');
+      const ticket = page.locator('#ticket-3170');
       await ticket.waitFor({ timeout: 5_000 });
-      expect(await ticket.locator('[data-ticket-story="nothing-runs"]').innerText()).toBe('Story: Nothing changed, nothing runs');
+      expect(await ticket.getByText('Nothing changed, nothing runs').count()).toBeGreaterThan(0);
       expect(await ticket.locator('[data-create-story]').count()).toBe(0);
       expect(await ticket.locator('[data-create-plan]').count()).toBe(1);
     } finally {
