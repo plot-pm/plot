@@ -1,7 +1,7 @@
 ---
 title: {TITLE}
 author: {NAME}  # Who owns/drives this story — always set it; multi-author repos depend on it
-issue: {ISSUE_URL}  # Optional — link (never copy) the ticket: this repo's issue URL or #N, or a Jira key whose project `Ticket prefixes` declares
+issue: {ISSUE_URL}  # Optional — link (never copy) the ticket: this repo's issue URL or "#N" (quoted), or a Jira key whose project `Ticket prefixes` declares
 status: draft | ready | active | in-review | paused | done
 # unit: {UNIT}  # Optional — owning unit, for repos with several story homes
 created: {YYYY-MM-DD}

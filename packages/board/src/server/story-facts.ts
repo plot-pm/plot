@@ -16,7 +16,7 @@ import {
 } from '@plot-pm/domain';
 import type { CardFacts, Known, Ref } from '@plot-pm/domain/entities/card-facts';
 import type { DispatchInfo, PlanMeta, SprintCard, StoryCard, StoryCardInput } from '../contract/schema.js';
-import { planSlug } from './board.js';
+import { planSlug } from '@plot-pm/domain/rules/auto-dispatch';
 
 /** What a story's facts read beyond the story's own fields. */
 export interface StoryFactsContext {
