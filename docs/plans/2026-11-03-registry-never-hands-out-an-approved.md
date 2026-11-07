@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3092
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3095 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/the-queue-hands-out-an-approved-spike`
 - **Delivered:** 2026-11-06
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

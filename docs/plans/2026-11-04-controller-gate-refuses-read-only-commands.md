@@ -6,7 +6,7 @@
 
 - **State:** Delivered
 - **Type:** feature
-- **Sprint:** follow-ups-2-30-1
+- **Sprint:** card-alignment
 - **Issue:** #2530
 - **Review:** pr
 - **Impl:** own branches

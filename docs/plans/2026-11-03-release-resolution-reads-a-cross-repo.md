@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3081
@@ -17,6 +17,7 @@
 - **Started:** 2026-11-04, Jan Wloka, `bug/release-tag-contains-every-local-pr`
 - **Started:** 2026-11-04, Jan Wloka, `bug/scan-release-asks-the-domain`
 - **Delivered:** 2026-11-05
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

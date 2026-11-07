@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3099
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3113 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/plot-fleetctl-stop-ignores-dry-run`
 - **Delivered:** 2026-11-05
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 
