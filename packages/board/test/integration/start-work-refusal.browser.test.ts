@@ -114,7 +114,7 @@ describe('Start work refuses before the click when it cannot know', () => {
 
   const cardFor = (page: Page, title: string) => page.locator('article', { hasText: title });
 
-  async function openBoard(): Promise<Page> {
+  async function openBoard(started = false): Promise<Page> {
     const page = await cat.open('a-board-that-can-act', {
       viewport: VIEWPORT,
       over: {
@@ -125,7 +125,7 @@ describe('Start work refuses before the click when it cannot know', () => {
             phase: 'Development',
             cards: [buildCard({
               slug: 'raised-beds', title: SLICED_TITLE, type: 'feature',
-              phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
+              phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md', started,
               // `claimed` and `eligible` absent: no pulse has reached this plan.
               sliceSummary: { waves: 2, branches: 2, deferred: 0 },
             })],
@@ -144,26 +144,33 @@ describe('Start work refuses before the click when it cannot know', () => {
       const button = cardFor(page, SLICED_TITLE).getByRole('button', { name: /Start work/ });
       await button.waitFor({ timeout: 10_000 });
 
-      // On the control, for a pointer…
-      expect(await button.getAttribute('title')).toMatch(/first (fleet )?scan/);
-      // …and in the accessible name, for a reader who can see neither the
-      // pointer nor the dimming. Both, because either alone leaves someone out.
-      expect(await button.textContent()).toMatch(/first (fleet )?scan/);
       expect(await button.getAttribute('aria-disabled')).toBe('true');
+      // The reason is the control's description, in a tooltip that opens on
+      // keyboard focus as well as hover — never only a native `title`.
+      const reason = cardFor(page, SLICED_TITLE).locator('[data-action="start-work"] [data-action-reason]');
+      await button.focus();
+      expect(await reason.isVisible()).toBe(true);
+      expect(await reason.textContent()).toMatch(/no fleet scan yet/);
+      expect(await button.getAttribute('aria-describedby')).toBe(await reason.getAttribute('id'));
     } finally {
       await page.close();
     }
   });
 
-  it('does not fall back to `card.started` — a STARTED plan refuses too', async () => {
+  it('a started plan with no fleet scan keeps Start work, disabled, with its reason', async () => {
     // This plan carries a `Started:` record, so the flag the button used to
     // watch is true. If the code fell back to it here, the button would offer a
-    // click it could never report on.
-    const page = await openBoard();
+    // click it could never report on. On a started plan Start work is a
+    // secondary; the board cannot answer it before the first scan, so it stays
+    // disabled with its reason rather than being omitted.
+    const page = await openBoard(true);
     try {
       const button = cardFor(page, SLICED_TITLE).getByRole('button', { name: /Start work/ });
       await button.waitFor({ timeout: 10_000 });
       expect(await button.getAttribute('aria-disabled')).toBe('true');
+      const reason = cardFor(page, SLICED_TITLE).locator('[data-action="start-work"] [data-action-reason]');
+      await button.focus();
+      expect(await reason.textContent()).toMatch(/no fleet scan yet/);
     } finally {
       await page.close();
     }
@@ -184,7 +191,7 @@ describe('Start work refuses before the click when it cannot know', () => {
             phase: 'Development',
             cards: [buildCard({
               slug: 'raised-beds', title: SLICED_TITLE, type: 'feature',
-              phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
+              phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md', started: false,
               sliceSummary: { waves: 2, branches: 2, deferred: 0 },
             })],
           })],

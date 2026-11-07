@@ -15,7 +15,7 @@ const withIssue = card({
 });
 
 describe('panels show the plan reference prefix', () => {
-  it('PlanCard heading starts with the issue key and its Open anchor uses planRoute', () => {
+  it('PlanCard heading starts with the issue key and its title link uses planRoute', () => {
     const html = renderToStaticMarkup(createElement(PlanCard, {
       card: withIssue, accent: 'neutral', showSprint: false, showStory: false,
       dispatch: undefined as never, approve: undefined as never, interrogate: undefined as never,
@@ -28,7 +28,7 @@ describe('panels show the plan reference prefix', () => {
 
   it('PlanCard prints the title alone for a plan with no issues', () => {
     const html = renderToStaticMarkup(createElement(PlanCard, {
-      card: { ...withIssue, issues: [] }, accent: 'neutral', showSprint: false, showStory: false,
+      card: card({ ...withIssue, issues: [], facts: undefined }), accent: 'neutral', showSprint: false, showStory: false,
       dispatch: undefined as never, approve: undefined as never, interrogate: undefined as never,
       onStarting: () => {}, onOpen: () => {},
     }));

@@ -537,7 +537,9 @@ describe('a stuck branch says so in its row', () => {
       const resolve = row.getByRole('button', { name: /Dispatch|Start work/i });
       await expect.poll(() => resolve.count()).toBeGreaterThan(0);
       expect(await resolve.first().getAttribute('aria-disabled')).toBe('true');
-      const refusal = await resolve.first().getAttribute('title');
+      // The refusal is the button's description, in the shared tooltip.
+      const reasonId = await resolve.first().getAttribute('aria-describedby');
+      const refusal = await page.locator(`[id="${reasonId}"]`).textContent();
       expect(refusal ?? '').toMatch(/localhost|worktree|machine/i);
       expect(await resolve.first().evaluate((el) => (el as HTMLButtonElement).disabled)).toBe(false);
     } finally {

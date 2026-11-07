@@ -453,27 +453,39 @@ const isProven = (s: StoryStanding): s is 'active' | 'done' | 'archived' =>
   s === 'active' || s === 'done' || s === 'archived';
 
 /**
- * Why a story's written status disagrees with what its plans prove.
+ * The standing a story's plans prove where its written status is behind it.
  *
  * Reports in ONE direction: a story behind its plans is one nobody updated,
  * which is mechanical drift. A story ahead of its plans finished early, which
- * is a person's word about knowledge no mechanism can observe — `entities/story.ts`
- * settles that the six written statuses are theirs.
+ * is a person's word about knowledge no mechanism can observe.
  *
  * @param declared - the status the story's frontmatter carries.
  * @param derived - the standing its plans support, from {@link derivedStanding}.
- * @returns what the plans prove, as a phrase; null where the two agree, where
- *   either status does not rank, or where the declared status is not behind.
+ * @returns the proven standing (`active`, `done` or `archived`); null where the
+ *   two agree, where either status does not rank, or where the declared status
+ *   is not behind.
  */
-export const statusDrift = (declared: string, derived: StoryStanding): string | null => {
+export const statusBehind = (declared: string, derived: StoryStanding): 'active' | 'done' | 'archived' | null => {
   if (declared === derived) return null;
   if (!isProven(derived)) return null;
   // `declared` is a string off a file a person edits, so a status the domain
-  // does not admit reaches here and ranks nowhere. That is S2's finding, not
-  // this one's.
+  // does not admit reaches here and ranks nowhere.
   const declaredRank = STANDING_RANK[declared as StoryStanding] ?? null;
   if (declaredRank === null) return null;
   // Every proven standing ranks, so the derived side needs no such test.
   const derivedRank = STANDING_RANK[derived] as number;
-  return derivedRank > declaredRank ? BEHIND[derived] : null;
+  return derivedRank > declaredRank ? derived : null;
+};
+
+/**
+ * Why a story's written status disagrees with what its plans prove, as a
+ * phrase for `plot-story-lint.sh`.
+ *
+ * @param declared - the status the story's frontmatter carries.
+ * @param derived - the standing its plans support, from {@link derivedStanding}.
+ * @returns what the plans prove, as a phrase; null where {@link statusBehind} is null.
+ */
+export const statusDrift = (declared: string, derived: StoryStanding): string | null => {
+  const behind = statusBehind(declared, derived);
+  return behind === null ? null : BEHIND[behind];
 };
