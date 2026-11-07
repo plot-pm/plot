@@ -33,6 +33,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 - [ ] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate --> <!-- reason: live proof failed on 2.31.0, merged: #3209, remaining: bug/the-release-run-relays-validate -->
 - [x] [continue-and-the-agent-panel-refuse] continue and the agent panel refuse unknown-branch with no pulse (#3117) <!-- pr: #3129, branch: feature/continue-refuses-no-pulse -->
 - [x] [controller-gate-refuses-read-only-commands] Controller gate refuses read-only commands that name a gated script (#2530) <!-- pr: #3135, branch: feature/controller-gate-reads-a-process-lookup -->
+- [x] [open-plot-review-findings-from-the] Open plot-review findings from the 2026-10-29 delivery-loop plans (#3069) <!-- pr: #3075, branch: bug/a-high-gets-its-own-fixer-attempts -->
 
 <!-- add items here -->
 
@@ -60,6 +61,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 - 2026-11-06: Added [the-release-head-reports-validate-with] to Should — carried from 2026-W45-follow-ups-2-30-1: the relay slice failed its live proof on 2.31.0; fix slice bug/the-release-run-relays-validate
 - 2026-11-07: Added [continue-and-the-agent-panel-refuse] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
 - 2026-11-07: Added [controller-gate-refuses-read-only-commands] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
+- 2026-11-07: Added [open-plot-review-findings-from-the] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
   in Design on `idea/one-card-grammar`, PR #3192). The plan joins the sprint
   through `plot-sprint-member.mjs add card-alignment one-card-grammar` once its
   plan PR merges on approval — the writer sets the plan's `Sprint:` field, which
