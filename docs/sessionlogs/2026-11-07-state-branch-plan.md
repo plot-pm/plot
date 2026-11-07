@@ -33,7 +33,7 @@
 
 - `docs/plans/2026-11-07-state-branch.md`
 - `docs/plans/active/state-branch.md`
-- `sessionlogs/2026-11-07-state-branch-plan.md`
+- `docs/sessionlogs/2026-11-07-state-branch-plan.md`
 
 ## Commits
 
