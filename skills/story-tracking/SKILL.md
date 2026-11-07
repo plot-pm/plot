@@ -125,10 +125,11 @@ once, out loud:
 4. Copy the story template → `STORY-{slug}.md`
 5. Fill frontmatter — including `unit:`, the owning unit, so the placement
    survives review, and `issue:` where a ticket exists — and the objective;
-   remove unneeded sections. `issue:` takes this repo's own issue URL or `#N`,
-   or a Jira key whose project the `Ticket prefixes` key declares; the board
-   links the story and the ticket by it and shows any other value as
-   unreadable. Older stories write `jira:`, which the board still reads
+   remove unneeded sections. `issue:` takes this repo's own issue URL or
+   `"#N"` (quoted: YAML reads a bare `#` as a comment), or a Jira key whose
+   project the `Ticket prefixes` key declares; the board links the story and
+   the ticket by it and shows any other value as unreadable. Older stories
+   write `jira:`, which the board still reads
 6. Add an entry to "Active Stories" in the file named by `Story index`
    (default `README.md`). There is **one** index per repo and it covers every
    home: a story in a sub-unit home is listed there too, with its full path,

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  cardControls, planCardFacts, storyCardFacts, withActionAvailability,
+  cardControls, planCardFacts, storyCardFacts, ticketCardFacts, withActionAvailability,
   type PlanCardFactsReadings, type StoryCardFactsReadings, type StoryPlanCardReading,
 } from '@plot-pm/domain';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import {
-  presentCard, presentDetails, reasonWords, relativeAge, workBar, type CardSections, type Part, type Piece,
+  createPlanRefusal, presentCard, presentDetails, reasonWords, relativeAge, workBar, type CardSections, type Part, type Piece,
 } from '../../src/app/lib/card-presentation.js';
 
 const NOW = Date.parse('2026-11-06T12:00:00');
@@ -466,5 +466,36 @@ describe('presentCard: a story card', () => {
     const s = storySections();
     expect(s.footer.assignees).toMatchObject({ kind: 'named', initials: 'JW', label: '@jwloka', detail: 'Assigned: @jwloka' });
     expect(s.footer.age).toMatchObject({ text: 'yesterday', detail: 'updated 2026-11-05' });
+  });
+});
+
+describe('createPlanRefusal: the menu follows the ticket\'s facts', () => {
+  const row: Parameters<typeof ticketCardFacts>[0]['row'] = {
+    id: '3102', title: 'Ticket', url: 'https://example.test/issues/3102', createdAt: '2026-11-01T00:00:00Z', body: null,
+    status: 'Open', statusCategory: 'To Do', closedAt: null, type: null, owner: null, assignees: [], source: null,
+  };
+  const ticket = (over: Partial<Parameters<typeof ticketCardFacts>[0]> = {}): CardFacts =>
+    ticketCardFacts({ row, lane: 'open', plans: { value: [] }, stories: { value: [] }, ...over });
+  const planned = { value: [{ slug: 'fix-it', title: 'Fix it', story: '', state: 'approved', total: 2, merged: 0 }] };
+
+  it('allows Create plan where the facts offer it', () => {
+    expect(createPlanRefusal(ticket())).toBe('');
+  });
+
+  it('allows it where the row carries no facts', () => {
+    expect(createPlanRefusal(undefined)).toBe('');
+  });
+
+  it('refuses it where a plan already answers the ticket', () => {
+    expect(createPlanRefusal(ticket({ plans: planned }))).toBe('a plan already answers this ticket');
+  });
+
+  it.each(['done', 'hidden'] as const)('refuses it in the %s lane, with or without a plan', (lane) => {
+    expect(createPlanRefusal(ticket({ lane }))).toBe('the ticket is done');
+    expect(createPlanRefusal(ticket({ lane, plans: planned }))).toBe('the ticket is done');
+  });
+
+  it('words the facts\' own refusal', () => {
+    expect(createPlanRefusal(ticket({ stories: { unknown: 'failed' } }))).toBe('stories unread — unreadable');
   });
 });

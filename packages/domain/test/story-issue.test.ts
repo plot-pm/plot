@@ -46,8 +46,9 @@ describe('storyIssueLink', () => {
       .toEqual({ kind: 'unreadable', value: 'https://github.com/someone/else/issues/3170' });
   });
 
-  it("accepts this repository's own Bitbucket issue page", () => {
+  it("accepts this repository's own Bitbucket issue page, with or without its title segment", () => {
     expect(storyIssueLink('https://bitbucket.org/quatico/site/issues/12', bitbucket)).toEqual({ kind: 'key', key: '12' });
+    expect(storyIssueLink('https://bitbucket.org/quatico/site/issues/12/the-board-breaks', bitbucket)).toEqual({ kind: 'key', key: '12' });
   });
 
   it('accepts #<n>', () => {

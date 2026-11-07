@@ -1061,6 +1061,8 @@ export function App() {
 
   /** The board's lookups for the items a Discovery card names. */
   const discoveryLinks = useMemo(() => (board ? boardLinksOf(board) : undefined), [board]);
+  /** Each ticket's card facts by id, for the agent rows' menus. */
+  const ticketFacts = useMemo(() => ticketFactsOf(board?.tickets), [board?.tickets]);
 
   /**
    * Close the overlay, switch to the board, and filter to this story — the
@@ -1420,7 +1422,7 @@ export function App() {
             // here, which is why the hidden case is asserted at the component.
             <AgentList
               fleet={fleet}
-              ticketFacts={ticketFactsOf(board?.tickets)}
+              ticketFacts={ticketFacts}
               pollSeconds={FLEET_POLL_MS / 1000}
               staleSeconds={fleetStaleSeconds}
               onOpenPlan={onOpenPlanFile}
