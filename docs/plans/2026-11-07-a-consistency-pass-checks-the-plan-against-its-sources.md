@@ -7,6 +7,7 @@
 - **State:** Approved
 - **Type:** feature
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3220 merged
+- **Started:** 2026-11-07, Jan Wloka, `feature/a-consistency-pass-trial`
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
