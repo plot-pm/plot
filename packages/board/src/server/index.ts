@@ -33,7 +33,7 @@ import {
 } from './approve.js';
 import { handleRelease, releaseStatus } from './release.js';
 import { handleNeedsDesign } from './needs-design.js';
-import { handleIdea, ideaStatus } from './idea.js';
+import { handleIdea, ideaStatus, readIssue } from './idea.js';
 import { handleStory, storyStatus } from './story.js';
 import { handleStoryPlan, storyPlanStatus, STORY_SLUG_RE } from './story-plan.js';
 import { handleInterrogate, interrogateStatus } from './interrogate.js';
@@ -734,6 +734,28 @@ async function handleRequest(
         ? JSON.stringify(releaseStatus(opts, slug))
         : JSON.stringify({ error: 'slug must be a plan slug' }),
     );
+    return;
+  }
+
+  // One issue's title, body and URL, for the ticket modal — `readIssue`, the same
+  // read `/api/idea` plans from, asked per click and never on a timer. The
+  // number is validated as one; a failed read answers 502 and never an empty body.
+  if (url.pathname.startsWith('/api/issue/')) {
+    const raw = url.pathname.slice('/api/issue/'.length);
+    const number = Number(raw);
+    if (!/^[0-9]{1,9}$/.test(raw) || !Number.isInteger(number) || number <= 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'number must be an issue number' }));
+      return;
+    }
+    try {
+      const issue = await readIssue(opts, number);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, ...issue }));
+    } catch (err) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+    }
     return;
   }
 

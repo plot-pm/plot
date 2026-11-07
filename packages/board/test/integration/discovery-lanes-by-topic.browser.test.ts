@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, board as buildBoard, fleet as buildFleet, story as buildStory, type Catalogue } from '../catalogue/index.js';
 import type { TicketLaneGroups, TicketLaneRow } from '../../src/contract/schema.js';
+import { withTicketFacts } from '../catalogue/ticket-lanes.js';
 
 /**
  * THE LANES FILTER BY TOPIC — the browser half. The rows a topic keeps are
@@ -55,7 +56,7 @@ describe('the lanes filter by topic', () => {
     cat.open('an-empty-estate', {
       over: {
         board: buildBoard({
-          tickets: TICKETS,
+          tickets: withTicketFacts(TICKETS),
           storyLanes: STORY_LANES,
           topics: TOPICS,
           idea: { available: true, reason: '' },
@@ -68,7 +69,7 @@ describe('the lanes filter by topic', () => {
       viewport: { width: 1400, height: 1400 },
     });
 
-  const tickets = (page: Page) => page.locator('[data-ticket-card]');
+  const tickets = (page: Page) => page.locator('[id^="ticket-"][data-card]');
   const chip = (page: Page, name: string) => page.getByRole('button', { name: new RegExp(`^${name}`) });
   const text = (page: Page) => page.locator('body').innerText();
 
@@ -78,7 +79,7 @@ describe('the lanes filter by topic', () => {
       await expect.poll(() => tickets(page).count(), { timeout: 10_000 }).toBe(3);
       await chip(page, 'berry').click();
       await expect.poll(() => tickets(page).count()).toBe(1);
-      expect(await page.locator('[data-ticket-card="1688"]').count()).toBe(1);
+      expect(await page.locator('#ticket-1688').count()).toBe(1);
       const shown = await text(page);
       expect(shown).toContain('Berry story');
       expect(shown).not.toContain('Plum story');

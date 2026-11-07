@@ -348,6 +348,7 @@ export function AgentList({
   restartWith,
   idea,
   story,
+  ticketFacts,
   pulse = 0,
   onStarting,
   onRevealBranch,
@@ -2604,6 +2605,7 @@ export function AgentList({
                   idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
                   story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
                   issueAnswer={fleet.issueAnswer}
+                  facts={ticketFacts?.get(String(issue.number))}
                   showKindLabel={false}
                   onOpenPlan={onOpenPlan}
                   planIndex={planIndex}
