@@ -16,13 +16,24 @@ export const withTicketFacts = (
   lanes: TicketLaneGroups,
   over: { stories?: Record<string, Ref[]>; storiesUnknown?: UnknownReach; available?: Record<string, boolean> } = {},
 ) => {
-  const factsFor = (lane: Lane) => (row: TicketLaneGroups[Lane][number]) => ({
-    ...row,
-    facts: withActionAvailability(
-      ticketCardFacts({ row, lane, plans: { value: [] }, stories: over.storiesUnknown ? { unknown: over.storiesUnknown } : { value: over.stories?.[row.id] ?? [] } }),
-      over.available ?? { 'create-plan': true, 'create-story': true },
-    ),
-  });
+  // A fixture row may predate `type`, `owner`, `assignees` and `source`; it reads as unassigned.
+  const factsFor = (lane: Lane) => (given: TicketLaneGroups[Lane][number]) => {
+    const row = {
+      ...given,
+      type: given.type ?? null,
+      owner: given.owner ?? null,
+      assignees: given.assignees ?? [],
+      source: given.source ?? null,
+    };
+    const stories = over.storiesUnknown ? { unknown: over.storiesUnknown } : { value: over.stories?.[row.id] ?? [] };
+    return {
+      ...row,
+      facts: withActionAvailability(
+        ticketCardFacts({ row, lane, plans: { value: [] }, stories }),
+        over.available ?? { 'create-plan': true, 'create-story': true },
+      ),
+    };
+  };
   return {
     open: lanes.open.map(factsFor('open')),
     'in-progress': lanes['in-progress'].map(factsFor('in-progress')),

@@ -77,13 +77,15 @@ describe('the Discovery ticket card shows its number, state and age', () => {
 
   const card = (page: Page, id: string) => page.locator(`#ticket-${id}`);
 
-  it('shows the shorthand-prefixed title, a state pill and its opened age on an Open ticket', async () => {
+  it('shows the number-prefixed title, a state pill and its opened age on an Open ticket', async () => {
     const page = await open();
     try {
       await expect.poll(() => card(page, '1688').count(), { timeout: 10_000 }).toBe(1);
-      expect((await card(page, '1688').textContent())?.replace(/\s+/g, ' ').trim()).toContain(
-        '1688: The Jira project scope: ship the connector',
-      );
+      // The header leads with the ticket number, then the title.
+      const text = (await card(page, '1688').textContent())?.replace(/\s+/g, ' ').trim() ?? '';
+      expect(text).toContain('#1688');
+      expect(text).toContain('The Jira project scope: ship the connector');
+      expect(text.indexOf('#1688')).toBeLessThan(text.indexOf('The Jira project scope'));
       expect(await card(page, '1688').locator('[data-state-pill]').count()).toBeGreaterThan(0);
       // The age names its event; the `owner/repo#N` reference shows in the modal, not on the card.
       expect(await card(page, '1688').locator('[data-since="opened"]').count()).toBe(1);
