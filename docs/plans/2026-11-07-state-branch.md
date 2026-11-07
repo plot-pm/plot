@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 6
 - **Design:** 2026-11-07, eins78, cli
 
 ## Changelog
@@ -43,7 +44,7 @@ So in 4 repositories no identity can write a record, and in 7 only a person the 
 
 **Vocabulary.** The *state branch* is a shared branch on the origin that holds the lifecycle records, `plot/state` where the repository names no other. It is not `.plot/state/`, the machine-local, gitignored directory that holds the fleet's indexes and pulse; nothing in that directory moves.
 
-**The key.** `- **State branch:** plot/state` in `## Plot Config`, read with `plot-config.sh get "State branch" ""`. Absent, every write and every read behaves as today. The value is a branch name under `refs/heads/`, so a host's PR UI can open a pull request from it (Open Question 3 names the alternative).
+**The key.** `- **State branch:** plot/state` in `## Plot Config`, read with `plot-config.sh get "State branch" ""`. Absent, every write and every read behaves as today. The value is a ref: a branch name such as `plot/state`, which gets the sync PR, or any full ref such as `refs/plot/state`, which hides the records from the forge and leaves the merge back to the project (D16).
 
 **The write.** `plot-push-main.sh` reads the key. Where it is set, the helper cuts the booking worktree from `origin/<state>` (from `origin/<default>` when the state branch does not exist yet, which creates it), merges `origin/<default>` into it so the state branch stays a descendant of the default branch, applies the write, and pushes the result to `origin/<state>` as a fast-forward, under the same push lock. The eight `commitAndPush` calls in the seven ladder entries (approve, deliver, release-finish, verify, needs-design, record-pr, brief-book) follow with no change of their own. The off-ladder sites follow the same helper: `write_started_record` in `plot-dispatch.sh`, which calls it already, and the plain pushes in `plot-reject`, `plot-sprint`, the RC push of `plot-release` and the direct flow of `plot-idea`. Decided 2026-11-07 (Max Albrecht): **every** write that pushes at the default branch moves; a split by record kind would make every reader merge per field. The merge of a plan PR is not a write of this kind: the plan's content is reviewed through its PR as before, and only the record of that approval moves.
 
@@ -51,7 +52,7 @@ The `push=` vocabulary (`clean|bypassed|unknown|rejected|locked|refused`) stays.
 
 **The read.** One rule answers *which ref holds this plan's records*: the state branch where the key is declared and the ref exists on the origin, else the default branch. A listing is the union of the plan paths at both refs; where both hold a path, the state branch's blob wins, because every write merged the default branch in first, so the state blob is the default blob plus records until the default branch moves again. Every reader that resolves `origin/<default>` for plans reads through this rule: the board's plan list (`fleet.ts:1598-1599`, `:1817`), `phase_at_main_ref` and the working-tree reads of the reconcile scan (`plot-reconcile-scan.sh:1204-1223`), `gate_ref` and the brief read of dispatch (`plot-dispatch.sh:530-537`, `:2688`), and `/plot-pulse`. `PlanRef` already names a reference from text to a plan (`packages/domain/src/rules/plan-reference.ts:139`), so the rule needs another name; the Spec gives it.
 
-**The sync, in two directions.** Forward, the default branch into the state branch: at every write (above) and by fleetd's tick when the default branch has moved and no write is due, so a plan merged on the default branch reaches the state branch within one tick. Back, the state branch into the default branch: through a pull request from the state branch, which passes the merge checks like any other PR and which a person approves where the host demands one. When it opens is the design's central decision, with fewer default-branch merges as the goal (Open Question 1). The candidate moments: at each release, when the default branch deploys anyway; on a cadence, or once the state branch is N records ahead; when a plan reaches Delivered.
+**The sync, in two directions.** Forward, the default branch into the state branch: at every write (above) and by fleetd's tick when the default branch has moved and no write is due, so a plan merged on the default branch reaches the state branch within one tick. Back, the state branch into the default branch: through a pull request from the state branch, which passes the merge checks like any other PR and which a person approves where the host demands one. It opens when a plan reaches Delivered and squash-merges, one default-branch commit per sync (D12, D13); the moments considered were each release, a cadence or an N-records bound, and Delivered.
 
 **The state gate.** `plot-state-gate.sh` refuses a commit that changes a `State:` line without the owning script's receipt. The writers leave their receipts for their own commits on the state branch as they do today. The sync merge carries the same `State:` changes a second time; where the host merges it, no local hook runs, and where a person merges it locally the gate sees a merge commit. The Spec says what the gate accepts for a sync merge (Open Question 5). Proposal: a merge whose second parent is the state branch tip, because every `State:` change it carries already exists on the state branch under a receipt.
 
@@ -74,19 +75,57 @@ The admin cost is the smaller argument. The larger one is the third row: `push-m
 
 ### Open Questions
 
-- [ ] **1. When does the state branch merge back?** At each release, on a cadence or an N-records bound, or at Delivered. Fewer default-branch merges is the goal; the deploy that a default-branch merge triggers is the cost of each option.
-- [ ] **2. Which identity opens and merges the sync PR?** On a host with no App identity the opener is the ambient user, who on some hosts cannot approve their own PR. Who approves where the host demands an approval, and does the merge arm merge it where it may?
-- [ ] **3. A branch or a non-branch ref?** `refs/plot/state` is invisible to branch restrictions and branch listings, but also to the host's PR UI, so the sync PR needs a branch regardless. Verify that the target hosts accept a push to a non-`refs/heads` ref before the design relies on one.
-- [ ] **4. The lag.** When the default branch moves after the last write, the state branch's blob of an edited plan misses that edit until the forward sync. Name the bound (one fleetd tick), and say what a reader with no fleet running does.
-- [ ] **5. The receipt a sync merge carries** for `plot-state-gate.sh`, where a person merges locally.
-- [ ] **6. The forward merge conflicts.** Both sides edit plan files: idea PRs add them on the default branch, writers append records on the state branch. Different lines merge clean; a conflict refuses and names the file. Who resolves it, and where is it reported?
-- [ ] **7. The name of the rule and of the helper** that answer which ref holds a plan's records. `PlanRef` is taken.
-- [ ] **8. What the board shows** for a plan whose records are ahead on the state branch: the Delivery tab trusts `origin/<default>` today.
-- [ ] **9. The e2e proof.** A sandbox repository whose default branch is protected declares the key, and the lifecycle runs through to Released.
+- [x] **1. When does the state branch merge back?** When a plan reaches Delivered; the sync PR squash-merges (D12, D13).
+- [x] **2. Which identity opens and merges the sync PR?** fleetd opens it; the host's merge rule decides who merges (D1).
+- [x] **3. A branch or a non-branch ref?** Any full ref; `refs/heads/plot/state` is the recommended default, and a non-branch ref gets no sync PR from Plot (D4, D16).
+- [x] **4. The lag.** A reader lists both refs and the state branch wins per path; the lag is bounded by fleetd's forward sync and shown as one line (D2).
+- [x] **5. The receipt a sync merge carries** for `plot-state-gate.sh`: the gate accepts a merge commit whose second parent is the state branch tip (D14).
+- [x] **6. The forward merge conflicts.** The write refuses and names the file; the board and the pulse report it; a person merges by hand (D3).
+- [ ] **7. The name of the rule and of the helper** that answer which ref holds a plan's records. `PlanRef` is taken. Left to the team in rounds 2 and 6; the candidates are `recordRef`, `planSource` and `stateBranchRef`.
+- [x] **8. What the board shows** for a plan whose records are ahead on the state branch: one phase, read through the rule, plus a lag line naming the sync PR (D5).
+- [x] **9. The e2e proof.** A contract test against a bare origin with a rejecting pre-receive hook, plus a protected sandbox in CI's e2e (D8).
+- [x] **10. The push lock's scope.** One lock per repository, unchanged; the forward sync takes it too (D15).
+- [ ] **11. The cut of the slices.** Rounds 2 to 6 added work the three slices do not name. Left to the team at approval (round 6); a fourth slice for `plot-init` and `plot-board-setup` is the candidate.
 
 ## Spec
 
-_To be filled in during Design._
+Decisions, numbered. Each names the interrogation round that settled it (Max Albrecht, 2026-11-07).
+
+**D1. The sync PR is fleetd's to open and the host's to merge.** (round 1) fleetd opens the pull request from the state branch to the default branch and refreshes it while the state branch moves. The host's merge rule decides who merges: the merge arm where it may (the Merger App on a GitHub origin), a person where the host demands an approval. No identity steps over the rule, and no person needs to open the PR.
+
+**D2. A reader lists both refs and the state branch wins per path.** (round 1) A reader lists the plan paths at the state branch and at the default branch. Where both hold a path, the state branch's blob is the plan; a path only the default branch holds is read from there. A reader never merges and never pushes. The lag between a default-branch commit and its arrival on the state branch is bounded by fleetd's forward sync, and the board and the pulse show it as one line while it lasts. A reader with no fleet running reads the same union and shows the same line.
+
+**D3. A forward-merge conflict refuses the write and names the file.** (round 1) When the merge of the default branch into the state branch conflicts on a plan file, the write refuses, names the file, and writes no record. The board shows the conflict as a row and the pulse as a line. A person merges the default branch into the state branch by hand, pushes, and the next write succeeds. No writer resolves a conflict by rule.
+
+**D4. The default is a branch under `refs/heads/`, named `plot/state`.** (round 2) The key's default value is a branch, because the sync PR needs one, every host lists and protects branches the same way, and the measured restrictions match no other branch name. Whether the key may also name a non-branch ref such as `refs/plot/state` is deferred to the team (Open Question 3); the default stands either way.
+
+**D5. The board shows one phase, read through the rule, plus a lag line.** (round 2) The board reads every plan through D2, so a plan's phase is the state branch's phase. One line on the plan page and on the Delivery tab says how many commits the records are ahead of the default branch, and names the open sync PR where there is one. The board never shows two phases for one plan.
+
+**D6. A sync PR changes only files Plot itself writes.** (round 3) The merge arm and the review refuse a sync PR whose diff touches a path outside the set Plot writes: the plan directory and its index links, the sprint directory, and the release records Plot writes. The slice enumerates the set from the config keys (`Plan directory`, `Active index`, `Delivered index`, `Sprint directory`) and the release paths `/plot-release` writes, and the gate reads that list. A commit that puts code on the state branch never reaches the default branch through Plot; a person who wants it there opens their own PR.
+
+**D7. fleetd merges the default branch into the state branch on every tick where it moved.** (round 3) On each tick, where `origin/<default>` holds commits the state branch lacks and no writer holds the push lock, fleetd merges the default branch into the state branch and pushes under the lock. The lag D2 names is therefore one tick while a fleet runs. A conflict refuses as D3 does, with the same row and line.
+
+**D8. The Write slice is proved twice.** (round 3) A contract test runs against a bare origin whose pre-receive hook rejects every push to the default branch: approve, start and deliver land on the state branch, and the test counts zero default-branch pushes. CI's e2e adds a sandbox repository whose default branch requires a pull request, declares the key, and runs through to the sync PR's merge, so a real host refuses a real push in the proof.
+
+**D9. A removed key is reported, not refused.** (round 4) A `## Plot Config` edit has no gate, so removing the key while the state branch holds records the default branch lacks makes those records vanish from every reader. `/plot-reconcile` gains a section for it: a branch at the default name `plot/state` ahead of the default branch while no key is declared, with the fix in order (merge the sync PR, then remove the key). The board shows the same finding as a row.
+
+**D10. The host may protect the state branch from deletion, and Plot offers it.** (round 4) `plot-init` and `plot-board-setup` offer the repository's admin a `delete` restriction on the state branch where the host has one. It is optional and one setting per repository. Without it, the sync PR bounds the loss to the records written since its last merge, and the next write recreates the branch from the default branch.
+
+**D11. `plot-init` proposes the key.** (round 4) `plot-init` and `plot-board-setup` probe the default branch's protection where the host exposes it and propose the key when they find a push restriction. A person confirms; nothing declares the key by itself. The first lifecycle write after the declaration creates the branch from the default branch.
+
+**The revisit criterion.** (round 4) Max Albrecht named the bar an alternative must clear: a simple, safe and sound solution for both the CI problem (a gated default branch) and the CD problem (a deploy on every default-branch merge), which makes less noise in the repository than the state branch does. A host App identity for pushes clears the CI bar alone and not the CD bar.
+
+**D12. The sync PR squash-merges.** (round 5) Whatever number of record commits the state branch carries, one commit lands on the default branch per sync. The state branch keeps its own history. The next forward merge (D7) sees the same changes on both sides and merges clean, because git resolves identical hunks without a conflict. The default branch gains fewer commits than today, where every record is one commit.
+
+**D13. The sync PR opens when a plan reaches Delivered.** (round 5) The Delivered record is the write that makes fleetd open the sync PR (D1) from the state branch, or refresh the open one; the host's merge rule merges it (D1, D12). One default-branch merge per delivered plan, carrying every record written since the previous sync: approvals, starts, PR records and briefs of other plans included. A release still merges its own PR as today, and the Released records written after it wait for the next delivered plan or for a person who merges the standing sync PR earlier.
+
+**D14. The state gate accepts a merge from the state branch tip.** (round 5) `plot-state-gate.sh` accepts a commit that changes `State:` lines when it is a merge commit whose second parent is the declared state branch's tip at that moment: every `State:` change such a merge carries exists on the state branch already, each under the receipt its writer left. Any other local commit that changes a `State:` line is refused as today. A host merge runs no local hook and needs nothing from the gate.
+
+**D15. One push lock per repository, unchanged.** (round 6) The existing lock (`plot-push-lock.mjs`, #1349) serializes every writer and fleetd's forward sync, so a write and a forward merge never interleave. In a repository that declares the key, Plot pushes the state ref and nothing else, so a lock per target branch would have the same contenders. A rejected push retries under today's five-attempt loop.
+
+**D16. The key may name any full ref; a branch is the recommended default.** (round 6) The value `plot/state`, or any `refs/heads/` name, is a branch and gets the whole design: the sync PR (D1, D13), its gate (D6), the squash (D12) and the delete-restriction offer (D10). A value outside `refs/heads/`, such as `refs/plot/state`, is for a project that wants the records hidden from CI, from the forge's UI and from external systems that read branches. Plot writes it, reads it (D2) and merges the default branch into it (D7) as for a branch, because `git push <remote> HEAD:<ref>` and `git show <ref>:<path>` take any ref. No sync PR can open from it, so the merge back to the default branch is the project's own to set up, and D1, D6, D10, D12 and D13 do not run. `plot-init` and `plot-board-setup` say so when the key is set (D11), and recommend `refs/heads/plot/state`.
+
+**Left to the team at approval.** (round 6) The name of the rule and the helper that answer which ref holds a plan's records (Open Question 7; candidates `recordRef`, `planSource`, `stateBranchRef`), and the cut of the slices: rounds 2 to 6 added the board's lag line (D5), the sync PR's path gate (D6), the reconcile section (D9), the key proposal and the delete-restriction offer in `plot-init` and `plot-board-setup` (D10, D11), the squash and the Delivered trigger (D12, D13), the state gate's merge receipt (D14) and the non-branch ref (D16). The slices below stay as written; the team re-cuts them at approval or with `/plot-reslice`, and a fourth slice for `plot-init` and `plot-board-setup` is the candidate cut.
 
 ## Slices
 
@@ -108,3 +147,46 @@ _To be filled in during Design._
 - 2026-11-07: deliverable search. `State branch`, `plot-push-state`, `stateRef`: nothing in the estate. `planRef`: `PlanRef` exists in `packages/domain/src/rules/plan-reference.ts:139` with another meaning, so the read rule takes a different name. Title similarity: no active plan overlaps.
 - Related: `docs/plans/2026-08-16-push-main-bypass.md` (the `push=` vocabulary), `docs/plans/2026-10-15-a-lifecycle-micro-pr-merged-past.md` (retry replaced the micro-PR), `docs/plans/2026-10-16-bitbucket-parity-and-app-identities.md` and #1825 (the App identities are opt-in), #1835 (open).
 - No prior art: no plan, doc or issue covers a state branch, an orphan branch, git notes or `refs/plot/*` as a record store. `refs/plot/claims/*` was considered once and zero exist (`docs/plans/2026-08-20-the-agent-panel-shows-the-agent.md:57`).
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 6,
+  "questionHistory": [
+    {"q": "When does the state branch merge back into the default branch?", "a": "deferred", "category": "tradeOffs"},
+    {"q": "Who opens and who merges the sync PR?", "a": "fleetd opens and refreshes; the host's merge rule decides who merges", "category": "technical"},
+    {"q": "What does a reader do when the state branch is behind the default branch?", "a": "union of plan paths at both refs, the state branch wins per path; lag bounded by fleetd's forward sync and shown as one line", "category": "technical"},
+    {"q": "What happens to a write whose forward merge conflicts on a plan file?", "a": "refuse and name the file; board row and pulse line; a person merges by hand", "category": "technical"},
+    {"q": "What does plot-state-gate.sh accept for a locally merged sync PR?", "a": "deferred", "category": "technical"},
+    {"q": "A branch under refs/heads or a non-branch ref?", "a": "deferred whether configurable; the default is a branch, plot/state", "category": "technical"},
+    {"q": "The name of the rule and helper that answer which ref holds a plan's records?", "a": "deferred to the slice that builds it", "category": "technical"},
+    {"q": "What does the board show for a plan whose records are ahead on the state branch?", "a": "one phase read through the rule, plus a lag line naming the sync PR", "category": "ux"},
+    {"q": "What may a sync PR change?", "a": "only files Plot itself writes: plan, sprint and release files; the gate reads the set from the config keys", "category": "nonFunctional"},
+    {"q": "What does the push lock cover with a state branch?", "a": "deferred", "category": "technical"},
+    {"q": "When does fleetd merge the default branch into the state branch outside a write?", "a": "every tick where the default branch moved and no writer holds the lock", "category": "technical"},
+    {"q": "How is the Write slice proved?", "a": "a contract test with a rejecting pre-receive hook, plus a protected sandbox in CI's e2e", "category": "technical"},
+    {"q": "What catches a removed key while the state branch is ahead?", "a": "a reconcile section and a board row; removal is not refused", "category": "ux"},
+    {"q": "What protects the state branch from deletion on the host?", "a": "plot-init offers a delete restriction; the sync PR bounds the loss otherwise", "category": "ux"},
+    {"q": "How does a repository come to declare the key?", "a": "plot-init and plot-board-setup probe the protection and propose it; a person confirms", "category": "domain"},
+    {"q": "What would make you revisit the state branch for a bypass identity?", "a": "a simple, safe and sound solution for both CI and CD that makes less noise in the repository", "category": "tradeOffs"},
+    {"q": "How does the sync PR land on the default branch?", "a": "squash-merge: one commit per sync", "category": "technical"},
+    {"q": "When does the sync PR open and merge? (re-asked)", "a": "when a plan reaches Delivered", "category": "tradeOffs"},
+    {"q": "What does the push lock cover? (re-asked)", "a": "explanation requested; asked again in round 6", "category": "technical"},
+    {"q": "What does plot-state-gate.sh accept for a locally merged sync PR? (re-asked)", "a": "a merge commit whose second parent is the state branch tip", "category": "technical"},
+    {"q": "What does the push lock cover? (re-asked with explanation)", "a": "one lock per repository, unchanged; the forward sync takes it too", "category": "technical"},
+    {"q": "May the key name something other than a branch? (re-asked)", "a": "any full ref; refs/heads/plot/state is the recommended default; a non-branch ref hides the records from CI and the forge UI and its merge back is the project's own", "category": "technical"},
+    {"q": "The name of the rule and helper? (re-asked)", "a": "left to the team", "category": "technical"},
+    {"q": "Where does the work rounds 2 to 5 added live in the slices?", "a": "left to the team at approval; a fourth Adopt slice is the candidate", "category": "domain"}
+  ],
+  "deferredItems": [
+    {"q": "The name of the rule and helper that answer which ref holds a plan's records?", "category": "technical", "context": "Open Question 7; left to the team in the final round"},
+    {"q": "Where does the work rounds 2 to 5 added live in the slices?", "category": "domain", "context": "Open Question 11; left to the team at approval"}
+  ],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": true, "performance": false, "scalability": true},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
