@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** card-alignment
 - **Issue:** #2530
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3135 merged
 - **Started:** 2026-11-05, Jan Wloka, `feature/controller-gate-reads-a-process-lookup`
 - **Delivered:** 2026-11-05
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 
