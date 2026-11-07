@@ -24,6 +24,15 @@ const refLabel = (ref: Ref): string => {
   }
 };
 
+/** A lineage item's React key, unique per kind: two plans may share a title. */
+const refKey = (ref: Ref): string => {
+  switch (ref.kind) {
+    case 'ticket': return `ticket:${ref.key}`;
+    case 'slice': return `slice:${ref.plan}:${ref.branch}`;
+    default: return `${ref.kind}:${ref.slug}`;
+  }
+};
+
 const RELATIONS = ['plans', 'stories'] as const;
 
 /**
@@ -121,10 +130,10 @@ export const TicketModal = ({ ticket, onClose, ...controls }: TicketModalProps) 
                     known(value).map((ref) => {
                       const link = linkFor(ref);
                       return link === null ? (
-                        <span key={refLabel(ref)} className="text-slate-700 dark:text-slate-200">{refLabel(ref)}</span>
+                        <span key={refKey(ref)} className="text-slate-700 dark:text-slate-200">{refLabel(ref)}</span>
                       ) : (
                         <a
-                          key={refLabel(ref)}
+                          key={refKey(ref)}
                           href={link.href}
                           {...(link.external ? { target: '_blank', rel: 'noreferrer' } : {})}
                           onClick={(e) => {

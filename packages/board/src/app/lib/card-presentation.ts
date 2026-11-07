@@ -698,15 +698,21 @@ export const presentDetails = (facts: CardFacts): PresentedDetails => ({
 
 /**
  * Why a ticket's facts refuse *Create plan*, in the card's words, or `''`
- * where they allow it, carry no such action, or refuse only because this board
- * cannot act (the button's own verdict words that case).
+ * where they allow it, where the row carries no facts, or where they refuse
+ * only because this board cannot act (the button's own verdict words that
+ * case). Facts that offer no *Create plan* refuse it: `a plan already answers
+ * this ticket` where `lineage.plans` names one, `the ticket is done` otherwise.
  *
  * @param facts - the ticket's card facts; `undefined` where the row carries none.
  * @returns the refusal sentence, or `''`.
  */
 export const createPlanRefusal = (facts: CardFacts | undefined): string => {
-  const actions = facts ? [facts.next.primary, ...facts.next.secondary] : [];
-  const act = actions.find((a) => a?.action === 'create-plan');
-  if (!act || act.enabled || act.reason === null || act.reason.kind === 'action-unavailable') return '';
+  if (facts === undefined) return '';
+  const act = [facts.next.primary, ...facts.next.secondary].find((a) => a?.action === 'create-plan');
+  if (!act) {
+    const { plans } = facts.lineage;
+    return 'value' in plans && plans.value.length > 0 ? 'a plan already answers this ticket' : 'the ticket is done';
+  }
+  if (act.enabled || act.reason === null || act.reason.kind === 'action-unavailable') return '';
   return reasonWords(act.reason);
 };

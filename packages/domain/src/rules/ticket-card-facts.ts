@@ -4,7 +4,7 @@ import type { PlanStatus } from './phase.js';
 import { storyIsLive } from './story-issue.js';
 import type { TicketLane } from './ticket-lane.js';
 import type { TicketLaneRow } from './ticket-lanes.js';
-import type { TicketPlan } from './ticket-phase.js';
+import { planAnswersTicket, type TicketPlan } from './ticket-phase.js';
 
 /** What `ticketCardFacts` reads of one ticket. */
 export interface TicketCardFactsReadings {
@@ -23,9 +23,6 @@ const enabled = (action: Action['action']): Action => ({ action, enabled: true, 
 /** The `YYYY-MM-DD…` prefix of an ISO date, or `''` where the value is not one. */
 const isoDate = (value: string | null): string => /^\d{4}-\d{2}-\d{2}/.exec((value ?? '').trim())?.[0] ?? '';
 
-/** States a plan holds once the ticket's work stopped counting on it. */
-const WITHDRAWN = new Set(['rejected', 'superseded']);
-
 /** The measured status a plan's `State:` and merged count read as. */
 const statusOf = (plan: TicketPlan): PlanStatus => {
   if (plan.state === 'approved') return plan.merged !== null && plan.merged > 0 ? 'in-progress' : 'approved';
@@ -39,8 +36,8 @@ const isLive = (story: Ref): boolean => story.kind === 'story' && story.status !
 /**
  * What is true about one ticket, as its card shows it.
  *
- * `lineage.plans` holds the plans whose `Issue:` names it, minus `rejected` and
- * `superseded` ones; `lineage.stories` holds the stories the ticket → story
+ * `lineage.plans` holds the plans whose `Issue:` names it and that
+ * `planAnswersTicket` counts; `lineage.stories` holds the stories the ticket → story
  * index names for it. `progress.work` is `null` with no plan, that plan's
  * slices with one, and the plans themselves (done being Delivered or Released)
  * with two or more.
@@ -66,7 +63,7 @@ export const ticketCardFacts = (readings: TicketCardFactsReadings, directory: Pe
   const { row, lane, plans, stories } = readings;
   const answering: Known<readonly TicketPlan[]> = 'unknown' in plans
     ? plans
-    : { value: plans.value.filter((p) => !WITHDRAWN.has(p.state)) };
+    : { value: plans.value.filter((p) => planAnswersTicket(p.state)) };
 
   let next: CardFacts['next'] = { primary: null, secondary: [] };
   if (lane === 'open' || lane === 'in-progress') {

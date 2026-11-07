@@ -78,3 +78,16 @@ export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null =>
  */
 export const allFinished = (plans: readonly TicketPlan[]): boolean =>
   plans.length > 0 && plans.every((plan) => plan.state === 'released' || PLACED[plan.state] === undefined);
+
+/** States a plan holds once the ticket's work stopped counting on it. */
+const WITHDRAWN: ReadonlySet<string> = new Set(['rejected', 'superseded']);
+
+/**
+ * Whether a plan whose `Issue:` names a ticket still answers it. A `rejected`
+ * or `superseded` plan answers nothing, so its ticket can get a new plan.
+ * The ticket card and `POST /api/idea` both read this.
+ *
+ * @param state - the plan's `State:`, in any case.
+ * @returns `false` for `rejected` and `superseded`, `true` for every other state.
+ */
+export const planAnswersTicket = (state: string): boolean => !WITHDRAWN.has(state.trim().toLowerCase());
