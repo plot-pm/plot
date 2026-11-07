@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
-import { assertWith, b64url, originNotice, refusalWording, type IssuedChallenge } from '../lib/passkey.js';
+import { assertWith, b64url, originNotice, refusalWording, registrationKey, type IssuedChallenge } from '../lib/passkey.js';
 
 interface Registration {
   registered: boolean;
@@ -82,12 +82,11 @@ export function PasskeyPanel() {
       })) as PublicKeyCredential | null;
       if (!created) return 'No credential was created.';
       const response = created.response as AuthenticatorAttestationResponse;
-      const key = response.getPublicKey();
-      if (!key) return 'The authenticator returned no public key.';
+      const key = registrationKey(response);
       const done = await post('/api/passkey/register', {
         credentialId: b64url(created.rawId),
-        publicKey: b64url(key),
-        alg: response.getPublicKeyAlgorithm(),
+        publicKey: b64url(key.publicKey),
+        alg: key.alg,
         assertion: replace,
       });
       return done.status === 200 ? 'Passkey registered.' : refusalWording(String(done.body.reason ?? ''), String(done.body.detail ?? ''));
