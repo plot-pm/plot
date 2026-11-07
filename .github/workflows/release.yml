@@ -28,9 +28,12 @@ on:
     branches: [main]
     tags: ['v*-rc.*']
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+# CONCURRENCY IS PER JOB, on `release` and `board-release-candidate` only. A
+# group holds at most one pending entry: a newer pending run cancels the older
+# pending one. A workflow-level group would hold the queue for as long as
+# `relay-validate` waits, up to 55 min, and a feature merge in that window would
+# cancel a pending changeset-free run, which tags and publishes. A job-level
+# group holds the queue only while the `release` job runs.
 
 jobs:
   release:
@@ -39,6 +42,9 @@ jobs:
     # a tag ref, where it may open a version PR or publish a stable release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
     # Read by `dispatch-ci`, which starts CI on the release branch.
     outputs:
       pr_number: ${{ steps.changesets.outputs.pullRequestNumber }}
@@ -151,8 +157,8 @@ jobs:
   # THE DISPATCH ALONE DOES NOT LIFT `BLOCKED`. Measured on 2.31.0 (PR #3080,
   # 2026-11-06): the dispatched run completed `success` and `mergeStateStatus`
   # still read `BLOCKED` until a person approved the held `pull_request` run.
-  # The `relay-validate` job below copies the dispatched result to a `validate`
-  # commit status on the pinned head. A `workflow_run` relay was tried first and
+  # The `relay-validate` job below copies the result of the dispatched
+  # `validate` job to a `validate` commit status on the pinned head. A `workflow_run` relay was tried first and
   # never fired: the dispatched run 42288492530 on 2.31.0 head `ce1ef4a1`
   # completed `success` at 2026-11-06T20:40:35Z and started no relay run,
   # because `dispatch-ci` dispatches with `GITHUB_TOKEN` and GitHub starts no
@@ -189,7 +195,7 @@ jobs:
             --ref changeset-release/main \
             -f expected_sha="$HEAD_SHA"
 
-  # ── Copy the dispatched result to the `validate` status ───────────────────
+  # ── Copy the dispatched `validate` job's result to a `validate` status ────
   #
   # Runs in this file because this file runs from `main` on a `push`, which the
   # ruleset protects, so a release commit's author cannot edit it. It is not a
@@ -197,20 +203,34 @@ jobs:
   # `changeset-release/main`.
   #
   # The pin is `needs.release.outputs.head_sha`, the local ref `changesets/action`
-  # just pushed. The remote branch is never read here. The dispatched run's own
-  # guard lives on the unprotected branch, so this job compares the run's
-  # `head_sha` to the pin itself.
+  # just pushed. The remote branch is never read here. The run lookup accepts
+  # only a run whose `head_sha` equals the pin.
+  #
+  # THE `validate` JOB DECIDES, NOT THE RUN. The run's conclusion also covers
+  # `corpus` and `macos-shell-contract`, which `validate` does not need and the
+  # ruleset does not require. The job reads `GET /actions/runs/{id}/jobs` and
+  # copies the `status` and `conclusion` of the one job named `validate`.
   #
   # BOUNDS. The run appears a few seconds after `gh workflow run` returns, so the
-  # lookup polls for 120 s. The dispatched `validate` job has
-  # `timeout-minutes: 25` and the run may queue first, so the wait for
-  # `completed` is bounded at 33 min and the job at 40 min. This file's
-  # concurrency group has `cancel-in-progress: false`, so a wait holds the next
-  # release run in the queue for up to that long.
+  # lookup polls for 120 s. The longest `needs` path to `validate` in `ci.yml` is
+  # `select` (10 min) → `checks` (25 min) → `validate` (5 min) = 40 min, so the
+  # wait for the job is 50 min (`WAIT_SECONDS`), 10 min of it for the queue,
+  # and the job's limit is 55 min. A contract test in `test/reconcile/` computes
+  # the path from `ci.yml` and fails when the wait no longer covers it.
+  #
+  # NO CONCURRENCY GROUP. The wait holds no group, so no release run waits
+  # behind it. A newer release run that regenerates the branch also dispatches a
+  # newer CI run, and `ci.yml`'s `release-dispatch` group cancels the older one;
+  # this job then reads `cancelled` and writes nothing. If a newer `release` job
+  # pushes before this run's `dispatch-ci` dispatches, both dispatched runs test
+  # the newer head: the older relay finds no run on its head, the newer relay
+  # finds two, and both fail.
   #
   # A FAILED RELAY FAILS THIS JOB AND SO THE RELEASE RUN: it is the only signal
-  # that the release PR carries no `validate`. No error is swallowed. A red `CI`
-  # result is not a failure here: it is copied as the status and the job exits 0.
+  # that the release PR carries no `validate`. No error is swallowed. Each API
+  # call is tried 3 times, 10 s apart, before it fails the job. A red
+  # `validate` is not a failure here: it is copied as the status and the job
+  # exits 0.
   #
   # Not named `validate`: a check run of that name from this workflow would be a
   # second `validate` source.
@@ -218,12 +238,12 @@ jobs:
     needs: [release, dispatch-ci]
     if: ${{ needs.release.outputs.pr_number }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     permissions:
       actions: read
       statuses: write
     steps:
-      - name: Relay the dispatched result
+      - name: Relay the dispatched validate job
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -236,11 +256,27 @@ jobs:
             exit 1
           fi
 
+          # One transient 5xx must not fail the release run; three must.
+          api() {
+            local attempt
+            for attempt in 1 2 3; do
+              # Output is printed only after a whole call succeeds, so a retry
+              # after a partial page prints no line twice.
+              if out=$(gh api "$@"); then
+                printf '%s\n' "$out"
+                return 0
+              fi
+              echo "::warning::gh api attempt $attempt of 3 failed" >&2
+              [ "$attempt" -lt 3 ] && sleep 10
+            done
+            return 1
+          }
+
           # Zero matches inside the appearance window fail, and so do two.
           FILTER='[.workflow_runs[] | select(.path == ".github/workflows/ci.yml" and .head_sha == "'"$PINNED_SHA"'" and .head_branch == "changeset-release/main" and .actor.login == "github-actions[bot]")]'
           DEADLINE=$((SECONDS + 120))
           while :; do
-            RUNS=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha=$PINNED_SHA&per_page=100" --jq "$FILTER")
+            RUNS=$(api "repos/$REPO/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_sha=$PINNED_SHA&per_page=100" --jq "$FILTER")
             COUNT=$(printf '%s' "$RUNS" | jq 'length')
             if [ "$COUNT" -gt 1 ]; then
               echo "::error::expected exactly one dispatched CI run on $PINNED_SHA, found $COUNT"
@@ -255,42 +291,48 @@ jobs:
           done
           RUN_ID=$(printf '%s' "$RUNS" | jq -r '.[0].id')
 
-          DEADLINE=$((SECONDS + 1980))
+          # `--paginate` with `--jq` prints one line per matching job across
+          # every page. `filter=latest` reads the latest attempt only.
+          WAIT_SECONDS=3000
+          DEADLINE=$((SECONDS + WAIT_SECONDS))
           while :; do
-            RUN=$(gh api "repos/$REPO/actions/runs/$RUN_ID")
-            STATUS=$(printf '%s' "$RUN" | jq -r '.status')
-            [ "$STATUS" = "completed" ] && break
+            JOBS=$(api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \
+              --jq '.jobs[] | select(.name == "validate") | {status, conclusion, html_url}')
+            COUNT=$(printf '%s' "$JOBS" | jq -s 'length')
+            if [ "$COUNT" -gt 1 ]; then
+              echo "::error::run $RUN_ID has $COUNT jobs named validate; no status written"
+              exit 1
+            fi
+            STATUS=""
+            if [ "$COUNT" -eq 1 ]; then
+              STATUS=$(printf '%s' "$JOBS" | jq -r '.status')
+              [ "$STATUS" = "completed" ] && break
+            fi
             if [ "$SECONDS" -ge "$DEADLINE" ]; then
-              echo "::error::run $RUN_ID is still $STATUS after 33 minutes; no status written"
+              echo "::error::the validate job of run $RUN_ID is ${STATUS:-absent} after $((WAIT_SECONDS / 60)) minutes; no status written"
               exit 1
             fi
             sleep 20
           done
 
-          # The run is read again by id, so its head is compared once more.
-          RUN_SHA=$(printf '%s' "$RUN" | jq -r '.head_sha')
-          if [ "$RUN_SHA" != "$PINNED_SHA" ]; then
-            echo "::warning::run $RUN_ID tested $RUN_SHA, not $PINNED_SHA; no status written"
-            exit 0
-          fi
-          CONCLUSION=$(printf '%s' "$RUN" | jq -r '.conclusion')
-          RUN_URL=$(printf '%s' "$RUN" | jq -r '.html_url')
+          CONCLUSION=$(printf '%s' "$JOBS" | jq -r '.conclusion')
+          JOB_URL=$(printf '%s' "$JOBS" | jq -r '.html_url')
 
-          # A cancelled run is not a result: the release-dispatch concurrency
+          # A cancelled job is not a result: the release-dispatch concurrency
           # group cancels a superseded dispatched run.
           case "$CONCLUSION" in
             success|failure) ;;
             *)
-              echo "::notice::conclusion is $CONCLUSION; no status written"
+              echo "::notice::the validate job concluded $CONCLUSION; no status written"
               exit 0
               ;;
           esac
 
-          gh api --method POST "repos/$REPO/statuses/$PINNED_SHA" \
+          api --method POST "repos/$REPO/statuses/$PINNED_SHA" \
             -f state="$CONCLUSION" \
             -f context=validate \
-            -f description="Relayed from the dispatched CI run" \
-            -f target_url="$RUN_URL"
+            -f description="Relayed from the dispatched CI validate job" \
+            -f target_url="$JOB_URL"
           echo "validate=$CONCLUSION written for $PINNED_SHA"
 
   board-release-candidate:
@@ -320,6 +362,9 @@ jobs:
     # debut and self-heals when the first stable ships. Never commits.
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write # OIDC: tokenless npm publish with provenance

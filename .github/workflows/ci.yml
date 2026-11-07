@@ -14,8 +14,8 @@ on:
   #     by `app/github-actions`, and GitHub holds workflows on a bot-authored
   #     PR at `action_required` until a person approves each run. Measured
   #     2026-10-01 over the 20 most recent runs on the branch: 18 ended
-  #     `action_required`, and the held runs create no check runs at all —
-  #     head `3141b813` carried zero.
+  #     `action_required`, and a held run creates no check runs until a person
+  #     approves it — head `3141b813` carried zero.
   #
   #   • The PUSH run does not exist. `release.yml` pushes this branch with
   #     `secrets.GITHUB_TOKEN`, and GitHub starts NO workflow from an event
@@ -29,9 +29,10 @@ on:
   # SO `release.yml` DISPATCHES THIS WORKFLOW ITSELF, in its own `dispatch-ci`
   # job holding `actions: write` and nothing else. A dispatched run creates its
   # check runs under the job name `validate`, but measured on 2.31.0 (PR #3080,
-  # 2026-11-06) that `validate` did not lift `BLOCKED`: the ruleset counts the
-  # held `pull_request` run's. The `relay-validate` job in `release.yml` carries
-  # the dispatched result to a `validate` commit status on the pinned head. A
+  # 2026-11-06) that `validate` did not lift `BLOCKED`: the ruleset counted the
+  # `validate` of the `pull_request` run once a person approved it. The
+  # `relay-validate` job in `release.yml` carries the result of the dispatched
+  # `validate` job to a `validate` commit status on the pinned head. A
   # `workflow_run` relay never fired for this run (2.31.0 head `ce1ef4a1`, run
   # 42288492530), because `GITHUB_TOKEN` caused the dispatch.
   #
