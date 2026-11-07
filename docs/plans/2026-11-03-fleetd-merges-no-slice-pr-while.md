@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #3063
 - **Sprint:** follow-ups-2-30-1
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3068 merged
 - **Started:** 2026-11-03, Jan Wloka, `feature/fleetd-merges-as-the-merger-app`
 - **Delivered:** 2026-11-03
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

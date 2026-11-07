@@ -4,9 +4,9 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
-- **Sprint:** follow-ups-2-30-1
+- **Sprint:** card-alignment
 - **Issue:** #3120
 - **Review:** pr
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3130 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/the-shell-lines-gate-missing-from`
 - **Delivered:** 2026-11-05
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

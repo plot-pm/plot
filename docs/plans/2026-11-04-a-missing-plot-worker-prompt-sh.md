@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #2529
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-05, Jan Wloka, `feature/a-missing-plot-worker-prompt-sh-start`
 - **Started:** 2026-11-05, Jan Wloka, `feature/a-missing-plot-worker-prompt-sh-line`
 - **Delivered:** 2026-11-05
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

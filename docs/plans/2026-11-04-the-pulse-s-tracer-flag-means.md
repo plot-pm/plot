@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** follow-ups-2-30-1
 - **Issue:** #3102
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-04, Jan Wloka, plan-PR #3115 merged
 - **Started:** 2026-11-04, Jan Wloka, `feature/the-pulse-s-tracer-flag-means`
 - **Delivered:** 2026-11-06
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 

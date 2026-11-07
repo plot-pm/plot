@@ -11566,3 +11566,65 @@ fi
   const none = sourcedPrMerged('_plot_open_lookup feature/y', dir, env);
   assert.equal(none.stdout.trim(), 'unaskable', 'a full unfiltered page stays unaskable');
 });
+
+// --- a throttled GraphQL budget is not "this PR does not exist" -------------
+//
+// Observed 2026-11-06: with the GraphQL budget spent, `pr-state 3198` printed
+// `{"number":0,"state":"NONE",...}` for an open PR, and `plot-review` answered
+// "3198 has no pull request". The REST fallback asked `repos/TODO/pulls/3198`,
+// the host answered 404 for a repository that does not exist, and that 404 read
+// as a lookup miss. The stub answers 404 for any path outside the remote's own
+// repository, the way the host does.
+const throttledGh = (rest) => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-throttle-')));
+  const callsFile = path.join(dir, 'gh.calls');
+  const q = (v) => String(v).replace(/'/g, `'\\''`);
+  const restArm = {
+    open: `printf 'HTTP/2.0 200 OK\\r\\n\\r\\n'; printf '%s' '${q(JSON.stringify({ number: 3198, state: 'open', draft: false, html_url: 'u', merged: false, merge_commit_sha: null }))}'`,
+    listed: `printf 'HTTP/2.0 200 OK\\r\\n\\r\\n'; printf '%s' '${q(JSON.stringify([{ number: 3198, state: 'open', draft: false, html_url: 'u', merged_at: null }]))}'`,
+    throttled: `echo 'gh: API rate limit exceeded for user ID 870334. (HTTP 403)' >&2; exit 1`,
+    missing: `echo 'gh: Not Found (HTTP 404)' >&2; exit 1`,
+  }[rest];
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+case "$1" in
+  pr) echo 'GraphQL: API rate limit already exceeded for user ID 870334.' >&2; exit 1 ;;
+  repo) printf '%s' '{"nameWithOwner":"owner/repo"}'; exit 0 ;;
+  api) case "$2" in 'repos/{owner}/{repo}/'*) ${restArm} ;; *) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;; esac ;;
+esac
+`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, callsFile };
+};
+
+test('host: pr-state under a throttled GraphQL budget asks REST for the remote repo, never answers NONE', () => {
+  const stubs = throttledGh('open');
+  const res = runAllowFail(['pr-state', '3198'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).state, 'OPEN', 'an open PR stays open while GraphQL is throttled');
+  assert.equal(JSON.parse(res.stdout).number, 3198);
+  assert.ok(callsOf(stubs.callsFile).some((c) => c.startsWith('api repos/{owner}/{repo}/pulls/3198')),
+    `REST names the remote's repository; calls were:\n${callsOf(stubs.callsFile).join('\n')}`);
+});
+
+test('host: pr-state by branch under a throttled GraphQL budget reads the REST list', () => {
+  const stubs = throttledGh('listed');
+  const res = runAllowFail(['pr-state', 'feature/x'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).state, 'OPEN');
+});
+
+test('host: pr-state with both budgets throttled exits non-zero and prints no NONE', () => {
+  const stubs = throttledGh('throttled');
+  const res = runAllowFail(['pr-state', '3198'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0, 'a read that never arrived is not an answer');
+  assert.doesNotMatch(res.stdout, /NONE/, 'a failed read must not read as absence');
+  assert.match(res.stderr, /rate limit/i, "the host's own words reach the caller");
+});
+
+test('host: pr-state still answers NONE when REST arrives and finds no PR', () => {
+  const stubs = throttledGh('missing');
+  const res = runAllowFail(['pr-state', '3198'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).state, 'NONE');
+});

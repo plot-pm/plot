@@ -251,6 +251,13 @@ Here is a quoted block:
       expect(result.sprintText).toContain('<!-- pr: #123, branch: feature/does-another-thing -->');
     });
 
+    it('reads the first branch under the supplied Branch prefixes', () => {
+      const other = APPROVED_WITH_PROSE_BULLETS.replace(/feature\//g, 'zz/');
+      const result = addSprintMember(SPRINT('<!-- nothing yet -->'), other, 'must', ctx({ branchPrefixes: ['zz'] }));
+      if (result.outcome !== 'write') throw new Error(`expected write, got ${result.outcome}`);
+      expect(result.sprintText).toContain('branch: zz/does-a-thing -->');
+    });
+
     it('reads an older plan\'s `## Branches` section', () => {
       const older = APPROVED_WITH_PROSE_BULLETS.replace('## Slices', '## Branches');
       const result = addSprintMember(SPRINT('<!-- nothing yet -->'), older, 'must', ctx());

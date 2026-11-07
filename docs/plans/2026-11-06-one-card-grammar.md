@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Design
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** card-alignment
 - **Review:** pr
@@ -13,6 +13,10 @@
 - **Rounds:** 5
 - **Spike approved:** 2026-11-06, jwloka, plan-PR #3192 merged, feature/one-card-grammar-plans
 - **Started:** 2026-11-06, jwloka, `feature/one-card-grammar-plans`
+- **Approved:** 2026-11-07, jwloka, in-session
+- **Started:** 2026-11-07, Jan Wloka, `feature/one-card-grammar-stories`
+- **Started:** 2026-11-07, Jan Wloka, `feature/one-card-grammar-tickets`
+- **Delivered:** 2026-11-07
 
 ## Changelog
 
@@ -546,7 +550,7 @@ and admits `http(s)` link schemes only.
 
 ### Tickets
 
-- `feature/one-card-grammar-tickets` — `ticketCardFacts` in `discovery-lanes.ts` (moved out of the browser), `TicketPlan` gaining `slug`, `title` and `story`, `/api/idea`'s click-time story derivation and refusals, a new `TicketModal`, and the Tickets lanes rendering through `<Card>` <!-- builds: ticketCardFacts projection and TicketModal -->
+- `feature/one-card-grammar-tickets` — `ticketCardFacts` in `discovery-lanes.ts` (moved out of the browser), `TicketPlan` gaining `slug`, `title` and `story`, `/api/idea`'s click-time story derivation and refusals, a new `TicketModal`, and the Tickets lanes rendering through `<Card>` <!-- builds: ticketCardFacts projection and TicketModal --> → #3217
 
 The Tickets slice follows the Stories slice rather than running beside it: its
 *a story, no plan* row needs the ticket → story index that Stories builds, and a
