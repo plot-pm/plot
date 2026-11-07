@@ -3,9 +3,12 @@ import type { Board, Card, Fleet, SprintCard, StoryCard } from '../contract/sche
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
 import { Swimlanes } from './components/Swimlanes.js';
+import { SettingsView } from './components/SettingsView.js';
+import { readRegistration } from './lib/passkey-client.js';
 import { PlanModal } from './components/PlanModal.js';
 import { SprintModal } from './components/SprintModal.js';
 import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
+import { passkeySettings, type PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
 import { planLinkClick } from '@plot-pm/domain/rules/plan-link-click';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import type { DiscoveryShow, MineMode } from '@plot-pm/domain';
@@ -212,6 +215,24 @@ export function App() {
   const [showReleased, setShowReleased] = useState(
     () => new URLSearchParams(location.search).get('released') === '1',
   );
+  // Settings is a route of its own, not a fourth tab: `?settings=1` leaves
+  // `?tab=` alone, so closing it returns the reader to the tab they left.
+  const [settingsOpen, setSettingsOpen] = useState(
+    () => new URLSearchParams(location.search).get('settings') === '1',
+  );
+  const writeSettings = useCallback((next: boolean) => {
+    setSettingsOpen(next);
+    const url = new URL(location.href);
+    if (next) url.searchParams.set('settings', '1');
+    else url.searchParams.delete('settings');
+    history.replaceState(null, '', url);
+  }, []);
+  // `null` is "not read yet or unreachable", which the gear never marks.
+  const [passkey, setPasskey] = useState<PasskeyRegistration | null>(null);
+  useEffect(() => {
+    void readRegistration().then(setPasskey);
+  }, []);
+  const gearMarked = passkeySettings(passkey, location.hostname).marker;
   const writeShowReleased = useCallback((next: boolean) => {
     setShowReleased(next);
     const url = new URL(location.href);
@@ -1290,6 +1311,19 @@ export function App() {
             </button>
           ))}
         </nav>
+        <button
+          type="button"
+          aria-label="Settings"
+          aria-current={settingsOpen ? 'page' : undefined}
+          data-passkey-unregistered={gearMarked ? '' : undefined}
+          onClick={() => writeSettings(!settingsOpen)}
+          className="relative rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-900"
+        >
+          <span aria-hidden="true">⚙</span>
+          {gearMarked && (
+            <span aria-hidden="true" className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-amber-500" />
+          )}
+        </button>
         {/* Filters belong to the board; the agent list is grouped by waiting
             reason, which is not something a sprint or story narrows. */}
         {tab === 'planning' && hasSprints && (
@@ -1354,7 +1388,8 @@ export function App() {
           );
         })()}
       </header>
-      <main>
+      {settingsOpen && <SettingsView held={passkey} onRegistration={setPasskey} onClose={() => writeSettings(false)} />}
+      <main hidden={settingsOpen}>
         {tab === 'discovery' ? (
           // Discovery tab — the strategic layer above plans. Shows story cards
           // grouped by status (Draft/Active/Done/Archived), with tag cloud.
