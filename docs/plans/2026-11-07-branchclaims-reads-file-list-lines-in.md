@@ -55,7 +55,7 @@ A list line in `## Slices` is a claim only where its token is a branch: the toke
 
 ### Fix
 
-- `bug/branchclaims-reads-file-list-lines-in` — filter list claims by branch prefix, thread the prefixes through the four callers, add the corpus comparison against `plot-plan-meta.sh` <!-- builds: branchClaims prefix filter, a corpus comparison with plot-plan-meta.sh -->
+- `bug/branchclaims-reads-file-list-lines-in` — filter list claims by branch prefix, thread the prefixes through the four callers, add the corpus comparison against `plot-plan-meta.sh` <!-- builds: branchClaims prefix filter, a corpus comparison with plot-plan-meta.sh --> → #3222
 
 ## Notes
 
