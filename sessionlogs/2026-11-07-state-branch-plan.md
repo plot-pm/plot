@@ -40,5 +40,5 @@
 
 ## Notes
 
-- The repo gates (`scripts/check-*.sh`) pass on this branch. The gate tests pass except the six above, which fail on this machine before the change as well.
+- The repo gates (`scripts/check-*.sh`) pass on this branch. The gate tests pass except the six above. Their cause is this machine's `~/.gitconfig.local`, which sets `init.defaultBranch=develop`, so the fixture's `master` never exists; the plan file plays no part in it.
 - The session ran in a Claude Code worktree under `.claude/worktrees/`, which had no `node_modules` and no Node 26 on its path. `pnpm install --frozen-lockfile` with Homebrew's `node@26` fixed both.

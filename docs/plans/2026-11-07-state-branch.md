@@ -70,7 +70,7 @@ The `push=` vocabulary (`clean|bypassed|unknown|rejected|locked|refused`) stays.
 
 The admin cost is the smaller argument. The larger one is the third row: `push-main-bypass` (2026-08-16) measured eight approvals that landed past a rule requiring a pull request, and a bypass identity makes that the design. The state branch respects the owner's rule and pays for it in Plot's own code. Recommendation: the state branch. Max decides on this plan's PR.
 
-**Where it does not apply.** This repository keeps the Writer App; the key is opt-in and this repository does not declare it. A repository with `Plan PRs: never` and an unprotected default branch gains nothing from the key and declares none.
+**Where it does not apply.** This repository keeps the Writer App; the key is opt-in and this repository does not declare it. A repository whose default branch is unprotected and deploys nothing on a merge gains nothing from the key and declares none; an unprotected default branch that deploys on every merge still gains the second motivation.
 
 ### Open Questions
 
