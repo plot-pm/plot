@@ -52,6 +52,7 @@ const planCard = () =>
 const storyCard = () =>
   story({
     slug: STORY_SLUG, title: 'A story',
+    plans: [{ slug: KNOWN_SLUG, title: KNOWN_SLUG, phase: 'approved', sprint: SPRINT_SLUG }],
     sprints: [{ slug: SPRINT_SLUG, planCount: 1 }],
   });
 
@@ -67,6 +68,9 @@ describe('a sprint member with no card renders as text, not a button', () => {
   });
 
   const sprintModal = (page: Page) => page.getByRole('dialog', { name: /Sprint:/ });
+
+  /** The story card's sprint link, on its meta line. */
+  const storySprintLink = (page: Page) => page.locator(`#story-${STORY_SLUG} a[data-lineage="sprints"]`);
 
   /** The plan card's story link, on its meta line. */
   const storyLink = (page: Page) => page.locator(`#plan-${KNOWN_SLUG} a[data-lineage="stories"]`);
@@ -128,7 +132,7 @@ describe('a sprint member with no card renders as text, not a button', () => {
     const page = await open('discovery');
     try {
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
-      await page.getByRole('button', { name: SPRINT_SLUG }).click();
+      await storySprintLink(page).click();
       await assertUnknownMemberIsText(page);
     } finally { await page.close(); }
   });
@@ -139,7 +143,7 @@ describe('a sprint member with no card renders as text, not a button', () => {
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Delivery' }).click();
       await page.getByRole('button', { name: 'Discovery' }).click();
-      await page.getByRole('button', { name: SPRINT_SLUG }).click();
+      await storySprintLink(page).click();
       await assertUnknownMemberIsText(page);
     } finally { await page.close(); }
   });

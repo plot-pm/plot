@@ -1,11 +1,12 @@
 import {
   AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, FleetShape, PHASE_LEADERSHIP,
-  SprintCardSchema, StoryCardSchema, SliceSchema,
+  PlanMetaSchema, SprintCardSchema, StoryCardSchema, SliceSchema,
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
 import { controlsFor, stateFor } from '../fixtures/card-controls.js';
 import { planFactsOf } from '../../src/server/plan-facts.js';
+import { storyFactsOf } from '../../src/server/story-facts.js';
 import type { z } from 'zod';
 
 export { controlsFor };
@@ -290,8 +291,21 @@ const STORY_DEFAULTS: StoryInput = {
   path: 'docs/stories/a-story/STORY-a-story.md',
 };
 
-export const story = (over: Partial<StoryInput> = {}): StoryCard =>
-  StoryCardSchema.parse({ ...STORY_DEFAULTS, ...over });
+export const story = (over: Partial<StoryInput> = {}): StoryCard => {
+  const input: StoryInput = { ...STORY_DEFAULTS, ...over };
+  // The facts the server would attach, through the same projection: the written
+  // status is `declaredStatus` where the fixture states one, else `status`.
+  const plans = (input.plans ?? []).map((p) => PlanMetaSchema.parse({
+    file: `docs/plans/${p.slug}.md`, format: 'plot', phase: p.phase, title: p.title, sprint: p.sprint ?? '', story: input.slug,
+  }));
+  const facts = over.facts ?? storyFactsOf(
+    { ...input, status: input.declaredStatus || input.status },
+    plans,
+    input.archived ?? false,
+    { issueContext: { issuePrefix: null, jiraProjects: [] }, plans: new Map(), sprints: [], directory: {} },
+  );
+  return StoryCardSchema.parse({ ...input, facts });
+};
 
 export const board = (over: Partial<BoardInput> = {}): Board =>
   BoardSchema.parse({ ...BOARD_DEFAULTS, ...over });

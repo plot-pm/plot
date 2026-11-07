@@ -10,7 +10,7 @@ Every board item — a ticket, a story, a plan — renders as one card that answ
 | **`CardFacts`** | One item's facts in the five facets. Typed facts only: kinds, references, counts, enums, identifiers, ISO dates and content copied verbatim (`title`, `summary`, `value`). Never a generated word. |
 | **facet** | One of the five questions the model answers: `identity`, `lineage`, `progress`, `next`, `ownership`. |
 | **section** | One of the card's three places, each on its own surface: `header`, `status`, `footer`. The mapping decides which facet parts go into which section. |
-| **projection** | A domain rule that builds `CardFacts` for one kind: `planCardFacts` (plans); `storyCardFacts` and `ticketCardFacts` follow in later slices. |
+| **projection** | A domain rule that builds `CardFacts` for one kind: `planCardFacts` (plans), `storyCardFacts` (stories); `ticketCardFacts` follows in a later slice. |
 | **mapping** | `presentCard(facts, board)`: the sections, every word on them, and which section is emphasised. Pure, tested without a browser. |
 | **emphasis** | The section a board's reader came for, on the stronger tint. Never position: the footer on Design, Development and in swimlanes, the status panel on Testing and the Stories lanes, the header's meta line on the Tickets lanes. |
 
@@ -57,7 +57,7 @@ A **ref** names another board item with the phase of the kind it names: `ticket`
 
 ## Actions and reasons
 
-An **action** is `{ action, enabled, reason }`; `reason` is set exactly when `enabled` is false. Opening is not an action: the title is the card's only open link. Every action is a control. A disabled one is a focusable button with `aria-disabled="true"`; its reason is the button's `aria-describedby`, in a tooltip that opens below it on hover and on keyboard focus and closes on Escape. A secondary the item's own state disables is omitted; one the board's configuration refuses stays, disabled, with `action-unavailable`.
+An **action** is `{ action, enabled, reason }`; `reason` is set exactly when `enabled` is false. Opening is not an action: the title is the card's only open link. Every action is a control. A disabled one is a focusable button with `aria-disabled="true"`; its reason is the button's `aria-describedby`, in a tooltip that opens below it on hover and on keyboard focus and closes on Escape. Inside the *More actions* menu the tooltip opens beside the control, so it covers no other item, and the menu focuses its first enabled item on open. A secondary the item's own state disables is omitted; one the board's configuration refuses stays, disabled, with `action-unavailable`.
 
 | Reason | Means | Card words |
 |---|---|---|
@@ -73,8 +73,16 @@ An **action** is `{ action, enabled, reason }`; `reason` is set exactly when `en
 | Alert | Means | Card words |
 |---|---|---|
 | `not-pushed` | The item exists only in the board's working tree. | *not pushed* |
-| `status-behind` | A story's written status is behind what its plans prove. | *status behind: …* |
-| `issue-link-unreadable` | A story's `issue:` names something not indexed. | *issue link unreadable: …* |
+| `status-behind` | A story's written status is behind what its plans prove; `proven` names the standing they prove. | *status behind: plans delivered* |
+| `issue-link-unreadable` | A story's `issue:` names something not indexed; `value` is in the tooltip. | *issue link unreadable* |
+
+## The story's ticket
+
+A story names its ticket in the `issue:` frontmatter field; the legacy `jira:` is read where `issue:` is absent, and a template placeholder such as `{ISSUE_URL}` reads as absent. `storyIssueLink` accepts `#<n>`, this repository's own issue page on its git host (owner and repository compared, not the host alone), and a Jira key, bare or in a `/browse/<KEY>` URL, whose project `Tracker: jira <url> PROJ, OPS` declares. Any other value is an `issue-link-unreadable` alert and links no ticket. A value that needs the repository's address while the board has not read it is `unknown`.
+
+The **ticket → story index** (`ticketStoryIndex`, `Board.ticketStories`) maps each issue key to the stories that answer it: the stories whose `issue:` names it, and the stories a plan answering it names in `Story:`. It reads only stories committed on `origin/<default>`, and it is `unknown` where that ref could not be read — never an empty index.
+
+A story is **live** while its status is not `done` and it is not archived; Draft is live. A live story offers *Add plan* (`POST /api/story-plan`), the primary where it has no plans and a secondary where it has some.
 
 ## The line between a fact and a word
 
@@ -84,4 +92,4 @@ Two gates hold the line. The schema gate (`packages/domain/test/card-facts.test.
 
 ## Drawing
 
-The kind icon is the board's Octicon glyph from `glyphs.ts`, 1 em of the text beside it, in the kind's hue, and named by the kind ("Plan"). The state is a pill with a dot and its word; the work bar stretches across the status panel so cards compare at a glance. A count takes a warning colour only when it reports a problem: a failing check or a conflict. The footer is drawn on every card, with or without actions. Spacing is 16 px inside the card, 12 px between sections, 4–6 px between lines in a section. A list of two or more entries collapses to a count. The count is a `<button aria-haspopup="dialog" aria-expanded>` that opens a popover dialog listing the entries, each a link. The popover takes focus on open and closes on Escape or a click outside, and focus returns to the button. The tab order is title, primary (disabled or not), secondaries, then the meta line's items, the panel's expanders and the assignee. Light and dark draw from the same tokens in `index.css`, and every colour sits beside a word or in an accessible name.
+The kind icon is the board's Octicon glyph from `glyphs.ts`, 1 em of the text beside it, in the kind's hue, and named by the kind ("Plan"). The state is a pill with a dot and its word; the work bar stretches across the status panel so cards compare at a glance. The work bar draws one segment per unit up to 24, and one continuous track filled to the share done past that. A count takes a warning colour only when it reports a problem: a failing check or a conflict. The footer is drawn on every card, with or without actions. Spacing is 16 px inside the card, 12 px between sections, 4–6 px between lines in a section. A list of two or more entries collapses to a count. The count is a `<button aria-haspopup="dialog" aria-expanded>` that opens a popover dialog listing the entries, each a link. The popover takes focus on open and closes on Escape or a click outside, and focus returns to the button. The tab order is title, primary (disabled or not), secondaries, then the meta line's items, the panel's expanders and the assignee. Light and dark draw from the same tokens in `index.css`, and every colour sits beside a word or in an accessible name.
