@@ -42,9 +42,9 @@ The line `branchClaims` reads and the line the recorder writes must be the same 
 - The plan from 2026-11-03 joins the tests as a fixture: a prose line under `## Design` naming the branch before the slice line.
 - The repair after the fix is operational: run `plot-record-pr.sh bug/a-high-gets-its-own-fixer-attempts 3169`, then book the plan with the 2.32.0 release (it belongs to sprint `card-alignment`). The stray `→ #3169` on line 102 stays in the file unless a person removes it; the recorder edits only the slice line.
 
-### Open Points
+### Settled Points
 
-- [ ] Should the recorder also refuse when the file holds several bullets for the branch inside `## Slices`, instead of taking the first?
+- A branch claimed on more than one line inside `## Slices` is a defect in the plan: one branch belongs to one slice. The recorder refuses such a plan, names every line that claims the branch, and writes nothing. It never takes the first line. Settled by jwloka, 2026-11-07.
 
 ## Slices
 
