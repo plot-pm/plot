@@ -449,6 +449,14 @@ attempts, re-fetching the default branch and re-applying the write each time.
 `rejected` means every attempt was refused — land the booking branch by hand,
 or re-run the delivery once the push works.
 
+**A sprint with an integration branch records the delivery on that branch.** When the sprint's code reaches the default branch only through the sprint PR at sprint close, run:
+
+```bash
+../plot/scripts/plot-deliver.sh --branch <integration-branch> <slug>
+```
+
+With `--branch <name>`, the script fetches `origin/<name>` and reads the plan, the index directories and the sprint file from that copy. The Approved-phase check reads the same copy. The booking worktree is cut from `origin/<name>`, and the commit is pushed to `<name>` with the same retry loop. The default branch receives the delivery when the sprint PR merges. A branch that origin does not hold refuses by name before anything is written. `--dry-run --branch <name>` prints `step: would record the delivery on <name>`. The slice check is unchanged: a slice PR merged into the integration branch carries `mergedAt`, so it reads as merged. After the push, the issue status and plan-state writes run as on the default branch, so the plan's issues read *delivered* while the default branch still holds the plan as Approved. `--release` does not take `--branch` and refuses the combination by name. `POST /api/deliver` does not take a branch.
+
 The `tracker=` field reports the issue status write:
 
 | Value | Meaning |

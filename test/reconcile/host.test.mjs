@@ -825,6 +825,21 @@ test('host: pr-merged still answers not-merged for a genuine PR lookup miss', ()
   assert.equal(res.stdout.trim(), 'not-merged', 'a genuine miss still answers not-merged');
 });
 
+// `plot-deliver --branch <name>` delivers a plan whose slice PRs merged into an
+// integration branch rather than the default branch. The slice check reads the
+// PR's `mergedAt` and asks with no base filter, so such a PR reads as merged.
+test('host: pr-merged reads a PR merged into an integration branch as merged, and asks with no base filter', () => {
+  const stubs = makeStubs({ ghJson: JSON.stringify([
+    { mergedAt: '2026-11-07T10:00:00Z', baseRefName: 'sprint/card-alignment' },
+  ]) });
+  const res = runAllowFail(['pr-merged', 'feature/one-card-grammar'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'merged');
+  assert.deepEqual(argvOf(stubs.ghArgv), [
+    'pr', 'list', '--head', 'feature/one-card-grammar', '--state', 'all', '--limit', '100', '--json', 'mergedAt',
+  ]);
+});
+
 // `pr-merged-heads` sends the reaper to a weaker reading when it answers
 // empty, so a silent CLI failure must fail rather than read as a lookup miss.
 test('host: pr-merged-heads prints only the heads of merged PRs', () => {
