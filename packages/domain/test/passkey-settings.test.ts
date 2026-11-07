@@ -33,6 +33,13 @@ describe('passkeySettings', () => {
     expect(passkeySettings({ registered: true, credentialId: 'abc', registeredAt: 'yesterday' }, 'localhost').line).toBe('Passkey registered on yesterday');
   });
 
+  it('names an unknown time and shows no id for a registration that carries neither', () => {
+    const s = passkeySettings({ registered: true }, 'localhost');
+    expect(s.line).toBe('Passkey registered on an unknown time');
+    expect(s.credential).toBe('');
+    expect(s.action).toBe('Replace');
+  });
+
   it.each([null, { registered: false }, { registered: true, credentialId: 'abc', registeredAt: '2026-11-07T10:30:00Z' }])(
     'answers the notice and no action or marker off localhost for %j',
     (held) => {
