@@ -1,9 +1,10 @@
 // Contract test: the release validate relay.
 //
-// The relay copies a completed dispatched `CI` run's result to a `validate`
-// commit status on the release head. The workflow files are read as text, with
-// no YAML parser, and every assertion is scoped to a named block so it fails
-// when the thing it looks for sits in a sibling block.
+// The `relay-validate` job of release.yml copies the result of the dispatched
+// `CI` run's `validate` job to a `validate` commit status on the release head.
+// The workflow files are read as text, with no YAML parser, and every
+// assertion is scoped to a named block so it fails when the thing it looks for
+// sits in a sibling block.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +15,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) =>
   fs.readFileSync(path.join(here, '..', '..', '.github', 'workflows', name), 'utf8');
 
-const RELAY = read('release-validate-relay.yml');
 const CI = read('ci.yml');
 const RELEASE = read('release.yml');
 
@@ -42,22 +42,7 @@ const jobBlock = (yaml, name) => {
 /** Everything above `jobs:`, comments dropped. */
 const preamble = (yaml) => stripComments(yaml.slice(0, yaml.indexOf('\njobs:')));
 
-/** One trigger under `on:`, comments dropped. */
-const triggerBlock = (yaml, name) => {
-  const lines = preamble(yaml).split('\n');
-  const start = lines.findIndex((l) => l === `  ${name}:`);
-  assert.notEqual(start, -1, `on.${name} must be declared`);
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^ {2}[A-Za-z_][A-Za-z0-9_-]*:/.test(lines[i])) {
-      end = i;
-      break;
-    }
-  }
-  return lines.slice(start, end).join('\n');
-};
-
-const JOB = jobBlock(RELAY, 'relay');
+const JOB = jobBlock(RELEASE, 'relay-validate');
 const permissionsOf = (job) => {
   const m = job.match(/^ {4}permissions:\n((?: {6}[a-z-]+: .*\n?)+)/m);
   assert.ok(m, 'the relay job must declare its own permissions');
@@ -70,7 +55,7 @@ test('the relay job holds statuses: write and no other write permission', () => 
   for (const d of declared) {
     if (d.endsWith(': write')) assert.equal(d, 'statuses: write', `unexpected write: ${d}`);
   }
-  assert.doesNotMatch(preamble(RELAY), /: write/, 'no write permission at workflow level');
+  assert.doesNotMatch(preamble(RELEASE), /: write/, 'no write permission at workflow level');
 });
 
 test('the relay job checks nothing out and installs nothing', () => {
@@ -79,58 +64,102 @@ test('the relay job checks nothing out and installs nothing', () => {
   assert.doesNotMatch(JOB, /pnpm\/action-setup|actions\/setup-node/);
 });
 
-test('every uses: in the relay job is pinned to a full SHA', () => {
-  for (const m of JOB.matchAll(/^\s*(?:- )?uses:\s*(\S+)/gm)) {
-    assert.match(m[1], /@[0-9a-f]{40}$/, `${m[1]} must be SHA-pinned`);
-  }
+test('every uses: in release.yml is pinned to a full SHA', () => {
+  const uses = [...stripComments(RELEASE).matchAll(/^\s*(?:- )?uses:\s*(\S+)/gm)];
+  assert.ok(uses.length > 0);
+  for (const m of uses) assert.match(m[1], /@[0-9a-f]{40}$/, `${m[1]} must be SHA-pinned`);
 });
 
-test('the relay job has a timeout and is not named validate', () => {
-  assert.match(JOB, /timeout-minutes: \d+/);
-  assert.doesNotMatch(RELAY, /^ {2}validate:/m);
-});
-
-test('the relay is triggered by workflow_run of CI and by nothing else', () => {
-  const on = preamble(RELAY).slice(preamble(RELAY).indexOf('\non:'));
-  const run = triggerBlock(RELAY, 'workflow_run');
-  assert.match(run, /workflows: \[CI\]/);
-  assert.match(run, /types: \[completed\]/);
-  for (const other of ['pull_request', 'pull_request_target', 'push', 'workflow_dispatch']) {
-    assert.doesNotMatch(on, new RegExp(`^ {2}${other}:`, 'm'), `${other} must not trigger the relay`);
-  }
-});
-
-test('the job filters on the dispatched event in its own if:', () => {
+test('the relay job needs release and dispatch-ci and is gated on the PR number', () => {
   const head = JOB.split('\n    steps:')[0];
-  assert.match(head, /if: \$\{\{ github\.event\.workflow_run\.event == 'workflow_dispatch' \}\}/);
+  assert.match(head, /needs: \[release, dispatch-ci\]/);
+  assert.match(head, /if: \$\{\{ needs\.release\.outputs\.pr_number \}\}/);
+});
+
+/** The longest `needs` path to `name`, in minutes, summed over `timeout-minutes`. */
+const longestPath = (yaml, name, seen = new Set()) => {
+  assert.ok(!seen.has(name), `needs cycle at ${name}`);
+  const job = jobBlock(yaml, name);
+  const t = job.match(/^ {4}timeout-minutes: (\d+)$/m);
+  assert.ok(t, `${name} must declare timeout-minutes`);
+  const n = job.match(/^ {4}needs: (.+)$/m);
+  const needs = n ? n[1].replace(/[[\]]/g, '').split(',').map((x) => x.trim()).filter(Boolean) : [];
+  const next = new Set([...seen, name]);
+  return Number(t[1]) + Math.max(0, ...needs.map((d) => longestPath(yaml, d, next)));
+};
+
+test('the relay wait covers the longest needs path to validate in ci.yml', () => {
+  const pathMin = longestPath(CI, 'validate');
+  assert.ok(pathMin >= 40, `the path to validate reads ${pathMin} min; select, checks and validate alone sum to 40`);
+  const wait = JOB.match(/WAIT_SECONDS=(\d+)/);
+  assert.ok(wait, 'the wait must be named WAIT_SECONDS');
+  const waitMin = Number(wait[1]) / 60;
+  assert.ok(waitMin >= pathMin + 5, `a ${waitMin} min wait must cover the ${pathMin} min path plus queue time`);
+  const limit = JOB.match(/^ {4}timeout-minutes: (\d+)$/m);
+  assert.ok(limit, 'timeout-minutes must be set');
+  assert.ok(Number(limit[1]) > waitMin + 2, `the job limit ${limit[1]} must exceed the ${waitMin} min wait and the 2 min lookup`);
+  assert.doesNotMatch(RELEASE, /^ {2}validate:/m);
+});
+
+test('no wait holds the release concurrency group', () => {
+  assert.doesNotMatch(preamble(RELEASE), /^concurrency:/m, 'a workflow-level group would hold the queue for the whole wait');
+  assert.doesNotMatch(JOB, /concurrency:/);
+  assert.match(jobBlock(RELEASE, 'release'), /^ {4}concurrency:\n {6}group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n {6}cancel-in-progress: false$/m);
+  assert.match(jobBlock(RELEASE, 'board-release-candidate'), /^ {4}concurrency:\n {6}group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n {6}cancel-in-progress: false$/m);
+});
+
+test('the pin comes from the release job output, never from the remote ref', () => {
+  assert.match(JOB, /PINNED_SHA: \$\{\{ needs\.release\.outputs\.head_sha \}\}/);
+  assert.doesNotMatch(JOB, /git\/ref\/heads\/changeset-release\/main/);
 });
 
 test('the relay writes the validate status with GITHUB_TOKEN and no App path', () => {
   assert.match(JOB, /context=validate/);
   assert.match(JOB, /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
-  assert.doesNotMatch(RELAY, /commitStatus/);
-  assert.doesNotMatch(stripComments(RELAY), /secrets\.(?!GITHUB_TOKEN)/);
+  assert.doesNotMatch(JOB, /commitStatus/);
+  assert.doesNotMatch(JOB, /secrets\.(?!GITHUB_TOKEN)/);
 });
 
-test('the relay compares the SHA itself and writes nothing for a cancelled run', () => {
-  assert.match(JOB, /git\/ref\/heads\/changeset-release\/main/, 'the pin is read from the branch ref');
-  assert.match(JOB, /"\$TRIGGER_SHA" != "\$PINNED_SHA"/, 'the triggering run head must equal the pin');
-  assert.match(JOB, /"\$TRIGGER_BRANCH" != "changeset-release\/main"/);
-  assert.match(JOB, /"\$STATUS" != "completed"/);
+test('the relay copies the validate job, not the run, and writes nothing for a cancelled job', () => {
+  assert.match(JOB, /actions\/runs\/\$RUN_ID\/jobs\?filter=latest&per_page=100/);
+  assert.match(JOB, /--paginate/);
+  assert.match(JOB, /select\(\.name == "validate"\)/);
+  assert.doesNotMatch(JOB, /api "repos\/\$REPO\/actions\/runs\/\$RUN_ID"/, 'the run conclusion must not decide');
+  assert.match(JOB, /"\$STATUS" = "completed"/);
   assert.match(JOB, /case "\$CONCLUSION" in\n\s+success\|failure\) ;;/, 'only success and failure are copied');
-  assert.match(JOB, /"\$COUNT" -ne 1/, 'zero or two runs fail the job');
+  assert.match(JOB, /"\$COUNT" -gt 1/, 'two runs or two validate jobs fail the job');
+  assert.match(JOB, /found 0/, 'zero runs fail the job');
+  assert.match(JOB, /\.head_sha == "'"\$PINNED_SHA"'"/, 'the run lookup accepts only the pinned head');
   assert.match(JOB, /github-actions\[bot\]/);
   assert.match(JOB, /\.github\/workflows\/ci\.yml/);
+  assert.match(JOB, /head_branch == "changeset-release\/main"/);
+  assert.match(JOB, /event=workflow_dispatch/);
   assert.match(JOB, /statuses\/\$PINNED_SHA/, 'the status goes to the pinned SHA only');
+  assert.doesNotMatch(JOB, /continue-on-error|\|\| true/);
 });
 
-test('the ci.yml and release.yml comments state the measured outcome', () => {
-  assert.doesNotMatch(
-    CI.replace(/\n\s*#\s*/g, ' '),
-    /is the context the branch protection requires, so the required check reports/,
+test('every API call in the relay is retried a bounded number of times', () => {
+  assert.match(JOB, /for attempt in 1 2 3; do/);
+  const calls = [...JOB.matchAll(/(?:^|[\s(])(gh api|api) /gm)].map((m) => m[1]);
+  assert.deepEqual([...new Set(calls)].sort(), ['api', 'gh api']);
+  assert.equal(calls.filter((c) => c === 'gh api').length, 1, 'only the retry helper calls gh api');
+});
+
+test('the dead workflow_run relay is gone', () => {
+  assert.equal(
+    fs.existsSync(path.join(here, '..', '..', '.github', 'workflows', 'release-validate-relay.yml')),
+    false,
   );
-  assert.match(CI.replace(/\n\s*#\s*/g, ' '), /did not lift `BLOCKED`/);
+  assert.doesNotMatch(preamble(RELEASE), /workflow_run/);
+});
+
+test('ci.yml and release.yml name the relay job and the measured outcome', () => {
+  const ci = CI.replace(/\n\s*#\s*/g, ' ');
+  assert.doesNotMatch(ci, /release-validate-relay/);
+  assert.match(ci, /did not lift `BLOCKED`/);
+  assert.match(ci, /`relay-validate` job in `release\.yml`/);
   const rel = RELEASE.replace(/\n\s*#\s*/g, ' ');
-  assert.doesNotMatch(rel, /dispatch makes the required check report/);
+  assert.doesNotMatch(rel, /release-validate-relay/);
   assert.match(rel, /DISPATCH ALONE DOES NOT LIFT `BLOCKED`/);
+  assert.match(rel, /started no relay run/);
 });

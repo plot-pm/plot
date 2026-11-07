@@ -102,7 +102,10 @@ export const boardAnswer = async (
     // owns. Computed here rather than inside `boardState`: the cache
     // `ticketLaneData` reads lives in `fleet.ts`, and `boardState` has no
     // dependency on it today.
-    ...(await discoveryLanes(opts, { stories, archivedStories }, archived, ticketData)),
+    ...(await discoveryLanes(opts, { stories, archivedStories }, archived, ticketData, {
+      ticketStories: built.ticketStories,
+      available: { 'create-plan': idea.available, 'create-story': storyAvailability(host).available },
+    })),
     // Recomputed with tickets folded in, for the same reason `tickets`
     // itself is: `boardState`'s own `topics` (above, spread first) saw
     // stories alone. A topic found only in ticket titles — no story, no

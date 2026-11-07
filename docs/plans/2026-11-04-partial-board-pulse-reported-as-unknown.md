@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
-- **Sprint:** follow-ups-2-30-1
+- **Sprint:** card-alignment
 - **Issue:** #3118
 - **Approved:** 2026-11-05, Jan Wloka, plan-PR #3127 merged
 - **Started:** 2026-11-05, Jan Wloka, `feature/partial-pulse-names-itself`
 - **Delivered:** 2026-11-06
+- **Released:** 2026-11-07, v2.31.0
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches

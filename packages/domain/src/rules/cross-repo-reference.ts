@@ -38,7 +38,23 @@ const SECTION = /^## (Slices|Branches|Waves)\b/;
 const FENCE = /^\s*(```|~~~)/;
 const LIST_CLAIM = /^-\s+`([A-Za-z0-9_./-]+)`/;
 const HEADING_CLAIM = /^#{3,}\s.*\(Branch:\s*([A-Za-z0-9_./-]+)/;
+const CROSS_REPO_REFERENCE = /→ [A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+|\bPR:\s*[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+/;
 const REFERENCE = /(?:→ |\bPR:\s*)(?:([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+))?#([0-9]+)/g;
+
+/** The `Branch prefixes` default, without the trailing slash. */
+export const DEFAULT_BRANCH_PREFIXES: readonly string[] = ['idea', 'feature', 'bug', 'docs', 'infra'];
+
+/**
+ * Reads a `Branch prefixes` config value.
+ *
+ * @param raw - the comma-separated value, for example `idea/, feature/, bug/`.
+ * @returns the entries trimmed and without a trailing slash; empty entries are dropped.
+ */
+export const parseBranchPrefixes = (raw: string): readonly string[] =>
+  raw
+    .split(',')
+    .map((prefix) => prefix.trim().replace(/\/$/, ''))
+    .filter((prefix) => prefix !== '');
 
 /**
  * Every branch a plan's slice sections claim, one row per PR its claim lines name.
@@ -48,12 +64,20 @@ const REFERENCE = /(?:→ |\bPR:\s*)(?:([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+))?#([0-
  * none gets one row with `reference: null`. A PR named twice for one branch is
  * one row. List-item claims are top-level `- ` items with a backticked branch
  * of `[A-Za-z0-9_./-]` characters, so an indented item or a backticked prose
- * term is not a claim.
+ * term is not a claim. A list item is a claim only when its token starts with
+ * `<prefix>/` for a prefix in `prefixes`, or when the line names a PR in another
+ * repository (`→ owner/repo#N`), whose branch may use a prefix this repository
+ * does not declare. A heading claim (`(Branch: <name>)`) needs no prefix.
  *
  * @param content - the whole plan file.
+ * @param prefixes - the `Branch prefixes` entries, without the trailing slash; defaults to {@link DEFAULT_BRANCH_PREFIXES}.
  * @returns the rows, branches in the order they first appear and each branch's PRs in line order.
  */
-export const branchClaims = (content: string): readonly BranchClaim[] => {
+export const branchClaims = (
+  content: string,
+  prefixes: readonly string[] = DEFAULT_BRANCH_PREFIXES,
+): readonly BranchClaim[] => {
+  const hasPrefix = (token: string): boolean => prefixes.some((prefix) => token.startsWith(`${prefix}/`));
   const found = new Map<string, Map<string, SliceReference>>();
   let inSection = false;
   let inFence = false;
@@ -68,7 +92,11 @@ export const branchClaims = (content: string): readonly BranchClaim[] => {
       continue;
     }
     if (!inSection) continue;
-    const branch = LIST_CLAIM.exec(line)?.[1] ?? HEADING_CLAIM.exec(line)?.[1];
+    const listed = LIST_CLAIM.exec(line)?.[1];
+    const branch =
+      listed !== undefined && (hasPrefix(listed) || CROSS_REPO_REFERENCE.test(line))
+        ? listed
+        : HEADING_CLAIM.exec(line)?.[1];
     if (branch === undefined) continue;
     const refs = found.get(branch) ?? new Map<string, SliceReference>();
     found.set(branch, refs);

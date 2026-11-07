@@ -1,7 +1,9 @@
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { branchClaims } from '@plot-pm/domain/rules/cross-repo-reference';
+import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
+import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { realpathSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * The `node` entry point `plot-impl-status.sh` runs, once per plan.
@@ -17,7 +19,8 @@ import { pathToFileURL } from 'node:url';
  * Reads the plan text on stdin and prints one `<reference><TAB><branch>` line
  * per row of the domain's `branchClaims`: the reference is `#N` for a PR in this
  * repository, `owner/repo#N` for one in another, and `-` for a branch whose
- * claim lines name no PR. Reads no file and calls no host.
+ * claim lines name no PR. A list line is a claim only under a `Branch prefixes`
+ * entry, which this reads from the repository's `## Plot Config`. Calls no host.
  */
 
 /**
@@ -25,11 +28,16 @@ import { pathToFileURL } from 'node:url';
  *
  * @param text - the whole plan file.
  * @param write - where the rows go.
+ * @param prefixes - the `Branch prefixes` entries that make a list line a claim.
  * @returns the process exit code, always 0.
  */
-export const run = (text: string, write: (s: string) => void = (s) => process.stdout.write(s)): number => {
+export const run = (
+  text: string,
+  write: (s: string) => void = (s) => process.stdout.write(s),
+  prefixes: readonly string[] = DEFAULT_BRANCH_PREFIXES,
+): number => {
   write(
-    branchClaims(text)
+    branchClaims(text, prefixes)
       .map(({ branch, reference }) =>
         `${reference === null ? '-' : `${reference.repo}#${reference.number}`}\t${branch}\n`,
       )
@@ -43,5 +51,10 @@ export const run = (text: string, write: (s: string) => void = (s) => process.st
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  void endEntry(run(Buffer.concat(chunks).toString('utf8')));
+  const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const read = await scriptsShell({ repoRoot: process.cwd(), scriptDir }).config('Branch prefixes', '');
+  const configured = read.ok ? parseBranchPrefixes(read.value) : [];
+  void endEntry(
+    run(Buffer.concat(chunks).toString('utf8'), undefined, configured.length > 0 ? configured : DEFAULT_BRANCH_PREFIXES),
+  );
 }

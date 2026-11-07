@@ -149,6 +149,8 @@ const indexOf = (over: Partial<IssueIndex> = {}): IssueIndex => ({
 
 const RATE = 'API rate limit exceeded. Please wait 90 seconds before retrying.';
 
+const NO_FACTS = { ticketStories: { value: {} }, available: {} };
+
 describe('GET /api/issues/closed keeps its answer for one window', () => {
   it('runs no host command for a second request inside the window', async () => {
     const { opts, closedCalls, script } = fixture();
@@ -333,9 +335,9 @@ describe('the Discovery lanes read what the route kept', () => {
         { number: '2', title: 'closed 2', url: 'u2', closedAt: new Date(Date.now() - 2 * DAY_MS).toISOString(), statusCategory: 'Done' },
       ] },
     };
-    const recent = await discoveryLanes(opts, board, false, await ticketLaneData(opts));
+    const recent = await discoveryLanes(opts, board, false, await ticketLaneData(opts), NO_FACTS);
     expect(recent.tickets?.done.map((r) => r.id)).toEqual(['2']);
-    const on = await discoveryLanes(opts, board, true, await ticketLaneData(opts));
+    const on = await discoveryLanes(opts, board, true, await ticketLaneData(opts), NO_FACTS);
     expect(on.tickets?.done.map((r) => r.id).sort()).toEqual(['1', '2']);
   });
 
@@ -346,13 +348,19 @@ describe('the Discovery lanes read what the route kept', () => {
       answer: 'answered', at: new Date().toISOString(),
       rows: [{ number: '7', title: 'open 7', url: 'u7' }], complete: true,
     };
-    const fresh = await discoveryLanes(opts, board, false, await ticketLaneData(opts));
+    const fresh = await discoveryLanes(opts, board, false, await ticketLaneData(opts), NO_FACTS);
     expect(fresh.plansUnreadable).toBe(false);
     expect(fresh.tickets?.open.map((r) => r.id)).toEqual(['7']);
     rmTree(path.join(dir, 'docs'));
-    const kept = await discoveryLanes(opts, board, false, await ticketLaneData(opts));
+    const kept = await discoveryLanes(opts, board, false, await ticketLaneData(opts), NO_FACTS);
     expect(kept.plansUnreadable).toBe(true);
-    expect(kept.tickets).toEqual(fresh.tickets);
+    expect(kept.tickets?.open.map((r) => r.id)).toEqual(['7']);
+    // Plans unread: the card reads the lineage as unknown and offers no enabled create.
+    const read = fresh.tickets?.open[0]?.facts?.next.primary;
+    expect(read?.reason).toBeNull();
+    const unread = kept.tickets?.open[0]?.facts;
+    expect(unread?.lineage.plans).toEqual({ unknown: 'failed' });
+    expect(unread?.next.primary).toMatchObject({ action: 'create-plan', enabled: false, reason: { kind: 'lineage-unknown' } });
   });
 });
 

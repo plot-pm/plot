@@ -148,9 +148,10 @@ const planApprovedPr = (planText: string): number | null => {
  * `## Waves` section claims, or `''`. Reads through {@link branchClaims}, so a
  * backticked bullet outside those sections is never a branch; sorts as the plan
  * parser sorts `branches`, whose first entry `/plot-approve` annotates with.
+ * A list item counts only under one of `prefixes` (default `Branch prefixes`).
  */
-const planFirstBranch = (planText: string): string =>
-  branchClaims(planText).map((claim) => claim.branch).sort()[0] ?? '';
+const planFirstBranch = (planText: string, prefixes?: readonly string[]): string =>
+  branchClaims(planText, prefixes).map((claim) => claim.branch).sort()[0] ?? '';
 
 /** Result of writing (or refusing to write) the plan's `Sprint:` field. */
 type FieldWrite = { ok: true; text: string } | { ok: false; current: string };
@@ -326,6 +327,8 @@ export interface SprintMemberContext {
    * {@link branchClaims} reads from the plan's slice sections.
    */
   firstBranch?: string;
+  /** The `Branch prefixes` entries without the trailing slash; absent: the default list. */
+  branchPrefixes?: readonly string[];
 }
 
 /**
@@ -398,7 +401,7 @@ export const addSprintMember = (
   if (changed && logLine && logsScopeChanges(state)) {
     nextSprintText = withScopeChangeLine(nextSprintText, logLine);
   }
-  nextSprintText = withOwedAnnotation(nextSprintText, ctx.slug, planText, ctx.firstBranch ?? planFirstBranch(planText));
+  nextSprintText = withOwedAnnotation(nextSprintText, ctx.slug, planText, ctx.firstBranch ?? planFirstBranch(planText, ctx.branchPrefixes));
 
   const field = withSprintField(planText, ctx.sprint);
   if (!field.ok) {

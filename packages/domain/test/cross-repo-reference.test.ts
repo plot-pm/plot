@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { branchClaims, crossRepoReferences } from '../src/rules/cross-repo-reference.js';
+import { branchClaims, crossRepoReferences, parseBranchPrefixes } from '../src/rules/cross-repo-reference.js';
 
 const plan = (...body: string[]): string =>
   ['# A plan', '', '## Status', '', '- **State:** Approved', '', ...body].join('\n');
@@ -115,5 +115,39 @@ describe('branchClaims', () => {
       plan('## Slices', '', '- `feature/x` — work', '  - `src/a.ts` → #9', '- `buildFleet()` + refresh → #10'),
     );
     expect(rows).toEqual([{ branch: 'feature/x', reference: null }]);
+  });
+});
+
+describe('branchClaims prefixes', () => {
+  const withTests = (...slice: string[]): string =>
+    plan('## Slices', '', ...slice, '', '### Tests', '', '- `skills/plot-fleet/SKILL.md`', '- `packages/domain/test/x.test.ts` → #9');
+
+  it('claims only the branches of a plan whose Tests and Documentation list file paths', () => {
+    const rows = branchClaims(withTests('- `bug/x` — fix → #5'));
+    expect(rows).toEqual([{ branch: 'bug/x', reference: { repo: '', number: 5 } }]);
+  });
+
+  it('reads the default prefixes when none are given', () => {
+    expect(branchClaims(plan('## Slices', '', '- `bug/x`')).map((c) => c.branch)).toEqual(['bug/x']);
+  });
+
+  it('keeps a list line with a cross-repo reference whatever its prefix', () => {
+    const rows = branchClaims(plan('## Slices', '', '- `other/x` — work → owner/repo#7', '- `other/y` — work → #8'), ['bug']);
+    expect(rows).toEqual([{ branch: 'other/x', reference: { repo: 'owner/repo', number: 7 } }]);
+  });
+
+  it('matches a prefix at the start of the token only', () => {
+    expect(branchClaims(plan('## Slices', '', '- `mifeature/x`', '- `feature/y`'), ['feature']).map((c) => c.branch)).toEqual(['feature/y']);
+  });
+
+  it('reads a heading claim whatever the prefixes', () => {
+    const rows = branchClaims(plan('## Waves', '', '### One (Branch: other/x)'), ['bug']);
+    expect(rows).toEqual([{ branch: 'other/x', reference: null }]);
+  });
+});
+
+describe('parseBranchPrefixes', () => {
+  it('trims entries, drops the trailing slash and empty entries', () => {
+    expect(parseBranchPrefixes(' idea/, feature/ ,,bug')).toEqual(['idea', 'feature', 'bug']);
   });
 });

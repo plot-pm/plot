@@ -1254,6 +1254,11 @@ export const TicketLaneRowSchema = z.object({
   assignees: z.array(z.string()).default([]),
   /** How the source writes `assignees`; `null` where it could not be determined. */
   source: TicketSourceSchema.nullable().default(null),
+  /**
+   * What is true about the ticket, from the domain's `ticketCardFacts`. Absent
+   * where the board built no facts for it; the card then says so.
+   */
+  facts: CardFactsSchema.optional(),
 });
 export type TicketLaneRow = z.infer<typeof TicketLaneRowSchema>;
 

@@ -17,7 +17,7 @@ import {
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
 import { releasePr, releaseTag, type ReleasePrRow } from '@plot-pm/domain/rules/release-tag';
-import { branchClaims } from '@plot-pm/domain/rules/cross-repo-reference';
+import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { normalizeVersion } from '@plot-pm/domain/entities/version';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
@@ -778,9 +778,12 @@ export const runRelease = async (
   const deferredBranches = new Set(
     parsed.ok ? parsed.value.slices.flatMap((slice) => slice.branches).filter((b) => b.deferred).map((b) => b.branch) : [],
   );
+  const prefixRead = await ctx.scripts.config('Branch prefixes', '');
+  const configuredPrefixes = prefixRead.ok ? parseBranchPrefixes(prefixRead.value) : [];
+  const branchPrefixes = configuredPrefixes.length > 0 ? configuredPrefixes : DEFAULT_BRANCH_PREFIXES;
   const prRows: readonly ReleasePrRow[] =
     planText.ok && planText.value !== null
-      ? branchClaims(planText.value).map((claim) => ({
+      ? branchClaims(planText.value, branchPrefixes).map((claim) => ({
           reference: claim.reference,
           deferred: deferredBranches.has(claim.branch),
         }))

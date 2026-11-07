@@ -402,13 +402,13 @@ describe('waitingTickets, planned tickets', () => {
       row('1', { assignees: ['jwloka'], status: 'open' }),
       row('2', { assignees: ['jwloka'], status: 'open' }),
     ];
-    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'approved', total: 6, merged: 3 }] }));
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ slug: 'p', title: 'P', story: '', state: 'approved', total: 6, merged: 3 }] }));
     expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['1', 'open'], ['2', 'in progress 3/6']]);
   });
 
   it('keeps a planned ticket in the list rather than dropping it', () => {
     const rows = [row('7', { assignees: ['jwloka'], status: 'open' })];
-    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '7': [{ state: 'delivered', total: 1, merged: 1 }] }));
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '7': [{ slug: 'p', title: 'P', story: '', state: 'delivered', total: 1, merged: 1 }] }));
     expect(result.tickets).toHaveLength(1);
     expect(result.tickets[0].status).toBe('delivered');
   });
@@ -420,7 +420,7 @@ describe('waitingTickets, planned tickets', () => {
       row('plain-new', { assignees: ['jwloka'], createdAt: '2026-02-01T00:00:00.000Z' }),
       row('planned-old', { assignees: ['jwloka'], createdAt: '2026-01-15T00:00:00.000Z' }),
     ];
-    const planned = [{ state: 'draft', total: 0, merged: null }];
+    const planned = [{ slug: 'p', title: 'P', story: '', state: 'draft', total: 0, merged: null }];
     const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ 'planned-new': planned, 'planned-old': planned }));
     expect(result.tickets.map((t) => t.number)).toEqual(['plain-new', 'plain-old', 'planned-new', 'planned-old']);
   });
@@ -432,7 +432,7 @@ describe('waitingTickets, planned tickets', () => {
       row('JIRA-2', { assignees: ['jan.wloka@quatico.com'], status: 'To Do', createdAt: '2026-01-01T00:00:00.000Z' }),
     ];
     const inbox = [...rows];
-    const result = waitingTickets(rows, inbox, jiraReader, JIRA, true, plans({ 'JIRA-1': [{ state: 'approved', total: 2, merged: 1 }] }));
+    const result = waitingTickets(rows, inbox, jiraReader, JIRA, true, plans({ 'JIRA-1': [{ slug: 'p', title: 'P', story: '', state: 'approved', total: 2, merged: 1 }] }));
     expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['JIRA-2', 'To Do'], ['JIRA-1', 'In Progress']]);
   });
 
@@ -441,7 +441,7 @@ describe('waitingTickets, planned tickets', () => {
       row('1', { assignees: ['jwloka'], status: 'open' }),
       row('2', { assignees: ['jwloka'], status: 'closed' }),
     ];
-    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'released', total: 1, merged: 1 }] }));
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 }] }));
     expect(result.tickets.map((t) => t.number)).toEqual(['1']);
     expect(result.shown).toBe(1);
     expect(result.hidden).toBe(0);
@@ -455,7 +455,7 @@ describe('waitingTickets, planned tickets', () => {
       reader,
       GITHUB,
       true,
-      plans({ '3': [{ state: 'released', total: 1, merged: 1 }, { state: 'approved', total: 2, merged: 0 }] }),
+      plans({ '3': [{ slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 }, { slug: 'p', title: 'P', story: '', state: 'approved', total: 2, merged: 0 }] }),
     );
     expect(result.tickets).toHaveLength(1);
     expect(result.tickets[0].status).toBe('in progress 0/2');
@@ -468,7 +468,7 @@ describe('waitingTickets, planned tickets', () => {
       row('1', { assignees: ['jwloka'], status: 'open' }),
       row('2', { assignees: ['jwloka'], status: 'closed' }),
     ];
-    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'rejected', total: 1, merged: null }] }));
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ slug: 'p', title: 'P', story: '', state: 'rejected', total: 1, merged: null }] }));
     expect(result.tickets.map((t) => t.number)).toEqual(['1']);
     expect(result.shown).toBe(1);
     expect(result.hidden).toBe(0);
@@ -485,7 +485,7 @@ describe('waitingTickets, planned tickets', () => {
       reader,
       GITHUB,
       true,
-      plans({ '2': [{ state: 'superseded', total: 1, merged: null }, { state: 'released', total: 1, merged: 1 }] }),
+      plans({ '2': [{ slug: 'p', title: 'P', story: '', state: 'superseded', total: 1, merged: null }, { slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 }] }),
     );
     expect(result.tickets.map((t) => t.number)).toEqual(['1']);
     expect(result.shown).toBe(1);
@@ -506,8 +506,8 @@ describe('waitingTickets, planned tickets', () => {
       GITHUB,
       true,
       plans({
-        'theirs-released': [{ state: 'released', total: 1, merged: 1 }],
-        'theirs-rejected': [{ state: 'rejected', total: 1, merged: null }],
+        'theirs-released': [{ slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 }],
+        'theirs-rejected': [{ slug: 'p', title: 'P', story: '', state: 'rejected', total: 1, merged: null }],
       }),
     );
     expect(result.tickets.map((t) => t.number)).toEqual(['mine']);
@@ -564,8 +564,8 @@ describe('waitingTickets, planned tickets', () => {
       GITHUB,
       true,
       plans({
-        'theirs-released': [{ state: 'released', total: 1, merged: 1 }],
-        'unowned-released': [{ state: 'released', total: 1, merged: 1 }],
+        'theirs-released': [{ slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 }],
+        'unowned-released': [{ slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 }],
       }),
     );
     expect(result.hidden).toBe(0);
@@ -586,8 +586,8 @@ describe('waitingTickets, planned tickets', () => {
       GITHUB,
       true,
       plans({
-        'superseded-only': [{ state: 'superseded', total: 1, merged: null }],
-        approved: [{ state: 'approved', total: 2, merged: 1 }],
+        'superseded-only': [{ slug: 'p', title: 'P', story: '', state: 'superseded', total: 1, merged: null }],
+        approved: [{ slug: 'p', title: 'P', story: '', state: 'approved', total: 2, merged: 1 }],
       }),
     );
     expect(result.tickets.map((t) => t.number)).toEqual(['unplanned', 'approved']);
@@ -598,7 +598,7 @@ describe('waitingTickets, planned tickets', () => {
 
 describe('waitingTickets, host-login and tracker-account readers agree on planned-ness', () => {
   it('leaves a row named only by a rejected plan out of shown and hidden for both a host-login and a tracker-account reader', () => {
-    const rejectedOnly = plans({ shared: [{ state: 'rejected', total: 1, merged: null }] });
+    const rejectedOnly = plans({ shared: [{ slug: 'p', title: 'P', story: '', state: 'rejected', total: 1, merged: null }] });
 
     const hostReader: Reader = { hostUser: 'jwloka' };
     const hostRows = [row('shared', { assignees: ['jwloka'], status: 'open' })];
