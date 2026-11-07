@@ -85,7 +85,7 @@ One agent run of about 15 to 20 minutes (17.5 measured once). No cost to a plan 
 
 ### Trial
 
-- `feature/a-consistency-pass-trial` — the pass as a documented step, run by hand on the next plans before approval, with a record of each run's flags and what the build later confirmed or refuted. Writes nothing into the plan format.
+- `feature/a-consistency-pass-trial` — the pass as a documented step, run by hand on the next plans before approval, with a record of each run's flags and what the build later confirmed or refuted. Writes nothing into the plan format. → #3228
 
 ### Implementation
 
