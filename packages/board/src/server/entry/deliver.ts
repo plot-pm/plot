@@ -217,24 +217,44 @@ const resolveMain = async (repoRoot: string, scripts: Scripts): Promise<string> 
 };
 
 /**
- * The booking worktree `--branch` cuts from `origin/<target>` before the plan
- * is read, so the plan, the indexes and the sprint file are the branch's copy.
+ * Where a delivery's booking worktree goes, and the booking branch it holds.
+ *
+ * @returns `tmpwt`, absolute, under the configured `Worktree root`; and
+ *   `bookbr`, `plot/deliver-<slug>`.
+ */
+const bookingPlace = async (ctx: Context, slug: string): Promise<{ tmpwt: string; bookbr: string }> => {
+  const wtRootCfg = await ctx.scripts.config('Worktree root', '');
+  const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
+  return {
+    tmpwt: path.join(wtRoot, `.plot-deliver-${slug}.${process.pid}`),
+    bookbr: `plot/deliver-${slug}`,
+  };
+};
+
+/**
+ * The worktree `--branch` checks out detached at `origin/<target>` before the
+ * plan is read, so the plan, the indexes and the sprint file are the branch's
+ * copy. The booking branch is created in it only on the write path.
  */
 export interface BranchCopy {
   /** The branch the delivery is read from and pushed to. */
   target: string;
-  /** The booking worktree, absolute. */
+  /** The worktree, absolute. */
   tmpwt: string;
-  /** The booking branch checked out in `tmpwt`. */
+  /** The booking branch `runDeliver` creates in `tmpwt` before it writes. */
   bookbr: string;
   /** A plan store rooted at `tmpwt`. */
   planStore: PlanStore;
-  /** True once `runDeliver` owns the worktree's removal. */
+  /**
+   * False while `tmpwt` is detached and `run` removes it alone; true once
+   * `runDeliver` has created `bookbr` in it and owns its removal.
+   */
   handedOver: boolean;
 }
 
 /**
- * Fetches `origin/<target>` and cuts the booking worktree from it.
+ * Fetches `origin/<target>` and checks it out, detached, in a new worktree.
+ * No local branch is created or reset.
  *
  * @param ctx - the main repository and its ports.
  * @param target - the branch named by `--branch`.
@@ -255,13 +275,10 @@ const prepareBranchCopy = async (ctx: Context, target: string, slug: string): Pr
   if (fetched.code !== 0) {
     return `could not fetch origin/${target} — nothing was written.\n  Check the remote: git fetch origin ${target}`;
   }
-  const wtRootCfg = await ctx.scripts.config('Worktree root', '');
-  const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
-  const bookbr = `plot/deliver-${slug}`;
-  const tmpwt = path.join(wtRoot, `.plot-deliver-${slug}.${process.pid}`);
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${target}`);
+  const { tmpwt, bookbr } = await bookingPlace(ctx, slug);
+  const added = await ctx.trees.add(tmpwt, `origin/${target}`);
   if (!added.ok) {
-    return `could not prepare a booking worktree at ${tmpwt} from origin/${target}.\n  Most often '${bookbr}' is checked out in another worktree. Check: git worktree list\n  Nothing has been written; the plan is untouched.`;
+    return `could not check out origin/${target} in a worktree at ${tmpwt}.\n  Check: git worktree list\n  Nothing has been written; the plan is untouched.`;
   }
   return {
     target,
@@ -511,13 +528,13 @@ const runDeliver = async (
 
   await runGit(['-C', ctx.repoRoot, 'fetch', '-q', 'origin', main]);
 
-  const wtRootCfg = await ctx.scripts.config('Worktree root', '');
-  const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
-
-  const bookbr = copy?.bookbr ?? `plot/deliver-${args.slug}`;
-  const tmpwt = copy?.tmpwt ?? path.join(wtRoot, `.plot-deliver-${args.slug}.${process.pid}`);
-  if (copy !== null) copy.handedOver = true;
-  const added = copy !== null ? { ok: true } : await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const { tmpwt, bookbr } = copy ?? (await bookingPlace(ctx, args.slug));
+  // With `--branch`, the detached worktree becomes the booking worktree here:
+  // `bookbr` is created or reset at `origin/<target>`, as `addBranch` does on
+  // the default path.
+  const added =
+    copy !== null ? await ctx.trees.resetBranch(tmpwt, bookbr, `origin/${main}`) : await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  if (copy !== null && added.ok) copy.handedOver = true;
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }
@@ -728,7 +745,8 @@ export const run = async (
     const planFile = await findPlanFile(copy?.planStore ?? ctx.planStore, planDir, activeDir, deliveredDir, parsed.slug);
     if (planFile === '') {
       const where = copy !== null ? ` on origin/${copy.target}` : '';
-      warn(`plot-deliver: no plan found for '${parsed.slug}'${where} — looked in ${planDir}, ${activeDir}, ${deliveredDir}.\n  Check the slug: ls ${planDir} | grep -i '${parsed.slug}'\n`);
+      const list = copy !== null ? `git ls-tree --name-only origin/${copy.target} ${planDir}` : `ls ${planDir}`;
+      warn(`plot-deliver: no plan found for '${parsed.slug}'${where} — looked in ${planDir}, ${activeDir}, ${deliveredDir}.\n  Check the slug: ${list} | grep -i '${parsed.slug}'\n`);
       return 1;
     }
     if (parsed.releaseVersion !== '') {
@@ -742,7 +760,7 @@ export const run = async (
     }
     throw err;
   } finally {
-    if (copy !== null && !copy.handedOver) await ctx.trees.removeWithBranch(copy.tmpwt, copy.bookbr);
+    if (copy !== null && !copy.handedOver) await ctx.trees.removeOnly(copy.tmpwt);
   }
 };
 

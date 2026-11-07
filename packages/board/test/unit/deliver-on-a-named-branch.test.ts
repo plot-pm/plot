@@ -136,6 +136,21 @@ describe('plot-deliver --branch records the delivery on the named branch', () =>
     expect(git(repo, 'branch', '--list', 'plot/deliver-p').trim()).toBe('');
   }, 60_000);
 
+  it('keeps a booking branch left by a rejected push through a dry run and a refusal', async () => {
+    const { repo } = setup();
+    git(repo, 'branch', 'plot/deliver-p', 'main');
+    const kept = git(repo, 'rev-parse', 'plot/deliver-p').trim();
+
+    const dry = await deliver(repo, ['--dry-run', '--branch', BRANCH, 'p']);
+    expect(dry.code, dry.said).toBe(0);
+    const absent = await deliver(repo, ['--branch', BRANCH, 'no-such-plan']);
+    expect(absent.code, absent.said).toBe(1);
+    expect(absent.said).toContain(`git ls-tree --name-only origin/${BRANCH} docs/plans/`);
+
+    expect(git(repo, 'rev-parse', 'plot/deliver-p').trim()).toBe(kept);
+    expect(worktreesOf(repo)).toBe(1);
+  }, 60_000);
+
   it('refuses a branch origin does not hold, by name, before anything is written', async () => {
     const { repo, origin } = setup();
     const mainBefore = tipOf(origin, 'main');
