@@ -3,11 +3,17 @@ import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
 import { execFileSync } from 'node:child_process';
-import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import {
+  collectStoryCards, configFor, defaultBranchOf, readConfig, readConfigAsync, refsFor, scriptsFor,
+  type BuildBoardOptions,
+} from './board.js';
+import { jiraProjectsOf, repoIssuePrefixOf, STORY_SLUG_PATTERN, storyIsLive, type StoryIssueContext } from '@plot-pm/domain';
+import type { Known, Ref } from '@plot-pm/domain/entities/card-facts';
+import { ticketStoriesOf } from './story-facts.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { localCapability } from './controllers/caller.js';
-import { planMetasAtDefault } from './fleet.js';
+import { branchUrlBaseFor, planMetasAtDefault } from './fleet.js';
 
 /**
  * Turning an issue into a plan — the row's one action, and the board's FOURTH
@@ -120,7 +126,11 @@ export type IdeaRefusal =
   /** The issue could not be read. NOT the same as "it has no body". */
   | 'issue-unreadable'
   /** A plan already references this issue — the row is answered already. */
-  | 'already-planned';
+  | 'already-planned'
+  /** The stories that answer this issue could not be read from the default branch. */
+  | 'stories-unread'
+  /** Two or more live stories answer this issue; the request cannot say which gets the plan. */
+  | 'linked-from-many-stories';
 
 export interface IdeaOptions extends BuildBoardOptions {
   /** The interface the server bound to (`HOST`), verbatim. */
@@ -255,14 +265,17 @@ export function composeIdeaPrompt(input: {
   slug: string;
   type: string;
   truncated: boolean;
+  /** The live story the plan belongs to; absent creates the plan outside any story. */
+  story?: string;
 }): string {
-  const { issue, slug, type, truncated } = input;
+  const { issue, slug, type, truncated, story } = input;
   const parts: string[] = [];
 
   parts.push(
     `/plot-idea ${slug}: ${issue.title || `issue #${issue.number}`}`,
     '',
     `Type: ${type}`,
+    ...(story === undefined ? [] : [`Story: ${story}`]),
     '',
     'This plan comes from a tracker issue somebody decided was worth planning.',
     'The issue below is the problem statement — read it as the brain dump',
@@ -482,8 +495,48 @@ export const prepareIdeaTree = (opts: BuildBoardOptions, name: string): string =
   return ideaTree;
 };
 
-/** The two facts this route reads from outside itself, injectable for test. */
+/**
+ * The stories that answer one issue, read from `origin/<default>` at call time:
+ * the stories whose `issue:` names it and the stories named by a plan that
+ * references it, through the same index `Board.ticketStories` carries.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param number - the issue number.
+ * @returns the story refs; `unknown` where the default branch's stories or the
+ *   plans could not be read, or a story's `issue:` could not be decided.
+ */
+export const storiesOfIssue = async (
+  opts: BuildBoardOptions, number: number,
+): Promise<Known<readonly Ref[]>> => {
+  const refs = refsFor(opts);
+  const [storyDir, defaultBranch, tracker, ticketPrefixes, metas] = await Promise.all([
+    readConfigAsync(opts, 'Story directory', 'docs/stories/'),
+    defaultBranchOf(opts, refs),
+    configFor(opts).config('Tracker', ''),
+    readConfigAsync(opts, 'Ticket prefixes', ''),
+    planMetasAtDefault(opts),
+  ]);
+  if (metas === null) return { unknown: 'failed' };
+  const issueContext: StoryIssueContext = {
+    issuePrefix: repoIssuePrefixOf(branchUrlBaseFor(opts)),
+    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, ticketPrefixes) : [],
+  };
+  const ref = `origin/${defaultBranch}`;
+  const [live, archived] = await Promise.all([
+    collectStoryCards(opts.repoRoot, storyDir, metas, false, ref, refs),
+    collectStoryCards(opts.repoRoot, storyDir, metas, true, ref, refs),
+  ]);
+  const index = ticketStoriesOf(
+    [...live.stories, ...archived.stories], live.refRead && archived.refRead, metas, issueContext,
+  );
+  if ('unknown' in index) return index;
+  return { value: index.value[String(number)] ?? [] };
+};
+
+/** The facts this route reads from outside itself, injectable for test. */
 export interface IdeaDeps {
+  /** The stories that answer one issue, read from the default branch. */
+  stories?: (opts: BuildBoardOptions, number: number) => Promise<Known<readonly Ref[]>>;
   /** The configured `Idea command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** The host's account of one issue. */
@@ -523,6 +576,7 @@ export async function handleIdea(
   const readCfg = deps.config ?? readConfig;
   const readOne = deps.issue ?? readIssue;
   const readReferenced = deps.referenced ?? referencedIssues;
+  const readStories = deps.stories ?? storiesOfIssue;
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -611,6 +665,43 @@ export async function handleIdea(
     return;
   }
 
+  // THE STORIES, RE-DERIVED FROM THE DEFAULT BRANCH AT CLICK TIME. The request
+  // carries only the number, so the card the person saw cannot vouch for them:
+  // an index that could not be built refuses rather than reading as *no story*.
+  const stories = await readStories(opts, number);
+  if ('unknown' in stories) {
+    refuse(
+      409,
+      'stories-unread',
+      number,
+      `the stories that answer #${number} could not be read from the default branch — refusing rather than creating a plan that may belong in one`,
+    );
+    return;
+  }
+  const liveStories = stories.value.filter(
+    (r): r is Extract<Ref, { kind: 'story' }> => r.kind === 'story' && storyIsLive(r),
+  );
+  if (liveStories.length > 1) {
+    refuse(
+      409,
+      'linked-from-many-stories',
+      number,
+      `#${number} is linked from ${liveStories.length} stories (${liveStories.map((r) => r.slug).join(', ')}) — create the plan from the story that should hold it`,
+    );
+    return;
+  }
+  // A slug enters the prompt only when it has the shape of a story directory name.
+  const storySlug = liveStories[0]?.slug;
+  if (storySlug !== undefined && !STORY_SLUG_PATTERN.test(storySlug)) {
+    refuse(
+      409,
+      'stories-unread',
+      number,
+      `the story slug \`${storySlug.slice(0, 80)}\` is not a valid slug — refusing rather than putting it in a prompt`,
+    );
+    return;
+  }
+
   let issue: IssueDetail;
   try {
     issue = await readOne(opts, number);
@@ -637,6 +728,7 @@ export async function handleIdea(
     slug: slugFromTitle(issue.title, issue.number),
     type,
     truncated,
+    story: storySlug,
   });
 
   const promptPath = ideaPromptPath(opts.repoRoot, number);
@@ -735,5 +827,10 @@ export async function handleIdea(
     statePath,
   });
 
-  json(202, { ok: true, number, prompt: promptPath, log });
+  // Said in the answer: a done or archived story, or none, means the plan is
+  // created outside any story, and the person is told which.
+  const placed = storySlug !== undefined
+    ? { story: storySlug }
+    : { story: null, outsideStory: stories.value.length === 0 ? 'no-story' : 'story-closed' };
+  json(202, { ok: true, number, prompt: promptPath, log, ...placed });
 }
