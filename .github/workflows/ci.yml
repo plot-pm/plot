@@ -1681,6 +1681,12 @@ jobs:
       - name: Plan routes are built by the rule
         run: ./scripts/check-plan-routes.sh
 
+      # THE CARD GRAMMAR'S WORDS READ ONLY ITS FACTS. `card-presentation.ts`
+      # may import the `CardFacts` types and the board's UI helpers, nothing
+      # else, so the mapping cannot reach a reading and decide a fact.
+      - name: Card presentation reads only CardFacts
+        run: ./scripts/check-card-presentation.sh
+
       # A DESK MARKER IS NEVER COMMITTED. `PLOT-BLOCKED*` and
       # `PLOT-CORRECTION.md` speak to one person about one desk; on main, a
       # `PLOT-BLOCKED*` file makes every desk cut from main read as waiting on

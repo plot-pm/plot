@@ -16,6 +16,8 @@ import { implementAvailability } from '../implement.js';
 import { dropAvailability } from '../drop.js';
 import { storyAvailability } from '../story.js';
 import { boardState } from './fleet-state.js';
+import { columnsWithAvailability } from '../plan-facts.js';
+import { storiesWithAvailability } from '../story-facts.js';
 
 /**
  * The `/api/board` payload: the estate's board plus the facts only this server
@@ -64,21 +66,34 @@ export const boardAnswer = async (
   // `discoveryLanes` would also find no cache — `boardState`'s topics
   // (stories only, no tickets) stand in, same as its `tickets: null`.
   const ticketData = await ticketLaneData(opts);
+  const dispatch = dispatchAvailability(host);
+  const approve = approveAvailability(host);
+  const interrogate = await interrogateAvailability(host, opts);
+  const deliver = deliverAvailability(host);
+  const idea = ideaAvailability(host);
+  const stories = storiesWithAvailability(built.stories, idea);
+  const archivedStories = storiesWithAvailability(built.archivedStories, idea);
   return {
     ...built,
+    // Which card actions this server runs, from the same answers the capability
+    // fields below carry: a card's facts are built with no binding in scope.
+    columns: columnsWithAvailability(built.columns, { dispatch, approve, interrogate, deliver }),
+    // *Add plan* on a story needs what *Create plan* on a ticket needs.
+    stories,
+    archivedStories,
     // The fleet's own cache, not `built.planSource`: the ref and its age
     // come from the same read, but `boardState` has no reason to depend on
     // `fleet.ts`'s cache for a field it never otherwise needs.
     planRefAgeSeconds: planRefAgeSeconds(opts),
-    dispatch: dispatchAvailability(host),
+    dispatch,
     server: await serverInfo(opts, port),
-    approve: approveAvailability(host),
+    approve,
     continue: continueAvailability(host),
     restart: restartAvailability(host),
-    idea: ideaAvailability(host),
-    interrogate: await interrogateAvailability(host, opts),
+    idea,
+    interrogate,
     reslice: resliceAvailability(host),
-    deliver: deliverAvailability(host),
+    deliver,
     implement: implementAvailability(host),
     drop: dropAvailability(host),
     story: storyAvailability(host),
@@ -87,7 +102,7 @@ export const boardAnswer = async (
     // owns. Computed here rather than inside `boardState`: the cache
     // `ticketLaneData` reads lives in `fleet.ts`, and `boardState` has no
     // dependency on it today.
-    ...(await discoveryLanes(opts, built, archived, ticketData)),
+    ...(await discoveryLanes(opts, { stories, archivedStories }, archived, ticketData)),
     // Recomputed with tickets folded in, for the same reason `tickets`
     // itself is: `boardState`'s own `topics` (above, spread first) saw
     // stories alone. A topic found only in ticket titles — no story, no

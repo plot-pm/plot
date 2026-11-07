@@ -335,6 +335,16 @@ describe('story homes are counted from what the repo DECLARES', () => {
  * WHAT THE BRIEF TELLS THE SKILL — and, as loudly, what it does NOT.
  */
 describe('the brief hands over facts and withholds opinions', () => {
+  it('tells the story to name its ticket in issue:, by its URL', () => {
+    const prompt = composeStoryPrompt({ issue: ISSUE, home: 'docs/stories/', truncated: false });
+    assert.ok(prompt.includes(`issue: ${ISSUE.url}`), 'the brief must ask for the issue: frontmatter line');
+  });
+
+  it('names the ticket by #<n> where the host gave no URL', () => {
+    const prompt = composeStoryPrompt({ issue: { ...ISSUE, url: '' }, home: 'docs/stories/', truncated: false });
+    assert.ok(prompt.includes(`issue: #${ISSUE.number}`));
+  });
+
   it('states the home, so the skill takes its own single-home escape', () => {
     const prompt = composeStoryPrompt({
       issue: ISSUE, home: 'docs/stories/', truncated: false,

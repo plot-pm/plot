@@ -52,7 +52,7 @@ describe('story overlay: opening a story from the board', () => {
   async function openNettingPlan(page: Page) {
     await page
       .locator('article', { hasText: 'Net the strawberry bed' })
-      .getByRole('link', { name: 'Open' })
+      .locator('[data-card-title]')
       .click();
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5_000 });
@@ -89,7 +89,7 @@ describe('story overlay: opening a story from the board', () => {
       // keeps its title and status, which are true regardless.
       await page
         .locator('article', { hasText: 'Install drip-irrigation timers' })
-        .getByRole('link', { name: 'Open' })
+        .locator('[data-card-title]')
         .click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
@@ -121,7 +121,7 @@ describe('story overlay: opening a story from the board', () => {
     try {
       await page
         .locator('article', { hasText: 'Start a pumpkin patch' })
-        .getByRole('link', { name: 'Open' })
+        .locator('[data-card-title]')
         .click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });

@@ -3,6 +3,7 @@ import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
+import { withFacts } from '../fixtures/card-facts.js';
 
 /**
  * WHERE A WAVE ROW IS HIDDEN, ITS CONTROL IS NOT — the half a rendered page
@@ -78,9 +79,9 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 
 /** An Approved card for a plan, matched to a fleet row by `path` basename. */
 function approvedCard(slug: string, file: string) {
-  return {
+  return withFacts({
     slug, title: slug, type: 'feature', phase: 'Approved', path: file, prs: [], controls: { approve: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: true },
-  };
+  });
 }
 
 /**
