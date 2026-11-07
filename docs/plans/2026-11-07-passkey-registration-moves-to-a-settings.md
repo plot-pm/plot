@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3215 merged
+- **Started:** 2026-11-07, Jan Wloka, `feature/passkey-registration-reads-the-attestation-object`
 
 ## Changelog
 
