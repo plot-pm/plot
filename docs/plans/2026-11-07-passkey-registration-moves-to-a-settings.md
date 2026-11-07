@@ -53,7 +53,7 @@ On 2026-11-07 the operator's first registration failed with "The authenticator r
 ### Foundations
 
 - `feature/passkey-registration-reads-the-attestation-object` — decode `attestationObject` when `getPublicKey()` returns null <!-- builds: decodeAttestationPublicKey, a CBOR authData reader --> → #3227
-- `feature/the-board-has-a-settings-view` — gear icon, registration state, Register and Replace, no-passkey marker <!-- builds: SettingsView, the board's settings surface -->
+- `feature/the-board-has-a-settings-view` — gear icon, registration state, Register and Replace, no-passkey marker <!-- builds: SettingsView, the board's settings surface --> → #3229
 
 ### Release approval
 
