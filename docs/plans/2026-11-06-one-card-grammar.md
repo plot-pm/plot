@@ -696,7 +696,7 @@ and admits `http(s)` link schemes only.
 
 ### Stories
 
-- `feature/one-card-grammar-stories` — the story's `issue:` field and its validator (`jira:` read as legacy, the story-tracking template and `/api/story`'s brief writing it, `Tracker: jira` project keys), the ticket → story index from `origin/<default>`, `storyCardFacts`, `POST /api/story-plan` for *Add plan*, the `StoryModal` link fix, and the Stories lanes rendering through `<Card>` <!-- builds: storyCardFacts projection, the story issue field and the story-plan endpoint -->
+- `feature/one-card-grammar-stories` — the story's `issue:` field and its validator (`jira:` read as legacy, the story-tracking template and `/api/story`'s brief writing it, `Tracker: jira` project keys), the ticket → story index from `origin/<default>`, `storyCardFacts`, `POST /api/story-plan` for *Add plan*, the `StoryModal` link fix, and the Stories lanes rendering through `<Card>` → #3216 <!-- builds: storyCardFacts projection, the story issue field and the story-plan endpoint -->
 
 ### Tickets
 
