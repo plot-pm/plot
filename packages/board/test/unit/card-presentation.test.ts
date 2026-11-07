@@ -490,8 +490,9 @@ describe('createPlanRefusal: the menu follows the ticket\'s facts', () => {
     expect(createPlanRefusal(ticket({ plans: planned }))).toBe('a plan already answers this ticket');
   });
 
-  it.each(['done', 'hidden'] as const)('refuses it in the %s lane', (lane) => {
+  it.each(['done', 'hidden'] as const)('refuses it in the %s lane, with or without a plan', (lane) => {
     expect(createPlanRefusal(ticket({ lane }))).toBe('the ticket is done');
+    expect(createPlanRefusal(ticket({ lane, plans: planned }))).toBe('the ticket is done');
   });
 
   it('words the facts\' own refusal', () => {
