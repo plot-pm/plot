@@ -1352,6 +1352,57 @@ describe('run — a failed tick must not end the daemon', () => {
     }
   });
 
+  it('probes the App keys once at start, across two passes', async () => {
+    const dir = sandbox();
+    try {
+      let sleeps = 0;
+      const probed: string[] = [];
+      await run(
+        [],
+        dir,
+        () => {},
+        async () => { sleeps += 1; },
+        () => sleeps >= 2,
+        () => {},
+        dir,
+        { probeAppKeys: (_root, _scripts, write) => { probed.push('probe'); write('App key line'); } },
+      );
+      expect(sleeps).toBe(2);
+      expect(probed).toEqual(['probe']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes the probe line on warn, prefixed', async () => {
+    const dir = sandbox();
+    try {
+      const warnings: string[] = [];
+      await run(['--once'], dir, () => {}, async () => {}, () => false, (s) => warnings.push(s), dir, {
+        probeAppKeys: (_root, _scripts, write) => write("App key 'Merger app' is not usable: x"),
+      });
+      expect(warnings).toContain("plot-fleetd: App key 'Merger app' is not usable: x\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a probe that throws does not stop the loop', async () => {
+    const dir = sandbox();
+    try {
+      let sleeps = 0;
+      const warnings: string[] = [];
+      const code = await run([], dir, () => {}, async () => { sleeps += 1; }, () => sleeps >= 2, (s) => warnings.push(s), dir, {
+        probeAppKeys: () => { throw new Error('probe broke'); },
+      });
+      expect(code).toBe(0);
+      expect(sleeps).toBe(2);
+      expect(warnings.some((w) => w.includes('the App key probe failed — probe broke'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('writes nothing to stdout that is not a report', async () => {
     const dir = sandbox();
     try {
