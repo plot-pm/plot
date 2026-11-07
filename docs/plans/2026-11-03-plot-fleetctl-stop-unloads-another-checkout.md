@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** card-alignment
 - **Issue:** #3060
@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-03, Jan Wloka, plan-PR #3094 merged
 - **Started:** 2026-11-03, Jan Wloka, `bug/plot-fleetctl-stop-unloads-another-checkout`
 - **Delivered:** 2026-11-04
+- **Released:** 2026-11-07, v2.31.0
 
 ## Changelog
 
