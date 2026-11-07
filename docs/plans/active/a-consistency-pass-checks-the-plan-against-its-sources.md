@@ -1,0 +1,1 @@
+../2026-11-07-a-consistency-pass-checks-the-plan-against-its-sources.md
