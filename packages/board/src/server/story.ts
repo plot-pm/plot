@@ -260,6 +260,10 @@ export function composeStoryPrompt(input: {
     '   shape your own instructions give for an unattended run and name the',
     '   question you skipped with a `PLOT-UNASKED` line, so the log says what',
     '   went undecided rather than leaving it to be inferred from the result.',
+    // The story names its ticket, so the board links the two and the ticket
+    // stops offering *Create story*.
+    `4. **The story names this ticket.** Write \`issue: ${issue.url || `#${issue.number}`}\` in the`,
+    "   story's frontmatter.",
     '',
     'Write nothing to the tracker: no comment, no label, no state change. The',
     "story's own reference to the ticket is the only link, and it points one way.",

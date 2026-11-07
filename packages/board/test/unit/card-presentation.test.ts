@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { cardControls, planCardFacts, type PlanCardFactsReadings } from '@plot-pm/domain';
+import {
+  cardControls, planCardFacts, storyCardFacts, withActionAvailability,
+  type PlanCardFactsReadings, type StoryCardFactsReadings, type StoryPlanCardReading,
+} from '@plot-pm/domain';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import {
-  presentCard, presentDetails, reasonWords, relativeAge, type CardSections, type Part, type Piece,
+  presentCard, presentDetails, reasonWords, relativeAge, workBar, type CardSections, type Part, type Piece,
 } from '../../src/app/lib/card-presentation.js';
 
 const NOW = Date.parse('2026-11-06T12:00:00');
@@ -352,5 +355,115 @@ describe('presentCard: what each item links to', () => {
       prRef: { kind: 'slice', plan: 'x', branch: 'feature/a', pr: 3209 },
       branchRef: { kind: 'slice', plan: 'x', branch: 'feature/a', pr: null },
     });
+  });
+});
+
+describe('workBar: the progress bar for any count', () => {
+  it('draws one segment per unit up to 24, filled for each done', () => {
+    expect(workBar(3, 6)).toEqual({ kind: 'segments', count: 6, filled: 3 });
+    expect(workBar(24, 24)).toEqual({ kind: 'segments', count: 24, filled: 24 });
+  });
+
+  it('draws one continuous track past 24 units, filled to the share done', () => {
+    expect(workBar(12, 30)).toEqual({ kind: 'fill', percent: 40 });
+    expect(workBar(30, 30)).toEqual({ kind: 'fill', percent: 100 });
+    expect(workBar(0, 62)).toEqual({ kind: 'fill', percent: 0 });
+  });
+
+  it('fills nothing for an unknown count and never past the total', () => {
+    expect(workBar(null, 30)).toEqual({ kind: 'fill', percent: 0 });
+    expect(workBar(null, 4)).toEqual({ kind: 'segments', count: 4, filled: 0 });
+    expect(workBar(9, 4)).toEqual({ kind: 'segments', count: 4, filled: 4 });
+  });
+
+  it('carries the bar on a plan card with 30 slices', () => {
+    const s = sections({ slices: { total: 30, complete: 12, eligible: 0, waitsOn: [] } });
+    expect(s.status.work).toMatchObject({ piece: { text: '12/30 slices' }, bar: { kind: 'fill', percent: 40 } });
+  });
+});
+
+const story = (over: Partial<StoryCardFactsReadings> = {}): StoryCardFactsReadings => ({
+  slug: 'nothing-runs',
+  title: 'Nothing changed, nothing runs',
+  path: 'docs/stories/nothing-runs/STORY-nothing-runs.md',
+  status: 'draft',
+  archived: false,
+  author: 'jwloka',
+  created: '2026-11-01',
+  updated: '2026-11-05',
+  objective: '',
+  issue: { kind: 'none' },
+  plans: { value: [] },
+  sprints: { value: [] },
+  ...over,
+});
+const storySections = (over: Partial<StoryCardFactsReadings> = {}): CardSections =>
+  presentCard(storyCardFacts(story(over)), 'stories', { now: NOW });
+const storyPlan = (i: number, over: Partial<StoryPlanCardReading> = {}): StoryPlanCardReading => ({
+  slug: `p${i}`, key: null, title: `Plan ${i}`, status: 'approved', state: 'approved', sprint: '', ...over,
+});
+
+describe('presentCard: a story card', () => {
+  it('leads with the story icon and its ticket number, which links the ticket', () => {
+    const s = storySections({ issue: { kind: 'key', key: '3170' } });
+    expect(s.header.kind).toEqual({ kind: 'story', label: 'Story', hue: 'violet' });
+    expect(s.header.number).toBe('#3170');
+    expect(s.header.numberRef).toEqual({ kind: 'ticket', key: '3170', title: '3170', lane: null });
+    // The number in the title is the ticket; the meta line does not repeat it.
+    expect(related(s)).toEqual([]);
+  });
+
+  it('opens its status with the written status and emphasises the status panel', () => {
+    const s = storySections({ status: 'active' });
+    expect(s.status.state).toMatchObject({ text: 'Active', data: { state: 'active' } });
+    expect(s.emphasis).toBe('status');
+  });
+
+  it('labels a status behind its plans, never a bare sign', () => {
+    const s = storySections({ plans: { value: [storyPlan(1, { state: 'delivered' })] } });
+    const alert = s.header.meta.find((p) => p.kind === 'piece' && p.piece.data.alert === 'status-behind');
+    expect(alert?.kind === 'piece' && alert.piece.text).toBe('status behind: plans delivered');
+    expect(alert?.kind === 'piece' && alert.piece.tone).toBe('warn');
+  });
+
+  it('labels an unreadable issue link and keeps the value in its detail', () => {
+    const s = storySections({ issue: { kind: 'unreadable', value: 'https://github.com/x/y/issues/1' } });
+    const alert = s.header.meta.find((p) => p.kind === 'piece' && p.piece.data.alert === 'issue-link-unreadable');
+    expect(alert?.kind === 'piece' && alert.piece.text).toBe('issue link unreadable');
+    expect(alert?.kind === 'piece' && alert.piece.detail).toContain('https://github.com/x/y/issues/1');
+  });
+
+  it('collapses 62 plans and 9 sprints to one count each, so the card keeps its height', () => {
+    const plans = Array.from({ length: 62 }, (_, i) => storyPlan(i, { sprint: `s${i % 9}`, state: i < 60 ? 'delivered' : 'approved' }));
+    const s = storySections({ plans: { value: plans } });
+    const lists = s.header.meta.filter((p) => p.kind === 'list');
+    expect(lists.map((p) => p.kind === 'list' && [p.id, p.summary.text, p.items.length])).toEqual([
+      ['lineage-plans', '62 plans', 62],
+      ['lineage-sprints', '9 sprints', 9],
+    ]);
+    expect(s.header.meta.filter((p) => p.kind === 'piece' && 'lineage' in p.piece.data)).toEqual([]);
+    expect(s.status.work).toMatchObject({ piece: { text: '60/62 plans' }, bar: { kind: 'fill' } });
+  });
+
+  it('shows plans unknown, and no count, where the plans were not read', () => {
+    const s = storySections({ plans: { unknown: 'failed' } });
+    expect(words(s.header.meta)).toContain('plans unknown');
+    expect(s.status.work).toBeNull();
+  });
+
+  it('offers Add plan as the primary on a live story with no plans, with its board reason when refused', () => {
+    expect(storySections().footer.primary).toEqual({ action: 'add-plan', label: 'Add plan', enabled: true, reason: null });
+    const refused = presentCard(
+      withActionAvailability(storyCardFacts(story()), { 'add-plan': false }),
+      'stories',
+      { unavailable: { 'add-plan': 'creating a plan needs the board on localhost' } },
+    );
+    expect(refused.footer.primary).toMatchObject({ enabled: false, reason: 'creating a plan needs the board on localhost' });
+  });
+
+  it('assigns the author and dates the card by its update', () => {
+    const s = storySections();
+    expect(s.footer.assignees).toMatchObject({ kind: 'named', initials: 'JW', label: '@jwloka', detail: 'Assigned: @jwloka' });
+    expect(s.footer.age).toMatchObject({ text: 'yesterday', detail: 'updated 2026-11-05' });
   });
 });

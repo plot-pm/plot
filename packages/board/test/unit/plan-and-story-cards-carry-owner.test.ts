@@ -7,6 +7,7 @@ import { CardSchema, StoryCardSchema } from '../../src/contract/schema.js';
 import { controlsFor } from '../fixtures/card-controls.js';
 import { planFactsOf } from '../../src/server/plan-facts.js';
 import { rmTree } from '../helpers.mjs';
+import type { StoryFactsContext } from '../../src/server/story-facts.js';
 
 const trackedTempPaths: string[] = [];
 afterAll(() => {
@@ -24,24 +25,27 @@ const storiesIn = async (frontmatter: string[], directory: Record<string, string
   const rel = 'docs/stories/s/STORY-s.md';
   fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
   fs.writeFileSync(path.join(root, rel), storyFile(frontmatter), 'utf8');
-  return collectStories(root, 'docs/stories', [], undefined, undefined, directory);
+  const context: StoryFactsContext = {
+    issueContext: { issuePrefix: null, jiraProjects: [] }, plans: new Map(), sprints: [], directory,
+  };
+  return collectStories(root, 'docs/stories', [], undefined, undefined, context);
 };
 
-describe('a story card carries its owner from storyCardView', () => {
+describe("a story card's assignee is its author, through storyCardFacts", () => {
   it('resolves the frontmatter author through People', async () => {
     const [card] = await storiesIn(['author: Jan Wloka'], { 'jan wloka': 'jwloka' });
-    expect(card.owner).toBe('jwloka');
+    expect(card.facts?.ownership.assignees).toEqual({ value: ['jwloka'] });
   });
 
   it('shows an author undeclared in People as written', async () => {
     const [card] = await storiesIn(['author: Somebody'], {});
-    expect(card.owner).toBe('somebody');
+    expect(card.facts?.ownership.assignees).toEqual({ value: ['somebody'] });
   });
 
-  it('carries no owner for a story with no author, never an empty name', async () => {
+  it('reads a story with no author as unassigned, never an empty name', async () => {
     const [card] = await storiesIn([], { 'jan wloka': 'jwloka' });
     expect(card.author).toBe('');
-    expect(card.owner).toBeNull();
+    expect(card.facts?.ownership.assignees).toEqual({ value: [] });
   });
 });
 
@@ -56,7 +60,7 @@ describe('an absent owner reads as null', () => {
     expect(facts.ownership.assignees).toEqual({ value: [] });
   });
 
-  it('defaults a story card with no owner to null', () => {
-    expect(StoryCardSchema.shape.owner.parse(undefined)).toBeNull();
+  it('carries no facts on a story card the board built none for', () => {
+    expect(StoryCardSchema.shape.facts.parse(undefined)).toBeUndefined();
   });
 });

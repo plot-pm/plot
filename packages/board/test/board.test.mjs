@@ -226,23 +226,21 @@ describe('board: contract fields + frontmatter visibility', () => {
     // `path` is repo-relative and carried rather than reconstructed: the slug is
     // both a directory name and part of the filename, so rebuilding it client
     // side would encode that convention twice.
-    assert.deepEqual(board.stories[0], {
+    const { facts, ...fields } = board.stories[0];
+    assert.deepEqual(fields, {
       slug: 'kanban-board',
       title: 'Kanban board',
       status: 'active',
-      // New fields from the Stories tab schema — populated from story file
-      // parsing and plan matching.
-      statusDrift: null,
+      declaredStatus: 'active',
+      issue: '',
+      // The fixture's story lives only in the working tree, not on a ref.
+      committed: false,
+      archived: false,
       author: '',
-      // The fixture's story names no author, so it has no owner.
-      owner: null,
       created: '',
       updated: '',
       objective: '',
       design: '',
-      // The fixture has a plan referencing this story
-      planCount: 1,
-      deliveredCount: 0,
       plans: [{ slug: 'board-sync', title: 'Sync board columns', phase: 'approved', sprint: 'alpha-week' }],
       sprints: [{ slug: 'alpha-week', planCount: 1 }],
       path: 'docs/stories/kanban-board/STORY-kanban-board.md',
@@ -250,6 +248,11 @@ describe('board: contract fields + frontmatter visibility', () => {
       hasOpenPoints: false,
       hasSessionLog: false,
     });
+    // The card facts: a live story with one plan, assigned to nobody.
+    assert.equal(facts.identity.kind, 'story');
+    assert.deepEqual(facts.progress.state, { value: { kind: 'story', status: 'active' } });
+    assert.deepEqual(facts.progress.work, { unit: 'plans', done: { value: 0 }, total: 1 });
+    assert.deepEqual(facts.ownership.assignees, { value: [] });
   });
 });
 

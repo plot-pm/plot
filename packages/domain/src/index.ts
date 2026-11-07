@@ -73,7 +73,8 @@ export * from './rules/ticket-lanes.js';
 export * from './rules/ticket-phase.js';
 export * from './rules/ticket-card.js';
 export * from './rules/plan-card-facts.js';
-export * from './rules/story-card.js';
+export * from './rules/story-card-facts.js';
+export * from './rules/story-issue.js';
 export * from './rules/lanes-for-topic.js';
 export * from './rules/lanes-for-reader.js';
 export * from './rules/chip-row.js';
@@ -310,6 +311,7 @@ export {
   storyArchivable,
   derivedStanding,
   statusDrift,
+  statusBehind,
   STORY_LIFECYCLE,
   isDecision as isStoryDecision,
   isRefusal as isStoryRefusal,

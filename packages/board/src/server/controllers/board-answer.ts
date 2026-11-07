@@ -17,6 +17,7 @@ import { dropAvailability } from '../drop.js';
 import { storyAvailability } from '../story.js';
 import { boardState } from './fleet-state.js';
 import { columnsWithAvailability } from '../plan-facts.js';
+import { storiesWithAvailability } from '../story-facts.js';
 
 /**
  * The `/api/board` payload: the estate's board plus the facts only this server
@@ -69,11 +70,17 @@ export const boardAnswer = async (
   const approve = approveAvailability(host);
   const interrogate = await interrogateAvailability(host, opts);
   const deliver = deliverAvailability(host);
+  const idea = ideaAvailability(host);
+  const stories = storiesWithAvailability(built.stories, idea);
+  const archivedStories = storiesWithAvailability(built.archivedStories, idea);
   return {
     ...built,
     // Which card actions this server runs, from the same answers the capability
     // fields below carry: a card's facts are built with no binding in scope.
     columns: columnsWithAvailability(built.columns, { dispatch, approve, interrogate, deliver }),
+    // *Add plan* on a story needs what *Create plan* on a ticket needs.
+    stories,
+    archivedStories,
     // The fleet's own cache, not `built.planSource`: the ref and its age
     // come from the same read, but `boardState` has no reason to depend on
     // `fleet.ts`'s cache for a field it never otherwise needs.
@@ -83,7 +90,7 @@ export const boardAnswer = async (
     approve,
     continue: continueAvailability(host),
     restart: restartAvailability(host),
-    idea: ideaAvailability(host),
+    idea,
     interrogate,
     reslice: resliceAvailability(host),
     deliver,
@@ -95,7 +102,7 @@ export const boardAnswer = async (
     // owns. Computed here rather than inside `boardState`: the cache
     // `ticketLaneData` reads lives in `fleet.ts`, and `boardState` has no
     // dependency on it today.
-    ...(await discoveryLanes(opts, built, archived, ticketData)),
+    ...(await discoveryLanes(opts, { stories, archivedStories }, archived, ticketData)),
     // Recomputed with tickets folded in, for the same reason `tickets`
     // itself is: `boardState`'s own `topics` (above, spread first) saw
     // stories alone. A topic found only in ticket titles — no story, no

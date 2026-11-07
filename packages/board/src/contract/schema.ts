@@ -20,7 +20,7 @@ import {
   type SprintState,
 } from '@plot-pm/domain';
 import { AgentStateSchema, AgentIdentitySchema, type AgentState, type AgentIdentity } from '@plot-pm/fleet/shared/agent-wire';
-import { CardFactsSchema } from '@plot-pm/domain/entities/card-facts';
+import { CardFactsSchema, knownSchema, RefSchema } from '@plot-pm/domain/entities/card-facts';
 
 /**
  * The contract between Plot's plan-format helper (`plot-plan-meta.sh`) and the
@@ -974,31 +974,32 @@ export const StoryCardSchema = z.object({
    * Story status from frontmatter: draft, active, done, or archived.
    *
    * Unlike plan phases, story statuses are manually maintained by authors.
-   * A story in "active" status may have all plans released — the `statusDrift`
-   * field warns about such conflicts.
+   * Holds the standing its plans prove (`derivedStanding`); `declaredStatus`
+   * holds what the file writes.
    *
    * Typed as string rather than enum so the existing `collectStories` function
    * continues to work — the Backend slice (`feature/story-file-parsing`) will
    * add validation. Renderers should treat unknown values as 'draft'.
    */
   status: z.string(),
+  /** The `status:` the story file writes, verbatim; `''` where absent and `UNKNOWN` where the domain does not admit it. */
+  declaredStatus: z.string().default(''),
   /**
-   * Warning message when the story's manual `status:` field conflicts with its
-   * plan states — e.g., story says `active` but all plans are Released.
-   *
-   * null means no drift detected. The card displays this as a warning badge.
-   * The author corrects manually; the board reports drift but does not
-   * auto-derive status.
+   * The story's `issue:` value, else its legacy `jira:` value, as written; `''`
+   * where it names none. The domain's `storyIssueLink` decides what it names.
    */
-  statusDrift: z.string().nullable().optional().default(null),
+  issue: z.string().default(''),
+  /** Whether the story file was read from `origin/<default>`; a working-tree-only story is `false`. */
+  committed: z.boolean().default(false),
+  /** Whether the story lives in the archived directory. */
+  archived: z.boolean().default(false),
+  /**
+   * What is true about the story, from the domain's `storyCardFacts`. Absent
+   * where the board built no facts for it; the card then says so.
+   */
+  facts: CardFactsSchema.optional(),
   /** Story author from frontmatter. */
   author: z.string().optional().default(''),
-  /**
-   * The author's handle, from the domain's `storyCardView` and resolved
-   * through `People`. `null` where the story names no author; a story has no
-   * type, so no type field accompanies it.
-   */
-  owner: z.string().nullable().default(null),
   /** ISO date when the story was created. */
   created: z.string().optional().default(''),
   /** ISO date when the story was last updated. */
@@ -1013,10 +1014,6 @@ export const StoryCardSchema = z.object({
    * expandable for full context.
    */
   design: z.string().optional().default(''),
-  /** Total count of plans referencing this story via `Story:` field. */
-  planCount: z.number().optional().default(0),
-  /** Count of plans in Released phase. */
-  deliveredCount: z.number().optional().default(0),
   /**
    * Plans referencing this story, with phase badges for the expandable list.
    * Defaults to empty so a story with no plans still renders normally.
@@ -1557,6 +1554,14 @@ export const BoardSchema = z.object({
   issueAbsence: z.string().nullable().optional(),
   /** The Discovery tab's story lanes (Draft/Active/Done/Archived). `.default([])` for an older server. */
   storyLanes: z.array(StoryLaneGroupSchema).default([]),
+  /**
+   * Which committed stories answer each ticket, by issue key: the stories whose
+   * `issue:` names it and the stories a plan answering it names in `Story:`
+   * (the domain's `ticketStoryIndex`). `unknown` where the default branch's
+   * stories could not be read, and from a server that sends none — never an
+   * empty index.
+   */
+  ticketStories: knownSchema(z.record(z.string(), z.array(RefSchema))).default({ unknown: 'unasked' }),
   /**
    * The board's own spawn contract against the gate's, read at start —
    * `spawnerStatus` in `@plot-pm/domain` turns this into `current`/`stale`/
