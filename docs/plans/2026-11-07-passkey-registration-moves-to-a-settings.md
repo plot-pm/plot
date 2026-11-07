@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
+- **Sprint:** card-alignment
 - **Issue:** #3214
 - **Review:** pr
 - **Impl:** own branches
