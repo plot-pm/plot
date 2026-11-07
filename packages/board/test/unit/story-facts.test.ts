@@ -97,6 +97,11 @@ describe('the ticket → story index', () => {
     expect(ticketStoriesOf([card({ issue: '#1' })], false, [], context().issueContext)).toEqual({ unknown: 'failed' });
   });
 
+  it("is unknown while a committed story's link waits on the repository's address", () => {
+    const index = ticketStoriesOf([card({ issue: '#3170' })], true, [], { issuePrefix: null, jiraProjects: [] });
+    expect(index).toEqual({ unknown: 'unasked' });
+  });
+
   it('indexes no story whose issue: is unreadable', () => {
     const index = ticketStoriesOf([card({ issue: 'https://github.com/x/y/issues/1' })], true, [], context().issueContext);
     expect(index).toEqual({ value: {} });

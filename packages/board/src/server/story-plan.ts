@@ -220,6 +220,15 @@ export const handleStoryPlan = async (
     json(500, { error: `cannot write ${promptPath}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }
+  // The worktree first: a failure here leaves the last run's log and state as they were.
+  let tree: string;
+  try {
+    tree = makeTree(opts, `plot-idea-story-${slug}`);
+  } catch (err) {
+    // A refusal, never a run in the board's own checkout.
+    json(500, { error: `cannot make a worktree for the idea: ${err instanceof Error ? err.message : String(err)}` });
+    return;
+  }
   const log = storyPlanLogPath(opts.repoRoot, slug);
   const statePath = storyPlanStatePath(opts.repoRoot, slug);
   try {
@@ -230,18 +239,11 @@ export const handleStoryPlan = async (
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }
-
-  let tree: string;
-  try {
-    tree = makeTree(opts, `plot-idea-story-${slug}`);
-  } catch (err) {
-    // A refusal, never a run in the board's own checkout.
-    json(500, { error: `cannot make a worktree for the idea: ${err instanceof Error ? err.message : String(err)}` });
-    return;
-  }
   try {
     markBoardRun(statePath, log);
   } catch (err) {
+    // A log with no state file reads as running; with no run behind it, the log goes.
+    fs.rmSync(log, { force: true });
     json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }

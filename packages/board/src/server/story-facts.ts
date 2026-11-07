@@ -16,6 +16,7 @@ import {
 } from '@plot-pm/domain';
 import type { CardFacts, Known, Ref } from '@plot-pm/domain/entities/card-facts';
 import type { DispatchInfo, PlanMeta, SprintCard, StoryCard, StoryCardInput } from '../contract/schema.js';
+import { planSlug } from './board.js';
 
 /** What a story's facts read beyond the story's own fields. */
 export interface StoryFactsContext {
@@ -29,10 +30,6 @@ export interface StoryFactsContext {
   directory: PersonDirectory;
 }
 
-/** A plan file's slug: its basename without the date prefix and `.md`. */
-const slugOfFile = (file: string): string =>
-  (file.split('/').pop() ?? file).replace(/\.md$/, '').replace(/^\d{4}-\d{2}-\d{2}-/, '');
-
 /** A sprint card as the domain's sprint reading. */
 const sprintReading = (sprint: SprintCard): PlanSprintReading => {
   const state = SprintStateSchema.safeParse(sprint.phase);
@@ -42,7 +39,7 @@ const sprintReading = (sprint: SprintCard): PlanSprintReading => {
 
 /** A plan naming the story, read for the story's card. */
 const planReading = (meta: PlanMeta, context: StoryFactsContext): StoryPlanCardReading => {
-  const slug = slugOfFile(meta.file);
+  const slug = planSlug(meta.file);
   const card = context.plans.get(slug);
   const fallback = PlanStatusSchema.safeParse(meta.phase);
   return {
@@ -86,7 +83,8 @@ export const storyFactsOf = (
 /**
  * The ticket → story index the board carries: built only from stories
  * committed on the default branch, and `unknown` where that ref could not be
- * read.
+ * read or a committed story's `issue:` needs the repository's address the
+ * board has not read yet.
  *
  * @param stories - every story the board collected, archived included.
  * @param refRead - whether the default branch's stories were read.
@@ -108,6 +106,9 @@ export const ticketStoriesOf = (
       issue: storyIssueLink(s.issue, issueContext),
     };
   });
+  // A link the board could not decide would be missing from the index, and a
+  // missing entry reads as *no story*: the whole index is then unknown.
+  if (committed.some((s) => s.issue.kind === 'unknown')) return { unknown: 'unasked' };
   const indexed: IndexedPlan[] = plans.map((p) => ({ issues: p.issues.map(String), story: p.story }));
   return { value: Object.fromEntries(ticketStoryIndex(committed, indexed)) };
 };

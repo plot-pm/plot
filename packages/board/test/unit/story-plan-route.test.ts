@@ -15,6 +15,7 @@ import {
   handleStoryPlan,
   storyPlanLogPath,
   storyPlanPromptPath,
+  storyPlanStatus,
   type StoryPlanDeps,
 } from '../../src/server/story-plan.js';
 import { rmTree } from '../helpers.mjs';
@@ -76,6 +77,7 @@ const post = async (opts: {
   story?: CommittedStory | null | 'unread';
   unattended?: boolean;
   asked?: string[];
+  tree?: StoryPlanDeps['tree'];
 }): Promise<Captured> => {
   const { res, got } = response();
   const deps: StoryPlanDeps = {
@@ -84,7 +86,7 @@ const post = async (opts: {
       opts.asked?.push(slug);
       return opts.story === undefined ? STORY : opts.story;
     },
-    tree: (o) => o.repoRoot,
+    tree: opts.tree ?? ((o) => o.repoRoot),
     unattended: () => opts.unattended ?? false,
   };
   await handleStoryPlan(request(opts.body ?? { slug: 'nothing-runs' }), res, { repoRoot: opts.repoRoot, scriptsDir: SCRIPTS, port: 7777 }, deps);
@@ -161,6 +163,15 @@ describe('Add plan refuses by name', () => {
     assert.equal(got.status, 409);
     assert.equal(got.body.reason, 'already-running');
     assert.equal(fs.readFileSync(log, 'utf8'), 'the first run is working\n');
+  });
+
+  it('leaves no run reading as running where the worktree could not be made', async () => {
+    const dir = repo();
+    const got = await post({ repoRoot: dir, tree: () => { throw new Error('no worktree'); } });
+    assert.equal(got.status, 500);
+    assert.notEqual(storyPlanStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, 'nothing-runs').state, 'running');
+    // The next click is not refused as already running.
+    assert.equal((await post({ repoRoot: dir })).status, 202);
   });
 
   it('refuses an unattended board', async () => {

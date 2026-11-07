@@ -1553,7 +1553,7 @@ export const declaredPhaseMap = (value: string): { map: PhaseMap; refusal: strin
 };
 
 /** slug from a date-prefixed plan filename (YYYY-MM-DD-<slug>.md). */
-function planSlug(file: string): string {
+export function planSlug(file: string): string {
   const base = path.basename(file, '.md');
   const m = base.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
   return m ? m[1] : base;
@@ -2352,11 +2352,13 @@ export const readCommittedStory = async (
     readConfigAsync(opts, 'Story directory', 'docs/stories/'),
     defaultBranchOf(opts, refs),
   ]);
-  const files = await readRefFiles(refs, `origin/${defaultBranch}`, storyDir);
-  if (files === null) return 'unread';
   const dir = storyDir.replace(/\/+$/, '');
   for (const archived of [false, true]) {
-    const relPath = `${dir}/${archived ? 'archived/' : ''}${slug}/STORY-${slug}.md`;
+    const storyHome = `${dir}/${archived ? 'archived/' : ''}${slug}`;
+    // Only the story's own directory is read, never the whole story estate.
+    const files = await readRefFiles(refs, `origin/${defaultBranch}`, storyHome);
+    if (files === null) return 'unread';
+    const relPath = `${storyHome}/STORY-${slug}.md`;
     const content = files.get(relPath);
     if (content === undefined) continue;
     const input = parseStoryContent(content, slug, relPath, '');
