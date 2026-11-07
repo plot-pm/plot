@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { StoryStatusSchema, storyIsLive } from '@plot-pm/domain';
+import { STORY_SLUG_PATTERN, StoryStatusSchema, storyIsLive } from '@plot-pm/domain';
 import { agentLogPath } from './agent-log.js';
 import { readCommittedStory, readConfig, type BuildBoardOptions, type CommittedStory } from './board.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
@@ -17,8 +17,15 @@ import { BODY_MAX, IDEA_COMMAND_KEY, IDEA_PROMPT_ENV, lastLines, prepareIdeaTree
  * `/api/idea`, because `/plot-idea` checks out the branch it creates.
  */
 
-/** The shape a story slug must have before it names a file. */
-export const STORY_SLUG_RE = /^[a-z0-9-]+$/;
+/** The shape a story slug must have before it names a file: the domain's `STORY_SLUG_PATTERN`. */
+export const STORY_SLUG_RE = STORY_SLUG_PATTERN;
+
+/**
+ * The stories whose start is between its running check and its state write,
+ * by repository and slug: a second request in that window is refused like a
+ * running one.
+ */
+const starting = new Set<string>();
 
 /** Where the brief is written; keyed by slug, outside the repository. */
 export const storyPlanPromptPath = (repoRoot: string, slug: string): string =>
@@ -195,12 +202,40 @@ export const handleStoryPlan = async (
     return;
   }
 
-  // A second run would truncate the first one's log and remove its worktree under it.
-  if (storyPlanStatus(opts, slug).state === 'running') {
+  // A second run would truncate the first one's log and remove its worktree
+  // under it. The claim is taken before the first await, so two requests in
+  // flight cannot both pass.
+  const claim = `${opts.repoRoot}\0${slug}`;
+  if (starting.has(claim) || storyPlanStatus(opts, slug).state === 'running') {
     refuse(409, 'already-running', slug, `a plan for \`${slug}\` is still being created — see its log; nothing was started`);
     return;
   }
+  starting.add(claim);
+  try {
+    await startStoryPlan(opts, slug, json, refuse, { readCfg, readStory, makeTree });
+  } finally {
+    starting.delete(claim);
+  }
+};
 
+/** What `startStoryPlan` reads from outside itself. */
+interface StartDeps {
+  readCfg: NonNullable<StoryPlanDeps['config']>;
+  readStory: NonNullable<StoryPlanDeps['story']>;
+  makeTree: NonNullable<StoryPlanDeps['tree']>;
+}
+
+/**
+ * Reads the story, writes the brief and starts the agent, or refuses. Runs
+ * while `handleStoryPlan` holds the slug's claim.
+ */
+const startStoryPlan = async (
+  opts: StoryPlanOptions,
+  slug: string,
+  json: (status: number, body: unknown) => void,
+  refuse: (status: number, reason: StoryPlanRefusal, slug: string, detail: string) => void,
+  { readCfg, readStory, makeTree }: StartDeps,
+): Promise<void> => {
   const story = await readStory(opts, slug);
   if (story === 'unread') {
     refuse(502, 'stories-unread', slug, 'the default branch\'s stories could not be read, so whether this story exists is unknown — nothing was created');

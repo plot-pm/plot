@@ -82,6 +82,12 @@ describe('jiraProjectsOf', () => {
     expect(jiraProjectsOf('jira https://acme.atlassian.net PROJ, OPS')).toEqual(['PROJ', 'OPS']);
   });
 
+  it('reads the keys Ticket prefixes declares too, each once', () => {
+    expect(jiraProjectsOf('jira https://acme.atlassian.net PROJ', 'PROJ, OPS')).toEqual(['PROJ', 'OPS']);
+    expect(jiraProjectsOf('jira https://acme.atlassian.net', 'QUACDS')).toEqual(['QUACDS']);
+    expect(jiraProjectsOf('github-issues', 'QUACDS')).toEqual([]);
+  });
+
   it('reads none where only the URL is declared, or for another scheme', () => {
     expect(jiraProjectsOf('jira https://acme.atlassian.net')).toEqual([]);
     expect(jiraProjectsOf('github-issues')).toEqual([]);

@@ -2442,19 +2442,20 @@ export const checksUrlOf = (prUrl: string, branchBase: string): string =>
   prUrl !== '' && branchBase.endsWith('/tree/') && /\/pull\/\d+$/.test(prUrl) ? `${prUrl}/checks` : '';
 
 async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Board> {
-  // FIVE INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
+  // SIX INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
   // `plot-config.sh` spawn and none needs another's answer, so awaiting them
   // in sequence would serialise five ~58 ms waits for nothing. They are off
   // the event loop now, which is what makes the concurrency free — the point
   // of this migration in one line.
   // `Tracker` keeps its whole answer: an unread key gives no issue page, where an
   // empty one means the git host answers the issues.
-  const [planDir, sprintDir, storyDir, phasesValue, tracker] = await Promise.all([
+  const [planDir, sprintDir, storyDir, phasesValue, tracker, ticketPrefixes] = await Promise.all([
     readConfigAsync(opts, 'Plan directory', 'docs/plans/'),
     readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
     readConfigAsync(opts, 'Story directory', 'docs/stories/'),
     readConfigAsync(opts, 'Workflow phases', ''),
     configFor(opts).config('Tracker', ''),
+    readConfigAsync(opts, 'Ticket prefixes', ''),
   ]);
   const { map: phaseMap, refusal: phaseMapRefusal } = declaredPhaseMap(phasesValue);
 
@@ -2945,7 +2946,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   ]);
   const issueContext: StoryIssueContext = {
     issuePrefix: repoIssuePrefixOf(urlBase),
-    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value) : [],
+    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, ticketPrefixes) : [],
   };
   const storyContext: StoryFactsContext = {
     issueContext,

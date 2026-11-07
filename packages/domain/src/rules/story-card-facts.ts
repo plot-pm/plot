@@ -4,7 +4,7 @@ import { StoryStatusSchema } from '../entities/story.js';
 import { derivedStanding, statusBehind } from '../transitions/story.js';
 import type { PlanStatus } from './phase.js';
 import type { PlanSprintReading } from './plan-card-facts.js';
-import { storyIsLive, type StoryIssueLink } from './story-issue.js';
+import { STORY_SLUG_PATTERN, storyIsLive, type StoryIssueLink } from './story-issue.js';
 
 /** A plan that names the story in its `Story:` field, as the board read it. */
 export interface StoryPlanCardReading {
@@ -83,7 +83,8 @@ const sprintRefs = (
  * `null` where it has none or they were not read. A `status-behind` alert names the standing its
  * plans prove where the written status is behind it. A live story committed on
  * the default branch offers *Add plan*: as the primary where it has no plans,
- * else as a secondary; a done, archived or uncommitted story offers nothing. The assignee is its `author:`, resolved
+ * else as a secondary; a done, archived or uncommitted story, or one whose slug
+ * `STORY_SLUG_PATTERN` refuses, offers nothing. The assignee is its `author:`, resolved
  * through `People`; `ownership.since` is its `updated:` date, else its
  * `created:` date.
  *
@@ -108,7 +109,9 @@ export const storyCardFacts = (readings: StoryCardFactsReadings, directory: Pers
     : issue.kind === 'unknown' ? { unknown: 'unasked' } : { value: [] };
 
   // The plan's brief is built from the committed file, so a story only the working tree holds takes no plan yet.
-  const live = storyIsLive({ status, archived: readings.archived }) && readings.committed;
+  // A slug `/api/story-plan` refuses takes no plan from the card either.
+  const live = storyIsLive({ status, archived: readings.archived }) && readings.committed
+    && STORY_SLUG_PATTERN.test(readings.slug);
   const hasPlans = 'unknown' in plans || plans.value.length > 0;
   const next: CardFacts['next'] = !live
     ? { primary: null, secondary: [] }

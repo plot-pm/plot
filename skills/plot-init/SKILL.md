@@ -190,10 +190,8 @@ proposal adds:
 (+ URL)`):
 
 ```markdown
-- **Tracker:** jira https://acme.atlassian.net QUACDS
+- **Tracker:** jira https://acme.atlassian.net
 ```
-
-Name the measured prefix after the URL as a declared project key; several are separated by commas (`PROJ, OPS`). The board links a story's `issue:` to a Jira key only when its project is declared there.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
 > *question* does not. A measured prefix is a structural signal, so propose

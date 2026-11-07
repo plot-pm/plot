@@ -174,6 +174,31 @@ describe('Add plan refuses by name', () => {
     assert.equal((await post({ repoRoot: dir })).status, 202);
   });
 
+  it('lets one of two requests in flight start, and refuses the other', async () => {
+    const dir = repo();
+    let release: () => void = () => {};
+    let reached: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const reading = new Promise<void>((resolve) => { reached = resolve; });
+    const slow = async (): Promise<CommittedStory> => { reached(); await gate; return STORY; };
+    const { res: resA, got: a } = response();
+    const { res: resB, got: b } = response();
+    const deps: StoryPlanDeps = {
+      config: (_o, key, fallback) => (key === IDEA_COMMAND_KEY ? 'true' : fallback),
+      story: slow,
+      tree: (o) => o.repoRoot,
+      unattended: () => false,
+    };
+    const first = handleStoryPlan(request({ slug: 'nothing-runs' }), resA, { repoRoot: dir, scriptsDir: SCRIPTS, port: 7777 }, deps);
+    // The second request arrives while the first one reads its story.
+    await reading;
+    await handleStoryPlan(request({ slug: 'nothing-runs' }), resB, { repoRoot: dir, scriptsDir: SCRIPTS, port: 7777 }, deps);
+    release();
+    await first;
+    assert.deepEqual([a.status, b.status], [202, 409]);
+    assert.equal(b.body.reason, 'already-running');
+  });
+
   it('refuses an unattended board', async () => {
     const got = await post({ repoRoot: repo(), unattended: true });
     assert.equal(got.status, 409);

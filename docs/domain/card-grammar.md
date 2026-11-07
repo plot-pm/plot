@@ -78,11 +78,11 @@ An **action** is `{ action, enabled, reason }`; `reason` is set exactly when `en
 
 ## The story's ticket
 
-A story names its ticket in the `issue:` frontmatter field; the legacy `jira:` is read where `issue:` is absent, and a template placeholder such as `{ISSUE_URL}` reads as absent. `storyIssueLink` accepts `#<n>`, this repository's own issue page on its git host (owner and repository compared, not the host alone), and a Jira key, bare or in a `/browse/<KEY>` URL, whose project `Tracker: jira <url> PROJ, OPS` declares. Any other value is an `issue-link-unreadable` alert and links no ticket. A value that needs the repository's address while the board has not read it is `unknown`.
+A story names its ticket in the `issue:` frontmatter field; the legacy `jira:` is read where `issue:` is absent, and a template placeholder such as `{ISSUE_URL}` reads as absent. `storyIssueLink` accepts `#<n>`, this repository's own issue page on its git host (owner and repository compared, not the host alone), and a Jira key, bare or in a `/browse/<KEY>` URL, whose project is declared: in `Ticket prefixes`, or after the URL in `Tracker: jira <url> PROJ, OPS`. Any other value is an `issue-link-unreadable` alert and links no ticket. A value that needs the repository's address while the board has not read it is `unknown`.
 
 The **ticket → story index** (`ticketStoryIndex`, `Board.ticketStories`) maps each issue key to the stories that answer it: the stories whose `issue:` names it, and the stories a plan answering it names in `Story:`. It reads only stories committed on `origin/<default>`, and it is `unknown` where that ref could not be read — never an empty index.
 
-A story is **live** while its status is not `done` and it is not archived; Draft is live. A live story offers *Add plan* (`POST /api/story-plan`), the primary where it has no plans and a secondary where it has some.
+A story is **live** while its status is not `done` and it is not archived; Draft is live. A live story committed on `origin/<default>`, whose slug matches `^[a-z0-9-]+$`, offers *Add plan* (`POST /api/story-plan`), the primary where it has no plans and a secondary where it has some.
 
 ## The line between a fact and a word
 

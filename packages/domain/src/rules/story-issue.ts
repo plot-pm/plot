@@ -90,16 +90,19 @@ export const storyIssueLink = (value: string, context: StoryIssueContext): Story
 };
 
 /**
- * The Jira project keys a `Tracker` value declares after its URL:
- * `jira https://x.atlassian.net PROJ, OPS` declares `PROJ` and `OPS`.
+ * The Jira project keys a repository declares: the keys after the URL in
+ * `Tracker: jira <url> PROJ, OPS`, and the keys in `Ticket prefixes`, each once.
+ * Only a `jira` tracker declares any.
  *
  * @param declaredTracker - the `Tracker` config value, verbatim.
+ * @param ticketPrefixes - the `Ticket prefixes` config value, verbatim; `''` where unset.
  * @returns the declared project keys, in order; `[]` for another scheme or none declared.
  */
-export const jiraProjectsOf = (declaredTracker: string): string[] => {
+export const jiraProjectsOf = (declaredTracker: string, ticketPrefixes = ''): string[] => {
   const [scheme = '', , ...rest] = declaredTracker.trim().split(/\s+/);
   if (scheme.toLowerCase() !== 'jira') return [];
-  return rest.join(' ').split(/[,\s]+/).filter((p) => /^[A-Z][A-Z0-9]+$/.test(p));
+  const keys = [...rest.join(' ').split(/[,\s]+/), ...ticketPrefixes.split(/[,\s]+/)];
+  return [...new Set(keys.filter((p) => /^[A-Z][A-Z0-9]+$/.test(p)))];
 };
 
 /**
@@ -168,6 +171,9 @@ export const ticketStoryIndex = (
   }
   return index;
 };
+
+/** The shape a story slug must have before a request may name it. */
+export const STORY_SLUG_PATTERN = /^[a-z0-9-]+$/;
 
 /**
  * Whether a story can receive a new plan: its status is not `done` and it is

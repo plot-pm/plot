@@ -143,6 +143,10 @@ describe('storyCardFacts: next', () => {
     expect(facts({ archived: true }).next).toEqual({ primary: null, secondary: [] });
   });
 
+  it('offers nothing on a story whose slug the endpoint refuses', () => {
+    expect(facts({ slug: 'FOOBAR-12-audit' }).next).toEqual({ primary: null, secondary: [] });
+  });
+
   it('offers nothing on a story only the working tree holds', () => {
     expect(facts({ committed: false }).next).toEqual({ primary: null, secondary: [] });
   });
