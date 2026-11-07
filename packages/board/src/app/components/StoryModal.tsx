@@ -2,24 +2,47 @@ import { useState } from 'react';
 import type { Card, StoryCard } from '../../contract/schema.js';
 import { planIndexOf, planReference, planRoute, planRouteOfDocLink } from '@plot-pm/domain';
 import { storyHref } from '../lib/plan.js';
+import { presentCard } from '../lib/card-presentation.js';
 import { PlanReference } from './PlanReference.js';
 import { DocModal } from './DocModal.js';
+
+/**
+ * Whether a link target may become an `href`: an `http:` or `https:` URL, or a
+ * target with no scheme (a board route or a relative path). Control characters
+ * and spaces are dropped before the scheme is read, as a browser drops them.
+ *
+ * @param href - the link target, as written.
+ * @returns `true` where the target may be linked.
+ */
+export const linkableHref = (href: string): boolean => {
+  const bare = href.replace(/[\u0000-\u0020\u007f]/g, '');
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(bare)?.[1];
+  return scheme === undefined ? !bare.startsWith('//') : /^https?$/i.test(scheme);
+};
 
 /**
  * Convert basic markdown to HTML for display.
  *
  * Handles **bold**, *italic*, `code`, and [links](url) — enough for design
- * sections without pulling in a full markdown parser.
+ * sections without pulling in a full markdown parser. Every `&`, `<`, `>`, `"`
+ * and `'` is escaped first; a link whose target {@link linkableHref} refuses
+ * renders as its text.
+ *
+ * @param text - the markdown, as the story file holds it.
+ * @returns the HTML.
  */
-function renderMarkdown(text: string): string {
-  return text
-    // Escape HTML first to prevent XSS
+export const renderMarkdown = (text: string): string =>
+  text
+    // Escape HTML first to prevent XSS; quotes too, so no value leaves an attribute.
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
     // Handle markdown links [text](url) — rewrite plan/story links to board routes
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, href) => {
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText: string, href: string) => {
       const rewrittenHref = planRouteOfDocLink(href);
+      if (!linkableHref(rewrittenHref)) return linkText;
       return `<a href="${rewrittenHref}" class="text-cyan-600 hover:underline dark:text-cyan-400">${linkText}</a>`;
     })
     // Then apply markdown formatting
@@ -28,7 +51,6 @@ function renderMarkdown(text: string): string {
     .replace(/`([^`]+)`/g, '<code class="rounded bg-slate-200 px-1 dark:bg-slate-700">$1</code>')
     // Convert line breaks
     .replace(/\n/g, '<br />');
-}
 
 export interface StoryModalProps {
   story: StoryCard;
@@ -98,6 +120,11 @@ function designDocHref(story: StoryCard, docName: string): string {
 }
 
 export function StoryModal({ story, cards, phases, onClose, onShowInBoard, onOpenSprint }: StoryModalProps) {
+  // The state and the alerts, from the story's facts through the card's own words.
+  const sections = story.facts ? presentCard(story.facts, 'stories') : null;
+  const status = sections?.status.state ?? null;
+  const alerts = (sections?.header.meta ?? []).flatMap((part) =>
+    part.kind === 'piece' && part.piece.data.alert !== undefined ? [part.piece] : []);
   const plans = plansInStory(cards, story.slug, phases);
   const planIndex = planIndexOf({ cards });
   // An in-overlay navigation, not a route change: a card found by file always
@@ -171,22 +198,27 @@ export function StoryModal({ story, cards, phases, onClose, onShowInBoard, onOpe
       onShowInBoard={onShowInBoard && (() => onShowInBoard(story))}
       onClose={onClose}
     >
-      {/* Status and drift warning */}
+      {/* Status and its alerts, worded by the card mapping */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
         <span className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Status
         </span>
-        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-          {story.status || 'draft'}
+        <span
+          data-story-state={status?.data.state ?? ''}
+          className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+        >
+          {status?.text ?? 'state unknown'}
         </span>
-        {story.statusDrift && (
+        {alerts.map((alert) => (
           <span
+            key={alert.data.alert}
+            data-alert={alert.data.alert}
             className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
-            title={story.statusDrift}
           >
-            ⚠️ {story.statusDrift}
+            {alert.text}
+            {alert.detail && <span className="font-normal"> — {alert.detail}</span>}
           </span>
-        )}
+        ))}
         {/* Content indicators */}
         {story.hasOpenPoints && (
           <span

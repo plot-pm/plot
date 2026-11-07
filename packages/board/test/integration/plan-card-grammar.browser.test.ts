@@ -429,10 +429,21 @@ describe('a plan card renders the card grammar', () => {
       await menu.waitFor({ timeout: 5_000 });
       expect(await menu.locator('[data-menu-action]').evaluateAll((els) => els.map((el) => el.getAttribute('data-menu-action'))))
         .toEqual(['start-work', 'confirm-slices']);
+      // The menu focuses its first ENABLED item, never the disabled one above it.
+      expect(await menu.locator('[data-menu-action="confirm-slices"] button').evaluate((el) => el === document.activeElement)).toBe(true);
       const disabled = menu.locator('[data-action="start-work"] button');
       expect(await disabled.getAttribute('aria-disabled')).toBe('true');
       const reasonId = await disabled.getAttribute('aria-describedby');
       expect(await page.locator(`[id="${reasonId}"]`).textContent()).toBe('no fleet scan yet');
+      // Its reason opens beside it and covers no other item of the menu.
+      await disabled.hover();
+      const tip = await page.locator(`[id="${reasonId}"]`).boundingBox();
+      const next = await menu.locator('[data-menu-action="confirm-slices"]').boundingBox();
+      expect(tip && next).toBeTruthy();
+      const overlaps = tip!.x < next!.x + next!.width && next!.x < tip!.x + tip!.width
+        && tip!.y < next!.y + next!.height && next!.y < tip!.y + tip!.height;
+      expect(overlaps).toBe(false);
+      await disabled.focus();
       // The reason is plain text: a tooltip holds no links.
       expect(await page.locator(`[id="${reasonId}"] a`).count()).toBe(0);
       await page.keyboard.press('Escape');

@@ -31,7 +31,10 @@ import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
-  statusDrift,
+  storyIssueValue,
+  repoIssuePrefixOf,
+  jiraProjectsOf,
+  type StoryIssueContext,
   cardControls,
   timeboxLabel,
   timeboxStanding,
@@ -48,8 +51,6 @@ import {
   type SliceSpendRecord,
   type Trees,
   planSpend,
-  storyCardView,
-  type PersonDirectory,
   type PlanSlicesReading,
   FINISHED_PHASES,
   DEFAULT_PHASE_MAP,
@@ -87,6 +88,7 @@ import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
 import { planFactsOf, type CardFields, type PlanFactsExtras } from './plan-facts.js';
+import { storyFactsOf, ticketStoriesOf, type StoryFactsContext } from './story-facts.js';
 import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
@@ -846,7 +848,18 @@ const readPlansFromRef = async (
   refs: Refs,
   ref: string,
   planDir: string,
-): Promise<Map<string, string>> => {
+): Promise<Map<string, string>> => (await readRefFiles(refs, ref, planDir)) ?? new Map<string, string>();
+
+/**
+ * The markdown files under `dir` on `ref`, by repository-relative path, or
+ * `null` where the ref's listing or its blobs could not be read. A directory
+ * the ref does not hold reads as an empty map.
+ */
+const readRefFiles = async (
+  refs: Refs,
+  ref: string,
+  dir: string,
+): Promise<Map<string, string> | null> => {
   const found = new Map<string, string>();
   // One listing, mode-filtered: `planPathsInTree` already drops the 120000
   // symlink entries, so each plan is named ONCE by its real path. That is why
@@ -854,27 +867,27 @@ const readPlansFromRef = async (
   // it existed because a plan indexed under active/ appears twice on disk, and
   // it appears once in a tree.
   //
-  // An unreadable ref answers an EMPTY MAP rather than a failure, and that is
-  // the same answer this made before the port: a repo with no remote and a
-  // plan directory with nothing in it are both "no plans here". Which of the
-  // two it was is `collectPlanSources`'s question, and it asks it separately —
-  // see `resolved` there.
-  const listing = await refs.listBlobs(ref, planDir);
-  if (!listing.ok) return found;
-  const plans = listing.value.filter(
+  // An unreadable ref answers `null`, which `readPlansFromRef` reads as an
+  // EMPTY MAP, the same answer it made before the port: a repo with no remote
+  // and a plan directory with nothing in it are both "no plans here". Which of
+  // the two it was is `collectPlanSources`'s question, and it asks it
+  // separately — see `resolved` there.
+  const listing = await refs.listBlobs(ref, dir);
+  if (!listing.ok) return null;
+  const files = listing.value.filter(
     (blob) =>
       (blob.mode === '100644' || blob.mode === '100755') && blob.path.endsWith('.md'),
   );
-  if (plans.length === 0) return found;
+  if (files.length === 0) return found;
   // ONE batch read for every blob, which is the port's contract rather than an
   // optimisation of it — see `Refs.readBlobs`. A sha the repository does not
   // hold is simply absent from the map, so a plan whose object went missing
   // costs a card and never a blank one.
-  const blobs = await refs.readBlobs(plans.map((blob) => blob.sha));
-  if (!blobs.ok) return found;
-  for (const plan of plans) {
-    const content = blobs.value.get(plan.sha);
-    if (content !== undefined) found.set(plan.path, content);
+  const blobs = await refs.readBlobs(files.map((blob) => blob.sha));
+  if (!blobs.ok) return null;
+  for (const file of files) {
+    const content = blobs.value.get(file.sha);
+    if (content !== undefined) found.set(file.path, content);
   }
   return found;
 };
@@ -1540,7 +1553,7 @@ export const declaredPhaseMap = (value: string): { map: PhaseMap; refusal: strin
 };
 
 /** slug from a date-prefixed plan filename (YYYY-MM-DD-<slug>.md). */
-function planSlug(file: string): string {
+export function planSlug(file: string): string {
   const base = path.basename(file, '.md');
   const m = base.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
   return m ? m[1] : base;
@@ -2062,6 +2075,7 @@ export function parseStoryContent(
   let author = '';
   let created = '';
   let updated = '';
+  let issue = '';
 
   const fm = content.match(/^---\n([\s\S]*?)\n---/);
   if (fm) {
@@ -2079,6 +2093,14 @@ export function parseStoryContent(
     if (createdMatch) created = unquoteScalar(createdMatch[1].trim());
     const updatedMatch = frontmatter.match(/^updated:\s*(.+)$/m);
     if (updatedMatch) updated = unquoteScalar(updatedMatch[1].trim());
+    // `issue:` names the story's ticket; `jira:` is its legacy spelling. The
+    // value stays on its own line, and a ` # comment` after it is dropped; a
+    // value that starts with `#` (`#3170`) is the value, not a comment.
+    const fieldValue = (key: string): string => {
+      const match = frontmatter.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'));
+      return match ? unquoteScalar(match[1].replace(/\s+#.*$/, '').trim()) : '';
+    };
+    issue = storyIssueValue(fieldValue('issue'), fieldValue('jira'));
   }
 
   // Fall back to H1 heading for title
@@ -2101,6 +2123,8 @@ export function parseStoryContent(
     slug,
     title,
     status,
+    declaredStatus: status,
+    issue,
     author,
     created,
     updated,
@@ -2143,7 +2167,8 @@ export function deriveStoryStatus(
  * (one directory down) naturally excludes docs/stories/archived/<slug>/…, so
  * archived stories never populate the filter list.
  *
- * Also computes plan counts and status drift by querying the provided plans.
+ * Also lists each story's plans and sprints from the provided plans, and, with
+ * `context`, its card facts.
  */
 export async function collectStories(
   repoRoot: string,
@@ -2151,9 +2176,9 @@ export async function collectStories(
   allPlans: PlanMeta[],
   ref?: string,
   refs?: Refs,
-  directory: PersonDirectory = {},
+  context?: StoryFactsContext,
 ): Promise<StoryCard[]> {
-  return collectStoryCards(repoRoot, storyDir, allPlans, false, ref, refs, directory);
+  return (await collectStoryCards(repoRoot, storyDir, allPlans, false, ref, refs, context)).stories;
 }
 
 /**
@@ -2168,20 +2193,24 @@ export async function collectArchivedStories(
   allPlans: PlanMeta[],
   ref?: string,
   refs?: Refs,
-  directory: PersonDirectory = {},
+  context?: StoryFactsContext,
 ): Promise<StoryCard[]> {
-  return collectStoryCards(repoRoot, storyDir, allPlans, true, ref, refs, directory);
+  return (await collectStoryCards(repoRoot, storyDir, allPlans, true, ref, refs, context)).stories;
 }
 
-const collectStoryCards = async (
+/**
+ * The stories under one root, live or archived, and whether `ref` was read.
+ * With `context`, each story carries its card facts.
+ */
+export const collectStoryCards = async (
   repoRoot: string,
   storyDir: string,
   allPlans: PlanMeta[],
   archived: boolean,
   ref?: string,
   refs?: Refs,
-  directory: PersonDirectory = {},
-): Promise<StoryCard[]> => {
+  context?: StoryFactsContext,
+): Promise<{ stories: StoryCard[]; refRead: boolean }> => {
   const root = archived
     ? path.join(repoRoot, storyDir, 'archived')
     : path.join(repoRoot, storyDir);
@@ -2209,9 +2238,8 @@ const collectStoryCards = async (
   // `ref` and `refs` are both optional and both must be present, exactly as in
   // `collectSprints`: a caller supplying neither reads the working tree alone.
   const found: { slug: string; input: StoryCardInput }[] = [];
-  const fromRef = ref && refs
-    ? await readPlansFromRef(refs, ref, storyDir)
-    : new Map<string, string>();
+  const refFiles = ref && refs ? await readRefFiles(refs, ref, storyDir) : null;
+  const fromRef = refFiles ?? new Map<string, string>();
   for (const [relPath, content] of fromRef) {
     const base = path.basename(relPath);
     const m = base.match(/^STORY-(.+)\.md$/);
@@ -2226,7 +2254,7 @@ const collectStoryCards = async (
     const input = parseStoryContent(content, slug, relPath, '');
     if (!input) continue;
     takenSlugs.add(slug);
-    found.push({ slug, input });
+    found.push({ slug, input: { ...input, committed: true } });
   }
 
   for (const entry of fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : []) {
@@ -2254,12 +2282,7 @@ const collectStoryCards = async (
 
   for (const { slug, input } of found) {
 
-    // Get plans for this story and compute counts
     const storyPlans = plansByStory.get(slug) || [];
-    const planCount = storyPlans.length;
-    const deliveredCount = storyPlans.filter(
-      (p) => p.phase === 'released' || p.phase === 'delivered'
-    ).length;
 
     // Build plan references for the card
     const plans = storyPlans.map((p) => ({
@@ -2281,27 +2304,68 @@ const collectStoryCards = async (
       planCount: count,
     }));
 
-    // Derive status from plans and compute drift from declared status
-    const derivedStatus = deriveStoryStatus(input.status, storyPlans);
-    const drift = statusDrift(input.status, derivedStatus);
-
-    // Merge computed fields into input, using derived status
+    // `status` carries the standing the plans prove; `declaredStatus` and the
+    // facts keep what the file writes.
     const fullInput: StoryCardInput = {
       ...input,
-      status: derivedStatus,
-      planCount,
-      deliveredCount,
+      status: deriveStoryStatus(input.status, storyPlans),
+      archived,
       plans,
       sprints,
-      statusDrift: drift,
-      owner: storyCardView(input.author ?? '', directory).owner,
+      ...(context ? { facts: storyFactsOf(input, storyPlans, archived, context) } : {}),
     };
 
     // Parse through Zod to apply defaults and validate
     const parsed = StoryCardSchema.safeParse(fullInput);
     if (parsed.success) stories.push(parsed.data);
   }
-  return stories;
+  return { stories, refRead: refFiles !== null };
+};
+
+/** A story as the default branch holds it: its committed file and what it states. */
+export interface CommittedStory {
+  slug: string;
+  title: string;
+  /** The `status:` the file writes; `''` where absent and `UNKNOWN` where the domain does not admit it. */
+  status: string;
+  archived: boolean;
+  /** The file's repository-relative path on the ref. */
+  path: string;
+  /** The file's text, verbatim. */
+  content: string;
+}
+
+/**
+ * The story named `slug` as `origin/<default>` holds it, under the configured
+ * story directory or its `archived/` directory, never from the working tree.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param slug - the story's slug.
+ * @returns the story; `null` where the ref holds none by that slug; `'unread'`
+ *   where the ref could not be read.
+ */
+export const readCommittedStory = async (
+  opts: BuildBoardOptions, slug: string,
+): Promise<CommittedStory | null | 'unread'> => {
+  const refs = refsFor(opts);
+  const [storyDir, defaultBranch] = await Promise.all([
+    readConfigAsync(opts, 'Story directory', 'docs/stories/'),
+    defaultBranchOf(opts, refs),
+  ]);
+  const dir = storyDir.replace(/\/+$/, '');
+  for (const archived of [false, true]) {
+    const storyHome = `${dir}/${archived ? 'archived/' : ''}${slug}`;
+    // Only the story's own directory is read, never the whole story estate.
+    const files = await readRefFiles(refs, `origin/${defaultBranch}`, storyHome);
+    if (files === null) return 'unread';
+    const relPath = `${storyHome}/STORY-${slug}.md`;
+    const content = files.get(relPath);
+    if (content === undefined) continue;
+    const input = parseStoryContent(content, slug, relPath, '');
+    if (input === null) return null;
+    return { slug, title: input.title, status: input.declaredStatus ?? '', archived, path: relPath, content };
+  }
+  return null;
 };
 
 /**
@@ -2378,19 +2442,20 @@ export const checksUrlOf = (prUrl: string, branchBase: string): string =>
   prUrl !== '' && branchBase.endsWith('/tree/') && /\/pull\/\d+$/.test(prUrl) ? `${prUrl}/checks` : '';
 
 async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Board> {
-  // FIVE INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
+  // SIX INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
   // `plot-config.sh` spawn and none needs another's answer, so awaiting them
   // in sequence would serialise five ~58 ms waits for nothing. They are off
   // the event loop now, which is what makes the concurrency free — the point
   // of this migration in one line.
   // `Tracker` keeps its whole answer: an unread key gives no issue page, where an
   // empty one means the git host answers the issues.
-  const [planDir, sprintDir, storyDir, phasesValue, tracker] = await Promise.all([
+  const [planDir, sprintDir, storyDir, phasesValue, tracker, ticketPrefixes] = await Promise.all([
     readConfigAsync(opts, 'Plan directory', 'docs/plans/'),
     readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
     readConfigAsync(opts, 'Story directory', 'docs/stories/'),
     readConfigAsync(opts, 'Workflow phases', ''),
     configFor(opts).config('Tracker', ''),
+    readConfigAsync(opts, 'Ticket prefixes', ''),
   ]);
   const { map: phaseMap, refusal: phaseMapRefusal } = declaredPhaseMap(phasesValue);
 
@@ -2868,23 +2933,33 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     cards.push(card);
   }
 
-  const stories = await collectStories(
-    repoRoot, storyDir, metas, `origin/${defaultBranch}`, refs, directory,
-  );
-  const archivedStories = await collectArchivedStories(
-    repoRoot, storyDir, metas, `origin/${defaultBranch}`, refs, directory,
-  );
-  // THE LAST TWO READS, ASKED TOGETHER, for the same reason the three config
-  // reads at the top are: the sprint estate and the release directory need
-  // nothing from each other. Both are hoisted out of the object literal
-  // because an `await` inside one would serialise them against every sibling
-  // field around it.
+  // THE SPRINTS FIRST, then the stories: a story's card facts link the sprints
+  // its plans name. The sprint estate and the release directory need nothing
+  // from each other, so they are asked together, hoisted out of the object
+  // literal because an `await` inside one would serialise them against every
+  // sibling field around it.
   const [sprints, releaseDir] = await Promise.all([
     collectSprints(
       repoRoot, sprintDir, new Set(cards.map((c) => c.slug)), `origin/${defaultBranch}`, refs,
     ),
     readConfigAsync(opts, 'Release directory', 'docs/releases/'),
   ]);
+  const issueContext: StoryIssueContext = {
+    issuePrefix: repoIssuePrefixOf(urlBase),
+    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, ticketPrefixes) : [],
+  };
+  const storyContext: StoryFactsContext = {
+    issueContext,
+    plans: new Map(cards.map((c) => [c.slug, { status: c.status ?? 'approved', issues: c.issues }])),
+    sprints,
+    directory,
+  };
+  const [live, archivedRead] = await Promise.all([
+    collectStoryCards(repoRoot, storyDir, metas, false, `origin/${defaultBranch}`, refs, storyContext),
+    collectStoryCards(repoRoot, storyDir, metas, true, `origin/${defaultBranch}`, refs, storyContext),
+  ]);
+  const stories = live.stories;
+  const archivedStories = archivedRead.stories;
 
   // THE FACTS, once per build, after the stories and sprints they link to are read.
   const allStories = [...stories, ...archivedStories];
@@ -2974,6 +3049,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     sprints,
     stories,
     archivedStories,
+    // The ticket → story index, from the stories committed on the default branch.
+    ticketStories: ticketStoriesOf(allStories, live.refRead && archivedRead.refRead, metas, issueContext),
     // Computed from `stories` alone here, with no tickets: the issue-index
     // cache this walker has no dependency on (see the comment below) holds the
     // tracker rows a complete topic cloud also needs. index.ts recomputes this

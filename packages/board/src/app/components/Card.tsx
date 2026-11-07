@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Ref } from '@plot-pm/domain/entities/card-facts';
-import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { TooltipPlacement, useReasonTooltip } from './ui/reason-tooltip.js';
 import { ActionMessageTarget } from './ui/action-message.js';
 import { GLYPH_PATH, type GlyphKind } from '../lib/glyphs.js';
 import { cn } from '../lib/utils.js';
@@ -263,8 +263,8 @@ const PopoverButton = ({ label, buttonLabel, buttonClass, buttonAttrs, title, al
   const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    // Focus the first control inside, else the dialog itself.
-    const first = dialogRef.current?.querySelector<HTMLElement>('a, button');
+    // Focus the first enabled control inside, else the dialog itself.
+    const first = dialogRef.current?.querySelector<HTMLElement>('a, button:not([aria-disabled="true"])');
     (first ?? dialogRef.current)?.focus();
     const outside = (e: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
@@ -345,23 +345,31 @@ const ListView = ({ part, linkFor }: { part: Extract<Part, { kind: 'list' }>; li
   </PopoverButton>
 );
 
-/** Slices done of total, as words and a segmented bar stretched across the rest of the line. */
-const WorkView = ({ part }: { part: Extract<Part, { kind: 'work' }> }) => (
+/**
+ * Work done of total, as words and a bar stretched across the rest of the line:
+ * one segment per unit, or one continuous track past `MAX_SEGMENTS` units.
+ */
+const WorkView = ({ part, part: { bar } }: { part: Extract<Part, { kind: 'work' }> }) => (
   <span className="flex min-w-0 flex-1 items-center gap-2">
     <WithDetail detail={part.piece.detail} className={cn('shrink-0 tabular-nums', TONE[part.piece.tone])} attrs={dataAttrs(part.piece.data)}>
       {part.piece.text}
     </WithDetail>
-    <span aria-hidden className="flex h-1.5 min-w-8 flex-1 gap-0.5" data-work-bar>
-      {Array.from({ length: Math.max(1, Math.min(part.total, 24)) }, (_, i) => (
-        <span
-          key={i}
-          className="h-full flex-1 first:rounded-l-full last:rounded-r-full"
-          style={{
-            background: part.done !== null && i < part.done ? hue('green').dot : 'var(--card-track)',
-          }}
-        />
-      ))}
-    </span>
+    {bar.kind === 'segments' ? (
+      <span aria-hidden className="flex h-1.5 min-w-8 flex-1 gap-0.5" data-work-bar="segments">
+        {Array.from({ length: bar.count }, (_, i) => (
+          <span
+            key={i}
+            className="h-full flex-1 first:rounded-l-full last:rounded-r-full"
+            data-work-segment={i < bar.filled ? 'done' : 'open'}
+            style={{ background: i < bar.filled ? hue('green').dot : 'var(--card-track)' }}
+          />
+        ))}
+      </span>
+    ) : (
+      <span aria-hidden className="flex h-1.5 min-w-8 flex-1 overflow-hidden rounded-full" style={{ background: 'var(--card-track)' }} data-work-bar="fill">
+        <span className="h-full rounded-full" data-work-fill={String(bar.percent)} style={{ width: `${bar.percent}%`, background: hue('green').dot }} />
+      </span>
+    )}
   </span>
 );
 
@@ -562,11 +570,14 @@ export const Card = ({
                 buttonAttrs={{ 'data-more-actions': '' }}
                 trigger={<span aria-hidden>⋯</span>}
               >
-                <ul className="flex flex-col items-start gap-1.5" data-more-list>
-                  {more.map(({ action, control }) => (
-                    <li key={action.action} className="inline-flex" data-action-slot="secondary" data-menu-action={action.action}>{control}</li>
-                  ))}
-                </ul>
+                {/* A reason opens beside its control, outside the menu column, so it covers no other item. */}
+                <TooltipPlacement.Provider value="start">
+                  <ul className="flex flex-col items-start gap-1.5" data-more-list>
+                    {more.map(({ action, control }) => (
+                      <li key={action.action} className="inline-flex" data-action-slot="secondary" data-menu-action={action.action}>{control}</li>
+                    ))}
+                  </ul>
+                </TooltipPlacement.Provider>
               </PopoverButton>
             </span>
           )}

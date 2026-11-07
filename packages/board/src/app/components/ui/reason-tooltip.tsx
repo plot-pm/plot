@@ -1,4 +1,11 @@
-import { useId, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useContext, useId, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react';
+
+/**
+ * Where a reason tooltip opens: `below` its control, or at its `start` edge
+ * (left in a left-to-right page), beside it. A list of stacked controls, such
+ * as the *More actions* menu, provides `start`, so a tooltip covers no sibling.
+ */
+export const TooltipPlacement = createContext<'below' | 'start'>('below');
 
 /** What a control and its wrapper spread to carry a reason tooltip. */
 export interface ReasonTooltip {
@@ -25,7 +32,8 @@ export interface ReasonTooltip {
  * A disabled control's reason, as its `aria-describedby` and a tooltip below it.
  *
  * The tooltip holds the sentence as plain text: a `role="tooltip"` element holds
- * no interactive content. It opens on hover and on keyboard focus, closes when
+ * no interactive content. It opens below the control, or beside it where a
+ * {@link TooltipPlacement} provider says `start`. It opens on hover and on keyboard focus, closes when
  * focus leaves the wrapper, on leaving it with the pointer and on Escape, and
  * opens on `show()` for a tap. It replaces the native `title`, which shows on
  * neither focus nor touch. With no reason, every part is empty and the control
@@ -39,6 +47,7 @@ export interface ReasonTooltip {
 export const useReasonTooltip = (reason: string | null, kind: 'reason' | 'detail' = 'reason'): ReasonTooltip => {
   const id = useId();
   const [open, setOpen] = useState(false);
+  const placement = useContext(TooltipPlacement);
   if (reason === null || reason.trim() === '') {
     return { wrapperProps: {}, triggerProps: {}, show: () => {}, tooltip: null };
   }
@@ -63,7 +72,10 @@ export const useReasonTooltip = (reason: string | null, kind: 'reason' | 'detail
         role="tooltip"
         {...(kind === 'reason' ? { 'data-action-reason': '' } : { 'data-detail': '' })}
         hidden={!open}
-        className="absolute left-0 top-full z-20 mt-1 w-max max-w-64 rounded bg-slate-800 px-2 py-1 text-xs font-normal text-white shadow dark:bg-slate-200 dark:text-slate-900"
+        data-placement={placement}
+        className={`absolute z-20 w-max max-w-64 rounded bg-slate-800 px-2 py-1 text-xs font-normal text-white shadow dark:bg-slate-200 dark:text-slate-900 ${
+          placement === 'start' ? 'top-0 right-full mr-2' : 'left-0 top-full mt-1'
+        }`}
       >
         {reason}
       </span>

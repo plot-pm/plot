@@ -53,6 +53,9 @@ const WRITE_ROUTES = [
   // TABLE and this test reads that table back out of the artifact: a write route
   // absent from this list fails the coverage assertion below.
   { path: '/api/story', body: { number: 1 } },
+  // Add plan spawns the idea agent inside a story — the same class of write as
+  // /api/idea, and gated by the same loopback boundary.
+  { path: '/api/story-plan', body: { slug: 'a-story' } },
   // Interrogate spawns a plot agent (/plot-panel) on a Draft plan — the same
   // class of write as /api/idea, and gated by the same loopback boundary.
   { path: '/api/interrogate', body: { slug: 'ship-the-widget' } },

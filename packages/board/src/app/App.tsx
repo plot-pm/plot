@@ -14,6 +14,7 @@ import { MineStrictToggle } from './components/MineStrictToggle.js';
 import { sanitizeSelection } from '@plot-pm/domain/rules/sprint-selection';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
+import { boardLinksOf } from './lib/plan.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import { listenForEvents } from './lib/event-listener.js';
@@ -1042,6 +1043,15 @@ export function App() {
     setOpenStory(story);
   }, []);
 
+  /** Open a plan from a story card: the plan overlay replaces the story's. */
+  const onOpenPlanCard = useCallback((card: Card) => {
+    setOpenStory(null);
+    setOpenPlan(card);
+  }, []);
+
+  /** The board's lookups for the items a Discovery card names. */
+  const discoveryLinks = useMemo(() => (board ? boardLinksOf(board) : undefined), [board]);
+
   /**
    * Close the overlay, switch to the board, and filter to this story — the
    * story's answer to the plan modal's *Show in board*.
@@ -1380,6 +1390,9 @@ export function App() {
               onShow={onShow}
               onOpenStory={onOpenStory}
               onOpenSprint={onOpenSprint}
+              onOpenPlan={onOpenPlanCard}
+              links={discoveryLinks}
+              ticketStories={board.ticketStories}
               idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
               story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
               issueAnswer={board.issueAnswer ?? null}

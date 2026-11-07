@@ -530,7 +530,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // imports the catalogue builders (`drivesAPage` counts it) to prove a plan card
 // with no facts and an action row with no control render safely. It renders
 // static markup and starts no board.
-const EXPECTED_FILES = 82;
+// 82 → 83 on 2026-11-07: `story-card-grammar.browser.test.ts`, for the story
+// card's sections, its collapsed relations, *Add plan* and the ticket a story
+// answers (one-card-grammar, Stories slice). It serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 83;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -879,7 +883,9 @@ const EXPECTED_FILES = 82;
 // notice returning once the wait runs out, and one in
 // `plan-moves-through-sections.browser.test.ts` for the notice beside Start
 // work in an agent row's menu. `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 667;
+// 667 → 671 AND 82 → 83 FILES on 2026-11-07: four `it(` in the new
+// `story-card-grammar.browser.test.ts`. Added, not moved.
+const EXPECTED_TESTS = 671;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

@@ -91,11 +91,37 @@ export interface Dot {
   word: string;
 }
 
+/**
+ * How a work measure's bar is drawn: one segment per unit up to
+ * {@link MAX_SEGMENTS}, `filled` of them done; past that, one continuous track
+ * filled to `percent`.
+ */
+export type WorkBar =
+  | { kind: 'segments'; count: number; filled: number }
+  | { kind: 'fill'; percent: number };
+
 /** A single piece, a count whose items open in a popover, or a work measure. */
 export type Part =
   | { kind: 'piece'; piece: Piece }
   | { kind: 'list'; id: string; summary: Piece; dots: Dot[]; items: Piece[] }
-  | { kind: 'work'; piece: Piece; done: number | null; total: number };
+  | { kind: 'work'; piece: Piece; done: number | null; total: number; bar: WorkBar };
+
+/** The most segments a work bar draws before it becomes one continuous track. */
+export const MAX_SEGMENTS = 24;
+
+/**
+ * The bar for `done` of `total`: a segment per unit up to {@link MAX_SEGMENTS},
+ * else a continuous fill. An unknown `done` fills nothing.
+ *
+ * @param done - how many units are done; `null` where unknown.
+ * @param total - how many units there are.
+ * @returns how the bar is drawn.
+ */
+export const workBar = (done: number | null, total: number): WorkBar => {
+  const d = Math.max(0, Math.min(done ?? 0, total));
+  if (total <= MAX_SEGMENTS) return { kind: 'segments', count: Math.max(1, total), filled: d };
+  return { kind: 'fill', percent: Math.round((d / total) * 1000) / 10 };
+};
 
 /** An action as the card shows it. */
 export interface PresentedAction {
@@ -539,6 +565,17 @@ export const relativeAge = (at: string, now: number): string => {
   return plural(Math.floor(days / 365), 'year') + ' ago';
 };
 
+/** What a story's plans prove, for its `status-behind` alert. */
+const PROVEN: Readonly<Record<Extract<CardFacts['identity']['alerts'][number], { kind: 'status-behind' }>['proven'], string>> = {
+  draft: 'plans in draft',
+  ready: 'plans ready',
+  active: 'plans approved',
+  'in-review': 'plans in review',
+  paused: 'plans paused',
+  done: 'plans delivered',
+  archived: 'plans released',
+};
+
 const ALERT_DETAIL = 'This plan is in the board\'s working tree but not on the ref it reads — nobody else can see it yet';
 
 /**
@@ -560,9 +597,17 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
       const text = alert.commits === null ? 'not pushed' : `not pushed · ${plural(alert.commits, 'commit')}`;
       meta.push(one(piece(text, { tone: 'neutral', detail: ALERT_DETAIL, data: { alert: alert.kind } })));
     } else if (alert.kind === 'status-behind') {
-      meta.push(one(piece(`status behind: ${alert.proven}`, { tone: 'warn', data: { alert: alert.kind } })));
+      meta.push(one(piece(`status behind: ${PROVEN[alert.proven]}`, {
+        tone: 'warn',
+        detail: `The written status is behind what its plans prove: ${PROVEN[alert.proven]}`,
+        data: { alert: alert.kind },
+      })));
     } else {
-      meta.push(one(piece(`issue link unreadable: ${alert.value}`, { tone: 'warn', data: { alert: alert.kind } })));
+      meta.push(one(piece('issue link unreadable', {
+        tone: 'warn',
+        detail: `issue: ${alert.value} — names no issue of this repository or of a declared Jira project`,
+        data: { alert: alert.kind },
+      })));
     }
   }
   meta.push(...(['tickets', 'stories', 'plans', 'sprints'] as const)
@@ -574,8 +619,8 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
   if (work !== null) {
     const unit = work.total === 1 ? work.unit.slice(0, -1) : work.unit;
     workPart = 'unknown' in work.done
-      ? { kind: 'work', done: null, total: work.total, piece: piece(`${work.total} ${unit} · progress unknown`, { tone: 'unknown', detail: 'no fleet scan has read this plan yet', data: { work: 'unknown' } }) }
-      : { kind: 'work', done: work.done.value, total: work.total, piece: piece(`${work.done.value}/${work.total} ${unit}`, { data: { work: 'known' } }) };
+      ? { kind: 'work', done: null, total: work.total, bar: workBar(null, work.total), piece: piece(`${work.total} ${unit} · progress unknown`, { tone: 'unknown', detail: 'no fleet scan has read this plan yet', data: { work: 'unknown' } }) }
+      : { kind: 'work', done: work.done.value, total: work.total, bar: workBar(work.done.value, work.total), piece: piece(`${work.done.value}/${work.total} ${unit}`, { detail: work.unit === 'plans' ? `${work.done.value} of ${plural(work.total, 'plan')} delivered or released` : null, data: { work: 'known' } }) };
   }
   const signals: Part[] = [...prParts(prs, identity.id)];
   if (design !== null) {
