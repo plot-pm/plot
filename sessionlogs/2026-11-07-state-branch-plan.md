@@ -21,6 +21,13 @@
 - Wrote `docs/plans/2026-11-07-state-branch.md` in `State: Design` with three slices (Write as the spike, Read, Sync), nine open questions, and the alternative the plan must beat: a bypass identity on each repository's push exemption list.
 - Opened draft PR #3231 from `idea/state-branch`.
 
+### The interrogation (`/challenge-the-plan`, six rounds, Max Albrecht answering)
+
+- Sixteen decisions fill `## Spec`, D1 to D16: fleetd opens the sync PR and the host's rule merges it; readers list both refs and the state ref wins per path; a forward-merge conflict refuses and names the file; the default is the branch `plot/state`, and the key may name any full ref, where a non-branch ref gets no sync PR from Plot; the board shows one phase plus a lag line; a sync PR changes only files Plot writes; fleetd merges the default branch into the state ref every tick it moved; the Write slice is proved by a rejecting pre-receive fixture and a protected e2e sandbox; a removed key is reported by reconcile; `plot-init` proposes the key and offers a delete restriction; the sync PR squash-merges and opens when a plan reaches Delivered; the state gate accepts a merge from the state ref's tip; one push lock per repository.
+- The revisit criterion Max named: an alternative must be simple, safe and sound for both the CI problem and the CD problem, and make less noise in the repository.
+- Two items stay with the team: the read rule's name (candidates `recordRef`, `planSource`, `stateBranchRef`) and the cut of the slices, where a fourth slice for `plot-init` and `plot-board-setup` is the candidate.
+- `Rounds: 6` and the `CHALLENGE-THE-PLAN-METADATA` block record the rounds; `plot-plan-meta.sh` reads `rounds: 6`.
+
 ## Files Modified
 
 - `docs/plans/2026-11-07-state-branch.md`
@@ -31,11 +38,12 @@
 
 - `plot: An opt-in plot/state branch syncs agent state past a protected default branch`
 - `docs: sessionlog for the state-branch plan`
+- `plot: state-branch plan names the unprotected-but-deploying case`
+- `plot: state-branch plan carries its Spec after six interrogation rounds`
 
 ## Pending
 
-- [ ] Fill in `## Spec` of the plan; the nine open questions name the decisions.
-- [ ] A named person approves the Design plan: `/plot-approve state-branch --who <handle>`.
+- [ ] The team names the read rule and cuts the slices (Open Questions 7 and 11), then a named person approves the Design plan: `/plot-approve state-branch --who <handle>`.
 - [ ] `test/reconcile/no-bundle-diff-gate.test.mjs` assumes `git init` creates `master`. On a machine whose `init.defaultBranch` is another name, its six tests fail with `no merge base between feature and master`. The fixture should name its base branch. Not changed in this session.
 
 ## Notes
