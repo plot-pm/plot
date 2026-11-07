@@ -13,6 +13,7 @@ import { IDEA_COMMAND_KEY } from '../../src/server/idea.js';
 import {
   composeStoryPlanPrompt,
   handleStoryPlan,
+  storyPlanLogPath,
   storyPlanPromptPath,
   type StoryPlanDeps,
 } from '../../src/server/story-plan.js';
@@ -148,6 +149,18 @@ describe('Add plan refuses by name', () => {
     const got = await post({ repoRoot: repo(), command: '' });
     assert.equal(got.body.reason, 'no-idea-command');
     assert.match(String(got.body.detail), /Idea command/);
+  });
+
+  it('refuses while an earlier run for the story still runs, and leaves its log alone', async () => {
+    const dir = repo();
+    const log = storyPlanLogPath(dir, 'nothing-runs');
+    fs.mkdirSync(path.dirname(log), { recursive: true });
+    // A log with no state file is a run in progress.
+    fs.writeFileSync(log, 'the first run is working\n', 'utf8');
+    const got = await post({ repoRoot: dir });
+    assert.equal(got.status, 409);
+    assert.equal(got.body.reason, 'already-running');
+    assert.equal(fs.readFileSync(log, 'utf8'), 'the first run is working\n');
   });
 
   it('refuses an unattended board', async () => {

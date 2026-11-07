@@ -46,6 +46,9 @@ export const AddPlanButton = ({ slug, idea }: AddPlanButtonProps) => {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
+  // The poll starts once the server accepted the run, so it never reads the
+  // state file an earlier run left behind.
+  const [accepted, setAccepted] = useState(false);
   // Two clicks on the armed button inside one tick both read `armed`; a ref
   // changes synchronously, so the second sees the first.
   const inFlight = useRef(false);
@@ -72,7 +75,7 @@ export const AddPlanButton = ({ slug, idea }: AddPlanButtonProps) => {
   }, [armed]);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running || !accepted) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const startedAt = Date.now();
@@ -105,9 +108,10 @@ export const AddPlanButton = ({ slug, idea }: AddPlanButtonProps) => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [running, slug]);
+  }, [running, accepted, slug]);
 
   const run = async () => {
+    setAccepted(false);
     setState({ kind: 'running' });
     try {
       const res = await fetch('/api/story-plan', {
@@ -120,6 +124,7 @@ export const AddPlanButton = ({ slug, idea }: AddPlanButtonProps) => {
       });
       const body = (await res.json()) as { error?: string; detail?: string };
       if (!res.ok) setState({ kind: 'failed', message: body.detail ?? body.error ?? `HTTP ${res.status}` });
+      else setAccepted(true);
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });
     }

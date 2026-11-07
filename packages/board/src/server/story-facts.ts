@@ -73,6 +73,7 @@ export const storyFactsOf = (
   path: input.path ?? '',
   status: input.status,
   archived,
+  committed: input.committed ?? false,
   author: input.author ?? '',
   created: input.created ?? '',
   updated: input.updated ?? '',

@@ -12,6 +12,7 @@ const reading = (over: Partial<StoryCardFactsReadings> = {}): StoryCardFactsRead
   path: 'docs/stories/nothing-runs/STORY-nothing-runs.md',
   status: 'draft',
   archived: false,
+  committed: true,
   author: '',
   created: '2026-11-01',
   updated: '',
@@ -140,6 +141,10 @@ describe('storyCardFacts: next', () => {
   it('offers nothing on a done or archived story', () => {
     expect(facts({ status: 'done' }).next).toEqual({ primary: null, secondary: [] });
     expect(facts({ archived: true }).next).toEqual({ primary: null, secondary: [] });
+  });
+
+  it('offers nothing on a story only the working tree holds', () => {
+    expect(facts({ committed: false }).next).toEqual({ primary: null, secondary: [] });
   });
 });
 

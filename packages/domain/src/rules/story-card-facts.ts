@@ -31,6 +31,8 @@ export interface StoryCardFactsReadings {
   status: string;
   /** Whether the story lives in the archived directory. */
   archived: boolean;
+  /** Whether the story file is committed on the default branch; *Add plan* reads only a committed one. */
+  committed: boolean;
   /** The frontmatter `author:`; `''` where absent. */
   author: string;
   /** The frontmatter `created:`; `''` where absent. */
@@ -79,9 +81,9 @@ const sprintRefs = (
  * written `status:`, `unknown` where it is absent or not a status the domain
  * admits. `progress.work` counts its plans, done being Delivered or Released;
  * `null` where it has none or they were not read. A `status-behind` alert names the standing its
- * plans prove where the written status is behind it. A live story offers *Add
- * plan*: as the primary where it has no plans, else as a secondary; a done or
- * archived story offers nothing. The assignee is its `author:`, resolved
+ * plans prove where the written status is behind it. A live story committed on
+ * the default branch offers *Add plan*: as the primary where it has no plans,
+ * else as a secondary; a done, archived or uncommitted story offers nothing. The assignee is its `author:`, resolved
  * through `People`; `ownership.since` is its `updated:` date, else its
  * `created:` date.
  *
@@ -105,7 +107,8 @@ export const storyCardFacts = (readings: StoryCardFactsReadings, directory: Pers
     ? { value: [{ kind: 'ticket', key: issue.key, title: issue.key, lane: null }] }
     : issue.kind === 'unknown' ? { unknown: 'unasked' } : { value: [] };
 
-  const live = storyIsLive({ status, archived: readings.archived });
+  // The plan's brief is built from the committed file, so a story only the working tree holds takes no plan yet.
+  const live = storyIsLive({ status, archived: readings.archived }) && readings.committed;
   const hasPlans = 'unknown' in plans || plans.value.length > 0;
   const next: CardFacts['next'] = !live
     ? { primary: null, secondary: [] }

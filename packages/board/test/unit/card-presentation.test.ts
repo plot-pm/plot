@@ -388,6 +388,7 @@ const story = (over: Partial<StoryCardFactsReadings> = {}): StoryCardFactsReadin
   path: 'docs/stories/nothing-runs/STORY-nothing-runs.md',
   status: 'draft',
   archived: false,
+  committed: true,
   author: 'jwloka',
   created: '2026-11-01',
   updated: '2026-11-05',

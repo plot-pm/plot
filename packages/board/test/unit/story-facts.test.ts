@@ -30,6 +30,16 @@ describe('a story names its ticket in issue:', () => {
     expect(parse([`issue: ${ISSUES}3170`]).issue).toBe(`${ISSUES}3170`);
   });
 
+  it('drops a comment after the value, and keeps a value that starts with #', () => {
+    expect(parse(['issue: {ISSUE_URL}  # Optional — link the ticket']).issue).toBe('');
+    expect(parse(['issue: #3170  # the ticket']).issue).toBe('#3170');
+    expect(parse([`issue: "${ISSUES}3170" # quoted`]).issue).toBe(`${ISSUES}3170`);
+  });
+
+  it('reads an empty issue: as none, never the next line', () => {
+    expect(parse(['issue:', 'author: jwloka']).issue).toBe('');
+  });
+
   it('reads the legacy jira: where issue: is absent, and its template placeholder as none', () => {
     expect(parse(['jira: PROJ-1']).issue).toBe('PROJ-1');
     expect(parse(['jira: {JIRA_TICKET_URL}  ']).issue).toBe('');
@@ -94,8 +104,12 @@ describe('the ticket → story index', () => {
 });
 
 describe('Add plan follows what the board runs', () => {
+  it('offers no Add plan on a story only the working tree holds', () => {
+    expect(storyFactsOf(parse([]), [], false, context()).next).toEqual({ primary: null, secondary: [] });
+  });
+
   it('disables Add plan with the board reason where the board cannot create plans', () => {
-    const facts = storyFactsOf(parse([]), [], false, context());
+    const facts = storyFactsOf({ ...parse([]), committed: true }, [], false, context());
     expect(facts.next.primary).toEqual({ action: 'add-plan', enabled: true, reason: null });
     const [out] = storiesWithAvailability([{ facts }], { available: false, reason: 'not on localhost' });
     expect(out.facts?.next.primary).toEqual({

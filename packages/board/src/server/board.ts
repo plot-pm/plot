@@ -2093,13 +2093,14 @@ export function parseStoryContent(
     if (createdMatch) created = unquoteScalar(createdMatch[1].trim());
     const updatedMatch = frontmatter.match(/^updated:\s*(.+)$/m);
     if (updatedMatch) updated = unquoteScalar(updatedMatch[1].trim());
-    // `issue:` names the story's ticket; `jira:` is its legacy spelling.
-    const issueMatch = frontmatter.match(/^issue:\s*(.+)$/m);
-    const jiraMatch = frontmatter.match(/^jira:\s*(.+)$/m);
-    issue = storyIssueValue(
-      issueMatch ? unquoteScalar(issueMatch[1].trim()) : '',
-      jiraMatch ? unquoteScalar(jiraMatch[1].trim()) : '',
-    );
+    // `issue:` names the story's ticket; `jira:` is its legacy spelling. The
+    // value stays on its own line, and a ` # comment` after it is dropped; a
+    // value that starts with `#` (`#3170`) is the value, not a comment.
+    const fieldValue = (key: string): string => {
+      const match = frontmatter.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'));
+      return match ? unquoteScalar(match[1].replace(/\s+#.*$/, '').trim()) : '';
+    };
+    issue = storyIssueValue(fieldValue('issue'), fieldValue('jira'));
   }
 
   // Fall back to H1 heading for title

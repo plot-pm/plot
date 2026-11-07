@@ -289,6 +289,8 @@ const STORY_DEFAULTS: StoryInput = {
   title: 'A story',
   status: 'active',
   path: 'docs/stories/a-story/STORY-a-story.md',
+  // A fixture story reads as committed on the default branch, as a real one does.
+  committed: true,
 };
 
 export const story = (over: Partial<StoryInput> = {}): StoryCard => {

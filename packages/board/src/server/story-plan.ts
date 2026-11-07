@@ -40,7 +40,9 @@ export type StoryPlanRefusal =
   /** No `Idea command` is configured. */
   | 'no-idea-command'
   /** The board runs unattended, where no person asked for the plan. */
-  | 'unattended';
+  | 'unattended'
+  /** A plan for this story is still being created; a second run would remove the first one's worktree. */
+  | 'already-running';
 
 /**
  * The brief handed to `/plot-idea`: the story as the problem statement, and the
@@ -143,6 +145,7 @@ export interface StoryPlanOptions extends BuildBoardOptions {
  * | `unknown-story` | the slug is malformed, names no story on `origin/<default>`, or names a done or archived one |
  * | `no-idea-command` | no `Idea command` is configured |
  * | `stories-unread` | the default branch's stories could not be read |
+ * | `already-running` | an earlier *Add plan* for this story still runs |
  *
  * Nothing from the body reaches `sh -c`: the brief is a file, and its path
  * travels in the environment.
@@ -189,6 +192,12 @@ export const handleStoryPlan = async (
   }
   if (!usableCommand(readCfg(opts, IDEA_COMMAND_KEY, ''))) {
     refuse(409, 'no-idea-command', slug, `no \`${IDEA_COMMAND_KEY}\` in Plot Config — creating a plan runs the /plot-idea SKILL; add the key or run /plot-idea yourself`);
+    return;
+  }
+
+  // A second run would truncate the first one's log and remove its worktree under it.
+  if (storyPlanStatus(opts, slug).state === 'running') {
+    refuse(409, 'already-running', slug, `a plan for \`${slug}\` is still being created — see its log; nothing was started`);
     return;
   }
 
@@ -245,7 +254,6 @@ export const handleStoryPlan = async (
     env: {
       PLOT_UNATTENDED: '1',
       [IDEA_PROMPT_ENV]: promptPath,
-      PLOT_STORY: slug,
     },
     logFile: log,
     statePath,
