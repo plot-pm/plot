@@ -30,7 +30,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
 ### Should Have
-- [ ] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate --> <!-- reason: live proof failed on 2.31.0, merged: #3209, remaining: bug/the-release-run-relays-validate -->
+- [x] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate --> <!-- reason: live proof failed on 2.31.0, merged: #3209, remaining: bug/the-release-run-relays-validate -->
 - [x] [continue-and-the-agent-panel-refuse] continue and the agent panel refuse unknown-branch with no pulse (#3117) <!-- pr: #3129, branch: feature/continue-refuses-no-pulse -->
 - [x] [controller-gate-refuses-read-only-commands] Controller gate refuses read-only commands that name a gated script (#2530) <!-- pr: #3135, branch: feature/controller-gate-reads-a-process-lookup -->
 - [x] [open-plot-review-findings-from-the] Open plot-review findings from the 2026-10-29 delivery-loop plans (#3069) <!-- pr: #3075, branch: bug/a-high-gets-its-own-fixer-attempts -->
