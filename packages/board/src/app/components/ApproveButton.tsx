@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
+import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { ActionMessage } from './ui/action-message.js';
 
 /**
  * How often to ask what happened, once a click is outstanding.
@@ -76,6 +78,8 @@ export function ApproveButton({ card, approve, onApproving, spike = false, confi
   const [state, setState] = useState<State>({ kind: 'idle' });
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
+  // The board's own refusal, in a tooltip the button names as its description.
+  const tip = useReasonTooltip(approve.available ? null : approve.reason);
 
   /**
    * IS ONE OF MINE ALREADY RUNNING? — and nothing else.
@@ -209,8 +213,11 @@ export function ApproveButton({ card, approve, onApproving, spike = false, confi
     // `aria-disabled` does not stop a click the way `disabled` does, so the
     // refusal has to be stated here as well. Both are needed and neither is
     // redundant: the attribute is what assistive technology reads, this is what
-    // makes it true. Same pattern as StartWorkButton.
-    if (blocked) return;
+    // makes it true. Same pattern as StartWorkButton. A tap shows the reason.
+    if (blocked) {
+      tip.show();
+      return;
+    }
     if (state.kind === 'idle' || state.kind === 'failed') {
       // A failed attempt re-arms rather than re-runs: the reason has just been
       // read, and the next click should be as deliberate as the first was.
@@ -229,9 +236,11 @@ export function ApproveButton({ card, approve, onApproving, spike = false, confi
 
   return (
     <span ref={rootRef} className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span {...tip.wrapperProps}>
       <button
         type="button"
         onClick={onClick}
+        {...tip.triggerProps}
         // `aria-disabled` rather than the native `disabled` attribute.
         //
         // A natively disabled button is removed from the tab order, which takes
@@ -245,7 +254,7 @@ export function ApproveButton({ card, approve, onApproving, spike = false, confi
         // The armed state is announced, not merely coloured: a reader on a
         // screen reader must hear that this click is the one that acts.
         aria-pressed={armed}
-        title={approve.available ? `Run /plot-approve ${card.slug}${spike ? ' --spike' : ''}` : approve.reason}
+        title={approve.available ? `Run /plot-approve ${card.slug}${spike ? ' --spike' : ''}` : undefined}
         // Dimmed while in flight, on the SAME state that drives the label —
         // `running`, never a timer of its own — so the contrast comes back
         // exactly when the poll resolves the click. The refused styling stays
@@ -263,18 +272,15 @@ export function ApproveButton({ card, approve, onApproving, spike = false, confi
         {/* Beside the word, never instead of it. Motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {running && <ActingSpinner />}
-        {/* Why it will not act, for a reader with no pointer to hover and no
-            view of the dimmed page. Off screen, so the row is unchanged. */}
-        {!approve.available && approve.reason && (
-          <span className="sr-only"> — unavailable: {approve.reason}</span>
-        )}
       </button>
+      {tip.tooltip}
+      </span>
       {state.kind === 'failed' && (
         // The command's own message, on the card. Pre-wrapped: /plot-approve
         // writes sentences, and a merge refusal can carry more than one line.
-        <span className="whitespace-pre-line text-xs text-red-700 dark:text-red-400">
+        <ActionMessage className="whitespace-pre-line text-xs text-red-700 dark:text-red-400">
           {state.message}
-        </span>
+        </ActionMessage>
       )}
     </span>
   );

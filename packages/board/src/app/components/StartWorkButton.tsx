@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
+import { useReasonTooltip } from './ui/reason-tooltip.js';
+import { ActionMessage, ActionMessageTarget } from './ui/action-message.js';
+import { noteDispatched, useDispatchNotice } from '../lib/dispatch-notice.js';
 
 /**
  * WHAT THE BUTTON WATCHES — the count its own action moves.
@@ -159,10 +162,6 @@ export interface StartWorkButtonProps {
 type State =
   | { kind: 'idle' }
   | { kind: 'starting'; since: number }
-  // The click has been dispatched and the button has stopped watching for the
-  // row to move. NOT a failure and NOT a log path: the button reassures and the
-  // pulse confirms — see DISPATCHED_WORD. The dispatcher log lives in the menu.
-  | { kind: 'dispatched' }
   | { kind: 'failed'; message: string };
 
 /**
@@ -178,6 +177,10 @@ type State =
 export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWorkButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const starting = state.kind === 'starting';
+  // Inside a card, the card's own message row shows the dispatched notice (see
+  // `PlanCard`). Anywhere else, such as an agent row's menu, the button shows it.
+  const inCard = useContext(ActionMessageTarget) !== null;
+  const dispatched = useDispatchNotice(card.slug);
 
   /**
    * IS ONE OF MINE ALREADY RUNNING? — and nothing else.
@@ -239,10 +242,13 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
     if (verdict === 'confirmed') setState({ kind: 'idle' });
     // The wait elapsed without the row moving. The button does not conclude a
     // FAILURE from that — a claim can still be in flight — so it drops the
-    // spinner and shows the reassurance, nothing more. The dispatcher log is a
-    // menu entry away for anyone who wants to know what actually happened.
-    else if (verdict === 'gave-up') setState({ kind: 'dispatched' });
-  }, [pulse, claimed, state]);
+    // spinner and shows the reassurance again, nothing more. The dispatcher log
+    // is a menu entry away for anyone who wants to know what actually happened.
+    else if (verdict === 'gave-up') {
+      noteDispatched(card.slug);
+      setState({ kind: 'idle' });
+    }
+  }, [pulse, claimed, state, card.slug]);
 
   const start = async () => {
     // Disabled until the next pulse confirms, so a double click does not fire
@@ -284,8 +290,11 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         });
         return;
       }
-      // Stay `starting` on success — the spinner runs until the pulse confirms
-      // the row moved (idle) or the wait elapses (dispatched). Nothing to store.
+      // The card shows the reassurance from here, in its own message row: the
+      // next refresh can disable or remove this button, and the notice lives
+      // outside it (`noteDispatched`). The spinner runs until the pulse
+      // confirms the row moved or the wait elapses.
+      noteDispatched(card.slug);
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });
     }
@@ -297,11 +306,16 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
   // BEFORE the click rather than after three pulses of silence.
   const refusal = startRefusal(card, dispatch);
   const blocked = starting || refusal !== undefined;
+  // The refusal is the button's description, in the shared tooltip — never a
+  // native title. Not while starting: that state is announced by the label.
+  const tip = useReasonTooltip(!starting && refusal !== undefined ? refusal : null);
 
   return (
     <>
+      <span {...tip.wrapperProps}>
       <button
         type="button"
+        {...tip.triggerProps}
         onClick={() => {
           // `aria-disabled` does not stop a click the way `disabled` does, so
           // the refusal has to be stated here as well. Both are needed and
@@ -311,6 +325,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
           // The ref comes FIRST and answers a different question: `blocked`
           // reads state a render behind, so within one tick it is the ref that
           // knows one of these is already running.
+          if (!starting && refusal !== undefined) tip.show();
           if (inFlight.current || blocked) return;
           inFlight.current = true;
           void start();
@@ -324,11 +339,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         // will not act.
         aria-disabled={blocked || undefined}
         aria-busy={starting}
-        // The reason lives on the control itself where it is unavailable: a
-        // disabled button with no explanation reads as a bug. `title` for a
-        // pointer, and `aria-describedby` would need an id per card — the
-        // accessible NAME already carries it below.
-        title={refusal ?? `Dispatch the next eligible branch of ${card.slug}`}
+        title={refusal === undefined ? `Dispatch the next eligible branch of ${card.slug}` : undefined}
         // Dimmed while in flight, on the SAME state that drives the label —
         // `starting`, never a timer of its own — so the contrast comes back
         // exactly when the pulse resolves the click. The refused styling stays
@@ -344,26 +355,18 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         {/* Beside the word, never instead of it. Motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {starting && <ActingSpinner />}
-        {/* Why it will not act, for a reader with no pointer to hover and no
-            view of the dimmed page. Off screen, so the row is unchanged.
-            Suppressed while starting: that refusal is temporary and already
-            announced by the label and `aria-busy`. */}
-        {!starting && refusal && (
-          <span className="sr-only"> — unavailable: {refusal}</span>
-        )}
       </button>
-      {state.kind === 'dispatched' && (
-        // Reassurance, not a verdict — and no log path. The button dispatched;
-        // whether the agent started is a fact the next pulse carries, not one
-        // this render can claim. Neutral (slate), not amber: an amber warning
-        // would re-assert the failure the old message wrongly implied. Anyone
-        // who wants the dispatcher's own words opens the row's `Status` menu.
-        <span data-dispatched className="text-xs text-slate-500 dark:text-slate-400">
+      {tip.tooltip}
+      </span>
+      {dispatched && !inCard && (
+        // Reassurance, not a verdict, and no log path: neutral slate, never a
+        // failure colour. The row's `Status` menu holds the dispatcher's log.
+        <ActionMessage attrs={{ 'data-dispatched': '' }} className="text-xs text-slate-500 dark:text-slate-400">
           {DISPATCHED_WORD}
-        </span>
+        </ActionMessage>
       )}
       {state.kind === 'failed' && (
-        <span className="text-xs text-red-700 dark:text-red-400">{state.message}</span>
+        <ActionMessage className="text-xs text-red-700 dark:text-red-400">{state.message}</ActionMessage>
       )}
     </>
   );

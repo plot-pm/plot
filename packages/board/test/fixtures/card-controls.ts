@@ -40,8 +40,15 @@ const STATE_BY_COLUMN: Readonly<Record<string, string>> = {
  * started, because a fixture that states no `started` stood for a card without
  * the Ready badge.
  */
+/**
+ * The plan state a fixture card stands for: its `state`, else the state its
+ * `phase` names in {@link STATE_BY_COLUMN}, else `approved`.
+ */
+export const stateFor = (over: ControlsInput): string =>
+  over.state ?? STATE_BY_COLUMN[over.phase ?? 'Development'] ?? 'approved';
+
 export const controlsFor = (over: ControlsInput): CardControls => {
-  const state = over.state ?? STATE_BY_COLUMN[over.phase ?? 'Development'] ?? 'approved';
+  const state = stateFor(over);
   const status = over.status ?? planStatus({
     phase: state, review: 'none', started: false, landed: 'unknown', anyClaimed: false,
   });

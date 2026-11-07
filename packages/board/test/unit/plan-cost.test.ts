@@ -7,7 +7,8 @@ import { describe, it, expect, afterAll } from 'vitest';
 
 import { buildBoard } from '../../src/server/board.js';
 import { CardSchema, type Card } from '../../src/contract/schema.js';
-import { costBadgeText, costBadgeDetail } from '../../src/app/components/PlanCard.js';
+import { presentCard, presentDetails } from '../../src/app/lib/card-presentation.js';
+import { planFactsOf, type CardFields } from '../../src/server/plan-facts.js';
 import type { SliceSpendRecord } from '@plot-pm/domain';
 import { answered, failed, type PortResult } from '@plot-pm/domain';
 
@@ -253,11 +254,12 @@ describe('the cost a card carries', () => {
   });
 });
 
-describe('the badge a reader sees', () => {
-  const card = (over: Partial<Card> = {}): Card => ({
+describe('the cost a reader sees, worded by the card presentation', () => {
+  const card = (over: Partial<Card> = {}): CardFields => ({
     slug: 'x', title: 'X', type: 'feature', phase: 'Development',
-    path: 'docs/plans/2026-09-16-x.md', prs: [], phaseDate: '',
-    controls: { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: false }, ...over,
+    path: 'docs/plans/2026-09-16-x.md', prs: [], phaseDate: '', issues: [],
+    controls: { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null },
+    ...over,
   });
   const cost = (over: Partial<NonNullable<Card['cost']>> = {}): Card['cost'] => ({
     tokens: {
@@ -268,12 +270,25 @@ describe('the badge a reader sees', () => {
     },
     measured: 3, absent: 2, unreadable: 0, slices: 5, ...over,
   });
+  /**
+   * The cost piece a reader sees: on the card's status where it was measured,
+   * else in the detail view; undefined where neither shows one.
+   */
+  const costPiece = (over: Partial<Card> = {}, extras = {}) => {
+    const facts = planFactsOf(card(over), extras);
+    const onCard = presentCard(facts, 'plans').status.signals
+      .flatMap((part) => (part.kind === 'piece' ? [part.piece] : []))
+      .find((piece) => 'cost' in piece.data);
+    return onCard ?? presentDetails(facts).cost ?? undefined;
+  };
+  const costText = (over: Partial<Card> = {}) => costPiece(over)?.text ?? '';
+  const costDetail = (over: Partial<Card> = {}) => costPiece(over)?.detail ?? '';
 
   it('leads with COVERAGE and shows no counter value', () => {
     // The card that "technically shows the cost" by printing 40,690,450 is the
     // failure this catches. The counters span five orders of magnitude, so the
     // eye takes the largest as the total even though nothing summed it.
-    const text = costBadgeText(card({ cost: cost() }));
+    const text = costText({ cost: cost() });
 
     expect(text).toBe('measured on 3 of 5 slices');
     for (const counter of ['502', '107182', '107,182', '528331', '40690450', '40,690,450']) {
@@ -281,9 +296,9 @@ describe('the badge a reader sees', () => {
     }
   });
 
-  it('keeps the four counters REACHABLE, on the tooltip', () => {
+  it('keeps the four counters REACHABLE, on the detail', () => {
     // Deferred, not withheld: refusing them at a glance is not refusing them.
-    const detail = costBadgeDetail(card({ cost: cost() }));
+    const detail = costDetail({ cost: cost() });
 
     expect(detail).toContain('502');
     expect(detail).toContain('107,182');
@@ -294,34 +309,32 @@ describe('the badge a reader sees', () => {
   });
 
   it('says beside the figure that SDK run lines count subagents and compaction', () => {
-    expect(costBadgeDetail(card({ cost: cost({ fromRuns: 2 }) }))).toContain(
+    expect(costDetail({ cost: cost({ fromRuns: 2 }) })).toContain(
       '2 of the measured slices are read from SDK run lines, which include subagents and compaction',
     );
-    expect(costBadgeDetail(card({ cost: cost() }))).not.toContain('SDK run lines');
+    expect(costDetail({ cost: cost() })).not.toContain('SDK run lines');
   });
 
-  it('says NOT MEASURED HERE rather than a zero', () => {
-    expect(costBadgeText(card({ cost: cost({ tokens: null, measured: 0, absent: 5 }) })))
-      .toBe('not measured here');
-    expect(costBadgeText(card({ cost: cost({ tokens: null, measured: 0, absent: 0, unreadable: 5 }) })))
-      .toBe('not measured here (5 unreadable)');
+  it('says the cost was NOT MEASURED HERE, in the detail view, rather than a zero', () => {
+    expect(costText({ cost: cost({ tokens: null, measured: 0, absent: 5 }) })).toBe('cost not measured here');
+    expect(costText({ cost: cost({ tokens: null, measured: 0, absent: 0, unreadable: 5 }) }))
+      .toBe('cost not measured here (5 unreadable)');
+    expect(costPiece({ cost: cost({ tokens: null, measured: 0, absent: 5 }) })?.tone).toBe('unknown');
   });
 
   it('names an unreadable record beside a partial sum', () => {
-    expect(costBadgeText(card({ cost: cost({ unreadable: 1 }) })))
-      .toBe('measured on 3 of 5 slices · 1 unreadable');
+    expect(costText({ cost: cost({ unreadable: 1 }) })).toBe('measured on 3 of 5 slices · 1 unreadable');
   });
 
-  it('renders exactly as today for a payload carrying no cost', () => {
-    // Every existing board must be unaffected: a server too old to have looked
-    // sends no field, and that is a third state apart from both zero and null.
-    expect(costBadgeText(card())).toBe('');
-    expect(costBadgeDetail(card())).toBe('');
-    expect(CardSchema.safeParse(card()).success).toBe(true);
+  it('says the cost is unknown where the spend record could not be read', () => {
+    expect(costPiece({ cost: cost() }, { spendRead: false })?.text).toBe('cost unknown — spend record unreadable');
+  });
+
+  it('says nothing for a payload carrying no cost', () => {
+    expect(costText()).toBe('');
   });
 
   it('says nothing for a plan naming no slices', () => {
-    expect(costBadgeText(card({ cost: cost({ slices: 0, measured: 0, absent: 0, tokens: null }) })))
-      .toBe('');
+    expect(costText({ cost: cost({ slices: 0, measured: 0, absent: 0, tokens: null }) })).toBe('');
   });
 });

@@ -2,7 +2,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { planningColumns } from '@plot-pm/domain/rules/workflow-phases';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
-import { checksUnaskableOn } from '../lib/plan.js';
+import { boardLinksOf, checksUnaskableOn } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
 import { PlanSourceLine } from './PlanSourceLine.js';
 
@@ -143,6 +143,8 @@ export interface BoardViewProps {
    * The `Story lanes` toggle still reaches every lane.
    */
   onOpenStory?: (story: StoryCard) => void;
+  /** Open a sprint in the in-board sprint view. */
+  onOpenSprint?: (sprintSlug: string) => void;
   /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
   highlight?: string;
   /** Whether the released-only columns are drawn; `?released=1`. */
@@ -170,6 +172,7 @@ export function BoardView({
   onStarting,
   onOpenPlan,
   onOpenStory,
+  onOpenSprint,
   highlight = '',
   planAgeSeconds = null,
   planSourceFrozen = false,
@@ -194,6 +197,7 @@ export function BoardView({
   // The board's own stories, by slug — so a card's badge is handed the story it
   // names rather than reconstructing a path from the slug.
   const storyBySlug = new Map(board.stories.map((s) => [s.slug, s]));
+  const links = useMemo(() => boardLinksOf(board), [board]);
 
   // Sprint membership: which plans each sprint contains, by slug.
   //
@@ -289,11 +293,14 @@ export function BoardView({
                     dispatch={board.dispatch}
                     approve={board.approve}
                     interrogate={board.interrogate}
+                    deliver={board.deliver}
                     pulse={pulse}
                     onStarting={onStarting}
                     onOpen={(opened) => { onOpenPlan(opened.path); }}
                     story={card.story ? storyBySlug.get(card.story) : undefined}
                     onOpenStory={onOpenStory}
+                    onOpenSprint={onOpenSprint}
+                    links={links}
                     highlighted={card.slug === highlight}
                   />
                 ))
