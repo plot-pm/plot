@@ -2,7 +2,8 @@
 // `agent-settings.ts` gives: the root import bundles every entity and rule.
 import { releaseChainStep, type ReleaseChainHop, type ReleaseChainStep } from '@plot-pm/domain/rules/release-chain';
 import { releasePr, releaseTag, type ReleasePrRow, type ReleaseTagPrRow } from '@plot-pm/domain/rules/release-tag';
-import { branchClaims } from '@plot-pm/domain/rules/cross-repo-reference';
+import { branchClaims, DEFAULT_BRANCH_PREFIXES, parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
+import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
@@ -172,13 +173,19 @@ export interface ReleasePorts {
  * for a plan whose every PR is deferred and for a non-deferred branch naming
  * none, and `/plot-release` refuses both. It is not `unreleased`.
  *
- * @param input - the plan file to read, the repository's default branch, the scan's PR source, and whether it skipped `git fetch`.
+ * @param input - the plan file to read, the repository's default branch, the scan's PR source, whether it skipped `git fetch`, and the `Branch prefixes` entries (default {@link DEFAULT_BRANCH_PREFIXES}).
  * @param ports - the plan store, host and refs ports this reads.
  * @param warn - where a host refusal's own words go, same as {@link resolveRelease}.
  * @returns the output line, without its newline — `shipped\t...`, `unreleased`, `all-foreign\t...`, `none`, or `finding\t...`.
  */
 export const resolvePlanRelease = async (
-  input: { readonly planFile: string; readonly defaultBranch: string; readonly prSource: string; readonly noFetch: boolean },
+  input: {
+    readonly planFile: string;
+    readonly defaultBranch: string;
+    readonly prSource: string;
+    readonly noFetch: boolean;
+    readonly branchPrefixes?: readonly string[];
+  },
   ports: ReleasePorts,
   warn: (s: string) => void,
 ): Promise<string> => {
@@ -190,7 +197,7 @@ export const resolvePlanRelease = async (
   );
   const prRows: readonly ReleasePrRow[] =
     text.ok && text.value !== null
-      ? branchClaims(text.value).map((claim) => ({ reference: claim.reference, deferred: deferredBranches.has(claim.branch) }))
+      ? branchClaims(text.value, input.branchPrefixes ?? DEFAULT_BRANCH_PREFIXES).map((claim) => ({ reference: claim.reference, deferred: deferredBranches.has(claim.branch) }))
       : [];
   const prResult = releasePr(prRows);
 
@@ -290,6 +297,7 @@ const USAGE =
  * @param ports - the host, refs and plan-store ports either verb reads.
  * @param write - where the answer goes.
  * @param warn - where a usage refusal and a host refusal go.
+ * @param branchPrefixes - the `Branch prefixes` entries `release` reads claims under.
  * @returns the process exit code.
  */
 export const run = async (
@@ -298,6 +306,7 @@ export const run = async (
   ports: ReleasePorts,
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
+  branchPrefixes: readonly string[] = DEFAULT_BRANCH_PREFIXES,
 ): Promise<number> => {
   const [verb, target, defaultBranch, prSource = '', noFetchArg = ''] = argv;
   if (target === undefined || defaultBranch === undefined || (verb !== 'resolve' && verb !== 'release')) {
@@ -308,7 +317,7 @@ export const run = async (
   const line =
     verb === 'resolve'
       ? await resolveRelease({ pr: target, defaultBranch, prSource, noFetch, ...parseRow(stdin) }, ports, warn)
-      : await resolvePlanRelease({ planFile: target, defaultBranch, prSource, noFetch }, ports, warn);
+      : await resolvePlanRelease({ planFile: target, defaultBranch, prSource, noFetch, branchPrefixes }, ports, warn);
   write(`${line}\n`);
   return EXIT.ok;
 };
@@ -332,11 +341,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
     stdin = Buffer.concat(chunks).toString('utf8');
   }
+  const read = await scriptsShell(context).config('Branch prefixes', '');
+  const configured = read.ok ? parseBranchPrefixes(read.value) : [];
   void endEntry(
-    await run(process.argv.slice(2), stdin, {
-      host: hostShell(context),
-      refs: refsGit(context),
-      planStore: planStoreShell(context),
-    }),
+    await run(
+      process.argv.slice(2),
+      stdin,
+      { host: hostShell(context), refs: refsGit(context), planStore: planStoreShell(context) },
+      undefined,
+      undefined,
+      configured.length > 0 ? configured : DEFAULT_BRANCH_PREFIXES,
+    ),
   );
 }

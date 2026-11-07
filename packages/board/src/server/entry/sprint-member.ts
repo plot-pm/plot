@@ -3,6 +3,7 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { PlanStore, Scripts, Trees } from '@plot-pm/domain';
+import { parseBranchPrefixes } from '@plot-pm/domain/rules/cross-repo-reference';
 import { slugOf } from '@plot-pm/domain/rules/state-transition';
 import type { SprintFile } from '@plot-pm/domain/rules/sprint-membership';
 import {
@@ -343,6 +344,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   }
   const otherSprints = sprintFiles.filter((f) => f.file !== target.file);
 
+  const prefixes = parseBranchPrefixes(await configured(ctx.scripts, 'Branch prefixes', ''));
   const memberCtx: SprintMemberContext = {
     sprint: args.sprint,
     slug: args.slug,
@@ -350,6 +352,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
     date: localDate(),
     reason: args.reason,
     ...(firstBranch !== undefined ? { firstBranch } : {}),
+    ...(prefixes.length > 0 ? { branchPrefixes: prefixes } : {}),
   };
 
   let result: SprintMemberResult;
