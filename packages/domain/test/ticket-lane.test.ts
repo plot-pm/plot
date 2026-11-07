@@ -3,7 +3,7 @@ import type { Issue } from '../src/entities/issue.js';
 import { DONE_LANE_LIMIT, doneTickets, ticketLane, type TicketLaneReading } from '../src/rules/ticket-lane.js';
 import type { TicketPlan } from '../src/rules/ticket-phase.js';
 
-const APPROVED_PLAN: TicketPlan = { state: 'approved', total: 0, merged: null };
+const APPROVED_PLAN: TicketPlan = { slug: 'p', title: 'P', story: '', state: 'approved', total: 0, merged: null };
 
 const NOW = Date.parse('2026-10-13T00:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -88,33 +88,33 @@ describe('ticketLane', () => {
 
   it('reads Open for an open issue named only by a Draft plan', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
-    const plans: TicketPlan[] = [{ state: 'draft', total: 0, merged: null }];
+    const plans: TicketPlan[] = [{ slug: 'p', title: 'P', story: '', state: 'draft', total: 0, merged: null }];
     expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
   });
 
   it('reads Done for an open issue named by a Delivered plan', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
-    const plans: TicketPlan[] = [{ state: 'delivered', total: 1, merged: 1 }];
+    const plans: TicketPlan[] = [{ slug: 'p', title: 'P', story: '', state: 'delivered', total: 1, merged: 1 }];
     expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('done');
   });
 
   it('reads Open for an open issue named only by a Released plan — released does not place', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
-    const plans: TicketPlan[] = [{ state: 'released', total: 1, merged: 1 }];
+    const plans: TicketPlan[] = [{ slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 }];
     expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
   });
 
   it('reads Open for an open issue named only by a Rejected or Superseded plan', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
-    const plans: TicketPlan[] = [{ state: 'rejected', total: 0, merged: null }, { state: 'superseded', total: 0, merged: null }];
+    const plans: TicketPlan[] = [{ slug: 'p', title: 'P', story: '', state: 'rejected', total: 0, merged: null }, { slug: 'p', title: 'P', story: '', state: 'superseded', total: 0, merged: null }];
     expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
   });
 
   it('lets the least advanced named plan decide: Draft and Approved together read Open', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
     const plans: TicketPlan[] = [
-      { state: 'approved', total: 1, merged: 0 },
-      { state: 'draft', total: 0, merged: null },
+      { slug: 'p', title: 'P', story: '', state: 'approved', total: 1, merged: 0 },
+      { slug: 'p', title: 'P', story: '', state: 'draft', total: 0, merged: null },
     ];
     expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
   });
@@ -122,8 +122,8 @@ describe('ticketLane', () => {
   it('keeps the first plan when a later one is more advanced: Draft then Approved reads Open', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
     const plans: TicketPlan[] = [
-      { state: 'draft', total: 0, merged: null },
-      { state: 'approved', total: 1, merged: 0 },
+      { slug: 'p', title: 'P', story: '', state: 'draft', total: 0, merged: null },
+      { slug: 'p', title: 'P', story: '', state: 'approved', total: 1, merged: 0 },
     ];
     expect(ticketLane(issue, reading({ categoryStated: false, plans }), NOW)).toBe('open');
   });
