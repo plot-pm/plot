@@ -342,7 +342,7 @@ describe('the brief hands over facts and withholds opinions', () => {
 
   it('names the ticket by #<n> where the host gave no URL', () => {
     const prompt = composeStoryPrompt({ issue: { ...ISSUE, url: '' }, home: 'docs/stories/', truncated: false });
-    assert.ok(prompt.includes(`issue: #${ISSUE.number}`));
+    assert.ok(prompt.includes(`issue: "#${ISSUE.number}"`));
   });
 
   it('states the home, so the skill takes its own single-home escape', () => {
