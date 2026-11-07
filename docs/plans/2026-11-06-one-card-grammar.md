@@ -15,6 +15,7 @@
 - **Started:** 2026-11-06, jwloka, `feature/one-card-grammar-plans`
 - **Approved:** 2026-11-07, jwloka, in-session
 - **Started:** 2026-11-07, Jan Wloka, `feature/one-card-grammar-stories`
+- **Started:** 2026-11-07, Jan Wloka, `feature/one-card-grammar-tickets`
 
 ## Changelog
 
