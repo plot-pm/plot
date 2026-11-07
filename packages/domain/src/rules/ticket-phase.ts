@@ -2,6 +2,12 @@ import { phaseOrder, type Phase } from '../entities/workflow.js';
 
 /** One plan that names a ticket through `Issue:`, as far as the ticket's phase needs it. */
 export interface TicketPlan {
+  /** The plan's slug, from its file name. */
+  readonly slug: string;
+  /** The plan's title. */
+  readonly title: string;
+  /** The plan's `Story:` slug; `''` where it names none. */
+  readonly story: string;
   /** The plan's `State:`, lowercased: `draft`, `design`, `approved`, `delivered`, `released`, … */
   readonly state: string;
   /** How many non-deferred slice branches the plan lists; 0 where it lists none. */

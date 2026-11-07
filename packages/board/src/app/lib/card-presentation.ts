@@ -695,3 +695,18 @@ export const presentDetails = (facts: CardFacts): PresentedDetails => ({
     : piece(refWords(facts.ownership.source), { ref: facts.ownership.source, data: { source: 'ref' } }),
   cost: unshownCost(facts.progress.cost),
 });
+
+/**
+ * Why a ticket's facts refuse *Create plan*, in the card's words, or `''`
+ * where they allow it, carry no such action, or refuse only because this board
+ * cannot act (the button's own verdict words that case).
+ *
+ * @param facts - the ticket's card facts; `undefined` where the row carries none.
+ * @returns the refusal sentence, or `''`.
+ */
+export const createPlanRefusal = (facts: CardFacts | undefined): string => {
+  const actions = facts ? [facts.next.primary, ...facts.next.secondary] : [];
+  const act = actions.find((a) => a?.action === 'create-plan');
+  if (!act || act.enabled || act.reason === null || act.reason.kind === 'action-unavailable') return '';
+  return reasonWords(act.reason);
+};

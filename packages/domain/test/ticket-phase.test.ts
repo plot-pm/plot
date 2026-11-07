@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { allFinished, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
 
-const plan = (state: string, overrides: Partial<TicketPlan> = {}): TicketPlan => ({ state, total: 0, merged: null, ...overrides });
+const plan = (state: string, overrides: Partial<TicketPlan> = {}): TicketPlan => ({ slug: 'p', title: 'P', story: '', state, total: 0, merged: null, ...overrides });
 
 describe('ticketPhase', () => {
   it('answers null when no plan names the ticket', () => {

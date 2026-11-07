@@ -37,7 +37,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { blobIdOfBytes, parsePlanMetaFiles, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
@@ -1723,7 +1723,14 @@ async function ticketPlansOf(
     const merged = held === undefined
       ? null
       : branches.filter((b) => held.slices.some((w) => w.branches.some((x) => x.branch === b.branch && x.state === 'merged'))).length;
-    const plan: TicketPlan = { state: meta.phase.toLowerCase(), total: branches.length, merged };
+    const plan: TicketPlan = {
+      slug: planSlug(meta.file),
+      title: meta.title || planSlug(meta.file),
+      story: meta.story,
+      state: meta.phase.toLowerCase(),
+      total: branches.length,
+      merged,
+    };
     for (const n of issues) {
       const key = issueKey(n);
       byIssue.set(key, [...(byIssue.get(key) ?? []), plan]);

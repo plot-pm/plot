@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, board as buildBoard, fleet as buildFleet, story as buildStory, type Catalogue } from '../catalogue/index.js';
 import type { TicketLaneGroups, TicketLaneRow } from '../../src/contract/schema.js';
+import { withTicketFacts } from '../catalogue/ticket-lanes.js';
 
 /**
  * THE DISCOVERY GROUPS HAVE A TOGGLE — the browser half. What each group shows
@@ -60,7 +61,7 @@ describe('the Discovery groups have a toggle', () => {
     cat.open('an-empty-estate', {
       over: {
         board: buildBoard({
-          tickets: TICKETS,
+          tickets: withTicketFacts(TICKETS),
           storyLanes: STORY_LANES,
           topics: TOPICS,
           idea: { available: true, reason: '' },

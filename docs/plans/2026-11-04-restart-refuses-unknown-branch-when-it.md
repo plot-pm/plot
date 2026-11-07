@@ -6,7 +6,7 @@
 
 - **State:** Delivered
 - **Type:** feature
-- **Sprint:** follow-ups-2-30-1
+- **Sprint:** card-alignment
 - **Issue:** #3100
 - **Story:**
 - **Review:** pr
