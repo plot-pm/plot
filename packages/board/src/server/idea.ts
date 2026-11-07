@@ -7,7 +7,7 @@ import {
   collectStoryCards, configFor, defaultBranchOf, readConfig, readConfigAsync, refsFor, scriptsFor,
   type BuildBoardOptions,
 } from './board.js';
-import { jiraProjectsOf, repoIssuePrefixOf, STORY_SLUG_PATTERN, storyIsLive, type StoryIssueContext } from '@plot-pm/domain';
+import { jiraProjectsOf, planAnswersTicket, repoIssuePrefixOf, STORY_SLUG_PATTERN, storyIsLive, type StoryIssueContext } from '@plot-pm/domain';
 import type { Known, Ref } from '@plot-pm/domain/entities/card-facts';
 import { ticketStoriesOf } from './story-facts.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
@@ -192,6 +192,9 @@ export interface IssueDetail {
  * bodies; this asks for exactly the one issue a human just pointed at, at a
  * cadence no timer sets.
  *
+ * Rejects where the host call itself rejects, so a caller never waits on an
+ * answer that cannot come.
+ *
  * Rejects with `code` preserved so the caller can keep exit 4 (this host cannot
  * be asked) apart from every other failure — the same split `refreshIssues`
  * makes, and the reason the codes were reused.
@@ -228,7 +231,7 @@ export function readIssue(
           // error this repo keeps removing.
           reject(new Error('the host returned something that is not an issue'));
         }
-      });
+      }, reject);
   });
 }
 
@@ -400,7 +403,8 @@ export function ideaStatus(opts: BuildBoardOptions, number: number): IdeaStatus 
 
 /**
  * The issue numbers every plan at `origin/<default>` — plus every open draft
- * plan — references, read through the same {@link planMetasAtDefault} every
+ * plan — references, except a plan `planAnswersTicket` counts as answering
+ * nothing (`rejected`, `superseded`), read through the same {@link planMetasAtDefault} every
  * other plan-naming caller reads.
  *
  * There `ticketPlansOf` filters a list on a timer; here it is a PRECONDITION
@@ -423,6 +427,8 @@ export async function referencedIssues(
   if (metas === null) return null;
   const referenced = new Set<number>();
   for (const meta of metas) {
+    // A rejected or superseded plan answers nothing: the rule the ticket card reads.
+    if (!planAnswersTicket(meta.phase)) continue;
     for (const n of meta.issues ?? []) referenced.add(typeof n === 'string' ? Number(n) : n);
   }
   return referenced;

@@ -27,6 +27,7 @@ import {
   composeIdeaPrompt,
   handleIdea,
   ideaAvailability,
+  readIssue,
   ideaPromptPath,
   slugFromTitle,
   storiesOfIssue,
@@ -457,6 +458,34 @@ describe('the round trip: the plan removes the row that produced it', () => {
     assert.deepEqual(stillUnplanned, [227], '#228 is answered; #227 is not');
   });
 
+  it('accepts a ticket whose only plan is rejected, as its card offers Create plan', async () => {
+    // ONE RULE with `ticketCardFacts`: `planAnswersTicket`. A rejected or
+    // superseded plan answers nothing, so the ticket can get a new plan.
+    const dir = repo({
+      '2026-08-19-turned-down.md': [
+        '# Turned down', '', '## Status', '',
+        '- **Phase:** Rejected',
+        '- **Type:** feature',
+        '- **Issue:** #228',
+        '', '## Changelog', '', '- rejected', '',
+      ].join('\n'),
+      '2026-08-20-replaced.md': [
+        '# Replaced', '', '## Status', '',
+        '- **Phase:** Superseded',
+        '- **Type:** feature',
+        '- **Issue:** #229',
+        '', '## Changelog', '', '- superseded', '',
+      ].join('\n'),
+    });
+    const { referencedIssues } = await import('../../src/server/idea.js');
+    const referenced = await referencedIssues({ repoRoot: dir, scriptsDir: SCRIPTS });
+    assert.ok(referenced, 'the plans must be readable');
+    assert.deepEqual([...referenced], []);
+    const got = await post({ repoRoot: dir, referenced });
+    assert.equal(got.status, 202);
+    assert.ok(fs.existsSync(ideaPromptPath(dir, 228)));
+  });
+
   it('a second click on the answered row is refused, not a second plan', async () => {
     // The row survives until the next refresh, so the click is reachable. The
     // precondition is what makes two plans for one signal impossible — worse
@@ -610,5 +639,12 @@ describe('the idea does not move the board', () => {
       'the board checkout must still be on the branch it started on — if the '
       + 'agent ran here, `git checkout -b` moved it',
     );
+  });
+});
+
+describe('readIssue settles on every answer', () => {
+  it('rejects, rather than never settling, where the host call itself rejects', async () => {
+    const config = { hostSaid: () => Promise.reject(new Error('spawn failed')) } as unknown as NonNullable<Parameters<typeof readIssue>[0]['config']>;
+    await assert.rejects(readIssue({ repoRoot: os.tmpdir(), scriptsDir: SCRIPTS, config }, 228), /spawn failed/);
   });
 });

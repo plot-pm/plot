@@ -77,7 +77,7 @@ describe('the Discovery ticket card shows its number, state and age', () => {
 
   const card = (page: Page, id: string) => page.locator(`#ticket-${id}`);
 
-  it('shows the shorthand-prefixed title and a state pill on an Open ticket', async () => {
+  it('shows the shorthand-prefixed title, a state pill and its opened age on an Open ticket', async () => {
     const page = await open();
     try {
       await expect.poll(() => card(page, '1688').count(), { timeout: 10_000 }).toBe(1);
@@ -85,6 +85,8 @@ describe('the Discovery ticket card shows its number, state and age', () => {
         '1688: The Jira project scope: ship the connector',
       );
       expect(await card(page, '1688').locator('[data-state-pill]').count()).toBeGreaterThan(0);
+      // The age names its event; the `owner/repo#N` reference shows in the modal, not on the card.
+      expect(await card(page, '1688').locator('[data-since="opened"]').count()).toBe(1);
     } finally {
       await page.close();
     }

@@ -95,6 +95,12 @@ describe('ticketCardFacts next', () => {
     expect(next.primary?.action).toBe('create-plan');
   });
 
+  it('offers Create plan to a ticket whose only plan is rejected, as POST /api/idea accepts it', () => {
+    const out = facts({ plans: { value: [plan({ state: 'Rejected' })] } });
+    expect(out.next.primary).toEqual({ action: 'create-plan', enabled: true, reason: null });
+    expect(out.lineage.plans).toEqual({ value: [] });
+  });
+
   it.each(['done', 'hidden'] as const)('offers nothing in the %s lane', (lane) => {
     expect(facts({ lane }).next).toEqual({ primary: null, secondary: [] });
   });
