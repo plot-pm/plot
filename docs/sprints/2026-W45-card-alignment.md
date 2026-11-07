@@ -36,6 +36,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 - [x] [open-plot-review-findings-from-the] Open plot-review findings from the 2026-10-29 delivery-loop plans (#3069) <!-- pr: #3075, branch: bug/a-high-gets-its-own-fixer-attempts -->
 - [x] [partial-board-pulse-reported-as-unknown] Partial board pulse reported as unknown-branch (#3118) <!-- pr: #3127, branch: feature/partial-pulse-names-itself -->
 - [x] [plot-fleetctl-stop-unloads-another-checkout] plot-fleetctl --stop unloads another checkout's supervisor (#3060) <!-- pr: #3094, branch: bug/plot-fleetctl-stop-unloads-another-checkout -->
+- [x] [restart-refuses-unknown-branch-when-it] restart refuses unknown-branch when it has no current pulse (#3100) <!-- pr: #3114, branch: feature/restart-refuses-no-pulse -->
 
 <!-- add items here -->
 
@@ -66,6 +67,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 - 2026-11-07: Added [open-plot-review-findings-from-the] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
 - 2026-11-07: Added [partial-board-pulse-reported-as-unknown] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
 - 2026-11-07: Added [plot-fleetctl-stop-unloads-another-checkout] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
+- 2026-11-07: Added [restart-refuses-unknown-branch-when-it] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
   in Design on `idea/one-card-grammar`, PR #3192). The plan joins the sprint
   through `plot-sprint-member.mjs add card-alignment one-card-grammar` once its
   plan PR merges on approval — the writer sets the plan's `Sprint:` field, which
