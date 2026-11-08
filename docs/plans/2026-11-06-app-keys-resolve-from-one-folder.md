@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** infra
+- **Sprint:** ship-2-32-0
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-06, Jan Wloka, plan-PR #3202 merged
