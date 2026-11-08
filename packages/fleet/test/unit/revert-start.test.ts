@@ -109,6 +109,8 @@ interface Rigging {
   checksWithout: 'as-set' | 'unknown';
   /** Where false, `rerunAll` is refused. */
   rerunAccepted: boolean;
+  /** Whether the release controller gives up a claim it is asked about. */
+  released: boolean;
 }
 
 const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
@@ -141,6 +143,7 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     reviewRefused: false,
     checksWithout: 'as-set',
     rerunAccepted: true,
+    released: true,
   };
   const started: string[] = [];
   ticket = state.ticket;
@@ -208,6 +211,10 @@ const rig = (initial: RepairRecord, now = T0 + 2 * HOUR) => {
     claim: async () => {
       calls.push('claim');
       return state.claim;
+    },
+    release: async (branch, localEvidence) => {
+      calls.push(`release:${branch}:${localEvidence === true ? 'claim-only' : 'unknown'}`);
+      return { released: state.released, detail: state.released ? 'released' : 'a file-changing commit' };
     },
     deskOf: async () => state.desk,
     makeDesk: async () => {
@@ -555,6 +562,69 @@ describe('repairRevertTick — close-prs', () => {
     expect(r.notes).toHaveLength(1);
     expect(r.notes[0]).toContain('PR #41 is reverted');
     expect(r.notes[0]).toContain(REVERTED_PLAN);
+  });
+});
+
+describe('repairRevertTick — releasing the ended attempt', () => {
+  const GREEN_NOW = { headSha: 'n'.repeat(40), head: 'green' as const, settled: { sha: 'n'.repeat(40), state: 'green' as const } };
+  const BRANCH = 'bug/main-repair-gggggggggggg';
+  const releases = (r: ReturnType<typeof rig>) => r.calls.filter((call) => call.startsWith('release:'));
+  const closing = (over: Partial<RepairRecord>) => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked', revertPr: 9, ...over }));
+    r.set({ reading: reading(GREEN_NOW) });
+    r.state.prs.set(9, pr());
+    return r;
+  };
+
+  it('releases the ended attempt branch once, with claim-only evidence, and writes done first', async () => {
+    const r = closing({ attempt: { branch: BRANCH, outcome: 'ended' } });
+    expect(await repairRevertTick(r.world)).toBe('closed');
+    expect(releases(r)).toEqual([`release:${BRANCH}:claim-only`]);
+    expect(r.calls.indexOf('write:done')).toBeLessThan(r.calls.indexOf(`release:${BRANCH}:claim-only`));
+  });
+
+  it.each([
+    ['lost', { branch: BRANCH, outcome: 'lost' as const }],
+    ['start-failed', { branch: BRANCH, outcome: 'start-failed' as const }],
+    ['no outcome', { branch: BRANCH }],
+  ])('releases nothing for an attempt with outcome: %s', async (_name, attempt) => {
+    const r = closing({ attempt });
+    expect(await repairRevertTick(r.world)).toBe('closed');
+    expect(releases(r)).toEqual([]);
+  });
+
+  it('releases nothing where the attempt branch is not the last green SHA\'s repair branch', async () => {
+    const r = closing({ attempt: { branch: 'bug/main-repair-aaaaaaaaaaaa', outcome: 'ended' } });
+    expect(await repairRevertTick(r.world)).toBe('closed');
+    expect(releases(r)).toEqual([]);
+  });
+
+  it('keeps the record done and returns closed when the release is refused', async () => {
+    const r = closing({ attempt: { branch: BRANCH, outcome: 'ended' } });
+    r.set({ released: false });
+    const lines: string[] = [];
+    expect(await repairRevertTick(r.world, (line) => lines.push(line))).toBe('closed');
+    expect(r.stored()?.state).toBe('done');
+    expect(lines.join('\n')).toContain('a file-changing commit');
+  });
+
+  it('keeps the record done and returns closed when the release throws', async () => {
+    const r = closing({ attempt: { branch: BRANCH, outcome: 'ended' } });
+    r.world.release = async () => {
+      throw new Error('boom');
+    };
+    const lines: string[] = [];
+    expect(await repairRevertTick(r.world, (line) => lines.push(line))).toBe('closed');
+    expect(r.stored()?.state).toBe('done');
+    expect(lines.join('\n')).toContain('boom');
+  });
+
+  it('releases nothing on the pass after done', async () => {
+    const r = closing({ attempt: { branch: BRANCH, outcome: 'ended' } });
+    await repairRevertTick(r.world);
+    expect(releases(r)).toHaveLength(1);
+    expect(await repairRevertTick(r.world)).toBe('none');
+    expect(releases(r)).toHaveLength(1);
   });
 });
 

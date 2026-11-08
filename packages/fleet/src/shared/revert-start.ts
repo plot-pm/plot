@@ -17,6 +17,7 @@ import {
   type RedMainCandidate,
   type RedMainPickerAnswer,
 } from '@plot-pm/domain/rules/repair';
+import { mainRepairBranchOf } from '@plot-pm/domain/rules/repair-pr';
 import { lastGreenRerunOverdue, lastGreenRerunSettledOf } from '@plot-pm/domain/rules/repair-start';
 import {
   REVERT_TICKET_LABEL,
@@ -74,6 +75,12 @@ export interface RevertWorld {
   deskOf(branch: string): Promise<string | null>;
   /** Creates the desk on the claimed branch; null where it could not. */
   makeDesk(branch: string): Promise<string | null>;
+  /**
+   * Gives up the claim on a branch through the release controller, with
+   * `claim-only` local evidence where `localEvidence` is true. `released` is
+   * false where the controller or the script refuses; `detail` names why.
+   */
+  release(branch: string, localEvidence?: true): Promise<{ released: boolean; detail: string }>;
   /** Pushes the desk's branch. */
   push(desk: string, branch: string): Promise<boolean>;
   /** Whether the PR index reads the PR's `plot/review` status as a failure (a HIGH finding). */
@@ -432,11 +439,37 @@ const closePrs = async (
   if (revertMerged && merged === null) warn(`plot-fleetd: revert PR #${record.revertPr} merged, and the record names no reverted PR to ticket`);
   if (merged !== null) await ticketMergedRevert(world, record, merged, warn);
   if (!(await moved(world, record, 'done', {}))) return 'held';
+  await releaseEndedAttempt(world, record, warn);
   if (merged !== null) {
     const plan = revertTicketPlan({ revertedBranch: record.revertedBranch, plan: record.revertedPlan });
     await world.notify(`plot-fleetd: revert PR #${merged.revertPr} merged and the default branch is green; PR #${merged.revertedPr} is reverted (plan: ${plan}).`);
   }
   return 'closed';
+};
+
+/**
+ * Releases the claim of an attempt that ended with no agent committing.
+ *
+ * Acts only where the attempt's outcome is `ended` and its branch is the one
+ * `mainRepairBranchOf` names for the record's last green SHA. A `lost` claim
+ * belongs to another machine, and a `start-failed` attempt is not ended, so
+ * neither releases. A refusal, such as a branch carrying a file-changing
+ * commit, warns and does not reopen the `done` record.
+ */
+const releaseEndedAttempt = async (
+  world: RevertWorld,
+  record: RepairRecord,
+  warn: (line: string) => void,
+): Promise<void> => {
+  const attempt = record.attempt;
+  if (attempt === undefined || attempt.outcome !== 'ended') return;
+  if (attempt.branch !== mainRepairBranchOf(record.lastGreenSha)) return;
+  try {
+    const result = await world.release(attempt.branch, true);
+    if (!result.released) warn(`plot-fleetd: repair claim ${attempt.branch} stays after the episode ended: ${result.detail}`);
+  } catch (e) {
+    warn(`plot-fleetd: repair claim ${attempt.branch} was not released: ${e instanceof Error ? e.message : String(e)}`);
+  }
 };
 
 /**

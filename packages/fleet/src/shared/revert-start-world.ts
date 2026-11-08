@@ -35,6 +35,8 @@ export interface RevertWorldOptions {
   build: BuildPort;
   /** Runs one host call inside a host slot where the CI system is GitHub Actions. */
   slot: RevertWorld['slot'];
+  /** Releases a claim through the release controller. */
+  release: RevertWorld['release'];
   /** Sends one message to a person; resolves whether or not it was delivered. */
   notify: RevertWorld['notify'];
   /** The configured `Worktree root`, `''` for the default. */
@@ -159,6 +161,7 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
       const added = await trees.addBranch(desk, branch, `origin/${branch}`);
       return added.ok ? desk : null;
     },
+    release: options.release,
     push: async (desk, branch) => (await trees.push(desk, branch)).ok,
     reviewFailed: async (pr) => {
       const backend = await host.backend();
