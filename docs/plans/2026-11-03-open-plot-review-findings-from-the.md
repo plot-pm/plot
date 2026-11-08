@@ -112,7 +112,7 @@ jwloka, 2026-11-03, after the first panel round:
 
 ### Fixer attempts
 
-- `bug/a-high-gets-its-own-fixer-attempts` <!-- waits: feature/fleetd-merges-as-the-merger-app --> — count HIGH and CI-red attempts apart by `finding.kind`; give a red head that the fixer record proves fixer-pushed to the fixer arm; move the re-status arm after the HIGH arm and gate it on `Auto-review` and the start budget (#2923, #2921)
+- `bug/a-high-gets-its-own-fixer-attempts` <!-- waits: feature/fleetd-merges-as-the-merger-app --> — count HIGH and CI-red attempts apart by `finding.kind`; give a red head that the fixer record proves fixer-pushed to the fixer arm; move the re-status arm after the HIGH arm and gate it on `Auto-review` and the start budget (#2923, #2921) → #3169
 
 ### Red main
 

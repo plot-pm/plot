@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #3213
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3218 merged
 - **Started:** 2026-11-07, Jan Wloka, `bug/branchclaims-reads-file-list-lines-in`
+- **Delivered:** 2026-11-07
 
 ## Changelog
 

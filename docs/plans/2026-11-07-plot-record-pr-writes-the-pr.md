@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3226 merged
+- **Started:** 2026-11-07, Jan Wloka, `bug/plot-record-pr-writes-the-pr`
 
 ## Changelog
 
@@ -51,7 +52,7 @@ The line `branchClaims` reads and the line the recorder writes must be the same 
 
 ### Fix
 
-- `bug/plot-record-pr-writes-the-pr` — restrict `annotateSlicePr` to the branch claim line inside `## Slices`, share the section and fence rules with `branchClaims`, add the corpus comparison and the 2026-11-03 fixture <!-- builds: a section-scoped annotateSlicePr, a corpus comparison between branchClaims and the recorder -->
+- `bug/plot-record-pr-writes-the-pr` — restrict `annotateSlicePr` to the branch claim line inside `## Slices`, share the section and fence rules with `branchClaims`, add the corpus comparison and the 2026-11-03 fixture <!-- builds: a section-scoped annotateSlicePr, a corpus comparison between branchClaims and the recorder --> → #3230
 
 ## Notes
 

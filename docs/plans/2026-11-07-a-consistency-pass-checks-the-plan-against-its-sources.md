@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3220 merged
 - **Started:** 2026-11-07, Jan Wloka, `feature/a-consistency-pass-trial`
+- **Started:** 2026-11-08, Jan Wloka, `feature/a-consistency-pass-in-the-skill`
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
@@ -85,7 +86,7 @@ One agent run of about 15 to 20 minutes (17.5 measured once). No cost to a plan 
 
 ### Trial
 
-- `feature/a-consistency-pass-trial` — the pass as a documented step, run by hand on the next plans before approval, with a record of each run's flags and what the build later confirmed or refuted. Writes nothing into the plan format.
+- `feature/a-consistency-pass-trial` — the pass as a documented step, run by hand on the next plans before approval, with a record of each run's flags and what the build later confirmed or refuted. Writes nothing into the plan format. → #3228
 
 ### Implementation
 

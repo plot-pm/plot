@@ -3,7 +3,7 @@
 // this file only calls.
 import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
 import { ACTION_TIMEOUT_MS } from './bounded-fetch.js';
-import { assertWith, b64url, refusalWording, type IssuedChallenge } from './passkey.js';
+import { assertWith, b64url, refusalWording, registrationKey, type IssuedChallenge } from './passkey.js';
 
 /** POSTs a JSON body and answers the status with the parsed body, `{}` where it does not parse. */
 export const post = async (url: string, body: unknown): Promise<{ status: number; body: Record<string, unknown> }> => {
@@ -53,12 +53,11 @@ export const registerPasskey = async (replacing: boolean): Promise<string> => {
   })) as PublicKeyCredential | null;
   if (!created) return 'No credential was created.';
   const response = created.response as AuthenticatorAttestationResponse;
-  const key = response.getPublicKey();
-  if (!key) return 'The authenticator returned no public key.';
+  const key = registrationKey(response);
   const done = await post('/api/passkey/register', {
     credentialId: b64url(created.rawId),
-    publicKey: b64url(key),
-    alg: response.getPublicKeyAlgorithm(),
+    publicKey: b64url(key.publicKey),
+    alg: key.alg,
     assertion: replace,
   });
   return done.status === 200 ? 'Passkey registered.' : refusalWording(String(done.body.reason ?? ''), String(done.body.detail ?? ''));

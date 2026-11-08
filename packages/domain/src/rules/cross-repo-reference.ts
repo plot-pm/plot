@@ -56,6 +56,40 @@ export const parseBranchPrefixes = (raw: string): readonly string[] =>
     .map((prefix) => prefix.trim().replace(/\/$/, ''))
     .filter((prefix) => prefix !== '');
 
+/** A line inside a slice section, with its zero-based index in the file. */
+export interface SectionLine {
+  readonly index: number;
+  readonly line: string;
+}
+
+/**
+ * The lines inside a slice section (`## Slices`, `## Branches` or `## Waves`), outside code fences.
+ *
+ * A fence delimiter line and a `## ` heading line are not returned. Lines under a
+ * `###` heading stay in their `##` section.
+ *
+ * @param content - the whole plan file.
+ * @returns the section lines in file order, each with its zero-based line index; empty where the file has no such section.
+ */
+export const sectionLines = (content: string): readonly SectionLine[] => {
+  const found: SectionLine[] = [];
+  let inSection = false;
+  let inFence = false;
+  content.split('\n').forEach((line, index) => {
+    if (FENCE.test(line)) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) return;
+    if (line.startsWith('## ')) {
+      inSection = SECTION.test(line);
+      return;
+    }
+    if (inSection) found.push({ index, line });
+  });
+  return found;
+};
+
 /**
  * Every branch a plan's slice sections claim, one row per PR its claim lines name.
  *
@@ -79,19 +113,7 @@ export const branchClaims = (
 ): readonly BranchClaim[] => {
   const hasPrefix = (token: string): boolean => prefixes.some((prefix) => token.startsWith(`${prefix}/`));
   const found = new Map<string, Map<string, SliceReference>>();
-  let inSection = false;
-  let inFence = false;
-  for (const line of content.split('\n')) {
-    if (FENCE.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-    if (line.startsWith('## ')) {
-      inSection = SECTION.test(line);
-      continue;
-    }
-    if (!inSection) continue;
+  for (const { line } of sectionLines(content)) {
     const listed = LIST_CLAIM.exec(line)?.[1];
     const branch =
       listed !== undefined && (hasPrefix(listed) || CROSS_REPO_REFERENCE.test(line))
