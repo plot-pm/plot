@@ -1,0 +1,248 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { clockManual, fleetdHeartbeatFile } from '@plot-pm/domain/adapters';
+import { answered, failed } from '@plot-pm/domain';
+import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
+
+import { run, type RunSeams } from '../../src/server/entry/registryd-main.js';
+import type { TickReport } from '../../src/server/entry/registryd.js';
+import { startFleetdHeartbeat, supervisedFrom } from '../../src/shared/fleetd-heartbeat.js';
+
+const settle = async (turns = 5): Promise<void> => {
+  for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
+};
+
+const completedTick = (): TickReport => ({
+  startedAt: 0,
+  costMs: 1,
+  agents: 0,
+  incomplete: '',
+  handOver: null,
+  decision: {
+    outcome: 'decided',
+    workflow: 'supervise',
+    writes: [],
+    detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [], unclaimed: [] },
+  },
+});
+
+describe('supervisedFrom', () => {
+  it.each([
+    ['a launchd label', { XPC_SERVICE_NAME: 'com.plot.fleetd' }, 'launchd'],
+    ['a terminal session', { XPC_SERVICE_NAME: '0' }, 'none'],
+    ['a systemd invocation', { INVOCATION_ID: 'abc123' }, 'systemd'],
+    ['an empty environment', {}, 'none'],
+    ['empty values', { XPC_SERVICE_NAME: '', INVOCATION_ID: '' }, 'none'],
+  ])('reads %s', (_name, env, expected) => {
+    expect(supervisedFrom(env)).toBe(expected);
+  });
+});
+
+describe('startFleetdHeartbeat', () => {
+  const source = { pid: 99, startedAt: 5, supervised: 'none' as const, generation: () => 3 };
+
+  it('writes once at start and then on every beat', async () => {
+    const clock = clockManual(1_000);
+    const written: number[] = [];
+    const store: FleetdHeartbeatStore = {
+      read: async () => answered(null),
+      write: async (h) => {
+        written.push(h.beatAt);
+        return answered(undefined);
+      },
+    };
+    startFleetdHeartbeat(clock, store, source, () => undefined);
+    await settle();
+    clock.advance(1);
+    await settle();
+    clock.advance(1);
+    await settle();
+    expect(written).toEqual([1_000, 11_000, 21_000]);
+  });
+
+  it('reports the process, the generation and the absent channel protocol', async () => {
+    const clock = clockManual(1_000);
+    let seen: unknown = null;
+    startFleetdHeartbeat(
+      clock,
+      { read: async () => answered(null), write: async (h) => ((seen = h), answered(undefined)) },
+      source,
+      () => undefined,
+    );
+    await settle();
+    expect(seen).toMatchObject({ pid: 99, startedAt: 5, generation: 3, supervised: 'none', bridgeAt: null });
+    expect(seen).not.toHaveProperty('protocol');
+  });
+
+  it('stops beating on cancel', async () => {
+    const clock = clockManual(0);
+    let writes = 0;
+    const cancel = startFleetdHeartbeat(
+      clock,
+      { read: async () => answered(null), write: async () => (writes += 1, answered(undefined)) },
+      source,
+      () => undefined,
+    );
+    await settle();
+    cancel();
+    clock.advance(3);
+    await settle();
+    expect(writes).toBe(1);
+    expect(clock.scheduled()).toBe(0);
+  });
+
+  it('warns once per run of failures and again after a success', async () => {
+    const clock = clockManual(0);
+    const outcomes = [false, false, true, false];
+    const warnings: string[] = [];
+    startFleetdHeartbeat(
+      clock,
+      {
+        read: async () => answered(null),
+        write: async () => (outcomes.shift() ? answered(undefined) : failed<void>()),
+      },
+      source,
+      (line) => warnings.push(line),
+    );
+    await settle();
+    for (let i = 0; i < 3; i += 1) {
+      clock.advance(1);
+      await settle();
+    }
+    expect(warnings).toHaveLength(2);
+  });
+
+  it('skips a beat while the previous write is in flight', async () => {
+    const clock = clockManual(0);
+    let writes = 0;
+    let release: () => void = () => undefined;
+    startFleetdHeartbeat(
+      clock,
+      {
+        read: async () => answered(null),
+        write: async () => {
+          writes += 1;
+          await new Promise<void>((r) => (release = r));
+          return answered(undefined);
+        },
+      },
+      source,
+      () => undefined,
+    );
+    await settle();
+    clock.advance(2);
+    await settle();
+    expect(writes).toBe(1);
+    release();
+    await settle();
+  });
+
+  it('writes nothing when the clock cannot answer', async () => {
+    let writes = 0;
+    const clock = { ...clockManual(0), now: () => failed<number>() };
+    startFleetdHeartbeat(
+      clock,
+      { read: async () => answered(null), write: async () => (writes += 1, answered(undefined)) },
+      source,
+      () => undefined,
+    );
+    await settle();
+    expect(writes).toBe(0);
+  });
+});
+
+/** Polls the store until the heartbeat's beatAt differs from `after`, or fails after 2 s. */
+const nextBeat = async (store: FleetdHeartbeatStore, after: number | null): Promise<number> => {
+  for (let i = 0; i < 200; i += 1) {
+    const read = await store.read();
+    if (read.ok && read.value !== null && read.value.beatAt !== after) return read.value.beatAt;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error('the heartbeat did not move');
+};
+
+describe('run — the heartbeat', () => {
+  let dir = '';
+  beforeEach(() => {
+    // A plain directory: no git host, no registry.
+    dir = mkdtempSync(join(tmpdir(), 'fleetd-heartbeat-run-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const quiet = (clock: ReturnType<typeof clockManual>, overrides: Partial<RunSeams> = {}): RunSeams => ({
+    clock,
+    tick: async () => completedTick(),
+    scan: async () => undefined,
+    readPrs: async () => undefined,
+    readDefaultBranch: async () => undefined,
+    readIssues: async () => undefined,
+    readIssueWrites: async () => undefined,
+    openChannel: (async () => ({ stop: async () => undefined })) as never,
+    overChannel: () => ({ indexMonitor: null, deskRelay: async () => undefined }),
+    ...overrides,
+  });
+
+  it('writes fleetd.json at start and moves beatAt on every 10 s beat for 2 minutes, with no git host and idle loops', async () => {
+    const clock = clockManual(1_700_000_000_000);
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const beats: number[] = [];
+    let stopped = false;
+    let sleeps = 0;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        if (sleeps === 0) beats.push(await nextBeat(store, null));
+        sleeps += 1;
+        clock.advance(1);
+        beats.push(await nextBeat(store, beats[beats.length - 1]!));
+        if (sleeps === 12) stopped = true;
+      },
+      () => stopped,
+      () => undefined,
+      dir,
+      quiet(clock, { snapshotGeneration: () => 0 }),
+    );
+    expect(beats).toHaveLength(13);
+    expect(beats[0]).toBe(1_700_000_000_000);
+    beats.slice(1).forEach((beatAt, i) => expect(beatAt - beats[i]!).toBe(10_000));
+    expect(beats[12]! - beats[0]!).toBe(120_000);
+  });
+
+  it('writes the generation the seam reports', async () => {
+    const clock = clockManual(1_000);
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let read: Awaited<ReturnType<typeof store.read>> | null = null;
+    let sleeps = 0;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        await nextBeat(store, null);
+        read = await store.read();
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, { snapshotGeneration: () => 12 }),
+    );
+    expect(read !== null && (read as { ok: boolean }).ok && (read as { value: { generation: number } }).value.generation).toBe(12);
+  });
+
+  it('writes no heartbeat under --once', async () => {
+    const clock = clockManual(1_000);
+    await run(['--once'], dir, () => undefined, async () => undefined, () => true, () => undefined, dir, quiet(clock));
+    await settle();
+    clock.advance(3);
+    await settle();
+    expect(existsSync(join(dir, '.plot', 'state', 'fleetd.json'))).toBe(false);
+  });
+});

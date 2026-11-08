@@ -36,6 +36,7 @@ import {
   clockSystem,
   startChannel,
   fleetdStartFile,
+  fleetdHeartbeatFile,
   writeProbeShell,
   appKeyShell,
   type RunningChannel,
@@ -65,6 +66,7 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
+import { startFleetdHeartbeat, supervisedFrom } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
@@ -2654,6 +2656,8 @@ export interface RunSeams {
   readIssueWrites?: () => Promise<void>;
   /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
   notifier?: () => Promise<Notifier>;
+  /** The generation of the `RepoSnapshot` fleetd holds, written to the heartbeat; 0 while fleetd holds none. */
+  snapshotGeneration?: () => number;
   /**
    * The snapshot the loops fill. A fresh one by default; a test passes its own
    * to read what the run recorded.
@@ -3091,6 +3095,22 @@ export const run = async (
   // daemon runs without the channel until a later PR beat binds it. The PR
   // index and the default-branch file are written whether or not anyone
   // listens.
+  // THE HEARTBEAT BELONGS TO THE LOOP: `--once` writes none. The beat comes from
+  // the clock and not from a loop's work, so it runs with no git host and with
+  // nothing changing. `generation` is 0 until fleetd holds a `RepoSnapshot`.
+  const stopHeartbeat = args.once
+    ? () => undefined
+    : startFleetdHeartbeat(
+        seams.clock ?? clockSystem(),
+        fleetdHeartbeatFile({ repoRoot }),
+        {
+          pid: process.pid,
+          startedAt: fleetdStartedAt,
+          supervised: supervisedFrom(process.env),
+          generation: seams.snapshotGeneration ?? (() => 0),
+        },
+        warn,
+      );
   const overChannel =
     seams.overChannel ??
     ((channel: RunningChannel) => ({
@@ -3197,6 +3217,7 @@ export const run = async (
       // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
       // beat only; a scan already started still runs its automatic writes, and
       // they write `.plot/state/` after `run` returned.
+      stopHeartbeat();
       scanClock?.stop();
       await scanClock?.idle();
       await slot.channel?.stop();
