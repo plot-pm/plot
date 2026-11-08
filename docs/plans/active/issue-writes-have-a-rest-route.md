@@ -1,0 +1,1 @@
+../2026-11-08-issue-writes-have-a-rest-route.md
