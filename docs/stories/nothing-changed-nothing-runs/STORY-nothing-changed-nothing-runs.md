@@ -181,16 +181,19 @@ Order inside the phase follows the Phase 1 measurement: largest share first.
 
 ## Measures
 
-Each row has one unit. A baseline names its fixture.
+Each row has one unit. A baseline names its fixture. Baselines come from the Linux census in CI on the sprint PR #3237 at `d1117a0a8` (2026-11-08), which ran HEAD's census rows against the sprint head and against its merge base with `main` (`3f452aae4`).
 
 | Measure | Unit | Baseline | Target |
 |---|---|---|---|
 | Whole tree, plot board + fleetd + desks, idle | new processes per second | about 90 (2026-11-05 census; fixture not recorded) | 0 between changes |
-| Board, no tab, no fleetd | `execve` per minute | Phase 1 fixture | 0 |
-| Board, one visible tab, fleetd running | `execve` per minute | Phase 1 fixture | 0 |
-| fleetd, idle repository | `execve` per completed pass, N desks, M open PRs | Phase 1 fixture (GitHub and Bitbucket) | 0, except the safety-net pass |
+| Board, no tab, no fleetd (S1) | `execve` per minute | `main` 1549 (GitHub), 1926 (Bitbucket); sprint head 0 (GitHub), 772 (Bitbucket) — 0 desks, 5 open PRs | 0 |
+| Board, one visible tab, fleetd running (S3) | `execve` per minute | `main` 1429; sprint head 1248 — GitHub, 0 desks, 5 open PRs | 0 |
+| fleetd, idle repository (S4) | `execve` per completed pass, N desks, M open PRs | `main` 1291.5 (GitHub, 0 desks), 2868.5 (GitHub, 3 desks), 2879.5 (Bitbucket, 3 desks); sprint head 1099.5, 2560.5, 2662 — 5 open PRs | 0, except the safety-net pass |
 | fleetd, safety-net pass | `execve` per pass | Phase 1 fixture | measured, then held by the gate |
-| One desk commit | `execve` per change | Phase 1 fixture | measured, then held by the gate |
+| A board page turned hidden (S2) | `execve` per minute | `main` 1546; sprint head 0 — GitHub, 0 desks, 5 open PRs | 0 |
+| One PR whose CI turns green (S6) | `execve` per change | `main` 2992; sprint head 2671 — GitHub, 3 desks, 5 open PRs | measured, then held by the gate |
+| Monitor naps (P1), `kill -0` probes (P2), fixed answers as direct children (P3) and in the tree (P4) | `execve` per minute (P1) or per pass | `main` P1 58.7, P2 6, P3 19.5–22 (board 13), P4 9–64; sprint head 0 on every fixture | 0 |
+| One desk commit (S5) | `execve` per change | `main` 2883; sprint head 2562 — GitHub, 3 desks, 5 open PRs | measured, then held by the gate |
 
 ## Open Points
 
@@ -299,3 +302,15 @@ Four jurors read the story through the lenses layering, safety, testability and 
 - Destructive local actions re-read their evidence before they act.
 - The gate counts `execve` per scenario on Linux CI; the macOS proxy stays an open point.
 - A Candidate Plans table estimates 18 plans.
+
+### 2026-11-08 — The first full census
+
+Sprint `nothing-runs` built Phases 1 and 2: the census gate (#3243, #3247, #3253, with fixes #3257 and #3264), *no-tab-no-pulse* (#3251, #3252, #3260), *monitors-nap-without-sleep* (#3258, #3259) and two slices of *fixed-answers-once* (#3261, #3262). CI on #3237 at `d1117a0a8` counted every row against `main`.
+
+**Key outcomes:**
+
+- An idle board with no tab or a hidden tab starts 0 processes per minute on GitHub, down from about 1550.
+- The monitor naps, the `kill -0` probes and the fixed git and host answers (P1–P4) read 0 on every fixture.
+- An idle Bitbucket board still starts 772 processes per minute (top: `tr`, `sed`, `rm`, `git`, `jq`); a follow-up looks for the source.
+- An idle fleetd pass fell by about 11 % (S4); its zero waits on Phase 8. A board with a tab and fleetd running fell by about 13 % (S3); its zero waits on Phase 4.
+- The gate allows 10 % + 2 on a count whose merge base is above 0 and holds a zero strictly; two runs on unchanged code moved S1 by 8.8 %.
