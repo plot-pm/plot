@@ -1,3 +1,5 @@
+import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
+import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -233,6 +235,11 @@ export interface BuildBoardOptions {
    * no hub: the link reads `unknown`.
    */
   channelLink?: () => ChannelLink;
+  /**
+   * The hub's copy of fleetd's snapshot and its link. Absent means no hub: the
+   * board never serves from a snapshot.
+   */
+  channelSnapshot?: () => { link: SnapshotLink; held: HeldSnapshot | undefined };
   /**
    * Starts the machine's PR reader. Absent means a real detached `node`
    * process, the same seam `handleNeedsDesign` uses for its own bundle.

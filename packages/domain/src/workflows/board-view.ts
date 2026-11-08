@@ -1,4 +1,5 @@
 import { FleetReadingSchema, type FleetReading } from '../entities/fleet.js';
+import type { PrIndexRow } from '../entities/pr-index.js';
 import { readingValue, type PlanEntry, type RepoSnapshot } from '../entities/snapshot.js';
 import type { BranchDatesValue, QuestionsValue, WalkValue } from '../entities/view-readings.js';
 import { answered } from '../port-result.js';
@@ -41,6 +42,8 @@ export interface BoardView {
   prsByNumber: Map<number, PrRecord> | null;
   /** One ranked PR per head branch; null where the PR rows are not read. */
   prsByHead: Map<string, PrRecord> | null;
+  /** The git host's backend the walk resolved; null where the walk is not read. */
+  backend: string | null;
 }
 
 /** What the walk read beside its stages, for the header of the pulse. */
@@ -253,5 +256,89 @@ export const fleetViewFrom = (snapshot: RepoSnapshot, now: number): BoardView =>
     prs: maps?.prs ?? null,
     prsByNumber: maps?.byNumber ?? null,
     prsByHead: maps?.byHead ?? null,
+    backend: walk.state === 'read' ? walk.value.branches.backend : null,
   };
+};
+
+/** One worktree as the agent registry lists it: its path, its branch, and whether it is the main checkout. */
+export interface RegistryTree {
+  path: string;
+  /** The branch it holds; `''` where its `HEAD` is detached. */
+  branch: string;
+  isMain: boolean;
+}
+
+/** What the agent registry reads beside its manifests, derived from one snapshot. `unknown` where the reading is not `read`. */
+export interface RegistryView {
+  /** Every worktree the `desks` reading lists. */
+  trees: RegistryTree[] | 'unknown';
+  /** Worktree → its worker's state, from the `workers` reading. */
+  states: Map<string, string> | 'unknown';
+  /** Worktree → whether it holds no uncommitted change and no unpushed commit, from the walk's desks. */
+  clean: Map<string, boolean> | 'unknown';
+  /** The PR rows, from the `prs` reading. */
+  prRows: readonly PrIndexRow[] | 'unknown';
+}
+
+/**
+ * The readings the agent registry takes beside its manifests, from a snapshot alone.
+ *
+ * Reads nothing and starts no process. A desk whose `dirty` or `unpushed`
+ * reading is `unknown` counts unclean, so its row stays visible.
+ *
+ * @param snapshot - the snapshot fleetd sent.
+ * @returns the worktrees, the worker states, the cleanliness and the PR rows.
+ */
+export const registryViewFrom = (snapshot: RepoSnapshot): RegistryView => {
+  const { readings } = snapshot;
+  const desks = readingValue(readings.desks);
+  const workers = readingValue(readings.workers);
+  const rows = readingValue(readings.prs);
+  const walk = readings.walk;
+  return {
+    trees: desks === 'unknown'
+      ? 'unknown'
+      : desks.value.map((desk) => ({ path: desk.path, branch: desk.detached ? '' : desk.branch, isMain: desk.isMain })),
+    states: workers === 'unknown'
+      ? 'unknown'
+      : new Map(Object.entries(workers.value).map(([worktree, worker]) => [worktree, worker.state])),
+    clean: walk.state !== 'read'
+      ? 'unknown'
+      : new Map(walk.value.desks.desks.map((desk) => [
+          desk.worktree,
+          Array.isArray(desk.dirty) && desk.dirty.length === 0 && Array.isArray(desk.unpushed) && desk.unpushed.length === 0,
+        ])),
+    prRows: rows === 'unknown' ? 'unknown' : rows.value,
+  };
+};
+
+/** The view fields `unreadViewFields` names, in the order it names them. */
+const NAMED_FIELDS = [
+  'pulse', 'ages', 'tipAt', 'branchUrlBase', 'approvedAt', 'ideaPlans', 'versions', 'unmerged', 'claimOnly', 'questions',
+] as const;
+
+/**
+ * The fields of a view that hold no reading.
+ *
+ * @param view - the view `fleetViewFrom` derived.
+ * @returns each field that reads `unknown`, then `prs` where the PR maps are null.
+ */
+export const unreadViewFields = (view: BoardView): string[] => [
+  ...NAMED_FIELDS.filter((field) => view[field] === 'unknown'),
+  ...(view.prs === null ? ['prs'] : []),
+];
+
+/**
+ * The note the board shows beside a view served from a snapshot.
+ *
+ * @param view - the view `fleetViewFrom` derived.
+ * @param generation - the snapshot's generation.
+ * @returns null where every field holds a reading; otherwise a sentence naming
+ *   the fields that keep their last value.
+ */
+export const snapshotViewNote = (view: BoardView, generation: number): string | null => {
+  const unread = unreadViewFields(view);
+  return unread.length === 0
+    ? null
+    : `fleetd's snapshot (generation ${generation}) holds no reading for ${unread.join(', ')}; the board keeps the last value it had for each`;
 };

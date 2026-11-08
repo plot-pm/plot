@@ -5,7 +5,7 @@ import type { PlanEntry, RepoSnapshot } from '../src/entities/snapshot.js';
 import type { WalkValue } from '../src/entities/view-readings.js';
 import { answered } from '../src/port-result.js';
 import { assemblePlanWalk, fleetReading } from '../src/workflows/plan-walk-assembly.js';
-import { approvalDateOf, branchAgesOf, fleetViewFrom, walkValueOf, type WalkHeader } from '../src/workflows/board-view.js';
+import { approvalDateOf, branchAgesOf, fleetViewFrom, registryViewFrom, snapshotViewNote, unreadViewFields, walkValueOf, type WalkHeader } from '../src/workflows/board-view.js';
 import type { BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
 import type { DeskStageReadings } from '../src/workflows/plan-walk-desks.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
@@ -221,6 +221,7 @@ describe('fleetViewFrom', () => {
       prs: null,
       prsByNumber: null,
       prsByHead: null,
+      backend: null,
     });
   });
 
@@ -289,5 +290,80 @@ describe('approvalDateOf', () => {
 
   it('answers null for a date that does not exist', () => {
     expect(approvalDateOf('2026-13-45')).toBeNull();
+  });
+});
+
+describe('registryViewFrom', () => {
+  it('lists every desk the desks reading holds, with a detached desk on no branch', () => {
+    const snapshot = snapshotOf();
+    snapshot.readings.desks = read([
+      { path: '/repo', branch: 'main', detached: false, isMain: true, clean: false, agentSession: null, prunable: false },
+      { path: WORKTREE, branch: 'feature/x', detached: false, isMain: false, clean: false, agentSession: null, prunable: false },
+      { path: '/repo/.worktrees/d', branch: 'HEAD', detached: true, isMain: false, clean: false, agentSession: null, prunable: false },
+    ]);
+    expect(registryViewFrom(snapshot).trees).toEqual([
+      { path: '/repo', branch: 'main', isMain: true },
+      { path: WORKTREE, branch: 'feature/x', isMain: false },
+      { path: '/repo/.worktrees/d', branch: '', isMain: false },
+    ]);
+  });
+
+  it('maps each desk to its worker state', () => {
+    expect(registryViewFrom(snapshotOf()).states).toEqual(new Map([[WORKTREE, 'running']]));
+  });
+
+  it('reads a desk with a dirty path unclean and an empty one clean', () => {
+    const dirty = registryViewFrom(snapshotOf()).clean;
+    expect(dirty).toEqual(new Map([[WORKTREE, false]]));
+    const tidy = walkValueOf(estate, branchStage, { ...deskStage, desks: [{ ...deskStage.desks[0]!, dirty: [] }] }, conflicts, header);
+    expect(registryViewFrom(snapshotOf(tidy)).clean).toEqual(new Map([[WORKTREE, true]]));
+  });
+
+  it.each([
+    ['dirty', { dirty: 'unknown' as const, unpushed: [] }],
+    ['unpushed', { dirty: [], unpushed: 'unknown' as const }],
+    ['unpushed commits', { dirty: [], unpushed: ['abc'] }],
+  ])('reads a desk whose %s reading is not empty unclean', (_name, over) => {
+    const walk = walkValueOf(estate, branchStage, { ...deskStage, desks: [{ ...deskStage.desks[0]!, ...over }] }, conflicts, header);
+    expect(registryViewFrom(snapshotOf(walk)).clean).toEqual(new Map([[WORKTREE, false]]));
+  });
+
+  it('carries the walk\'s backend into the view, and null with no walk', () => {
+    expect(fleetViewFrom(snapshotOf(), 0).backend).toBe('github');
+    const snapshot = snapshotOf();
+    snapshot.readings.walk = { state: 'unread' };
+    expect(fleetViewFrom(snapshot, 0).backend).toBeNull();
+  });
+
+  it('carries the PR rows', () => {
+    expect(registryViewFrom(snapshotOf()).prRows).toHaveLength(2);
+  });
+
+  it('answers unknown for every reading that is not read', () => {
+    const snapshot = snapshotOf();
+    snapshot.readings.desks = { state: 'unread' };
+    snapshot.readings.workers = { state: 'failed', readAt: 1, reason: 'no' };
+    snapshot.readings.walk = { state: 'unread' };
+    snapshot.readings.prs = { state: 'unread' };
+    expect(registryViewFrom(snapshot)).toEqual({ trees: 'unknown', states: 'unknown', clean: 'unknown', prRows: 'unknown' });
+  });
+});
+
+describe('unreadViewFields and snapshotViewNote', () => {
+  it('names no field and gives no note for a snapshot with every reading', () => {
+    const view = fleetViewFrom(snapshotOf(), 0);
+    expect(unreadViewFields(view)).toEqual([]);
+    expect(snapshotViewNote(view, 3)).toBeNull();
+  });
+
+  it('names each field with no reading, and the PR maps once', () => {
+    const snapshot = snapshotOf();
+    snapshot.readings.releaseVersions = { state: 'unread' };
+    snapshot.readings.prs = { state: 'failed', readAt: 1, reason: 'host' };
+    const view = fleetViewFrom(snapshot, 0);
+    expect(unreadViewFields(view)).toEqual(['versions', 'prs']);
+    expect(snapshotViewNote(view, 9)).toBe(
+      "fleetd's snapshot (generation 9) holds no reading for versions, prs; the board keeps the last value it had for each",
+    );
   });
 });
