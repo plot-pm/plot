@@ -94,6 +94,8 @@ export {
 } from './refused-slices/refused-slices-file.js';
 export { refusedSlicesFixture, type RefusedSlicesFixture } from './refused-slices/refused-slices-fixture.js';
 
+export { stateSyncFile, STATE_SYNC_HOME_ENV, type StateSyncFileOptions } from './state-sync/state-sync-file.js';
+
 export {
   freshAgentRecordFile,
   decodeFreshAgentRow,
