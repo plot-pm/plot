@@ -81,16 +81,16 @@ The admin cost is the smaller argument. The larger one is the third row: `push-m
 - [x] **4. The lag.** A reader lists both refs and the state branch wins per path; the lag is bounded by fleetd's forward sync and shown as one line (D2).
 - [x] **5. The receipt a sync merge carries** for `plot-state-gate.sh`: the gate accepts a squash commit that carries the state branch tip and names its SHA (D12, D14).
 - [x] **6. The forward merge conflicts.** The write refuses and names the file; the board and the pulse report it; a person merges by hand (D3).
-- [ ] **7. The name of the rule and of the helper** that answer which ref holds a plan's records. `PlanRef` is taken. Left to the team; the candidates are `recordRef`, `planSource` and `stateBranchRef`.
+- [x] **7. The name of the rule and of the helper** that answer which ref holds a plan's records: `recordRef` (D17).
 - [x] **8. What the board shows** for a plan whose records are ahead on the state branch: one phase, read through the rule, plus a lag line naming the sync PR (D5).
 - [x] **9. The e2e proof.** A contract test against a bare origin with a rejecting pre-receive hook, plus a protected sandbox in CI's e2e (D8).
 - [x] **10. The push lock's scope.** One lock per repository, unchanged; the forward sync takes it too (D15).
-- [ ] **11. The cut of the slices.** The Spec names work the three slices do not. Left to the team at approval; a fourth slice for `plot-init` and `plot-board-setup` is the candidate.
-- [ ] **12. The repository with no fleet.** fleetd is the actor of both syncs (D1, D7, D13). Does `/plot-deliver` sync where no fleet runs, or does the key require a fleet? Left to the team; the Spec is not complete until it is answered.
+- [x] **11. The cut of the slices.** A fourth slice, Setup, for `plot-init` and `plot-board-setup`; the rest of the Spec goes to the three existing slices (D18).
+- [x] **12. The repository with no fleet.** The commands sync: `/plot-deliver` opens or refreshes the sync PR, and a writer's forward merge is the forward sync (D19).
 
 ## Spec
 
-Decisions, numbered. Max Albrecht decided them on 2026-11-07. Three items stay with the team and are named at the end of this section.
+Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka decided D17 to D19 at the spike approval on 2026-11-08.
 
 **D1. The sync PR is fleetd's to open and the host's to merge.** fleetd opens the pull request from the state branch to the default branch and refreshes it while the state branch moves. The host's merge rule decides who merges: the merge arm where it may (the Merger App on a GitHub origin), a person where the host demands an approval. No identity steps over the rule, and no person needs to open the PR.
 
@@ -126,21 +126,29 @@ Decisions, numbered. Max Albrecht decided them on 2026-11-07. Three items stay w
 
 **D16. The key may name any full ref; a branch is the recommended default.** The value `plot/state`, or any `refs/heads/` name, is a branch and gets the whole design: the sync PR (D1, D13), its gate (D6), the squash (D12) and the delete-restriction offer (D10). A value outside `refs/heads/`, such as `refs/plot/state`, is for a project that wants the records hidden from CI, from the forge's UI and from external systems that read branches. Plot writes it, reads it (D2) and merges the default branch into it (D7) as for a branch, because `git push <remote> HEAD:<ref>` and `git show <ref>:<path>` take any ref. No sync PR can open from it, so the merge back to the default branch is the project's own to set up, and D1, D6, D10, D12 and D13 do not run. `plot-init` and `plot-board-setup` say so when the key is set (D11), and recommend `refs/heads/plot/state`.
 
-**Left to the team at approval.** The name of the rule and the helper that answer which ref holds a plan's records (Open Question 7; candidates `recordRef`, `planSource`, `stateBranchRef`), and the cut of the slices: the Spec adds the board's lag line (D5), the sync PR's path gate (D6), the reconcile section (D9), the key proposal and the delete-restriction offer in `plot-init` and `plot-board-setup` (D10, D11), the squash and the Delivered trigger (D12, D13), the state gate's merge receipt (D14) and the non-branch ref (D16). The slices below stay as written; the team re-cuts them at approval or with `/plot-reslice`, and a fourth slice for `plot-init` and `plot-board-setup` is the candidate cut. And the repository with no fleet (Open Question 12): D1, D7 and D13 make fleetd the actor of both syncs, so a repository that declares the key and runs Plot from the CLI alone has records nobody merges back and a lag nothing bounds. The candidates are that the commands sync too (`/plot-deliver` opens or refreshes the sync PR where no fleet heartbeat is live, and every writer's forward merge before its write is the forward sync), or that the key requires a fleet and `plot-init` refuses it where no `Worker command` is declared. Until the team decides, the Spec is not complete.
+**D17. The rule and its helper are named `recordRef`.** `recordRef` answers which ref holds a plan's records (D2). `PlanRef` is taken with another meaning (`packages/domain/src/rules/plan-reference.ts:139`), and the board already logs `planSource` for the ref it reads plans from, so neither name is reused.
+
+**D18. A fourth slice, Setup, holds the `plot-init` and `plot-board-setup` work.** Setup holds the key proposal (D11) and the delete-restriction offer (D10). The other Spec items go to the three existing slices: Write holds the state gate's squash receipt (D14) and the non-branch ref (D16); Read holds the board's lag line (D5) and the reconcile section (D9); Sync holds the path gate (D6), the squash (D12), the Delivered trigger (D13) and the sync with no fleet (D19).
+
+**D19. With no fleet, the commands sync.** Where no fleet heartbeat is live, `/plot-deliver` opens or refreshes the sync PR (D13), and every writer's forward merge before its write is the forward sync (D7). The key does not require a fleet, and `plot-init` does not refuse it where no `Worker command` is declared. The lag D2 names is then bounded by the next lifecycle write.
 
 ## Slices
 
 ### Write
 
-- `feature/state-branch-write` <!-- spike --> — the `State branch` key; `plot-push-main.sh` cuts the booking from the state branch after merging the default branch in, and pushes a fast-forward to it; the off-ladder pushes in `plot-reject`, `plot-sprint`, `plot-release` and `plot-idea` call the helper; a test asserts that every delete path excludes the declared state branch; proved on a sandbox repository with a protected default branch <!-- builds: the State branch key and the state-branch target of plot-push-main.sh -->
+- `feature/state-branch-write` <!-- spike --> — the `State branch` key; `plot-push-main.sh` cuts the booking from the state branch after merging the default branch in, and pushes a fast-forward to it; the off-ladder pushes in `plot-reject`, `plot-sprint`, `plot-release` and `plot-idea` call the helper; a test asserts that every delete path excludes the declared state branch; proved on a sandbox repository with a protected default branch; the state gate's squash receipt (D14) and the non-branch ref (D16) <!-- builds: the State branch key and the state-branch target of plot-push-main.sh -->
 
 ### Read
 
-- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it <!-- builds: the rule naming which ref holds a plan's records -->
+- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it; the board's lag line (D5) and the reconcile section for a removed key (D9) <!-- builds: the rule naming which ref holds a plan's records -->
 
 ### Sync
 
-- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names <!-- builds: the state-sync arm of fleetd -->
+- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names; the path gate (D6), the squash (D12), the Delivered trigger (D13), and the command-side sync where no fleet runs (D19) <!-- builds: the state-sync arm of fleetd -->
+
+### Setup
+
+- `feature/state-branch-setup` — `plot-init` and `plot-board-setup` probe the default branch's protection and propose the `State branch` key (D11), say what a non-branch value gives up (D16), and offer the delete restriction on the state branch (D10) <!-- builds: the State branch proposal in plot-init and plot-board-setup -->
 
 ## Notes
 
@@ -148,6 +156,7 @@ Decisions, numbered. Max Albrecht decided them on 2026-11-07. Three items stay w
 - 2026-11-07: deliverable search. `State branch`, `plot-push-state`, `stateRef`: nothing in the estate. `planRef`: `PlanRef` exists in `packages/domain/src/rules/plan-reference.ts:139` with another meaning, so the read rule takes a different name. Title similarity: no active plan overlaps.
 - Related: `docs/plans/2026-08-16-push-main-bypass.md` (the `push=` vocabulary), `docs/plans/2026-10-15-a-lifecycle-micro-pr-merged-past.md` (retry replaced the micro-PR), `docs/plans/2026-10-16-bitbucket-parity-and-app-identities.md` and #1825 (the App identities are opt-in), #1835 (open).
 - No prior art: no plan, doc or issue covers a state branch, an orphan branch, git notes or `refs/plot/*` as a record store. `refs/plot/claims/*` was considered once and zero exist (`docs/plans/2026-08-20-the-agent-panel-shows-the-agent.md:57`).
+- 2026-11-08: Jan Wloka settled Open Questions 7, 11 and 12 (D17 to D19) and approved the spike `feature/state-branch-write`.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
