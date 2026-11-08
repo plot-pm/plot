@@ -87,3 +87,7 @@ open plans identically for every goal. Its decisions:
 - No cross-sprint item tracking (items can't span multiple sprints automatically)
 - No velocity metrics (intentional — Plot tracks what shipped, not how long it took)
 - No automated sprint creation cadence (manual trigger only)
+
+## State branch
+
+Where `## Plot Config` declares `State branch`, the commit this skill makes in a default-branch checkout is landed with `board/plot-state-cut.mjs --land` instead of a plain `git push`: the state ref and the default branch are merged into HEAD and the record is pushed at the state ref. Exit 4 means no key is declared, and the plain push runs.

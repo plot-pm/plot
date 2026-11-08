@@ -32,3 +32,7 @@ See [the retro report](../../docs/retros/W10-doover-retro.md) and [plot/README.m
 ## Planned Improvements
 
 - Consider adding Approved→Draft support if the need arises (separate from reject — more like "abandon").
+
+## State branch
+
+Where `## Plot Config` declares `State branch`, the commit this skill makes in a default-branch checkout is landed with `board/plot-state-cut.mjs --land` instead of a plain `git push`: the state ref and the default branch are merged into HEAD and the record is pushed at the state ref. Exit 4 means no key is declared, and the plain push runs.

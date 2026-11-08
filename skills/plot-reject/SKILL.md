@@ -146,8 +146,10 @@ If the plan has no `Sprint:` field, skip this step.
 ```bash
 git add docs/plans/ docs/sprints/
 git commit -m "plot: reject <slug> — <reason>"
-git push
+node ../plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
 ```
+
+Where `State branch` is declared in `## Plot Config`, `plot-state-cut.mjs --land` merges the state ref and the default branch into HEAD and pushes the record at the state ref. Exit 4 means no key is declared, and the plain `git push` runs.
 
 **Important:** RC tags are NEVER deleted. They are preserved as historical records of what was attempted. The rejection commit documents why the delivery was reversed.
 

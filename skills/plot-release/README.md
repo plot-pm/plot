@@ -31,3 +31,7 @@ See [plot/README.md](../plot/README.md) for the full development history and [pl
 
 - Pre-release version support (e.g., `1.2.0-beta.1`).
 - Configurable changelog format and release note templates.
+
+## State branch
+
+Where `## Plot Config` declares `State branch`, the commit this skill makes in a default-branch checkout is landed with `board/plot-state-cut.mjs --land` instead of a plain `git push`: the state ref and the default branch are merged into HEAD and the record is pushed at the state ref. Exit 4 means no key is declared, and the plain push runs.
