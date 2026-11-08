@@ -22,7 +22,7 @@ implementation start are two events). This command ends with the plan in
 phase Approved, a transition record in the file, and an offer to chain
 into `/plot-implement` for the fast-paced case.
 
-**Input:** `$ARGUMENTS` is the `<slug>` of an existing plan, and optionally `--spike`.
+**Input:** `$ARGUMENTS` is the `<slug>` of an existing plan, and optionally `--spike` and `--branch <integration-branch>` (step 3).
 
 Example: `/plot-approve sse-backpressure`, or `/plot-approve sse-backpressure --spike` to approve the spike of a Design plan alone (step 3c).
 
@@ -273,6 +273,14 @@ summary: merged=yes phase=flipped record=written holds=2 sprint=updated push=cle
 **A plan the checkout does not hold is read from where it is.** The board runs the script in the default branch's checkout, where a plan on an unmerged plan PR does not exist. The script then reads the plan from the default branch as fetched, or from the head of the plan PR that carries it, and prints a `step:` line naming the source. A checkout copy that differs from that head refuses `checkout-copy-differs`.
 
 **A batch PR merges once and approves one plan.** Approving one slug of a batch PR merges the PR, flips only that plan, and names the other plans in `carried=` — they land on the default branch in their own phase, `Draft`. Approve each by its own slug: the PR is then already merged, so the run reports `merged=already` and flips that plan.
+
+**A sprint with an integration branch records the approval on that branch.** When the plan PR is based on the sprint's integration branch, run:
+
+```bash
+../plot/scripts/plot-approve.sh --branch <integration-branch> <slug>
+```
+
+With `--branch <name>`, the script fetches `origin/<name>` and reads the plan, the plan PR's changed files and the spike copy against that branch where it would read the default branch. It merges the plan PR only where the host names its base as `<name>`; any other base, or no named base, refuses before the merge. The booking worktree is cut from `origin/<name>`, and the commit is pushed to `<name>` with the same retry loop. The default branch receives the approval when the sprint PR merges. A branch that origin does not hold refuses before anything is merged or written. `--dry-run --branch <name>` prints `step: would record the approval on <name>`. `--spike` takes `--branch`; `Impl: same branch` refuses it by name. Without `--branch`, a plan PR whose base the host names as another branch than the default refuses before the merge and names `--branch <base>`. `POST /api/approve` does not take a branch.
 
 **Carry `push: bypassed` into the summary verbatim.** It means the
 commit landed but branch protection was waived, and it names the rules
