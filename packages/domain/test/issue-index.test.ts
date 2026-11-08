@@ -76,7 +76,7 @@ describe('an unreadable store is nothing to start from', () => {
   });
 
   it('refuses a version it does not recognise', () => {
-    expect(decodeIssueIndex(JSON.stringify({ ...store(), v: 2 }))).toBeNull();
+    expect(decodeIssueIndex(JSON.stringify({ ...store(), v: ISSUE_INDEX_VERSION + 1 }))).toBeNull();
   });
 
   it('refuses a row whose shape does not match', () => {

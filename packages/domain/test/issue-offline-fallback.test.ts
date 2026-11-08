@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { offlineIssueRows, type OfflineIssueReading } from '../src/rules/issue-offline-fallback.js';
-import type { IssueIndex, IssueIndexRow } from '../src/entities/issue-index.js';
+import { ISSUE_INDEX_VERSION, type IssueIndex, type IssueIndexRow } from '../src/entities/issue-index.js';
 
 const row = (over: Partial<IssueIndexRow> = {}): IssueIndexRow => ({
   number: '1',
@@ -11,7 +11,7 @@ const row = (over: Partial<IssueIndexRow> = {}): IssueIndexRow => ({
 });
 
 const index = (over: Partial<IssueIndex> = {}): IssueIndex => ({
-  v: 1,
+  v: ISSUE_INDEX_VERSION,
   source: 'tracker',
   connector: 'jira',
   requests: 1,
