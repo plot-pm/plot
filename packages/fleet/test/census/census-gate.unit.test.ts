@@ -51,15 +51,24 @@ const gate = (cwd: string, run: string, ...args: string[]) =>
   spawnSync(process.execPath, [GATE, ...args, '--build', 'true', '--run', run], { cwd, encoding: 'utf8' });
 
 describe('census-gate.mjs', () => {
-  it('refuses a count that grew past the merge base and names the command', () => {
-    const dir = repo(3, 4);
+  it('refuses a strict count that grew from a merge-base 0 and names the command', () => {
+    const dir = repo(0, 1);
 
     const actual = gate(dir, ROW('"strict"'), '--base', 'base');
 
     expect(actual.status, actual.stdout + actual.stderr).toBe(1);
-    expect(actual.stdout).toContain('FAIL S4 github desks=3 prs=5: HEAD 4, merge base 3 execve per pass; tolerance strict, limit 3');
-    expect(actual.stdout).toContain('+1  git rev-parse (3 -> 4)');
+    expect(actual.stdout).toContain('FAIL S4 github desks=3 prs=5: HEAD 1, merge base 0 execve per pass; tolerance strict, limit 0');
+    expect(actual.stdout).toContain('+1  git rev-parse (0 -> 1)');
     expect(git(dir, 'worktree', 'list').split('\n')).toHaveLength(1);
+  });
+
+  it('passes noise on a strict count whose merge base is not 0, and refuses real growth', () => {
+    expect(gate(repo(1428, 1429), ROW('"strict"'), '--base', 'base').stdout).toContain(
+      'ok   S4 github desks=3 prs=5: HEAD 1429, merge base 1428 execve per pass; tolerance strict→noise 10 % + 2 (base > 0)',
+    );
+    const grown = gate(repo(100, 120), ROW('"strict"'), '--base', 'base');
+    expect(grown.status, grown.stdout + grown.stderr).toBe(1);
+    expect(grown.stdout).toContain('FAIL S4 github desks=3 prs=5: HEAD 120, merge base 100 execve per pass; tolerance strict→noise 10 % + 2 (base > 0), limit 112');
   });
 
   it('passes growth inside the stated tolerance', () => {

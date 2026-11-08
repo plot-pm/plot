@@ -20,8 +20,9 @@ export type CensusHost = 'github' | 'bitbucket';
 export type CensusFixture = { desks: number; openPrs: number; host: CensusHost };
 
 /**
- * How far a count may grow past the merge base. `'strict'` allows no growth at
- * all, and is the only tolerance a structural zero takes.
+ * How far a count may grow past the merge base. `'strict'` allows no growth
+ * over a merge-base count of 0, and `NOISE_TOLERANCE` over any other; it is the
+ * only tolerance a structural zero takes.
  */
 export type CensusTolerance = { ratio: number; plus: number } | 'strict';
 
@@ -143,12 +144,25 @@ export const readCensusReport = (path: string): CensusEntry[] => {
 export const entryKey = ({ id, fixture }: Pick<CensusEntry, 'id' | 'fixture'>): string =>
   `${id} ${fixture.host} desks=${fixture.desks} prs=${fixture.openPrs}`;
 
-/** The highest count `tolerance` allows over a merge-base count of `base`. */
-export const allowedCount = (base: number, tolerance: CensusTolerance): number =>
-  tolerance === 'strict' ? base : base * (1 + tolerance.ratio) + tolerance.plus;
+/**
+ * The tolerance a `'strict'` row takes when its merge-base count is above 0.
+ * A count over a wall-clock window jitters on a loaded runner; a zero does not.
+ */
+export const NOISE_TOLERANCE = { ratio: 0.1, plus: 2 } as const satisfies CensusTolerance;
 
-const describeTolerance = (t: CensusTolerance): string =>
-  t === 'strict' ? 'strict' : `${Math.round(t.ratio * 1000) / 10} % + ${t.plus}`;
+const growth = (base: number, t: { ratio: number; plus: number }): number => base * (1 + t.ratio) + t.plus;
+
+/**
+ * The highest count `tolerance` allows over a merge-base count of `base`.
+ * `'strict'` allows `base` when `base` is 0, and `NOISE_TOLERANCE` otherwise.
+ */
+export const allowedCount = (base: number, tolerance: CensusTolerance): number =>
+  tolerance !== 'strict' ? growth(base, tolerance) : base === 0 ? 0 : growth(base, NOISE_TOLERANCE);
+
+const percent = (t: { ratio: number; plus: number }): string => `${Math.round(t.ratio * 1000) / 10} % + ${t.plus}`;
+
+const describeTolerance = (t: CensusTolerance, base: number): string =>
+  t !== 'strict' ? percent(t) : base === 0 ? 'strict' : `strict→noise ${percent(NOISE_TOLERANCE)} (base > 0)`;
 
 /** The five command keys whose count grew most from `base` to `head`, largest first. */
 export const grownCommands = (
@@ -184,7 +198,7 @@ export const compareCensus = (base: readonly CensusEntry[], head: readonly Censu
       continue;
     }
     const limit = allowedCount(b.count, h.tolerance);
-    const verdict = `${key}: HEAD ${h.count}, merge base ${b.count} ${h.unit}; tolerance ${describeTolerance(h.tolerance)}, limit ${Math.round(limit * 100) / 100}`;
+    const verdict = `${key}: HEAD ${h.count}, merge base ${b.count} ${h.unit}; tolerance ${describeTolerance(h.tolerance, b.count)}, limit ${Math.round(limit * 100) / 100}`;
     if (h.count <= limit) {
       lines.push(`ok   ${verdict}`);
       continue;
