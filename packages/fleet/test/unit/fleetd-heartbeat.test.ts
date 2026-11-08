@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { clockManual, fleetdHeartbeatFile, fleetStateFile, fleetStateVouched } from '@plot-pm/domain/adapters';
-import { answered, failed, fleetdLiveness, FleetReadingSchema, type FleetdHeartbeat } from '@plot-pm/domain';
+import { answered, failed, fleetdLiveness, lateLoops, FleetReadingSchema, type FleetdHeartbeat } from '@plot-pm/domain';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 
 import { run, type RunSeams } from '../../src/server/entry/registryd-main.js';
@@ -318,6 +318,42 @@ describe('run — the heartbeat', () => {
     expect(seen.value.loops.tick?.lastPassAt).toBeGreaterThan(0);
     const after = await store.read();
     expect(after.ok && after.value !== null && fleetdLiveness(after.value, Date.now())).toBe('stale');
+  });
+
+  it('registers every loop at start, and judges a scan whose first pass never resolves late after its bound', async () => {
+    const clock = clockManual(Date.now());
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let sleeps = 0;
+    let first: FleetdHeartbeat | null = null;
+    let last: FleetdHeartbeat | null = null;
+    let release: () => void = () => undefined;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        if (sleeps === 0) {
+          const read = await store.read();
+          first = read.ok ? read.value : null;
+        }
+        sleeps += 1;
+        let beatAt = 0;
+        for (let i = 0; i < 19; i += 1) {
+          clock.advance(1);
+          beatAt = await nextBeat(store, beatAt);
+        }
+        const read = await store.read();
+        last = read.ok ? read.value : null;
+        release();
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, { scan: () => new Promise<void>((r) => (release = r)) }),
+    );
+    expect(first).toMatchObject({ loops: { scan: { lastPassAt: null }, 'pr-reader': { lastPassAt: null }, 'issue-reader': { lastPassAt: null } } });
+    const seen = last as unknown as FleetdHeartbeat;
+    expect(lateLoops(seen, seen.beatAt)).toEqual(['scan']);
   });
 
   it('writes no heartbeat under --once', async () => {

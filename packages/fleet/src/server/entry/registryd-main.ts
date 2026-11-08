@@ -3098,7 +3098,11 @@ export const run = async (
   // THE HEARTBEAT BELONGS TO THE LOOP: `--once` writes none. The beat comes from
   // the clock and not from a loop's work, so it runs with no git host and with
   // nothing changing. `generation` is 0 until fleetd holds a `RepoSnapshot`.
-  const passes: Partial<Record<FleetdLoop, number>> = {};
+  // Every loop a daemon runs registers at start with no pass, so a first pass that
+  // hangs reads late from `startedAt`; `--once` runs no heartbeat and no loops.
+  const passes: Partial<Record<FleetdLoop, number | null>> = args.once
+    ? {}
+    : { tick: null, scan: null, 'pr-reader': null, 'issue-reader': null };
   const passed = <T,>(loop: FleetdLoop, read: () => Promise<T>): (() => Promise<T>) => async () => {
     const value = await read();
     passes[loop] = Date.now();

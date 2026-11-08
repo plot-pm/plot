@@ -41,8 +41,11 @@ export interface FleetdHeartbeatSource {
   generation: () => number;
   /** The `at` of the last bridge this process wrote, epoch milliseconds; null before the first write. */
   bridgeAt: () => number | null;
-  /** When each loop last completed a pass, epoch milliseconds; a loop absent here has not passed. */
-  passes: () => Partial<Record<FleetdLoop, number>>;
+  /**
+   * When each loop last completed a pass, epoch milliseconds. A loop this process runs
+   * and that has not yet passed reports null; a loop it does not run is absent.
+   */
+  passes: () => Partial<Record<FleetdLoop, number | null>>;
 }
 
 /**
