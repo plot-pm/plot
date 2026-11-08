@@ -30,6 +30,11 @@ export interface EventHubOptions {
   reconnectStartMs?: number;
   /** Reconnect delay cap; defaults to {@link RECONNECT_CAP_MS}. */
   reconnectCapMs?: number;
+  /**
+   * Receives the number of held streams after every attach and every detach,
+   * and 0 when `close` ends streams that were held.
+   */
+  onClients?: (count: number) => void;
 }
 
 export interface EventHub {
@@ -54,6 +59,7 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   const startMs = options.reconnectStartMs ?? RECONNECT_START_MS;
   const capMs = options.reconnectCapMs ?? RECONNECT_CAP_MS;
   const log = options.log ?? (() => undefined);
+  const onClients = options.onClients ?? (() => undefined);
 
   const streams = new Set<http.ServerResponse>();
   let eventWindow: EventWindow = {};
@@ -67,9 +73,14 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   let link: 'unknown' | 'up' | 'down' = 'unknown';
   let stopped = false;
 
+  // A stream leaves once, however many of its close, error and write paths fire.
+  const drop = (res: http.ServerResponse): void => {
+    if (streams.delete(res)) onClients(streams.size);
+  };
+
   const write = (res: http.ServerResponse, data: string): void => {
     if (res.destroyed || res.writableEnded) {
-      streams.delete(res);
+      drop(res);
       return;
     }
     res.write(`data: ${data}\n\n`);
@@ -152,9 +163,8 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
       });
       res.write(': open\n\n');
       streams.add(res);
-      const release = (): void => {
-        streams.delete(res);
-      };
+      onClients(streams.size);
+      const release = (): void => drop(res);
       req.on('close', release);
       res.on('close', release);
       res.on('error', release);
@@ -167,8 +177,10 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
       if (timer) clearTimeout(timer);
       if (trailing) clearTimeout(trailing);
       subscription?.close();
+      const held = streams.size;
       for (const res of [...streams]) res.end();
       streams.clear();
+      if (held > 0) onClients(0);
     },
   };
 };
