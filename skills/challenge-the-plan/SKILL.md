@@ -648,7 +648,8 @@ The pass reads every source with `git show <commit>:<path>`, never from the work
 - It does not decide anything and does not edit a claim. A contradiction stays an Open Question until a person answers it.
 - It writes nowhere except the plan's own `### Open Questions`. It adds no plan field and no status line.
 
-> **Unattended (`PLOT_UNATTENDED=1`):** run the whole pass. It asks a person nothing, so it needs no question tool, and it has no `PLOT-UNASKED` default to take.
+> **Unattended (`PLOT_UNATTENDED=1`):** run the whole pass. It asks a person nothing, so it needs no question tool. The one choice it makes alone is the commit to read: the plan PR head for `Review: pr`, otherwise the commit the approval would record.
+> `PLOT-UNASKED: Which commit does the pass read? — default — the plan PR head, or the approval commit; written in the Open Questions closing line`
 
 ## Model Guidance
 
