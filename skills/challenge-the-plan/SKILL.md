@@ -613,6 +613,54 @@ Deferred questions are tracked as a plain text section appended to the plan file
 - "What's the downside of [chosen solution]?"
 - "What would make you revisit this decision?"
 
+## Consistency pass (opt-in mode)
+
+**A third mode, run only when asked.** `/challenge-the-plan consistency <plan>` checks every claim the plan takes from a source outside itself against that source, and writes each contradiction into the plan's `### Open Questions`. The interview and the panel never start it, and a plan that does not ask for it pays nothing. There is no per-repo key: opt-in is per invocation.
+
+It complements the interview and the panel and replaces neither. It is the only one of the three that opens a file the plan does not contain.
+
+### The commit it reads
+
+The pass reads every source with `git show <commit>:<path>`, never from the working tree, so the answer is a function of recorded state. For `Review: pr`, the commit is the head of the plan PR at the time of the run; for any other review channel, it is the commit the approval would record. The pass writes that commit into the Open Questions entry it adds (see action 3). A run on a head that has since moved is stale and is repeated.
+
+### The four actions
+
+1. **List the claims.** Walk the plan and list every claim it takes from outside itself: spec or design ids, existing code and config (names, signatures, paths, defaults), other plans (what they build, what state they are in), and the environment (versions, intervals, limits).
+2. **Check each claim at the commit.** Read the source with `git show <commit>:<path>`. A claim only a live system answers gets the mark `live check`. The pass runs nothing to answer it.
+3. **Write each contradiction into `### Open Questions`.** One checkbox entry per contradiction, with three parts: the quoted source line (`path:line` at the commit), the plan line that makes the claim, and a severity. A single line at the end of the section names the commit read and counts the claims found consistent and marked `live check`.
+4. **List the claims found consistent.** Name every claim checked and found fine, and every `live check` claim, under that same closing line. Without this list nobody can compute a false-positive rate, and nobody can see what the pass did not look at. Keep untested flags apart from refuted ones when a person later judges the flags.
+
+### Severity scale
+
+| Severity | Meaning |
+|---|---|
+| `blocks` | A slice cannot be built as written. |
+| `misleads` | The plan is wrong, but the build would notice. |
+| `cosmetic` | A name or path differs. |
+
+**This scale is a working draft.** The trial that was to test it recorded no run, and the scale ships as proposed in the plan. A flag that fits none of the three well goes in as the nearest word, with a note.
+
+### What the pass does not do
+
+- It runs nothing. It reads sources and marks what needs a live system.
+- It does not see behaviour that only the running system shows: host reach, tooling on the build machine, a missing binary, an unbuilt metric. The plan's own live checks stay.
+- It does not judge the design. A claim can match its source and still be a bad idea.
+- It does not decide anything and does not edit a claim. A contradiction stays an Open Question until a person answers it.
+- It writes nowhere except the plan's own `### Open Questions`. It adds no plan field and no status line.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** run the whole pass. It asks a person nothing, so it needs no question tool, and it has no `PLOT-UNASKED` default to take.
+
+## Model Guidance
+
+| Steps | Min. Tier | Notes |
+|-------|-----------|-------|
+| Interview rounds (Phases 3–5) | Frontier | Generating questions and weaving answers into the plan is judgment |
+| Panel (Phase 3P) | Frontier | Fan-out and reconciliation are owned by `/plot-panel` |
+| Consistency pass, action 1: list the claims | Frontier | Deciding which sentences take something from outside the plan is judgment |
+| Consistency pass, action 2: judge a contradiction | Frontier | Whether a source line contradicts a plan line, and how badly, is judgment |
+| Consistency pass, action 2: read the source | Small | `git show <commit>:<path>` and quote the line |
+| Consistency pass, actions 3–4: write the entries | Small | Fill the entry shape and the consistent list from the findings |
+
 ## Output
 
 Original plan file updated with:
