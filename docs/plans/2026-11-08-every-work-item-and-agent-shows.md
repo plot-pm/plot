@@ -42,11 +42,11 @@ One group order replaces `GROUPS` and `GROUP_ORDER`, which must agree today. The
 
 Every rendered state is a domain property with a unit test (CLAUDE.md, "Every rendered state is a domain property"); the browser tests prove only that the sections show. Names of the rule and its types stay within the domain's terminology (Slice, Agent, Worker) and add no new use of `Wave` where `Slice` is meant. New functions are arrows.
 
-### Open Questions
+### Left to the Builder
 
-- [ ] Which existing browser tests move to unit tests (the design leaves this to the builder).
-- [ ] The order of groups inside **You** (left to the builder).
-- [ ] How a link scrolls to and highlights its target (left to the builder).
+- Which existing browser tests move to unit tests.
+- The order of groups inside **You**.
+- How a link scrolls to and highlights its target.
 
 ## Slices
 
