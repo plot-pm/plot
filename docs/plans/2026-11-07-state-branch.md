@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Design
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Design:** 2026-11-07, eins78, cli
 - **Spike approved:** 2026-11-08, jwloka, plan-PR #3231 merged, feature/state-branch-write
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-write`
+- **Approved:** 2026-11-08, jwloka, in-session
 
 ## Changelog
 
