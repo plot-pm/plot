@@ -36,7 +36,7 @@ recordCensus({
 - A row records its count **before** it asserts, so an `it.fails` row still records it.
 - `execs` gives the per-command figures that a failure lists. A command key is the image's basename plus the basename of its first argument when that argument is not an option: `git rev-parse`, `bash plot-host.sh`, `sleep`.
 - One scenario on one fixture is one comparison key (`S4 github desks=3 prs=5`). A row that records the same key twice keeps the last entry.
-- A structural zero takes `'strict'`. A non-zero count that jitters on a loaded runner may take `{ ratio, plus }`.
+- A structural zero takes `'strict'`. The gate holds it to no growth while the merge base reads 0, and to the noise tolerance while the merge base reads more. A measured count that jitters on a loaded runner takes `{ ratio, plus }`.
 
 ### The product under test
 
@@ -62,7 +62,7 @@ The "before" is `git merge-base HEAD <ref>` with `--base <ref>`, or the commit i
 | The census run against HEAD exits non-zero | fails |
 | The "before" tree does not build | a warning line; every key reads "no before" |
 
-The allowed count is `base × (1 + ratio) + plus` for a tolerance, and `base` for `'strict'`. A strict row therefore fails on any growth, also while it is still an `it.fails` row. A strict row whose merge-base count is 0 fails on any count above 0.
+The allowed count is `base × (1 + ratio) + plus` for a `{ ratio, plus }` tolerance. A `'strict'` row whose merge-base count is 0 allows 0, so it fails on any count above 0, also while it is still an `it.fails` row. A `'strict'` row whose merge-base count is above 0 takes the noise tolerance `NOISE_TOLERANCE` from `census-report.ts`, 10 % + 2, and its line reads `tolerance strict→noise 10 % + 2 (base > 0)`. A count over a wall-clock window jitters on a loaded runner, and a zero does not: on sprint PR #3237, S3 read 1428 and 1429 execve per minute and P1 read 58.684 and 58.698, and S1 and S2 read 102 and 111 across two runs of the same code. A row with an explicit `{ ratio, plus }` keeps it.
 
 The gate stores no number. Every "before" count comes from a run of the merge base, so `grep` finds no baseline count in `packages/fleet/test/census/` or in `.github/workflows/ci.yml`.
 
