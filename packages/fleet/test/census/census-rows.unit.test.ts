@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CENSUS_ROWS, recordCount, rowTitle, topCommands } from './census-rows.js';
+import { CENSUS_ROWS, recordCount, rowTitle, topCommands, type CensusRow } from './census-rows.js';
 import type { ExecRecord } from './strace-execs.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -26,6 +26,9 @@ const censusSources = (): string =>
     .filter((f) => f.endsWith('.census.test.ts'))
     .map((f) => readFileSync(`${here}${f}`, 'utf8'))
     .join('\n');
+
+/** Whether a zero row carries `green: true`, the mark its slice sets when it turns the row into `it`. */
+const isGreen = (row: CensusRow): boolean => row.target === 'zero' && row.green === true;
 
 const exec = (path: string, ...argv: string[]): ExecRecord => ({ pid: 1, ppid: null, syscall: 'execve', path, argv });
 
@@ -53,14 +56,16 @@ describe('the census rows', () => {
       for (const name of greenBy.match(/`([^`]+)`/g)?.map((s) => s.slice(1, -1)) ?? []) expect(title, id).toContain(name);
       const slice = /slice \*([^*]+)\*/.exec(greenBy)?.[1];
       if (slice !== undefined) expect(title, id).toContain(`slice ${slice}`);
-      expect(title, id).toMatch(/expected to fail until /);
+      expect(title, id).toMatch(isGreen(row) ? /turned green by / : /expected to fail until /);
     }
   });
 
-  it('writes every zero row as it.fails and every measured row as it in the census files', () => {
+  it('writes every zero row as it.fails until it turns green, and every green or measured row as it', () => {
     const source = censusSources();
     for (const row of Object.values(CENSUS_ROWS)) {
-      const call = row.target === 'zero' ? 'it.fails(' : 'it(';
+      const call = row.target === 'zero' && !isGreen(row) ? 'it.fails(' : 'it(';
+      const other = call === 'it(' ? 'it.fails(' : 'it(';
+      expect(source, row.id).not.toContain(`${other}rowTitle(CENSUS_ROWS.${row.id}`);
       expect(source, row.id).toContain(`${call}rowTitle(CENSUS_ROWS.${row.id}`);
     }
   });
