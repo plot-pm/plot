@@ -48,9 +48,9 @@ The JSON each op prints stays the same, so no caller changes. The Bitbucket arms
 
 ### Open Questions
 
-- [ ] `pr-state` prints `mergeable`, `mergeStateStatus` and `mergeCommit`. Does the REST pull object carry an equivalent for each, or does one need a second call?
-- [ ] The merger-app token path (`plot-merger-token.mjs`) sets `GH_TOKEN` for `gh pr merge`. Confirm `gh api -X PUT` honours it the same way.
-- [ ] Does the `--delete-branch` flag of `pr-merge` need a separate `DELETE /git/refs/heads/{branch}` call, and does that call keep the current failure behaviour?
+- [x] `pr-state` prints `mergeable`, `mergeStateStatus` and `mergeCommit`. Does the REST pull object carry an equivalent for each, or does one need a second call? → One call. `GET /pulls/{n}` carries `mergeable` (boolean or null), `mergeable_state` (lowercase: `clean`, `dirty`, `blocked`, `behind`, `unstable`, `has_hooks`, `unknown`, `draft`) and `merge_commit_sha`. The arm maps `mergeable` to `MERGEABLE`/`CONFLICTING`/`UNKNOWN`, upper-cases `mergeable_state`, and prints `mergeCommit` as `{"oid": <merge_commit_sha>}` only when the PR is merged, so the printed JSON keeps the GraphQL shape.
+- [x] The merger-app token path (`plot-merger-token.mjs`) sets `GH_TOKEN` for `gh pr merge`. Confirm `gh api -X PUT` honours it the same way. → Yes. `gh api` reads `GH_TOKEN` exactly as `gh pr merge` does, so the arm keeps `GH_TOKEN="$merger_token" gh api -X PUT …`. A test asserts the stub sees the merger token on the PUT.
+- [x] Does the `--delete-branch` flag of `pr-merge` need a separate `DELETE /git/refs/heads/{branch}` call, and does that call keep the current failure behaviour? → Yes, a separate call after a successful merge. A failed delete prints one warning line and leaves the merge's exit 0, as `gh pr merge --delete-branch` does today: the merge is the action, the ref is cleanup.
 
 ## Slices
 
