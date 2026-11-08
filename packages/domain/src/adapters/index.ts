@@ -189,6 +189,7 @@ export { fleetStoppedFile, fleetStoppedPath } from './fleet-stopped/fleet-stoppe
 // (`packages/board`) defined before this port existed.
 export {
   fleetStateFile,
+  fleetStateVouched,
   bridgePath,
   BRIDGE_MAX_AGE_MS,
   type FleetStateFileOptions,
@@ -216,7 +217,7 @@ export {
 // FLEETD'S HEARTBEAT. One file under the repository's `.plot/state/`, replaced
 // every `HEARTBEAT_MS` by the daemon's `run()` and read by whoever asks whether
 // fleetd is alive.
-export { fleetdHeartbeatFile, fleetdHeartbeatPath } from './fleetd-heartbeat/fleetd-heartbeat-file.js';
+export { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from './fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 // THE GATE-NUMBER READER. Resolves which gate a Claude Code session would
 // load for a repository and reads its `--spawn-contract` answer; used by both

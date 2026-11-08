@@ -1,43 +1,42 @@
 import { describe, expect, it } from 'vitest';
 
-import { bridgeIsFresh, fleetHoldsBridge, fleetOwnsScan, OWNED_ATTEMPT_MAX_AGE_MS, OWNED_BRIDGE_MAX_AGE_MS, ownedBridgeNote } from '../src/rules/scan-owner.js';
+import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '../src/entities/fleetd-heartbeat.js';
+import { bridgeIsFresh, fleetHoldsBridge, fleetOwnsScan, OWNED_BRIDGE_MAX_AGE_MS, ownedBridgeNote } from '../src/rules/scan-owner.js';
 
-const UP = { asked: true, exitCode: 0, summarised: true };
-const DOWN = { asked: true, exitCode: 1, summarised: true, install: 'not-installed' };
-const NOW = 1_000_000_000;
+const NOW = 1_700_000_000_000;
+
+const beat = (overrides: Partial<FleetdHeartbeat> = {}): FleetdHeartbeat => ({
+  version: FLEETD_HEARTBEAT_VERSION,
+  pid: 4242,
+  startedAt: NOW - 600_000,
+  beatAt: NOW,
+  generation: 1,
+  bridgeAt: null,
+  supervised: 'none',
+  watchesWanted: 0,
+  watchesArmed: 0,
+  lastEventAt: null,
+  lastSafetyNetAt: null,
+  loops: {},
+  ...overrides,
+});
 
 describe('fleetOwnsScan', () => {
-  it('is true for a supervisor that is up and a fresh bridge', () => {
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 5_000, now: NOW })).toBe(true);
+  it('is true while the heartbeat is live and every loop is fresh', () => {
+    expect(fleetOwnsScan({ heartbeat: beat(), now: NOW })).toBe(true);
+    expect(fleetOwnsScan({ heartbeat: beat({ beatAt: NOW - 30_000 }), now: NOW })).toBe(true);
   });
-  it('is true at the age bound and false one millisecond past it', () => {
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - OWNED_BRIDGE_MAX_AGE_MS, now: NOW })).toBe(true);
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - OWNED_BRIDGE_MAX_AGE_MS - 1, now: NOW })).toBe(false);
+  it('stays true for an idle repository whose bridge is 20 minutes old', () => {
+    expect(fleetOwnsScan({ heartbeat: beat({ bridgeAt: NOW - 20 * 60_000 }), now: NOW })).toBe(true);
   });
-  it('is false for a loaded supervisor whose bridge went stale (a hung daemon)', () => {
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 600_000, now: NOW })).toBe(false);
+  it('is false for a stale heartbeat', () => {
+    expect(fleetOwnsScan({ heartbeat: beat({ beatAt: NOW - 31_000 }), now: NOW })).toBe(false);
   });
-  it('is false for a fresh bridge with no supervisor up', () => {
-    expect(fleetOwnsScan({ supervisor: DOWN, bridgeAt: NOW - 1_000, now: NOW })).toBe(false);
-    expect(fleetOwnsScan({ supervisor: undefined, bridgeAt: NOW - 1_000, now: NOW })).toBe(false);
+  it('is false for an absent heartbeat', () => {
+    expect(fleetOwnsScan({ heartbeat: null, now: NOW })).toBe(false);
   });
-  it('is false for a fresh bridge with a supervisor that died', () => {
-    const died = { asked: true, exitCode: 1, summarised: true, install: 'installed' };
-    expect(fleetOwnsScan({ supervisor: died, bridgeAt: NOW - 1_000, now: NOW })).toBe(false);
-  });
-  it('is true for an unknown supervisor reading and a fresh bridge', () => {
-    const cutShort = { asked: true, exitCode: 1, summarised: false };
-    const notAsked = { asked: false, exitCode: null, summarised: false };
-    expect(fleetOwnsScan({ supervisor: cutShort, bridgeAt: NOW - 5_000, now: NOW })).toBe(true);
-    expect(fleetOwnsScan({ supervisor: notAsked, bridgeAt: NOW, now: NOW })).toBe(true);
-  });
-  it('is false for an unknown supervisor reading and a stale bridge', () => {
-    const cutShort = { asked: true, exitCode: 1, summarised: false };
-    expect(fleetOwnsScan({ supervisor: cutShort, bridgeAt: NOW - OWNED_BRIDGE_MAX_AGE_MS - 1, now: NOW })).toBe(false);
-  });
-  it('is false with no bridge, and for a bridge from the future', () => {
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: null, now: NOW })).toBe(false);
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW + 1, now: NOW })).toBe(false);
+  it('is false while a loop is late under a fresh beat', () => {
+    expect(fleetOwnsScan({ heartbeat: beat({ loops: { scan: { lastPassAt: NOW - 181_000 } } }), now: NOW })).toBe(false);
   });
 });
 
@@ -67,23 +66,6 @@ describe('fleetHoldsBridge', () => {
   });
 });
 
-describe('fleetOwnsScan with a scan attempt', () => {
-  it('is true for a live fleet whose last scan started 100 s ago and whose bridge is 200 s old', () => {
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 200_000, lastAttemptStartedAt: NOW - 100_000, now: NOW })).toBe(true);
-  });
-  it('is false for a live fleet that started no scan within the attempt bound', () => {
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 400_000, lastAttemptStartedAt: NOW - OWNED_ATTEMPT_MAX_AGE_MS - 1, now: NOW })).toBe(false);
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 400_000, lastAttemptStartedAt: NOW - OWNED_ATTEMPT_MAX_AGE_MS, now: NOW })).toBe(true);
-  });
-  it('is false for a stopped fleet however recent its attempt', () => {
-    expect(fleetOwnsScan({ supervisor: DOWN, bridgeAt: NOW - 200_000, lastAttemptStartedAt: NOW - 1_000, now: NOW })).toBe(false);
-  });
-  it('is false for an attempt from the future, and with no bridge at all', () => {
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW - 200_000, lastAttemptStartedAt: NOW + 1, now: NOW })).toBe(false);
-    expect(fleetOwnsScan({ supervisor: UP, bridgeAt: null, lastAttemptStartedAt: NOW - 1_000, now: NOW })).toBe(false);
-  });
-});
-
 describe('ownedBridgeNote', () => {
   it('is null while the bridge is fresh', () => {
     expect(ownedBridgeNote({ bridgeAt: NOW - 5_000, attempt: null, now: NOW })).toBeNull();
@@ -104,6 +86,15 @@ describe('ownedBridgeNote', () => {
   it('names only the age when the last attempt did not fail', () => {
     const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: { startedAt: NOW - 50_000, outcome: 'running', error: null }, now: NOW });
     expect(note).toContain('200 s ago');
+    expect(note).toContain('its next is under way');
     expect(note).not.toContain('failed');
+  });
+  it('says no scan is under way for an idle fleet that records no running attempt', () => {
+    for (const attempt of [null, { startedAt: NOW - 50_000, outcome: 'ok' as const, error: null }]) {
+      const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt, now: NOW });
+      expect(note).toContain('200 s ago');
+      expect(note).toContain('no scan is under way');
+      expect(note).not.toContain('next is under way');
+    }
   });
 });

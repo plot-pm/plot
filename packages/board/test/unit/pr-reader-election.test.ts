@@ -11,6 +11,7 @@ import { HEARTBEAT_STALE_MS, READER_STALE_MS } from '@plot-pm/domain/rules/reade
 
 import { ensureCache, freshCacheEntry, maybeRefreshPrs, releaseReader, stopFleetRefresh, type CacheEntry } from '../../src/server/fleet.js';
 import { rmTree } from '../helpers.mjs';
+import { writeFleetdHeartbeat } from './live-fleetd.js';
 
 // the-boards-share-one-pr-reader: two board instances against one repository
 // share ONE PR-reading process rather than each polling the host on its own.
@@ -109,7 +110,7 @@ describe('a freshly renewed fleetd claim reads as follow, not elect', () => {
       // A real fleetd daemon's claim and heartbeat, renewed moments ago —
       // the exact shape `fleetPrs` itself publishes on every successful pass.
       await readerLock.elect('github', { generation: 0, pid: 424242, startedAt: now - 600_000, at: now });
-      await readerLock.heartbeat('github', 'fleetd', now);
+      await writeFleetdHeartbeat(dir);
       const calls: { script: string; args: readonly string[] }[] = [];
       const detached = recordingDetached(calls);
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached, processProbe: probeAnswering(true) };
@@ -519,7 +520,7 @@ describe('the board starts its PR reader only while a page is attached', () => {
     const dir = fixture();
     try {
       const readerLock = readerLockFixture();
-      await readerLock.heartbeat('github', 'fleetd', Date.now());
+      await writeFleetdHeartbeat(dir);
       const calls: { script: string; args: readonly string[] }[] = [];
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
       const entry = watchedEntry();

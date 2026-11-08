@@ -66,7 +66,7 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
-import { startFleetdHeartbeat, supervisedFrom } from '../../shared/fleetd-heartbeat.js';
+import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
@@ -3098,11 +3098,23 @@ export const run = async (
   // THE HEARTBEAT BELONGS TO THE LOOP: `--once` writes none. The beat comes from
   // the clock and not from a loop's work, so it runs with no git host and with
   // nothing changing. `generation` is 0 until fleetd holds a `RepoSnapshot`.
-  const passes: Partial<Record<FleetdLoop, number>> = {};
+  // Every loop a daemon runs registers at start with no pass, so a first pass that
+  // hangs reads late from `startedAt`; `--once` runs no heartbeat and no loops.
+  const passes: Partial<Record<FleetdLoop, number | null>> = args.once
+    ? {}
+    : { tick: null, scan: null, 'pr-reader': null, 'issue-reader': null };
   const passed = <T,>(loop: FleetdLoop, read: () => Promise<T>): (() => Promise<T>) => async () => {
     const value = await read();
     passes[loop] = Date.now();
     return value;
+  };
+  const bridge = trackBridgeWrites(fleetStateFile({ repoRoot }));
+  // A scan passes only when it landed a bridge: `fleetScan` contains its own failures and
+  // returns, so a failing scan would otherwise read as a loop that keeps up.
+  const scanPassed = (scan: () => Promise<void>): (() => Promise<void>) => async () => {
+    const before = bridge.writes();
+    await scan();
+    if (bridge.writes() > before) passes.scan = Date.now();
   };
   const fleetLabel =
     process.env.PLOT_FLEET_LABEL ||
@@ -3118,6 +3130,7 @@ export const run = async (
           startedAt: fleetdStartedAt,
           supervised: supervisedFrom(process.env, fleetLabel),
           passes: () => ({ ...passes }),
+          bridgeAt: bridge.bridgeAt,
           generation: seams.snapshotGeneration ?? (() => 0),
         },
         warn,
@@ -3148,7 +3161,7 @@ export const run = async (
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: passed('scan', seams.scan ?? fleetScan(
+        scan: seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
           {
             repoRoot,
             scripts,
@@ -3175,7 +3188,7 @@ export const run = async (
               },
             },
           },
-          fleetStateFile({ repoRoot }),
+          bridge.state,
           scanState,
           () => Date.now(),
           warn,

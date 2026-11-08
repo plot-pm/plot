@@ -10,6 +10,7 @@ import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 
 import { freshCacheEntry, maybeRefreshPrs, refresh, stopFleetRefresh } from '../../src/server/fleet.js';
 import { rmTree } from '../helpers.mjs';
+import { writeFleetdHeartbeat } from './live-fleetd.js';
 
 // Under a fleet the board reads its inbox from `issues.json` and makes no
 // `issue-list` call: the spike's Acceptance item 7, and review findings M3,
@@ -46,7 +47,7 @@ afterEach(() => {
  * A repository whose supervisor reads `up`, whose host logs every call, and
  * whose one plan names issue 2.
  */
-const fixture = (tracker = '') => {
+const fixture = async (tracker = '') => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-issue-index-read-'));
   temps.push(dir);
   const hosts = path.join(dir, 'hosts.log');
@@ -71,6 +72,7 @@ const fixture = (tracker = '') => {
   // same pair `fleetPrs` itself publishes on every pass — without it,
   // `electBoardVerdict` reads `elect` rather than `follow` and the board asks
   // the host on its own instead of serving the issue index these tests exercise.
+  await writeFleetdHeartbeat(dir);
   const readerLock = readerLockFixture();
   const now = Date.now();
   // The parent's pid: a live process that is not this one, so the board's
@@ -106,8 +108,22 @@ const readUnderFleet = async (dir: string, opts: { repoRoot: string; scriptsDir:
 };
 
 describe('the board reads its inbox from the issue index under a fleet (Acceptance 7)', () => {
+  it('serves the index from a live heartbeat alone, whatever the bridge', async () => {
+    const { dir, opts, issueListed } = await fixture();
+    await issueIndexFile({ cwd: dir }).write(indexOf(3));
+    // No bridge file at all, and one older than the 15 minute cut-off.
+    for (const bridgeAge of [null, 20 * 60_000]) {
+      if (bridgeAge !== null) await fleetStateFile({ repoRoot: dir, now: () => Date.now() }).write(bridged(Date.now() - bridgeAge));
+      const entry = freshCacheEntry();
+      await refresh(opts, entry);
+      await maybeRefreshPrs(opts, entry);
+      expect(issueListed()).toBe(0);
+      expect(entry.issues.map((issue) => issue.number)).toEqual(['1', '3']);
+    }
+  });
+
   it('makes no issue-list call and shows the rows minus the planned issue, at most 50', async () => {
-    const { dir, opts, issueListed } = fixture();
+    const { dir, opts, issueListed } = await fixture();
     await issueIndexFile({ cwd: dir }).write(indexOf(60));
     const entry = await readUnderFleet(dir, opts);
     expect(issueListed()).toBe(0);
@@ -118,7 +134,7 @@ describe('the board reads its inbox from the issue index under a fleet (Acceptan
   });
 
   it('shows the absence sentence for a missing file, never an empty inbox (M7)', async () => {
-    const { dir, opts, issueListed } = fixture();
+    const { dir, opts, issueListed } = await fixture();
     const entry = await readUnderFleet(dir, opts);
     expect(issueListed()).toBe(0);
     expect(entry.issueAnswer).toBe('unsupported');
@@ -126,7 +142,7 @@ describe('the board reads its inbox from the issue index under a fleet (Acceptan
   });
 
   it('shows the kept rows of a failed index under its failure line (M4)', async () => {
-    const { dir, opts } = fixture();
+    const { dir, opts } = await fixture();
     await issueIndexFile({ cwd: dir }).write(indexOf(3, { answer: 'failed', reason: 'API rate limit exceeded' }));
     const entry = await readUnderFleet(dir, opts);
     expect(entry.issueAnswer).toBe('failed');
@@ -135,7 +151,7 @@ describe('the board reads its inbox from the issue index under a fleet (Acceptan
   });
 
   it('shows the reason an unsupported index carries', async () => {
-    const { dir, opts } = fixture();
+    const { dir, opts } = await fixture();
     await issueIndexFile({ cwd: dir }).write(
       indexOf(0, { answer: 'unsupported', reason: 'the git host `bitbucket` lists no issues' }),
     );
@@ -145,7 +161,7 @@ describe('the board reads its inbox from the issue index under a fleet (Acceptan
   });
 
   it('refuses the rows of an index written for another source (M3)', async () => {
-    const { dir, opts } = fixture('jira https://x.invalid');
+    const { dir, opts } = await fixture('jira https://x.invalid');
     await issueIndexFile({ cwd: dir }).write(indexOf(3));
     const entry = await readUnderFleet(dir, opts);
     expect(entry.issues).toEqual([]);
@@ -154,7 +170,7 @@ describe('the board reads its inbox from the issue index under a fleet (Acceptan
   });
 
   it('shows the source\'s reason for a tracker no connector lists, and reads no index (M3)', async () => {
-    const { dir, opts, issueListed } = fixture('linear');
+    const { dir, opts, issueListed } = await fixture('linear');
     await issueIndexFile({ cwd: dir }).write(indexOf(3));
     const entry = await readUnderFleet(dir, opts);
     expect(issueListed()).toBe(0);

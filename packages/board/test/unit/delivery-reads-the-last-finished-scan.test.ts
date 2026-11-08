@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
+import { liveFleetdHeartbeat, rmTree } from '../helpers.mjs';
 import { buildBoard } from '../../src/server/board.js';
 import { deliverability } from '../../src/server/deliver.js';
 import {
@@ -116,6 +116,7 @@ function fixture() {
   fs.writeFileSync(path.join(repoRoot, '.plot/state/last-pulse.json'), JSON.stringify({
     version: 1, at: Date.now(), pulse: FINISHED, ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
   }));
+  liveFleetdHeartbeat(repoRoot);
   const ctl = path.join(scripts, 'plot-fleetctl.sh');
   fs.writeFileSync(ctl, '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n');
   fs.chmodSync(ctl, 0o755);

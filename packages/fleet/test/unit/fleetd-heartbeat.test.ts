@@ -3,13 +3,15 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { clockManual, fleetdHeartbeatFile } from '@plot-pm/domain/adapters';
-import { answered, failed, fleetdLiveness, type FleetdHeartbeat } from '@plot-pm/domain';
+import { clockManual, fleetdHeartbeatFile, fleetStateFile, fleetStateVouched } from '@plot-pm/domain/adapters';
+import { answered, failed, fleetdLiveness, lateLoops, FleetReadingSchema, type FleetdHeartbeat } from '@plot-pm/domain';
+import { bridgeVouched } from '@plot-pm/domain/rules/fleetd-live';
+import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 
 import { run, type RunSeams } from '../../src/server/entry/registryd-main.js';
 import type { TickReport } from '../../src/server/entry/registryd.js';
-import { startFleetdHeartbeat, supervisedFrom } from '../../src/shared/fleetd-heartbeat.js';
+import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../src/shared/fleetd-heartbeat.js';
 
 const settle = async (turns = 5): Promise<void> => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
@@ -43,7 +45,7 @@ describe('supervisedFrom', () => {
 });
 
 describe('startFleetdHeartbeat', () => {
-  const source = { pid: 99, startedAt: 5, supervised: 'none' as const, generation: () => 3, passes: () => ({}) };
+  const source = { pid: 99, startedAt: 5, supervised: 'none' as const, generation: () => 3, bridgeAt: () => null, passes: () => ({}) };
 
   it('writes once at start and then on every beat', async () => {
     const clock = clockManual(1_000);
@@ -320,6 +322,97 @@ describe('run — the heartbeat', () => {
     expect(after.ok && after.value !== null && fleetdLiveness(after.value, Date.now())).toBe('stale');
   });
 
+  it('registers every loop at start, and judges a scan whose first pass never resolves late after its bound', async () => {
+    const clock = clockManual(Date.now());
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let sleeps = 0;
+    let first: FleetdHeartbeat | null = null;
+    let last: FleetdHeartbeat | null = null;
+    let release: () => void = () => undefined;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        if (sleeps === 0) {
+          const read = await store.read();
+          first = read.ok ? read.value : null;
+        }
+        sleeps += 1;
+        let beatAt = 0;
+        for (let i = 0; i < 19; i += 1) {
+          clock.advance(1);
+          beatAt = await nextBeat(store, beatAt);
+        }
+        const read = await store.read();
+        last = read.ok ? read.value : null;
+        release();
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, { scan: () => new Promise<void>((r) => (release = r)) }),
+    );
+    expect(first).toMatchObject({ loops: { scan: { lastPassAt: null }, 'pr-reader': { lastPassAt: null }, 'issue-reader': { lastPassAt: null } } });
+    const seen = last as unknown as FleetdHeartbeat;
+    expect(lateLoops(seen, seen.beatAt)).toEqual(['scan']);
+  });
+
+  it.each([
+    ['older than', 20 * 60_000],
+    ['younger than', 5 * 60_000],
+  ])('ends ownership and the bridge vouch once a failing scan passes its bound, with a bridge %s 15 minutes', async (_name, bridgeAge) => {
+    // The real scan runs in a plain directory with no scripts, so every scan fails.
+    const start = Date.now();
+    const clock = clockManual(start);
+    const old = start - bridgeAge;
+    await fleetStateFile({ repoRoot: dir, now: () => old }).write({
+      at: old,
+      pulse: FleetReadingSchema.parse({
+        main: 'main',
+        head: 'abc',
+        fetch_failed: false,
+        summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+        plans: [],
+      }),
+      ages: new Map(),
+      branchUrlBase: '',
+      approvedAt: new Map(),
+      ideaPlans: new Map(),
+      prError: null,
+    });
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let sleeps = 0;
+    let last: FleetdHeartbeat | null = null;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        let beatAt = 0;
+        for (let i = 0; i < 19; i += 1) {
+          clock.advance(1);
+          beatAt = await nextBeat(store, beatAt);
+        }
+        const read = await store.read();
+        last = read.ok ? read.value : null;
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, { scan: undefined }),
+    );
+    const seen = last as unknown as FleetdHeartbeat;
+    expect(seen.loops.scan?.lastPassAt).toBeNull();
+    expect(seen.bridgeAt).toBeNull();
+    // A bridge under 15 minutes old still takes the scan's own `failed` attempt record.
+    const bridge = await fleetStateFile({ repoRoot: dir }).read();
+    if (bridgeAge < 15 * 60_000) expect(bridge.ok && bridge.value?.attempt?.outcome).toBe('failed');
+    expect(fleetOwnsScan({ heartbeat: seen, now: seen.beatAt })).toBe(false);
+    expect(bridgeVouched({ at: old }, seen, seen.beatAt)).toBe(false);
+  });
+
   it('writes no heartbeat under --once', async () => {
     const clock = clockManual(1_000);
     await run(['--once'], dir, () => undefined, async () => undefined, () => true, () => undefined, dir, quiet(clock));
@@ -327,5 +420,64 @@ describe('run — the heartbeat', () => {
     clock.advance(3);
     await settle();
     expect(existsSync(join(dir, '.plot', 'state', 'fleetd.json'))).toBe(false);
+  });
+});
+
+describe('the heartbeat vouches for the bridge fleetd wrote', () => {
+  let dir = '';
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'fleetd-heartbeat-bridge-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const emptyPulse = (at: number) => ({
+    at,
+    pulse: FleetReadingSchema.parse({
+      main: 'main',
+      head: 'abc',
+      fetch_failed: false,
+      summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+      plans: [],
+    }),
+    ages: new Map(),
+    branchUrlBase: '',
+    approvedAt: new Map(),
+    ideaPlans: new Map(),
+    prError: null,
+    attempt: { startedAt: at, endedAt: at, outcome: 'ok' as const, error: null },
+  });
+
+  const beatWith = async (beatClockAt: number): Promise<number> => {
+    const bridgeAt = Date.now() - 20 * 60_000;
+    const bridge = trackBridgeWrites(fleetStateFile({ repoRoot: dir }));
+    await bridge.state.write(emptyPulse(bridgeAt));
+    startFleetdHeartbeat(
+      clockManual(beatClockAt),
+      fleetdHeartbeatFile({ repoRoot: dir }),
+      { pid: 1, startedAt: beatClockAt - 1_000, supervised: 'none', generation: () => 0, bridgeAt: bridge.bridgeAt, passes: () => ({}) },
+      () => undefined,
+    );
+    await settle(20);
+    return bridgeAt;
+  };
+
+  it('accepts a 20 minute old bridge while fleetd beats', async () => {
+    const bridgeAt = await beatWith(Date.now());
+    const read = await fleetStateVouched(dir).read();
+    expect(read.ok && read.value?.at).toBe(bridgeAt);
+  });
+
+  it('refuses the same bridge once the heartbeat is stale', async () => {
+    await beatWith(Date.now() - 120_000);
+    const read = await fleetStateVouched(dir).read();
+    expect(read.ok && read.value).toBeNull();
+  });
+
+  it('reports null until a write lands, and ignores a failed write', async () => {
+    const failing = trackBridgeWrites({ read: async () => answered(null), readSync: () => answered(null), write: async () => failed<void>() } as never);
+    await failing.state.write(emptyPulse(5));
+    expect(failing.bridgeAt()).toBeNull();
   });
 });
