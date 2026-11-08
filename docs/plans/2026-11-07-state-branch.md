@@ -14,6 +14,7 @@
 - **Spike approved:** 2026-11-08, jwloka, plan-PR #3231 merged, feature/state-branch-write
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-write`
 - **Approved:** 2026-11-08, jwloka, in-session
+- **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-read`
 
 ## Changelog
 
