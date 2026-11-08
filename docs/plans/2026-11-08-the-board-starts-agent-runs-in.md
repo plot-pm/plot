@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3275 merged
+- **Started:** 2026-11-08, Jan Wloka, `bug/board-runs-outlive-the-board`
 
 ## Changelog
 
