@@ -58,7 +58,7 @@ On 2026-11-07 the operator's first registration failed with "The authenticator r
 
 ### Release approval
 
-- `feature/the-release-row-approves-itself` — `releaseApprovable` domain rule, "Approve release" on the release row, sidebar panel and free-form fields removed <!-- builds: releaseApprovable, the release PR's readiness rule -->
+- `feature/the-release-row-approves-itself` — `releaseApprovable` domain rule, "Approve release" on the release row, sidebar panel and free-form fields removed <!-- builds: releaseApprovable, the release PR's readiness rule --> → #3242
 
 ## Notes
 
