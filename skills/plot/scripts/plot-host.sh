@@ -3025,11 +3025,15 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # checkout root only for a standard `git worktree add` checkout; where the
 # command fails, prints nothing, or its parent directory does not exist, this
 # falls through to "no main checkout .env" rather than inventing a path.
+#
+# An exported answer for this checkout replaces both git questions
+# (`plot_given_common_dir`); another repository's asks git.
 plot_env_file() {
   local root env_file common
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
+  . "$here/plot-desk-root.sh"
+  root="$(plot_given_common_dir "$PWD" top || git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
   plot_env_file_qualifies "$env_file" "$1" "$2" && { printf '%s|' "$env_file"; return 0; }
-  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
+  common="$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
   env_file="$(dirname "$common")/.env"
   plot_env_file_qualifies "$env_file" "$1" "$2" && printf "%s|the main checkout's " "$env_file"
 }

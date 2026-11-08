@@ -5,6 +5,7 @@ import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { claimTip, type ClaimAnswer } from '@plot-pm/domain/rules/claim';
 import { specIsEmpty } from '@plot-pm/domain/rules/design-work';
 import type { Host, PortResult, Refs, Trees } from '@plot-pm/domain';
@@ -277,7 +278,7 @@ export const restart = async (ctx: Context, slug: string, write: Printer, warn: 
  * @returns the root, or `null` outside a repository.
  */
 const resolveRepoRoot = async (cwd: string, scriptDir: string): Promise<string | null> => {
-  const common = await runProcess('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const common = await processAnswers.absoluteCommonDir(cwd, process.cwd());
   const dir = common.stdout.trim();
   if (common.code === 0 && path.basename(dir) === '.git') return path.dirname(dir);
   const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();

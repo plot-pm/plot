@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 import { runProcess, type RunOptions, type ScriptRun } from '../run-script.js';
 
@@ -20,7 +21,8 @@ export type ProcessRunner = (command: string, args: readonly string[], options?:
 export interface FixedAnswers {
   /**
    * `git rev-parse --git-common-dir` in `cwd`, as git printed it: relative in
-   * a main checkout, absolute in a linked worktree.
+   * a main checkout, absolute in a linked worktree. Absolute and physical when
+   * {@link givenGitDirs} answers from the environment.
    *
    * @param cwd - where to ask; the process's own directory when omitted.
    */
@@ -76,6 +78,70 @@ export interface FixedAnswers {
 /** The two variables a Plot script reads before it asks git for the same answer. */
 export const FIXED_ENV_KEYS = ['PLOT_REPO_ROOT', 'PLOT_GIT_COMMON_DIR'] as const;
 
+/** The checkout a directory lies in, read from the environment with no process. */
+export interface GivenGitDirs {
+  /** The checkout's top level, physical: what `--show-toplevel` prints. */
+  toplevel: string;
+  /** The checkout's own git directory: the common one, or `<common>/worktrees/<name>`. */
+  gitDir: string;
+  /** The common git directory, physical. */
+  commonDir: string;
+}
+
+const physical = (path: string): string | undefined => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+};
+
+const isDirectory = (path: string): boolean => {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+const firstLine = (path: string): string | undefined => {
+  try {
+    return readFileSync(path, 'utf8').split('\n')[0];
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Answers a directory's git directories from `PLOT_GIT_COMMON_DIR`, else
+ * `$PLOT_REPO_ROOT/.git`, with no process. The shell's `plot_given_common_dir`
+ * (`plot-desk-root.sh`) applies the same check.
+ *
+ * The candidate holds only for a directory of the same repository: the first
+ * `.git` above the directory is the candidate itself (the main checkout), or a
+ * file whose `gitdir:` lies under the candidate's `worktrees/` (a linked
+ * worktree). Every other case answers `undefined`, and the caller asks git.
+ *
+ * @param dir - the directory asked about.
+ * @param env - the environment to read; `process.env` by default.
+ * @returns the answers, or `undefined` when the environment names none for `dir`.
+ */
+export const givenGitDirs = (
+  dir: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): GivenGitDirs | undefined => {
+  const common = env['PLOT_GIT_COMMON_DIR'] || (env['PLOT_REPO_ROOT'] ? join(env['PLOT_REPO_ROOT'], '.git') : '');
+  const commonDir = common === '' ? undefined : physical(common);
+  let top = physical(dir);
+  if (commonDir === undefined || top === undefined || !isDirectory(commonDir)) return undefined;
+  while (physical(join(top, '.git')) === undefined && dirname(top) !== top) top = dirname(top);
+  const dotGit = join(top, '.git');
+  if (isDirectory(dotGit)) return dotGit === commonDir ? { toplevel: top, gitDir: commonDir, commonDir } : undefined;
+  const line = firstLine(dotGit);
+  const prefix = `gitdir: ${commonDir}/worktrees/`;
+  return line?.startsWith(prefix) ? { toplevel: top, gitDir: line.slice('gitdir: '.length).trim(), commonDir } : undefined;
+};
+
 /** Exit 4 is `plot-host.sh`'s "cannot drive" answer, permanent for a configuration. */
 const EXIT_CANNOT_DRIVE = 4;
 
@@ -91,16 +157,36 @@ const backendAnswered = (run: ScriptRun): boolean =>
  * {@link processAnswers}; a test builds its own instance with a counting
  * runner.
  *
+ * The git directory answers come from {@link givenGitDirs} first: where the
+ * environment names this repository, the answer is held and no process starts.
+ *
  * @param run - starts the processes; {@link runProcess} by default.
+ * @param env - the environment {@link givenGitDirs} reads; `process.env` by default.
  * @returns the answers, read on first use.
  */
-export const fixedAnswers = (run: ProcessRunner = runProcess): FixedAnswers => {
+export const fixedAnswers = (
+  run: ProcessRunner = runProcess,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): FixedAnswers => {
   const held = new Map<string, Promise<ScriptRun>>();
   const settled = new Map<string, ScriptRun>();
 
-  const once = (key: string, holds: (r: ScriptRun) => boolean, start: () => Promise<ScriptRun>): Promise<ScriptRun> => {
+  const once = (
+    key: string,
+    holds: (r: ScriptRun) => boolean,
+    start: () => Promise<ScriptRun>,
+    given: () => string | undefined = () => undefined,
+  ): Promise<ScriptRun> => {
     const known = held.get(key);
     if (known !== undefined) return known;
+    const value = given();
+    if (value !== undefined) {
+      const answer: ScriptRun = { code: 0, stdout: `${value}\n`, stderr: '' };
+      settled.set(key, answer);
+      const kept = Promise.resolve(answer);
+      held.set(key, kept);
+      return kept;
+    }
     const asked = start().then((answer) => {
       if (holds(answer)) settled.set(key, answer);
       else if (held.get(key) === asked) held.delete(key);
@@ -111,11 +197,25 @@ export const fixedAnswers = (run: ProcessRunner = runProcess): FixedAnswers => {
   };
 
   const here = (cwd?: string): string => resolve(cwd ?? process.cwd());
+  const given = (dir: string, pick: (g: GivenGitDirs) => string) => (): string | undefined => {
+    const dirs = givenGitDirs(dir, env);
+    return dirs === undefined ? undefined : pick(dirs);
+  };
 
   const commonDir = (cwd?: string): Promise<ScriptRun> =>
-    once(`common\0${here(cwd)}`, gitAnswered, () => run('git', ['rev-parse', '--git-common-dir'], { cwd }));
+    once(
+      `common\0${here(cwd)}`,
+      gitAnswered,
+      () => run('git', ['rev-parse', '--git-common-dir'], { cwd }),
+      given(here(cwd), (g) => g.commonDir),
+    );
   const toplevel = (cwd?: string): Promise<ScriptRun> =>
-    once(`top\0${here(cwd)}`, gitAnswered, () => run('git', ['rev-parse', '--show-toplevel'], { cwd }));
+    once(
+      `top\0${here(cwd)}`,
+      gitAnswered,
+      () => run('git', ['rev-parse', '--show-toplevel'], { cwd }),
+      given(here(cwd), (g) => g.toplevel),
+    );
 
   const envOf = (repoRoot: string, top: ScriptRun | undefined, common: ScriptRun | undefined): Record<string, string> => ({
     ...(top !== undefined && gitAnswered(top) ? { PLOT_REPO_ROOT: top.stdout.trim() } : {}),
@@ -132,12 +232,18 @@ export const fixedAnswers = (run: ProcessRunner = runProcess): FixedAnswers => {
     heldScriptEnv: (repoRoot) =>
       envOf(repoRoot, settled.get(`top\0${here(repoRoot)}`), settled.get(`common\0${here(repoRoot)}`)),
     absoluteCommonDir: (path, cwd) =>
-      once(`abs-common\0${resolve(cwd, path)}`, gitAnswered, () =>
-        run('git', ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd }),
+      once(
+        `abs-common\0${resolve(cwd, path)}`,
+        gitAnswered,
+        () => run('git', ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd }),
+        given(resolve(cwd, path), (g) => g.commonDir),
       ),
     gitDirs: (cwd) =>
-      once(`dirs\0${here(cwd)}`, gitAnswered, () =>
-        run('git', ['rev-parse', '--absolute-git-dir', '--path-format=absolute', '--git-common-dir'], { cwd }),
+      once(
+        `dirs\0${here(cwd)}`,
+        gitAnswered,
+        () => run('git', ['rev-parse', '--absolute-git-dir', '--path-format=absolute', '--git-common-dir'], { cwd }),
+        given(here(cwd), (g) => `${g.gitDir}\n${g.commonDir}`),
       ),
     backend: (hostScript, cwd) =>
       once(`backend\0${hostScript}\0${here(cwd)}\0${process.env['PLOT_HOST'] ?? ''}`, backendAnswered, () =>
