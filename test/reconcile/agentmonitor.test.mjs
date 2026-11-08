@@ -412,7 +412,7 @@ test('a debt on the new desk after a hop is reported there, naming it, with noth
 });
 
 // ---------------------------------------------------------------------------
-// THE PER-SECOND CHECK STARTS ONE PROCESS — slice 2 of the-agent-reporter-starts-a-sleep
+// THE NAP STARTS NO PROCESS — slice Builtin nap of monitors-nap-without-sleep
 // ---------------------------------------------------------------------------
 const subjectScript = path.join(scripts, 'plot-monitor-subject.sh');
 
@@ -421,31 +421,98 @@ const subjectOf = (pidFile) => execFileSync('bash', ['-c',
   `. ${JSON.stringify(subjectScript)}; plot_monitor_subject "$1"`, '_', pidFile],
 { encoding: 'utf8' });
 
-test('the AgentMonitor starts one process per second: sleep, and no cat, tr or dirname', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-shim-'));
-  const agent = spawn('sleep', ['30'], { stdio: 'ignore' });
-  try {
-    const bin = path.join(root, 'bin');
-    fs.mkdirSync(bin);
-    const log = path.join(root, 'starts.log');
-    for (const name of ['sleep', 'cat', 'tr', 'dirname']) {
-      const real = execFileSync('bash', ['-c', `command -v ${name}`], { encoding: 'utf8' }).trim();
-      fs.writeFileSync(path.join(bin, name),
-        `#!/bin/sh\necho ${name} >> ${JSON.stringify(log)}\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
-    }
-    const pidFile = path.join(root, '.plot-worker.pid');
-    fs.writeFileSync(pidFile, String(agent.pid));
-    execFileSync('bash', ['-c',
-      `. ${JSON.stringify(subjectScript)}; plot_monitor_wait 5 "$1"`, '_', pidFile],
-    { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, timeout: 30_000 });
-    const starts = fs.readFileSync(log, 'utf8').trim().split('\n');
-    assert.deepEqual(starts, ['sleep', 'sleep', 'sleep', 'sleep', 'sleep'],
-      'five naps, and no cat, tr or dirname start beside them');
-  } finally {
-    agent.kill();
-    fs.rmSync(root, { recursive: true, force: true });
+// `bash` on PATH and macOS `/bin/bash` 3.2.57, once each where they differ.
+const naptimeShells = [...new Map(['bash', '/bin/bash']
+  .filter((sh) => sh === 'bash' || fs.existsSync(sh))
+  .map((sh) => [execFileSync(sh, ['-c', 'echo "$BASH_VERSION"'], { encoding: 'utf8' }).trim(), sh])).values()];
+
+/** A PATH directory whose `names` log their start to `log`, then run the real command. */
+const shimBin = (root, names, log) => {
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin);
+  for (const name of names) {
+    const real = execFileSync('bash', ['-c', `command -v ${name}`], { encoding: 'utf8' }).trim();
+    fs.writeFileSync(path.join(bin, name),
+      `#!/bin/sh\necho ${name} >> ${JSON.stringify(log)}\nexec ${JSON.stringify(real)} "$@"\n`, { mode: 0o755 });
   }
+  return bin;
+};
+
+/** Runs `plot_monitor_wait <seconds> <pidFile>` under `sh`; resolves to its status and duration. */
+const runWait = (sh, seconds, pidFile, bin) => new Promise((resolve) => {
+  const started = Date.now();
+  const child = spawn(sh, ['-c', `. ${JSON.stringify(subjectScript)}; plot_monitor_wait ${seconds} "$1"`, '_', pidFile],
+    { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, stdio: 'ignore' });
+  child.once('exit', (code) => resolve({ code, ms: Date.now() - started }));
 });
+
+const startsIn = (log) => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : []);
+
+for (const sh of naptimeShells) {
+  test(`${sh}: the nap starts no sleep, cat, tr or dirname, and still waits its seconds`, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-nap-'));
+    const agent = spawn('sleep', ['30'], { stdio: 'ignore' });
+    try {
+      const log = path.join(root, 'starts.log');
+      const bin = shimBin(root, ['sleep', 'cat', 'tr', 'dirname', 'mkfifo', 'rm'], log);
+      const pidFile = path.join(root, '.plot-worker.pid');
+      fs.writeFileSync(pidFile, String(agent.pid));
+
+      const { code, ms } = await runWait(sh, 3, pidFile, bin);
+
+      assert.equal(code, 0, 'a live subject after the whole wait publishes another pass');
+      assert.ok(ms >= 2_900 && ms < 6_000, `three one-second naps took ${ms} ms`);
+      assert.deepEqual(startsIn(log), ['mkfifo', 'rm'], 'one FIFO for the whole wait, and no nap process');
+      assert.equal(fs.existsSync(path.join(root, '.plot-worker.monitor.nap')), false, 'the FIFO path is removed');
+    } finally {
+      agent.kill();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test(`${sh}: the nap returns 1 within one nap of its subject leaving`, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-gone-'));
+    const agent = spawn('sleep', ['30'], { stdio: 'ignore' });
+    try {
+      const pidFile = path.join(root, '.plot-worker.pid');
+      fs.writeFileSync(pidFile, String(agent.pid));
+      const waiting = runWait(sh, 30, pidFile, root);
+      await new Promise((r) => setTimeout(r, 1_500));
+      const killedAt = Date.now();
+      agent.kill();
+
+      const { code } = await waiting;
+
+      assert.equal(code, 1, 'a gone subject leaves');
+      assert.ok(Date.now() - killedAt < 2_000, `left ${Date.now() - killedAt} ms after the subject ended`);
+    } finally {
+      agent.kill();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test(`${sh}: a FIFO that cannot be made falls back to sleep with the same answers`, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-fall-'));
+    const agent = spawn('sleep', ['30'], { stdio: 'ignore' });
+    try {
+      fs.mkdirSync(path.join(root, '.plot-worker.monitor.nap'));
+      const log = path.join(root, 'starts.log');
+      const bin = shimBin(root, ['sleep'], log);
+      const pidFile = path.join(root, '.plot-worker.pid');
+      fs.writeFileSync(pidFile, String(agent.pid));
+
+      const { code, ms } = await runWait(sh, 2, pidFile, bin);
+
+      assert.equal(code, 0);
+      assert.ok(ms >= 1_900, `two naps took ${ms} ms`);
+      assert.deepEqual(startsIn(log), ['sleep', 'sleep'], 'the fallback naps with sleep, once per second');
+      assert.equal(fs.statSync(path.join(root, '.plot-worker.monitor.nap')).isDirectory(), true, 'the directory stays');
+    } finally {
+      agent.kill();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('a pid file with no trailing newline reads alive, then gone once the pid is dead', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-amon-nonl-'));

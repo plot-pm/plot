@@ -83,7 +83,7 @@ describe.skipIf(gate.kind !== 'run')('an AgentMonitor over one live, idle desk (
     await box?.remove();
   });
 
-  it.fails(rowTitle(CENSUS_ROWS.P1, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.P1, fixture), () => {
     recordCount(CENSUS_ROWS.P1, fixture, (sleeps.length * 60_000) / elapsedMs, sleeps);
     expect(sleeps).toHaveLength(0);
   });

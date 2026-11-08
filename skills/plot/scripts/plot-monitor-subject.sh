@@ -94,8 +94,9 @@
 # `kill -0` is the liveness question, and it is the same one
 # `plot-worker-state.sh` asks. It sends no signal; it only reports whether the
 # pid can be signalled. A pid we do not own answers EPERM rather than ESRCH,
-# which `kill -0` still reports as success — correct here, since a process we
-# cannot signal is nonetheless a process that exists.
+# and bash's `kill -0` exits 1 on EPERM as on ESRCH (macOS `/bin/bash` 3.2.57,
+# `kill -0 1`, 2026-11-08), so another user's live process reads `gone`. A
+# monitor's subject is its own agent, which the same user started.
 #
 # `$1` = the path to the agent's pid file (`.plot-worker.pid`).
 # Prints exactly one of: starting | alive | gone
@@ -187,16 +188,25 @@ plot_monitor_subject() {
 # THE NAP IS THE GRANULARITY, and one second is chosen against the WorkerMonitor
 # rather than in the abstract: a monitor may not outlive its agent by more than
 # the tighter of the two cadences, or the fast monitor's exit would be slower
-# than its own sampling. Any interval SHORTER than one nap sleeps once and is
-# unaffected, which keeps `PLOT_MONITOR_INTERVAL=1` in a test behaving exactly
-# as it reads.
+# than its own sampling. `PLOT_MONITOR_INTERVAL=1` naps once.
+#
+# THE NAP STARTS NO PROCESS. It is `read -t 1` on descriptor 9, a FIFO beside
+# the pid file that the first call makes, opens read-write and unlinks. Nothing
+# writes to it, so every read waits its whole second: two starts (`mkfifo`,
+# `rm`) for the monitor's life instead of one `sleep` per second. bash 3.2's
+# `read -t` takes whole seconds and returns 1 on a timeout, bash 4 and later
+# above 128, so the status of a nap is ignored. A FIFO that cannot be made or
+# opened leaves `plot_monitor_nap=sleep`, and each nap starts `sleep 1`.
 plot_monitor_wait() { # $1 = seconds to wait, $2 = pid file
-  local remaining="${1:-0}" pid_file="${2:-}" nap
+  local remaining="${1:-0}" pid_file="${2:-}" fifo="${2%/*}/.plot-worker.monitor.nap"
+  if [ -z "${plot_monitor_nap:-}" ]; then
+    plot_monitor_nap=sleep
+    mkfifo "$fifo" 2>/dev/null && exec 9<>"$fifo" && plot_monitor_nap='read -u 9 -t'
+    rm -f "$fifo" 2>/dev/null
+  fi
   while [ "$remaining" -gt 0 ]; do
-    nap=1
-    [ "$remaining" -lt 1 ] && nap="$remaining"
-    sleep "$nap" || return 1
-    remaining=$((remaining - nap))
+    $plot_monitor_nap 1
+    remaining=$((remaining - 1))
     [ "$(plot_monitor_subject "$pid_file")" = gone ] && return 1
   done
   return 0
@@ -237,9 +247,5 @@ plot_watched_desk() { # $1 = manifest file, $2 = launch desk → prints the watc
   # trailing space before testing for emptiness.
   field="${field#"${field%%[![:space:]]*}"}"
   field="${field%"${field##*[![:space:]]}"}"
-  if [ -n "$field" ]; then
-    printf '%s' "$field"
-  else
-    printf '%s' "$launched"
-  fi
+  printf '%s' "${field:-$launched}"
 }
