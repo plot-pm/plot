@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { clockManual, fleetdHeartbeatFile } from '@plot-pm/domain/adapters';
-import { answered, failed } from '@plot-pm/domain';
+import { answered, failed, fleetdLiveness, type FleetdHeartbeat } from '@plot-pm/domain';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 
 import { run, type RunSeams } from '../../src/server/entry/registryd-main.js';
@@ -31,18 +31,19 @@ const completedTick = (): TickReport => ({
 
 describe('supervisedFrom', () => {
   it.each([
-    ['a launchd label', { XPC_SERVICE_NAME: 'com.plot.fleetd' }, 'launchd'],
+    ['the fleet label', { XPC_SERVICE_NAME: 'com.plot.fleetd' }, 'launchd'],
+    ['a terminal application', { XPC_SERVICE_NAME: 'application.com.googlecode.iterm2.123' }, 'none'],
     ['a terminal session', { XPC_SERVICE_NAME: '0' }, 'none'],
     ['a systemd invocation', { INVOCATION_ID: 'abc123' }, 'systemd'],
     ['an empty environment', {}, 'none'],
     ['empty values', { XPC_SERVICE_NAME: '', INVOCATION_ID: '' }, 'none'],
   ])('reads %s', (_name, env, expected) => {
-    expect(supervisedFrom(env)).toBe(expected);
+    expect(supervisedFrom(env, 'com.plot.fleetd')).toBe(expected);
   });
 });
 
 describe('startFleetdHeartbeat', () => {
-  const source = { pid: 99, startedAt: 5, supervised: 'none' as const, generation: () => 3 };
+  const source = { pid: 99, startedAt: 5, supervised: 'none' as const, generation: () => 3, passes: () => ({}) };
 
   it('writes once at start and then on every beat', async () => {
     const clock = clockManual(1_000);
@@ -87,11 +88,67 @@ describe('startFleetdHeartbeat', () => {
       () => undefined,
     );
     await settle();
-    cancel();
+    await cancel();
     clock.advance(3);
     await settle();
-    expect(writes).toBe(1);
+    expect(writes).toBe(2);
     expect(clock.scheduled()).toBe(0);
+  });
+
+  it('writes a final record dated 0 on stop, which reads stale', async () => {
+    const clock = clockManual(50_000);
+    const seen: number[] = [];
+    const stop = startFleetdHeartbeat(
+      clock,
+      { read: async () => answered(null), write: async (h) => (seen.push(h.beatAt), answered(undefined)) },
+      source,
+      () => undefined,
+    );
+    await settle();
+    await stop();
+    await stop();
+    expect(seen).toEqual([50_000, 0]);
+    expect(fleetdLiveness({ ...({} as FleetdHeartbeat), beatAt: 0 }, 50_000)).toBe('stale');
+  });
+
+  it('lets a write in flight at stop finish before the final record lands', async () => {
+    const clock = clockManual(50_000);
+    const seen: number[] = [];
+    let release: () => void = () => undefined;
+    const stop = startFleetdHeartbeat(
+      clock,
+      {
+        read: async () => answered(null),
+        write: async (h) => {
+          if (seen.length === 0) await new Promise<void>((r) => (release = r));
+          seen.push(h.beatAt);
+          return answered(undefined);
+        },
+      },
+      source,
+      () => undefined,
+    );
+    await settle();
+    const stopped = stop();
+    clock.advance(1);
+    await settle();
+    expect(seen).toEqual([]);
+    release();
+    await stopped;
+    expect(seen).toEqual([50_000, 0]);
+  });
+
+  it('reports each loop that has passed', async () => {
+    const clock = clockManual(1_000);
+    let seen: unknown = null;
+    startFleetdHeartbeat(
+      clock,
+      { read: async () => answered(null), write: async (h) => ((seen = h), answered(undefined)) },
+      { ...source, passes: () => ({ tick: 700, scan: 800 }) },
+      () => undefined,
+    );
+    await settle();
+    expect(seen).toMatchObject({ loops: { tick: { lastPassAt: 700 }, scan: { lastPassAt: 800 } } });
   });
 
   it('warns once per run of failures and again after a success', async () => {
@@ -235,6 +292,32 @@ describe('run — the heartbeat', () => {
       quiet(clock, { snapshotGeneration: () => 12 }),
     );
     expect(read !== null && (read as { ok: boolean }).ok && (read as { value: { generation: number } }).value.generation).toBe(12);
+  });
+
+  it('records the tick pass, and leaves a stale heartbeat after a clean stop', async () => {
+    const clock = clockManual(1_700_000_000_000);
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let sleeps = 0;
+    let during: Awaited<ReturnType<typeof store.read>> | null = null;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        clock.advance(1);
+        await nextBeat(store, 1_700_000_000_000);
+        during = await store.read();
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock),
+    );
+    const seen = during as unknown as { ok: true; value: FleetdHeartbeat };
+    expect(seen.value.loops.tick?.lastPassAt).toBeGreaterThan(0);
+    const after = await store.read();
+    expect(after.ok && after.value !== null && fleetdLiveness(after.value, Date.now())).toBe('stale');
   });
 
   it('writes no heartbeat under --once', async () => {

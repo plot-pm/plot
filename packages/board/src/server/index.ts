@@ -126,6 +126,7 @@ const events = startEventHub({
   // request gets one cold read through `ensureCache`.
   onClients: (count) => watchFleet(opts, count),
 });
+opts.channelLink = () => events.link();
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
 /**
