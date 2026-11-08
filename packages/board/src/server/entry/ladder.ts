@@ -211,8 +211,8 @@ export const realLockFor = (scripts: Scripts, env: NodeJS.ProcessEnv = process.e
  * @throws {Refused} where the key is not a usable ref name.
  */
 export const stateTargetOf = async (ctx: LadderContext, main: string): Promise<StateWriteTarget | null> => {
-  const read = await ctx.scripts.config('State branch', '');
-  const target = writeTarget(read.ok ? read.value : '', main);
+  const read = typeof ctx.scripts.config === 'function' ? await ctx.scripts.config('State branch', '') : null;
+  const target = writeTarget(read?.ok ? read.value : '', main);
   if (target.kind === 'invalid') {
     throw new Refused(`the State branch key is refused: ${target.reason}.\n  Fix it in ## Plot Config; nothing was written.`);
   }
@@ -238,7 +238,7 @@ export const pushTargetOf = (target: StateWriteTarget | null, main: string): str
  * @param mode - `add` for the entry's first cut, `reset` for a retry's re-cut.
  * @returns `ok: false` where the cut could not be prepared; the caller's own refusal follows.
  * @throws {Refused} where the key is invalid, the origin could not be asked about the state ref,
- *   or the forward merge conflicts, naming the files.
+ *   or the forward merge conflicts, naming the files. A first cut removes its own worktree before it throws on a conflict.
  */
 export const cutBooking = async (
   ctx: LadderContext,
@@ -262,6 +262,7 @@ export const cutBooking = async (
   const merged = await ctx.trees.mergeIn(tmpwt, target.defaultRef, 'plot');
   if (!merged.ok) return { ok: false };
   if (merged.value.length > 0) {
+    if (mode === 'add') await ctx.trees.removeWithBranch(tmpwt, bookbr);
     throw new Refused(`merging ${main} into ${target.pushRef} conflicts in ${merged.value.join(', ')}.\n  No record was written. Merge ${main} into ${target.pushRef} by hand, push it, and re-run this.`);
   }
   return { ok: true };
@@ -354,7 +355,7 @@ export const commitAndPush = async (
         }
         const reset = await cutBooking(ctx, tmpwt, bookbr, main, 'reset');
         if (!reset.ok) {
-          write(`step: retry stopped — could not reset '${bookbr}' to ${pushTarget} in ${tmpwt}\n`);
+          write(`step: retry stopped — could not reset '${bookbr}' to ${pushTarget === main ? `origin/${main}` : pushTarget} in ${tmpwt}\n`);
           return { done: true as const, result: { rejected: true as const } };
         }
         try {

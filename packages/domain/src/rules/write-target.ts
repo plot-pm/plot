@@ -69,6 +69,7 @@ const isRefName = (name: string): boolean =>
 export const writeTarget = (key: string, defaultBranch: string): WriteTarget => {
   const value = key.trim();
   if (value === '') return { kind: 'none' };
+  if (value.startsWith('-')) return { kind: 'invalid', reason: `'${value}' is not a ref name` };
   const full = value.startsWith('refs/') ? value : `${HEADS}${value}`;
   if (!isRefName(full)) return { kind: 'invalid', reason: `'${value}' is not a ref name` };
   if (full === `${HEADS}${defaultBranch}`) return { kind: 'invalid', reason: `'${value}' is the default branch` };
