@@ -47,10 +47,10 @@ Slice 2, the board. A branch whose commits beyond the default branch are all emp
 
 The release action goes through a controller, not a script call (CLAUDE.md, *The Master Agent Uses The Controllers*). The first task of slice 2 is to find the existing `release-claim` endpoint (`plot-ask.mjs release-claim`) and reuse it.
 
-### Open Questions
+### Settled Questions
 
-- [ ] Does the episode release run in fleetd's tick, or where the record is written `done`? The second keeps one writer.
-- [ ] Does a claim-only branch with an open desk and a live loop read as a claim, or stay out of the new reading until the loop ends?
+- The episode release runs where the repair record is written `state: done` with outcome `ended`. That code releases the attempt's claim ref and desk, so one writer owns the episode's end and no later tick derives it again. Settled by jwloka, 2026-11-08.
+- A claim-only branch whose desk still runs a live loop is not a claim on the board. It reads as a claim once the loop ends; `plot-dispatch.sh --release` refuses a live worker in any case. Settled by jwloka, 2026-11-08.
 
 ## Slices
 
