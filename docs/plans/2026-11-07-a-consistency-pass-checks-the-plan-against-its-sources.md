@@ -75,12 +75,12 @@ One agent run of about 15 to 20 minutes (17.5 measured once). No cost to a plan 
 
 ### Open Questions
 
-- [ ] **Which skill runs it?** Options: a new `plot-consistency` spoke, a mode of `/challenge-the-plan`, or a lens run through `/plot-panel` that is given file access. It differs from a panel lens in that it varies the source, not the persona, and from `/challenge-the-plan` in that it asks no questions of a person. Recommendation to test: a mode of `/challenge-the-plan`, because it is also a design-phase step and needs no new spoke. Decide at design time, with the manifesto's 9-question checklist.
-- [ ] **How does the severity scale read?** A first proposal: `blocks` (a slice cannot be built as written), `misleads` (the plan is wrong but the build would notice), `cosmetic` (a name or path that differs). The scale should be small enough that a person can sort the list in one read, and its words should say what happens if the flag is ignored.
-- [ ] **Opt-in per plan, or per repo?** A per-plan opt-in keeps the cost off small plans. A per-repo config key (default off) would let a repo whose plans quote a lot of code turn it on everywhere. Both can exist, as with the ceremony keys.
-- [ ] **Does the approval record that the pass ran?** A `Consistency:` status line would let `/plot-approve` and a reader tell a plan that was checked from one that was not, but it adds a plan field and touches the board. Without it, the only trace is the Open Questions the pass wrote.
-- [ ] **What is the approval commit when the plan rides a PR?** `git show` at the approval commit needs one; for `Review: pr` it is the head of the plan PR at the time of the run. A run on a head that later moves is stale, and the pass should record the commit it read.
-- [ ] **What proves it earns its cost?** The one replay is not enough. Proposal: run it on the next few plans before approval, compare its flags with what the build records, and keep, change or drop the step on the result. The first slice is that trial and nothing more.
+- [x] **Which skill runs it?** A mode of `/challenge-the-plan`. It is a design-phase step and needs no new spoke, README row or helper script. The skill had no `## Model Guidance` table; this slice adds one. Settled by Jan Wloka on 2026-11-08.
+- [x] **How does the severity scale read?** `blocks`, `misleads`, `cosmetic`, as proposed. The trial recorded no run, so no note on fit exists; the skill says the scale is a working draft. Settled by Jan Wloka on 2026-11-08.
+- [x] **Opt-in per plan, or per repo?** Per invocation, as `/challenge-the-plan consistency <plan>`. No `## Plot Config` key. Settled by Jan Wloka on 2026-11-08.
+- [ ] **Does the approval record that the pass ran?** A `Consistency:` status line would let `/plot-approve` and a reader tell a plan that was checked from one that was not, but it adds a plan field and touches the board. This slice adds none; the only trace is the Open Questions the pass wrote.
+- [x] **What is the approval commit when the plan rides a PR?** For `Review: pr`, the head of the plan PR at the run. The pass records the commit it read in a closing line of the Open Questions section; a run on a head that later moved is stale. Settled by Jan Wloka on 2026-11-08.
+- [ ] **What proves it earns its cost?** The trial recorded no run, and this slice was built on the one replay by Jan Wloka's decision on 2026-11-08. Running the pass on the next plans before approval and comparing its flags with the build is still open.
 
 ## Slices
 
