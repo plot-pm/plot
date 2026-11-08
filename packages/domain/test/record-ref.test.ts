@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { refsFixture } from '../src/adapters/index.js';
+import { failed } from '../src/port-result.js';
 import {
   lagLine,
   linkTarget,
@@ -82,6 +83,7 @@ describe('linkTarget', () => {
   it('refuses an absolute target and one that leaves the repository', () => {
     expect(linkTarget('a/b.md', '/etc/passwd')).toBeNull();
     expect(linkTarget('a/b.md', '../../x.md')).toBeNull();
+    expect(linkTarget('docs/a/g.md', './../x//y.md')).toBe('docs/x/y.md');
   });
 });
 
@@ -97,6 +99,16 @@ describe('listRecordBlobs', () => {
   });
   it('lists the default branch alone while the state ref is absent', async () => {
     const refs = refsFixture({ trees });
+    const listed = await listRecordBlobs(refs, source, 'sha1', 'docs/plans/');
+    expect(listed.ok && listed.value.map((b) => b.sha)).toEqual(['main-a', 'main-b']);
+  });
+  it('fails where the default branch cannot be listed', async () => {
+    const refs = { ...refsFixture({ trees }), listBlobs: async () => failed<never>() };
+    expect((await listRecordBlobs(refs, source, 'sha1', 'docs/plans/')).ok).toBe(false);
+  });
+  it('keeps the default listing when the state listing cannot be read', async () => {
+    const base = refsFixture({ trees, shas: { [`${STATE}^{commit}`]: 's' } });
+    const refs = { ...base, listBlobs: async (ref: string, dir: string) => (ref === STATE ? failed<never>() : base.listBlobs(ref, dir)) };
     const listed = await listRecordBlobs(refs, source, 'sha1', 'docs/plans/');
     expect(listed.ok && listed.value.map((b) => b.sha)).toEqual(['main-a', 'main-b']);
   });
@@ -164,5 +176,18 @@ describe('derefRecord', () => {
   });
   it('refuses a cycle', async () => {
     expect(await derefRecord(refsFixture({ trees, files }), 'r', 'docs/plans/active/loop.md')).toBeNull();
+  });
+  it('returns null where the listing cannot be read', async () => {
+    const refs = { ...refsFixture({ trees, files }), listBlobs: async () => failed<never>() };
+    expect(await derefRecord(refs, 'r', 'docs/plans/active/g.md')).toBeNull();
+  });
+  it('returns null where a link cannot be read', async () => {
+    const lone = { r: [blob('docs/plans/active/x.md', 'l3', '120000')] };
+    expect(await derefRecord(refsFixture({ trees: lone }), 'r', 'docs/plans/active/x.md')).toBeNull();
+  });
+  it('returns null where a link is absolute', async () => {
+    const lone = { r: [blob('docs/plans/active/x.md', 'l3', '120000')] };
+    const abs = { 'r:docs/plans/active/x.md': '/etc/passwd' };
+    expect(await derefRecord(refsFixture({ trees: lone, files: abs }), 'r', 'docs/plans/active/x.md')).toBeNull();
   });
 });
