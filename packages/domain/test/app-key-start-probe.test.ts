@@ -49,6 +49,14 @@ describe('probeAppKeysAtStart', () => {
     }, (line) => written.push(line));
     expect(written).toEqual(["App key 'Review app': the start probe failed (spawn failed)"]);
   });
+
+  it('names a thrown value that is not an Error', () => {
+    const lines = probeAppKeysAtStart((key) => {
+      if (key === 'Merger app') throw 'no shell';
+      return { read: 'usable' };
+    }, () => {});
+    expect(lines).toEqual(["App key 'Merger app': the start probe failed (no shell)"]);
+  });
 });
 
 describe('the probe over a scratch repository', () => {
