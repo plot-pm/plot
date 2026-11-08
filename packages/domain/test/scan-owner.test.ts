@@ -86,6 +86,15 @@ describe('ownedBridgeNote', () => {
   it('names only the age when the last attempt did not fail', () => {
     const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: { startedAt: NOW - 50_000, outcome: 'running', error: null }, now: NOW });
     expect(note).toContain('200 s ago');
+    expect(note).toContain('its next is under way');
     expect(note).not.toContain('failed');
+  });
+  it('says no scan is under way for an idle fleet that records no running attempt', () => {
+    for (const attempt of [null, { startedAt: NOW - 50_000, outcome: 'ok' as const, error: null }]) {
+      const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt, now: NOW });
+      expect(note).toContain('200 s ago');
+      expect(note).toContain('no scan is under way');
+      expect(note).not.toContain('next is under way');
+    }
   });
 });
