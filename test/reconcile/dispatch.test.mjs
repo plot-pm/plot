@@ -1436,7 +1436,7 @@ test('dispatch: --status tells a finished worker from a crashed one', () => {
 // CI cannot reach a host.
 
 /** A repo whose bare remote refuses (or accepts) pushes to main. */
-function repoForBooking(label, { refuseMain = false } = {}) {
+function repoForBooking(label, { refuseMain = false, stateBranch = '' } = {}) {
   const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), `plot-started-${label}-`)));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
@@ -1447,7 +1447,8 @@ function repoForBooking(label, { refuseMain = false } = {}) {
   git(r, 'config', 'commit.gpgsign', 'false');
   fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
   fs.writeFileSync(path.join(r, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + (stateBranch ? `- **State branch:** ${stateBranch}\n` : ''));
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-s.md'),
     '# S\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
     + '- **Approved:** 2026-01-01, alice, in-session\n\n## Branches\n\n- `feature/s` — one\n');
@@ -1505,6 +1506,27 @@ test('dispatch: records Started: on the default branch, not the local tree', () 
   // The disposable booking branch is disposable: gone locally and remotely.
   assert.doesNotMatch(git(r, 'branch', '-a'), /plot\/start-/);
   assert.equal(git(r, 'ls-remote', '--heads', 'origin', 'plot/start-s').trim(), '');
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-s'), { recursive: true, force: true });
+});
+
+test('dispatch: with a State branch declared the Started: record lands there and main takes no push', () => {
+  // The origin refuses every push to main, so a record that fell back to the
+  // default branch would be refused and read as a missing record.
+  const { tmp: t, repo: r, planOnMain } = repoForBooking('state', { refuseMain: true, stateBranch: 'plot/state' });
+  const mainBefore = git(r, 'rev-parse', 'origin/main').trim();
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  assert.match(out, /handed over feature\/s/);
+  assert.doesNotMatch(out, /Started:.*(not|could not)/i, `the booking must not be reported failed:\n${out}`);
+
+  git(r, 'fetch', '-q', 'origin');
+  const onState = git(r, 'show', 'origin/plot/state:plans/2026-01-01-s.md');
+  assert.match(onState, /- \*\*Started:\*\* \d{4}-\d{2}-\d{2}, .+, `feature\/s`/, `the record must be on plot/state:\n${onState}`);
+  assert.equal(git(r, 'rev-parse', 'origin/main').trim(), mainBefore, 'the default branch must not have moved');
+  assert.doesNotMatch(planOnMain(), /Started:/, 'no record on the default branch');
+  git(r, 'merge-base', '--is-ancestor', 'origin/main', 'origin/plot/state');
 
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-s'), { recursive: true, force: true });

@@ -3258,7 +3258,7 @@ book_started() { # $@ = branches dispatched this run
 # The write itself. Every failure path returns non-zero after saying WHY on
 # stderr; the caller owns the one user-facing consequence line.
 write_started_record() { # $@ = branches
-  local who date rel tmpwt bookbr rc=0
+  local who date rel tmpwt bookbr pushref rc=0
   who="${PLOT_CLAIM_WHO:-$(git config user.name 2>/dev/null || echo plot)}"
   date=$(date +%Y-%m-%d)
 
@@ -3275,20 +3275,13 @@ write_started_record() { # $@ = branches
   bookbr="plot/start-$slug"
   tmpwt="$wt_root/.plot-start-$slug.$$"
 
-  # Fetch even under --offline: booking is a push, so the network is already
-  # required. Without a fresh origin/<default> the branch would fork from a
-  # stale tip and the push would be a guaranteed non-fast-forward.
-  git fetch -q origin "$MAIN" 2>/dev/null
-
-  # `git worktree add` creates the desk root when it is missing; exclude it
-  # first so the booking leaves no untracked `.worktrees/` behind.
+  # The cut is the bundle's: from the declared `State branch` (else from
+  # origin/<default>), fetched first even under --offline — booking is a push,
+  # so the network is already required. It prints the ref the push goes at.
+  # `-B` semantics hold: a leftover branch from an earlier failed booking is
+  # disposable by construction.
   plot_exclude_desk_root "$(plot_repo_root)"
-  # -B: a leftover branch from an earlier failed booking must not block this
-  # one. It is disposable by construction — created here, pushed, deleted.
-  if ! git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null; then
-    echo "plot-dispatch: could not prepare a booking worktree at $tmpwt" >&2
-    echo "  Most often origin/$MAIN is not fetched, or '$bookbr' is checked out in" >&2
-    echo "  another worktree. Check both: git fetch origin $MAIN && git worktree list" >&2
+  if ! pushref=$(node "$script_dir/board/plot-state-cut.mjs" "$tmpwt" "$bookbr" "$MAIN"); then
     echo "  The branches were dispatched; only the plan's Started record is missing." >&2
     return 1
   fi
@@ -3344,7 +3337,7 @@ write_started_record() { # $@ = branches
   # in so a `rejected` report is visible rather than swallowed by 2>/dev/null
   # somewhere upstream.
   if [ "$rc" = 0 ]; then
-    "$script_dir/plot-push-main.sh" "$bookbr" "$MAIN" 2>&1 | sed 's/^/  /'
+    "$script_dir/plot-push-main.sh" "$bookbr" "$pushref" 2>&1 | sed 's/^/  /'
     # The pipeline's status is sed's, so ask the helper's directly.
     rc=${PIPESTATUS[0]}
   fi
