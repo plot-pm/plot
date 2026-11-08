@@ -80,6 +80,33 @@ describe('parseStraceExecs', () => {
     expect(actual.execs).toEqual([{ pid: 501, ppid: 500, syscall: 'execve', path: '/bin/true', argv: ['true'] }]);
   });
 
+  it('reads the padded result of a short resumed line, as dash under strace on ubuntu-latest prints it', () => {
+    // `strace` pads the space before `=` to its output column. dash starts an
+    // external command with `vfork`, so the parent's result arrives on a short
+    // `<... vfork resumed>` line, and the child's `execve` on another.
+    const text = lines(
+      '99392 execve("/bin/sh", ["/bin/sh", "-c", "/bin/echo one >/dev/null; :"], 0x7ffd5c2e8a10 /* 20 vars */) = 0',
+      '99392 vfork( <unfinished ...>',
+      '99393 execve("/bin/echo", ["/bin/echo", "one"], 0x55d6c3f0b0a8 /* 20 vars */ <unfinished ...>',
+      '99392 <... vfork resumed>)            = 99393',
+      '99393 <... execve resumed>)           = 0',
+      '99393 +++ exited with 0 +++',
+      '99392 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=99393, si_uid=1001, si_status=0, si_utime=0, si_stime=0} ---',
+      '99392 vfork()                         = 99394',
+      '99394 execve("/bin/true", ["/bin/true"], 0x55d6c3f0b0a8 /* 20 vars */) = 0',
+      '99392 +++ exited with 0 +++',
+    );
+
+    const actual = parseStraceExecs(text);
+
+    expect(actual.execs).toEqual([
+      { pid: 99392, ppid: null, syscall: 'execve', path: '/bin/sh', argv: ['/bin/sh', '-c', '/bin/echo one >/dev/null; :'] },
+      { pid: 99393, ppid: 99392, syscall: 'execve', path: '/bin/echo', argv: ['/bin/echo', 'one'] },
+      { pid: 99394, ppid: 99392, syscall: 'execve', path: '/bin/true', argv: ['/bin/true'] },
+    ]);
+    expect(actual.forksWithoutExec).toEqual([]);
+  });
+
   it('attributes a child whose lines precede the parent clone result', () => {
     const text = lines(
       '600  clone(child_stack=NULL, flags=SIGCHLD <unfinished ...>',

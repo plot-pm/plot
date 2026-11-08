@@ -81,6 +81,13 @@ The `process-census` job in `.github/workflows/ci.yml` runs on `ubuntu-latest`:
 - One step installs `strace` with `apt-get` when the image lacks it and logs that. A second step reads `kernel.yama.ptrace_scope`, lowers 2 to 1 with a log line, fails by name on 3, and traces a two-level tree once.
 - A pull request compares with `git merge-base HEAD origin/<base branch>`. A push to `main` compares with the event's `before` SHA. A dispatched run compares with `main`.
 - The job is not in `validate`'s `needs:` and is not a required check.
+- The census step has a 40-minute cap and the job a 50-minute cap. On the first Linux run (PR #3237, 2026-11-08) the census against HEAD took 830 s, and the steps before it 32 s.
+
+## The fixtures
+
+- The sandbox sets no `PLOT_PR_INDEX_HOME` and no `PLOT_ISSUE_INDEX_HOME`. The PR index, the reader lock and the issue index resolve from the sandbox repository's common git dir, as on an operator's machine, so the census counts the `git rev-parse --git-common-dir` that P3 and P4 name.
+- The board counts P3 over S3's window, where an attached page runs its pulse. With no page attached the board runs no pass after its first read, so S1's window cannot show P3.
+- `board-host.mjs` stops the board's process group and every descendant it lists by pid, and waits until each has exited. The PR reader that the board starts runs in its own process group.
 
 ## macOS: the manual measurement
 
