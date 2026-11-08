@@ -1,0 +1,145 @@
+import { recordCensus, type CensusFixture, type CensusTolerance } from './census-report.js';
+import type { ExecRecord } from './strace-execs.js';
+
+/** Who turns a zero row into a required pass: a plan, and its slice where the plan names one. */
+export type GreenBy = { plan: string; slice?: string; phase?: string };
+
+/** One row of the plan's scenario table (S1..S6) or per-source table (P1..P4). */
+export type CensusRow =
+  | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy }
+  | { id: string; claim: string; unit: string; target: 'measured'; tolerance: CensusTolerance };
+
+/**
+ * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order.
+ * A zero row is written as `it.fails` until the plan and slice it names turn
+ * it green; that slice changes the row to `it`.
+ */
+export const CENSUS_ROWS = {
+  S1: {
+    id: 'S1',
+    claim: 'an idle board with no SSE client and no fleetd starts nothing',
+    unit: 'execve per minute',
+    target: 'zero',
+    greenBy: { plan: 'no-tab-no-pulse', slice: 'Server pulse' },
+  },
+  S2: {
+    id: 'S2',
+    claim: 'an idle board whose one page turned hidden starts nothing',
+    unit: 'execve per minute',
+    target: 'zero',
+    greenBy: { plan: 'no-tab-no-pulse', slice: 'Hidden page' },
+  },
+  S3: {
+    id: 'S3',
+    claim: 'an idle board with one visible SSE client and fleetd running starts nothing',
+    unit: 'execve per minute',
+    target: 'zero',
+    greenBy: { plan: 'board-reads-the-channel', phase: 'Phase 4' },
+  },
+  S4: {
+    id: 'S4',
+    claim: 'an idle fleetd pass starts nothing',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'triggers-replace-the-tick', phase: 'Phase 8' },
+  },
+  S5: {
+    id: 'S5',
+    claim: 'one desk commit',
+    unit: 'execve per change',
+    target: 'measured',
+    tolerance: { ratio: 0.1, plus: 2 },
+  },
+  S6: {
+    id: 'S6',
+    claim: 'one PR whose CI turns green',
+    unit: 'execve per change',
+    target: 'measured',
+    tolerance: { ratio: 0.1, plus: 2 },
+  },
+  P1: {
+    id: 'P1',
+    claim: 'an AgentMonitor over one live, idle desk starts no sleep',
+    unit: 'sleep execve per minute',
+    target: 'zero',
+    greenBy: { plan: 'monitors-nap-without-sleep', slice: 'Builtin nap' },
+  },
+  P2: {
+    id: 'P2',
+    claim: 'an idle fleetd pass over a desk with a live pid file starts no bash -c kill -0',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'monitors-nap-without-sleep', slice: 'Liveness syscall' },
+  },
+  P3: {
+    id: 'P3',
+    claim:
+      'after its first pass, neither fleetd nor the board starts, as a direct child, git rev-parse --show-toplevel or --git-common-dir, or plot-host.sh backend',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'fixed-answers-once', slice: 'Answers in process' },
+  },
+  P4: {
+    id: 'P4',
+    claim: 'after the first pass, no process in the tree starts git rev-parse --show-toplevel or --git-common-dir',
+    unit: 'execve per pass',
+    target: 'zero',
+    greenBy: { plan: 'fixed-answers-once', slice: 'Answers in scripts' },
+  },
+} as const satisfies Record<string, CensusRow>;
+
+export type CensusRowId = keyof typeof CENSUS_ROWS;
+
+const greenByText = ({ plan, slice, phase }: GreenBy): string =>
+  `${phase === undefined ? '' : `${phase}, `}plan ${plan}${slice === undefined ? '' : `, slice ${slice}`}`;
+
+/**
+ * The test title of a row. A zero row's title names the plan and slice that
+ * turn it green, so an `it.fails` that starts to pass says which plan to read.
+ */
+export const rowTitle = (row: CensusRow, fixture?: CensusFixture): string => {
+  const size = fixture === undefined ? '' : ` [${fixture.host}, ${fixture.desks} desks, ${fixture.openPrs} open PRs]`;
+  return row.target === 'zero'
+    ? `${row.id}: ${row.claim}${size} (expected to fail until ${greenByText(row.greenBy)})`
+    : `${row.id}: ${row.claim}${size} (measured, held within ${row.tolerance === 'strict' ? 'no growth' : `${row.tolerance.ratio * 100} % + ${row.tolerance.plus}`})`;
+};
+
+/** The census's fixture size as one line: desks, open PRs, host. */
+export const sizeLine = (fixture: CensusFixture): string =>
+  `host=${fixture.host} desks=${fixture.desks} open-prs=${fixture.openPrs}`;
+
+/** The five commands that started most often, as `name ×n`. */
+export const topCommands = (execs: readonly ExecRecord[]): string => {
+  const counts = new Map<string, number>();
+  for (const e of execs) {
+    const name = (e.path.split('/').pop() ?? e.path) || (e.argv[0] ?? '?');
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 5)
+    .map(([name, n]) => `${name} x${n}`)
+    .join(', ');
+};
+
+/**
+ * Records one row's count: prints it beside its fixture size and the commands
+ * that started most, and hands it to `recordCensus`, which appends it to the
+ * report `PLOT_CENSUS_REPORT` names. Every census row calls this before it
+ * asserts, so an `it.fails` row still records its count.
+ *
+ * @returns the printed line.
+ */
+export const recordCount = (
+  row: CensusRow,
+  fixture: CensusFixture,
+  count: number,
+  execs: readonly ExecRecord[],
+): string => {
+  const tolerance: CensusTolerance = row.target === 'zero' ? 'strict' : row.tolerance;
+  const shown = Number.isInteger(count) ? String(count) : count.toFixed(1);
+  const line = `process census ${row.id} ${sizeLine(fixture)}: ${shown} ${row.unit}${execs.length === 0 ? '' : ` (top: ${topCommands(execs)})`}`;
+  console.log(line);
+  recordCensus({ id: row.id, fixture, count, unit: row.unit, tolerance, execs });
+  return line;
+};
