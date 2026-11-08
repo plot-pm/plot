@@ -158,6 +158,32 @@ function makeMergerStubs(opts) {
   return { ...stubs, env: { PLOT_REPO_ROOT: stubs.dir } };
 }
 
+// A `gh` answering the REST calls `pr-merge` makes on GitHub: the PUT merge
+// (`put`: ok | 409 | 405), the same-repo head-ref read and the ref DELETE
+// (`del`: ok | fail). Every call appends one argv line to the returned log, and
+// the GH_TOKEN it received goes to `gh.env-token`. Any other call, `pr merge`
+// and `api graphql` included, exits 9 and shows in the log.
+const mergeGhStub = (stubs, { put = 'ok', del = 'ok' } = {}) => {
+  const log = path.join(stubs.dir, 'merge-calls');
+  writeFileSync(path.join(stubs.dir, 'gh'),
+    `#!/usr/bin/env bash\n` +
+    `echo "$*" >> "${log}"\n` +
+    `printf '%s' "\${GH_TOKEN-unset}" > "${stubs.dir}/gh.env-token"\n` +
+    `case "$*" in\n` +
+    `  "api -X PUT "*) case "${put}" in\n` +
+    `    ok) echo '{"merged":true}' ;;\n` +
+    `    409) echo 'gh: Head branch was modified. Review and try the merge again. (HTTP 409)' >&2; exit 1 ;;\n` +
+    `    405) echo 'gh: Pull Request is not mergeable (HTTP 405)' >&2; exit 1 ;;\n` +
+    `  esac ;;\n` +
+    `  "api repos/{owner}/{repo}/pulls/5 --jq "*) echo feature/x ;;\n` +
+    `  "api -X DELETE "*) [ "${del}" = ok ] || { echo 'gh: Reference does not exist (HTTP 422)' >&2; exit 1; } ;;\n` +
+    `  *) exit 9 ;;\n` +
+    `esac\n`);
+  chmodSync(path.join(stubs.dir, 'gh'), 0o755);
+  return log;
+};
+const mergeCallsOf = (log) => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []);
+
 // A `bb` stub that REFUSES what the real `bb` refuses. The permissive stub above
 // swallows any argument, which is how `--state all` stayed pinned as correct in
 // this file for months while every real Bitbucket call failed: the test proved
@@ -562,36 +588,31 @@ for (const [rollup, word] of CHECK_FOLD_CASES) {
   });
 }
 
-test('host: pr-merge github pins the merge with --match-head-commit', () => {
+test('host: pr-merge github pins the merge with the PUT sha', () => {
   const sha = 'a'.repeat(40);
   const stubs = makeMergerStubs();
+  const log = mergeGhStub(stubs);
   run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
-  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
+  assert.deepEqual(mergeCallsOf(log), [`api -X PUT repos/{owner}/{repo}/pulls/5/merge -f merge_method=merge -f sha=${sha}`]);
 });
 
-// THE STUB FAILS ONLY WHEN THE PIN DOES NOT NAME ITS HEAD. A stub that failed
-// every call passed whatever `--match-head-commit` carried, so a pin dropped or
-// altered in `plot-host.sh` left this test green for the wrong reason.
-test('host: pr-merge github surfaces a host that rejects a moved head, and merges nothing', () => {
-  const head = 'a'.repeat(40);
-  const stubs = makeMergerStubs();
-  // `repo view` (the Merger App's repo lookup) always succeeds here — only a
-  // `pr merge` call is judged against the pin, so the token mint ahead of it
-  // does not change what this test is about.
-  writeFileSync(path.join(stubs.dir, 'gh'),
-    `#!/usr/bin/env bash\n` +
-    `if [ "$1" = "repo" ] && [ "$2" = "view" ]; then printf '{}'; exit 0; fi\n` +
-    `printf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
-    `pinned=""\nwhile [ $# -gt 0 ]; do [ "$1" = "--match-head-commit" ] && pinned="$2"; shift; done\n` +
-    `if [ "$pinned" != "${head}" ]; then echo 'Head branch was modified. Review and try the merge again.' >&2; exit 1; fi\n`);
-  chmodSync(path.join(stubs.dir, 'gh'), 0o755);
-  const res = runAllowFail(['pr-merge', '5', '--match-head', 'b'.repeat(40)],
-    { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
-  assert.notEqual(res.code, 0);
-  assert.match(res.stderr, /Head branch was modified/);
-  assert.equal(argvOf(stubs.ghArgv).at(-1), 'b'.repeat(40), 'the pin reached gh');
-  const ok = runAllowFail(['pr-merge', '5', '--match-head', head], { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
-  assert.equal(ok.code, 0, 'the same stub merges when the pin names its head');
+// A 409 IS GITHUB'S ANSWER FOR A HEAD THAT MOVED, and it must reach the caller as
+// the same `head-moved` refusal Bitbucket gives. A 405 is a different answer (the
+// PR is not mergeable) and keeps the host's own words, so a caller never reads
+// "head moved" for a PR that merely has a conflict.
+test('host: pr-merge github reads a 409 as head-moved and a 405 as the host\'s own refusal', () => {
+  const sha = 'a'.repeat(40);
+  const moved = makeMergerStubs();
+  mergeGhStub(moved, { put: '409' });
+  const r409 = runAllowFail(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github', ...moved.env }, stubs: moved });
+  assert.equal(r409.code, 1);
+  assert.match(r409.stderr, /head-moved/);
+  const blocked = makeMergerStubs();
+  mergeGhStub(blocked, { put: '405' });
+  const r405 = runAllowFail(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github', ...blocked.env }, stubs: blocked });
+  assert.equal(r405.code, 1);
+  assert.match(r405.stderr, /not mergeable/);
+  assert.doesNotMatch(r405.stderr, /head-moved/);
 });
 
 // THE MERGER APP IS OPT-IN THROUGH ITS KEY. With no `Merger app` key in
@@ -603,7 +624,6 @@ test('host: pr-merge github with no Merger app key merges as the signed-in gh id
   const stubs = makeStubs();
   writeFileSync(path.join(stubs.dir, 'gh'),
     `#!/usr/bin/env bash\n` +
-    `if [ "$1" = "repo" ] && [ "$2" = "view" ]; then printf 'example/repo'; exit 0; fi\n` +
     `printf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
     `printf '%s' "\${GH_TOKEN-unset}" > "${stubs.dir}/gh.env-token"\n`);
   chmodSync(path.join(stubs.dir, 'gh'), 0o755);
@@ -611,7 +631,7 @@ test('host: pr-merge github with no Merger app key merges as the signed-in gh id
   const res = runAllowFail(['pr-merge', '5', '--match-head', sha],
     { env: { PLOT_HOST: 'github', PLOT_REPO_ROOT: stubs.dir, GH_TOKEN: 'ambient-token' }, stubs });
   assert.equal(res.code, 0, res.stderr);
-  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
+  assert.deepEqual(argvOf(stubs.ghArgv), ['api', '-X', 'PUT', 'repos/{owner}/{repo}/pulls/5/merge', '-f', 'merge_method=merge', '-f', `sha=${sha}`]);
   assert.equal(readFileSync(path.join(stubs.dir, 'gh.env-token'), 'utf8'), 'ambient-token');
   const notices = res.stderr.split('\n').filter((line) => line.includes('Merger app'));
   assert.deepEqual(notices, ['plot-host: pr-merge — Merger app not configured — merging as the signed-in gh identity']);
@@ -677,7 +697,6 @@ test('host: pr-merge github passes the merger token through the environment, nev
   const stubs = makeMergerStubs();
   writeFileSync(path.join(stubs.dir, 'gh'),
     `#!/usr/bin/env bash\n` +
-    `if [ "$1" = "repo" ] && [ "$2" = "view" ]; then printf '{}'; exit 0; fi\n` +
     `printf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
     `printf '%s' "\${GH_TOKEN:-}" > "${stubs.dir}/gh.env-token"\n`);
   chmodSync(path.join(stubs.dir, 'gh'), 0o755);
@@ -1030,14 +1049,30 @@ test('host: pr-create bitbucket uses bb with same surface', () => {
   assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'create', '--title', 'T', '--body', '', '--draft']);
 });
 
-test('host: pr-merge github defaults to --merge, maps --squash/--delete-branch, both pinned', () => {
+test('host: pr-merge github defaults to a merge commit, maps --squash, and deletes the branch with its own DELETE', () => {
   const sha = 'a'.repeat(40);
   const stubs = makeMergerStubs();
+  const log = mergeGhStub(stubs);
   run(['pr-merge', '5', '--squash', '--delete-branch', '--match-head', sha], { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
-  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--squash', '--delete-branch', '--match-head-commit', sha]);
-  const stubs2 = makeMergerStubs();
-  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github', ...stubs2.env }, stubs: stubs2 });
-  assert.deepEqual(argvOf(stubs2.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
+  const calls = mergeCallsOf(log);
+  assert.equal(calls[0], `api -X PUT repos/{owner}/{repo}/pulls/5/merge -f merge_method=squash -f sha=${sha}`);
+  assert.equal(calls.at(-1), 'api -X DELETE repos/{owner}/{repo}/git/refs/heads/feature/x');
+  assert.equal(calls.length, 3, 'the PUT, the head-ref read and the DELETE');
+  const plain = makeMergerStubs();
+  const plainLog = mergeGhStub(plain);
+  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github', ...plain.env }, stubs: plain });
+  assert.deepEqual(mergeCallsOf(plainLog), [`api -X PUT repos/{owner}/{repo}/pulls/5/merge -f merge_method=merge -f sha=${sha}`]);
+});
+
+// THE BRANCH DELETE IS CLEANUP AFTER A MERGE THAT LANDED. A failure warns once
+// and exits 0, because failing here would tell a caller the merge did not happen.
+test('host: pr-merge github warns and exits 0 when the branch delete fails after the merge', () => {
+  const stubs = makeMergerStubs();
+  const log = mergeGhStub(stubs, { del: 'fail' });
+  const res = runAllowFail(['pr-merge', '5', '--delete-branch', '--match-head', 'a'.repeat(40)], { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stderr.split('\n').filter((line) => line.includes('was not deleted')).length, 1);
+  assert.ok(mergeCallsOf(log).some((line) => line.startsWith('api -X DELETE ')), 'the DELETE was attempted');
 });
 
 // THE NAIVE FIX ONLY CHECKS THE EXIT CODE. A implementation that calls `gh pr
