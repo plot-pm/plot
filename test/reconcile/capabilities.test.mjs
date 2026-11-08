@@ -166,7 +166,7 @@ const launched = (agent, charterBody) => {
   fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
   fs.writeFileSync(path.join(r, 'CLAUDE.md'),
     '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
-    + `- **Worker command:** sh -c 'if [ -n "\${PLOT_CAPABILITIES+set}" ]; then printf "SET:%s" "$PLOT_CAPABILITIES" > ${seen}; else printf UNSET > ${seen}; fi'\n`);
+    + `- **Worker command:** sh -c 'printf "%s" "\${PLOT_GIT_COMMON_DIR:-}" > ${seen}.dirs; if [ -n "\${PLOT_CAPABILITIES+set}" ]; then printf "SET:%s" "$PLOT_CAPABILITIES" > ${seen}; else printf UNSET > ${seen}; fi'\n`);
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-c.md'),
     '# C\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/caps` — one\n');
   fs.symlinkSync('../2026-01-01-c.md', path.join(r, 'plans', 'active', 'c.md'));
@@ -211,7 +211,8 @@ const launched = (agent, charterBody) => {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline && !fs.existsSync(seen)) execFileSync('sleep', ['0.2']);
   const recorded = fs.existsSync(seen) ? fs.readFileSync(seen, 'utf8') : null;
-  return { out, recorded, cleanup: () => fs.rmSync(t, { recursive: true, force: true }) };
+  const dirs = fs.existsSync(`${seen}.dirs`) ? fs.readFileSync(`${seen}.dirs`, 'utf8') : null;
+  return { out, recorded, dirs, cleanup: () => fs.rmSync(t, { recursive: true, force: true }) };
 };
 
 test('export: a declared capability reaches the worker command', () => {
@@ -219,6 +220,15 @@ test('export: a declared capability reaches the worker command', () => {
   try {
     assert.equal(got.recorded, 'SET:read-only',
       `the launched command must see the list\ndispatch said:\n${got.out}`);
+  } finally { got.cleanup(); }
+});
+
+test('export: the agent asks for its own common git dir — the dispatcher\'s answer is blanked', () => {
+  // `plot-worker-state.sh` exports `PLOT_GIT_COMMON_DIR` into the dispatcher
+  // (plan `fixed-answers-once`); the launch prefix blanks it for the agent.
+  const got = launched(null, null);
+  try {
+    assert.equal(got.dirs, '', `the agent must not inherit the dispatcher's answer\ndispatch said:\n${got.out}`);
   } finally { got.cleanup(); }
 });
 
