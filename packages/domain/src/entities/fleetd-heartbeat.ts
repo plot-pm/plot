@@ -10,12 +10,14 @@ export const FLEETD_HEARTBEAT_VERSION = 1;
 /** The loops whose last completed pass the heartbeat reports. */
 export const FLEETD_LOOPS = ['tick', 'scan', 'pr-reader', 'issue-reader'] as const;
 
+// plot-state: classification — the four loops are peers; none follows another and each may be absent.
 export const FleetdLoopSchema = z.enum(FLEETD_LOOPS);
 export type FleetdLoop = z.infer<typeof FleetdLoopSchema>;
 
 /** How fleetd was started: by the init system, or by hand. */
 export const FLEETD_SUPERVISORS = ['launchd', 'systemd', 'none'] as const;
 
+// plot-state: classification — how a process was started; a process starts one way and never moves between them.
 export const FleetdSupervisedSchema = z.enum(FLEETD_SUPERVISORS);
 export type FleetdSupervised = z.infer<typeof FleetdSupervisedSchema>;
 
