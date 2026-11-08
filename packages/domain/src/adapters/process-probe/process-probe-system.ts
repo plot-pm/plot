@@ -1,21 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import type { OwnProcess, ProcessProbe } from '../../ports/process-probe.js';
-
-/**
- * Maps `kill(target, 0)` onto an answer: `EPERM` is a process this user may not
- * signal, and so a live one.
- */
-const signalZero = (target: number): boolean | null => {
-  try {
-    process.kill(target, 0);
-    return true;
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    if (code === 'ESRCH') return false;
-    if (code === 'EPERM') return true;
-    return null;
-  }
-};
+import { signalZero } from '../signal-zero.js';
 
 /**
  * The real {@link ProcessProbe}: `kill(pid, 0)` for liveness, `kill(-pgid, 0)`

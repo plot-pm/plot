@@ -1,8 +1,9 @@
 import type { WorkerActivity, WorkerState } from '../../entities/fleet.js';
-import { answered, type PortResult } from '../../port-result.js';
+import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Processes, ProcessReading } from '../../ports/processes.js';
 import { asLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
+import { signalZero } from '../signal-zero.js';
 
 const WORKER_STATES: readonly string[] = [
   'running',
@@ -156,8 +157,9 @@ export const processesShell = (context: ShellContext): Processes => {
 
   return {
     isAlive: async (pid) => {
-      const run = await runProcess('bash', ['-c', `kill -0 ${pid} 2>/dev/null`], inRepo);
-      return answered(run.code === 0);
+      if (!Number.isInteger(pid) || pid <= 0) return answered(false);
+      const alive = signalZero(pid);
+      return alive === null ? failed() : answered(alive);
     },
 
     workerState: async (worktree, hasPr): Promise<PortResult<ProcessReading>> => {
