@@ -1,7 +1,9 @@
 import { connect, type Socket } from 'node:net';
 import { decode, type ChannelMessage } from '../../entities/channel-message.js';
 import type { Finding } from '../../entities/finding.js';
-import type { Purpose, SubscribeRequest } from '../../entities/subscription.js';
+import { SNAPSHOT_PROTOCOL, type Purpose, type SubscribeRequest } from '../../entities/subscription.js';
+import { linkAfter, linkAfterEnd, type SnapshotLink } from '../../rules/snapshot-link.js';
+import { applySnapshotMessage, type HeldSnapshot } from '../../rules/snapshot-sync.js';
 
 /**
  * The subscriber's half of the channel — the side the master agent connects on.
@@ -103,4 +105,106 @@ export const findingsIn = (message: ChannelMessage): readonly Finding[] => {
   if (message.type === 'finding') return [message.finding];
   if (message.type === 'served') return [message.finding];
   return [];
+};
+
+/** First reconnect delay of a snapshot reader and its cap, in milliseconds. */
+export const SNAPSHOT_RECONNECT_START_MS = 1_000;
+export const SNAPSHOT_RECONNECT_CAP_MS = 30_000;
+
+/** What {@link subscribeSnapshot} tunes; a test shortens the delays. */
+export interface SubscribeSnapshotOptions {
+  /** The subscriber's own name, for the log; `board` by default. */
+  subscriber?: string;
+  /** First reconnect delay; {@link SNAPSHOT_RECONNECT_START_MS} by default. */
+  reconnectStartMs?: number;
+  /** Reconnect delay cap; {@link SNAPSHOT_RECONNECT_CAP_MS} by default. */
+  reconnectCapMs?: number;
+}
+
+/** What a snapshot reader reports on each change of its link or its copy. */
+export type SnapshotStateListener = (link: SnapshotLink, held: HeldSnapshot | undefined) => void;
+
+/**
+ * Holds a copy of the sender's snapshot over the channel.
+ *
+ * Subscribes for the `snapshot` purpose, judges every `snapshot`, `delta` and
+ * `refused` message through `applySnapshotMessage` and reports the resulting
+ * link through `onState`. A `resync` closes the connection and subscribes
+ * again at once; a lost connection subscribes again after a doubling delay;
+ * a `mismatch` is retried at the delay cap, so a sender upgraded in place is
+ * found without a restart of the reader. It decides nothing itself: every
+ * judgement is `rules/snapshot-sync.ts`'s and `rules/snapshot-link.ts`'s.
+ *
+ * @param address - the channel's socket path.
+ * @param onState - called after every change of the link or the copy; the
+ *   first call is `absent`.
+ * @param options - the subscriber name and reconnect delays.
+ * @returns the handle: `held` is the copy now, `close` stops the reader.
+ */
+export const subscribeSnapshot = (
+  address: string,
+  onState: SnapshotStateListener,
+  options: SubscribeSnapshotOptions = {},
+): { held: () => HeldSnapshot | undefined; link: () => SnapshotLink; close: () => void } => {
+  const startMs = options.reconnectStartMs ?? SNAPSHOT_RECONNECT_START_MS;
+  const capMs = options.reconnectCapMs ?? SNAPSHOT_RECONNECT_CAP_MS;
+  let held: HeldSnapshot | undefined;
+  let link: SnapshotLink = { state: 'absent' };
+  let delay = startMs;
+  let current: Subscribed | undefined;
+  let timer: NodeJS.Timeout | undefined;
+  let stopped = false;
+
+  const report = (next: SnapshotLink): void => {
+    link = next;
+    onState(link, held);
+  };
+
+  const open = (): void => {
+    timer = undefined;
+    if (stopped) return;
+    let over = false;
+    const handle = subscribe(
+      { address, subscriber: options.subscriber ?? 'board', purpose: { kind: 'snapshot', protocol: SNAPSHOT_PROTOCOL } },
+      (message) => {
+        if (over || (message.type !== 'snapshot' && message.type !== 'delta' && message.type !== 'refused')) return;
+        const sync = applySnapshotMessage(held, message);
+        if (sync.outcome === 'adopt' || sync.outcome === 'apply') {
+          held = sync.held;
+          delay = startMs;
+        }
+        report(linkAfter(sync));
+        if (sync.outcome === 'resync') {
+          over = true;
+          handle.close();
+          current = undefined;
+          timer = setTimeout(open, 0);
+          timer.unref?.();
+        }
+      },
+      () => {
+        if (over || stopped) return;
+        over = true;
+        current = undefined;
+        const next = linkAfterEnd(link);
+        if (next !== link) report(next);
+        timer = setTimeout(open, link.state === 'mismatch' ? capMs : delay);
+        timer.unref?.();
+        delay = Math.min(delay * 2, capMs);
+      },
+    );
+    current = handle;
+  };
+
+  onState(link, held);
+  open();
+  return {
+    held: () => held,
+    link: () => link,
+    close: () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      current?.close();
+    },
+  };
 };

@@ -4842,6 +4842,19 @@ export const FleetShape = z.object({
    * renders no row from it yet.
    */
   design: DesignStatusSchema.nullable().default(null),
+  /**
+   * Where the hub's copy of fleetd's snapshot stands. `mismatch` names both
+   * protocol versions, with `theirs` absent where an older fleetd refused the
+   * purpose. Absent from an older server. The board renders nothing from it yet.
+   */
+  snapshotChannel: z
+    .discriminatedUnion('state', [
+      z.object({ state: z.literal('absent') }),
+      z.object({ state: z.literal('resyncing'), reason: z.string() }),
+      z.object({ state: z.literal('current'), epoch: z.string(), generation: z.number() }),
+      z.object({ state: z.literal('mismatch'), reason: z.string(), ours: z.number(), theirs: z.number().optional() }),
+    ])
+    .optional(),
 });
 export const FleetSchema = z.preprocess(readEitherSpelling, FleetShape);
 export type Fleet = z.infer<typeof FleetSchema>;

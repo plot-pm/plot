@@ -1,7 +1,9 @@
 import type http from 'node:http';
 import type { ChannelMessage } from '@plot-pm/domain';
 import { ruleEventWindow, SERVER_EVENT_WINDOW_MS, type EventWindow } from '@plot-pm/domain';
-import { subscribe, type Subscribed } from '@plot-pm/domain/adapters';
+import { subscribe, subscribeSnapshot, type Subscribed } from '@plot-pm/domain/adapters';
+import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
+import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 
 /**
  * The board's one subscription to the channel, and the SSE fan-out behind
@@ -42,6 +44,14 @@ export interface EventHub {
   attach(req: http.IncomingMessage, res: http.ServerResponse): void;
   /** Number of streams currently held. */
   clients(): number;
+  /**
+   * Where the hub's copy of fleetd's snapshot stands: `current`, `resyncing`,
+   * `mismatch` (with both protocol versions) or `absent`. Nothing renders from
+   * the copy yet; on `mismatch` the board reads for itself, as it always did.
+   */
+  snapshotLink(): SnapshotLink;
+  /** The copy of fleetd's snapshot, or `undefined` before the first one arrives. */
+  snapshot(): HeldSnapshot | undefined;
   /** Stop the subscription and end every stream. */
   close(): void;
 }
@@ -154,6 +164,24 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   };
   connect();
 
+  // THE SECOND SUBSCRIPTION, for the snapshot. A socket subscription starts no
+  // process. One line names a mismatch the first time it appears and again only
+  // after another state intervened, so a sender that stays old logs once.
+  let reported = '';
+  const reader = subscribeSnapshot(
+    options.address,
+    (next) => {
+      if (next.state !== 'mismatch') {
+        reported = '';
+        return;
+      }
+      const line = `channel: snapshot protocol mismatch (this board speaks ${next.ours}, fleetd ${next.theirs ?? 'a version that refused the purpose'}): ${next.reason}; reading for itself`;
+      if (line !== reported) log(line);
+      reported = line;
+    },
+    { reconnectStartMs: startMs, reconnectCapMs: capMs },
+  );
+
   return {
     attach: (req, res) => {
       res.writeHead(200, {
@@ -172,8 +200,11 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
       if (connected) write(res, JSON.stringify({ type: 'welcome' }));
     },
     clients: () => streams.size,
+    snapshotLink: () => reader.link(),
+    snapshot: () => reader.held(),
     close: () => {
       stopped = true;
+      reader.close();
       if (timer) clearTimeout(timer);
       if (trailing) clearTimeout(trailing);
       subscription?.close();
