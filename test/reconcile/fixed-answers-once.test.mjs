@@ -153,3 +153,107 @@ test('fixed answers: a caller-set PLOT_MANIFEST_DIR still wins and asks nothing'
     assert.deepEqual(f.asks(), []);
   } finally { f.cleanup(); }
 });
+
+// ── The remaining askers (slice *Remaining askers*) ─────────────────────────
+// Each row runs one helper with the recording `git` stub on PATH. An exported
+// answer for the cwd's repository starts no `git rev-parse` for it; a desk of
+// the same repository reuses it; another repository asks for itself.
+
+/** Runs `script` in bash with the stub on PATH and only `env`'s fixed variables set. */
+const shell = (f, cwd, script, env = {}, args = []) => {
+  const base = { ...process.env, PATH: `${f.bin}${path.delimiter}${process.env.PATH}` };
+  for (const k of ['PLOT_MANIFEST_DIR', 'PLOT_REPO_ROOT', 'PLOT_GIT_COMMON_DIR']) delete base[k];
+  return execFileSync('bash', ['-c', script, 'bash', ...args],
+    { encoding: 'utf8', cwd, env: { ...base, ...env }, timeout: 60_000 }).trim();
+};
+
+const deskRoot = path.join(scripts, 'plot-desk-root.sh');
+const exported = (f) => ({ PLOT_GIT_COMMON_DIR: path.join(f.repo, '.git') });
+
+test('remaining askers: plot_repo_root reads the exported answer from the main checkout and a desk, with no ask', () => {
+  const f = fixture();
+  try {
+    for (const cwd of [f.repo, f.desk, f.outside]) {
+      assert.equal(shell(f, cwd, '. "$1" && plot_repo_root', exported(f), [deskRoot]), f.repo, `asked from ${cwd}`);
+    }
+    assert.deepEqual(f.asks(), []);
+  } finally { f.cleanup(); }
+});
+
+test('remaining askers: plot_repo_root in another repository asks git and names that repository', () => {
+  const f = fixture();
+  try {
+    assert.equal(shell(f, f.other, '. "$1" && plot_repo_root', exported(f), [deskRoot]), f.other);
+    assert.equal(f.asks().length, 1, f.asks().join('\n'));
+    assert.equal(shell(f, f.desk, '. "$1" && plot_repo_root', { PLOT_GIT_COMMON_DIR: '/nonexistent' }, [deskRoot]), f.repo);
+    assert.equal(f.asks().length, 2, 'a wrong variable falls back to git');
+  } finally { f.cleanup(); }
+});
+
+test('remaining askers: plot_exclude_desk_root writes into the common dir with no ask', () => {
+  const f = fixture();
+  try {
+    // `PLOT_REPO_ROOT` is what `plot-config.sh` reads for the key; with it,
+    // the whole call starts no `git rev-parse`.
+    shell(f, f.desk, '. "$1" && plot_exclude_desk_root "$2"', { ...exported(f), PLOT_REPO_ROOT: f.repo }, [deskRoot, f.repo]);
+    assert.match(fs.readFileSync(path.join(f.repo, '.git', 'info', 'exclude'), 'utf8'), /^\/\.worktrees\/$/m);
+    assert.deepEqual(f.asks(), []);
+  } finally { f.cleanup(); }
+});
+
+test('remaining askers: plot_exclude_desk_root for another repository asks git and writes into that repository', () => {
+  const f = fixture();
+  try {
+    shell(f, f.other, '. "$1" && plot_exclude_desk_root "$2"', { ...exported(f), PLOT_REPO_ROOT: f.other }, [deskRoot, f.other]);
+    assert.match(fs.readFileSync(path.join(f.other, '.git', 'info', 'exclude'), 'utf8'), /^\/\.worktrees\/$/m);
+    const mine = path.join(f.repo, '.git', 'info', 'exclude');
+    assert.ok(!fs.existsSync(mine) || !/^\/\.worktrees\/$/m.test(fs.readFileSync(mine, 'utf8')), 'nothing written into the exported repository');
+    assert.equal(f.asks().filter((a) => a.includes('--git-common-dir')).length, 1, f.asks().join('\n'));
+  } finally { f.cleanup(); }
+});
+
+test('remaining askers: plot_desk_exclude reuses the exported answer from a desk, and another repository asks', () => {
+  const f = fixture();
+  try {
+    const run = (cwd, env) => shell(f, cwd, '. "$1" && plot_desk_exclude "$PWD" .census-line', { PLOT_MANIFEST_DIR: '/given', ...env }, [shared]);
+    run(f.desk, exported(f));
+    assert.match(fs.readFileSync(path.join(f.repo, '.git', 'info', 'exclude'), 'utf8'), /^\.census-line$/m);
+    assert.deepEqual(f.asks(), []);
+    run(f.other, exported(f));
+    assert.match(fs.readFileSync(path.join(f.other, '.git', 'info', 'exclude'), 'utf8'), /^\.census-line$/m);
+    assert.equal(f.asks().length, 1, f.asks().join('\n'));
+  } finally { f.cleanup(); }
+});
+
+test('remaining askers: plot-agent-settings.sh resolves a relative key against the main checkout from a desk, with no ask', () => {
+  const f = fixture();
+  try {
+    for (const r of [f.repo, f.desk, f.other]) {
+      fs.writeFileSync(path.join(r, 'CLAUDE.md'), '# fixture\n\n## Plot Config\n\n- **Agent settings:** agent-settings.json\n');
+    }
+    for (const r of [f.repo, f.other]) fs.writeFileSync(path.join(r, 'agent-settings.json'), '{}\n');
+    const settings = path.join(scripts, 'plot-agent-settings.sh');
+    // The desk names its own CLAUDE.md through `PLOT_REPO_ROOT`; the common dir is exported.
+    assert.equal(shell(f, f.desk, 'bash "$1"', { ...exported(f), PLOT_REPO_ROOT: f.desk }, [settings]), path.join(f.repo, 'agent-settings.json'));
+    assert.deepEqual(f.asks(), []);
+    assert.equal(shell(f, f.other, 'bash "$1"', { ...exported(f), PLOT_REPO_ROOT: f.other }, [settings]), path.join(f.other, 'agent-settings.json'));
+    assert.equal(f.asks().length, 1, f.asks().join('\n'));
+  } finally { f.cleanup(); }
+});
+
+test('remaining askers: plot_env_file reads a desk\'s own .env, then the main checkout\'s, with no ask', () => {
+  const f = fixture();
+  try {
+    const host = path.join(scripts, 'plot-host.sh');
+    const fns = '/^read_env_var()/,/^}/p; /^plot_env_file()/,/^}/p; /^plot_env_file_qualifies()/,/^}/p';
+    const run = (cwd, env) => shell(f, cwd, `here="$2"; eval "$(sed -n '${fns}' "$1")"; plot_env_file A B`, env, [host, scripts]);
+    fs.writeFileSync(path.join(f.repo, '.env'), 'A=1\nB=2\n');
+    assert.equal(run(f.desk, exported(f)), `${path.join(f.repo, '.env')}|the main checkout's`);
+    fs.writeFileSync(path.join(f.desk, '.env'), 'A=3\nB=4\n');
+    assert.equal(run(f.desk, exported(f)), `${path.join(f.desk, '.env')}|`);
+    assert.deepEqual(f.asks(), []);
+    fs.writeFileSync(path.join(f.other, '.env'), 'A=5\nB=6\n');
+    assert.equal(run(f.other, exported(f)), `${path.join(f.other, '.env')}|`);
+    assert.equal(f.asks().length, 1, f.asks().join('\n'));
+  } finally { f.cleanup(); }
+});

@@ -130,7 +130,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     expect(each).toEqual([0, 0]);
   });
 
-  it.fails(rowTitle(CENSUS_ROWS.P4, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.P4, fixture), () => {
     const { mean, each, execs } = perPass(isFixedAnswer);
     recordCount(CENSUS_ROWS.P4, fixture, mean, execs);
     expect(each).toEqual([0, 0]);

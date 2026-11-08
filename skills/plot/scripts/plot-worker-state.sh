@@ -132,22 +132,6 @@ desk_dirt_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-desk-dirt.sh"
 # is resolved once at source time, below.
 : "${PLOT_MANIFEST_DIR:=}"
 
-# The common git dir of a directory from an exported answer, with no git
-# process — or non-zero, and the caller asks git.
-#
-# The candidate is `PLOT_GIT_COMMON_DIR`, else `$PLOT_REPO_ROOT/.git`. It holds
-# only when the first `.git` above the directory is that dir itself (the main
-# checkout) or a file whose `gitdir:` lies under its `worktrees/` (a desk).
-# Every worktree of one repository shares the common dir, so an answer passes
-# between desks; another repository's `.git` refuses it. Its one caller runs it
-# in a command substitution, so its variables need no `local`.
-plot_given_common_dir() { # $1=directory → the physical common dir, or "" (non-zero)
-  c=$(cd -- "${PLOT_GIT_COMMON_DIR:-${PLOT_REPO_ROOT:-/nonexistent}/.git}" 2>/dev/null && pwd -P) && d=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
-  while [ ! -e "$d/.git" ] && [ -n "$d" ]; do d=${d%/*}; done
-  [ -d "$d/.git" ] && line="gitdir: $d/.git/worktrees/" || IFS= read -r line < "$d/.git" || return 1
-  [ "${line#"gitdir: $c/worktrees/"}" != "$line" ] && printf '%s' "$c"
-}
-
 # The MAIN checkout for a directory, or "" — the reading `plot_repo_root`
 # (`plot-desk-root.sh:38-46`) makes, asked of a path rather than of the cwd.
 #
@@ -166,7 +150,7 @@ plot_given_common_dir() { # $1=directory → the physical common dir, or "" (non
 # is a prefix no worktree path starts with.
 #
 # AN EXPORTED ANSWER IS TAKEN WHEN IT IS THIS DIRECTORY'S, and git is asked
-# otherwise: see `plot_given_common_dir`.
+# otherwise: see `plot_given_common_dir` (`plot-git-dirs.sh`).
 plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
   local at="$1" common
   [ -n "$at" ] || return 1
@@ -210,6 +194,7 @@ plot_manifest_dir_for() { # $1=main checkout → prints the directory
 # resolves its own bundle: reading `BASH_SOURCE[0]` inside a function reads the
 # CALLER's file once the function has been exported.
 _plot_wstate_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
+. "${_plot_wstate_config%/*}/plot-git-dirs.sh"
 
 # THE DIRECTORY IS RESOLVED AT SOURCE TIME, AND THAT IS NOT A STYLE CHOICE.
 # Both callers invoke the lookup as `manifest=$(plot_manifest_for_worktree …)`,
@@ -534,9 +519,7 @@ plot_worker_dirty() { # $1=worktree → the dirty files, one per line, leftovers
 # Best-effort: a desk that cannot take the line still works. Always returns 0.
 plot_desk_exclude() { # $1=worktree $2=the exact line to exclude
   local common excl
-  common=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || return 0
-  [ -n "$common" ] || return 0
-  case "$common" in /*) ;; *) common="$1/$common" ;; esac
+  common=$(plot_given_common_dir "$1" || git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   excl="$common/info/exclude"
   mkdir -p "$common/info" 2>/dev/null || return 0
   grep -qxF "$2" "$excl" 2>/dev/null || printf '%s\n' "$2" >> "$excl" 2>/dev/null || true

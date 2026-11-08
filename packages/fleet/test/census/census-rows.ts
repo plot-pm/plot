@@ -87,6 +87,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'fixed-answers-once', slice: 'Answers in scripts' },
+    green: true,
   },
 } as const satisfies Record<string, CensusRow>;
 

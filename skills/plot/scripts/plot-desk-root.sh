@@ -32,16 +32,15 @@
 # `--show-toplevel` is the fallback, since the common dir is also correct in a
 # non-worktree checkout: there `.git` is a real directory in the root.
 #
+# AN EXPORTED ANSWER IS TAKEN WHEN IT IS THIS CHECKOUT'S (`plot_given_common_dir`),
+# and git is asked otherwise.
+#
 # PHYSICAL, through `pwd -P`: `git worktree list` and `--show-toplevel` print
 # resolved paths, and a desk root composed from a logical one (`/tmp` against
 # `/private/tmp` on macOS) is a prefix no worktree path ever starts with.
 plot_repo_root() {
-  local common root=''
-  common=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
-    common=$(cd -- "$common" 2>/dev/null && pwd -P) || common=''
-    [ -n "$common" ] && root=$(dirname -- "$common")
-  }
-  [ -n "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
+  local root
+  root=$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && root=$(cd -- "$root" 2>/dev/null && pwd -P) && root=$(dirname -- "$root") || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
   printf '%s\n' "$root"
 }
 
@@ -50,6 +49,7 @@ plot_repo_root() {
 # time, which is the caller's file once the function has been exported.
 _plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
 _plot_desk_root_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
+. "${_plot_desk_root_config%/*}/plot-git-dirs.sh"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #
@@ -111,9 +111,7 @@ plot_exclude_desk_root() {
   # Already ignored, by a `.gitignore` line /plot-init wrote or by an earlier
   # run. A second rule for a path already ignored is noise in a file people read.
   ( cd -- "$repo" 2>/dev/null && git check-ignore -q ".$line" ) && return 0
-  common=$(cd -- "$repo" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null) || return 0
-  [ -n "$common" ] || return 0
-  case "$common" in /*) ;; *) common="$repo/$common" ;; esac
+  common=$(plot_given_common_dir "$repo" || git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   exclude="$common/info/exclude"
   if [ -f "$exclude" ] && grep -qxF "$line" "$exclude" 2>/dev/null; then return 0; fi
   mkdir -p "$common/info" 2>/dev/null || return 0

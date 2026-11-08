@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fixedAnswers, withFixedEnv, type ProcessRunner } from '../src/adapters/git-dirs/git-dirs.js';
+import { fixedAnswers, givenGitDirs, withFixedEnv, type ProcessRunner } from '../src/adapters/git-dirs/git-dirs.js';
 import { hostShell } from '../src/adapters/host/host-shell.js';
 import { processesShell } from '../src/adapters/processes/processes-shell.js';
 import { scriptsShell } from '../src/adapters/scripts/scripts-shell.js';
@@ -373,5 +373,86 @@ describe('a script started by an adapter receives the fixed variables', () => {
       ['git', 'rev-parse', '--show-toplevel'],
       ['git', 'rev-parse', '--git-common-dir'],
     ]);
+  });
+});
+
+describe('givenGitDirs: the environment answers for the same repository only', () => {
+  const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+
+  /** A repository with one commit and one linked worktree, and git's own answers for both. */
+  const repoWithDesk = () => {
+    const repo = tempDir('plot-given-repo-');
+    git(repo, 'init', '--quiet');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'one');
+    mkdirSync(join(repo, 'sub'));
+    const desk = join(repo, '.worktrees', 'desk');
+    git(repo, 'worktree', 'add', '--quiet', '-b', 'desk', desk);
+    return { repo, desk, common: git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir') };
+  };
+
+  it('answers what git answers in the main checkout, a subdirectory and a linked worktree', () => {
+    const { repo, desk } = repoWithDesk();
+    for (const dir of [repo, join(repo, 'sub'), desk]) {
+      expect(givenGitDirs(dir, { PLOT_REPO_ROOT: repo })).toEqual({
+        toplevel: git(dir, 'rev-parse', '--show-toplevel'),
+        gitDir: git(dir, 'rev-parse', '--absolute-git-dir'),
+        commonDir: git(dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'),
+      });
+    }
+  });
+
+  it('reads PLOT_GIT_COMMON_DIR before PLOT_REPO_ROOT', () => {
+    const { desk, common } = repoWithDesk();
+    expect(givenGitDirs(desk, { PLOT_GIT_COMMON_DIR: common, PLOT_REPO_ROOT: '/nonexistent' })?.commonDir).toBe(common);
+  });
+
+  it('answers nothing for another repository, a missing value, a value that is no directory, or no value', () => {
+    const { repo } = repoWithDesk();
+    const other = tempDir('plot-given-other-');
+    git(other, 'init', '--quiet');
+    expect(givenGitDirs(other, { PLOT_REPO_ROOT: repo })).toBeUndefined();
+    expect(givenGitDirs(repo, { PLOT_REPO_ROOT: other })).toBeUndefined();
+    expect(givenGitDirs(repo, { PLOT_REPO_ROOT: '/nonexistent' })).toBeUndefined();
+    expect(givenGitDirs(repo, { PLOT_GIT_COMMON_DIR: join(repo, 'sub', '.keep') })).toBeUndefined();
+    expect(givenGitDirs(repo, {})).toBeUndefined();
+    expect(givenGitDirs(join(repo, 'missing'), { PLOT_REPO_ROOT: repo })).toBeUndefined();
+  });
+
+  it('answers nothing for a directory in no repository', () => {
+    const { repo } = repoWithDesk();
+    expect(givenGitDirs(tempDir('plot-given-none-'), { PLOT_REPO_ROOT: repo })).toBeUndefined();
+  });
+
+  it('answers nothing for a .git file that names another repository', () => {
+    const { repo } = repoWithDesk();
+    const fake = tempDir('plot-given-fake-');
+    writeFileSync(join(fake, '.git'), 'gitdir: /elsewhere/.git/worktrees/x\n');
+    expect(givenGitDirs(fake, { PLOT_REPO_ROOT: repo })).toBeUndefined();
+    const unreadable = tempDir('plot-given-dir-');
+    mkdirSync(join(unreadable, '.git', 'x'), { recursive: true });
+    expect(givenGitDirs(unreadable, { PLOT_REPO_ROOT: repo })).toBeUndefined();
+  });
+
+  it('fixedAnswers: an environment naming the repository starts no git process and holds the answers', async () => {
+    const { repo, desk, common } = repoWithDesk();
+    const run = runnerOf(ran(0, 'asked\n'));
+    const answers = fixedAnswers(run, { PLOT_GIT_COMMON_DIR: common });
+
+    expect((await answers.commonDir(desk)).stdout).toBe(`${common}\n`);
+    expect((await answers.toplevel(desk)).stdout).toBe(`${git(desk, 'rev-parse', '--show-toplevel')}\n`);
+    expect((await answers.gitDirs(desk)).stdout).toBe(`${git(desk, 'rev-parse', '--absolute-git-dir')}\n${common}\n`);
+    expect((await answers.absoluteCommonDir('.worktrees/desk', repo)).stdout).toBe(`${common}\n`);
+    expect(await answers.commonDir(desk)).toBe(await answers.commonDir(desk));
+    expect(answers.heldScriptEnv(desk)).toEqual({ PLOT_REPO_ROOT: git(desk, 'rev-parse', '--show-toplevel'), PLOT_GIT_COMMON_DIR: common });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('fixedAnswers: an environment naming another repository asks git', async () => {
+    const { repo } = repoWithDesk();
+    const run = runnerOf(ran(0, '.git\n'));
+    const answers = fixedAnswers(run, { PLOT_REPO_ROOT: tempDir('plot-given-elsewhere-') });
+
+    expect((await answers.commonDir(repo)).stdout).toBe('.git\n');
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });
