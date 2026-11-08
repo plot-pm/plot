@@ -78,6 +78,9 @@ const annotate = async (store: PlanStore, ctx: RecordPrContext, tmpwt: string, r
   if (!read.ok || read.value === null) throw new Refused(`could not read ${rel} in ${tmpwt}`);
   const result = annotateSlicePr(read.value, args.branch, args.pr);
   if (result.outcome === 'refused') {
+    if (result.reason === 'branch-claimed-twice') {
+      throw new Refused(`${rel} names ${args.branch} on lines ${result.lines.join(', ')} — refusing to pick one`);
+    }
     throw new Refused(
       result.reason === 'already-annotated'
         ? `${rel} already carries a PR annotation on the ${args.branch} line — refusing to add a second`
