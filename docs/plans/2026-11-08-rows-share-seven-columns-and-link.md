@@ -38,18 +38,21 @@ Depends on plan 1 (Placement), which decides the section of every work item and 
 - **Removal.** The row code these forms replace in `rows.tsx` is deleted in the same change; no second row path stays beside the new one.
 - **Constraints.** No horizontal scroll at 320 px. Browser tests prove only what is seen; behaviour moves to unit tests.
 
-### Open Questions
+### Settled Questions
 
-- [ ] Does plan 1 (Placement) merge before this plan's first slice starts, and does it have a plan file yet?
-- [ ] Which existing browser tests move to unit tests (the design leaves this to the builder)?
-- [ ] How does a link scroll to and highlight its target (left to the builder)?
-- [ ] Does a switch's controller exist for each of the four auto keys, or is a missing controller part of this work?
+- Plan 1, `every-work-item-and-agent-shows` (#3248), lands first: this plan's slice waits on its `feature/delivery-tab-sections` slice. Writer's call, from the design's plan order.
+- Where no controller writes an auto switch's config key, building that controller is part of this plan. Writer's call, from the design: a switch writes its key through a controller, never by hand.
+
+### Left to the Builder
+
+- Which existing browser tests move to unit tests.
+- How a link scrolls to and highlights its target.
 
 ## Slices
 
 ### Row forms
 
-- `feature/rows-share-seven-columns-and-link` — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx`
+- `feature/rows-share-seven-columns-and-link` <!-- waits: feature/delivery-tab-sections --> — domain row forms and link targets for work-item and agent rows, the seven-column rendering with the details popover, the auto switches in the Fleet header, and removal of the replaced row code from `rows.tsx`
 
 ## Notes
 
