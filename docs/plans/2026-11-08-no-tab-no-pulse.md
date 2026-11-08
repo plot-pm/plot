@@ -85,8 +85,13 @@ This plan depends on `process-census-gate`. It turns two of that plan's `it.fail
 
 - `feature/no-tab-no-pulse-page` — the visibility rule in `event-listener.ts` (stream, Web Lock, relay), the visible-only intervals in `App.tsx`, jsdom rows, census S2 flipped to `it`; a changeset for `@plot-pm/board` <!-- builds: a visibility-driven shared EventSource in event-listener.ts -->
 
+### PR reader
+
+- `feature/no-tab-no-pulse-reader` — a cold read starts no `plot-pr-reader.mjs`; the board starts the reader only while a client is attached and the reader ends within one beat after the last client detaches; census S1 and S2 flipped to `it` once they read 0; a changeset for `@plot-pm/board` <!-- builds: a PR reader that runs only while a client is attached -->
+
 ## Notes
 
 - Phase 2 of the story [`nothing-changed-nothing-runs`](../stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md); depends on `process-census-gate`.
 - Line numbers checked against `origin/sprint/nothing-runs` on 2026-11-08. The story cites `fleet.ts:3225` for the pulse; `ensureCache` is at `:3178` and `startPulse` at `:3232`. It cites `App.tsx:48-49` for the polls; the constants are at `:50-51` and the intervals at `:541` and `:555`. It cites `event-listener.ts:31-66`; the doc comment is at `:30-39` and `openSharedEventSource` at `:40-70`. The 4 s fleet poll already runs only while the delivery tab is open (`App.tsx:553-558`), but it keeps running while that tab is hidden.
 - Definition of Done: docs/definition-of-done.md.
+- 2026-11-08: Slice *PR reader* added after the first Linux census run (CI on #3237 at `e78101194`). With *Server pulse* and *Hidden page* merged, S1 read 102 `execve` per minute on GitHub and 733 on Bitbucket, and S2 read 97 (merge base: 1466). The source is the detached `plot-pr-reader.mjs`: the first `GET /api/board` runs `maybeRefreshPrs` (`fleet.ts:3228`), which starts the reader (`fleet.ts:2584`, `:2789`); the reader runs a full PR pass every 60 s (`pr-reader.ts:207-219`) and exits only once the board's heartbeat is 2 minutes stale (`stillFollowed`, `pr-reader.ts:137`).
