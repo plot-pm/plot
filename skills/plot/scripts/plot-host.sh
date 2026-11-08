@@ -725,6 +725,10 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
 MERGEABLE_OF='def mergeable_of: if .mergeable == "CONFLICTING" or .mergeable == false or .mergeStateStatus == "DIRTY" or .mergeable_state == "dirty" then "conflicting"
   elif .mergeable == "MERGEABLE" or .mergeable == true then "mergeable" else "unknown" end;'
 
+# THE ONE PROJECTION of a GraphQL-shaped PR into `pr-state`'s printed line, read by
+# the GraphQL arm and by `rest_pr_state`, so the two transports print one shape.
+PR_STATE_OF='{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),head:(.headRefName // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,ciChecks:ci_checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}'
+
 # Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
 # secondary: nothing is broken, nothing needs fixing, and the same question
 # asked later will be answered.
@@ -2292,7 +2296,7 @@ is_lookup_miss() {
 # `LC_ALL=C` for the reason `is_lookup_miss` gives: the CLI localises, and an
 # English-only matcher would misread every other locale.
 is_rate_refusal() {
-  LC_ALL=C grep -qiE 'rate limit|secondary rate|abuse detection|403.*forbidden' <<<"$1"
+  LC_ALL=C grep -qiE 'rate[ _]limit|secondary rate|abuse detection|already exceeded|403.*forbidden' <<<"$1"
 }
 
 # Emits the miss payload on a genuine miss and exits non-zero on anything else,
@@ -2421,7 +2425,7 @@ graphql_budget_spent() {
 #
 # NO CALLER LEARNS THE ROUTE. The answer is consumed inside this script and
 # never reaches stdout, and both paths normalise to one vocabulary — see
-# `rest_pr_to_state`, which exists so a REST answer is indistinguishable from a
+# `rest_pr_state`, which exists so a REST answer is indistinguishable from a
 # GraphQL one.
 #
 # THE CHEAP PATH IS THE DEFAULT, and this function does not change that. For 93
@@ -2534,18 +2538,39 @@ gh_rest_repo() {
   if [ ${#repo_args[@]} -gt 0 ]; then echo "${repo_args[1]}"; else echo '{owner}/{repo}'; fi
 }
 
-rest_pr_to_state() {
-  jq -c "$MERGEABLE_OF"'
-    (if (.merged == true) or (.merged_at != null) then "MERGED"
-     else (.state // "" | ascii_upcase) end) as $state
-    | { number: .number,
-        state: $state,
-        draft: (.draft // false),
-        url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""), head: (.head.ref // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of,
-        mergedAt: (.merged_at // "") }
-  '
+# ONE REST ANSWER IN GRAPHQL'S VOCABULARY: `pulls/{n}` for the PR, `check-runs` and
+# `status` for the rollup, folded through the SAME `PR_STATE_OF` the GraphQL arm
+# prints. `mergeCommit` is set for a merged PR only, because REST fills
+# `merge_commit_sha` with a test-merge sha on an open one. A rollup page that
+# holds fewer rows than `total_count` adds one QUEUED row, so a missing row can
+# make the answer `pending` and never `green`. Exit 1: the PR read failed (a 404
+# is a miss); exit 2: a later read failed, which is never a miss.
+rest_pr_state() { # $1=owner/repo $2=PR number
+  local pr sha ck='{}' st='{}'
+  pr="$(gh_api_harvest "repos/$1/pulls/$2")" || return 1
+  sha="$(jq -r '.head.sha // ""' <<<"$pr")"
+  if [ -n "$sha" ]; then
+    ck="$(gh_api_harvest "repos/$1/commits/$sha/check-runs?per_page=100")" && st="$(gh_api_harvest "repos/$1/commits/$sha/status?per_page=100")" || return 2
+  fi
+  printf '%s\n%s\n%s\n' "$pr" "$ck" "$st" | jq -cs "$CHECKS_OF$MERGEABLE_OF"'.[0] as $p | (.[1].check_runs // []) as $c | (.[2].statuses // []) as $s | (($p.merged == true) or ($p.merged_at != null)) as $m
+    | {number: $p.number, state: (if $m then "MERGED" else ($p.state // "" | ascii_upcase) end), isDraft: ($p.draft // false), url: ($p.html_url // ""), mergeCommit: (if $m then {oid: ($p.merge_commit_sha // "")} else null end), headRefName: ($p.head.ref // ""), headRefOid: ($p.head.sha // ""), baseRefName: ($p.base.ref // ""), mergedAt: ($p.merged_at // ""),
+       mergeable: (if $p.mergeable == true then "MERGEABLE" elif $p.mergeable == false then "CONFLICTING" else "UNKNOWN" end), mergeStateStatus: (($p.mergeable_state // "") | ascii_upcase),
+       statusCheckRollup: ([$c[] | {name, status: ((.status // "") | ascii_upcase), conclusion: ((.conclusion // "") | ascii_upcase)}] + [$s[] | {context, state: ((.state // "") | ascii_upcase)}] + (if ((.[1].total_count // 0) > ($c | length)) or ((.[2].total_count // 0) > ($s | length)) then [{status: "QUEUED"}] else [] end))}
+    | '"$PR_STATE_OF"
 }
+
+# `owner/repo` from the `origin` URL, with no host call. An `ssh://` URL may carry
+# a port after the host, and an scp-style remote splits host and path at its first
+# colon. Prints nothing and exits 1 where the URL names no `owner/repo`.
+gh_origin_slug() {
+  local u; u="$(git config --get remote.origin.url 2>/dev/null)" || return 1
+  if [[ "$u" == *://* ]]; then u="$(sed -E 's#^[^:]+://([^@/]*@)?[^/:]+(:[0-9]+)?/##' <<<"$u")"; else u="$(sed -E 's#^([^@/:]*@)?[^/:]+:##' <<<"$u")"; fi
+  u="${u%/}"; u="${u%.git}"; [[ "$u" =~ ^[^/]+/[^/]+$ ]] && printf '%s\n' "$u"
+}
+
+# `gh` as the merger identity where a Merger app token was minted, as the
+# signed-in one where none was. The token goes into `GH_TOKEN` only.
+merger_gh() { if [ -n "${merger_token:-}" ]; then GH_TOKEN="$merger_token" gh "$@"; else gh "$@"; fi; }
 
 # Bitbucket's --state vocabulary is not GitHub's, and this adapter used to
 # translate in one direction only: every response mapper turns DECLINED into
@@ -4033,46 +4058,38 @@ case "$op" in
         # learn what was just read for free.
         #
         # A number and a branch name need DIFFERENT endpoints, and their
-        # payload shapes differ too — see `rest_pr_to_state`, which is the one
+        # payload shapes differ too — see `rest_pr_state`, which is the one
         # place that knows how to read either.
         rest_repo="$(gh_rest_repo)" || exit $?
-        if [[ "$ref" =~ ^[0-9]+$ ]]; then
-          if out="$(gh_api_harvest "repos/$rest_repo/pulls/$ref" 2>"$HOST_ERR")"; then
-            rm -f "$HOST_ERR"
-            rest_pr_to_state <<<"$out"
-          else
-            host_err
-            host_miss_or_fail "$err" \
-              '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
-          fi
-        else
-          # `?head=owner:branch` is the list form. AN EMPTY ARRAY IS AN ANSWER —
-          # the branch has no PR — while a call that never arrived is not, which
-          # is why the empty case is handled here and the failure goes through
-          # `host_miss_or_fail` like every other transport error.
-          #
+        none='{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
+        rest_n="$ref"
+        if ! [[ "$ref" =~ ^[0-9]+$ ]]; then
+          # `?head=owner:branch` is the list form, and its row carries no
+          # `mergeable` and no checks, so it only names the PR: the answer is
+          # read from `pulls/{n}` like a number's. AN EMPTY ARRAY IS AN ANSWER —
+          # the branch has no PR — while a call that never arrived is not.
           # `state=all`, because the default is `open` and a merged PR would
           # otherwise read as NONE — wrong in the reassuring direction.
-          rest_owner="${rest_repo%%/*}"
-          if out="$(gh_api_harvest "repos/$rest_repo/pulls?head=$rest_owner:$ref&state=all&per_page=1" 2>"$HOST_ERR")"; then
-            rm -f "$HOST_ERR"
-            if [ "$(jq -r 'length' <<<"$out" 2>/dev/null)" = "0" ]; then
-              echo '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
-            else
-              jq -c '.[0]' <<<"$out" | rest_pr_to_state
-            fi
+          if out="$(gh_api_harvest "repos/$rest_repo/pulls?head=${rest_repo%%/*}:$ref&state=all&per_page=1" 2>"$HOST_ERR")"; then
+            rm -f "$HOST_ERR"; rest_n="$(jq -r '.[0].number // empty' <<<"$out")"
+            [ -n "$rest_n" ] || { echo "$none"; exit 0; }
           else
-            host_err
-            host_miss_or_fail "$err" \
-              '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
+            host_err; host_miss_or_fail "$err" "$none" || exit $?; exit 0
           fi
+        fi
+        if out="$(rest_pr_state "$rest_repo" "$rest_n" 2>"$HOST_ERR")"; then
+          rm -f "$HOST_ERR"; printf '%s\n' "$out"
+        else
+          rc=$?; host_err
+          [ "$rc" -ne 2 ] || die3 "pr-state: the checks read failed: $err"
+          host_miss_or_fail "$err" "$none" || exit $?
         fi
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
       elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefName,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus,mergedAt 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),head:(.headRefName // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,ciChecks:ci_checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of,mergedAt:(.mergedAt // "")}' <<<"$out"
+        jq -c "$CHECKS_OF$MERGEABLE_OF$PR_STATE_OF" <<<"$out"
       else
         host_err
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
@@ -4381,8 +4398,14 @@ case "$op" in
     # decided here: `checkedReview` judges the list against the Review app's bot
     # login. The pages and the PR travel through stdin, never `--argjson` (the
     # 128 KB argv cap on Linux).
-    out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api --paginate "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses?per_page=100")" \
-      && printf '%s\n%s\n' "$out" "$st" | jq -cs '.[0] as $pr | [.[1:][][] | select(.context == "plot/review")] as $s | $s[0] as $m | {sha: $pr.headRefOid, state: ($m.state // "absent"), description: ($m.description // ""), time: ($m.updated_at // ""), bypass: any($pr.comments[]?; .body | startswith("review-bypass:")), statuses: [$s[] | {state, description: (.description // ""), time: (.updated_at // ""), writer: (.creator.login // "")}]}' \
+    # REST ONLY: `gh pr view` is GraphQL, and its secondary limit refused three
+    # reviews on 2026-11-08 while core stood at 4797 of 5000. Comments and
+    # statuses are paginated, and a failed read is a failed answer, never an
+    # empty list. The pages reach `jq` through `--slurpfile`, not `--argjson`.
+    pr="${1:?pr-review needs a PR number}"
+    out="$(gh_api_harvest "repos/{owner}/{repo}/pulls/$pr")" && sha="$(jq -re '.head.sha' <<<"$out")" \
+      && cm="$(gh api --paginate "repos/{owner}/{repo}/issues/$pr/comments?per_page=100")" && st="$(gh api --paginate "repos/{owner}/{repo}/commits/$sha/statuses?per_page=100")" \
+      && jq -nc --arg sha "$sha" --slurpfile cm <(printf '%s' "$cm") --slurpfile st <(printf '%s' "$st") '[$st[][] | select(.context == "plot/review")] as $s | $s[0] as $m | {sha: $sha, state: ($m.state // "absent"), description: ($m.description // ""), time: ($m.updated_at // ""), bypass: any($cm[][]; .body | startswith("review-bypass:")), statuses: [$s[] | {state, description: (.description // ""), time: (.updated_at // ""), writer: (.creator.login // "")}]}' \
       || die3 "pr-review: the read failed" ;;
 
   pr-create)
@@ -4425,10 +4448,19 @@ case "$op" in
       # answers 5 with its one-line notice where no key is declared: the merge
       # then runs as the signed-in `gh` identity. The token goes straight into
       # GH_TOKEN — never into argv, a file, or a log line.
-      merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null) || die3 "pr-merge: gh repo view could not resolve owner/repo from the current checkout"
+      merger_repo="$(gh_origin_slug)" || die3 "pr-merge: the origin remote names no owner/repo; nothing was merged"
       merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || { mc=$?; [ "$mc" = 5 ] || exit "$mc"; }
-      args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge); [ "$delbranch" = 1 ] && args+=(--delete-branch)
-      if [ -n "$merger_token" ]; then GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"; else gh "${args[@]}" --match-head-commit "$pin"; fi
+      # `PUT pulls/{n}/merge` with `sha` is the head pin, and GitHub answers 409
+      # for a head that moved. A 405 (not mergeable) is a different answer and
+      # keeps the host's own words. The branch delete is cleanup after the merge:
+      # its failure warns and does not undo or fail the merge.
+      if out="$(merger_gh api -X PUT "repos/$merger_repo/pulls/$num/merge" -f merge_method="$([ "$squash" = 1 ] && echo squash || echo merge)" -f sha="$pin" 2>&1)"; then
+        if [ "$delbranch" = 1 ]; then
+          br="$(merger_gh api "repos/$merger_repo/pulls/$num" --jq '.head | select(.repo.full_name == "'"$merger_repo"'") | .ref' 2>/dev/null)"
+          { [ -n "$br" ] && merger_gh api -X DELETE "repos/$merger_repo/git/refs/heads/$br" >/dev/null 2>&1; } || echo "plot-host: pr-merge: PR #$num merged, but its branch ${br:-name} was not deleted" >&2
+        fi
+      elif [[ "$out" == *"HTTP 409"* ]]; then echo "plot-host: pr-merge --match-head: head-moved — PR #$num is no longer at $pin; nothing was merged" >&2; exit 1
+      else echo "plot-host: pr-merge: $out" >&2; exit 1; fi
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
@@ -6041,7 +6073,7 @@ case "$op" in
     # the path, so a numeric workspace survives. An empty slug is `unsupported`.
     [ "$be" = "github" ] || { node "$here/plot-bitbucket-commit-status.mjs" "$(node "$here/board/plot-bitbucket-slug.mjs" "$(git config --get remote.origin.url 2>/dev/null)")" "$@" || exit $?; exit 0; }
     node "$here/plot-commit-status.mjs" --check "$@" || exit $?
-    node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo GH_REPO_VIEW_FAILED)" "$@" || exit $?
+    node "$here/plot-commit-status.mjs" --repo "$(gh_origin_slug || echo GH_REPO_VIEW_FAILED)" "$@" || exit $?
     ;;
 
   pr-comment)
