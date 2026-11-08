@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Planning
+- **State:** Committed
 - **Start:** 2026-11-09
 - **End:** 2026-11-13
 - **Release:** 2.33.0
