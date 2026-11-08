@@ -39,3 +39,10 @@ export const TICKET_SOURCES: TicketSourceReading = { listers: TRACKER_LISTERS, h
  * reading `releaseIsRead` takes. Every other connector answers `unaskable`.
  */
 export const TRACKER_VERSION_SCHEMES: readonly string[] = ['jira'];
+
+/**
+ * The tracker schemes whose `Tracker` value names project keys after its URL,
+ * and whose repositories read `Ticket prefixes` as project keys — the reading
+ * `jiraProjectsOf` takes.
+ */
+export const TRACKER_PROJECT_KEY_SCHEMES: readonly string[] = ['jira'];

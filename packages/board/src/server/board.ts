@@ -83,6 +83,7 @@ import {
   defaultBranchFile,
   gateContractFile,
   readerLockFile,
+  TRACKER_PROJECT_KEY_SCHEMES,
 } from '@plot-pm/domain/adapters';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
@@ -2946,7 +2947,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   ]);
   const issueContext: StoryIssueContext = {
     issuePrefix: repoIssuePrefixOf(urlBase),
-    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, ticketPrefixes) : [],
+    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, TRACKER_PROJECT_KEY_SCHEMES, ticketPrefixes) : [],
   };
   const storyContext: StoryFactsContext = {
     issueContext,

@@ -9,6 +9,7 @@ import {
   type IndexedStory,
   type StoryIssueContext,
 } from '../src/rules/story-issue.js';
+import { TRACKER_PROJECT_KEY_SCHEMES as KEY_SCHEMES } from '../src/adapters/tracker/tracker-listers.js';
 
 const github: StoryIssueContext = { issuePrefix: 'https://github.com/plot-pm/plot/issues/', jiraProjects: [] };
 const bitbucket: StoryIssueContext = { issuePrefix: 'https://bitbucket.org/quatico/site/issues/', jiraProjects: [] };
@@ -80,19 +81,19 @@ describe('storyIssueLink', () => {
 
 describe('jiraProjectsOf', () => {
   it('reads the project keys after the URL', () => {
-    expect(jiraProjectsOf('jira https://acme.atlassian.net PROJ, OPS')).toEqual(['PROJ', 'OPS']);
+    expect(jiraProjectsOf('jira https://acme.atlassian.net PROJ, OPS', KEY_SCHEMES)).toEqual(['PROJ', 'OPS']);
   });
 
   it('reads the keys Ticket prefixes declares too, each once', () => {
-    expect(jiraProjectsOf('jira https://acme.atlassian.net PROJ', 'PROJ, OPS')).toEqual(['PROJ', 'OPS']);
-    expect(jiraProjectsOf('jira https://acme.atlassian.net', 'QUACDS')).toEqual(['QUACDS']);
-    expect(jiraProjectsOf('github-issues', 'QUACDS')).toEqual([]);
+    expect(jiraProjectsOf('jira https://acme.atlassian.net PROJ', KEY_SCHEMES, 'PROJ, OPS')).toEqual(['PROJ', 'OPS']);
+    expect(jiraProjectsOf('jira https://acme.atlassian.net', KEY_SCHEMES, 'QUACDS')).toEqual(['QUACDS']);
+    expect(jiraProjectsOf('github-issues', KEY_SCHEMES, 'QUACDS')).toEqual([]);
   });
 
   it('reads none where only the URL is declared, or for another scheme', () => {
-    expect(jiraProjectsOf('jira https://acme.atlassian.net')).toEqual([]);
-    expect(jiraProjectsOf('github-issues')).toEqual([]);
-    expect(jiraProjectsOf('')).toEqual([]);
+    expect(jiraProjectsOf('jira https://acme.atlassian.net', KEY_SCHEMES)).toEqual([]);
+    expect(jiraProjectsOf('github-issues', KEY_SCHEMES)).toEqual([]);
+    expect(jiraProjectsOf('', KEY_SCHEMES)).toEqual([]);
   });
 });
 

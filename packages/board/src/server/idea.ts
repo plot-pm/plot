@@ -8,6 +8,7 @@ import {
   type BuildBoardOptions,
 } from './board.js';
 import { jiraProjectsOf, planAnswersTicket, repoIssuePrefixOf, STORY_SLUG_PATTERN, storyIsLive, type StoryIssueContext } from '@plot-pm/domain';
+import { TRACKER_PROJECT_KEY_SCHEMES } from '@plot-pm/domain/adapters';
 import type { Known, Ref } from '@plot-pm/domain/entities/card-facts';
 import { ticketStoriesOf } from './story-facts.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
@@ -525,7 +526,7 @@ export const storiesOfIssue = async (
   if (metas === null) return { unknown: 'failed' };
   const issueContext: StoryIssueContext = {
     issuePrefix: repoIssuePrefixOf(branchUrlBaseFor(opts)),
-    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, ticketPrefixes) : [],
+    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, TRACKER_PROJECT_KEY_SCHEMES, ticketPrefixes) : [],
   };
   const ref = `origin/${defaultBranch}`;
   const [live, archived] = await Promise.all([
