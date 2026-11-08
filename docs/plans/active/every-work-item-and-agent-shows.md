@@ -1,0 +1,1 @@
+../2026-11-08-every-work-item-and-agent-shows.md
