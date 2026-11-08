@@ -73,3 +73,34 @@ export interface ReaderWatchReading {
  */
 export const readerWanted = ({ clients, verdict, fleetdLive }: ReaderWatchReading): boolean =>
   pulseWanted({ clients }) && verdict === 'elect' && !fleetdLive;
+
+/** What the board knows about fleetd's channel when it picks where its view comes from. */
+export interface BoardSourceReading {
+  /** Event streams held open on `GET /api/events`. */
+  clients: number;
+  /** The `fleetdLiveness` answer for the heartbeat under the reader lock. */
+  fleetd: 'live' | 'stale' | 'absent';
+  /** Whether the heartbeat's observer stamp is fresh (`observerFresh`). */
+  observerFresh: boolean;
+  /**
+   * The board's channel to fleetd: `current` holds a snapshot of this
+   * protocol and generation, `mismatch` speaks another protocol, `resyncing`
+   * waits for a full snapshot, and `none` holds no snapshot.
+   */
+  channel: 'current' | 'mismatch' | 'resyncing' | 'none';
+}
+
+/** Where the board's view comes from: fleetd's snapshot, the board's own reads, or nowhere. */
+export type BoardSource = 'snapshot' | 'own' | 'idle';
+
+/**
+ * Picks the source of the board's view.
+ *
+ * @param reading the attached streams, fleetd's liveness and the channel state
+ * @returns `idle` with no stream attached; `snapshot` while fleetd is `live`,
+ *   its observer is fresh and the channel is `current`; `own` otherwise
+ */
+export const boardSource = (reading: BoardSourceReading): BoardSource => {
+  if (!pulseWanted(reading)) return 'idle';
+  return reading.fleetd === 'live' && reading.observerFresh && reading.channel === 'current' ? 'snapshot' : 'own';
+};
