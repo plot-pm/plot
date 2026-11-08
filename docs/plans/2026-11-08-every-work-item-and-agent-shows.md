@@ -59,7 +59,7 @@ Every rendered state is a domain property with a unit test (CLAUDE.md, "Every re
 
 ### Tab
 
-- `feature/delivery-tab-sections` — the Delivery tab renders the five sections from the rule with the current row components, replaces `GROUPS` in `sections.ts`, and carries one browser test that shows the sections <!-- builds: Delivery tab section rendering -->
+- `feature/delivery-tab-sections` — the Delivery tab renders the five sections from the rule with the current row components, replaces `GROUPS` in `sections.ts`, and carries one browser test that shows the sections <!-- builds: Delivery tab section rendering --> → #3267
 
 ## Notes
 
