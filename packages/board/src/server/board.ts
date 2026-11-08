@@ -25,6 +25,7 @@ import {
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
 import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { listRecordBlobs, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
@@ -789,6 +790,14 @@ export async function readConfigAsync(
 }
 
 /**
+ * The `State branch` key as configured, empty where absent.
+ *
+ * Read per request and never stored: which ref holds the records is derived
+ * from the refs each time, and a cached answer would go stale when either ref moves.
+ */
+const stateBranchOf = (opts: BuildBoardOptions): Promise<string> => readConfigAsync(opts, 'State branch', '');
+
+/**
  * A plan the board will parse, and WHERE ITS BYTES CAME FROM.
  *
  * `path` is the plan's IDENTITY — repo-relative, the string a card renders and
@@ -849,7 +858,8 @@ const readPlansFromRef = async (
   refs: Refs,
   ref: string,
   planDir: string,
-): Promise<Map<string, string>> => (await readRefFiles(refs, ref, planDir)) ?? new Map<string, string>();
+  source?: RecordSource,
+): Promise<Map<string, string>> => (await readRefFiles(refs, ref, planDir, source)) ?? new Map<string, string>();
 
 /**
  * The markdown files under `dir` on `ref`, by repository-relative path, or
@@ -860,6 +870,7 @@ const readRefFiles = async (
   refs: Refs,
   ref: string,
   dir: string,
+  source?: RecordSource,
 ): Promise<Map<string, string> | null> => {
   const found = new Map<string, string>();
   // One listing, mode-filtered: `planPathsInTree` already drops the 120000
@@ -873,7 +884,9 @@ const readRefFiles = async (
   // and a plan directory with nothing in it are both "no plans here". Which of
   // the two it was is `collectPlanSources`'s question, and it asks it
   // separately — see `resolved` there.
-  const listing = await refs.listBlobs(ref, dir);
+  // Where a `State branch` is declared, the listing is the union of the state
+  // ref and `ref` (the default branch), the state ref's blob winning per path.
+  const listing = source ? await listRecordBlobs(refs, source, ref, dir) : await refs.listBlobs(ref, dir);
   if (!listing.ok) return null;
   const files = listing.value.filter(
     (blob) =>
@@ -1046,8 +1059,9 @@ const collectPlanSources = async (
   repoRoot: string,
   planDir: string,
   ref: string,
+  source?: RecordSource,
 ): Promise<{ sources: PlanSource[]; report: PlanSourceReport }> => {
-  const fromRef = await readPlansFromRef(refs, ref, planDir);
+  const fromRef = await readPlansFromRef(refs, ref, planDir, source);
   // An empty listing is ambiguous on its own — an unreadable ref and a repo
   // with no plans yet look identical — so the ref is resolved SEPARATELY. Only
   // `rev-parse` can tell "there is no such ref" from "there is, and it is
@@ -1172,6 +1186,7 @@ const planPathsInTree = async (
   refs: Refs,
   ref: string,
   planDir: string,
+  source?: RecordSource,
 ): Promise<Set<string>> => {
   // The MODE is what separates a plan file from the symlink pointing at it,
   // and the port carries it for exactly this reason. A 120000 entry holds its
@@ -1182,7 +1197,7 @@ const planPathsInTree = async (
   // An unreadable ref is an empty set: this is asked once per branch, and a
   // branch whose tree cannot be read contributes no Draft plans, exactly as a
   // branch that carries none.
-  const listing = await refs.listBlobs(ref, planDir);
+  const listing = source ? await listRecordBlobs(refs, source, ref, planDir) : await refs.listBlobs(ref, planDir);
   if (!listing.ok) return new Set<string>();
   return new Set(
     listing.value
@@ -1212,8 +1227,15 @@ const readBranchPlans = async (
   planDir: string,
   branches: { branch: string; sha: string }[],
   defaultBranch: string,
+  stateBranch = '',
 ): Promise<BranchPlan[]> => {
-  const onDefault = await planPathsInTree(refs, `origin/${defaultBranch}`, planDir);
+  // A plan the state ref holds is not a Draft even where the default branch lacks it.
+  const onDefault = await planPathsInTree(
+    refs,
+    `origin/${defaultBranch}`,
+    planDir,
+    stateBranch === '' ? undefined : { stateBranch, defaultBranch },
+  );
   const plans: BranchPlan[] = [];
   // De-duplicate by canonical path, matching collectPlanFiles's contract: two
   // branches cut from the same point carry the same plan file, and a card per
@@ -1278,6 +1300,7 @@ const collectBranchPlans = async (
   planDir: string,
   prefixes: string[],
   defaultBranch: string,
+  stateBranch = '',
 ): Promise<BranchPlan[]> => {
   const branches = await prefixedBranches(refs, repoRoot, prefixes, defaultBranch);
   // A THIRD `branches.length === 0`, AND IT ASKS A DIFFERENT QUESTION. The
@@ -1292,17 +1315,19 @@ const collectBranchPlans = async (
     return [];
   }
   const defaultTip = await refs.resolve(`origin/${defaultBranch}`);
-  const key = `${branches.map((b) => `${b.branch}@${b.sha}`).join(' ')} default@${defaultTip.ok ? defaultTip.value : ''}`;
+  const stateTip = stateBranch === '' ? null : await resolveRecordRef(refs, { stateBranch, defaultBranch });
+  const stateSha = stateTip?.kind === 'state' ? await refs.resolve(stateTip.ref) : null;
+  const key = `${branches.map((b) => `${b.branch}@${b.sha}`).join(' ')} default@${defaultTip.ok ? defaultTip.value : ''}${stateSha?.ok ? ` state@${stateSha.value}` : ''}`;
   // An unresolved default branch means the key cannot name what the read
   // depended on, so the answer must not be stored: a later successful read
   // would otherwise find a cache entry it can never match (the key is always
   // the same unresolved placeholder) and read fresh forever, which is safe but
   // pointless — or worse, a second unresolved read WOULD match it and serve an
   // answer from whatever the default branch was when it failed to resolve.
-  if (!defaultTip.ok) return readBranchPlans(refs, planDir, branches, defaultBranch);
+  if (!defaultTip.ok) return readBranchPlans(refs, planDir, branches, defaultBranch, stateBranch);
   const cached = branchPlanCache.get(repoRoot);
   if (cached && cached.key === key) return cached.plans;
-  const plans = await readBranchPlans(refs, planDir, branches, defaultBranch);
+  const plans = await readBranchPlans(refs, planDir, branches, defaultBranch, stateBranch);
   branchPlanCache.set(repoRoot, { key, plans });
   return plans;
 };
@@ -2468,8 +2493,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // THE PLAN ESTATE COMES FROM THE REF, and the working tree may only add to
   // it. See `collectPlanSources` for the one-directional rule and why the
   // direction is the whole fix.
+  const stateBranch = await stateBranchOf(opts);
+  const recordSource: RecordSource | undefined = stateBranch === '' ? undefined : { stateBranch, defaultBranch };
   const { sources: planSources, report: planSource } = await collectPlanSources(
-    refs, repoRoot, planDir, `origin/${defaultBranch}`,
+    refs, repoRoot, planDir, `origin/${defaultBranch}`, recordSource,
   );
   // Which plans the ref did not have — carried by repo-relative path, the one
   // identity that survives staging, so the card can be marked after parsing.
@@ -2535,7 +2562,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   try {
     if (prefixes.length > 0) {
       const branchPlans = await collectBranchPlans(
-        refs, repoRoot, planDir, prefixes, defaultBranch,
+        refs, repoRoot, planDir, prefixes, defaultBranch, stateBranch,
       );
       if (branchPlans.length > 0) {
         if (stageDir === null) {
@@ -2616,7 +2643,8 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
       if (text === null) continue;
       const canonical = canonicalPath.get(meta.file);
       const rel = canonical ?? path.relative(repoRoot, meta.file);
-      const found = await refs.recordCommit(rel, 'Delivered', `origin/${defaultBranch}`);
+      // The Delivered record sits at the state ref where one holds the records.
+      const found = await refs.recordCommit(rel, 'Delivered', recordSource === undefined ? `origin/${defaultBranch}` : (await resolveRecordRef(refs, recordSource)).ref);
       if (!found.ok) continue;
       deliveredReadings.set(meta.file, { text, deliveryCommit: found.value });
     }
@@ -3176,7 +3204,11 @@ async function readPlanEstate(
   // — the defect, in the one place whose wrongness is a refused button rather
   // than a stale label.
   const defaultBranch = await defaultBranchOf(opts, refs);
-  const { sources } = await collectPlanSources(refs, repoRoot, planDir, `origin/${defaultBranch}`);
+  const stateBranch = await stateBranchOf(opts);
+  const { sources } = await collectPlanSources(
+    refs, repoRoot, planDir, `origin/${defaultBranch}`,
+    stateBranch === '' ? undefined : { stateBranch, defaultBranch },
+  );
   // EACH PLAN'S AUTHOR, read the same way the Discovery card's `author` field
   // is: one batched `git log` walk over the default branch, keyed by the
   // repository-relative path `planAuthors` returns — the same key `relPath`
@@ -3224,7 +3256,7 @@ async function readPlanEstate(
     const known = new Set(sources.map((src) => src.path));
     const branchPlans = prefixes.length === 0
       ? []
-      : await collectBranchPlans(refs, repoRoot, planDir, prefixes, defaultBranch).catch(() => []);
+      : await collectBranchPlans(refs, repoRoot, planDir, prefixes, defaultBranch, stateBranch).catch(() => []);
     for (const plan of branchPlans) {
       if (known.has(plan.path)) continue;
       if (stageDir === null) {
@@ -3424,7 +3456,11 @@ const readPlanMarkdown = async (
   // The basename is matched against paths the tree listing produced, so a
   // request still cannot name anything outside the plan dir: the allowlist is
   // the ref's own contents, exactly as the working-tree arm's is the disk's.
-  const fromRef = await readPlansFromRef(refs, `origin/${defaultBranch}`, planDir);
+  const stateBranch = await stateBranchOf(opts);
+  const fromRef = await readPlansFromRef(
+    refs, `origin/${defaultBranch}`, planDir,
+    stateBranch === '' ? undefined : { stateBranch, defaultBranch },
+  );
   for (const [relPath, content] of fromRef) {
     if (path.basename(relPath) === filename) return content;
   }
@@ -3434,7 +3470,7 @@ const readPlanMarkdown = async (
     .filter(Boolean);
   if (prefixes.length === 0) return null;
   const branchPlans = await collectBranchPlans(
-    refs, repoRoot, planDir, prefixes, defaultBranch,
+    refs, repoRoot, planDir, prefixes, defaultBranch, stateBranch,
   );
   for (const plan of branchPlans) {
     if (path.basename(plan.path) === filename) return plan.content;

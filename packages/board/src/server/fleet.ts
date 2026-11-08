@@ -37,6 +37,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
+import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
 import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
@@ -1654,7 +1655,9 @@ export async function planMetasAtDefault(
   if (!resolved.ok || resolved.value === '') {
     return planMetasFromWorkingTree(opts, planDir, entry);
   }
-  const listing = await refs.listBlobs(resolved.value, planDir);
+  // The union of the state ref and the default branch, the state ref winning per path.
+  const stateBranch = await readConfigAsync(opts, 'State branch', '');
+  const listing = await listRecordBlobs(refs, { stateBranch, defaultBranch }, resolved.value, planDir);
   if (!listing.ok) return null;
   const plans = listing.value.filter(
     (blob) => (blob.mode === '100644' || blob.mode === '100755') && blob.path.endsWith('.md'),

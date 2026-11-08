@@ -1220,7 +1220,9 @@ branch_merged() { # $1=branch → 0 when its work landed
 # working tree's phase stands — never manufacturing the opposite false
 # positive by treating "cannot confirm Approved" as "confirmed Delivered".
 # $1=path (working-tree-relative) → normalized phase, or empty if unreadable
-phase_at_main_ref() { plot_tmpfile blob mnd-ref && git show "origin/$MAIN:$1" >"$blob" 2>/dev/null && "$script_dir/plot-plan-meta.sh" "$blob" --prefixes "$PREFIX_RE" 2>/dev/null | jq -r '.phase' 2>/dev/null; }
+STATE_KEY=$(cfg "State branch" "")
+rec_ref() { if [ -n "$STATE_KEY" ]; then node "$script_dir/board/plot-record-ref.mjs" "$STATE_KEY" "$MAIN" "$1" 2>/dev/null || printf 'origin/%s' "$MAIN"; else printf 'origin/%s' "$MAIN"; fi; }
+phase_at_main_ref() { plot_tmpfile blob mnd-ref && git show "$(rec_ref "$1"):$1" >"$blob" 2>/dev/null && "$script_dir/plot-plan-meta.sh" "$blob" --prefixes "$PREFIX_RE" 2>/dev/null | jq -r '.phase' 2>/dev/null; }
 
 mnd_out=""
 while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype _psprint; do

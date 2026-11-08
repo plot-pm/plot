@@ -399,8 +399,9 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
   };
   const readRef = await short(`origin/${mainBranch}`);
   const localHead = await short('HEAD');
+  const stateBranch = await cfg('State branch', '');
   const estate = await readEstate(refs, planStoreRef(refs, context, `origin/${mainBranch}`), {
-    mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
+    mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   });
   const host = hostShell(context);
   const branches = estate.ok ? await readBranchReadings(refs, host, estate.value, { mainBranch, planDir }) : estate;
