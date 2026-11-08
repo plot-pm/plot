@@ -65,7 +65,7 @@ Every rendered state is a domain property (CLAUDE.md, "Every rendered state is a
 ### Identity and reads
 
 - `feature/people-carry-a-tracker-identity` — the `People` key accepts `<tracker:account>` per person; the domain parses it and answers which account a handle is <!-- builds: parsePeople, a tracker identity per handle --> → #3254
-- `feature/the-issue-index-reads-assignee-and-release` — the tracker port reads assignee, milestone and fix version through the connector, and `refreshIssueIndex` writes them to `issues.json` <!-- builds: releaseOf, a ticket's planned release read through the tracker port -->
+- `feature/the-issue-index-reads-assignee-and-release` — the tracker port reads assignee, milestone and fix version through the connector, and `refreshIssueIndex` writes them to `issues.json` <!-- builds: releaseOf, a ticket's planned release read through the tracker port --> → #3256
 
 ### Tickets on the board
 
