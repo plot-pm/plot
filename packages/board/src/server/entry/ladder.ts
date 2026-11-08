@@ -235,6 +235,13 @@ export const stateTargetOf = async (ctx: LadderContext, main: string): Promise<S
   return target.kind === 'state' ? target : null;
 };
 
+/**
+ * Which branch a booking lands on: `default` is the default branch, which a
+ * declared `State branch` key redirects to the state ref; `named` is the
+ * branch the caller names, pushed as named with no redirect.
+ */
+export type BookingOnto = 'default' | 'named';
+
 /** The ref a booking pushes at: the full state ref where one is declared, else `main`. */
 export const pushTargetOf = (target: StateWriteTarget | null, main: string): string => (target === null ? main : target.pushRef);
 
@@ -316,6 +323,9 @@ export const cutBooking = async (
  *   milliseconds.
  * @param wait - sleeps between attempts; `ctx.retryWait` where given, else a
  *   jittered 2 to 10 s wait.
+ * @param onto - `default` where `main` is the default branch, so a declared
+ *   `State branch` takes the push; `named` where `main` is a branch the caller
+ *   named, which the push and every retry's re-cut target as named.
  * @returns the push outcome word, or `rejected` where every attempt was
  *   refused or a retry step failed.
  */
@@ -332,9 +342,10 @@ export const commitAndPush = async (
   write: Printer,
   attempts: number = DEFAULT_ATTEMPTS,
   wait: () => Promise<void> = ctx.retryWait ?? defaultWait,
+  onto: BookingOnto = 'default',
 ): Promise<{ pushed: string } | { rejected: true }> => {
   const holder = nextHolderId();
-  const pushTarget = pushTargetOf(await stateTargetOf(ctx, main), main);
+  const pushTarget = onto === 'default' ? pushTargetOf(await stateTargetOf(ctx, main), main) : main;
   const action = `push ${bookbr}`;
   const lock = ctx.lock ?? realLockFor(ctx.scripts);
   // The lock spans the fetch/commit/push, not just the push line (the-push-
@@ -369,7 +380,7 @@ export const commitAndPush = async (
           write(`step: retry stopped — git fetch origin ${main} failed in ${ctx.repoRoot}\n`);
           return { done: true as const, result: { rejected: true as const } };
         }
-        const reset = await cutBooking(ctx, tmpwt, bookbr, main, 'reset');
+        const reset = onto === 'default' ? await cutBooking(ctx, tmpwt, bookbr, main, 'reset') : await ctx.trees.resetBranch(tmpwt, bookbr, `origin/${main}`);
         if (!reset.ok) {
           write(`step: retry stopped — could not reset '${bookbr}' to ${pushTarget === main ? `origin/${main}` : pushTarget} in ${tmpwt}\n`);
           return { done: true as const, result: { rejected: true as const } };

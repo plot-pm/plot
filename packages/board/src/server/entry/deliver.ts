@@ -571,6 +571,9 @@ const runDeliver = async (
       `nothing to commit — the delivery is already recorded on ${main}`,
       reapply,
       write,
+      undefined,
+      undefined,
+      copy !== null ? 'named' : 'default',
     );
 
     if ('rejected' in pushResult) {
