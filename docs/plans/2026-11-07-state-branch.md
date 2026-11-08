@@ -11,6 +11,7 @@
 - **Rounds:** 7
 - **Design:** 2026-11-07, eins78, cli
 - **Spike approved:** 2026-11-08, jwloka, plan-PR #3231 merged, feature/state-branch-write
+- **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-write`
 
 ## Changelog
 
