@@ -115,7 +115,7 @@ const firstLine = (path: string): string | undefined => {
 /**
  * Answers a directory's git directories from `PLOT_GIT_COMMON_DIR`, else
  * `$PLOT_REPO_ROOT/.git`, with no process. The shell's `plot_given_common_dir`
- * (`plot-git-dirs.sh`) applies the same check.
+ * (`plot-desk-root.sh`) applies the same check.
  *
  * The candidate holds only for a directory of the same repository: the first
  * `.git` above the directory is the candidate itself (the main checkout), or a

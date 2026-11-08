@@ -150,7 +150,7 @@ desk_dirt_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-desk-dirt.sh"
 # is a prefix no worktree path starts with.
 #
 # AN EXPORTED ANSWER IS TAKEN WHEN IT IS THIS DIRECTORY'S, and git is asked
-# otherwise: see `plot_given_common_dir` (`plot-git-dirs.sh`).
+# otherwise: see `plot_given_common_dir` (`plot-desk-root.sh`).
 plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
   local at="$1" common
   [ -n "$at" ] || return 1
@@ -194,7 +194,7 @@ plot_manifest_dir_for() { # $1=main checkout → prints the directory
 # resolves its own bundle: reading `BASH_SOURCE[0]` inside a function reads the
 # CALLER's file once the function has been exported.
 _plot_wstate_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
-. "${_plot_wstate_config%/*}/plot-git-dirs.sh"
+. "${_plot_wstate_config%/*}/plot-desk-root.sh"
 
 # THE DIRECTORY IS RESOLVED AT SOURCE TIME, AND THAT IS NOT A STYLE CHOICE.
 # Both callers invoke the lookup as `manifest=$(plot_manifest_for_worktree …)`,

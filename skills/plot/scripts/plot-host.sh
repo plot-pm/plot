@@ -3030,7 +3030,7 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # (`plot_given_common_dir`); another repository's asks git.
 plot_env_file() {
   local root env_file common
-  . "$here/plot-git-dirs.sh"
+  . "$here/plot-desk-root.sh"
   root="$(plot_given_common_dir "$PWD" top || git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
   plot_env_file_qualifies "$env_file" "$1" "$2" && { printf '%s|' "$env_file"; return 0; }
   common="$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0

@@ -17,8 +17,35 @@
 #   plot_repo_root            → the MAIN checkout, from anywhere
 #   plot_desk_root [repo [configured]] → the desk root; exit 3 when unaskable
 #   plot_exclude_desk_root [repo] → keep it out of `git status`; never fails
+#   plot_given_common_dir dir [top] → the common git dir (or top level) from an
+#                             exported answer, with no git process
 #
 # shellcheck shell=bash
+
+# The common git dir of a directory from an exported answer — or, with `top`
+# as the second argument, the directory's top level, which `--show-toplevel`
+# prints. Non-zero and nothing printed when the answer is not this directory's,
+# and the caller asks git.
+#
+# fleetd and the board pass `PLOT_REPO_ROOT` and `PLOT_GIT_COMMON_DIR` to the
+# scripts they start (`git-dirs.ts`), and `plot-worker-state.sh` exports the
+# second on sourcing. `givenGitDirs` in `git-dirs.ts` applies the same check to
+# a node bundle.
+#
+# The candidate is `PLOT_GIT_COMMON_DIR`, else `$PLOT_REPO_ROOT/.git`. It holds
+# only when the first `.git` above the directory is that dir itself (the main
+# checkout) or a file whose `gitdir:` lies under its `worktrees/` (a desk).
+# Every worktree of one repository shares the common dir, so an answer passes
+# between desks; another repository's `.git` refuses it. Both answers are
+# physical, as git prints them. Every caller runs it in a command
+# substitution, so its variables need no `local`.
+plot_given_common_dir() { # $1=directory [$2=top] → the physical common dir (or top level), or "" (non-zero)
+  c=$(cd -- "${PLOT_GIT_COMMON_DIR:-${PLOT_REPO_ROOT:-/nonexistent}/.git}" 2>/dev/null && pwd -P) && d=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
+  while [ ! -e "$d/.git" ] && [ -n "$d" ]; do d=${d%/*}; done
+  [ -d "$d/.git" ] && line="gitdir: $d/.git/worktrees/" || IFS= read -r line < "$d/.git" || return 1
+  [ "${line#"gitdir: $c/worktrees/"}" != "$line" ] || return 1
+  [ "${2:-}" = top ] && c=$d; printf '%s' "$c"
+}
 
 # The MAIN checkout, from a desk as readily as from the checkout itself.
 #
@@ -46,10 +73,11 @@ plot_repo_root() {
 
 # Resolved ONCE at source time, the way `plot-pr-merged.sh:105` resolves its
 # own bundle. Computing it inside a function reads `BASH_SOURCE[0]` at call
-# time, which is the caller's file once the function has been exported.
-_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
-_plot_desk_root_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
-. "${_plot_desk_root_config%/*}/plot-git-dirs.sh"
+# time, which is the caller's file once the function has been exported. It
+# starts no program: `plot-worker-state.sh` sources this file in every per-desk
+# probe. A bare file name has no directory part, and the cwd holds it.
+_plot_desk_root_mjs="$(cd -- "${BASH_SOURCE[0]%/*}" 2>/dev/null && pwd || pwd)/board/plot-desk-root.mjs"
+_plot_desk_root_config="${_plot_desk_root_mjs%/board/*}/plot-config.sh"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #

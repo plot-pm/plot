@@ -74,7 +74,7 @@ declared="$(bash "$here/plot-config.sh" get "Agent settings" "" 2>/dev/null || e
 case "$declared" in
   /*) path="$declared" ;;
   *)
-    . "$here/plot-git-dirs.sh"
+    . "$here/plot-desk-root.sh"
     common="$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && main_root="$(cd "$common/.." 2>/dev/null && pwd -P)" || main_root="$(pwd -P)"
     path="$main_root/$declared"
     ;;
