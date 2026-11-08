@@ -31,10 +31,17 @@ const RESUMED = /^<\.\.\. (\w+) resumed>(.*)$/;
 const CALL = /^(\w+)\((.*)$/;
 const FORKS = new Set(['clone', 'clone3', 'fork', 'vfork']);
 
-/** Splits `args) = result` at the last `) = `; `null` result means not seen. */
+/**
+ * `strace` pads the space before `= <result>` to its output column, so a short
+ * line such as `<... vfork resumed>)` reads `)` and several spaces before `=`.
+ * The greedy first group takes the last `) =`, which is the result.
+ */
+const RESULT = /^(.*)\)\s+=\s+(.*)$/s;
+
+/** Splits `args) = result` at the last `)` followed by `=`; `null` result means not seen. */
 const splitResult = (rest: string): { args: string; result: string | null } => {
-  const at = rest.lastIndexOf(') = ');
-  return at < 0 ? { args: rest, result: null } : { args: rest.slice(0, at), result: rest.slice(at + 4).trim() };
+  const m = RESULT.exec(rest);
+  return m === null ? { args: rest, result: null } : { args: m[1] as string, result: (m[2] as string).trim() };
 };
 
 /** Reads `strace -f` lines into calls, joining each `<unfinished ...>` with its `<... resumed>`. */

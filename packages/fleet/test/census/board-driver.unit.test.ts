@@ -1,7 +1,12 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { removeTree } from '../rm-tree.mjs';
 import { boardArtifact, startBoard } from './board-driver.js';
+import { startSession } from './census-session.js';
 import { buildSandbox, type Sandbox } from './sandbox.js';
 
 // The board scenarios' driver, run without `strace`: the census starts the
@@ -42,4 +47,56 @@ describe.skipIf(!existsSync(boardArtifact()))('the census board driver', () => {
     expect(stdout).toMatch(/^census: stopped /m);
     expect(code).toBe(0);
   });
+});
+
+// A stand-in board that starts one child in its own process group, as the
+// board starts its PR reader, and writes the child's pid to a file.
+const DETACHING_BOARD = `
+const { spawn } = require('node:child_process');
+const { writeFileSync } = require('node:fs');
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+child.unref();
+writeFileSync(process.env.CENSUS_TEST_PID_FILE, String(child.pid));
+console.log('listening on http://localhost:1');
+setInterval(() => {}, 1000);
+`;
+
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+describe('the census board host', () => {
+  it('ends a child the board started in its own process group before it reports the stop', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-census-host-'));
+    let child = 0;
+    try {
+      const board = join(dir, 'board.cjs');
+      const pidFile = join(dir, 'child.pid');
+      writeFileSync(board, DETACHING_BOARD);
+      const session = startSession({
+        command: process.execPath,
+        args: [fileURLToPath(new URL('./board-host.mjs', import.meta.url)), board],
+        cwd: dir,
+        env: { ...process.env, CENSUS_TEST_PID_FILE: pidFile },
+        trace: false,
+      });
+      await session.waitFor(/^census: board \d+ \d+$/, 30_000);
+      child = Number(readFileSync(pidFile, 'utf8'));
+      expect(isAlive(child)).toBe(true);
+
+      session.send('stop');
+      const end = await session.end(30_000);
+
+      expect(end.stdout).toMatch(/^census: stopped /m);
+      expect(isAlive(child)).toBe(false);
+    } finally {
+      if (child > 0 && isAlive(child)) process.kill(child, 'SIGKILL');
+      removeTree(dir);
+    }
+  }, 60_000);
 });

@@ -185,7 +185,6 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       HOME: home,
       TMPDIR: tmp,
       PLOT_BUDGET_HOME: home,
-      PLOT_PR_INDEX_HOME: home,
       PLOT_REPO_ROOT: repo,
       PLOT_SCRIPTS_DIR: scriptsDir,
       CENSUS_FIXTURES: fixtures,
@@ -200,7 +199,13 @@ export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> =>
       JIRA_EMAIL: 'census@census.invalid',
       JIRA_API_TOKEN: 'census',
     };
-    for (const key of ['PLOT_HOST', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT']) delete env[key];
+    // NO INDEX OVERRIDE: the PR index, the reader lock and the issue index
+    // resolve from the sandbox repository's common git dir, as on an
+    // operator's machine. An override skips the `git rev-parse --git-common-dir`
+    // that P3 and P4 count.
+    for (const key of ['PLOT_HOST', 'PLOT_TRACKER', 'PLOT_UNATTENDED', 'PLOT_BOARD_PORT', 'PORT', 'PLOT_PR_INDEX_HOME', 'PLOT_ISSUE_INDEX_HOME']) {
+      delete env[key];
+    }
     writeFileSync(join(home, '.gitconfig'), '[init]\n\tdefaultBranch = main\n');
     const git = (cwd: string, ...args: string[]): string =>
       execFileSync('git', args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
