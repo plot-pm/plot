@@ -89,6 +89,14 @@ describe('auto-review', () => {
     });
   });
 
+  it('asks a person to review a PR nobody has reviewed when off', () => {
+    const unreviewed = item({ id: 'p', stage: 'pr', pr: { ci: 'passed', review: 'none' } });
+
+    expect(placeDelivery({ items: [unreviewed], agents: [] }, input({ autoReview: false })).items[0]).toMatchObject({
+      group: 'review-a-result',
+    });
+  });
+
   it('keeps a PR whose CI still runs at the gate even when off', () => {
     const running = item({ id: 'p', stage: 'pr', pr: { ci: 'running', review: 'none' } });
 
@@ -176,6 +184,15 @@ describe('Mine', () => {
   it('keeps unknown under You in the lenient mode only', () => {
     expect(sectionOf('unknown', 'mine')).toBe('you');
     expect(sectionOf('unknown', 'strict')).toBe('work-items');
+  });
+
+  it('queues a theirs item that owes an approval under Work items', () => {
+    const owed = item({ id: 'p', kind: 'plan', phase: 'approved', approvalOwed: 'plan', ownership: 'theirs' });
+
+    expect(placeDelivery({ items: [owed], agents: [] }, input({ mine: 'mine' })).items[0]).toMatchObject({
+      section: 'work-items',
+      group: 'queued',
+    });
   });
 
   it('keeps a delivered theirs plan to test out of Work items', () => {
