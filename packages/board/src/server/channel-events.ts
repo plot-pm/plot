@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import type { ChannelMessage } from '@plot-pm/domain';
+import type { ChannelLink, ChannelMessage } from '@plot-pm/domain';
 import { ruleEventWindow, SERVER_EVENT_WINDOW_MS, type EventWindow } from '@plot-pm/domain';
 import { subscribe, subscribeSnapshot, type Subscribed } from '@plot-pm/domain/adapters';
 import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
@@ -42,6 +42,8 @@ export interface EventHubOptions {
 export interface EventHub {
   /** Hold `res` open as an event stream until the client goes away. */
   attach(req: http.IncomingMessage, res: http.ServerResponse): void;
+  /** Whether the subscription is up, down, or has not tried yet. */
+  link(): ChannelLink;
   /** Number of streams currently held. */
   clients(): number;
   /**
@@ -199,6 +201,7 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
       // A page that connects while the subscription is live is current once.
       if (connected) write(res, JSON.stringify({ type: 'welcome' }));
     },
+    link: () => link,
     clients: () => streams.size,
     snapshotLink: () => reader.link(),
     snapshot: () => reader.held(),

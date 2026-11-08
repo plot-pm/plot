@@ -4668,6 +4668,12 @@ export const FleetShape = z.object({
    */
   supervisor: SupervisorSchema.optional(),
   /**
+   * Whether fleetd is alive, as two facts: what its heartbeat file reads and
+   * what the board's channel link reads. They can disagree, and neither wins.
+   * Optional so a client talking to an older server still validates.
+   */
+  fleetd: z.object({ file: z.enum(['live', 'stale', 'absent']), channel: z.enum(['unknown', 'up', 'down']) }).optional(),
+  /**
    * Whether the tracker could be asked. `.nullable()` because the cache entry
    * this reads now seeds `null` ("not read yet") rather than `unsupported` —
    * see `freshCacheEntry`. Defaults to `unsupported` only for an OLDER server
