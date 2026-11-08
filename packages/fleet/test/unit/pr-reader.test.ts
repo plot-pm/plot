@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 import { HEARTBEAT_STALE_MS } from '@plot-pm/domain/rules/reader-election';
-import { readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
+import { clockManual, readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
 
 import { run, scriptDirFor, stillFollowed } from '../../src/server/entry/pr-reader.js';
 import { removeTree } from '../rm-tree.mjs';
@@ -214,4 +214,132 @@ describe('run — one pass with no follower', () => {
       removeTree(root);
     }
   });
+});
+
+describe('run — a board that stops following ends the reader on its next beat', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Moves the wall clock one PR beat on, so the next pass is due and a pass would ask the host. */
+  const passDue = (): void => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 61_000);
+  };
+
+  /** A repository and installed scripts whose `plot-host.sh` logs every call. */
+  const sandbox = () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-reader-beat-'));
+    const repo = path.join(root, 'repo');
+    const scripts = path.join(root, 'installed-scripts');
+    const lockDir = path.join(root, 'index');
+    fs.mkdirSync(repo);
+    fs.mkdirSync(scripts);
+    fs.mkdirSync(lockDir);
+    execFileSync('git', ['init', '--quiet'], { cwd: repo });
+    const calls = path.join(root, 'calls.log');
+    fs.writeFileSync(
+      path.join(scripts, 'plot-host.sh'),
+      `#!/usr/bin/env bash\necho "$1" >> ${JSON.stringify(calls)}\ncase "$1" in\n  backend) echo github ;;\nesac\nexit 0\n`,
+    );
+    fs.chmodSync(path.join(scripts, 'plot-host.sh'), 0o755);
+    fs.writeFileSync(path.join(scripts, 'plot-config.sh'), `#!/usr/bin/env bash\nprintf '%s\\n' "$3"\n`);
+    fs.chmodSync(path.join(scripts, 'plot-config.sh'), 0o755);
+    const prLists = (): number =>
+      fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').split('\n').filter((l) => l === 'pr-list').length : 0;
+    return { root, repo, scripts, lockDir, prLists };
+  };
+
+  const until = async (cond: () => boolean): Promise<void> => {
+    const deadline = Date.now() + 10_000;
+    while (!cond()) {
+      if (Date.now() > deadline) throw new Error('condition not reached');
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  };
+
+  /** Starts the reader on a hand-driven clock, followed by this test's board, and waits for its first pass. */
+  const startFollowed = async (box: ReturnType<typeof sandbox>) => {
+    const lock = readerLockFile({ home: box.lockDir });
+    await lock.heartbeat('github', `board.${process.pid}`, Date.now());
+    const clock = clockManual(Date.now());
+    let done = false;
+    const result = run({ lockDir: box.lockDir, connector: 'github' }, box.repo, box.scripts, () => undefined, allAlive, () => false, () => true, clock).then(
+      (code) => {
+        done = true;
+        return code;
+      },
+    );
+    await until(() => clock.scheduled() === 1);
+    return { lock, clock, result, done: () => done };
+  };
+
+  const withIndexHome = async (lockDir: string, body: () => Promise<void>): Promise<void> => {
+    const before = process.env.PLOT_PR_INDEX_HOME;
+    process.env.PLOT_PR_INDEX_HOME = lockDir;
+    try {
+      await body();
+    } finally {
+      if (before === undefined) delete process.env.PLOT_PR_INDEX_HOME;
+      else process.env.PLOT_PR_INDEX_HOME = before;
+    }
+  };
+
+  it('exits on the first beat after the board heartbeat is removed, and asks the host nothing on that beat', async () => {
+    const box = sandbox();
+    try {
+      await withIndexHome(box.lockDir, async () => {
+        const r = await startFollowed(box);
+        const passes = box.prLists();
+        expect(passes).toBeGreaterThan(0);
+        await r.lock.removeHeartbeat('github', `board.${process.pid}`);
+        passDue();
+        r.clock.advance(1);
+        expect(await r.result).toBe(0);
+        expect(box.prLists()).toBe(passes);
+        expect(r.clock.scheduled()).toBe(0);
+        const holder = await r.lock.holder('github');
+        expect(holder.ok && holder.value).toBe(null);
+      });
+    } finally {
+      removeTree(box.root);
+    }
+  }, 20_000);
+
+  it('keeps running across a beat while the board heartbeat stays, and exits on the beat after it goes', async () => {
+    const box = sandbox();
+    try {
+      await withIndexHome(box.lockDir, async () => {
+        const r = await startFollowed(box);
+        r.clock.advance(1);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(r.done()).toBe(false);
+        expect(r.clock.scheduled()).toBe(1);
+        await r.lock.removeHeartbeat('github', `board.${process.pid}`);
+        r.clock.advance(1);
+        expect(await r.result).toBe(0);
+        expect(r.clock.scheduled()).toBe(0);
+      });
+    } finally {
+      removeTree(box.root);
+    }
+  }, 20_000);
+
+  it('exits before the pass on the first beat a fresh fleetd heartbeat appears, though the board still follows', async () => {
+    const box = sandbox();
+    try {
+      await withIndexHome(box.lockDir, async () => {
+        const r = await startFollowed(box);
+        const passes = box.prLists();
+        passDue();
+        await r.lock.heartbeat('github', 'fleetd', Date.now());
+        await r.lock.heartbeat('github', `board.${process.pid}`, Date.now());
+        r.clock.advance(1);
+        expect(await r.result).toBe(0);
+        expect(box.prLists()).toBe(passes);
+      });
+    } finally {
+      removeTree(box.root);
+    }
+  }, 20_000);
 });

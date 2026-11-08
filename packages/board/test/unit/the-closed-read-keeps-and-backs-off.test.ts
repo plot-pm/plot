@@ -106,11 +106,9 @@ const fixture = () => {
       ? fs.readFileSync(hosts, 'utf8').split('\n').filter((l) => l.startsWith('issue-list') && l.includes('--state closed')).length
       : 0;
   // This file's issue tests never exercise the PR-reader election path on
-  // purpose, but `ensureCache` fires `maybeRefreshPrs` on first build
-  // regardless — a real git repo here with no fake lock/detached seam would
-  // otherwise spawn a real `plot-pr-reader.mjs` process on every test. A
-  // fixture `readerLock` and a recording `detached` keep that path entirely
-  // in memory, matching the seam `needs-design.test.ts` uses for its own spawn.
+  // purpose. A fixture `readerLock` and a recording `detached` keep that path
+  // in memory should a test reach it, matching the seam `needs-design.test.ts`
+  // uses for its own spawn.
   const readerLock = readerLockFixture();
   const detachedCalls: { script: string; args: readonly string[] }[] = [];
   const detached: Detached = {
