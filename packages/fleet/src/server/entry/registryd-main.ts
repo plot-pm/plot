@@ -3423,6 +3423,7 @@ export const run = async (
             repoRoot,
             scriptsDir,
             build: ci,
+            release: releaseClaimOf,
             slot: <T,>(call: () => Promise<T>): Promise<T> =>
               ci.system() === 'github-actions' ? withHostSlot(prState, call) : call(),
             notify: async (message) => {
