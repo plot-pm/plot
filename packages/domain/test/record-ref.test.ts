@@ -21,7 +21,7 @@ const STATE = 'refs/remotes/origin/plot/state';
 const MAIN = 'refs/remotes/origin/main';
 const source = { stateBranch: 'plot/state', defaultBranch: 'main' };
 const blob = (path: string, sha: string, mode = '100644') => ({ mode, sha, path });
-const commit = (subject: string) => ({ at: 0, subject, tree: 't' });
+const commit = (subject: string) => ({ at: 0, subject, tree: 't', parentTree: 'p' });
 
 describe('recordRef', () => {
   it('answers default with no key', () => {
