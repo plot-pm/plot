@@ -4,6 +4,8 @@ import path from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { FleetReadingSchema } from '../../entities/fleet.js';
+import type { FleetdHeartbeat } from '../../entities/fleetd-heartbeat.js';
+import { bridgeVouched } from '../../rules/fleetd-live.js';
 import type { BridgedPulse, FleetState, ScanAttempt } from '../../ports/fleet-state.js';
 
 /**
@@ -64,20 +66,21 @@ const parseAttempt = (raw: unknown): { attempt?: ScanAttempt } => {
 
 /**
  * Parses a bridge file's text. Returns `null` for a foreign version, an
- * unusable timestamp, an age outside `[0, BRIDGE_MAX_AGE_MS]`, or a pulse that
- * fails its schema.
+ * unusable timestamp, an age below 0, an age past `BRIDGE_MAX_AGE_MS` that
+ * fleetd's heartbeat does not vouch for, or a pulse that fails its schema.
  *
  * A file from the FUTURE is as untrustworthy as an ancient one — a clock that
  * moved backwards, or a copied checkout. Rejected rather than clamped.
  */
-const parseBridge = (raw: string, nowMs: number): BridgedPulse | null => {
+const parseBridge = (raw: string, nowMs: number, heartbeat: FleetdHeartbeat | null): BridgedPulse | null => {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (parsed.version !== BRIDGE_VERSION) return null;
     const at = parsed.at;
     if (typeof at !== 'number' || !Number.isFinite(at)) return null;
     const age = nowMs - at;
-    if (age < 0 || age > BRIDGE_MAX_AGE_MS) return null;
+    if (age < 0) return null;
+    if (age > BRIDGE_MAX_AGE_MS && !bridgeVouched({ at }, heartbeat, nowMs)) return null;
     return {
       at,
       pulse: FleetReadingSchema.parse(parsed.pulse),
@@ -99,6 +102,12 @@ export interface FleetStateFileOptions {
   repoRoot: string;
   /** Reads the clock; defaults to `Date.now`. Lets a test age a file without sleeping. */
   now?: () => number;
+  /**
+   * Reads fleetd's heartbeat; defaults to none. A bridge older than
+   * `BRIDGE_MAX_AGE_MS` is returned while this reading vouches for it
+   * ({@link bridgeVouched}).
+   */
+  heartbeat?: () => FleetdHeartbeat | null;
 }
 
 /**
@@ -113,6 +122,7 @@ export interface FleetStateFileOptions {
 export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
   const file = bridgePath(options.repoRoot);
   const now = options.now ?? (() => Date.now());
+  const heartbeat = options.heartbeat ?? (() => null);
 
   return {
     read: async (): Promise<PortResult<BridgedPulse | null>> => {
@@ -122,7 +132,7 @@ export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
       } catch {
         return answered(null);
       }
-      return answered(parseBridge(raw, now()));
+      return answered(parseBridge(raw, now(), heartbeat()));
     },
 
     readSync: (): PortResult<BridgedPulse | null> => {
@@ -132,7 +142,7 @@ export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
       } catch {
         return answered(null);
       }
-      return answered(parseBridge(raw, now()));
+      return answered(parseBridge(raw, now(), heartbeat()));
     },
 
     write: async (data: BridgedPulse): Promise<PortResult<void>> => {
