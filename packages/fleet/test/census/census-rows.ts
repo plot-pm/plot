@@ -21,6 +21,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per minute',
     target: 'zero',
     greenBy: { plan: 'no-tab-no-pulse', slice: 'Server pulse' },
+    green: true,
   },
   S2: {
     id: 'S2',
@@ -28,6 +29,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per minute',
     target: 'zero',
     greenBy: { plan: 'no-tab-no-pulse', slice: 'Hidden page' },
+    green: true,
   },
   S3: {
     id: 'S3',
