@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** ship-2-32-0
 - **Issue:** #3214
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-07, Jan Wloka, `feature/passkey-registration-reads-the-attestation-object`
 - **Started:** 2026-11-07, Jan Wloka, `feature/the-board-has-a-settings-view`
 - **Started:** 2026-11-08, Jan Wloka, `feature/the-release-row-approves-itself`
+- **Delivered:** 2026-11-08
 
 ## Changelog
 
