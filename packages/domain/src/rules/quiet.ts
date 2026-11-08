@@ -206,6 +206,19 @@ export const quietPlacement = (readings: QuietBranchReadings): 'done' | 'quiet' 
 };
 
 /**
+ * Whether a row in this kind of quiet offers to release its claim.
+ *
+ * Only `orphaned-claim` does: the branch holds a claim and no work, so the
+ * claim is the one thing a person can remove. The action is `release-claim`
+ * (`POST /api/release-claim`), which refuses a live agent by itself.
+ *
+ * @param kind - the row's quiet kind, or `null` where none was asked.
+ * @returns true when the row offers Release claim.
+ */
+export const offersReleaseClaim = (kind: QuietKind | null | undefined): boolean =>
+  kind === 'orphaned-claim';
+
+/**
  * Whether the last PR fetch is too old to say anything about this branch.
  *
  * #1240: a fetch that landed before the branch's tip commit answers a

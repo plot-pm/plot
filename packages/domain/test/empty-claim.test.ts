@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { type CommitReading, isEmptyClaim, realCommits } from '../src/rules/empty-claim.js';
+import { type CommitReading, claimOnly, isEmptyClaim, realCommits } from '../src/rules/empty-claim.js';
 
 const CLAIM: CommitReading = { subject: 'plot: claim feature/x', tree: 't1', parentTree: 't1' };
 
@@ -47,5 +47,23 @@ describe('realCommits', () => {
         { subject: 'work', tree: 't3', parentTree: 't2' },
       ]),
     ).toBe(2);
+  });
+});
+
+describe('claimOnly', () => {
+  it('answers true for a branch whose every commit is an empty claim marker', () => {
+    expect(claimOnly([CLAIM, { ...CLAIM, subject: 'plot: claim again' }])).toBe(true);
+  });
+
+  it('answers false for an empty list, which is a branch with nothing ahead', () => {
+    expect(claimOnly([])).toBe(false);
+  });
+
+  it('answers false where a commit titled as a claim changes a file', () => {
+    expect(claimOnly([CLAIM, { ...CLAIM, subject: 'plot: claim handling refactor', tree: 't2' }])).toBe(false);
+  });
+
+  it('answers false where one commit is real work under another subject', () => {
+    expect(claimOnly([CLAIM, { subject: 'feat: x', tree: 't2', parentTree: 't1' }])).toBe(false);
   });
 });
