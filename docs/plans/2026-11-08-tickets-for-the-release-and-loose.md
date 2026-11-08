@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3250 merged
+- **Started:** 2026-11-08, Jan Wloka, `feature/people-carry-a-tracker-identity`
 
 ## Changelog
 
