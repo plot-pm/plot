@@ -1,5 +1,8 @@
 ## Implementation brief — every-work-item-and-agent-shows (wave Tab: the Delivery tab renders the five sections)
 
+**Ruling, 2026-11-08, Jan Wloka: the fleet payload gains two optional fields.** The served fleet payload carries `autoReview` (boolean) and `correctionBudget` (number), both optional, read from the `Auto-review` and `Correction budget` keys of `## Plot Config`. Add them to the schema in `packages/board/src/contract/schema.ts` as `.optional()`, fill them on the server, and pass them to the mapper as `DeliveryInput.autoReview` and `DeliveryInput.correctionBudget`. A missing field stays absent and is never defaulted. This ruling replaces this brief's statements that the served payload does not change; rebuild the board artifact only to test locally, as before. Continue from PR #3267 (`feature/delivery-tab-sections`), which holds the mapper and its tests, and finish the Not done list in its body.
+
+
 - **Plan (canonical):** docs/plans/2026-11-08-every-work-item-and-agent-shows.md on main
 - **Design (canonical):** docs/superpowers/specs/2026-11-08-delivery-tab-design.md, approved 2026-11-08
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3248 merged

@@ -63,6 +63,7 @@ Every rendered state is a domain property with a unit test (CLAUDE.md, "Every re
 
 ## Notes
 
+- 2026-11-08, Jan Wloka: the served fleet payload gains two optional fields, `autoReview` and `correctionBudget`, read from `Auto-review` and `Correction budget` in `## Plot Config`, so the Delivery tab can place gate rows. This answers discovery 1 of PR #3267.
 - Created from issue #3244 by an unattended run. The Type came from the prompt; the design question was unanswered, so the plan starts in Draft.
 - Deliverable search for the rule found nothing in the estate by that name.
 - Plans 2 (row forms) and 3 (tickets and loose ends) of the design are separate plans.
