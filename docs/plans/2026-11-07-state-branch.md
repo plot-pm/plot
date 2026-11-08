@@ -139,7 +139,7 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 
 ### Write
 
-- `feature/state-branch-write` <!-- spike --> — the `State branch` key; `plot-push-main.sh` cuts the booking from the state branch after merging the default branch in, and pushes a fast-forward to it; the off-ladder pushes in `plot-reject`, `plot-sprint`, `plot-release` and `plot-idea` call the helper; a test asserts that every delete path excludes the declared state branch; proved on a sandbox repository with a protected default branch; the state gate's squash receipt (D14) and the non-branch ref (D16) <!-- builds: the State branch key and the state-branch target of plot-push-main.sh --> → #3234
+- `feature/state-branch-write` — the `State branch` key; `plot-push-main.sh` cuts the booking from the state branch after merging the default branch in, and pushes a fast-forward to it; the off-ladder pushes in `plot-reject`, `plot-sprint`, `plot-release` and `plot-idea` call the helper; a test asserts that every delete path excludes the declared state branch; proved on a sandbox repository with a protected default branch; the state gate's squash receipt (D14) and the non-branch ref (D16) <!-- builds: the State branch key and the state-branch target of plot-push-main.sh --> → #3234
 
 ### Read
 
