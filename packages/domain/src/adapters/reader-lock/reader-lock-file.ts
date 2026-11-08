@@ -6,7 +6,7 @@ import { decodeReaderState, encodeReaderState, type ReaderState } from '../../en
 import { readerIsStale, type ReaderClaim } from '../../rules/reader-election.js';
 import type { ReaderLock } from '../../ports/reader-lock.js';
 import { connectorFile } from '../pr-index/pr-index-file.js';
-import { runProcess } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 
 /**
  * The environment variable that names the lock's directory, for tests.
@@ -52,6 +52,8 @@ const readerStateFileFor = (indexDir: string, connector: string): string =>
 export interface ReaderLockFileOptions {
   /** The repository to resolve the lock for; the process's cwd when omitted. */
   cwd?: string;
+  /** The held answers that place the file; this process's own when omitted. */
+  answers?: FixedAnswers;
   /** An explicit index directory, bypassing the git lookup. */
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
@@ -86,7 +88,7 @@ const resolveIndexDirs = async (options: ReaderLockFileOptions): Promise<IndexDi
   if (options.home !== undefined && options.home !== '') return { indexDir: options.home, base: dirname(options.home) };
   const override = env[READER_LOCK_HOME_ENV];
   if (override !== undefined && override !== '') return { indexDir: override, base: dirname(override) };
-  const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+  const run = await (options.answers ?? processAnswers).commonDir(options.cwd);
   const out = run.stdout.trim();
   if (run.code !== 0 || out === '') return null;
   try {

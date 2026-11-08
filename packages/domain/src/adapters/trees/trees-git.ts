@@ -8,6 +8,7 @@ import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
 import { realCommits, type CommitReading as ClaimCommit } from '../../rules/empty-claim.js';
 import type { CommitReading } from '../../rules/sample.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { asLines, asText, runProcess, runScript, runScriptSync, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -217,20 +218,17 @@ const worktreesOf = (stdout: string): Worktree[] => {
  * Reads the worktrees on this machine through git.
  *
  * @param context - where the repository is.
+ * @param answers - the held answers for each checkout's common git dir; this process's own by default.
  * @returns a `Trees` backed by `git worktree` and the filesystem.
  */
-export const treesGit = (context: ShellContext): Trees => {
+export const treesGit = (context: ShellContext, answers: FixedAnswers = processAnswers): Trees => {
   const inRepo = { cwd: context.repoRoot };
   const workerState = scriptPath(context, 'plot-worker-state.sh');
   const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
 
   /** The git directory every worktree of a repository shares, absolute; null where git cannot say. */
   const commonDir = async (path: string): Promise<string | null> => {
-    const run = await runProcess(
-      'git',
-      ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-      inRepo,
-    );
+    const run = await answers.absoluteCommonDir(path, context.repoRoot);
     const dir = run.stdout.trim();
     return run.code === 0 && dir !== '' ? dir : null;
   };

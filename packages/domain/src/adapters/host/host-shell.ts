@@ -36,6 +36,7 @@ import {
   type RunOptions,
   type ScriptRun,
 } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
@@ -200,9 +201,10 @@ export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
  * script exists to hold.
  *
  * @param context - where the scripts and the repository are.
+ * @param answers - the held backend answer; this process's own by default.
  * @returns a `Host` backed by the shell adapter.
  */
-export const hostShell = (context: ShellContext): Host => {
+export const hostShell = (context: ShellContext, answers: FixedAnswers = processAnswers): Host => {
   const host = scriptPath(context, 'plot-host.sh');
   const inRepo = { cwd: context.repoRoot };
 
@@ -351,7 +353,7 @@ export const hostShell = (context: ShellContext): Host => {
     // with no tracker is answering, not refusing — so this op sets it after,
     // rather than teaching `record` a distinction only this op can draw.
     backend: async (): Promise<PortResult<HostBackend>> => {
-      const run = await runProcess('bash', [host, 'backend'], inRepo);
+      const run = await answers.backend(host, context.repoRoot);
       const answer = record(run, asText);
       if (run.code === 4) {
         // Falls back to the code because a script that refused without a word
@@ -527,7 +529,7 @@ export const hostShell = (context: ShellContext): Host => {
     // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads
     // `Review app` from `origin/<default>` and never from the working tree.
     reviewWriter: async (): Promise<PortResult<string>> => {
-      const be = await runProcess('bash', [host, 'backend'], inRepo);
+      const be = await answers.backend(host, context.repoRoot);
       if (be.code === EXIT_OK && asText(be.stdout) !== 'github') return answered('');
       const run = await runProcess('node', [scriptPath(context, 'plot-review-writer.mjs')], inRepo);
       return resultOf(run, asText);
