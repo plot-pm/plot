@@ -45,7 +45,7 @@ import {
 } from '@plot-pm/domain/rules/verification';
 import { withRecord, withSection } from '@plot-pm/domain/workflows/rendering';
 import { readVerifyStatus, verifyStatusLines } from '@plot-pm/fleet/shared/auto-verify';
-import { commitAndPush, localDate, realPlanPath, Refused, type Printer, type PushLock } from './ladder.js';
+import { commitAndPush, cutBooking, localDate, realPlanPath, Refused, type Printer, type PushLock } from './ladder.js';
 import {
   existsSync,
   mkdirSync,
@@ -721,7 +721,7 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
   const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
   const bookbr = `plot/verify-${args.slug}`;
   const tmpwt = path.join(wtRoot, `.plot-verify-${args.slug}.${process.pid}`);
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in another worktree.\n  Nothing was written.`);
   }

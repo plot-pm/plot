@@ -18,7 +18,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { commitAndPush, Refused, type LadderContext, type Printer } from './ladder.js';
+import { commitAndPush, cutBooking, Refused, type LadderContext, type Printer } from './ladder.js';
 import { findPlanForBranch } from './plan-lookup.js';
 
 const USAGE = 'usage: plot-record-pr.sh <branch> <pr-number>';
@@ -115,7 +115,7 @@ export const recordPr = async (ctx: RecordPrContext, args: RecordPrArgs, write: 
   const bookbr = `plot/record-pr-${slugPart}`;
   const tmpwt = path.join(deskRoot(deskReading), `.plot-record-pr-${slugPart}.${ctx.pid}`);
 
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) throw new Refused(`could not prepare a booking worktree at ${tmpwt}`);
   try {
     // Read inside the booking worktree, so the search sees origin/<default>'s

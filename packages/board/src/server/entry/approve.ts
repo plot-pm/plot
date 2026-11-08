@@ -27,7 +27,7 @@ import { sprintOfPlan, type SprintFile } from '@plot-pm/domain/rules/sprint-memb
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
 import {
-  commitAndPush,
+  commitAndPush, cutBooking,
   localDate,
   realPlanPath,
   recordStateReceipt,
@@ -1253,7 +1253,7 @@ const bookApproval = async (
   const wtRoot = deskRoot(deskReading);
   const bookbr = `plot/approve-${slug}`;
   const tmpwt = path.join(wtRoot, `.plot-approve-${slug}.${process.pid}`);
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }

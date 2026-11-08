@@ -28,7 +28,7 @@ import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
 import { tellTrackerAbout } from './release-tracker.js';
 import {
-  commitAndPush,
+  commitAndPush, cutBooking,
   localDate,
   realPlanPath,
   recordStateReceipt,
@@ -438,7 +438,7 @@ const runDeliver = async (
 
   const bookbr = `plot/deliver-${args.slug}`;
   const tmpwt = path.join(wtRoot, `.plot-deliver-${args.slug}.${process.pid}`);
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }
@@ -888,7 +888,7 @@ export const runRelease = async (
   const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
   const bookbr = `plot/release-${args.slug}`;
   const tmpwt = path.join(wtRoot, `.plot-release-${args.slug}.${process.pid}`);
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }

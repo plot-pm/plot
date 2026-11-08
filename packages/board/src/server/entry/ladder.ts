@@ -10,6 +10,7 @@ import { mkdirSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type { Scripts, Trees } from '@plot-pm/domain';
+import { cutRef, writeTarget, type StateWriteTarget } from '@plot-pm/domain/rules/write-target';
 
 /** Prints to stdout, matching the scripts' unprefixed `step:`/`summary:` lines. */
 export type Printer = (s: string) => void;
@@ -202,6 +203,71 @@ export const realLockFor = (scripts: Scripts, env: NodeJS.ProcessEnv = process.e
 });
 
 /**
+ * Resolves the `State branch` key into the ref a booking is pushed at.
+ *
+ * @param ctx - the ladder's ports.
+ * @param main - the default branch's short name.
+ * @returns the state target, or `null` where no key is declared.
+ * @throws {Refused} where the key is not a usable ref name.
+ */
+export const stateTargetOf = async (ctx: LadderContext, main: string): Promise<StateWriteTarget | null> => {
+  const read = await ctx.scripts.config('State branch', '');
+  const target = writeTarget(read.ok ? read.value : '', main);
+  if (target.kind === 'invalid') {
+    throw new Refused(`the State branch key is refused: ${target.reason}.\n  Fix it in ## Plot Config; nothing was written.`);
+  }
+  return target.kind === 'state' ? target : null;
+};
+
+/** The ref a booking pushes at: the full state ref where one is declared, else `main`. */
+export const pushTargetOf = (target: StateWriteTarget | null, main: string): string => (target === null ? main : target.pushRef);
+
+/**
+ * Cuts the booking branch for a lifecycle write, in `tmpwt`.
+ *
+ * With no `State branch` key the branch starts at `origin/<main>`, as every
+ * entry did before the key existed. With one, the branch starts at the state
+ * ref's tip (at `origin/<main>` where the origin has no state ref yet, which
+ * the push then creates) and `origin/<main>` is merged in, so the state ref
+ * stays a descendant of the default branch. The entry's own write follows.
+ *
+ * @param ctx - the ladder's ports.
+ * @param tmpwt - the booking worktree; created when `mode` is `add`, reset when `reset`.
+ * @param bookbr - the booking branch.
+ * @param main - the default branch's short name.
+ * @param mode - `add` for the entry's first cut, `reset` for a retry's re-cut.
+ * @returns `ok: false` where the cut could not be prepared; the caller's own refusal follows.
+ * @throws {Refused} where the key is invalid, the origin could not be asked about the state ref,
+ *   or the forward merge conflicts, naming the files.
+ */
+export const cutBooking = async (
+  ctx: LadderContext,
+  tmpwt: string,
+  bookbr: string,
+  main: string,
+  mode: 'add' | 'reset',
+): Promise<{ ok: boolean }> => {
+  const target = await stateTargetOf(ctx, main);
+  const cut = (start: string) => (mode === 'add' ? ctx.trees.addBranch(tmpwt, bookbr, start) : ctx.trees.resetBranch(tmpwt, bookbr, start));
+  if (target === null) return cut(`origin/${main}`);
+
+  const state = await ctx.trees.fetchRef(ctx.repoRoot, target.pushRef, target.trackRef);
+  if (!state.ok) {
+    throw new Refused(`could not ask the origin whether ${target.pushRef} exists.\n  Nothing was written; re-run this once the origin answers.`);
+  }
+  const defaults = await ctx.trees.fetchRef(ctx.repoRoot, `refs/heads/${main}`, target.defaultRef);
+  if (!defaults.ok || !defaults.value) return { ok: false };
+  const cutOk = await cut(cutRef(target, state.value));
+  if (!cutOk.ok) return { ok: false };
+  const merged = await ctx.trees.mergeIn(tmpwt, target.defaultRef, 'plot');
+  if (!merged.ok) return { ok: false };
+  if (merged.value.length > 0) {
+    throw new Refused(`merging ${main} into ${target.pushRef} conflicts in ${merged.value.join(', ')}.\n  No record was written. Merge ${main} into ${target.pushRef} by hand, push it, and re-run this.`);
+  }
+  return { ok: true };
+};
+
+/**
  * Runs a booking commit+push: commit whatever the caller already staged
  * (attributed to `who`), push to the default branch, and retry on rejection
  * — the ladder every lifecycle write in `deliver.ts` and `approve.ts` climbs.
@@ -251,6 +317,7 @@ export const commitAndPush = async (
   wait: () => Promise<void> = ctx.retryWait ?? defaultWait,
 ): Promise<{ pushed: string } | { rejected: true }> => {
   const holder = nextHolderId();
+  const pushTarget = pushTargetOf(await stateTargetOf(ctx, main), main);
   const action = `push ${bookbr}`;
   const lock = ctx.lock ?? realLockFor(ctx.scripts);
   // The lock spans the fetch/commit/push, not just the push line (the-push-
@@ -285,9 +352,9 @@ export const commitAndPush = async (
           write(`step: retry stopped — git fetch origin ${main} failed in ${ctx.repoRoot}\n`);
           return { done: true as const, result: { rejected: true as const } };
         }
-        const reset = await ctx.trees.resetBranch(tmpwt, bookbr, `origin/${main}`);
+        const reset = await cutBooking(ctx, tmpwt, bookbr, main, 'reset');
         if (!reset.ok) {
-          write(`step: retry stopped — could not reset '${bookbr}' to origin/${main} in ${tmpwt}\n`);
+          write(`step: retry stopped — could not reset '${bookbr}' to ${pushTarget} in ${tmpwt}\n`);
           return { done: true as const, result: { rejected: true as const } };
         }
         try {
@@ -307,7 +374,7 @@ export const commitAndPush = async (
       const commit = await ctx.trees.commitAs(tmpwt, who, message);
       if (!commit.ok) throw new Refused(`could not commit the ${noun}.\n  See what git refused: git -C ${tmpwt} status\n  Nothing was pushed; re-run this — it is idempotent.`);
 
-      const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, main], { env: { PLOT_PUSH_LOCK_HOLDER: holder } });
+      const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, pushTarget], { env: { PLOT_PUSH_LOCK_HOLDER: holder } });
       for (const line of `${pushOut.stdout}${pushOut.stderr}`.split('\n')) {
         if (line.length > 0) write(`  ${line}\n`);
       }

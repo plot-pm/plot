@@ -9,7 +9,7 @@ import { releaseFinish, type FinishSprint, type ScopePlan } from '@plot-pm/domai
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 
-import { commitAndPush, localDate, recordStateReceipt, Refused, type Printer, type PushLock } from './ladder.js';
+import { commitAndPush, cutBooking, localDate, recordStateReceipt, Refused, type Printer, type PushLock } from './ladder.js';
 import { tellTrackerAbout } from './release-tracker.js';
 
 /** The ports and settings the finish reads and writes through. */
@@ -174,7 +174,7 @@ export const finishRelease = async (
   const wtRoot = deskRoot({ configured: worktreeCfg.ok ? worktreeCfg.value.trim() : '', repoRoot: ctx.repoRoot });
   const bookbr = `plot/release-${tag}`;
   const tmpwt = path.join(wtRoot, `.plot-release-finish-${process.pid}`);
-  const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${mainBranch}`);
+  const added = await cutBooking(ctx, tmpwt, bookbr, mainBranch, 'add');
   if (!added.ok) {
     warn(`plot-ask: release-approve: could not prepare a booking worktree at ${tmpwt}; the finish writes nothing.\n`);
     return 1;
