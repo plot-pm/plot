@@ -17,7 +17,9 @@
 //
 // `CENSUS_SPAWN_LOG=<file>` appends one JSON line per process this node
 // process starts directly (`spawn`, `execFile`), so a run without `strace`
-// still shows which direct children a pass starts.
+// still shows which direct children a pass starts. It also appends one line,
+// `{"signal0": <pid>}`, per `process.kill(pid, 0)`, the liveness question that
+// starts no process.
 import { appendFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -94,6 +96,14 @@ if (originalExecFilePromise !== undefined) {
 cp.spawn = spawnTracked;
 cp.execFile = execFileTracked;
 syncBuiltinESMExports();
+
+const originalKill = process.kill.bind(process);
+process.kill = ((pid: number, signal?: string | number) => {
+  if (spawnLog !== '' && signal === 0) {
+    appendFileSync(spawnLog, `${JSON.stringify({ at: Math.round(performance.now()), signal0: pid })}\n`);
+  }
+  return originalKill(pid, signal);
+}) as typeof process.kill;
 
 // ---------------------------------------------------------------------------
 // Virtual time. The loops' cadence gates read `Date.now()`, not the injected
