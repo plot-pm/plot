@@ -187,11 +187,15 @@ describe('a deliverable plan carries Deliver, and no other plan does', () => {
       await btn.click();
       const control = page.locator('[data-deliver="landed"]');
       await expect.poll(() => control.count()).toBe(1);
-      // Disabled for assistive tech, and its refusal is stated — the sr-only span
-      // and the title both carry the reason a dimmed control would otherwise hide.
+      // Disabled for assistive tech, and its refusal is stated — the control's
+      // description is a tooltip carrying the reason, shown on focus, never a title.
       await expect.poll(() => control.getAttribute('aria-disabled')).toBe('true');
-      await expect.poll(() => control.getAttribute('title')).toBe(reason);
-      await expect.poll(() => control.textContent()).toContain(reason);
+      expect(await control.getAttribute('title')).toBeNull();
+      const reasonId = await control.getAttribute('aria-describedby');
+      await control.focus();
+      const tip = page.locator(`[id="${reasonId}"]`);
+      expect(await tip.isVisible()).toBe(true);
+      expect(await tip.textContent()).toBe(reason);
     } finally {
       await page.close();
     }

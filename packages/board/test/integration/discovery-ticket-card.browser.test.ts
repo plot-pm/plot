@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, board as buildBoard, fleet as buildFleet, type Catalogue } from '../catalogue/index.js';
 import type { TicketLaneGroups, TicketLaneRow } from '../../src/contract/schema.js';
+import { withTicketFacts } from '../catalogue/ticket-lanes.js';
 
 /**
  * THE DISCOVERY TICKET CARD SHOWS ITS NUMBER, STATE AND AGE — the browser half.
@@ -53,7 +54,7 @@ describe('the Discovery ticket card shows its number, state and age', () => {
         // this scenario: Discovery reads `/api/board`, never a Delivery-tab-only
         // fleet poll, so an `unsupported` fleet must not leave the buttons refused.
         board: buildBoard({
-          tickets: TICKETS,
+          tickets: withTicketFacts(TICKETS),
           idea: { available: true, reason: '' },
           story: { available: true, reason: '' },
           issueAnswer: 'answered',
@@ -74,19 +75,20 @@ describe('the Discovery ticket card shows its number, state and age', () => {
     return page;
   };
 
-  const card = (page: Page, id: string) => page.locator(`[data-ticket-card="${id}"]`);
+  const card = (page: Page, id: string) => page.locator(`#ticket-${id}`);
 
-  it('shows the icon, the shorthand-prefixed title and the reference-and-age line on an Open ticket', async () => {
+  it('shows the number-prefixed title, a state pill and its opened age on an Open ticket', async () => {
     const page = await open();
     try {
       await expect.poll(() => card(page, '1688').count(), { timeout: 10_000 }).toBe(1);
-      expect((await card(page, '1688').textContent())?.replace(/\s+/g, ' ').trim()).toContain(
-        '1688: The Jira project scope: ship the connector',
-      );
-      expect(await card(page, '1688').locator('[data-ticket-card-icon="open"]').count()).toBe(1);
-      const subtitle = await card(page, '1688').locator('p').textContent();
-      expect(subtitle).toContain('plot-pm/plot#1688');
-      expect(subtitle).toContain('opened');
+      // The header leads with the ticket number, then the title.
+      const text = (await card(page, '1688').textContent())?.replace(/\s+/g, ' ').trim() ?? '';
+      expect(text).toContain('#1688');
+      expect(text).toContain('The Jira project scope: ship the connector');
+      expect(text.indexOf('#1688')).toBeLessThan(text.indexOf('The Jira project scope'));
+      expect(await card(page, '1688').locator('[data-state-pill]').count()).toBeGreaterThan(0);
+      // The age names its event; the `owner/repo#N` reference shows in the modal, not on the card.
+      expect(await card(page, '1688').locator('[data-since="opened"]').count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -127,13 +129,13 @@ describe('the Discovery ticket card shows its number, state and age', () => {
     }
   });
 
-  it('offers no action on a Done ticket, and shows the closed icon', async () => {
+  it('offers no action on a Done ticket, and shows its state', async () => {
     const page = await open();
     try {
       await expect.poll(() => card(page, '1685').count(), { timeout: 10_000 }).toBe(1);
       expect(await card(page, '1685').locator('[data-create-plan]').count()).toBe(0);
       expect(await card(page, '1685').locator('[data-create-story]').count()).toBe(0);
-      expect(await card(page, '1685').locator('[data-ticket-card-icon="closed"]').count()).toBe(1);
+      expect(await card(page, '1685').locator('[data-state-pill]').count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }

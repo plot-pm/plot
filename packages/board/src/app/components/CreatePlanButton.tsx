@@ -44,6 +44,8 @@ export interface CreatePlanButtonProps {
    * `Fleet.issueAnswer`. The other half. `null` before the first read.
    */
   issueAnswer: IssueAnswer | null;
+  /** Why the ticket's card facts refuse *Create plan*; `''` or absent where they allow it. */
+  factsRefusal?: string;
 }
 
 type State =
@@ -82,7 +84,7 @@ export function refusalReason(idea: DispatchInfo, issueAnswer: IssueAnswer | nul
   return verdict.kind === 'refused' ? verdict.reason : '';
 }
 
-export function CreatePlanButton({ issue, idea, issueAnswer }: CreatePlanButtonProps) {
+export function CreatePlanButton({ issue, idea, issueAnswer, factsRefusal = '' }: CreatePlanButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
@@ -201,8 +203,8 @@ export function CreatePlanButton({ issue, idea, issueAnswer }: CreatePlanButtonP
   };
 
   const verdict = createFromIssueVerdict(idea, issueAnswer, 'plan');
-  const refusal = verdict.kind === 'refused' ? verdict.reason : '';
-  const blocked = running || verdict.kind !== 'available';
+  const refusal = verdict.kind === 'refused' ? verdict.reason : factsRefusal;
+  const blocked = running || verdict.kind !== 'available' || factsRefusal !== '';
 
   const onClick = () => {
     // `aria-disabled` does not stop a click the way `disabled` does, so the

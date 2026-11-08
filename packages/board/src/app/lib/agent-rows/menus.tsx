@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPlanRefusal } from '../card-presentation.js';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { ACTION_TIMEOUT_MS } from '../bounded-fetch.js';
 import {
   type AgentRow,
@@ -1667,8 +1669,8 @@ export function PlanActions({
  * rather than in it, so the age beside it renders alone.
  */
 export function IssueRowActions(
-  { issue, idea, story, issueAnswer }:
-  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer | null },
+  { issue, idea, story, issueAnswer, facts }:
+  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer | null; facts?: CardFacts },
 ) {
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
@@ -1722,7 +1724,7 @@ export function IssueRowActions(
               its own refusals live inside the button; the menu only gives it a
               home beside the other two. */}
           <div role="menuitem" className="px-2 py-1 text-left">
-            <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
+            <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} factsRefusal={createPlanRefusal(facts)} />
           </div>
           {/* CREATE STORY — the twin of Create plan, and no longer a control
               that exists only to decline. Its refusals are CONDITIONAL now: the

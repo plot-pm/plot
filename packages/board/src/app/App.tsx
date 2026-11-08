@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Board, Card, Fleet, SprintCard, StoryCard } from '../contract/schema.js';
+import type { Board, Card, Fleet, SprintCard, StoryCard, TicketLaneGroups } from '../contract/schema.js';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
 import { Swimlanes } from './components/Swimlanes.js';
@@ -14,6 +15,7 @@ import { MineStrictToggle } from './components/MineStrictToggle.js';
 import { sanitizeSelection } from '@plot-pm/domain/rules/sprint-selection';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
+import { boardLinksOf } from './lib/plan.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import { listenForEvents } from './lib/event-listener.js';
@@ -193,6 +195,15 @@ function parseTab(): Tab {
   }
   return tab;
 }
+
+/** The board's ticket card facts by ticket id, for the rows that offer *Create plan*. */
+const ticketFactsOf = (tickets: TicketLaneGroups | null | undefined): Map<string, CardFacts> => {
+  const byId = new Map<string, CardFacts>();
+  for (const lane of [tickets?.open, tickets?.['in-progress'], tickets?.done]) {
+    for (const row of lane ?? []) if (row.facts) byId.set(row.id, row.facts);
+  }
+  return byId;
+};
 
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
@@ -594,20 +605,23 @@ export function App() {
     : board?.dispatch;
 
   /**
-   * The board as the card views should see it — same data, effective dispatch.
+   * The board as the card views should see it: the same data, with the
+   * effective `dispatch`, `approve`, `interrogate` and `deliver` entries in
+   * place of the served ones, so a frozen page dims every card control.
    *
-   * `BoardView` and `Swimlanes` read `board.dispatch` off the document rather
-   * than taking it as a prop, so substituting it here reaches every card
-   * through the path they already use. That keeps this change out of both of
-   * those files, which two other branches are editing today, and it means a
-   * card view added later inherits the block for free.
+   * `BoardView` and `Swimlanes` read these entries off the board they are
+   * given, so a card view that takes this board inherits the same block.
    *
-   * A function rather than a derived value because it is called where `board`
-   * has already been narrowed to non-null, and a nullable variable would carry
-   * that null into props that do not accept one.
+   * @param b - the board as served, already narrowed to non-null.
+   * @returns the board with the four action entries replaced where this page overrides them.
    */
-  const withEffectiveDispatch = (b: Board): Board =>
-    dispatchInfo ? { ...b, dispatch: dispatchInfo } : b;
+  const withEffectiveDispatch = (b: Board): Board => ({
+    ...b,
+    ...(dispatchInfo ? { dispatch: dispatchInfo } : {}),
+    ...(approveInfo ? { approve: approveInfo } : {}),
+    ...(interrogateInfo ? { interrogate: interrogateInfo } : {}),
+    deliver: deliverInfo,
+  });
 
   /**
    * The SAME treatment for approving, and it travels to the Delivery tab.
@@ -624,6 +638,11 @@ export function App() {
   const approveInfo = dimmed
     ? { available: false, reason: BLOCKED_REASON }
     : board?.approve;
+
+  /** Interrogate, dimmed on a frozen page by the same rule; it starts a panel agent. */
+  const interrogateInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.interrogate;
 
   /**
    * The SAME treatment again for continuing an answered agent.
@@ -1034,6 +1053,17 @@ export function App() {
     setOpenStory(story);
   }, []);
 
+  /** Open a plan from a story card: the plan overlay replaces the story's. */
+  const onOpenPlanCard = useCallback((card: Card) => {
+    setOpenStory(null);
+    setOpenPlan(card);
+  }, []);
+
+  /** The board's lookups for the items a Discovery card names. */
+  const discoveryLinks = useMemo(() => (board ? boardLinksOf(board) : undefined), [board]);
+  /** Each ticket's card facts by id, for the agent rows' menus. */
+  const ticketFacts = useMemo(() => ticketFactsOf(board?.tickets), [board?.tickets]);
+
   /**
    * Close the overlay, switch to the board, and filter to this story — the
    * story's answer to the plan modal's *Show in board*.
@@ -1372,6 +1402,8 @@ export function App() {
               onShow={onShow}
               onOpenStory={onOpenStory}
               onOpenSprint={onOpenSprint}
+              onOpenPlan={onOpenPlanCard}
+              links={discoveryLinks}
               idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
               story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
               issueAnswer={board.issueAnswer ?? null}
@@ -1390,6 +1422,7 @@ export function App() {
             // here, which is why the hidden case is asserted at the component.
             <AgentList
               fleet={fleet}
+              ticketFacts={ticketFacts}
               pollSeconds={FLEET_POLL_MS / 1000}
               staleSeconds={fleetStaleSeconds}
               onOpenPlan={onOpenPlanFile}
@@ -1532,6 +1565,7 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
+              onOpenSprint={onOpenSprint}
               highlight={validHighlight}
               showReleased={showReleased}
             />
@@ -1546,6 +1580,7 @@ export function App() {
               onStarting={onStarting}
               onOpenPlan={onOpenPlanFile}
               onOpenStory={onOpenStory}
+              onOpenSprint={onOpenSprint}
               highlight={validHighlight}
               showReleased={showReleased}
             />

@@ -37,7 +37,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { blobIdOfBytes, parsePlanMetaFiles, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
@@ -1723,7 +1723,14 @@ async function ticketPlansOf(
     const merged = held === undefined
       ? null
       : branches.filter((b) => held.slices.some((w) => w.branches.some((x) => x.branch === b.branch && x.state === 'merged'))).length;
-    const plan: TicketPlan = { state: meta.phase.toLowerCase(), total: branches.length, merged };
+    const plan: TicketPlan = {
+      slug: planSlug(meta.file),
+      title: meta.title || planSlug(meta.file),
+      story: meta.story,
+      state: meta.phase.toLowerCase(),
+      total: branches.length,
+      merged,
+    };
     for (const n of issues) {
       const key = issueKey(n);
       byIssue.set(key, [...(byIssue.get(key) ?? []), plan]);
@@ -3285,6 +3292,31 @@ export function boardDivisors(): { name: string; everyNthBeat: number }[] {
 export function prsByNumber(opts: BuildBoardOptions): Map<number, PrRecord> | null {
   return ensureCache(opts).prsByNumber;
 }
+
+/**
+ * The prefix for this repository's branch pages on its host, as the scan read
+ * it from `origin`; `''` where the host's branch-page shape is not known or no
+ * scan has run.
+ */
+export const branchUrlBaseFor = (opts: BuildBoardOptions): string => ensureCache(opts).branchUrlBase;
+
+/**
+ * The prefix for this repository's issue pages on its host, where the git host
+ * answers the repository's issues: `https://github.com/org/repo/issues/` on
+ * GitHub, `https://bitbucket.org/ws/repo/issues/` on Bitbucket Cloud.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param declaredTracker - the `Tracker` config value as read; `null` where it could not be read.
+ * @returns the prefix, or `''` where a `Tracker` names another service, the
+ *   config could not be read, or the host's page shape is unknown.
+ */
+export const issueUrlBaseFor = (opts: BuildBoardOptions, declaredTracker: string | null): string => {
+  const entry = ensureCache(opts);
+  const repo = entry.branchUrlBase.match(/^(.*\/)(?:tree|branch)\/$/)?.[1];
+  if (repo === undefined || declaredTracker === null) return '';
+  const source = issueSource({ declared: declaredTracker, gitHost: entry.backend ?? '', listers: TRACKER_LISTERS });
+  return source.ask === 'git-host' ? `${repo}issues/` : '';
+};
 
 /**
  * The cached fleet pulse, or null while none has landed.

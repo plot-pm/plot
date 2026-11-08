@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { allFinished, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
+import { allFinished, planAnswersTicket, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
 
-const plan = (state: string, overrides: Partial<TicketPlan> = {}): TicketPlan => ({ state, total: 0, merged: null, ...overrides });
+const plan = (state: string, overrides: Partial<TicketPlan> = {}): TicketPlan => ({ slug: 'p', title: 'P', story: '', state, total: 0, merged: null, ...overrides });
 
 describe('ticketPhase', () => {
   it('answers null when no plan names the ticket', () => {
@@ -83,5 +83,15 @@ describe('allFinished', () => {
   it('answers false when another plan is still unfinished', () => {
     expect(allFinished([plan('released'), plan('approved')])).toBe(false);
     expect(allFinished([plan('rejected'), plan('draft')])).toBe(false);
+  });
+});
+
+describe('planAnswersTicket', () => {
+  it.each(['draft', 'design', 'approved', 'delivered', 'released', 'Approved'])('counts a %s plan as answering its ticket', (state) => {
+    expect(planAnswersTicket(state)).toBe(true);
+  });
+
+  it.each(['rejected', 'superseded', 'Rejected', ' Superseded '])('counts a %s plan as answering nothing', (state) => {
+    expect(planAnswersTicket(state)).toBe(false);
   });
 });

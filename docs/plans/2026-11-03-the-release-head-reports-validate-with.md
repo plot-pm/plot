@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Rejected:** 2026-11-06, live proof failed on 2.31.0: the workflow_run relay never started; fix slice bug/the-release-run-relays-validate unbuilt
 - **Type:** feature
 - **Approved:** 2026-11-06, Jan Wloka, plan-PR #3076 merged

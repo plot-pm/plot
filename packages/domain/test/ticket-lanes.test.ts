@@ -9,7 +9,7 @@ import {
   type TicketSourceRow,
 } from '../src/rules/ticket-lanes.js';
 
-const APPROVED_PLAN: TicketPlan = { state: 'approved', total: 0, merged: null };
+const APPROVED_PLAN: TicketPlan = { slug: 'p', title: 'P', story: '', state: 'approved', total: 0, merged: null };
 
 const NOW = Date.parse('2026-10-14T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -183,7 +183,7 @@ describe('ticketLanes', () => {
   });
 
   it('keeps a released plan\'s issue named — it lanes Open rather than dropping out of every lane', () => {
-    const released: TicketPlan = { state: 'released', total: 1, merged: 1 };
+    const released: TicketPlan = { slug: 'p', title: 'P', story: '', state: 'released', total: 1, merged: 1 };
     const result = ticketLanes([row('1')], [], null, reading({ plans: new Map([['1', [released]]]) }), false, NOW);
     expect(ids(result.lanes?.open)).toEqual(['1']);
   });

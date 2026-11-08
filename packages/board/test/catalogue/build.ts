@@ -1,10 +1,12 @@
 import {
   AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, FleetShape, PHASE_LEADERSHIP,
-  SprintCardSchema, StoryCardSchema, SliceSchema,
+  PlanMetaSchema, SprintCardSchema, StoryCardSchema, SliceSchema,
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
-import { controlsFor } from '../fixtures/card-controls.js';
+import { controlsFor, stateFor } from '../fixtures/card-controls.js';
+import { planFactsOf } from '../../src/server/plan-facts.js';
+import { storyFactsOf } from '../../src/server/story-facts.js';
 import type { z } from 'zod';
 
 export { controlsFor };
@@ -105,7 +107,7 @@ export const slice = (over: Partial<SliceInput> = {}): Slice =>
   SliceSchema.parse({ ...SLICE_DEFAULTS, ...over });
 
 /** One plan card, as `/api/board` carries it. */
-const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
+const CARD_DEFAULTS: Omit<CardInput, 'controls' | 'facts'> = {
   slug: 'a-plan',
   title: 'A plan',
   type: 'feature',
@@ -113,8 +115,10 @@ const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
   path: 'docs/plans/2026-08-24-a-plan.md',
 };
 
-export const card = (over: Partial<CardInput> = {}): Card =>
-  CardSchema.parse({ ...CARD_DEFAULTS, controls: controlsFor(over), ...over });
+export const card = (over: Partial<CardInput> = {}): Card => {
+  const fields = CardSchema.omit({ facts: true }).parse({ ...CARD_DEFAULTS, controls: controlsFor(over), ...over });
+  return CardSchema.parse({ ...fields, facts: over.facts ?? planFactsOf(fields, { state: stateFor(over) }) });
+};
 
 /** One board column — a phase and the cards in it. */
 const COLUMN_DEFAULTS: ColumnInput = { phase: 'Development', cards: [] };
@@ -227,6 +231,8 @@ const BOARD_DEFAULTS: BoardInput = {
   columns: [],
   sprints: [],
   stories: [],
+  // A fixture board read its stories and found none answering a ticket.
+  ticketStories: { value: {} },
   checklist: null,
   /**
    * WHAT THE SERVER SAYS ABOUT ITSELF, and it is stated rather than defaulted.
@@ -285,10 +291,25 @@ const STORY_DEFAULTS: StoryInput = {
   title: 'A story',
   status: 'active',
   path: 'docs/stories/a-story/STORY-a-story.md',
+  // A fixture story reads as committed on the default branch, as a real one does.
+  committed: true,
 };
 
-export const story = (over: Partial<StoryInput> = {}): StoryCard =>
-  StoryCardSchema.parse({ ...STORY_DEFAULTS, ...over });
+export const story = (over: Partial<StoryInput> = {}): StoryCard => {
+  const input: StoryInput = { ...STORY_DEFAULTS, ...over };
+  // The facts the server would attach, through the same projection: the written
+  // status is `declaredStatus` where the fixture states one, else `status`.
+  const plans = (input.plans ?? []).map((p) => PlanMetaSchema.parse({
+    file: `docs/plans/${p.slug}.md`, format: 'plot', phase: p.phase, title: p.title, sprint: p.sprint ?? '', story: input.slug,
+  }));
+  const facts = over.facts ?? storyFactsOf(
+    { ...input, status: input.declaredStatus || input.status },
+    plans,
+    input.archived ?? false,
+    { issueContext: { issuePrefix: null, jiraProjects: [] }, plans: new Map(), sprints: [], directory: {} },
+  );
+  return StoryCardSchema.parse({ ...input, facts });
+};
 
 export const board = (over: Partial<BoardInput> = {}): Board =>
   BoardSchema.parse({ ...BOARD_DEFAULTS, ...over });

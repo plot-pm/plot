@@ -4,6 +4,7 @@ import {
   archiveStory,
   derivedStanding,
   statusDrift,
+  statusBehind,
   isDecision,
   isRefusal,
   setStoryStatus,
@@ -367,5 +368,20 @@ describe('the vocabulary the file publishes', () => {
 
   it('does not admit archived among them', () => {
     expect(STORY_LIFECYCLE).not.toContain('archived');
+  });
+});
+
+describe('statusBehind', () => {
+  it('names the standing the plans prove where the written status is behind it', () => {
+    expect(statusBehind('draft', 'active')).toBe('active');
+    expect(statusBehind('active', 'done')).toBe('done');
+    expect(statusBehind('done', 'archived')).toBe('archived');
+  });
+
+  it('is null where the two agree, the status is ahead, or it does not rank', () => {
+    expect(statusBehind('active', 'active')).toBeNull();
+    expect(statusBehind('done', 'active')).toBeNull();
+    expect(statusBehind('paused', 'active')).toBeNull();
+    expect(statusBehind('UNKNOWN', 'done')).toBeNull();
   });
 });
