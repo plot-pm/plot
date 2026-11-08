@@ -108,6 +108,20 @@ const readUnderFleet = async (dir: string, opts: { repoRoot: string; scriptsDir:
 };
 
 describe('the board reads its inbox from the issue index under a fleet (Acceptance 7)', () => {
+  it('serves the index from a live heartbeat alone, whatever the bridge', async () => {
+    const { dir, opts, issueListed } = await fixture();
+    await issueIndexFile({ cwd: dir }).write(indexOf(3));
+    // No bridge file at all, and one older than the 15 minute cut-off.
+    for (const bridgeAge of [null, 20 * 60_000]) {
+      if (bridgeAge !== null) await fleetStateFile({ repoRoot: dir, now: () => Date.now() }).write(bridged(Date.now() - bridgeAge));
+      const entry = freshCacheEntry();
+      await refresh(opts, entry);
+      await maybeRefreshPrs(opts, entry);
+      expect(issueListed()).toBe(0);
+      expect(entry.issues.map((issue) => issue.number)).toEqual(['1', '3']);
+    }
+  });
+
   it('makes no issue-list call and shows the rows minus the planned issue, at most 50', async () => {
     const { dir, opts, issueListed } = await fixture();
     await issueIndexFile({ cwd: dir }).write(indexOf(60));

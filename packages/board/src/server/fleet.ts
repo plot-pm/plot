@@ -103,7 +103,7 @@ import { boardSourceOf } from '@plot-pm/domain/rules/board-watch';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { fleetViewFrom, registryViewFrom, snapshotViewNote } from '@plot-pm/domain/workflows/board-view';
-import { fleetdLiveness, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
+import { fleetdLiveness, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
@@ -2563,9 +2563,10 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
 };
 
 /**
- * Whether the fleet owns the PR index: a bridge exists and fleetd's heartbeat
- * is live with every loop fresh. The same signal as the scan's, so one fleet
- * answers both.
+ * Whether the fleet owns the issue index: fleetd's heartbeat is live with every
+ * loop fresh. The same signal as the scan's, so one fleet answers both. The
+ * bridge is not consulted: issues are read from `issues.json`, which the
+ * heartbeat's `issue-reader` loop keeps.
  *
  * Issues only, since `the-boards-share-one-pr-reader`: the PR read's own
  * ownership question is {@link electReader}'s, over the reader lock rather
@@ -2574,8 +2575,6 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
  * here moves PRs back onto it.
  */
 const fleetOwnsPrs = async (opts: BuildBoardOptions): Promise<boolean> => {
-  const bridge = await fleetStateFor(opts).read();
-  if (!bridge.ok || bridge.value === null) return false;
   return fleetOwnsScan({ heartbeat: await fleetdHeartbeatFor(opts), now: Date.now() });
 };
 
@@ -2612,13 +2611,13 @@ const readerLockKey = async (opts: BuildBoardOptions, entry: CacheEntry): Promis
 const indexDirFor = (opts: BuildBoardOptions): Promise<string | null> => readerLockIndexDir({ cwd: opts.repoRoot });
 
 /**
- * Whether a live `fleetd` heartbeat already reads PRs under this lock — the
+ * Whether `.plot/state/fleetd.json` reads live (at most three beats old) with its `pr-reader` loop on time, so fleetd already reads PRs under this lock — the
  * one check the board's spawn guard and the reader's own exit check must read
  * identically, per the brief, so the board never starts a second reader while
  * fleetd already holds.
  */
 const fleetdHeartbeatIsLive = async (opts: BuildBoardOptions, now: number): Promise<boolean> =>
-  fleetdLiveness(await fleetdHeartbeatFor(opts), now) === 'live';
+  fleetdReadsPrs(await fleetdHeartbeatFor(opts), now);
 
 /**
  * Creates `dir` one level at a time below `root`, and never creates `root`.
@@ -2782,7 +2781,7 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
  *
  * @param held - the lock's highest claim, or null where it names none.
  * @param verdict - the board's own verdict over that claim.
- * @param fleetdLive - whether a fresh `fleetd` heartbeat exists under the lock.
+ * @param fleetdLive - whether `.plot/state/fleetd.json` reads live with its `pr-reader` loop on time (`fleetdReadsPrs`).
  * @returns the display label.
  */
 export const whoReadsPrs = (held: ReaderClaim | null, verdict: ReaderVerdict, fleetdLive: boolean): string => {
@@ -2934,7 +2933,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     }
     // ISSUES FOLLOW THE FLEET, NOT THE PR LOCK. The reader reads PRs only, and
     // fleetd is the one writer of the issue index, so the index is served
-    // only while a fleet runs (`fleetOwnsScan` over the bridge); otherwise the
+    // only while a fleet runs (`fleetOwnsPrs`, over fleetd's heartbeat); otherwise the
     // board asks the host itself, whatever the PR verdict.
     //
     // Behind the issue read's own gate (`issueNextAt`, `issueIntervalMs`),
@@ -3262,8 +3261,9 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // has reported some entries and re-derived others, and adopting that
     // partial map would quietly drop the branches it never reached — turning
     // a slow pulse into a cold cache on the pulse after it.
-    // WHO SCANS. The fleet does when its supervisor reads `up` and its bridge is
-    // fresh (`fleetOwnsScan`); the board then reads the bridge and spawns nothing.
+    // WHO SCANS. The fleet does when fleetd's heartbeat is live and every loop it
+    // runs has passed within its bound (`fleetOwnsScan`); the board then reads
+    // the bridge, whatever its age, and spawns nothing.
     // Otherwise the board scans for display and writes NOTHING: `record: false`
     // keeps the script from touching the bridge, and the board has no writer
     // of it left, so a hung fleet cannot be corrupted by the board's fallback.

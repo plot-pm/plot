@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,7 +10,7 @@ import {
   encodeFleetdHeartbeat,
   type FleetdHeartbeat,
 } from '../src/entities/fleetd-heartbeat.js';
-import { bridgeVouched, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
+import { bridgeVouched, fleetdReadsPrs, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
 import { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 const T0 = 1_700_000_000_000;
@@ -189,6 +190,30 @@ describe('bridgeVouched', () => {
   });
 });
 
+describe('bridgeVouched with a late scan', () => {
+  it('refuses while the scan loop is late and vouches once it is back', () => {
+    const named = { bridgeAt: T0 - 1_200_000 };
+    const late = heartbeat({ ...named, loops: { scan: { lastPassAt: T0 - 181_000 } } });
+    expect(bridgeVouched({ at: T0 - 1_200_000 }, late, T0)).toBe(false);
+    const onTime = heartbeat({ ...named, loops: { scan: { lastPassAt: T0 - 5_000 } } });
+    expect(bridgeVouched({ at: T0 - 1_200_000 }, onTime, T0)).toBe(true);
+  });
+  it('is not refused by another loop being late', () => {
+    const hb = heartbeat({ bridgeAt: 5, loops: { 'pr-reader': { lastPassAt: T0 - 700_000 } } });
+    expect(bridgeVouched({ at: 5 }, hb, T0)).toBe(true);
+  });
+});
+
+describe('fleetdReadsPrs', () => {
+  it('needs a live heartbeat whose pr-reader loop is not late', () => {
+    expect(fleetdReadsPrs(null, T0)).toBe(false);
+    expect(fleetdReadsPrs(heartbeat({ beatAt: T0 - 31_000 }), T0)).toBe(false);
+    expect(fleetdReadsPrs(heartbeat({ loops: { 'pr-reader': { lastPassAt: T0 - 700_000 } } }), T0)).toBe(false);
+    expect(fleetdReadsPrs(heartbeat({ loops: { 'pr-reader': { lastPassAt: T0 - 5_000 }, scan: { lastPassAt: null } } }), T0)).toBe(true);
+    expect(fleetdReadsPrs(heartbeat(), T0)).toBe(true);
+  });
+});
+
 describe('readFleetdHeartbeatSync', () => {
   it('reads what the file adapter wrote and reads null where there is none', async () => {
     const root = mkdtempSync(join(tmpdir(), 'plot-hb-sync-'));
@@ -198,6 +223,30 @@ describe('readFleetdHeartbeatSync', () => {
       expect(readFleetdHeartbeatSync(root)).toEqual(heartbeat());
     } finally {
       rmSync(root, { recursive: true });
+    }
+  });
+});
+
+describe('the heartbeat of a linked worktree', () => {
+  it('is the main checkout heartbeat, whichever checkout reads or writes it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-hb-worktree-'));
+    try {
+      const main = join(root, 'main');
+      const linked = join(root, 'linked');
+      mkdirSync(main);
+      const git = (...args: string[]): void => {
+        execFileSync('git', args, { cwd: main, stdio: 'ignore' });
+      };
+      git('init', '--quiet', '-b', 'main');
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'seed');
+      git('worktree', 'add', '--quiet', linked, '-b', 'side');
+      await fleetdHeartbeatFile({ repoRoot: main }).write(heartbeat());
+      expect(fleetdHeartbeatPath(linked)).toBe(fleetdHeartbeatPath(main));
+      expect(readFleetdHeartbeatSync(linked)).toEqual(heartbeat());
+      await fleetdHeartbeatFile({ repoRoot: linked }).write(heartbeat({ pid: 7 }));
+      expect(readFleetdHeartbeatSync(main)?.pid).toBe(7);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

@@ -391,7 +391,7 @@ describe('an idle repository whose fleetd keeps beating', () => {
     expect(spawned()).toEqual([]);
   });
 
-  it('scans in its place once the heartbeat no longer names that bridge', async () => {
+  it('scans in its place once the heartbeat is stale, though it names that bridge', async () => {
     const { dir, opts, spawned } = await fixture(true);
     const at = Date.now() - 20 * 60_000;
     await fleetStateFile({ repoRoot: dir, now: () => at }).write(bridged(at));

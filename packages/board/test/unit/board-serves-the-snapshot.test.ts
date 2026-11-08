@@ -217,6 +217,8 @@ describe('the board serves from fleetd snapshot', () => {
     const entry = fleet.freshCacheEntry();
     entry.clients = 1;
     const served = { ...opts, channelSnapshot: () => current(held) };
+    // The fixture's heartbeat write already resolved the heartbeat path, whose
+    // one `git rev-parse --git-common-dir` is cached per root for the process.
     counted.calls.length = 0;
     for (let i = 0; i < 12; i += 1) {
       await fleet.refresh(served, entry);

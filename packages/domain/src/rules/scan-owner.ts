@@ -89,8 +89,8 @@ export interface OwnedBridgeNoteReadings {
 /**
  * The sentence the board shows instead of starting a second scan.
  *
- * Names the bridge's age and, where the fleet's last attempt failed, that
- * failure. `null` while the bridge is fresh: nothing is amiss to report.
+ * Names the bridge's age, says whether a scan is under way (only where the last
+ * attempt records `running`), and, where the last attempt failed, that failure. `null` while the bridge is fresh: nothing is amiss to report.
  *
  * @param readings - the bridge's write time, the last attempt and the clock.
  * @returns the note, or `null` when the bridge is within {@link OWNED_BRIDGE_MAX_AGE_MS}.
@@ -98,8 +98,10 @@ export interface OwnedBridgeNoteReadings {
 export const ownedBridgeNote = (readings: OwnedBridgeNoteReadings): string | null => {
   if (bridgeIsFresh(readings.bridgeAt, readings.now)) return null;
   const seconds = Math.round((readings.now - readings.bridgeAt) / 1000);
-  const base = `the fleet's last scan landed ${seconds} s ago and its next is under way`;
   const attempt = readings.attempt;
+  const base = attempt !== null && attempt.outcome === 'running'
+    ? `the fleet's last scan landed ${seconds} s ago and its next is under way`
+    : `the fleet's last scan landed ${seconds} s ago and no scan is under way`;
   if (attempt !== null && attempt.outcome === 'failed') {
     return `${base}; its last attempt failed: ${attempt.error ?? 'no reason recorded'}`;
   }

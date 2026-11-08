@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startPulse, type Clock, type RunningPulse } from '@plot-pm/domain';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
-import { fleetdLiveness } from '@plot-pm/domain/rules/fleetd-live';
+import { fleetdReadsPrs } from '@plot-pm/domain/rules/fleetd-live';
 import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
 import { clockSystem, hostShell, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell } from '@plot-pm/domain/adapters';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
@@ -122,7 +122,7 @@ export const psLiveness = (pids: readonly number[]): Promise<Map<number, { alive
 
 /**
  * Whether this reader should keep running: `'fleetd'` where fleetd's own
- * heartbeat reads `live`, `'followers'` where a fresh `board.<pid>` heartbeat
+ * heartbeat reads `live` with its `pr-reader` loop on time, `'followers'` where a fresh `board.<pid>` heartbeat
  * names a live process, and `'none'` otherwise.
  *
  * The reader's own heartbeat is published as `reader.<pid>` and is never
@@ -142,7 +142,7 @@ export const stillFollowed = async (
   now: number,
   liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>>,
 ): Promise<'fleetd' | 'followers' | 'none'> => {
-  if (fleetdLiveness(fleetd, now) === 'live') return 'fleetd';
+  if (fleetdReadsPrs(fleetd, now)) return 'fleetd';
   const fresh = heartbeats.filter((h) => heartbeatIsFresh(h.at, now));
   const boardPids = fresh
     .map((h) => /^board\.(\d+)$/.exec(h.name))

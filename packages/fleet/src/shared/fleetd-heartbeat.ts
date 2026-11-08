@@ -6,6 +6,7 @@ import {
   type FleetdSupervised,
 } from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
+import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 
 /**
@@ -38,8 +39,13 @@ export interface FleetdHeartbeatSource {
   supervised: FleetdSupervised;
   /** The generation of the `RepoSnapshot` fleetd holds. */
   generation: () => number;
-  /** When each loop last completed a pass, epoch milliseconds; a loop absent here has not passed. */
-  passes: () => Partial<Record<FleetdLoop, number>>;
+  /** The `at` of the last bridge this process wrote, epoch milliseconds; null before the first write. */
+  bridgeAt: () => number | null;
+  /**
+   * When each loop last completed a pass, epoch milliseconds. A loop this process runs
+   * and that has not yet passed reports null; a loop it does not run is absent.
+   */
+  passes: () => Partial<Record<FleetdLoop, number | null>>;
 }
 
 /**
@@ -78,7 +84,7 @@ export const startFleetdHeartbeat = (
       startedAt: source.startedAt,
       beatAt,
       generation: source.generation(),
-      bridgeAt: null,
+      bridgeAt: source.bridgeAt(),
       supervised: source.supervised,
       watchesWanted: 0,
       watchesArmed: 0,
@@ -114,5 +120,32 @@ export const startFleetdHeartbeat = (
     cancel();
     await inflight;
     await store.write(record(0));
+  };
+};
+
+/**
+ * Wraps a bridge store to remember the `at` of the last bridge a completed scan wrote.
+ * A write that records a `running` or `failed` attempt is not counted.
+ *
+ * @param state - the bridge store fleetd writes through.
+ * @returns the wrapped store, `writes` (the count of landed `ok` writes) and `bridgeAt`, which reads null until a write lands; a failed write leaves it unchanged.
+ */
+export const trackBridgeWrites = (state: FleetState): { state: FleetState; bridgeAt: () => number | null; writes: () => number } => {
+  let bridgeAt: number | null = null;
+  let writes = 0;
+  return {
+    state: {
+      ...state,
+      write: async (data) => {
+        const written = await state.write(data);
+        if (written.ok && data.attempt?.outcome === 'ok') {
+          bridgeAt = data.at;
+          writes += 1;
+        }
+        return written;
+      },
+    },
+    bridgeAt: () => bridgeAt,
+    writes: () => writes,
   };
 };
