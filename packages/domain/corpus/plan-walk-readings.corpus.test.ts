@@ -25,7 +25,7 @@ import {
   type Estate,
   type PrRow,
 } from './production.js';
-import { git, sandboxWith, type Sandbox } from './sandbox.js';
+import { git, planPath, planText, sandboxWith, type Sandbox } from './sandbox.js';
 
 /**
  * THE PLAN WALK'S BRANCH STAGE AGAINST THE SHELL SCAN: does `readBranchReadings`
@@ -116,6 +116,45 @@ const bestPerBranch = (rows: readonly PrRow[]): Map<string, string> => {
     if (held === undefined || rank(row.state) < rank(held)) best.set(row.head, row.state);
   }
   return best;
+};
+
+/**
+ * The commit that first added each plan file on `origin/<main>`, as the scan's
+ * `plan_adding_commits` walked it: full history, oldest `A` per path, and an
+ * `R` line followed back to the original path's `A`. A path whose chain ends
+ * in no `A` is absent.
+ */
+const planAdditions = (estate: Estate, main: string, planDir: string): Map<string, string> => {
+  const out = execFileSync('git', ['log', `origin/${main}`, '--diff-filter=AR', '--name-status', '--format=@%H', '--', planDir], {
+    cwd: estate.root,
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  const add = new Map<string, string>();
+  const from = new Map<string, string>();
+  let commit = '';
+  for (const row of out.split('\n')) {
+    if (row.startsWith('@')) {
+      commit = row.slice(1);
+      continue;
+    }
+    const fields = row.split('\t');
+    // Newest first: the last `A` seen for a path is its oldest.
+    if (fields[0] === 'A' && fields[1] !== undefined) add.set(fields[1], commit);
+    else if (fields[0]?.startsWith('R') && fields[1] !== undefined && fields[2] !== undefined) from.set(fields[2], fields[1]);
+  }
+  const resolved = new Map(add);
+  for (const path of from.keys()) {
+    const seen = new Set<string>();
+    let cur = path;
+    while (from.has(cur) && !seen.has(cur)) {
+      seen.add(cur);
+      cur = from.get(cur)!;
+    }
+    const first = add.get(cur);
+    if (first !== undefined) resolved.set(path, first);
+  }
+  return resolved;
 };
 
 /** One serialised readings line, the scan's twelve fields. */
@@ -224,18 +263,10 @@ const compareEstate = async (
     .filter((l) => l !== '')
     .map((l) => ({ sha: l.slice(0, l.indexOf(' ')), subject: l.slice(l.indexOf(' ') + 1) }));
   const origin = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: estate.root, encoding: 'utf8' }).trim();
-  const addedOf = (file: string): string | null => {
-    const out = execFileSync('git', ['log', `origin/${main}`, '--first-parent', '--diff-filter=A', '--format=%H', '--', file], {
-      cwd: estate.root,
-      encoding: 'utf8',
-    })
-      .split('\n')
-      .filter((l) => l !== '');
-    return out.length === 0 ? null : out[out.length - 1]!;
-  };
+  const added = planAdditions(estate, main, planDir);
   const refless = plans.map((p) => ({
     file: p.file,
-    added: addedOf(p.file),
+    added: added.get(p.file) ?? null,
     branches: p.branches.filter((b) => !refs.has(b.branch)).map((b) => b.branch),
   }));
   const proven = provenBySubject(estate, backend, origin, merges, refless);
@@ -347,6 +378,56 @@ describe('the branch stage agrees with the Bitbucket merge subject on a sandbox'
   it('proves the deleted branch by its Bitbucket subject, and only that one', () => {
     const found = result.stage.branches.map((b) => [b.branch, b.readings.mergeSubjectFound]);
     expect(found).toEqual(expect.arrayContaining([['feature/gone', true], ['feature/kept', false]]));
+  });
+
+  it('gathers the same readings, and the real bundle answers the same', () => {
+    expect(result.found.map(describeDisagreement)).toEqual([]);
+  });
+});
+
+describe('the branch stage agrees with the GitHub merge subject when a sprint branch carries the plan', () => {
+  let box: Sandbox;
+  let result: Awaited<ReturnType<typeof compareEstate>>;
+
+  beforeAll(async () => {
+    box = sandboxWith([], 'plot-branches-sprint-');
+    const { root } = box;
+    // The plan is added on `sprint/s`, its slice merges into the sprint branch,
+    // and the sprint branch merges into main: every slice merge is an ancestor
+    // of the sprint's merge, and none is an ancestor of the commit adding the plan.
+    git(root, 'checkout', '-q', '-b', 'sprint/s', 'main');
+    writeFileSync(join(root, planPath('sprinted')), planText('sprinted', 'Approved', 'feature/s1'));
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'add the plan on the sprint branch');
+    git(root, 'checkout', '-q', '-b', 'feature/s1', 'sprint/s');
+    writeFileSync(join(root, 'feature-s1.txt'), 'work\n');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'work on feature/s1');
+    git(root, 'push', '-q', 'origin', 'feature/s1', 'sprint/s');
+    git(root, 'checkout', '-q', 'sprint/s');
+    git(root, 'merge', '--no-ff', '-q', '-m', 'Merge pull request #7 from acme/feature/s1', 'feature/s1');
+    git(root, 'checkout', '-q', 'main');
+    git(root, 'merge', '--no-ff', '-q', '-m', 'Merge pull request #8 from acme/sprint/s', 'sprint/s');
+    git(root, 'push', '-q', 'origin', 'main');
+    git(root, 'push', '-q', 'origin', '--delete', 'feature/s1', 'sprint/s');
+    git(root, 'fetch', '-q', '--prune', 'origin');
+    result = await compareEstate(box, hostFixture({ backend: 'github' }), 'github', () => ({
+      verdict: 'ok',
+      complete: false,
+      rows: [],
+    }));
+  }, 120_000);
+
+  afterAll(() => {
+    rmSync(box.dir, { recursive: true, force: true });
+  });
+
+  it('compares the slice', () => {
+    expect(result.compared).toBe(1);
+  });
+
+  it('proves the slice by its GitHub subject on the sprint branch', () => {
+    expect(result.stage.branches.map((b) => [b.branch, b.readings.mergeSubjectFound])).toEqual([['feature/s1', true]]);
   });
 
   it('gathers the same readings, and the real bundle answers the same', () => {
