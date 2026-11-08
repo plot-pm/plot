@@ -30,8 +30,9 @@ export interface StaleReading {
  * Maps a change to the readings it makes stale.
  *
  * @param change - what a trigger reported.
- * @returns the readings to read again, in snapshot key order. A remote change
- *   names `refs`, read through one fetch. A deadline names none: the rule that
+ * @returns the readings to read again. A remote change names `refs`, read
+ *   through one fetch, and the readings taken from the refs. Every change the
+ *   plan walk reads also names `walk`. A deadline names none: the rule that
  *   owns the deadline runs over the readings already held. The safety net
  *   names every key.
  */
@@ -39,27 +40,36 @@ export const staleReadings = (change: SnapshotChange): readonly StaleReading[] =
   switch (change.kind) {
     case 'refs':
     case 'remote':
-      return [{ key: 'refs' }];
+      return [
+        { key: 'refs' },
+        { key: 'walk' },
+        { key: 'branchDates' },
+        { key: 'ideaPlans' },
+        { key: 'releaseVersions' },
+        { key: 'unmerged' },
+      ];
     case 'desk-git':
-      return [{ key: 'desks', desk: change.desk }];
+      return [{ key: 'desks', desk: change.desk }, { key: 'walk' }];
     case 'desk-files':
       return [
         { key: 'deskFiles', desk: change.desk },
         { key: 'workers', desk: change.desk },
+        { key: 'walk' },
+        { key: 'questions' },
       ];
     case 'worker-log':
     case 'worker-gone':
-      return [{ key: 'workers', desk: change.desk }];
+      return [{ key: 'workers', desk: change.desk }, { key: 'walk' }];
     case 'host-answer':
-      return [{ key: change.reading }];
+      return change.reading === 'prs' ? [{ key: 'prs' }, { key: 'walk' }] : [{ key: change.reading }];
     case 'deadline':
       return [];
     case 'plan-content':
-      return [{ key: 'plans' }];
+      return [{ key: 'plans' }, { key: 'walk' }];
     case 'registry':
       return [{ key: 'registry' }];
     case 'config':
-      return [{ key: 'config' }];
+      return [{ key: 'config' }, { key: 'walk' }];
     case 'safety-net':
       return READING_KEYS.map((key) => ({ key }));
   }

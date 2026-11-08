@@ -4,6 +4,13 @@ import { DefaultBranchReadingSchema } from './default-branch.js';
 import { WorkerActivitySchema, WorkerStateSchema } from './fleet.js';
 import { IssueIndexRowSchema } from './issue-index.js';
 import { PrIndexRowSchema } from './pr-index.js';
+import {
+  BranchDatesValueSchema,
+  BranchTextValueSchema,
+  QuestionsValueSchema,
+  UnmergedValueSchema,
+  WalkValueSchema,
+} from './view-readings.js';
 
 /**
  * The reading keys of a {@link RepoSnapshot}, one per source the snapshot holds.
@@ -19,10 +26,16 @@ export const READING_KEYS = [
   'issues',
   'defaultBranch',
   'config',
+  'walk',
+  'branchDates',
+  'ideaPlans',
+  'releaseVersions',
+  'unmerged',
+  'questions',
 ] as const;
 
 // plot-state: classification — names a source, not a state; no key moves into
-//                              another, and every snapshot holds all ten.
+//                              another, and every snapshot holds all of them.
 export const ReadingKeySchema = z.enum(READING_KEYS);
 export type ReadingKey = z.infer<typeof ReadingKeySchema>;
 
@@ -183,6 +196,12 @@ export const RepoSnapshotSchema = z.object({
     issues: readingSchema(z.array(IssueIndexRowSchema).readonly()),
     defaultBranch: readingSchema(DefaultBranchReadingSchema),
     config: readingSchema(z.record(z.string(), z.string())),
+    walk: readingSchema(WalkValueSchema),
+    branchDates: readingSchema(BranchDatesValueSchema),
+    ideaPlans: readingSchema(BranchTextValueSchema),
+    releaseVersions: readingSchema(BranchTextValueSchema),
+    unmerged: readingSchema(UnmergedValueSchema),
+    questions: readingSchema(QuestionsValueSchema),
   }),
 });
 export type RepoSnapshot = z.infer<typeof RepoSnapshotSchema>;

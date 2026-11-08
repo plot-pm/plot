@@ -33,10 +33,16 @@ describe('RepoSnapshotSchema', () => {
       'issues',
       'defaultBranch',
       'config',
+      'walk',
+      'branchDates',
+      'ideaPlans',
+      'releaseVersions',
+      'unmerged',
+      'questions',
     ]);
   });
 
-  it('parses a snapshot that holds all ten keys', () => {
+  it('parses a snapshot that holds every key', () => {
     expect(RepoSnapshotSchema.parse(fullSnapshot())).toEqual(fullSnapshot());
   });
 
