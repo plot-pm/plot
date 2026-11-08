@@ -54,6 +54,7 @@ export * from './rules/reapable.js';
 export * from './rules/recorded-reap.js';
 export * from './rules/channel.js';
 export * from './rules/event-window.js';
+export * from './rules/board-watch.js';
 export * from './rules/index-findings.js';
 export * from './rules/eligible.js';
 export * from './rules/spike.js';

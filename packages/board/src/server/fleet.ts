@@ -832,13 +832,20 @@ export interface CacheEntry {
    */
   lastComplete: FleetReading | null;
   /**
-   * This machine's clock, or null before `ensureCache` started it.
+   * This machine's clock while an event stream is attached, and null otherwise.
+   * `watchFleet` starts it on the first attach and stops it at zero streams.
    *
    * Replaces the `timer`/`prTimer` pair. Both cadences are subscribers on it
    * now — divisors 1 and 12 — so the two numbers that were `5_000` and `60_000`
    * in two constants are one base and one ratio.
    */
   pulseClock: RunningPulse | null;
+  /**
+   * Epoch ms the last scan a plain request started began, or null before the
+   * first. Bounds cold reads where `at` stays old: a failed scan, or a scan
+   * stamped with the fleet bridge's time.
+   */
+  coldReadAt: number | null;
   /**
    * True once `stopFleetRefresh` ran. A refresh already past its scan then
    * performs none of the automatic writes, so a stopped cache cannot write
@@ -3169,13 +3176,12 @@ export function freshCacheEntry(): CacheEntry {
     // the pair and answers null, so a delivery waits for the first scan rather
     // than being judged against nothing.
     lastComplete: null,
-    // Null, not a stopped clock: `ensureCache` starts the pulse, and a fresh
-    // entry has not been through it yet.
-    pulseClock: null, stopped: false, running: false, prRunning: false,
+    // Null: no event stream is attached yet, so no pulse runs.
+    pulseClock: null, coldReadAt: null, stopped: false, running: false, prRunning: false,
   };
 }
 
-export function ensureCache(opts: BuildBoardOptions): CacheEntry {
+const cacheEntry = (opts: BuildBoardOptions): CacheEntry => {
   const key = cacheKey(opts);
   let entry = caches.get(key);
   if (entry) return entry;
@@ -3215,8 +3221,46 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
     if (warm.pulse.fetch_failed !== true) entry.fetchedAt = warm.at;
     entry.lastComplete = warm.pulse;
   }
+  // THE FIRST READ, whoever asked: one scan and one PR read. No pulse starts
+  // here; `watchFleet` starts it when an event stream attaches.
+  entry.coldReadAt = Date.now();
   void refresh(opts, entry);
   void maybeRefreshPrs(opts, entry);
+  return entry;
+};
+
+/** What the pulse and a cold read start: a clock, the scan and the PR read. */
+export interface FleetWatchDeps {
+  clock: Clock;
+  scan: () => Promise<void>;
+  readPrs: () => Promise<void>;
+}
+
+const watchDepsFor = (opts: BuildBoardOptions, entry: CacheEntry): FleetWatchDeps => ({
+  clock: clockSystem(),
+  scan: () => refresh(opts, entry),
+  readPrs: () => maybeRefreshPrs(opts, entry),
+});
+
+/**
+ * Starts or stops one cache entry's pulse for `count` attached event streams.
+ *
+ * With `pulseWanted` true and no pulse running, it starts the pulse and runs one
+ * scan and one PR read at once, so a page that attaches after a stop catches up
+ * within one scan. With `pulseWanted` false it stops the pulse and keeps the
+ * cache. A stopped pulse writes no reader-lock heartbeat.
+ *
+ * @param entry - the cache entry.
+ * @param count - the event streams now attached.
+ * @param deps - the clock, the scan and the PR read.
+ */
+export const watchEntry = (entry: CacheEntry, count: number, deps: FleetWatchDeps): void => {
+  if (!pulseWanted({ clients: count })) {
+    entry.pulseClock?.stop();
+    entry.pulseClock = null;
+    return;
+  }
+  if (entry.pulseClock !== null) return;
   // ONE CLOCK, TWO DIVISORS, where there were two timers.
   //
   // This cache key IS the machine's identity — `repoRoot + scriptsDir`, which
@@ -3229,20 +3273,66 @@ export function ensureCache(opts: BuildBoardOptions): CacheEntry {
   // free at 5 s, the host is metered and pointless below a minute, they failed
   // independently already, and they still fire independently. A rate-limited
   // host cannot stall the git scan that has nothing to do with it.
-  const pulse = startPulse(clockSystem(), REFRESH_MS);
+  const pulse = startPulse(deps.clock, REFRESH_MS);
   entry.pulseClock = pulse;
   // The tick per subscriber, looked up by name rather than chosen by a
   // condition: a `name === 'fleet-scan' ? … : …` would wire the PR reader twice
   // on a typo, silently, and both cadences would then be 60 s.
   const ticks: Record<string, () => Promise<void>> = {
-    'fleet-scan': () => refresh(opts, entry!),
-    'pr-reader': () => maybeRefreshPrs(opts, entry!),
+    'fleet-scan': deps.scan,
+    'pr-reader': deps.readPrs,
   };
   for (const { name, everyNthBeat } of boardDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
   }
+  void deps.scan();
+  void deps.readPrs();
+};
+
+/**
+ * Starts one scan for a plain request where `coldReadDue` says so, and never
+ * starts the pulse.
+ *
+ * @param entry - the cache entry.
+ * @param now - the request's epoch milliseconds.
+ * @param scan - starts one scan.
+ */
+export const coldRead = (entry: CacheEntry, now: number, scan: () => Promise<void>): void => {
+  const due = coldReadDue({
+    pulseRunning: entry.pulseClock !== null,
+    scanning: entry.running,
+    lastScanAt: entry.at,
+    lastColdReadAt: entry.coldReadAt,
+    now,
+    refreshMs: REFRESH_MS,
+  });
+  if (!due) return;
+  entry.coldReadAt = now;
+  void scan();
+};
+
+/**
+ * The cache entry for `opts`. A plain request reads it as it stands, and starts
+ * one scan where no pulse runs and the last read is older than `REFRESH_MS`.
+ */
+export function ensureCache(opts: BuildBoardOptions): CacheEntry {
+  const fresh = !caches.has(cacheKey(opts));
+  const entry = cacheEntry(opts);
+  if (!fresh) coldRead(entry, Date.now(), () => refresh(opts, entry));
   return entry;
 }
+
+/**
+ * Runs the board's pulse exactly while an event stream is attached.
+ * `index.ts` passes this to `startEventHub` as `onClients`.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param count - the event streams now attached.
+ */
+export const watchFleet = (opts: BuildBoardOptions, count: number): void => {
+  const entry = cacheEntry(opts);
+  watchEntry(entry, count, watchDepsFor(opts, entry));
+};
 
 /**
  * Seconds since the cache's plan ref was last read successfully, for
@@ -3384,10 +3474,13 @@ export function lastCompletePulseFor(opts: BuildBoardOptions): FleetReading | nu
  * the caches, so it cannot serve that count.
  */
 export const pauseFleetRefresh = (): void => {
-  for (const entry of caches.values()) entry.pulseClock?.stop();
+  for (const entry of caches.values()) {
+    entry.pulseClock?.stop();
+    entry.pulseClock = null;
+  }
 };
 
-/** Stop the refresh clocks. Tests need this; the server never calls it. */
+/** Stop the refresh clocks and clear the caches. Tests need this; the server never calls it. */
 export function stopFleetRefresh(): void {
   // One `stop` per entry where there were two `clearInterval`s: both cadences
   // are subscribers on the one clock, so stopping it stops both.
@@ -3636,6 +3729,8 @@ import {
   sliceReadings,
   startabilityVerdict,
   startPulse,
+  pulseWanted,
+  coldReadDue,
   waveVerdict as sliceVerdict,
   type QuietBranchReadings,
   type QuietKind,
@@ -3645,6 +3740,7 @@ import {
   type PhaseMap,
 } from '@plot-pm/domain';
 import { clockSystem } from '@plot-pm/domain/adapters';
+import type { Clock } from '@plot-pm/domain/ports/clock';
 
 export { startabilityVerdict, sliceVerdict };
 export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
