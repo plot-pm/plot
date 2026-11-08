@@ -57,7 +57,7 @@
 
 ### Config
 
-- `infra/plot-config-names-app-ids-only` <!-- waits: feature/app-keys-resolve-from-one-folder --> — `CLAUDE.md` `Review app`, `Merger app` lines name only the App id; `AGENTS.md` regenerated
+- `infra/plot-config-names-app-ids-only` <!-- waits: feature/app-keys-resolve-from-one-folder --> — `CLAUDE.md` `Review app`, `Merger app` lines name only the App id; `AGENTS.md` regenerated → #3240
 
 ## Notes
 
