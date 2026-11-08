@@ -14,19 +14,24 @@ import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
+import { branchAgesOf, walkValueOf, type WalkHeader } from '@plot-pm/domain/workflows/board-view';
+import { readReleaseVersions, readUnmerged } from '@plot-pm/domain/workflows/board-reads';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { indexMergedHeads, indexOpenHeads } from '@plot-pm/domain/rules/known-pr';
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
-import { hostAndPathOfRemote } from '@plot-pm/domain/rules/remote-url';
+import { branchUrlBase } from '@plot-pm/domain/rules/branch-url';
 import {
   foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
 import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
+import { workerQuestions } from './worker-question.js';
 
 /** The scan Plot ships, streamed one plan at a time. */
+export { branchUrlBase };
+
 export const FLEET_SCAN = 'plot-fleet-scan.sh';
 
 /** The pulse's base beat, in ms. The scan takes every beat. */
@@ -326,39 +331,6 @@ export const spendRateFor = async (scripts: Scripts): Promise<SpendRate | null> 
   }
 };
 
-/** The hosts an origin URL names for Bitbucket Cloud: the web host and both SSH hosts. */
-const BITBUCKET_CLOUD_HOSTS: ReadonlySet<string> = new Set([
-  'bitbucket.org',
-  'ssh.bitbucket.org',
-  'altssh.bitbucket.org',
-]);
-
-/**
- * The branch-URL prefix for an origin URL.
- *
- * @param origin - the output of `git remote get-url origin`.
- * @returns `https://host/owner/repo/tree/` on GitHub, `…/branch/` on Bitbucket
- *   Cloud, and `''` for any other host or an unparseable URL.
- */
-export const branchUrlBase = (origin: string): string => {
-  const trimmed = origin.trim();
-  if (!trimmed) return '';
-  const parsed = hostAndPathOfRemote(trimmed);
-  if (parsed === null) return '';
-  const host = parsed.host;
-  const repoPath = parsed.path.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/, '');
-  if (!repoPath || repoPath.includes('..')) return '';
-  if (host === 'github.com' || /(^|\.)github\./.test(host)) {
-    return `https://${host}/${repoPath}/tree/`;
-  }
-  // The web link keeps `bitbucket.org` whichever host the remote names: the SSH
-  // hosts (`ssh.bitbucket.org` from 2026-11-12, `altssh.bitbucket.org` on port
-  // 443) change where Git connects, not where the web pages live.
-  if (BITBUCKET_CLOUD_HOSTS.has(host)) {
-    return `https://bitbucket.org/${repoPath}/branch/`;
-  }
-  return '';
-};
 
 /**
  * Minutes since each remote branch's tip commit, and the tip's epoch ms.
@@ -368,21 +340,22 @@ export const branchUrlBase = (origin: string): string => {
  */
 export const branchAges = async (
   refs: Refs,
-): Promise<{ ages: Map<string, number | null>; tipAt: Map<string, number | null> }> => {
-  const ages = new Map<string, number | null>();
-  const tipAt = new Map<string, number | null>();
+): Promise<{ ages: Map<string, number | null>; tipAt: Map<string, number | null> }> =>
+  branchAgesOf((await readBranchDates(refs)) ?? [], Date.now());
+
+/**
+ * Each remote branch's tip commit time, epoch seconds.
+ *
+ * @param refs - the refs port.
+ * @returns the dates, or null where the refs cannot be read.
+ */
+const readBranchDates = async (refs: Refs): Promise<{ branch: string; committedAt: number }[] | null> => {
   try {
     const dates = await refs.branchDates(['refs/remotes/origin']);
-    if (!dates.ok) return { ages, tipAt };
-    const now = Date.now() / 1000;
-    for (const { branch, committedAt } of dates.value) {
-      ages.set(branch, Math.max(0, Math.round((now - committedAt) / 60)));
-      tipAt.set(branch, Math.round(committedAt * 1000));
-    }
+    return dates.ok ? dates.value.map(({ branch, committedAt }) => ({ branch, committedAt })) : null;
   } catch {
-    /* no refs readable — every age stays absent, and the UI says so */
+    return null;
   }
-  return { ages, tipAt };
 };
 
 /**
@@ -407,12 +380,20 @@ export const planDirectory = async (scripts: Scripts): Promise<string> => {
  */
 export const ideaPlanFiles = async (
   world: Pick<ScanWorld, 'refs' | 'scripts'>,
-): Promise<Map<string, string>> => {
+): Promise<Map<string, string>> => (await readIdeaPlans(world)) ?? new Map();
+
+/**
+ * The plan file each idea branch carries, or null where the idea branches
+ * cannot be listed.
+ */
+const readIdeaPlans = async (
+  world: Pick<ScanWorld, 'refs' | 'scripts'>,
+): Promise<Map<string, string> | null> => {
   const found = new Map<string, string>();
   try {
     const planDir = await planDirectory(world.scripts);
     const tips = await world.refs.branchTips(['refs/remotes/origin/idea/*']);
-    if (!tips.ok) return found;
+    if (!tips.ok) return null;
     for (const { branch } of tips.value) {
       const slug = /^idea\/(.+)$/.exec(branch)?.[1];
       if (!slug) continue;
@@ -806,6 +787,7 @@ export const walkOnce = async (
   );
   if (!assembled.ok) {
     const stage = !estate.ok ? 'estate' : !branches.ok ? 'branches' : !desks.ok ? 'desks' : 'assembly';
+    record?.('walk', failedOf(`the ${stage} stage failed`));
     throw new Error(`fleet scan: the ${stage} stage failed`);
   }
   const conflicts = await readBranchConflicts(
@@ -813,20 +795,35 @@ export const walkOnce = async (
     mainBranch,
     assembled.value.plans.flatMap((plan) => plan.slices.flatMap((slice) => slice.branches)),
   );
-  const document = fleetReading(assembled.value, {
+  const header: WalkHeader = {
     main: mainBranch,
     readRef,
     localHead,
     fetchFailed: !fetched.ok,
     fetchError: fetched.ok ? '' : 'git fetch failed',
     planDir,
-    host: branches.ok ? branches.value.hostReach : 'failed',
     mergeDetect: 'unaskable',
     nowSeconds: Math.floor(Date.now() / 1000),
+  };
+  const document = fleetReading(assembled.value, {
+    ...header,
+    host: branches.ok ? branches.value.hostReach : 'failed',
     planSource: estate.ok && estate.value.source === 'worktree' ? 'worktree' : 'ref',
   }, conflicts);
   const reading = FleetReadingSchema.safeParse(document);
-  if (!reading.success) throw new Error('fleet scan: the walk produced a document that is not a pulse');
+  if (!reading.success) {
+    record?.('walk', failedOf('the walk produced a document that is not a pulse'));
+    throw new Error('fleet scan: the walk produced a document that is not a pulse');
+  }
+  if (record !== undefined && estate.ok && branches.ok && desks.ok) {
+    record('walk', readOf(walkValueOf(estate.value, branches.value, desks.value, conflicts, header)));
+    // THE BOARD'S OWN DISPLAY READS, taken here through the walk's cached refs:
+    // an unchanged ref answers from the cache and starts no process.
+    const versions = await readReleaseVersions(refs);
+    record('releaseVersions', versions.ok ? readOf(versions.value) : failedOf('the release branches could not be listed'));
+    const unmerged = await readUnmerged(refs, mainBranch);
+    record('unmerged', unmerged.ok ? readOf(unmerged.value) : failedOf('the remote branches could not be listed'));
+  }
   return reading.data;
 };
 
@@ -970,14 +967,22 @@ export const scanOnce = async (
     }
   }
   const reading: FleetReading = parsed;
-  const { ages, tipAt } = await branchAges(world.refs);
+  const dates = await readBranchDates(world.refs);
+  world.record?.('branchDates', dates === null ? failedOf('the branch dates could not be read') : readOf(dates));
+  const { ages, tipAt } = branchAgesOf(dates ?? [], Date.now());
+  const ideaPlans = await readIdeaPlans(world);
+  world.record?.('ideaPlans', ideaPlans === null ? failedOf('the idea branches could not be listed') : readOf(Object.fromEntries(ideaPlans)));
+  if (world.record !== undefined) {
+    const questions = await workerQuestions(reading, world.repoRoot);
+    world.record('questions', readOf(Object.fromEntries(questions)));
+  }
   return {
     reading,
     ages,
     tipAt,
     branchUrlBase: await readBranchUrlBase(world.refs),
     approvedAt: await approvalDates(world, reading),
-    ideaPlans: await ideaPlanFiles(world),
+    ideaPlans: ideaPlans ?? new Map(),
   };
 };
 

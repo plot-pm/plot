@@ -170,10 +170,11 @@ describe('applySnapshotMessage', () => {
   });
 
   it('answers mismatch for a message of another protocol, snapshot or delta', () => {
-    for (const message of [snapshotAt(4, { protocol: 2 }), deltaFrom(4, { protocol: 2 })]) {
+    const other = SNAPSHOT_PROTOCOL + 1;
+    for (const message of [snapshotAt(4, { protocol: other }), deltaFrom(4, { protocol: other })]) {
       const actual = applySnapshotMessage(heldAt(4), message);
-      expect(actual).toMatchObject({ outcome: 'mismatch', ours: SNAPSHOT_PROTOCOL, theirs: 2 });
-      if (actual.outcome === 'mismatch') expect(actual.reason).toContain('protocol 2');
+      expect(actual).toMatchObject({ outcome: 'mismatch', ours: SNAPSHOT_PROTOCOL, theirs: other });
+      if (actual.outcome === 'mismatch') expect(actual.reason).toContain(`protocol ${other}`);
     }
   });
 });
