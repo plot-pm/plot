@@ -153,6 +153,22 @@ let holderSeq = 0;
  */
 const nextHolderId = (): string => `${process.pid}.${++holderSeq}`;
 
+/**
+ * Pushes a ref at a target through the push lock.
+ *
+ * @param ctx - the ladder's script runner.
+ * @param source - the ref or branch to push.
+ * @param target - the branch or full ref to push it at.
+ * @param env - extra environment for the script.
+ * @returns the script's exit code and output.
+ */
+export const pushUnderLock = (
+  ctx: LadderContext,
+  source: string,
+  target: string,
+  env: Record<string, string> = {},
+) => ctx.scripts.awaited('plot-push-main.sh', [source, target], { env });
+
 /** The default-branch lock helper `plot-push-main.sh` also takes. */
 const LOCK = 'plot-push-lock.mjs';
 
@@ -375,7 +391,7 @@ export const commitAndPush = async (
       const commit = await ctx.trees.commitAs(tmpwt, who, message);
       if (!commit.ok) throw new Refused(`could not commit the ${noun}.\n  See what git refused: git -C ${tmpwt} status\n  Nothing was pushed; re-run this — it is idempotent.`);
 
-      const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, pushTarget], { env: { PLOT_PUSH_LOCK_HOLDER: holder } });
+      const pushOut = await pushUnderLock(ctx, bookbr, pushTarget, { PLOT_PUSH_LOCK_HOLDER: holder });
       for (const line of `${pushOut.stdout}${pushOut.stderr}`.split('\n')) {
         if (line.length > 0) write(`  ${line}\n`);
       }

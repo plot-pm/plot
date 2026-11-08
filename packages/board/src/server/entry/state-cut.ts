@@ -4,7 +4,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { cutBooking, pushTargetOf, Refused, stateTargetOf, type LadderContext, type Printer } from './ladder.js';
+import { cutBooking, pushTargetOf, pushUnderLock, Refused, stateTargetOf, type LadderContext, type Printer } from './ladder.js';
 
 /**
  * Cuts a booking worktree for a lifecycle write made outside the ladder, and
@@ -77,7 +77,7 @@ const land = async (
         return 1;
       }
     }
-    const pushed = await ctx.scripts.awaited('plot-push-main.sh', ['HEAD', target.pushRef]);
+    const pushed = await pushUnderLock(ctx, 'HEAD', target.pushRef);
     write(`${pushed.stdout}`);
     warn(`${pushed.stderr}`);
     return pushed.code;
