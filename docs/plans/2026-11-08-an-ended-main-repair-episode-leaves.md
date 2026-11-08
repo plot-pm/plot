@@ -63,7 +63,7 @@ The release action goes through a controller, not a script call (CLAUDE.md, *The
 
 ### Board
 
-- `bug/the-board-names-a-claim-only-branch` — read an all-claim branch as a claim in Quiet, with the release as its action
+- `bug/the-board-names-a-claim-only-branch` — read an all-claim branch as a claim in Quiet, with the release as its action → #3263
 
 ## Notes
 
