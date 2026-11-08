@@ -9,7 +9,7 @@ import {
   encodeFleetdHeartbeat,
   type FleetdHeartbeat,
 } from '../src/entities/fleetd-heartbeat.js';
-import { bridgeVouched, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
+import { bridgeVouched, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
 import { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 const T0 = 1_700_000_000_000;
@@ -199,5 +199,14 @@ describe('readFleetdHeartbeatSync', () => {
     } finally {
       rmSync(root, { recursive: true });
     }
+  });
+});
+
+describe('lateLoopNote', () => {
+  it('names the late loops and is null for none', () => {
+    expect(lateLoopNote([])).toBeNull();
+    expect(lateLoopNote(['scan', 'tick'])).toBe(
+      'the fleet is beating but its scan, tick loop has not completed a pass in time; the board scans in its place',
+    );
   });
 });

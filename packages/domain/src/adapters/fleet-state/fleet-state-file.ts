@@ -6,6 +6,7 @@ import { answered, failed, type PortResult } from '../../port-result.js';
 import { FleetReadingSchema } from '../../entities/fleet.js';
 import type { FleetdHeartbeat } from '../../entities/fleetd-heartbeat.js';
 import { bridgeVouched } from '../../rules/fleetd-live.js';
+import { readFleetdHeartbeatSync } from '../fleetd-heartbeat/fleetd-heartbeat-file.js';
 import type { BridgedPulse, FleetState, ScanAttempt } from '../../ports/fleet-state.js';
 
 /**
@@ -172,3 +173,16 @@ export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
     },
   };
 };
+
+/**
+ * Keeps one repository's bridged pulse, reading fleetd's heartbeat file for a
+ * vouch on every read.
+ *
+ * A bridge older than {@link BRIDGE_MAX_AGE_MS} is returned while
+ * `.plot/state/fleetd.json` reads `live` and names that bridge's `at`.
+ *
+ * @param repoRoot - the repository root.
+ * @returns a `FleetState` whose reads consult the heartbeat file.
+ */
+export const fleetStateVouched = (repoRoot: string): FleetState =>
+  fleetStateFile({ repoRoot, heartbeat: () => readFleetdHeartbeatSync(repoRoot) });

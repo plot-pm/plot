@@ -89,13 +89,3 @@ describe('ownedBridgeNote', () => {
     expect(note).not.toContain('failed');
   });
 });
-
-describe('ownedBridgeNote with a late loop', () => {
-  it('names the loop whose pass is late', () => {
-    const note = ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: null, lateLoops: ['scan'], now: NOW });
-    expect(note).toBe("the fleet's last scan landed 200 s ago; its scan loop has not completed a pass in time");
-  });
-  it('keeps the under-way sentence with no late loop', () => {
-    expect(ownedBridgeNote({ bridgeAt: NOW - 200_000, attempt: null, lateLoops: [], now: NOW })).toContain('next is under way');
-  });
-});

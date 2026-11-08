@@ -189,6 +189,7 @@ export { fleetStoppedFile, fleetStoppedPath } from './fleet-stopped/fleet-stoppe
 // (`packages/board`) defined before this port existed.
 export {
   fleetStateFile,
+  fleetStateVouched,
   bridgePath,
   BRIDGE_MAX_AGE_MS,
   type FleetStateFileOptions,

@@ -6,12 +6,18 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 import { HEARTBEAT_STALE_MS } from '@plot-pm/domain/rules/reader-election';
-import { clockManual, readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
+import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
+import { clockManual, fleetdHeartbeatFile, readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
 
 import { run, scriptDirFor, stillFollowed } from '../../src/server/entry/pr-reader.js';
 import { removeTree } from '../rm-tree.mjs';
 
 /** A liveness reader that always answers "alive" for the pids given. */
+const fleetdBeat = (beatAt: number): FleetdHeartbeat => ({
+  version: FLEETD_HEARTBEAT_VERSION, pid: 1, startedAt: beatAt - 1_000_000, beatAt, generation: 1, bridgeAt: null,
+  supervised: 'none', watchesWanted: 0, watchesArmed: 0, lastEventAt: null, lastSafetyNetAt: null, loops: {},
+});
+
 const allAlive = async (pids: readonly number[]) =>
   new Map(pids.map((pid) => [pid, { alive: true, startedAt: null }]));
 
@@ -28,7 +34,7 @@ describe('stillFollowed — the reader checks heartbeat counts, never a starting
     const now = Date.now();
     const otherBoardPid = 999_999;
     const heartbeats = [{ name: `board.${otherBoardPid}`, at: now }];
-    expect(await stillFollowed(heartbeats, now, allAlive)).toBe('followers');
+    expect(await stillFollowed(heartbeats, null, now, allAlive)).toBe('followers');
   });
 
   it('reads none once every board heartbeat is both stale and the process dead, regardless of which board started the reader', async () => {
@@ -38,22 +44,22 @@ describe('stillFollowed — the reader checks heartbeat counts, never a starting
     // started this reader — proving the exit check counts live heartbeats,
     // not whether the starting board's own pid is still running.
     const heartbeats = [{ name: `board.${startingBoardPid + 1}`, at: now - HEARTBEAT_STALE_MS - 1 }];
-    expect(await stillFollowed(heartbeats, now, allDead)).toBe('none');
+    expect(await stillFollowed(heartbeats, null, now, allDead)).toBe('none');
   });
 
   it('reads none with zero heartbeats published, independent of any pid', async () => {
     const now = Date.now();
-    expect(await stillFollowed([], now, allAlive)).toBe('none');
+    expect(await stillFollowed([], null, now, allAlive)).toBe('none');
   });
 
   it('stays followed exactly up to HEARTBEAT_STALE_MS and reads none one millisecond past it — the 2-minute bound named by the constant, not a hardcoded guess', async () => {
     const now = Date.now();
     const boardPid = 222_222;
     const justFresh = [{ name: `board.${boardPid}`, at: now - (HEARTBEAT_STALE_MS - 1) }];
-    expect(await stillFollowed(justFresh, now, allAlive)).toBe('followers');
+    expect(await stillFollowed(justFresh, null, now, allAlive)).toBe('followers');
 
     const justStale = [{ name: `board.${boardPid}`, at: now - HEARTBEAT_STALE_MS }];
-    expect(await stillFollowed(justStale, now, allAlive)).toBe('none');
+    expect(await stillFollowed(justStale, null, now, allAlive)).toBe('none');
   });
 });
 
@@ -80,12 +86,23 @@ describe('the reader and fleetd heartbeat under different names', () => {
     const beats = await lock.heartbeats('github');
     const names = beats.ok ? beats.value.map((b) => b.name) : [];
     expect(names).toEqual([`reader.${process.pid}`]);
-    expect(await stillFollowed(beats.ok ? beats.value : [], now, allAlive)).toBe('none');
+    expect(await stillFollowed(beats.ok ? beats.value : [], null, now, allAlive)).toBe('none');
   });
 
-  it('reads fleetd for any fresh fleetd heartbeat', async () => {
+  it('reads fleetd from a live heartbeat file with no reader-lock heartbeat', async () => {
     const now = Date.now();
-    expect(await stillFollowed([{ name: 'fleetd', at: now - 1_000 }], now, allDead)).toBe('fleetd');
+    expect(await stillFollowed([], fleetdBeat(now - 1_000), now, allDead)).toBe('fleetd');
+  });
+
+  it('reads fleetd from a live heartbeat file ahead of board followers', async () => {
+    const now = Date.now();
+    expect(await stillFollowed([{ name: 'board.1', at: now }], fleetdBeat(now - 30_000), now, allAlive)).toBe('fleetd');
+  });
+
+  it('does not read the reader lock\'s fleetd entry or a stale heartbeat file as fleetd', async () => {
+    const now = Date.now();
+    expect(await stillFollowed([{ name: 'fleetd', at: now - 1_000 }], null, now, allDead)).toBe('none');
+    expect(await stillFollowed([], fleetdBeat(now - 31_000), now, allDead)).toBe('none');
   });
 
   it('a fleetd pass that reads held against a live reader still publishes its fleetd heartbeat', async () => {
@@ -122,7 +139,7 @@ describe('run — the reader hands its role back to fleetd', () => {
       const now = Date.now();
       // A board that still follows, and a restarted fleetd that read `held` and heartbeat.
       await lock.heartbeat('github', `board.${process.pid}`, now);
-      await lock.heartbeat('github', 'fleetd', now);
+      await fleetdHeartbeatFile({ repoRoot: repo }).write(fleetdBeat(now));
       const before = process.env.PLOT_PR_INDEX_HOME;
       process.env.PLOT_PR_INDEX_HOME = lockDir;
       try {
@@ -332,7 +349,7 @@ describe('run — a board that stops following ends the reader on its next beat'
         const r = await startFollowed(box);
         const passes = box.prLists();
         passDue();
-        await r.lock.heartbeat('github', 'fleetd', Date.now());
+        await fleetdHeartbeatFile({ repoRoot: box.repo }).write(fleetdBeat(Date.now()));
         await r.lock.heartbeat('github', `board.${process.pid}`, Date.now());
         r.clock.advance(1);
         expect(await r.result).toBe(0);

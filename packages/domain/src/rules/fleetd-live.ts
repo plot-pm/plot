@@ -82,3 +82,13 @@ export const lateLoops = (heartbeat: FleetdHeartbeat, now: number): FleetdLoop[]
  */
 export const bridgeVouched = (bridge: { at: number }, heartbeat: FleetdHeartbeat | null, now: number): boolean =>
   heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && heartbeat.bridgeAt === bridge.at;
+
+/**
+ * The sentence the board shows while a live fleetd leaves the scan to it
+ * because a loop is late.
+ *
+ * @param loops - the late loops, from {@link lateLoops}.
+ * @returns the note, or null where no loop is late.
+ */
+export const lateLoopNote = (loops: readonly FleetdLoop[]): string | null =>
+  loops.length === 0 ? null : `the fleet is beating but its ${loops.join(', ')} loop has not completed a pass in time; the board scans in its place`;

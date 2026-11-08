@@ -75,7 +75,7 @@ import {
   planStoreShell,
   planParserPath,
   refsGit,
-  fleetStateFile,
+  fleetStateVouched,
   scriptsShell,
   scriptsConfigCached,
   sliceSpendFile,
@@ -505,7 +505,7 @@ export const processProbeFor = (opts: BuildBoardOptions): ProcessProbe => opts.p
  * @returns a {@link FleetState} over `opts.repoRoot`.
  */
 export const fleetStateFor = (opts: BuildBoardOptions): FleetState =>
-  fleetStateFile({ repoRoot: opts.repoRoot });
+  fleetStateVouched(opts.repoRoot);
 
 /**
  * One cached `Scripts` per `(repoRoot, scriptsDir)`, built the first time a

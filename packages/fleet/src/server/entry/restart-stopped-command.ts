@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { fleetStateFile, fleetStoppedFile } from '@plot-pm/domain/adapters';
+import { fleetStateVouched, fleetStoppedFile } from '@plot-pm/domain/adapters';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { callerOf, type Caller, type FleetReading } from '@plot-pm/domain';
 import { FLEET_STOPPED_VERSION } from '@plot-pm/domain';
@@ -41,7 +41,7 @@ type Printer = (s: string) => void;
  * @returns the bridged reading, or `null` where there is no trustworthy one.
  */
 const bridgedPulse = (repoRoot: string): FleetReading | null => {
-  const read = fleetStateFile({ repoRoot }).readSync();
+  const read = fleetStateVouched(repoRoot).readSync();
   return read.ok && read.value !== null ? read.value.pulse : null;
 };
 
