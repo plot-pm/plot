@@ -44,6 +44,16 @@ describe('supervisorSource', () => {
   it('asks the script for a live heartbeat of a fleetd started by hand', () => {
     expect(supervisorSource(heartbeat({ supervised: 'none' }), T0)).toEqual({ source: 'script' });
   });
+
+  it('asks the script while a live heartbeat reports a tick that stopped passing', () => {
+    const wedged = heartbeat({ beatAt: T0 + 700_000, loops: { tick: { lastPassAt: T0 } } });
+    expect(supervisorSource(wedged, T0 + 700_000)).toEqual({ source: 'script' });
+  });
+
+  it('keeps the heartbeat while every reported loop is within its bound', () => {
+    const fresh = heartbeat({ loops: { tick: { lastPassAt: T0 - 60_000 }, scan: { lastPassAt: T0 - 90_000 } } });
+    expect(supervisorSource(fresh, T0).source).toBe('heartbeat');
+  });
 });
 
 describe('fleetdFacts', () => {

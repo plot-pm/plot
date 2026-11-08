@@ -1,5 +1,5 @@
 import type { FleetdHeartbeat } from '../entities/fleetd-heartbeat.js';
-import { fleetdLiveness, type FleetdLiveness } from './fleetd-live.js';
+import { fleetdLiveness, observerFresh, type FleetdLiveness } from './fleetd-live.js';
 import type { SupervisorRun } from './supervisor-reading.js';
 
 /** What the board's event hub knows about its channel link. */
@@ -17,16 +17,22 @@ export type SupervisorSource = { source: 'heartbeat'; run: SupervisorRun } | { s
  * Decides whether a beat needs `plot-fleetctl.sh --status`.
  *
  * A `live` heartbeat from a fleetd that an init system started proves the
- * supervisor is loaded: the reading is `up` and no script runs. A `stale` or
- * `absent` heartbeat, and a `live` one from a fleetd started by hand, leave the
- * question to the script, which keeps `down` and `died` their one source.
+ * supervisor is loaded: the reading is `up` and no script runs, provided every
+ * loop it reports passed within its bound (`observerFresh`). The heartbeat
+ * beats from the clock, so a wedged tick leaves it live; the script reports the
+ * tick's age, which is what raises "fleet silent". A `stale` or `absent`
+ * heartbeat, a late loop, and a `live` heartbeat from a fleetd started by hand
+ * leave the question to the script, which keeps `down` and `died` their one
+ * source.
  *
  * @param heartbeat - the heartbeat read, or null where there is none.
  * @param now - the current time, epoch milliseconds.
  * @returns the reading to use, or `script` where the board must ask.
  */
 export const supervisorSource = (heartbeat: FleetdHeartbeat | null, now: number): SupervisorSource =>
-  heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && heartbeat.supervised !== 'none'
+  heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' &&
+  heartbeat.supervised !== 'none' &&
+  observerFresh(heartbeat, now)
     ? { source: 'heartbeat', run: { asked: true, exitCode: 0, summarised: true, supervisor: 'up' } }
     : { source: 'script' };
 

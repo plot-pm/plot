@@ -64,7 +64,7 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
-import type { HeldSlice, PortResult } from '@plot-pm/domain';
+import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
 import { startFleetdHeartbeat, supervisedFrom } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
@@ -3066,15 +3066,26 @@ export const run = async (
   // THE HEARTBEAT BELONGS TO THE LOOP: `--once` writes none. The beat comes from
   // the clock and not from a loop's work, so it runs with no git host and with
   // nothing changing. `generation` is 0 until fleetd holds a `RepoSnapshot`.
-  const stopHeartbeat = args.once
-    ? () => undefined
+  const passes: Partial<Record<FleetdLoop, number>> = {};
+  const passed = <T,>(loop: FleetdLoop, read: () => Promise<T>): (() => Promise<T>) => async () => {
+    const value = await read();
+    passes[loop] = Date.now();
+    return value;
+  };
+  const fleetLabel =
+    process.env.PLOT_FLEET_LABEL ||
+    (args.once ? '' : await readConfigAsync({ repoRoot, scriptsDir }, 'Fleet label', 'com.plot-pm.fleetd')) ||
+    'com.plot-pm.fleetd';
+  const stopHeartbeat: () => Promise<void> = args.once
+    ? async () => undefined
     : startFleetdHeartbeat(
         seams.clock ?? clockSystem(),
         fleetdHeartbeatFile({ repoRoot }),
         {
           pid: process.pid,
           startedAt: fleetdStartedAt,
-          supervised: supervisedFrom(process.env),
+          supervised: supervisedFrom(process.env, fleetLabel),
+          passes: () => ({ ...passes }),
           generation: seams.snapshotGeneration ?? (() => 0),
         },
         warn,
@@ -3105,7 +3116,7 @@ export const run = async (
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: seams.scan ?? fleetScan(
+        scan: passed('scan', seams.scan ?? fleetScan(
           {
             repoRoot,
             scripts,
@@ -3160,9 +3171,9 @@ export const run = async (
             () => queueHolds.held,
             stop,
           ),
-        ),
-        prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
-        issues: seams.readIssues ?? readIssues,
+        )),
+        prs: passed('pr-reader', prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind)),
+        issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
       }, warn);
   const runTick = seams.tick ?? tick;
@@ -3184,7 +3195,7 @@ export const run = async (
       // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
       // beat only; a scan already started still runs its automatic writes, and
       // they write `.plot/state/` after `run` returned.
-      stopHeartbeat();
+      await stopHeartbeat();
       scanClock?.stop();
       await scanClock?.idle();
       await slot.channel?.stop();
@@ -3289,6 +3300,7 @@ export const run = async (
     // priced over the time since the last reading, not over its own cadence:
     // the scan makes about twelve calls in one 60 s tick, and twelve calls
     // over a 5 s cadence would print 8,640/hr for a loop spending 720.
+    if (report.incomplete === '') passes.tick = Date.now();
     const backgroundWindowMs = Math.max(1, Date.now() - lastReadAt);
     if (report.incomplete === '') {
       report = {
