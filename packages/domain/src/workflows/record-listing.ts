@@ -1,5 +1,6 @@
 import { answered, type PortResult } from '../port-result.js';
 import type { Refs, TreeBlob } from '../ports/refs.js';
+import { syncedByTrees } from '../rules/state-sync.js';
 import {
   DEFAULT_STATE_BRANCH,
   lagLine,
@@ -70,6 +71,7 @@ export const listRecordBlobs = async (
 
 /**
  * Counts the commits the state ref holds that the default branch lacks.
+ * Reads 0 where the two tips' trees are equal, whatever the ancestry says.
  *
  * @param refs - the ref reader.
  * @param source - the key and the default branch.
@@ -79,7 +81,15 @@ export const recordsAhead = async (refs: Refs, source: RecordSource): Promise<nu
   const where = await resolveRecordRef(refs, source);
   if (where.kind !== 'state') return 0;
   const range = await refs.commitSubjects(`${where.defaultRef}..${where.ref}`);
-  return range.ok ? range.value.length : null;
+  if (!range.ok) return null;
+  if (range.value.length === 0) return 0;
+  // A squash-merge rewrites the state tip's commits, so they stay ahead by
+  // ancestry after the sync PR lands. Equal trees mean nothing is left to sync.
+  const [stateTree, defaultTree] = await Promise.all([
+    refs.resolve(`${where.ref}^{tree}`),
+    refs.resolve(`${where.defaultRef}^{tree}`),
+  ]);
+  return stateTree.ok && defaultTree.ok && syncedByTrees(null, stateTree.value, defaultTree.value) ? 0 : range.value.length;
 };
 
 

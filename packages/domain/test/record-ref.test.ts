@@ -200,6 +200,21 @@ describe('derefRecord', () => {
   });
 });
 
+describe('recordsAhead after a squash-merge', () => {
+  const shas = { [`${STATE}^{commit}`]: 's' };
+  const commitSubjects = { [`${MAIN}..${STATE}`]: [commit('a'), commit('b')] };
+  it('reads 0 where the trees are equal although the commits are not ancestors', async () => {
+    const refs = refsFixture({ shas: { ...shas, [`${STATE}^{tree}`]: 'T', [`${MAIN}^{tree}`]: 'T' }, commitSubjects });
+    expect(await recordsAhead(refs, source)).toBe(0);
+    expect((await readRecordFindings(refs, source)).recordLag?.text).toBe('Records: 0 ahead of main · sync PR: none');
+  });
+  it('keeps the commit count where the trees differ or a tree cannot be read', async () => {
+    const differ = refsFixture({ shas: { ...shas, [`${STATE}^{tree}`]: 'T1', [`${MAIN}^{tree}`]: 'T2' }, commitSubjects });
+    expect(await recordsAhead(differ, source)).toBe(2);
+    expect(await recordsAhead(refsFixture({ shas, commitSubjects }), source)).toBe(2);
+  });
+});
+
 describe('the lag line names the open sync PR', () => {
   it('prints the number where one is open and none where none is', async () => {
     const refs = refsFixture({ shas: { [`${STATE}^{commit}`]: 's' }, commitSubjects: { [`${MAIN}..${STATE}`]: [commit('a')] } });

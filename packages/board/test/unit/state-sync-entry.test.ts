@@ -13,6 +13,7 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync/state-sync-file';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { StateSyncRecord } from '@plot-pm/domain/ports/state-sync-record';
+import { readRecordFindings } from '@plot-pm/domain/workflows/record-listing';
 import { forwardOnce, prOnce, run, type StateSyncDeps } from '../../src/server/entry/state-sync.js';
 
 const SCRIPT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../skills/plot/scripts');
@@ -217,4 +218,29 @@ describe('the sync pull request through the entry', () => {
     expect((await prOnce(f.deps, 'fleetd'))?.report).toMatchObject({ done: 'none' });
     expect(f.created).toEqual([]);
   });
+});
+
+describe('after the sync PR is squash-merged', () => {
+  it('reads 0 ahead with no open PR, and the next forward merge is clean', async () => {
+    const f = fixture('plot/state');
+    // The state branch gains a Delivered record; the host squash-merges it into main.
+    git(f.other, 'fetch', '-q', 'origin');
+    git(f.other, 'checkout', '-q', '-B', 'work', 'origin/plot/state');
+    writeFileSync(path.join(f.other, PLAN), planText('Delivered'));
+    git(f.other, 'commit', '-q', '-am', 'deliver');
+    git(f.other, 'push', '-q', 'origin', 'work:plot/state');
+    git(f.other, 'checkout', '-q', 'main');
+    git(f.other, 'merge', '-q', '--squash', 'origin/plot/state');
+    git(f.other, 'commit', '-q', '-m', 'plot: sync records (squash)');
+    git(f.other, 'push', '-q', 'origin', 'main');
+
+    const outcome = await forwardOnce(f.deps);
+    expect(outcome?.report).toMatchObject({ done: 'merged' });
+    git(f.repo, 'fetch', '-q', 'origin');
+    const found = await readRecordFindings(refsGit({ repoRoot: f.repo, scriptDir: SCRIPT_DIR }), { stateBranch: 'plot/state', defaultBranch: 'main' });
+    expect(found.recordLag?.text).toBe('Records: 0 ahead of main · sync PR: none');
+    expect(git(f.origin, 'rev-parse', 'plot/state^{tree}')).toBe(git(f.origin, 'rev-parse', 'main^{tree}'));
+    // Nothing is behind now, so the next tick is idle rather than a conflict.
+    expect((await forwardOnce(f.deps))?.report).toEqual({ done: 'idle', reason: 'in-sync' });
+  }, 120_000);
 });
