@@ -39,6 +39,8 @@ export function PlanSourceLine({
   frozen = false,
   checksUnaskable = false,
   ci = '',
+  recordLag = null,
+  recordKeyRemoved = null,
 }: {
   /**
    * Where the plans came from — or UNDEFINED, from a server that predates the
@@ -93,6 +95,10 @@ export function PlanSourceLine({
    * key-to-name mapping is `server-info.ts`'s; the domain names no vendor.
    */
   ci?: string;
+  /** The domain's lag line; its text is shown as given. Absent or null shows nothing. */
+  recordLag?: { text: string; ahead: number } | null;
+  /** The domain's removed-key finding; its text is shown as given. Absent or null shows nothing. */
+  recordKeyRemoved?: { text: string; ahead: number } | null;
 }) {
   // A ref that could not be resolved is the one case with no provenance to
   // state, and it must NOT be answered by quietly falling back to the checkout
@@ -157,7 +163,22 @@ export function PlanSourceLine({
     </p>
   ) : null;
 
-  if (!planSource) return checksLine;
+  const recordLines = (
+    <>
+      {recordLag && (
+        <p className="mt-1 px-1 text-xs text-slate-400 dark:text-slate-600" data-record-lag={recordLag.ahead}>
+          {recordLag.text}
+        </p>
+      )}
+      {recordKeyRemoved && (
+        <p className="mt-1 px-1 text-xs text-amber-700 dark:text-amber-500" data-record-key-removed={recordKeyRemoved.ahead}>
+          {recordKeyRemoved.text}
+        </p>
+      )}
+    </>
+  );
+
+  if (!planSource) return <>{checksLine}{recordLines}</>;
   if (!planSource.resolved) {
     return (
       <>
@@ -170,6 +191,7 @@ export function PlanSourceLine({
           shows only what is in its own working tree, which nobody else can see.
         </p>
         {checksLine}
+        {recordLines}
       </>
     );
   }
@@ -205,6 +227,7 @@ export function PlanSourceLine({
       )}
     </p>
     {checksLine}
+    {recordLines}
     </>
   );
 }

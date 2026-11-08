@@ -1634,6 +1634,26 @@ await esbuild.build({
 
 fs.copyFileSync(stateCutArtifact, shippedStateCut);
 fs.chmodSync(shippedStateCut, 0o755);
+// The ref a plan path's records are read at, for `plot-dispatch.sh` and
+// `plot-reconcile-scan.sh`: the declared `State branch` where it holds the
+// path, else `origin/<default>`. Asked only where a key is declared.
+const recordRefArtifact = path.join(here, 'dist/plot-record-ref.mjs');
+const shippedRecordRef = path.join(here, '../../skills/plot/scripts/board/plot-record-ref.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/record-ref.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: recordRefArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(recordRefArtifact, shippedRecordRef);
+fs.chmodSync(shippedRecordRef, 0o755);
 // The write probe: one `-p` run of the project's prompt file in a scratch
 // desk, reachable from `plot-fleetctl.sh --start` and from `registryd-main.ts`
 // before `--once` hands a slice to an agent. Reads no plan and writes no ref —
@@ -1991,6 +2011,7 @@ const planForBranchKb = (fs.statSync(shippedPlanForBranch).size / 1024).toFixed(
 const recordPrKb = (fs.statSync(shippedRecordPr).size / 1024).toFixed(1);
 const briefBookKb = (fs.statSync(shippedBriefBook).size / 1024).toFixed(1);
 const stateCutKb = (fs.statSync(shippedStateCut).size / 1024).toFixed(1);
+const recordRefKb = (fs.statSync(shippedRecordRef).size / 1024).toFixed(1);
 const writeProbeKb = (fs.statSync(shippedWriteProbe).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
@@ -2043,5 +2064,6 @@ console.log(`Built plot-plan-for-branch.mjs (${planForBranchKb} KB) → skills/p
 console.log(`Built plot-record-pr.mjs (${recordPrKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-brief-book.mjs (${briefBookKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-state-cut.mjs (${stateCutKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-record-ref.mjs (${recordRefKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-write-probe.mjs (${writeProbeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

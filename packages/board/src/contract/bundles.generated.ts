@@ -87,6 +87,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-reap.mjs',
   'skills/plot/scripts/board/plot-reconcile.mjs',
   'skills/plot/scripts/board/plot-record-pr.mjs',
+  'skills/plot/scripts/board/plot-record-ref.mjs',
   'skills/plot/scripts/board/plot-release-chain.mjs',
   'skills/plot/scripts/board/plot-release-gate.mjs',
   'skills/plot/scripts/board/plot-released-labels.mjs',

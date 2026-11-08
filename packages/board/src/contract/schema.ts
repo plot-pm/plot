@@ -1475,6 +1475,21 @@ export const BoardSchema = z.object({
    */
   planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0, behind: null }),
   /**
+   * How far the state branch's records are ahead of the default branch, with
+   * the wording the domain's `lagLine` produced. Null where no `State branch`
+   * is declared, or where the commit count could not be read.
+   */
+  recordLag: z.object({ ahead: z.number(), syncPr: z.number().nullable(), text: z.string() }).nullable().default(null),
+  /**
+   * Set while a `plot/state` branch is ahead of the default branch and no
+   * `State branch` key is declared: the finding and its fix in order, both
+   * from the domain's `removedKeyFinding`.
+   */
+  recordKeyRemoved: z
+    .object({ branch: z.string(), ahead: z.number(), fix: z.array(z.string()), text: z.string() })
+    .nullable()
+    .default(null),
+  /**
    * Seconds since the plan ref named by {@link planSource} was last read
    * successfully, or null while no read has ever succeeded. A client ticks
    * this forward on its own clock between payloads rather than re-reading

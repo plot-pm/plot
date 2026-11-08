@@ -1,6 +1,7 @@
 import { answered, failed, type PortResult } from '../port-result.js';
 import type { PlanRecord, PlanStore } from '../ports/plan-store.js';
 import type { Refs } from '../ports/refs.js';
+import { listRecordBlobs } from './record-listing.js';
 import { estatePlans, type EstateIndexLink, type EstatePlanBlob } from '../rules/plan-walk-estate.js';
 
 /** What the estate stage is asked. */
@@ -15,6 +16,8 @@ export interface EstateInput {
   deliveredDir: string;
   /** The configured branch prefixes without a trailing slash, such as `['idea', 'feature']`. */
   prefixes: readonly string[];
+  /** The value of `State branch` as configured. Absent or empty, the default branch holds every plan. */
+  stateBranch?: string;
 }
 
 /** The estate: which plans exist, parsed from the snapshot's object names. */
@@ -74,7 +77,12 @@ export const readEstate = async (
   if (!mainSha.ok || mainSha.value === '') {
     return worktree === undefined ? failed<Estate>() : readWorktreeEstate(worktree, input.planDir);
   }
-  const main = await refs.listBlobs(mainSha.value, input.planDir);
+  const main = await listRecordBlobs(
+    refs,
+    { stateBranch: input.stateBranch ?? '', defaultBranch: input.mainBranch },
+    mainSha.value,
+    input.planDir,
+  );
   if (!main.ok) return failed<Estate>();
 
   const tips = await refs.branchTips(input.prefixes.map((p) => `refs/remotes/origin/${p}/*`));

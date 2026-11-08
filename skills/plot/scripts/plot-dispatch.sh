@@ -548,7 +548,10 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
 # because a person will look either way): here the cost of guessing wrong is an
 # agent burning minutes on nothing.
 brief_path() { printf '.plot/briefs/%s.md' "${1##*/}"; }
-brief_ref() { printf 'origin/%s:%s' "$MAIN" "$(brief_path "$1")"; }
+# The ref a path's records are read at: `origin/<main>`, or where `State branch`
+# is declared the ref the domain's `recordRef` names (`board/plot-record-ref.mjs`).
+rec_ref() { [ -n "${STATE_KEY:-}" ] && node "$script_dir/board/plot-record-ref.mjs" "$STATE_KEY" "$MAIN" "$1" 2>/dev/null || printf 'origin/%s' "$MAIN"; }
+brief_ref() { printf '%s:%s' "$(rec_ref "$(brief_path "$1")")" "$(brief_path "$1")"; }
 brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
   local sz
   sz=$(git cat-file -s "$(brief_ref "$1")" 2>/dev/null) || return 1
@@ -873,7 +876,7 @@ brief_staleness_note() { # $1 = branch → prints a hint, or nothing
   local branch="$1" bc pc bs ps
   [ -n "$gate_sha" ] || return 0        # nothing shared to compare against
   [ -n "${plan_path:-}" ] || return 0
-  bc=$(git log -1 --format='%H %ct' "$gate_ref" -- "$(brief_path "$branch")" 2>/dev/null) || return 0
+  bc=$(git log -1 --format='%H %ct' "$(rec_ref "$(brief_path "$branch")")" -- "$(brief_path "$branch")" 2>/dev/null) || return 0
   pc=$(git log -1 --format='%H %ct' "$gate_ref" -- "$plan_path" 2>/dev/null) || return 0
   [ -n "$bc" ] && [ -n "$pc" ] || return 0
   bs=${bc##* }; ps=${pc##* }
@@ -2687,6 +2690,7 @@ ACTIVE_DIR_CFG=$("$script_dir/plot-config.sh" get "Active index" "docs/plans/act
 
 gate_ref="origin/$MAIN"
 gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
+STATE_KEY=$("$script_dir/plot-config.sh" get "State branch" "")
 
 # The plan as it exists on the shared ref. Path resolution runs against the ref
 # too (`git ls-tree`), not the filesystem: a plan that exists only locally must
@@ -2698,41 +2702,21 @@ gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || g
 # follows the link and this never comes up; against a ref it must be
 # dereferenced by hand, or the gate parses a one-line path as a plan and reports
 # an unreadable phase instead of the real one.
-deref_on_ref() { # $1=path on $gate_ref → prints the path the blob really lives at
-  local p="$1" target dir hops=0
-  while [ "$(git ls-tree "$gate_ref" -- "$p" 2>/dev/null | awk '{print $1}')" = "120000" ]; do
-    hops=$((hops + 1))
-    [ "$hops" -le 8 ] || return 1        # a symlink cycle must not hang the gate
-    target=$(git show "$gate_ref:$p" 2>/dev/null) || return 1
-    case "$target" in
-      /*) return 1 ;;                    # absolute: not a path within the ref
-      *)  dir=$(dirname "$p")
-          # Normalise ../ and ./ without touching the filesystem.
-          p=$(printf '%s\n' "$dir/$target" | awk -F/ '{
-                n=0
-                for (i=1; i<=NF; i++) {
-                  if ($i == "" || $i == ".") continue
-                  if ($i == "..") { if (n>0) n--; continue }
-                  s[++n]=$i
-                }
-                out=""
-                for (i=1; i<=n; i++) out = (i==1 ? s[i] : out "/" s[i])
-                print out
-              }') ;;
-    esac
-  done
-  printf '%s\n' "$p"
-}
+deref_on_ref() { node "$script_dir/board/plot-record-ref.mjs" --deref "$gate_ref" "$1" 2>/dev/null; } # $1=path on $gate_ref → the path the blob really lives at
 
+# WHERE `State branch` IS DECLARED the records sit on the state ref: candidates
+# come from both refs and each path is read at the ref `recordRef` names for it.
 plan_path=""
 if [ -n "$gate_sha" ]; then
   for cand in "$ACTIVE_DIR_CFG$slug.md" \
-              $(git ls-tree -r --name-only "$gate_ref" -- "$PLAN_DIR_CFG" 2>/dev/null \
-                | grep -E "/[0-9]{4}-[0-9]{2}-[0-9]{2}-${slug}\.md$|/${slug}\.md$"); do
+              $( { git ls-tree -r --name-only "origin/$MAIN" -- "$PLAN_DIR_CFG"; [ -z "$STATE_KEY" ] || git ls-tree -r --name-only "$(rec_ref)" -- "$PLAN_DIR_CFG"; } 2>/dev/null \
+                | sort -u | grep -E "/[0-9]{4}-[0-9]{2}-[0-9]{2}-${slug}\.md$|/${slug}\.md$"); do
+    gate_ref=$(rec_ref "$cand")
     git cat-file -e "$gate_ref:$cand" 2>/dev/null || continue
     plan_path=$(deref_on_ref "$cand") || { plan_path=""; continue; }
     [ -n "$plan_path" ] && break
   done
+  gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
 fi
 
 # --allow-local: read the working tree instead, and say so. The escape for a
