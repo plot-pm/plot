@@ -58,7 +58,7 @@ The JSON each op prints stays the same, so no caller changes. The Bitbucket arms
 
 ### REST arms
 
-- `bug/github-arms-use-rest` — move the four GitHub arms to REST and derive `nameWithOwner` from the `origin` URL. A test stubs `gh` so every GraphQL call fails, and `plot-review.mjs <pr>` and `plot-ask.mjs merge <pr> <sha>` complete. <!-- builds: a REST-only GitHub path for pr-review, pr-state and pr-merge in plot-host.sh -->
+- `bug/github-arms-use-rest` — move the four GitHub arms to REST and derive `nameWithOwner` from the `origin` URL. A test stubs `gh` so every GraphQL call fails, and `plot-review.mjs <pr>` and `plot-ask.mjs merge <pr> <sha>` complete. <!-- builds: a REST-only GitHub path for pr-review, pr-state and pr-merge in plot-host.sh --> → #3271
 
 ## Notes
 
