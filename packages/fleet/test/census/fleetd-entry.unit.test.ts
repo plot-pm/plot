@@ -13,7 +13,7 @@ import { buildSandbox, type Sandbox } from './sandbox.js';
 // `pr-list` sweep that fleetd starts runs into `runProcess`'s 120 s bound.
 // `sandbox.unit.test.ts` covers the Bitbucket stubs.
 
-type Spawn = { file: string; args: string[] };
+type Spawn = { file?: string; args?: string[]; signal0?: number };
 
 const spawnsOf = (box: Sandbox): Spawn[] =>
   existsSync(spawnLogOf(box))
@@ -60,11 +60,12 @@ describe.each(['github'] as const)('the fleetd census entry on a %s fixture', (h
     expect(stdout).toMatch(/^plot-fleetd: supervising /m);
   });
 
-  it('reaches processes.isAlive for each desk with a live worker pid (P2 counts these)', () => {
-    const alive = spawns.filter((s) => s.file === 'bash' && s.args[0] === '-c' && /^kill -0 \d+/.test(s.args[1] ?? ''));
-    const asked = new Set(alive.map((s) => Number(/kill -0 (\d+)/.exec(s.args[1] ?? '')?.[1])));
+  it('asks kill(pid, 0) for each desk with a live worker pid, so P2 reading 0 means the question was asked without bash', () => {
+    const asked = new Set(spawns.flatMap((s) => (s.signal0 === undefined ? [] : [s.signal0])));
+    const killZero = spawns.filter((s) => s.file === 'bash' && s.args?.[0] === '-c' && /^kill -0 \d+/.test(s.args[1] ?? ''));
 
     for (const desk of box.desks) expect(asked).toContain(desk.worker.pid);
+    expect(killZero).toEqual([]);
   });
 
   it('asks the stub host CLI, never the network', () => {
