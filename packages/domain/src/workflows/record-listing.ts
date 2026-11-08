@@ -118,12 +118,13 @@ export interface RecordFindings {
  * @param refs - the ref reader.
  * @param source - the key and the default branch.
  * @param syncPr - the open sync pull request's number; null for none.
+ * @param conflictFiles - the files of the forward merge conflict fleetd recorded; empty for none.
  * @returns both findings; a read that fails yields null for that finding.
  */
-export const readRecordFindings = async (refs: Refs, source: RecordSource, syncPr: number | null = null): Promise<RecordFindings> => {
+export const readRecordFindings = async (refs: Refs, source: RecordSource, syncPr: number | null = null, conflictFiles: readonly string[] = []): Promise<RecordFindings> => {
   if (source.stateBranch.trim() !== '') {
     const ahead = await recordsAhead(refs, source);
-    return { recordLag: ahead === null ? null : lagLine(ahead, syncPr, source.defaultBranch), recordKeyRemoved: null };
+    return { recordLag: ahead === null ? null : lagLine(ahead, syncPr, source.defaultBranch, conflictFiles), recordKeyRemoved: null };
   }
   const stranded = await recordsAhead(refs, { stateBranch: DEFAULT_STATE_BRANCH, defaultBranch: source.defaultBranch });
   return { recordLag: null, recordKeyRemoved: removedKeyFinding('', source.defaultBranch, stranded) };

@@ -86,6 +86,7 @@ import {
   readerLockFile,
   TRACKER_PROJECT_KEY_SCHEMES,
 } from '@plot-pm/domain/adapters';
+import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync/state-sync-file';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';
@@ -3007,7 +3008,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
   // The open sync PR runs from the state branch, so its head names the key.
   const syncPr = stateBranch.trim() === '' ? null
     : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && r.head === stateBranch.trim())?.number ?? null;
-  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch }, syncPr);
+  // A recorded forward-merge conflict names its files in the lag line; an unread record shows none.
+  const refusal = stateBranch.trim() === '' ? null : await stateSyncFile({ cwd: repoRoot }).refusal();
+  const conflictFiles = refusal !== null && refusal.ok && refusal.value !== null ? refusal.value.files : [];
+  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch }, syncPr, conflictFiles);
   return {
     generatedAt: new Date().toISOString(),
     columns,

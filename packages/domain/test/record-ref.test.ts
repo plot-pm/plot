@@ -62,6 +62,14 @@ describe('lagLine', () => {
   });
 });
 
+describe('lagLine with a recorded conflict', () => {
+  it('names the conflicting files after the sync PR field', () => {
+    expect(lagLine(2, null, 'main', ['docs/plans/a.md', 'docs/plans/b.md']).text).toBe(
+      'Records: 2 ahead of main · sync PR: none · forward merge conflicts in docs/plans/a.md, docs/plans/b.md',
+    );
+  });
+});
+
 describe('removedKeyFinding', () => {
   it('is null while a key is declared, the branch is level, or the count is unknown', () => {
     expect(removedKeyFinding('plot/state', 'main', 4)).toBeNull();
