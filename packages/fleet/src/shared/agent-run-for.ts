@@ -5,7 +5,7 @@ import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-line
 import { boardAgentModel } from '@plot-pm/domain/rules/board-agent-models';
 import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
-import type { DetachedRun } from '@plot-pm/domain/ports/detached-run';
+import type { DetachedRun } from '@plot-pm/domain/ports/agent-run';
 import { agentRunDetached } from '@plot-pm/domain/adapters/agent-run/agent-run-detached';
 import { readConfig as readConfigKey, type ConfigReadOptions } from './config-reader.js';
 

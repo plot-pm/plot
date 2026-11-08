@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
-import type { DetachedRun, DetachedRunRequest } from '../../ports/detached-run.js';
+import type { DetachedRun, DetachedRunRequest } from '../../ports/agent-run.js';
 import { backgroundGateEnv } from '../../rules/agent-run-env.js';
 import { spawnContractEnv } from '../../rules/spawn-contract.js';
 
