@@ -67,7 +67,7 @@ This plan is the interim fix for #3274, in sprint `ship-2-32-0`. It keeps the bo
 
 ### Runs outlive the board
 
-- `bug/board-runs-outlive-the-board` — board-started runs start through a re-parenting wrapper, write their pid and exit record into the run-state file, and the board reads a dead pid with no exit record as `failed`. A test starts a stub run through the idea route, stops the board's process tree as `plot-boardctl.sh --stop` does, and asserts the stub run keeps going and books its exit code. <!-- builds: the detached board-run start and the run-state end record -->
+- `bug/board-runs-outlive-the-board` — board-started runs start through a re-parenting wrapper, write their pid and exit record into the run-state file, and the board reads a dead pid with no exit record as `failed`. A test starts a stub run through the idea route, stops the board's process tree as `plot-boardctl.sh --stop` does, and asserts the stub run keeps going and books its exit code. <!-- builds: the detached board-run start and the run-state end record --> → #3290
 
 ## Notes
 
