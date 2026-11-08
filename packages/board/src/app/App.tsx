@@ -18,7 +18,7 @@ import { StoryModal } from './components/StoryModal.js';
 import { boardLinksOf } from './lib/plan.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
-import { listenForEvents } from './lib/event-listener.js';
+import { listenForEvents, pollWhileShown } from './lib/event-listener.js';
 import { synthesizedSprintMembers } from './lib/sprint.js';
 import {
   boardForReader,
@@ -535,25 +535,28 @@ export function App() {
   }, []);
 
   // Load once, then poll — no manual refresh needed. The rate goes live while a
-  // start is outstanding and drops back on its own; nothing else changes.
+  // start is outstanding and drops back on its own. The poll runs only while the
+  // page is visible; the visibility handler below reloads on return.
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), starting > 0 ? STARTING_POLL_MS : POLL_MS);
-    return () => clearInterval(id);
   }, [load, starting]);
+  useEffect(
+    () => pollWhileShown(document, () => void load(), starting > 0 ? STARTING_POLL_MS : POLL_MS),
+    [load, starting],
+  );
 
   // The channel's push: a change refetches the board, at most once per window.
   // The poll above stays — with no channel the stream stays silent and nothing
-  // here fires.
+  // here fires. A hidden page closes its stream and reopens it when visible.
   useEffect(() => listenForEvents({ refetch: () => void load() }), [load]);
 
-  // The fleet only polls while its tab is open: a background 4 s poll would
-  // cost the same as a foreground one and answer a question nobody is asking.
+  // The fleet only polls while its tab is open and the page is visible: a
+  // background 4 s poll would cost the same as a foreground one and answer a
+  // question nobody is asking.
   useEffect(() => {
     if (tab !== 'delivery') return;
     void loadFleet();
-    const id = setInterval(() => void loadFleet(), FLEET_POLL_MS);
-    return () => clearInterval(id);
+    return pollWhileShown(document, () => void loadFleet(), FLEET_POLL_MS);
   }, [tab, loadFleet]);
 
   /**
