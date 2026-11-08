@@ -186,6 +186,7 @@ for (const [job, skip] of [
   ['select', 0],
   ['corpus', 0],
   ['macos-shell-contract', 0],
+  ['process-census', 0],
   ['helper-contracts', 0],
   ['board-integration', 0],
   ['checks', 0],
