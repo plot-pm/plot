@@ -21,7 +21,7 @@ All work for this sprint goes to the integration branch `sprint/nothing-runs`. T
 
 ### Must Have
 - [ ] [process-census-gate] A CI gate counts the processes the board and fleetd start (#3170) <!-- pr: #3238, branch: infra/process-census-ci-gate -->
-- [ ] [no-tab-no-pulse] A board that no visible tab shows starts no process (#3170)
+- [ ] [no-tab-no-pulse] A board that no visible tab shows starts no process (#3170) <!-- pr: #3238, branch: feature/no-tab-no-pulse-page -->
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`
