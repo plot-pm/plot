@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RepoSnapshotSchema } from './snapshot.js';
 import { FindingNameSchema, FindingSchema, MonitorNameSchema } from './finding.js';
 
 /**
@@ -71,18 +72,60 @@ export const ServedSchema = z.object({
   finding: FindingSchema,
 });
 
+/**
+ * The whole snapshot, sent to a `snapshot` subscriber when it joins.
+ *
+ * `generation` repeats the snapshot's own and must equal it: the reader reads
+ * the envelope before the body, and a line where the two differ is not a
+ * message this protocol sends.
+ */
+export const SnapshotMessageSchema = z
+  .object({
+    type: z.literal('snapshot'),
+    /** The protocol the sender speaks. Not constrained here: a reader answers `mismatch` for a protocol it does not speak. */
+    protocol: z.number().int().nonnegative(),
+    /** One sender process: its start time and pid, unique per process. */
+    epoch: z.string().min(1),
+    generation: z.number().int().nonnegative(),
+    snapshot: RepoSnapshotSchema,
+  })
+  .refine((m) => m.generation === m.snapshot.generation, {
+    message: 'the envelope generation must equal the snapshot generation',
+  });
+
+/** The readings that changed since generation `base`, and the generation they reach. */
+export const DeltaMessageSchema = z
+  .object({
+    type: z.literal('delta'),
+    protocol: z.number().int().nonnegative(),
+    epoch: z.string().min(1),
+    /** The generation after this delta applies. */
+    generation: z.number().int().nonnegative(),
+    /** The generation this delta applies to. */
+    base: z.number().int().nonnegative(),
+    /** The changed readings only, by key. */
+    readings: RepoSnapshotSchema.shape.readings.partial(),
+  })
+  .refine((m) => m.generation > m.base, {
+    message: 'a delta must reach a generation above its base',
+  });
+
 export const ChannelMessageSchema = z.discriminatedUnion('type', [
   WelcomeSchema,
   PurposeRefusalSchema,
   FindingMessageSchema,
   HeartbeatSchema,
   ServedSchema,
+  SnapshotMessageSchema,
+  DeltaMessageSchema,
 ]);
 export type ChannelMessage = z.infer<typeof ChannelMessageSchema>;
 export type Welcome = z.infer<typeof WelcomeSchema>;
 export type PurposeRefusal = z.infer<typeof PurposeRefusalSchema>;
 export type Heartbeat = z.infer<typeof HeartbeatSchema>;
 export type Served = z.infer<typeof ServedSchema>;
+export type SnapshotMessage = z.infer<typeof SnapshotMessageSchema>;
+export type DeltaMessage = z.infer<typeof DeltaMessageSchema>;
 
 /** Encode one message as the single NDJSON line the channel writes. */
 export const encode = (message: ChannelMessage): string => `${JSON.stringify(message)}\n`;

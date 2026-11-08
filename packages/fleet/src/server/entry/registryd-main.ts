@@ -64,7 +64,7 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
-import type { HeldSlice, PortResult } from '@plot-pm/domain';
+import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
 import { startFleetdHeartbeat, supervisedFrom } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
@@ -110,6 +110,8 @@ import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js'
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
+import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
+import type { RegistryEntry } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
@@ -405,12 +407,16 @@ const NAMED_BAD_MANIFESTS = 3;
  * @param looping - whether this is the looping daemon rather than `--once`.
  *   Defaults to `--once`'s full report, so a caller that says nothing gets
  *   every name.
+ * @param record - records the `registry` reading: the manifests read, or none
+ *   where the directory is absent. A manifest that does not parse is left
+ *   out, as it is from the result. It adds no read.
  * @returns the agents the registry declares, in directory order.
  */
 export const readRegistry = async (
   dir: string,
   warn: (s: string) => void = (s) => process.stderr.write(s),
   looping = false,
+  record?: RecordReading,
 ): Promise<readonly AgentEntry[]> => {
   let names: string[];
   try {
@@ -419,9 +425,11 @@ export const readRegistry = async (
     // NO REGISTRY IS NOT AN ERROR. A repository that has dispatched nothing has
     // no directory, and a supervisor over no agents is a supervisor with
     // nothing to do rather than a broken one.
+    record?.('registry', readOf([]));
     return [];
   }
   const entries: AgentEntry[] = [];
+  const declared: RegistryEntry[] = [];
   let skipped = 0;
   for (const name of names) {
     const text = await readFile(join(dir, name), 'utf8').catch(() => null);
@@ -434,7 +442,9 @@ export const readRegistry = async (
       continue;
     }
     entries.push(entry);
+    declared.push(registryEntryOf(entry, text ?? ""));
   }
+  record?.('registry', readOf(declared));
   const unnamed = skipped - NAMED_BAD_MANIFESTS;
   if (looping && unnamed > 0) {
     warn(`plot-fleetd: … and ${unnamed} more manifests this parse does not understand\n`);
@@ -2646,6 +2656,11 @@ export interface RunSeams {
   notifier?: () => Promise<Notifier>;
   /** The generation of the `RepoSnapshot` fleetd holds, written to the heartbeat; 0 while fleetd holds none. */
   snapshotGeneration?: () => number;
+  /**
+   * The snapshot the loops fill. A fresh one by default; a test passes its own
+   * to read what the run recorded.
+   */
+  snapshot?: SnapshotHolder;
   /** The App key probe at start; reads every declared key through the adapter by default. */
   probeAppKeys?: (repoRoot: string, scriptsDir: string, write: (line: string) => void) => void;
 }
@@ -2815,6 +2830,10 @@ export const run = async (
     warn(`plot-fleetd: the App key probe failed — ${error instanceof Error ? error.message : String(error)}\n`);
   }
 
+  // ONE SNAPSHOT FOR THE DAEMON'S WHOLE LIFE. Every loop below records a value
+  // it already holds through `record`; nothing here reads for the snapshot.
+  const snapshot = seams.snapshot ?? createSnapshotHolder();
+  const recordSnapshot: RecordReading = snapshot.record;
   const tally: HostTally = { calls: 0 };
   // ONE `Checks wait` READ PER TICK, SHARED BY BOTH CONSUMERS. `queue`'s own
   // `defaultBranchRed` and `defaultBranchWorld` below each used to call
@@ -2981,6 +3000,7 @@ export const run = async (
       return 'github';
     })(),
     issueStore,
+    record: recordSnapshot,
     issueWrites: issueWriteSpoolOver(issueStore),
     prBackoff: () => ({
       connector: prState.backend,
@@ -3000,6 +3020,7 @@ export const run = async (
       host: hostShell({ repoRoot, scriptDir: scriptsDir }),
       store: prIndexFile({ cwd: repoRoot }),
       issueGate: issueGateOf(issueStore),
+      record: recordSnapshot,
     },
     prState,
     { lock: prReaderLock },
@@ -3035,6 +3056,7 @@ export const run = async (
             ? withHostSlot(prState, call)
             : call(),
         now: () => Date.now(),
+        record: recordSnapshot,
         checksWaitMs: await checksWaitMs(),
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
@@ -3066,15 +3088,26 @@ export const run = async (
   // THE HEARTBEAT BELONGS TO THE LOOP: `--once` writes none. The beat comes from
   // the clock and not from a loop's work, so it runs with no git host and with
   // nothing changing. `generation` is 0 until fleetd holds a `RepoSnapshot`.
-  const stopHeartbeat = args.once
-    ? () => undefined
+  const passes: Partial<Record<FleetdLoop, number>> = {};
+  const passed = <T,>(loop: FleetdLoop, read: () => Promise<T>): (() => Promise<T>) => async () => {
+    const value = await read();
+    passes[loop] = Date.now();
+    return value;
+  };
+  const fleetLabel =
+    process.env.PLOT_FLEET_LABEL ||
+    (args.once ? '' : await readConfigAsync({ repoRoot, scriptsDir }, 'Fleet label', 'com.plot-pm.fleetd')) ||
+    'com.plot-pm.fleetd';
+  const stopHeartbeat: () => Promise<void> = args.once
+    ? async () => undefined
     : startFleetdHeartbeat(
         seams.clock ?? clockSystem(),
         fleetdHeartbeatFile({ repoRoot }),
         {
           pid: process.pid,
           startedAt: fleetdStartedAt,
-          supervised: supervisedFrom(process.env),
+          supervised: supervisedFrom(process.env, fleetLabel),
+          passes: () => ({ ...passes }),
           generation: seams.snapshotGeneration ?? (() => 0),
         },
         warn,
@@ -3105,10 +3138,11 @@ export const run = async (
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: seams.scan ?? fleetScan(
+        scan: passed('scan', seams.scan ?? fleetScan(
           {
             repoRoot,
             scripts,
+            record: recordSnapshot,
             refs: refsGit({ repoRoot, scriptDir: scriptsDir }),
             backend: async () => {
               const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
@@ -3160,9 +3194,9 @@ export const run = async (
             () => queueHolds.held,
             stop,
           ),
-        ),
-        prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
-        issues: seams.readIssues ?? readIssues,
+        )),
+        prs: passed('pr-reader', prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind)),
+        issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
       }, warn);
   const runTick = seams.tick ?? tick;
@@ -3184,7 +3218,7 @@ export const run = async (
       // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
       // beat only; a scan already started still runs its automatic writes, and
       // they write `.plot/state/` after `run` returned.
-      stopHeartbeat();
+      await stopHeartbeat();
       scanClock?.stop();
       await scanClock?.idle();
       await slot.channel?.stop();
@@ -3228,7 +3262,7 @@ export const run = async (
       // whole of the daemon's state: there is nothing else to lose, so
       // `kill -9` costs one tick.
       report = await runTick({
-        registry: () => readRegistry(registryDir, warn, !args.once),
+        registry: () => readRegistry(registryDir, warn, !args.once, recordSnapshot),
         world,
         queue,
         // THE CAP IS ASKED ONLY WHERE THE DAEMON MAY ACT ON IT. A tick that
@@ -3289,6 +3323,7 @@ export const run = async (
     // priced over the time since the last reading, not over its own cadence:
     // the scan makes about twelve calls in one 60 s tick, and twelve calls
     // over a 5 s cadence would print 8,640/hr for a loop spending 720.
+    if (report.incomplete === '') passes.tick = Date.now();
     const backgroundWindowMs = Math.max(1, Date.now() - lastReadAt);
     if (report.incomplete === '') {
       report = {
@@ -3512,7 +3547,10 @@ export const run = async (
     // tick costs one interval and no state. Exiting instead would hand the OS
     // supervisor a restart it does not need for a reading that will be taken
     // again in a minute.
-    if (args.once) return code;
+    if (args.once) {
+      failUnread(snapshot, 'not read: --once runs the tick alone');
+      return code;
+    }
     await pause();
   }
 };

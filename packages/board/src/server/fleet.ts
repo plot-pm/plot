@@ -54,6 +54,9 @@ import { logDir } from '@plot-pm/fleet/shared/process-log';
 import {
   localSpenders,
   supervisorVerdict,
+  supervisorSource,
+  fleetdFacts,
+  type FleetdHeartbeat,
   timeboxLabel,
   timeboxStanding,
   type LimitBasis,
@@ -92,12 +95,11 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import { agentsFs, planStoreRef, planStoreShell, processesShell, fleetdHeartbeatFile, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesShell, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
 import { fleetdLiveness, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
-import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
@@ -587,6 +589,12 @@ export interface CacheEntry {
    * been asked yet, so the header renders nothing rather than *could not ask*.
    */
   supervisor: SupervisorRun | undefined;
+  /**
+   * The heartbeat file as the last refresh read it, or null where there was
+   * none. The render derives `live`, `stale` or `absent` from it with the
+   * render clock's `now`, so a reading does not age in the cache.
+   */
+  heartbeat: FleetdHeartbeat | null;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -2992,7 +3000,15 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // The supervisor is read on EVERY tick: it is the liveness probe. A stopped
     // fleet stops moving the bridge `at`, so a skip keyed on that `at` would keep
     // `supervisor: up` and the scan unowned for up to `OWNED_BRIDGE_MAX_AGE_MS`.
-    entry.supervisor = await readSupervisor(opts);
+    //
+    // EXCEPT WHILE fleetd'S HEARTBEAT IS LIVE. A live heartbeat from a fleetd
+    // that an init system started is the same fact at no cost: the script walks
+    // every desk (0.46-1.42 s). A stale or absent heartbeat still asks it, so
+    // `down` and `died` keep their one source.
+    const heartbeatRead = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+    entry.heartbeat = heartbeatRead.ok ? heartbeatRead.value : null;
+    const source = supervisorSource(entry.heartbeat, Date.now());
+    entry.supervisor = source.source === 'heartbeat' ? source.run : await readSupervisor(opts);
     // The three display reads below (versions, unmerged, questions) are skipped
     // on an OWNED tick whose bridge `at` equals the one the last owned tick
     // applied. A fleet-less tick sets `appliedBridgeAt` to null, so the board
@@ -3065,7 +3081,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // Otherwise the board scans for display and writes NOTHING: `record: false`
     // keeps the script from touching the bridge, and the board has no writer
     // of it left, so a hung fleet cannot be corrupted by the board's fallback.
-    const heartbeat = await fleetdHeartbeatFor(opts);
+    const heartbeat = entry.heartbeat;
     const owned = bridged !== null && fleetOwnsScan({ heartbeat, now: Date.now() });
     entry.scanNote = owned && bridged !== null
       ? ownedBridgeNote({ bridgeAt: bridged.at, attempt: bridged.attempt ?? null, now: Date.now() })
@@ -3265,6 +3281,7 @@ export function freshCacheEntry(): CacheEntry {
     // has been asked yet, so the header renders nothing rather than reporting a
     // reading that was never attempted.
     supervisor: undefined,
+    heartbeat: null,
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prReader: 'this board', prAt: null, prError: null, appliedBridgeAt: null, prSpendPerHour: null,
@@ -8336,6 +8353,9 @@ export async function buildFleet(
     supervisor: entry.supervisor
       ? supervisorVerdict({ ...entry.supervisor, agentsRunning: liveAgents })
       : undefined,
+    // BOTH LIVENESS FACTS, NEITHER CHOSEN: the heartbeat file and the channel
+    // link can disagree, and a reader needs the disagreement.
+    fleetd: fleetdFacts(entry.heartbeat, opts.channelLink?.() ?? 'unknown', now),
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
     // Set only where `entry.issues` came from `issues.json` rather than a live
