@@ -2886,6 +2886,23 @@ export const AgentRowSchema = z.object({
      * or `undefined` from an older server — means the owner is unknown.
      */
     author: z.string().default(''),
+    /**
+     * The release row's approval reading — the head and the `plot/review` and CI
+     * answers bound to it, for `releaseApprovable` in the domain.
+     *
+     * Every field is `.optional()`, NEVER `.default(...)`: absent means *the server
+     * that wrote this payload predates the field or the index never held it*, not
+     * *no review* and not *CI red*. The domain reads absence as not ready and the
+     * server stays the only place that refuses by name.
+     */
+    open: z.boolean().optional(),
+    headSha: z.string().optional(),
+    checksSha: z.string().optional(),
+    ciChecks: z.enum(['green', 'pending', 'failing', 'none', 'unknown']).optional(),
+    plotReview: z.enum(['success', 'failure', 'pending', 'error', 'absent']).optional(),
+    plotReviewSha: z.string().optional(),
+    plotReviewJudged: z.enum(['success', 'failure', 'pending', 'absent', 'error']).optional(),
+    plotReviewCheckedSha: z.string().optional(),
   }).nullable().default(null),
   /**
    * Where this branch lives on the git host, or "" — the address the row's own

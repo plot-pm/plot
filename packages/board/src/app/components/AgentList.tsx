@@ -29,7 +29,6 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 }
 import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
-import { PasskeyPanel } from './PasskeyPanel.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import {
@@ -1032,7 +1031,6 @@ export function AgentList({
       {/* The board-status panel — one box carrying every status above, the
           view-status line stays at the foot. See `StatusPanel`. */}
       <StatusPanel statuses={statuses} />
-      <PasskeyPanel />
 
       {/* THE DELIVERY FILTERS — one row of toggle chips (`This sprint`,
           `Mine (<identity>)`, `Waiting on me`), each sprint's own line, and the

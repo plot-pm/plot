@@ -41,6 +41,7 @@ import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { sliceRowReading } from './slice-reading.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
 import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
+import { ReleaseApprove } from '../../components/ReleaseApprove.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
@@ -2243,6 +2244,7 @@ export function Row({
               anything else. Folding draft into the state would rebuild the
               short-circuit that kept WAITING ON A MACHINE empty for three
               releases. */}
+          {isReleaseBranch(row.branch) && <ReleaseApprove row={row} />}
           {row.pr?.draft && (
             <span
               data-pr-draft
