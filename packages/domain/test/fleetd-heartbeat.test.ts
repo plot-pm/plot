@@ -9,8 +9,8 @@ import {
   encodeFleetdHeartbeat,
   type FleetdHeartbeat,
 } from '../src/entities/fleetd-heartbeat.js';
-import { fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
-import { fleetdHeartbeatFile, fleetdHeartbeatPath } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
+import { bridgeVouched, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
+import { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 const T0 = 1_700_000_000_000;
 
@@ -172,5 +172,41 @@ describe('fleetdHeartbeatFile', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('bridgeVouched', () => {
+  it('vouches for the bridge the live heartbeat names', () => {
+    expect(bridgeVouched({ at: T0 - 1_200_000 }, heartbeat({ bridgeAt: T0 - 1_200_000 }), T0)).toBe(true);
+  });
+  it('refuses a bridge the heartbeat does not name', () => {
+    expect(bridgeVouched({ at: T0 - 1_200_000 }, heartbeat({ bridgeAt: T0 - 1_000 }), T0)).toBe(false);
+    expect(bridgeVouched({ at: T0 - 1_200_000 }, heartbeat({ bridgeAt: null }), T0)).toBe(false);
+  });
+  it('refuses with a stale or absent heartbeat', () => {
+    expect(bridgeVouched({ at: 5 }, heartbeat({ bridgeAt: 5, beatAt: T0 - 31_000 }), T0)).toBe(false);
+    expect(bridgeVouched({ at: 5 }, null, T0)).toBe(false);
+  });
+});
+
+describe('readFleetdHeartbeatSync', () => {
+  it('reads what the file adapter wrote and reads null where there is none', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-hb-sync-'));
+    try {
+      expect(readFleetdHeartbeatSync(root)).toBeNull();
+      await fleetdHeartbeatFile({ repoRoot: root }).write(heartbeat());
+      expect(readFleetdHeartbeatSync(root)).toEqual(heartbeat());
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  });
+});
+
+describe('lateLoopNote', () => {
+  it('names the late loops and is null for none', () => {
+    expect(lateLoopNote([])).toBeNull();
+    expect(lateLoopNote(['scan', 'tick'])).toBe(
+      'the fleet is beating but its scan, tick loop has not completed a pass in time; the board scans in its place',
+    );
   });
 });

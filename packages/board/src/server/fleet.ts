@@ -41,7 +41,7 @@ import { blobIdOfBytes, parsePlanMetaFiles, planSlug, heldRefsFor, workingTreeSp
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
-import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
+import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
@@ -99,6 +99,7 @@ import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesS
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
+import { fleetdLiveness, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
@@ -2009,7 +2010,7 @@ const issueCadence = async (
   entry: CacheEntry,
   ask: 'tracker' | 'git-host',
 ): Promise<IssueGate> => {
-  if (await fleetOwnsPrs(opts, entry)) {
+  if (await fleetOwnsPrs(opts)) {
     const held = await issueStoreFor(opts.repoRoot).read();
     if (held.ok && held.value !== null && held.value.source === ask) {
       return {
@@ -2553,8 +2554,9 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
 };
 
 /**
- * Whether the fleet owns the PR index: the supervisor reads `up` and the bridge
- * is fresh. The same signal as the scan's, so one fleet answers both.
+ * Whether the fleet owns the PR index: a bridge exists and fleetd's heartbeat
+ * is live with every loop fresh. The same signal as the scan's, so one fleet
+ * answers both.
  *
  * Issues only, since `the-boards-share-one-pr-reader`: the PR read's own
  * ownership question is {@link electReader}'s, over the reader lock rather
@@ -2562,10 +2564,20 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
  * for {@link issueCadence} and `readIssuesFromStore`'s dispatch — nothing
  * here moves PRs back onto it.
  */
-const fleetOwnsPrs = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<boolean> => {
+const fleetOwnsPrs = async (opts: BuildBoardOptions): Promise<boolean> => {
   const bridge = await fleetStateFor(opts).read();
   if (!bridge.ok || bridge.value === null) return false;
-  return fleetOwnsScan({ supervisor: entry.supervisor, bridgeAt: bridge.value.at, lastAttemptStartedAt: bridge.value.attempt?.startedAt ?? null, now: Date.now() });
+  return fleetOwnsScan({ heartbeat: await fleetdHeartbeatFor(opts), now: Date.now() });
+};
+
+/**
+ * fleetd's heartbeat file for these options.
+ *
+ * @returns the heartbeat, or `null` where there is none to read.
+ */
+const fleetdHeartbeatFor = async (opts: BuildBoardOptions): Promise<FleetdHeartbeat | null> => {
+  const read = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+  return read.ok ? read.value : null;
 };
 
 /** The bundle a board starts as its machine's PR reader, relative to the scripts directory. */
@@ -2596,11 +2608,8 @@ const indexDirFor = (opts: BuildBoardOptions): Promise<string | null> => readerL
  * identically, per the brief, so the board never starts a second reader while
  * fleetd already holds.
  */
-const fleetdHeartbeatIsLive = async (lock: ReaderLock, key: string, now: number): Promise<boolean> => {
-  const held = await lock.heartbeats(key);
-  if (!held.ok) return false;
-  return held.value.some((h) => h.name === 'fleetd' && heartbeatIsFresh(h.at, now));
-};
+const fleetdHeartbeatIsLive = async (opts: BuildBoardOptions, now: number): Promise<boolean> =>
+  fleetdLiveness(await fleetdHeartbeatFor(opts), now) === 'live';
 
 /**
  * Creates `dir` one level at a time below `root`, and never creates `root`.
@@ -2875,7 +2884,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
       await refreshPrs(opts, entry, overlayFor(opts, entry));
     } else {
       const { verdict, held } = await electBoardVerdict(lock, processProbeFor(opts), key, now);
-      const fleetdLive = await fleetdHeartbeatIsLive(lock, key, now);
+      const fleetdLive = await fleetdHeartbeatIsLive(opts, now);
       entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
       // BEFORE ANY READ, so a reader started on this tick already counts this
       // board on its first exit check, and a tick that throws still leaves it.
@@ -2913,7 +2922,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     // After, and outside the PR read, because the two fail independently: a
     // tracker outage must not blank the PR map, and a PR failure must not
     // retract the inbox.
-    if (await fleetOwnsPrs(opts, entry)) await readIssuesFromStore(opts, entry);
+    if (await fleetOwnsPrs(opts)) await readIssuesFromStore(opts, entry);
     else if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
@@ -3072,15 +3081,13 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // Otherwise the board scans for display and writes NOTHING: `record: false`
     // keeps the script from touching the bridge, and the board has no writer
     // of it left, so a hung fleet cannot be corrupted by the board's fallback.
-    const owned = bridged !== null && fleetOwnsScan({
-      supervisor: entry.supervisor,
-      bridgeAt: bridged.at,
-      lastAttemptStartedAt: bridged.attempt?.startedAt ?? null,
-      now: Date.now(),
-    });
+    const heartbeat = entry.heartbeat;
+    const owned = bridged !== null && fleetOwnsScan({ heartbeat, now: Date.now() });
     entry.scanNote = owned && bridged !== null
       ? ownedBridgeNote({ bridgeAt: bridged.at, attempt: bridged.attempt ?? null, now: Date.now() })
-      : null;
+      : heartbeat !== null && fleetdLiveness(heartbeat, Date.now()) === 'live'
+        ? lateLoopNote(lateLoops(heartbeat, Date.now()))
+        : null;
     const skipDisplay = owned && sameBridge;
     let scanned: ScanResult | null = null;
     if (!owned) {

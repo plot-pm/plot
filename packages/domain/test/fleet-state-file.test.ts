@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bridgePath, BRIDGE_MAX_AGE_MS, fleetStateFile } from '../src/adapters/fleet-state/fleet-state-file.js';
 import { isAnswered } from '../src/port-result.js';
 import type { FleetReading } from '../src/entities/fleet.js';
+import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '../src/entities/fleetd-heartbeat.js';
 import type { BridgedPulse } from '../src/ports/fleet-state.js';
 
 // The rules the port lives by, mirrored from `packages/board/test/unit/pulse-bridge.test.ts`
@@ -222,5 +223,38 @@ describe('the fleet state port refuses anything it cannot trust, but never as a 
     expect(writeResult.ok).toBe(false);
     const readResult = await state.read();
     expect(readResult).toEqual({ ok: true, value: null });
+  });
+});
+
+describe('a bridge older than the bound while fleetd vouches for it', () => {
+  const T = 1_700_000_000_000;
+  const beat = (bridgeAt: number | null, beatAt = T): FleetdHeartbeat => ({
+    version: FLEETD_HEARTBEAT_VERSION, pid: 1, startedAt: T - 1_000_000, beatAt, generation: 1, bridgeAt,
+    supervised: 'none', watchesWanted: 0, watchesArmed: 0, lastEventAt: null, lastSafetyNetAt: null, loops: {},
+  });
+  const old = T - 20 * 60_000;
+
+  it('reads a 20-minute-old bridge while the live heartbeat names its at', async () => {
+    await fleetStateFile({ repoRoot: repo }).write(bridged(old));
+    const state = fleetStateFile({ repoRoot: repo, now: () => T, heartbeat: () => beat(old) });
+    const read = state.readSync();
+    expect(read.ok && read.value?.at).toBe(old);
+    const asyncRead = await state.read();
+    expect(asyncRead.ok && asyncRead.value?.at).toBe(old);
+  });
+
+  it('refuses the same bridge with a stale heartbeat, a mismatched at or no heartbeat', async () => {
+    await fleetStateFile({ repoRoot: repo }).write(bridged(old));
+    for (const heartbeat of [beat(old, T - 31_000), beat(old + 1), beat(null), () => null]) {
+      const fn = typeof heartbeat === 'function' ? heartbeat : () => heartbeat;
+      const read = fleetStateFile({ repoRoot: repo, now: () => T, heartbeat: fn }).readSync();
+      expect(read.ok && read.value).toBeNull();
+    }
+  });
+
+  it('refuses a bridge from the future even when the heartbeat names it', async () => {
+    await fleetStateFile({ repoRoot: repo }).write(bridged(T + 5_000));
+    const read = fleetStateFile({ repoRoot: repo, now: () => T, heartbeat: () => beat(T + 5_000) }).readSync();
+    expect(read.ok && read.value).toBeNull();
   });
 });

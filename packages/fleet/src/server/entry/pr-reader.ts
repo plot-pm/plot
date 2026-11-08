@@ -5,7 +5,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startPulse, type Clock, type RunningPulse } from '@plot-pm/domain';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
-import { clockSystem, hostShell, prIndexFile, readerLockFile, scriptsShell } from '@plot-pm/domain/adapters';
+import { fleetdLiveness } from '@plot-pm/domain/rules/fleetd-live';
+import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
+import { clockSystem, hostShell, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell } from '@plot-pm/domain/adapters';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
 import { freshPrState, type PrState, type PrWorld } from '../../shared/pr-refresh.js';
 import { PR_REFRESH_MS } from '../../shared/fleet-scan.js';
@@ -26,8 +28,8 @@ import { logDir, processLog } from '../../shared/process-log.js';
  * check rather than asking the host.
  *
  * Heartbeats as `reader.<pid>`. Exits, releasing its claim, once no live
- * board heartbeat remains under the lock, or once a live `fleetd` heartbeat
- * appears. A board removes its heartbeat when its last event stream detaches,
+ * board heartbeat remains under the lock, or once fleetd's heartbeat file
+ * reads `live`. A board removes its heartbeat when its last event stream detaches,
  * so the reader exits on its next beat, before that beat's pass. fleetd
  * publishes one on every pass, also while this reader holds
  * the lock, and elects on the pass after this reader releases it. Also exits
@@ -119,26 +121,29 @@ export const psLiveness = (pids: readonly number[]): Promise<Map<number, { alive
   });
 
 /**
- * Whether this reader should keep running: `'fleetd'` where a fresh `fleetd`
- * heartbeat exists, `'followers'` where a fresh `board.<pid>` heartbeat names
- * a live process, and `'none'` otherwise.
+ * Whether this reader should keep running: `'fleetd'` where fleetd's own
+ * heartbeat reads `live`, `'followers'` where a fresh `board.<pid>` heartbeat
+ * names a live process, and `'none'` otherwise.
  *
  * The reader's own heartbeat is published as `reader.<pid>` and is never
- * counted. A `fleetd` heartbeat needs no pid check: its name carries no pid,
- * and its age alone says fleetd still runs.
+ * counted. The reader lock's `fleetd` entry is not read: it exists for the
+ * election, and is written only on a PR beat. fleetd's heartbeat file needs no
+ * pid check: it is written on a timer whatever the host backend.
  *
  * @param heartbeats - every heartbeat currently published under the lock.
+ * @param fleetd - fleetd's heartbeat file as read, or null where there is none.
  * @param now - epoch milliseconds.
  * @param liveness - reads pid liveness in one batch; {@link psLiveness} in production.
  * @returns the reading.
  */
 export const stillFollowed = async (
   heartbeats: readonly { name: string; at: number }[],
+  fleetd: FleetdHeartbeat | null,
   now: number,
   liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>>,
 ): Promise<'fleetd' | 'followers' | 'none'> => {
+  if (fleetdLiveness(fleetd, now) === 'live') return 'fleetd';
   const fresh = heartbeats.filter((h) => heartbeatIsFresh(h.at, now));
-  if (fresh.some((h) => h.name === 'fleetd')) return 'fleetd';
   const boardPids = fresh
     .map((h) => /^board\.(\d+)$/.exec(h.name))
     .filter((m): m is RegExpExecArray => m !== null)
@@ -209,7 +214,7 @@ export const run = async (
     const now = Date.now();
     const held = await lock.heartbeats(args.connector);
     const read = held.ok ? held.value : [];
-    if ((await stillFollowed(read, now, liveness)) !== 'followers') stop = true;
+    if ((await stillFollowed(read, readFleetdHeartbeatSync(repoRoot), now, liveness)) !== 'followers') stop = true;
   };
 
   if (repoExists()) {

@@ -35,6 +35,7 @@ vi.mock('@plot-pm/domain', async (importOriginal) => {
 
 import { freshCacheEntry, maybeRefreshPrs, prOverdueSecondsFor, pulseFor, refresh, stopFleetRefresh } from '../../src/server/fleet.js';
 import { prIndexFile } from '@plot-pm/domain/adapters';
+import { writeFleetdHeartbeat } from './live-fleetd.js';
 
 // While a fleet runs it owns the scan: the board reads the pulse the fleet
 // bridged, spawns no scan, writes no bridge, and acts on no pulse. Every spawn is a REAL script that appends to a log.
@@ -68,7 +69,7 @@ const autoWrites = (dir: string): string[] => {
 };
 
 /** A repository whose scripts directory counts scan spawns and answers `supervisor: up` or down. */
-const fixture = (supervisorUp: boolean) => {
+const fixture = async (supervisorUp: boolean) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bridge-read-'));
   temps.push(dir);
   fs.writeFileSync(
@@ -94,6 +95,7 @@ const fixture = (supervisorUp: boolean) => {
   // same pair `fleetPrs` itself publishes on every pass; a board whose fixture
   // simulates the fleet via the bridge alone would read `electBoardVerdict` as
   // `elect` and ask the host on its own, which no real fleet ever leaves room for.
+  if (supervisorUp) await writeFleetdHeartbeat(dir);
   const readerLock = supervisorUp ? readerLockFixture() : undefined;
   if (readerLock !== undefined) {
     const now = Date.now();
@@ -134,7 +136,7 @@ afterEach(() => {
 
 describe('the board while a fleet runs', () => {
   it('spawns no scan, writes no bridge, and shows the bridged pulse', async () => {
-    const { dir, opts, spawned } = fixture(true);
+    const { dir, opts, spawned } = await fixture(true);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const before = fs.readFileSync(bridgePath(dir));
     const entry = freshCacheEntry();
@@ -147,7 +149,7 @@ describe('the board while a fleet runs', () => {
   });
 
   it('shows the bridged pulse after a restart without scanning, and acts on nothing', async () => {
-    const { dir, opts, spawned } = fixture(true);
+    const { dir, opts, spawned } = await fixture(true);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     // The first synchronous access seeds the cache from the bridge, as a
     // restarted process does, and starts its own first refresh.
@@ -158,7 +160,7 @@ describe('the board while a fleet runs', () => {
   });
 
   it('acts on no bridged pulse: the fleet daemon makes the automatic writes', async () => {
-    const { dir, opts } = fixture(true);
+    const { dir, opts } = await fixture(true);
     const state = fleetStateFile({ repoRoot: dir });
     const entry = freshCacheEntry();
     entry.at = 1; // a warm entry: the restart preload is not under test here
@@ -173,7 +175,7 @@ describe('the board while a fleet runs', () => {
 
 describe('the board while a live fleet is mid-scan on a stale bridge', () => {
   it('spawns no scan and shows the bridge age and the fleet\'s last failure', async () => {
-    const { dir, opts, spawned } = fixture(true);
+    const { dir, opts, spawned } = await fixture(true);
     const now = Date.now();
     await fleetStateFile({ repoRoot: dir }).write({
       ...bridged(now - 200_000),
@@ -186,9 +188,10 @@ describe('the board while a live fleet is mid-scan on a stale bridge', () => {
     expect(entry.scanNote).toContain('scan exceeded 90 s');
   });
 
-  it('scans itself once the fleet has started no attempt within the bound', async () => {
-    const { dir, opts, spawned } = fixture(true);
+  it('scans itself, and says why, while a live fleet\'s scan loop is late', async () => {
+    const { dir, opts, spawned } = await fixture(true);
     const now = Date.now();
+    await writeFleetdHeartbeat(dir, 0, { loops: { scan: { lastPassAt: now - 200_000 } } });
     await fleetStateFile({ repoRoot: dir }).write({
       ...bridged(now - 200_000),
       attempt: { startedAt: now - 190_000, endedAt: now - 150_000, outcome: 'failed', error: 'scan exceeded 90 s' },
@@ -196,13 +199,13 @@ describe('the board while a live fleet is mid-scan on a stale bridge', () => {
     const entry = freshCacheEntry();
     await refresh(opts, entry);
     expect(spawned()).toHaveLength(1);
-    expect(entry.scanNote).toBeNull();
+    expect(entry.scanNote).toContain('scan loop has not completed a pass in time');
   });
 });
 
 describe('the board alone', () => {
   it('scans for display, records nothing, and leaves last-pulse.json unchanged', async () => {
-    const { dir, opts, spawned } = fixture(false);
+    const { dir, opts, spawned } = await fixture(false);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const before = fs.readFileSync(bridgePath(dir));
     const entry = freshCacheEntry();
@@ -212,8 +215,9 @@ describe('the board alone', () => {
     expect(autoWrites(dir)).toEqual([]);
   });
 
-  it('scans in place of a fleet whose bridge went stale', async () => {
-    const { dir, opts, spawned } = fixture(true);
+  it('scans in place of a fleet whose heartbeat went stale', async () => {
+    const { dir, opts, spawned } = await fixture(true);
+    await writeFleetdHeartbeat(dir, 60_000);
     await fleetStateFile({ repoRoot: dir, now: () => Date.now() }).write(bridged(Date.now() - 400_000));
     const entry = freshCacheEntry();
     await refresh(opts, entry);
@@ -227,7 +231,7 @@ const heldRow = {
 
 describe('the PR side of the board', () => {
   it('while a fleet runs, serves the index and makes no host read and no fold', async () => {
-    const { dir, opts, prListed } = fixture(true);
+    const { dir, opts, prListed } = await fixture(true);
     const index = prIndexFile({ cwd: dir });
     const { foldPrIndex } = await vi.importActual<typeof import('@plot-pm/domain')>('@plot-pm/domain');
     await index.write('github', foldPrIndex(null, { connector: 'github', rows: [heldRow], kind: 'whole', at: new Date().toISOString() }));
@@ -246,7 +250,7 @@ describe('the PR side of the board', () => {
   });
 
   it('alone, asks the host and folds in memory without writing the index', async () => {
-    const { dir, opts, prListed, detachedCalls } = fixture(false);
+    const { dir, opts, prListed, detachedCalls } = await fixture(false);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
     // A page is attached: the board starts a reader only for a watched board.
@@ -272,7 +276,7 @@ describe('the PR reader while a fleet runs', () => {
   };
 
   it('shows the reader\'s last PR error beside the maps it served', async () => {
-    const { dir, opts } = fixture(true);
+    const { dir, opts } = await fixture(true);
     await seedStore(dir);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const now = Date.now();
@@ -286,7 +290,7 @@ describe('the PR reader while a fleet runs', () => {
   });
 
   it('clears the error once the reader publishes none', async () => {
-    const { dir, opts } = fixture(true);
+    const { dir, opts } = await fixture(true);
     await seedStore(dir);
     const entry = freshCacheEntry();
     entry.prError = 'old';
@@ -303,7 +307,7 @@ describe('the PR reader while a fleet runs', () => {
   // Issue #2843: the reader stretched its next read 7 min out, and the board
   // judged the data stale against the ordinary 60 s.
   it('reports the reader\'s own schedule as not overdue while the stretched read is ahead', async () => {
-    const { dir, opts } = fixture(true);
+    const { dir, opts } = await fixture(true);
     await seedStore(dir);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const now = Date.now();
@@ -319,7 +323,7 @@ describe('the PR reader while a fleet runs', () => {
   });
 
   it('reports no schedule where the reader published none', async () => {
-    const { dir, opts } = fixture(true);
+    const { dir, opts } = await fixture(true);
     await seedStore(dir);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
@@ -330,7 +334,7 @@ describe('the PR reader while a fleet runs', () => {
   });
 
   it('names an unreadable index instead of leaving the reader looking healthy', async () => {
-    const { dir, opts } = fixture(true);
+    const { dir, opts } = await fixture(true);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
     await refresh(opts, entry);
@@ -342,7 +346,7 @@ describe('the PR reader while a fleet runs', () => {
 
 describe('an owned refresh', () => {
   it('skips the display reads while the bridge `at` is unchanged, and redoes them when it advances', async () => {
-    const { dir, opts, supervisorReads } = fixture(true);
+    const { dir, opts, supervisorReads } = await fixture(true);
     const state = fleetStateFile({ repoRoot: dir });
     const at = Date.now() - 2_000;
     await state.write(bridged(at));
@@ -367,7 +371,7 @@ describe('an owned refresh', () => {
   });
 
   it('never skips when the board scans for itself', async () => {
-    const { dir, opts, supervisorReads } = fixture(false);
+    const { dir, opts, supervisorReads } = await fixture(false);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
     await refresh(opts, entry);
@@ -376,15 +380,38 @@ describe('an owned refresh', () => {
   });
 });
 
+describe('an idle repository whose fleetd keeps beating', () => {
+  it('keeps the scan with the fleet while the bridge is 20 minutes old and the heartbeat names it', async () => {
+    const { dir, opts, spawned } = await fixture(true);
+    const at = Date.now() - 20 * 60_000;
+    await fleetStateFile({ repoRoot: dir, now: () => at }).write(bridged(at));
+    await writeFleetdHeartbeat(dir, 0, { bridgeAt: at });
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    expect(spawned()).toEqual([]);
+  });
+
+  it('scans in its place once the heartbeat no longer names that bridge', async () => {
+    const { dir, opts, spawned } = await fixture(true);
+    const at = Date.now() - 20 * 60_000;
+    await fleetStateFile({ repoRoot: dir, now: () => at }).write(bridged(at));
+    await writeFleetdHeartbeat(dir, 60_000, { bridgeAt: at });
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    expect(spawned()).toEqual(['0']);
+  });
+});
+
 describe('a fleet that stops between two bridge writes', () => {
   it('reads the supervisor again and takes the scan over on the next tick', async () => {
-    const { dir, opts, spawned, supervisorReads } = fixture(true);
+    const { dir, opts, spawned, supervisorReads } = await fixture(true);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
     await refresh(opts, entry);
     expect(spawned()).toEqual([]);
-    // The operator stops the fleet: the supervisor reads down, and the bridge
+    // The operator stops the fleet: its heartbeat stops moving, and the bridge
     // keeps the `at` the last owned tick applied.
+    await writeFleetdHeartbeat(dir, 60_000);
     fs.writeFileSync(
       path.join(dir, 'plot-fleetctl.sh'),
       `#!/usr/bin/env bash\necho x >> ${JSON.stringify(path.join(dir, 'ctl.log'))}\necho 'summary: install=installed'\nexit 1\n`,

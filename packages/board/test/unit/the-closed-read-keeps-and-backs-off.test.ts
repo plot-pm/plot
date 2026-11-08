@@ -20,6 +20,7 @@ import {
 } from '../../src/server/fleet.js';
 import { discoveryLanes } from '../../src/server/discovery-lanes.js';
 import { rmTree } from '../helpers.mjs';
+import { writeFleetdHeartbeat } from './live-fleetd.js';
 
 // Issue #1670 H2 and H3: `GET /api/issues/closed` keeps its answer for one
 // issue interval, honours a live backoff, keeps a wait of its own after a
@@ -252,6 +253,7 @@ describe('GET /api/issues/closed honours a backoff', () => {
 describe('GET /api/issues/closed reads the gate under a fleet', () => {
   const underFleet = async (dir: string, opts: { repoRoot: string; scriptsDir: string }): Promise<void> => {
     const entry = await settledEntry(opts);
+    await writeFleetdHeartbeat(dir);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     await refresh(opts, entry);
     expect(entry.supervisor).toBeDefined();
@@ -282,10 +284,12 @@ describe('GET /api/issues/closed reads the gate under a fleet', () => {
     try {
       // 4 requests -> a 480 s window; 300 s later the kept answer still stands.
       vi.setSystemTime(Date.now() + 300_000);
+      await writeFleetdHeartbeat(dir);
       await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
       const inside = await issuesClosedReading(opts);
       expect(inside.asked).toBe(false);
       vi.setSystemTime(Date.now() + 300_000);
+      await writeFleetdHeartbeat(dir);
       await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
       const outside = await issuesClosedReading(opts);
       expect(outside.asked).toBe(true);

@@ -65,3 +65,30 @@ export const lateLoops = (heartbeat: FleetdHeartbeat, now: number): FleetdLoop[]
     if (pass === undefined) return false;
     return now - (pass.lastPassAt ?? heartbeat.startedAt) > FLEETD_LOOP_BOUND_MS[loop];
   });
+
+/**
+ * Reads whether fleetd vouches for a bridge as its latest write.
+ *
+ * True while the heartbeat reads `live` and its `bridgeAt` equals the
+ * bridge's `at`. An idle repository writes no new bridge, so the bridge ages
+ * while fleetd is healthy; the heartbeat's `bridgeAt` names the one bridge
+ * fleetd still stands behind. A heartbeat naming another bridge, or none,
+ * vouches for nothing.
+ *
+ * @param bridge - the bridge read, by its `at` in epoch milliseconds.
+ * @param heartbeat - the heartbeat read, or null where there is none.
+ * @param now - the current time, epoch milliseconds.
+ * @returns true when fleetd is live and names this bridge.
+ */
+export const bridgeVouched = (bridge: { at: number }, heartbeat: FleetdHeartbeat | null, now: number): boolean =>
+  heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && heartbeat.bridgeAt === bridge.at;
+
+/**
+ * The sentence the board shows while a live fleetd leaves the scan to it
+ * because a loop is late.
+ *
+ * @param loops - the late loops, from {@link lateLoops}.
+ * @returns the note, or null where no loop is late.
+ */
+export const lateLoopNote = (loops: readonly FleetdLoop[]): string | null =>
+  loops.length === 0 ? null : `the fleet is beating but its ${loops.join(', ')} loop has not completed a pass in time; the board scans in its place`;

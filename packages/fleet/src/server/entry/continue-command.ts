@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
+import { fleetStateVouched } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { callerOf, type Caller, type DeskMonitors, type FleetReading } from '@plot-pm/domain';
 import { continueBranch } from '../../shared/continue-command.js';
@@ -58,7 +58,7 @@ export interface ContinueCommandDeps {
  * @returns the bridged reading, or `null` where there is no trustworthy one.
  */
 const bridgedPulse = (repoRoot: string): FleetReading | null => {
-  const read = fleetStateFile({ repoRoot }).readSync();
+  const read = fleetStateVouched(repoRoot).readSync();
   return read.ok && read.value !== null ? read.value.pulse : null;
 };
 

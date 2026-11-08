@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -50,4 +51,18 @@ export const fleetdHeartbeatFile = (options: { repoRoot: string }): FleetdHeartb
       }
     },
   };
+};
+
+/**
+ * Reads the heartbeat synchronously, for a caller that cannot await.
+ *
+ * @param repoRoot - the repository root the file lives under.
+ * @returns the heartbeat, or null where the file is missing, unreadable or unrecognised.
+ */
+export const readFleetdHeartbeatSync = (repoRoot: string): FleetdHeartbeat | null => {
+  try {
+    return decodeFleetdHeartbeat(readFileSync(fleetdHeartbeatPath(repoRoot), 'utf8'));
+  } catch {
+    return null;
+  }
 };
