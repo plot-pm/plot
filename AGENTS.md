@@ -106,15 +106,17 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Design command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 - **Auto-design:** false
 - **Auto-review:** true
-- **Review app:** 5317669 /Users/jwloka/.plot/plot-review.2026-11-06.private-key.pem
-- **Merger app:** 5599192 /Users/jwloka/.plot/plot-merger.2026-11-06.private-key.pem
+- **Review app:** 5317669
+- **Merger app:** 5599192
 - **Writer app:** 5656981
 - **Review required since:** 2026-10-15T02:17:59Z
 - **Plan PRs:** required
 
 <!-- `Review app` names the GitHub App `plot-host.sh commit-status` and
      `plot-commit-status.mjs` mint an installation token from to write the
-     `plot/review` status — `<app id> <key path>`, the key outside the repo.
+     `plot/review` status — the line holds the App id; the key resolves from
+     `${XDG_CONFIG_HOME:-~/.config}/plot/plot-<role>.<app-id>.private-key.pem` or from
+     `PLOT_<ROLE>_APP_KEY`, outside the repo.
      The App is narrow (statuses: write; pull requests, contents: read), not
      `plot-board-builder`, and is NOT on main's ruleset bypass list. Main's
      ruleset 24412719 requires `plot/review` from this App since
