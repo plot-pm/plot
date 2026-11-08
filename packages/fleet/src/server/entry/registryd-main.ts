@@ -36,6 +36,7 @@ import {
   clockSystem,
   startChannel,
   fleetdStartFile,
+  fleetdHeartbeatFile,
   writeProbeShell,
   appKeyShell,
   type RunningChannel,
@@ -63,8 +64,9 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
-import type { HeldSlice, PortResult } from '@plot-pm/domain';
+import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
+import { startFleetdHeartbeat, supervisedFrom } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
@@ -109,7 +111,7 @@ import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
-import type { RegistryEntry } from '@plot-pm/domain/entities/snapshot';
+import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
@@ -2490,15 +2492,17 @@ export const CHANNEL_SOCKET = '.plot/fleet.sock';
  * @param repoRoot - the checkout the socket lives in.
  * @param warn - where the failure is reported.
  * @param start - opens the channel; the real transport unless a test gives one.
+ * @param snapshot - the daemon's snapshot, served to a `snapshot` subscriber; the channel refuses that purpose where absent.
  * @returns the running channel, or `null` where it could not be opened.
  */
 export const startFleetChannel = async (
   repoRoot: string,
   warn: (s: string) => void,
   start: typeof startChannel = startChannel,
+  snapshot?: () => RepoSnapshot,
 ): Promise<RunningChannel | null> => {
   try {
-    return await start({ address: join(repoRoot, CHANNEL_SOCKET) });
+    return await start({ address: join(repoRoot, CHANNEL_SOCKET), ...(snapshot === undefined ? {} : { snapshot }) });
   } catch (err) {
     warn(
       `plot-fleetd: the channel could not start, running without it: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -2652,6 +2656,8 @@ export interface RunSeams {
   readIssueWrites?: () => Promise<void>;
   /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
   notifier?: () => Promise<Notifier>;
+  /** The generation of the `RepoSnapshot` fleetd holds, written to the heartbeat; 0 while fleetd holds none. */
+  snapshotGeneration?: () => number;
   /**
    * The snapshot the loops fill. A fresh one by default; a test passes its own
    * to read what the run recorded.
@@ -2829,7 +2835,16 @@ export const run = async (
   // ONE SNAPSHOT FOR THE DAEMON'S WHOLE LIFE. Every loop below records a value
   // it already holds through `record`; nothing here reads for the snapshot.
   const snapshot = seams.snapshot ?? createSnapshotHolder();
-  const recordSnapshot: RecordReading = snapshot.record;
+  // THE CHANNEL IS BOUND LATER AND MAY BE ABSENT; `slot` is read at each record.
+  // A record that changed the snapshot sends one `delta` to every `snapshot`
+  // subscriber, and sends no byte where nothing changed.
+  const slot: ChannelSlot = { channel: null, indexMonitor: null, deskRelay: null };
+  const recordSnapshot: RecordReading = (key, reading) => {
+    const before = snapshot.current();
+    snapshot.record(key, reading);
+    const after = snapshot.current();
+    if (after !== before) slot.channel?.snapshotChanged(before, after, [key]);
+  };
   const tally: HostTally = { calls: 0 };
   // ONE `Checks wait` READ PER TICK, SHARED BY BOTH CONSUMERS. `queue`'s own
   // `defaultBranchRed` and `defaultBranchWorld` below each used to call
@@ -3080,7 +3095,33 @@ export const run = async (
   // daemon runs without the channel until a later PR beat binds it. The PR
   // index and the default-branch file are written whether or not anyone
   // listens.
-  const slot: ChannelSlot = { channel: null, indexMonitor: null, deskRelay: null };
+  // THE HEARTBEAT BELONGS TO THE LOOP: `--once` writes none. The beat comes from
+  // the clock and not from a loop's work, so it runs with no git host and with
+  // nothing changing. `generation` is 0 until fleetd holds a `RepoSnapshot`.
+  const passes: Partial<Record<FleetdLoop, number>> = {};
+  const passed = <T,>(loop: FleetdLoop, read: () => Promise<T>): (() => Promise<T>) => async () => {
+    const value = await read();
+    passes[loop] = Date.now();
+    return value;
+  };
+  const fleetLabel =
+    process.env.PLOT_FLEET_LABEL ||
+    (args.once ? '' : await readConfigAsync({ repoRoot, scriptsDir }, 'Fleet label', 'com.plot-pm.fleetd')) ||
+    'com.plot-pm.fleetd';
+  const stopHeartbeat: () => Promise<void> = args.once
+    ? async () => undefined
+    : startFleetdHeartbeat(
+        seams.clock ?? clockSystem(),
+        fleetdHeartbeatFile({ repoRoot }),
+        {
+          pid: process.pid,
+          startedAt: fleetdStartedAt,
+          supervised: supervisedFrom(process.env, fleetLabel),
+          passes: () => ({ ...passes }),
+          generation: seams.snapshotGeneration ?? (() => 0),
+        },
+        warn,
+      );
   const overChannel =
     seams.overChannel ??
     ((channel: RunningChannel) => ({
@@ -3088,7 +3129,7 @@ export const run = async (
       deskRelay: deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
     }));
   const openChannel = seams.openChannel ?? startChannel;
-  if (!args.once) await bindChannelSlot(slot, () => startFleetChannel(repoRoot, warn, openChannel), overChannel);
+  if (!args.once) await bindChannelSlot(slot, () => startFleetChannel(repoRoot, warn, openChannel, snapshot.current), overChannel);
   // A LATER BEAT RETRIES A FAILED BIND, silently: the start warned once, and a
   // live process holding the path would otherwise warn on every beat.
   // THE QUEUE'S LAST HOLDS, for the verify pass on the scan clock. `null`
@@ -3099,7 +3140,7 @@ export const run = async (
     : () =>
         bindChannelSlot(
           slot,
-          () => startFleetChannel(repoRoot, () => undefined, openChannel),
+          () => startFleetChannel(repoRoot, () => undefined, openChannel, snapshot.current),
           overChannel,
           () => warn('plot-fleetd: channel bound\n'),
           stop,
@@ -3107,7 +3148,7 @@ export const run = async (
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: seams.scan ?? fleetScan(
+        scan: passed('scan', seams.scan ?? fleetScan(
           {
             repoRoot,
             scripts,
@@ -3163,9 +3204,9 @@ export const run = async (
             () => queueHolds.held,
             stop,
           ),
-        ),
-        prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
-        issues: seams.readIssues ?? readIssues,
+        )),
+        prs: passed('pr-reader', prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind)),
+        issues: passed('issue-reader', seams.readIssues ?? readIssues),
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
       }, warn);
   const runTick = seams.tick ?? tick;
@@ -3187,6 +3228,7 @@ export const run = async (
       // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
       // beat only; a scan already started still runs its automatic writes, and
       // they write `.plot/state/` after `run` returned.
+      await stopHeartbeat();
       scanClock?.stop();
       await scanClock?.idle();
       await slot.channel?.stop();
@@ -3291,6 +3333,7 @@ export const run = async (
     // priced over the time since the last reading, not over its own cadence:
     // the scan makes about twelve calls in one 60 s tick, and twelve calls
     // over a 5 s cadence would print 8,640/hr for a loop spending 720.
+    if (report.incomplete === '') passes.tick = Date.now();
     const backgroundWindowMs = Math.max(1, Date.now() - lastReadAt);
     if (report.incomplete === '') {
       report = {

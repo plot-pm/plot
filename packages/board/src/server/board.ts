@@ -40,6 +40,7 @@ import {
   timeboxStanding,
   planStatus as decidePlanStatus,
   type BuildPort,
+  type ChannelLink,
   ChecksSchema,
   MergeabilitySchema,
   type Checks,
@@ -227,6 +228,11 @@ export interface BuildBoardOptions {
    * drive `elect`/`follow`/`unknown` without a second board instance.
    */
   readerLock?: ReaderLock;
+  /**
+   * The board's channel link, for `/api/fleet`'s liveness facts. Absent means
+   * no hub: the link reads `unknown`.
+   */
+  channelLink?: () => ChannelLink;
   /**
    * Starts the machine's PR reader. Absent means a real detached `node`
    * process, the same seam `handleNeedsDesign` uses for its own bundle.

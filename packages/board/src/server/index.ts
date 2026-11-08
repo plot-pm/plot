@@ -126,6 +126,7 @@ const events = startEventHub({
   // request gets one cold read through `ensureCache`.
   onClients: (count) => watchFleet(opts, count),
 });
+opts.channelLink = () => events.link();
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
 /**
@@ -515,7 +516,7 @@ async function handleRequest(
       // REPLACES the payload rather than adding to it — a mock beside real rows
       // is indistinguishable from a real estate behaving oddly, and the first
       // confused reading would cost more than the aid saves.
-      res.end(JSON.stringify(await fleetState({ opts, estate: estate.source })));
+      res.end(JSON.stringify({ ...(await fleetState({ opts, estate: estate.source })), snapshotChannel: events.snapshotLink() }));
     } catch (err) {
       console.error('Error building fleet:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });

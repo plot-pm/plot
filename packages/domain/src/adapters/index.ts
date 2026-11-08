@@ -213,6 +213,11 @@ export {
   type FleetdStartFileOptions,
 } from './fleetd-start/fleetd-start-file.js';
 
+// FLEETD'S HEARTBEAT. One file under the repository's `.plot/state/`, replaced
+// every `HEARTBEAT_MS` by the daemon's `run()` and read by whoever asks whether
+// fleetd is alive.
+export { fleetdHeartbeatFile, fleetdHeartbeatPath } from './fleetd-heartbeat/fleetd-heartbeat-file.js';
+
 // THE GATE-NUMBER READER. Resolves which gate a Claude Code session would
 // load for a repository and reads its `--spawn-contract` answer; used by both
 // the board's status payload and `plot-ask.mjs spawner`.
@@ -255,7 +260,10 @@ export {
 
 export {
   subscribe,
+  subscribeSnapshot,
   findingsIn,
+  type SnapshotStateListener,
+  type SubscribeSnapshotOptions,
   type SubscribeOptions,
   type Subscribed,
 } from './channel/channel-client.js';
