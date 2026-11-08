@@ -81,7 +81,7 @@ describe.skipIf(gate.kind !== 'run').each<CensusFixture>([
     expect(window.census.execs.some((e) => e.pid === window.board)).toBe(true);
   });
 
-  it.fails(rowTitle(CENSUS_ROWS.S1, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.S1, fixture), () => {
     recordCount(CENSUS_ROWS.S1, fixture, perMinute(window.execs.length), window.execs);
     expect(window.execs).toHaveLength(0);
   });
@@ -110,7 +110,7 @@ describe.skipIf(gate.kind !== 'run')('an idle board whose one page turned hidden
     await box?.remove();
   });
 
-  it.fails(rowTitle(CENSUS_ROWS.S2, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.S2, fixture), () => {
     recordCount(CENSUS_ROWS.S2, fixture, perMinute(window.execs.length), window.execs);
     expect(window.execs).toHaveLength(0);
   });

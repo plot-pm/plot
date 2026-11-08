@@ -1,3 +1,5 @@
+import type { ReaderVerdict } from './reader-election.js';
+
 /** What the board server knows about who watches it. */
 export interface BoardWatchReading {
   /** Event streams held open on `GET /api/events`. */
@@ -48,3 +50,26 @@ export const coldReadDue = (reading: ColdReadReading): boolean => {
   const gap = reading.now - last;
   return gap < 0 || gap >= reading.refreshMs;
 };
+
+/** What the board knows when it decides whether to start this machine's PR reader. */
+export interface ReaderWatchReading {
+  /** Event streams held open on `GET /api/events`. */
+  clients: number;
+  /** The board's verdict over the reader lock. */
+  verdict: ReaderVerdict;
+  /** Whether a fresh `fleetd` heartbeat exists under the lock. */
+  fleetdLive: boolean;
+}
+
+/**
+ * Whether the board starts this machine's `plot-pr-reader.mjs`.
+ *
+ * The board starts the reader only while an event stream is attached, the lock
+ * elects, and no live `fleetd` heartbeat already reads PRs. A plain request
+ * with no stream attached starts no reader.
+ *
+ * @param reading the attached streams, the lock verdict and the fleetd heartbeat
+ * @returns true when the board starts the reader
+ */
+export const readerWanted = ({ clients, verdict, fleetdLive }: ReaderWatchReading): boolean =>
+  pulseWanted({ clients }) && verdict === 'elect' && !fleetdLive;

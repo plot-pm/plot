@@ -185,7 +185,8 @@ const normalise = (line: string, roots: Record<string, string>): string => {
 const WARM_STARTS: readonly string[] = [
   "execFileSync git hash-object --stdin-paths",
   "spawn git --no-optional-locks -C <repo> status --porcelain --untracked-files=no",
-  "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
+  // no-tab-no-pulse, slice PR reader: a request with no page attached reads
+  // no PRs, and starts one ref listing fewer, measured 2026-11-08.
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git rev-parse origin/main^{commit}",

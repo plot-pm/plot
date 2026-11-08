@@ -19,12 +19,14 @@ interface Counted {
   clock: ReturnType<typeof clockManual>;
   scans: () => number;
   prReads: () => number;
+  releases: () => number;
 }
 
 /** A scan stub that lands at once and stamps `entry.at`, as `refresh` does. */
 const counting = (entry: CacheEntry, now: () => number = () => T0): Counted => {
   let scans = 0;
   let prReads = 0;
+  let releases = 0;
   const clock = clockManual(T0);
   return {
     clock,
@@ -37,9 +39,13 @@ const counting = (entry: CacheEntry, now: () => number = () => T0): Counted => {
       readPrs: async () => {
         prReads += 1;
       },
+      releaseReader: async () => {
+        releases += 1;
+      },
     },
     scans: () => scans,
     prReads: () => prReads,
+    releases: () => releases,
   };
 };
 
@@ -103,6 +109,35 @@ describe('watchEntry', () => {
     const reads = c.prReads();
     c.clock.advance(HEARTBEAT_STALE_MS / REFRESH_MS + 12);
     expect(c.prReads()).toBe(reads);
+  });
+});
+
+describe('watchEntry and the PR reader', () => {
+  it('records the attached streams on the entry', () => {
+    const entry = freshCacheEntry();
+    const c = counting(entry);
+    watchEntry(entry, 2, c.deps);
+    expect(entry.clients).toBe(2);
+    watchEntry(entry, 0, c.deps);
+    expect(entry.clients).toBe(0);
+  });
+
+  it('releases the PR reader once when the last stream leaves, and not for a stream that leaves while others stay', () => {
+    const entry = freshCacheEntry();
+    const c = counting(entry);
+    watchEntry(entry, 1, c.deps);
+    watchEntry(entry, 2, c.deps);
+    watchEntry(entry, 1, c.deps);
+    expect(c.releases()).toBe(0);
+    watchEntry(entry, 0, c.deps);
+    expect(c.releases()).toBe(1);
+  });
+
+  it('releases nothing for a zero count while no pulse runs', () => {
+    const entry = freshCacheEntry();
+    const c = counting(entry);
+    watchEntry(entry, 0, c.deps);
+    expect(c.releases()).toBe(0);
   });
 });
 

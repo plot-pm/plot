@@ -249,6 +249,8 @@ describe('the PR side of the board', () => {
     const { dir, opts, prListed, detachedCalls } = fixture(false);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
+    // A page is attached: the board starts a reader only for a watched board.
+    entry.clients = 1;
     await refresh(opts, entry);
     await maybeRefreshPrs(opts, entry);
     expect(prListed()).toBeGreaterThan(0);

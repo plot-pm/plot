@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { startPulse, type RunningPulse } from '@plot-pm/domain';
+import { startPulse, type Clock, type RunningPulse } from '@plot-pm/domain';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { clockSystem, hostShell, prIndexFile, readerLockFile, scriptsShell } from '@plot-pm/domain/adapters';
@@ -27,7 +27,9 @@ import { logDir, processLog } from '../../shared/process-log.js';
  *
  * Heartbeats as `reader.<pid>`. Exits, releasing its claim, once no live
  * board heartbeat remains under the lock, or once a live `fleetd` heartbeat
- * appears: fleetd publishes one on every pass, also while this reader holds
+ * appears. A board removes its heartbeat when its last event stream detaches,
+ * so the reader exits on its next beat, before that beat's pass. fleetd
+ * publishes one on every pass, also while this reader holds
  * the lock, and elects on the pass after this reader releases it. Also exits
  * once its repository root no longer exists, and starts no pass after that.
  */
@@ -163,6 +165,7 @@ export const stillFollowed = async (
  * @param repoExists - reads whether `repoRoot` still exists; a pass after the
  *   repository is removed would only fail, and its log line would recreate
  *   the removed root's `.plot/logs/`.
+ * @param clock - the clock the tick runs on; a test drives it by hand.
  * @returns the process exit code: always 0 — the reader leaves because no one
  *   follows it or fleetd runs, never because it failed.
  */
@@ -174,6 +177,7 @@ export const run = async (
   liveness: (pids: readonly number[]) => Promise<Map<number, { alive: boolean; startedAt: number | null }>> = psLiveness,
   stopRequested: () => boolean = () => false,
   repoExists: () => boolean = () => existsSync(repoRoot),
+  clock: Clock = clockSystem(),
 ): Promise<number> => {
   const context = { repoRoot, scriptDir };
   const lock = readerLockFile({ home: args.lockDir });
@@ -190,6 +194,17 @@ export const run = async (
 
   let stop = false;
   let pulse: RunningPulse | null = null;
+  // Ends the current wait at once, so a tick that sets `stop` ends the run
+  // without waiting out the poll below.
+  let wake: () => void = () => undefined;
+  const nap = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      wake = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
   const checkStillFollowed = async (): Promise<void> => {
     const now = Date.now();
     const held = await lock.heartbeats(args.connector);
@@ -204,25 +219,29 @@ export const run = async (
     stop = true;
   }
   if (!stop) {
-    pulse = startPulse(clockSystem(), PR_REFRESH_MS);
+    pulse = startPulse(clock, PR_REFRESH_MS);
     pulse.add({
       name: 'pr-reader',
       everyNthBeat: 1,
       tick: async () => {
         if (!repoExists()) {
           stop = true;
-          pulse?.stop();
-          return;
+        } else {
+          // BEFORE THE PASS: a board that stopped following, or a fleetd that
+          // took over, ends the reader on this beat with no further host call.
+          await checkStillFollowed();
+          if (!stop) await readPrs();
         }
-        await readPrs();
-        await checkStillFollowed();
-        if (stop) pulse?.stop();
+        if (stop) {
+          pulse?.stop();
+          wake();
+        }
       },
     });
   }
 
   while (!stop && !stopRequested() && repoExists()) {
-    await new Promise((resolve) => setTimeout(resolve, Math.min(EXIT_CHECK_MS, 5_000)));
+    await nap(Math.min(EXIT_CHECK_MS, 5_000));
   }
   pulse?.stop();
   // A released claim reads as no holder, so the next board elects at once

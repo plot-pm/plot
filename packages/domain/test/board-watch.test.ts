@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { coldReadDue, pulseWanted, type ColdReadReading } from '../src/rules/board-watch.js';
+import { coldReadDue, pulseWanted, readerWanted, type ColdReadReading, type ReaderWatchReading } from '../src/rules/board-watch.js';
 
 describe('pulseWanted', () => {
   it('answers false with no client attached', () => {
@@ -58,5 +58,34 @@ describe('coldReadDue', () => {
 
   it('reads once on a clock that moved backwards', () => {
     expect(coldReadDue(cold({ lastScanAt: 200_000 }))).toBe(true);
+  });
+});
+
+const reader = (over: Partial<ReaderWatchReading>): ReaderWatchReading => ({
+  clients: 1,
+  verdict: 'elect',
+  fleetdLive: false,
+  ...over,
+});
+
+describe('readerWanted', () => {
+  it('answers true with a client attached, an elect verdict and no live fleetd', () => {
+    expect(readerWanted(reader({}))).toBe(true);
+  });
+
+  it('answers false with no client attached', () => {
+    expect(readerWanted(reader({ clients: 0 }))).toBe(false);
+  });
+
+  it('answers false while a live fleetd heartbeat reads PRs', () => {
+    expect(readerWanted(reader({ fleetdLive: true }))).toBe(false);
+  });
+
+  it('answers false where another live holder reads PRs', () => {
+    expect(readerWanted(reader({ verdict: 'follow' }))).toBe(false);
+  });
+
+  it('answers false where the lock could not be read', () => {
+    expect(readerWanted(reader({ verdict: 'unknown' }))).toBe(false);
   });
 });

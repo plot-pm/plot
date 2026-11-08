@@ -9,7 +9,7 @@ import type { Detached } from '@plot-pm/domain';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { HEARTBEAT_STALE_MS, READER_STALE_MS } from '@plot-pm/domain/rules/reader-election';
 
-import { freshCacheEntry, maybeRefreshPrs } from '../../src/server/fleet.js';
+import { ensureCache, freshCacheEntry, maybeRefreshPrs, releaseReader, stopFleetRefresh, type CacheEntry } from '../../src/server/fleet.js';
 import { rmTree } from '../helpers.mjs';
 
 // the-boards-share-one-pr-reader: two board instances against one repository
@@ -20,6 +20,9 @@ import { rmTree } from '../helpers.mjs';
 // even where the rule itself stays correct.
 
 const temps: string[] = [];
+
+/** A cache entry with one event stream attached, as a board a page shows. */
+const watchedEntry = (): CacheEntry => ({ ...freshCacheEntry(), clients: 1 });
 
 /** A repository two board instances share, with a real `pr-list` answer. */
 const fixture = () => {
@@ -76,8 +79,8 @@ describe('one process runs — a second board instance never starts a second rea
       // Detached fake a single machine's lock file and process table would be.
       const optsA = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
       const optsB = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
-      const entryA = freshCacheEntry();
-      const entryB = freshCacheEntry();
+      const entryA = watchedEntry();
+      const entryB = watchedEntry();
 
       await maybeRefreshPrs(optsA, entryA);
       expect(calls).toHaveLength(1);
@@ -110,7 +113,7 @@ describe('a freshly renewed fleetd claim reads as follow, not elect', () => {
       const calls: { script: string; args: readonly string[] }[] = [];
       const detached = recordingDetached(calls);
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached, processProbe: probeAnswering(true) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs(opts, entry);
 
@@ -137,7 +140,7 @@ describe('a freshly renewed fleetd claim reads as follow, not elect', () => {
       const calls: { script: string; args: readonly string[] }[] = [];
       const detached = recordingDetached(calls);
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs(opts, entry);
 
@@ -159,7 +162,7 @@ describe('a claim whose holder died is not followed', () => {
       await readerLock.elect('github', { generation: 0, pid: 999_991, startedAt: old - 60_000, at: old });
       const calls: { script: string; args: readonly string[] }[] = [];
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls), processProbe: probeAnswering(false) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs(opts, entry);
 
@@ -182,7 +185,7 @@ describe('a claim whose holder died is not followed', () => {
       await readerLock.elect('github', { generation: 0, pid: gone as number, startedAt: now - 60_000, at: now });
       const calls: { script: string; args: readonly string[] }[] = [];
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs(opts, entry);
 
@@ -202,7 +205,7 @@ describe('a claim whose holder died is not followed', () => {
       await readerLock.elect('github', { generation: 0, pid: 999_992, startedAt: now - 60_000, at: now });
       const calls: { script: string; args: readonly string[] }[] = [];
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls), processProbe: probeAnswering(true) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs(opts, entry);
 
@@ -231,7 +234,7 @@ describe('a board following a standalone reader with no fleet', () => {
       await readerLock.elect('github', { generation: 0, pid: 999_993, startedAt: now - 60_000, at: now });
       const calls: { script: string; args: readonly string[] }[] = [];
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls), processProbe: probeAnswering(true) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs(opts, entry);
       expect(entry.prReader).toBe('reader 999993');
@@ -263,7 +266,7 @@ describe('a board following a standalone reader with no fleet', () => {
         },
       };
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: throwing, processProbe: probeAnswering(false) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await expect(maybeRefreshPrs(opts, entry)).rejects.toThrow('spawn failed');
 
@@ -295,7 +298,7 @@ describe('a board restarts a reader that exited', () => {
         },
       };
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
       const tick = async (): Promise<void> => {
         entry.prNextAt = 0;
         entry.prNextIsBackoff = false;
@@ -324,7 +327,7 @@ describe('a board restarts a reader that exited', () => {
     try {
       const readerLock = readerLockFixture();
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached([]) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
       entry.backend = 'github';
       entry.prNextAt = Date.now() + 10 * 60_000;
       entry.prNextIsBackoff = true;
@@ -347,7 +350,7 @@ describe('a board restarts a reader that exited', () => {
       await readerLock.heartbeat('github', `reader.${process.ppid}`, now);
       const calls: { script: string; args: readonly string[] }[] = [];
       const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs(opts, entry);
 
@@ -366,7 +369,7 @@ describe('a board starts no reader it has no repository or host for', () => {
       fs.writeFileSync(path.join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\nexit 4\n');
       const readerLock = readerLockFixture();
       const calls: { script: string; args: readonly string[] }[] = [];
-      const entry = freshCacheEntry();
+      const entry = watchedEntry();
 
       await maybeRefreshPrs({ repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) }, entry);
 
@@ -386,7 +389,7 @@ describe('a board starts no reader it has no repository or host for', () => {
       const calls: { script: string; args: readonly string[] }[] = [];
 
       // The backend an earlier tick resolved, before the repository was removed.
-      const entry = { ...freshCacheEntry(), backend: 'github' };
+      const entry = { ...watchedEntry(), backend: 'github' };
 
       await maybeRefreshPrs(
         { repoRoot: gone, scriptsDir: dir, readerLock: readerLockFixture(), detached: recordingDetached(calls) },
@@ -395,6 +398,134 @@ describe('a board starts no reader it has no repository or host for', () => {
 
       expect(calls).toHaveLength(0);
       expect(fs.existsSync(gone)).toBe(false);
+    } finally {
+      cleanup(dir);
+    }
+  });
+});
+
+describe('the board starts its PR reader only while a page is attached', () => {
+  afterEach(() => {
+    stopFleetRefresh();
+    vi.useRealTimers();
+  });
+
+  /** The names of the heartbeats published under the `github` key. */
+  const beatNames = async (lock: ReturnType<typeof readerLockFixture>): Promise<string[]> => {
+    const held = await lock.heartbeats('github');
+    return held.ok ? held.value.map((h) => h.name) : [];
+  };
+
+  it('a cold read starts no reader and writes no heartbeat', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
+      const entry = ensureCache(opts);
+      await vi.waitFor(() => expect(entry.running).toBe(false));
+      expect(entry.pulseClock).toBeNull();
+      expect(calls).toHaveLength(0);
+      expect(await beatNames(readerLock)).toEqual([]);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('a PR read with no page attached starts no reader and writes no heartbeat', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
+      await maybeRefreshPrs(opts, freshCacheEntry());
+      expect(calls).toHaveLength(0);
+      expect(await beatNames(readerLock)).toEqual([]);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('an attached page starts the reader and follows it; the release removes the heartbeat', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
+      const entry = watchedEntry();
+      await maybeRefreshPrs(opts, entry);
+      expect(calls).toHaveLength(1);
+      expect(await beatNames(readerLock)).toEqual([`board.${process.pid}`]);
+      entry.clients = 0;
+      await releaseReader(opts, entry);
+      expect(await beatNames(readerLock)).toEqual([]);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('removes the heartbeat a tick wrote where the last page left during that tick', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      const entry = watchedEntry();
+      const detached: Detached = {
+        node: () => {
+          // The last stream detaches while this tick runs, after its heartbeat.
+          entry.clients = 0;
+          return { pid: 1, exitCode: () => null };
+        },
+      };
+      await maybeRefreshPrs({ repoRoot: dir, scriptsDir: dir, readerLock, detached }, entry);
+      expect(await beatNames(readerLock)).toEqual([]);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('a page that attaches again after a release starts a new reader at once, inside HEARTBEAT_STALE_MS', async () => {
+    const dir = fixture();
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const t0 = Date.now();
+      const readerLock = readerLockFixture();
+      let exited: number | null = null;
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const detached: Detached = {
+        node: (script, args) => {
+          calls.push({ script, args });
+          return { pid: 1, exitCode: () => exited };
+        },
+      };
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached };
+      const entry = watchedEntry();
+      await maybeRefreshPrs(opts, entry);
+      expect(calls).toHaveLength(1);
+      entry.clients = 0;
+      await releaseReader(opts, entry);
+      // The released reader exits on its next beat.
+      exited = 0;
+      vi.setSystemTime(t0 + 60_000);
+      entry.clients = 1;
+      entry.prNextAt = 0;
+      await maybeRefreshPrs(opts, entry);
+      expect(calls).toHaveLength(2);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('starts no reader for an attached page while a fresh fleetd heartbeat reads PRs', async () => {
+    const dir = fixture();
+    try {
+      const readerLock = readerLockFixture();
+      await readerLock.heartbeat('github', 'fleetd', Date.now());
+      const calls: { script: string; args: readonly string[] }[] = [];
+      const opts = { repoRoot: dir, scriptsDir: dir, readerLock, detached: recordingDetached(calls) };
+      const entry = watchedEntry();
+      await maybeRefreshPrs(opts, entry);
+      expect(calls).toHaveLength(0);
+      expect(entry.prReader).toBe('fleet');
     } finally {
       cleanup(dir);
     }
