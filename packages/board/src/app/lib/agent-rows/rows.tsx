@@ -2244,7 +2244,7 @@ export function Row({
               anything else. Folding draft into the state would rebuild the
               short-circuit that kept WAITING ON A MACHINE empty for three
               releases. */}
-          {rowSubject(row) === 'release' && <ReleaseApprove row={row} />}
+          {isReleaseBranch(row.branch) && <ReleaseApprove row={row} />}
           {row.pr?.draft && (
             <span
               data-pr-draft

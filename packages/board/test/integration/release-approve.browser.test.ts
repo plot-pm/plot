@@ -39,7 +39,7 @@ describe('the release row approves itself', () => {
     const base = scenario('ten-rows-one-kind-each').fleet;
     const { agents: _a, summary: _s, rows, ...envelope } = base;
     const release = row({
-      kind: 'release', version: '2.7.0', plan: '', planFile: '', group: 'waiting-on-you',
+      kind: 'release', version: '2.7.0', plan: '', planFile: '', wave: '', group: 'waiting-on-you',
       branch: 'changeset-release/main', branchUrl: 'https://host/tree/changeset-release/main',
       ageMinutes: 12, pr: releasePr(reviewSha),
     });
