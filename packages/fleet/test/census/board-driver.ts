@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,8 +20,52 @@ export type BoardRun = {
   read: () => Promise<number>;
   /** Opens the page's event stream; `detach` closes it, as a hidden page does. */
   attach: () => Promise<SseClient>;
+  /**
+   * Waits until the board has had no descendant process for `quietMs`, polled
+   * from this untraced process, or until `timeoutMs` has passed. Returns true
+   * when the board went quiet, false on the timeout.
+   */
+  quiet: (quietMs: number, timeoutMs: number) => Promise<boolean>;
   /** Stops the board's group and the host, and returns the session's end. */
   stop: () => Promise<SessionEnd>;
+};
+
+/** The pids `ps` lists below `root` now, found by parent pid. */
+export const descendantsOf = (root: number, listing: string): number[] => {
+  const children = new Map<number, number[]>();
+  for (const line of listing.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    if (m === null) continue;
+    const [pid, ppid] = [Number(m[1]), Number(m[2])];
+    children.set(ppid, [...(children.get(ppid) ?? []), pid]);
+  }
+  const found: number[] = [];
+  const queue = [root];
+  while (queue.length > 0) {
+    for (const child of children.get(queue.shift() ?? -1) ?? []) {
+      found.push(child);
+      queue.push(child);
+    }
+  }
+  return found;
+};
+
+const POLL_MS = 100;
+
+const listProcesses = (): string =>
+  spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' }).stdout ?? '';
+
+const waitQuiet = async (root: number, quietMs: number, timeoutMs: number): Promise<boolean> => {
+  const until = Date.now() + timeoutMs;
+  let quietSince: number | null = null;
+  while (Date.now() < until) {
+    const now = Date.now();
+    if (descendantsOf(root, listProcesses()).length > 0) quietSince = null;
+    else if (quietSince === null) quietSince = now;
+    else if (now - quietSince >= quietMs) return true;
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+  return false;
 };
 
 const HOST = fileURLToPath(new URL('./board-host.mjs', import.meta.url));
@@ -75,6 +120,7 @@ export const startBoard = async (box: Sandbox, options: { trace: boolean }): Pro
         },
       };
     },
+    quiet: (quietMs, timeoutMs) => waitQuiet(Number(pid), quietMs, timeoutMs),
     stop: async () => {
       session.send('stop');
       return session.end(60_000);

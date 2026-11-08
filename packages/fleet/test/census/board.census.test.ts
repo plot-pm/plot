@@ -20,6 +20,14 @@ const gate = censusGate({ stracePath: findStrace(process.env['PATH'] ?? ''), pla
 const WINDOW_MS = Number(process.env['PLOT_CENSUS_WINDOW_MS'] ?? '60000');
 /** The time a scenario lets the board settle after its warm read, before the window opens. */
 const SETTLE_MS = 10_000;
+/**
+ * How long the board must have no child process before a no-client window
+ * opens. The warm read's scan is the board's last child where no client is
+ * attached, and on Bitbucket it outran `SETTLE_MS`.
+ */
+const QUIET_MS = 3_000;
+/** The longest a no-client scenario waits for the warm read to end. */
+const QUIET_TIMEOUT_MS = 180_000;
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -29,11 +37,15 @@ type Window = { census: StraceCensus; board: number; execs: ExecRecord[] };
 
 /**
  * Starts the board traced, runs `before` (the scenario's setup after the warm
- * read), settles, and returns the board tree's images inside the window.
+ * read), settles, and returns the board tree's images inside the window. With
+ * `quiet`, the window opens only after the board has had no child process for
+ * `QUIET_MS`, so a warm read still running is not counted as idle work; a
+ * board that never goes quiet within `QUIET_TIMEOUT_MS` is measured anyway.
  */
 const measureBoard = async (
   box: Sandbox,
   before: (board: BoardRun) => Promise<() => Promise<void>>,
+  options: { quiet: boolean },
 ): Promise<Window> => {
   const board = await startBoard(box, { trace: true });
   let census: StraceCensus | null = null;
@@ -41,6 +53,9 @@ const measureBoard = async (
   try {
     expect(await board.read()).toBe(200);
     after = await before(board);
+    if (options.quiet && !(await board.quiet(QUIET_MS, QUIET_TIMEOUT_MS))) {
+      console.warn(`process census: the board did not go quiet within ${QUIET_TIMEOUT_MS} ms`);
+    }
     await wait(SETTLE_MS);
     await board.mark('w0');
     await wait(WINDOW_MS);
@@ -70,8 +85,8 @@ describe.skipIf(gate.kind !== 'run').each<CensusFixture>([
 
   beforeAll(async () => {
     box = await buildSandbox(fixture);
-    window = await measureBoard(box, async () => async () => undefined);
-  }, 300_000);
+    window = await measureBoard(box, async () => async () => undefined, { quiet: true });
+  }, 420_000);
 
   afterAll(async () => {
     await box?.remove();
@@ -103,8 +118,8 @@ describe.skipIf(gate.kind !== 'run')('an idle board whose one page turned hidden
       await wait(SETTLE_MS);
       await page.detach();
       return async () => undefined;
-    });
-  }, 300_000);
+    }, { quiet: true });
+  }, 420_000);
 
   afterAll(async () => {
     await box?.remove();
@@ -133,7 +148,7 @@ describe.skipIf(gate.kind !== 'run')('an idle board with one visible page and fl
     window = await measureBoard(box, async (board) => {
       const page = await board.attach();
       return () => page.detach();
-    });
+    }, { quiet: false });
   }, 300_000);
 
   afterAll(async () => {

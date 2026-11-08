@@ -7,6 +7,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer, fetchBoard, makeRepo, rmTree, SCRIPTS_DIR } from './helpers.mjs';
@@ -53,10 +54,21 @@ const scriptsWithHost = () => {
   return dir;
 };
 
+// A board reads PRs only while a page is attached (no-tab-no-pulse), so the
+// test holds one SSE stream open as a visible page does.
+const attachClient = (port) => new Promise((resolve, reject) => {
+  const req = http.get({ host: '127.0.0.1', port, path: '/api/events' }, (res) => {
+    res.resume();
+    resolve(() => req.destroy());
+  });
+  req.on('error', reject);
+});
+
 describe('/api/board carries whose a card\'s PR is', () => {
   let tmp;
   let scripts;
   let server;
+  let detach;
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-09-25-ship-the-widget.md', content: PLAN }] });
     scripts = scriptsWithHost();
@@ -66,8 +78,10 @@ describe('/api/board carries whose a card\'s PR is', () => {
       PLOT_PR_INDEX_HOME: path.join(tmp, '.pr-index'),
       PLOT_BUDGET_HOME: path.join(tmp, '.budget'),
     });
+    detach = await attachClient(server.port);
   });
   after(async () => {
+    detach?.();
     await server?.stop();
     if (tmp) rmTree(tmp);
     if (scripts) rmTree(scripts);

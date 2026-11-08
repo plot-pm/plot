@@ -2131,7 +2131,7 @@ bb_fetch_base_bounded() {
   GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null & pid=$!
   ( sleep "$BB_FETCH_BOUND_S"; kill -TERM "-$pid" 2>/dev/null ) & watcher=$!
   wait "$pid" 2>/dev/null; rc=$?
-  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null; [ "$was_m" = yes ] || set +m
+  kill -TERM "-$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null; [ "$was_m" = yes ] || set +m
   return "$rc"
 }
 

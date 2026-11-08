@@ -446,6 +446,21 @@ exec /usr/bin/env PATH="${process.env.PATH}" git "$@"
   assert.ok(elapsed < 55_000, `expected the bound to cut the 60s sleep short, took ${elapsed}ms`);
 });
 
+// The bound's watcher is a subshell whose `sleep` inherits the caller's
+// stdout. A fetch that finishes at once must end that `sleep` too: an
+// orphaned one holds a captured stdout open for the whole bound, so a reader
+// of `pr-state`'s output waited 10 s for a fetch that took milliseconds.
+test('host: a git fetch inside the bound releases stdout when it finishes', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(prRow({ id: 34, branch: 'clean-branch', headSha: sandbox.cleanSha }));
+  const start = Date.now();
+  const out = runInRepo(['pr-state', '34'], { repo: sandbox.workDir, stubDir: dir });
+  const elapsed = Date.now() - start;
+  assert.equal(out.code, 0, out.stderr);
+  assert.equal(JSON.parse(out.stdout).mergeable, 'mergeable');
+  assert.ok(elapsed < 8_000, `expected the read to end with its fetch, took ${elapsed}ms`);
+});
+
 // #2481 (d): `bb_state_row`'s exit status must survive the `$(...)` capture in
 // `pr-state`, both the numeric-ref and branch-name arms. A `node` stub that
 // fails only `plot-jenkins-pr-checks.mjs state` — the command `bb_state_row`

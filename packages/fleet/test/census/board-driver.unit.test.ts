@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { removeTree } from '../rm-tree.mjs';
-import { boardArtifact, startBoard } from './board-driver.js';
+import { boardArtifact, descendantsOf, startBoard } from './board-driver.js';
 import { startSession } from './census-session.js';
 import { buildSandbox, type Sandbox } from './sandbox.js';
 
@@ -16,6 +16,7 @@ import { buildSandbox, type Sandbox } from './sandbox.js';
 describe.skipIf(!existsSync(boardArtifact()))('the census board driver', () => {
   let box: Sandbox;
   let readStatus = 0;
+  let wentQuiet = false;
   let stdout = '';
   let code: number | null = null;
 
@@ -24,6 +25,7 @@ describe.skipIf(!existsSync(boardArtifact()))('the census board driver', () => {
     const board = await startBoard(box, { trace: false });
     try {
       readStatus = await board.read();
+      wentQuiet = await board.quiet(1_000, 60_000);
       const page = await board.attach();
       await page.detach();
       await board.mark('w0');
@@ -42,10 +44,25 @@ describe.skipIf(!existsSync(boardArtifact()))('the census board driver', () => {
     expect(readStatus).toBe(200);
   });
 
+  it('waits until the warm read has no child left', () => {
+    expect(wentQuiet).toBe(true);
+  });
+
   it('marks a window and stops the board', () => {
     expect(stdout).toMatch(/^census: marked w0$/m);
     expect(stdout).toMatch(/^census: stopped /m);
     expect(code).toBe(0);
+  });
+});
+
+describe('the descendants of a board', () => {
+  it('lists children and grandchildren by parent pid, and nothing else', () => {
+    const listing = ['  10     1', '  11    10', '  12    11', '  13     1', 'garbage', '  14    10'].join('\n');
+    expect(descendantsOf(10, listing).sort()).toEqual([11, 12, 14]);
+  });
+
+  it('lists nothing for a board with no child', () => {
+    expect(descendantsOf(13, '  10     1\n  13     1\n')).toEqual([]);
   });
 });
 
