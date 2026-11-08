@@ -8,16 +8,15 @@
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #3274
-- **Story:**
+- **Story:** nothing-changed-nothing-runs
 - **Review:** pr
 - **Impl:** own branches
 
 ## Changelog
 
-- A board stop or restart no longer ends an agent run. The board records the request (action, subject, requester) and returns; fleetd starts, supervises and records the end of the run, and the board reads the run's state like every other fleet state.
-- A board route that needs fleetd refuses with `fleet-not-running` when no fleetd runs, and starts nothing.
+- A board stop or restart no longer ends an agent run that the board started. The run starts outside the board's process tree, writes its own end into its run-state file, and the board reads that file after a restart.
 
-Board impact: yes. The controller routes change what they do after the request is recorded; the run-state files the board reads keep their shape unless a slice says otherwise.
+Board impact: yes. The board's run-state files gain the run's pid and exit code; the routes and the page keep their behaviour.
 
 ## Motivation
 
@@ -40,35 +39,33 @@ The fleet package already has its own `startBoardRun` (`packages/fleet/src/share
 
 ## Design
 
+### Scope
+
+This plan is the interim fix for #3274, in sprint `ship-2-32-0`. It keeps the board as the process that starts these runs and makes each run outlive the board. The full move, in which the board records a request and only fleetd starts and supervises agents, belongs to story `nothing-changed-nothing-runs` beside its Phase 4 and is tracked on #3274. This plan does not build a request path, a fleetd change or a `fleet-not-running` refusal.
+
 ### Approach
 
-The board writes a request record and returns 202. fleetd reads the record on its tick, starts the run through the fleet's `startBoardRun`, and writes the run's state file. The board reads that state file as it does today.
+- **The run leaves the board's tree.** `plot-boardctl.sh --stop` stops the board's whole descendant tree (pidfile root and every process whose parent chain reaches it). A `detached: true` child keeps the board as its parent and is still stopped. The run therefore starts through a wrapper that re-parents it, as `plot-dispatch.sh:1507` does for desk agents with a detached `nohup sh -c` wrapper: the board's direct child exits at once, and the run's parent becomes `launchd`/init.
+- **The wrapper records the end.** The wrapper writes the run's pid into the run-state file at start, waits for the run, and writes the exit code and end time into the same file at the end, atomically. The board no longer learns a run's end from its own `child.on('exit')`.
+- **The board reads the file after a restart.** A state file that reads `running` with a live pid stays `running`. A state file that reads `running` with a dead pid and no exit record reads `failed`, with the reason `the run ended without an exit record`. The liveness check is the pid plus its start time, as `plot-worker-state.sh` reads a desk worker today.
+- **Where it changes.** The spawn site is an adapter: `agent-run-command.ts` reaches `bounded-run-process.ts`, whose child is never detached by design (`bounded-run-process.ts:148`, so a bounded kill reaches the whole group). Board runs get their own detached start in the `agent-run` adapter; `bounded-run-process.ts` and its callers keep their behaviour. The domain decides what a state file means (`running`, `done`, `failed`, and the dead-pid rule) as a pure rule with unit tests.
+- **The SDK connector.** `agent-run-sdk.ts` runs in-process when `runnerChoice` picks `sdk` for a role. An in-process run cannot outlive the board. For a role on the `sdk` connector, the board keeps today's behaviour, and the route's state file says `in-board` so the page and the log name the cost. The full move on #3274 removes this case.
 
-- **One request path.** Every role in the table reaches fleetd through one function in the board package. A test asserts that no board module outside that function imports `startBoardRun` or reaches `agentRun`.
-- **Request record.** Holds the action, the subject (slug or branch), the requester and the time. The record is a file under `.plot/state/`, written atomically; the exact shape is a slice decision.
-- **No fleetd.** The route reads the fleetd heartbeat. With no live heartbeat it answers `fleet-not-running`, records nothing and starts nothing. A fallback that keeps board-started runs is allowed only if a slice states it and its reason.
-- **Layering.** The board is a controller: it calls the domain, and the domain owns the port for "request a run". The adapter writes the request file. Domain behaviour (what a request names, when it is refused) is unit-testable without a browser.
+### Settled Questions
 
-### Open Questions
+- The wrapper is a shell launcher next to the existing dispatch wrapper, not new Node code in the board server: re-parenting needs a process that exits before the run does, and the dispatch wrapper already does that on both macOS and Linux.
+- Runs started by an older board before this change ship keep their old behaviour. Their state files carry no pid, so the board reads them as today.
 
-- [ ] Does the request live as a file fleetd polls, or as an HTTP call to fleetd? The file matches "the board is a pure reader" in `nothing-changed-nothing-runs` Phase 4 and needs no new listener.
-- [ ] Which routes return a result the page waits on? A synchronous answer (for example `idea` returning a PR URL) may need a poll on the run-state file instead.
-- [ ] Is a `fleet-not-running` refusal acceptable for every role, or does one role (an operator-only `approve`) keep a fallback?
-- [ ] Do runs in flight at the deploy of this change finish under the old board process, and how does the state file tell the two owners apart?
+### Left to the Builder
+
+- The field names for pid, start time, exit code and end time in the run-state file.
+- Whether the wrapper reuses `plot-dispatch.sh`'s wrapper function or a small shared launcher; `scripts/check-shell-lines.sh` counts the shell either way.
 
 ## Slices
 
-### Tracer
+### Runs outlive the board
 
-- `feature/the-board-requests-an-idea-run` — `POST /api/idea` records a request, fleetd starts the idea run, a board restart leaves the run going. <!-- builds: boardRunRequest, the one board-to-fleetd request path -->
-  Layers: board route → domain request rule → request adapter → fleetd tick → fleet `startBoardRun`
-  Proves: the request path and the `fleet-not-running` refusal end to end for one role.
-
-### Implementation
-
-- `feature/the-board-requests-implement-and-dispatch-runs` — `implement.ts` and the dispatch route use the request path. <!-- waits: the-board-requests-an-idea-run -->
-- `feature/the-board-requests-story-runs` — `story.ts` and `story-plan.ts` use the request path. <!-- waits: the-board-requests-an-idea-run -->
-- `feature/the-board-requests-approve-deliver-reslice-interrogate-runs` — the four remaining modules use the request path, and a test asserts that no board module reaches `startBoardRun` or `agentRun`. <!-- waits: the-board-requests-an-idea-run -->
+- `bug/board-runs-outlive-the-board` — board-started runs start through a re-parenting wrapper, write their pid and exit record into the run-state file, and the board reads a dead pid with no exit record as `failed`. A test starts a stub run through the idea route, stops the board's process tree as `plot-boardctl.sh --stop` does, and asserts the stub run keeps going and books its exit code. <!-- builds: the detached board-run start and the run-state end record -->
 
 ## Notes
 
