@@ -31,11 +31,11 @@ import {
   asJsonLines,
   asLines,
   asText,
-  runProcess,
   resultOf,
   type RunOptions,
   type ScriptRun,
 } from '../run-script.js';
+import { processAnswers, scriptRunner, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
@@ -200,11 +200,14 @@ export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
  * script exists to hold.
  *
  * @param context - where the scripts and the repository are.
+ * @param answers - the held backend answer; this process's own by default.
  * @returns a `Host` backed by the shell adapter.
  */
-export const hostShell = (context: ShellContext): Host => {
+export const hostShell = (context: ShellContext, answers: FixedAnswers = processAnswers): Host => {
   const host = scriptPath(context, 'plot-host.sh');
   const inRepo = { cwd: context.repoRoot };
+  /** Starts `plot-host.sh` with `PLOT_REPO_ROOT` and `PLOT_GIT_COMMON_DIR` set from the held answers. */
+  const runScripted = scriptRunner(context.repoRoot, answers);
 
   /**
    * Why the last call did not answer — see {@link Host.lastRefusal}.
@@ -261,7 +264,7 @@ export const hostShell = (context: ShellContext): Host => {
   };
 
   const ask = async <T>(args: readonly string[], parse: (stdout: string) => T) =>
-    record(await runProcess('bash', [host, ...args], inRepo), parse);
+    record(await runScripted('bash', [host, ...args], inRepo), parse);
 
   /**
    * The predictions this session has corrected, by `connector/bucket`.
@@ -292,7 +295,7 @@ export const hostShell = (context: ShellContext): Host => {
 
   /** Asks `pr-state` once, on the backend `where` selects. */
   const prStateOn = async (args: readonly string[], where: RunOptions): Promise<PortResult<PrLookup>> => {
-    const run = await runProcess('bash', [host, ...args], where);
+    const run = await runScripted('bash', [host, ...args], where);
     const answer = record(run, (stdout) => {
       const raw = asJson<RawPr & { state?: string }>(stdout);
       return raw.state === 'NONE' ? null : prOf(raw);
@@ -307,7 +310,7 @@ export const hostShell = (context: ShellContext): Host => {
 
   /** Asks `pr-merged` once, on the backend `where` selects. */
   const prMergedOn = async (args: readonly string[], where: RunOptions): Promise<PortResult<MergedAnswer>> => {
-    const run = await runProcess('bash', [host, ...args], where);
+    const run = await runScripted('bash', [host, ...args], where);
     if (run.code === 3) {
       // NOT A REFUSAL. `pr-merged` exits 3 to SAY `unknown` — a contract
       // answer, not a broken call — and it is answered below. Clearing the
@@ -351,7 +354,7 @@ export const hostShell = (context: ShellContext): Host => {
     // with no tracker is answering, not refusing — so this op sets it after,
     // rather than teaching `record` a distinction only this op can draw.
     backend: async (): Promise<PortResult<HostBackend>> => {
-      const run = await runProcess('bash', [host, 'backend'], inRepo);
+      const run = await answers.backend(host, context.repoRoot);
       const answer = record(run, asText);
       if (run.code === 4) {
         // Falls back to the code because a script that refused without a word
@@ -382,12 +385,12 @@ export const hostShell = (context: ShellContext): Host => {
     },
 
     prReady: async (pr): Promise<PortResult<void>> => {
-      const run = await runProcess('bash', [host, 'pr-ready', String(pr)], inRepo);
+      const run = await runScripted('bash', [host, 'pr-ready', String(pr)], inRepo);
       return record(run, () => undefined);
     },
 
     prClose: async (pr): Promise<PortResult<void>> => {
-      const run = await runProcess('bash', [host, 'pr-close', String(pr)], inRepo);
+      const run = await runScripted('bash', [host, 'pr-close', String(pr)], inRepo);
       return record(run, () => undefined);
     },
 
@@ -399,7 +402,7 @@ export const hostShell = (context: ShellContext): Host => {
     },
 
     prMergeCommit: async (branch): Promise<PortResult<string>> => {
-      const run = await runProcess('bash', [host, 'pr-merge-commit', branch], inRepo);
+      const run = await runScripted('bash', [host, 'pr-merge-commit', branch], inRepo);
       // EMPTY IS AN ANSWER AND A FAILURE IS NOT. `pr-merge-commit` exits 0
       // printing nothing where no PR merged; exit 3 is the question failing,
       // and `record` carries that through as a failed result so no caller reads
@@ -440,7 +443,7 @@ export const hostShell = (context: ShellContext): Host => {
       ];
       if (request.base !== undefined && request.base !== '') args.push('--base', request.base);
       if (request.draft) args.push('--draft');
-      const run = await runProcess('bash', args, inRepo);
+      const run = await runScripted('bash', args, inRepo);
       // The URL is what `gh pr create` prints and the only thing it prints. A
       // host that opened one and said nothing about where answers `''` — the
       // PR exists either way, and a caller that treated silence as failure
@@ -467,7 +470,7 @@ export const hostShell = (context: ShellContext): Host => {
       // true, and is why the CI connector now answers for itself. A port that
       // reported another service's headroom beside its own left a caller
       // pacing GitHub calls against a Jenkins estimate it never measured.
-      const git = await runProcess('bash', [host, 'limit'], inRepo);
+      const git = await runScripted('bash', [host, 'limit'], inRepo);
       const readings = record(git, (stdout) => asJsonLines<RawLimit>(stdout).map(limitOf));
       if (!readings.ok) return readings;
       const all = readings.value.map(withCorrections);
@@ -505,7 +508,7 @@ export const hostShell = (context: ShellContext): Host => {
         write.description,
         write.targetUrl,
       ];
-      const run = await runProcess('bash', [host, ...args], inRepo);
+      const run = await runScripted('bash', [host, ...args], inRepo);
       return record(run, () => true as const);
     },
 
@@ -516,7 +519,7 @@ export const hostShell = (context: ShellContext): Host => {
     // verified `bb` write for this (see `plot-host.sh`'s usage header) and
     // answers `unaskable`.
     prComment: async (pr: number, body: string, marker?: string): Promise<PortResult<true>> => {
-      const run = await runProcess('bash', [host, 'pr-comment', String(pr), body, ...(marker === undefined ? [] : [marker])], inRepo);
+      const run = await runScripted('bash', [host, 'pr-comment', String(pr), body, ...(marker === undefined ? [] : [marker])], inRepo);
       return record(run, () => true as const);
     },
 
@@ -527,9 +530,9 @@ export const hostShell = (context: ShellContext): Host => {
     // `checkedReview` reads that as unchecked. `plot-review-writer.mjs` reads
     // `Review app` from `origin/<default>` and never from the working tree.
     reviewWriter: async (): Promise<PortResult<string>> => {
-      const be = await runProcess('bash', [host, 'backend'], inRepo);
+      const be = await answers.backend(host, context.repoRoot);
       if (be.code === EXIT_OK && asText(be.stdout) !== 'github') return answered('');
-      const run = await runProcess('node', [scriptPath(context, 'plot-review-writer.mjs')], inRepo);
+      const run = await runScripted('node', [scriptPath(context, 'plot-review-writer.mjs')], inRepo);
       return resultOf(run, asText);
     },
 

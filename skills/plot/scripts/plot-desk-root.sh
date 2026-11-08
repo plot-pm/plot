@@ -17,8 +17,35 @@
 #   plot_repo_root            → the MAIN checkout, from anywhere
 #   plot_desk_root [repo [configured]] → the desk root; exit 3 when unaskable
 #   plot_exclude_desk_root [repo] → keep it out of `git status`; never fails
+#   plot_given_common_dir dir [top] → the common git dir (or top level) from an
+#                             exported answer, with no git process
 #
 # shellcheck shell=bash
+
+# The common git dir of a directory from an exported answer — or, with `top`
+# as the second argument, the directory's top level, which `--show-toplevel`
+# prints. Non-zero and nothing printed when the answer is not this directory's,
+# and the caller asks git.
+#
+# fleetd and the board pass `PLOT_REPO_ROOT` and `PLOT_GIT_COMMON_DIR` to the
+# scripts they start (`git-dirs.ts`), and `plot-worker-state.sh` exports the
+# second on sourcing. `givenGitDirs` in `git-dirs.ts` applies the same check to
+# a node bundle.
+#
+# The candidate is `PLOT_GIT_COMMON_DIR`, else `$PLOT_REPO_ROOT/.git`. It holds
+# only when the first `.git` above the directory is that dir itself (the main
+# checkout) or a file whose `gitdir:` lies under its `worktrees/` (a desk).
+# Every worktree of one repository shares the common dir, so an answer passes
+# between desks; another repository's `.git` refuses it. Both answers are
+# physical, as git prints them. Every caller runs it in a command
+# substitution, so its variables need no `local`.
+plot_given_common_dir() { # $1=directory [$2=top] → the physical common dir (or top level), or "" (non-zero)
+  c=$(cd -- "${PLOT_GIT_COMMON_DIR:-${PLOT_REPO_ROOT:-/nonexistent}/.git}" 2>/dev/null && pwd -P) && d=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
+  while [ ! -e "$d/.git" ] && [ -n "$d" ]; do d=${d%/*}; done
+  [ -d "$d/.git" ] && line="gitdir: $d/.git/worktrees/" || IFS= read -r line < "$d/.git" || return 1
+  [ "${line#"gitdir: $c/worktrees/"}" != "$line" ] || return 1
+  [ "${2:-}" = top ] && c=$d; printf '%s' "$c"
+}
 
 # The MAIN checkout, from a desk as readily as from the checkout itself.
 #
@@ -32,24 +59,25 @@
 # `--show-toplevel` is the fallback, since the common dir is also correct in a
 # non-worktree checkout: there `.git` is a real directory in the root.
 #
+# AN EXPORTED ANSWER IS TAKEN WHEN IT IS THIS CHECKOUT'S (`plot_given_common_dir`),
+# and git is asked otherwise.
+#
 # PHYSICAL, through `pwd -P`: `git worktree list` and `--show-toplevel` print
 # resolved paths, and a desk root composed from a logical one (`/tmp` against
 # `/private/tmp` on macOS) is a prefix no worktree path ever starts with.
 plot_repo_root() {
-  local common root=''
-  common=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
-    common=$(cd -- "$common" 2>/dev/null && pwd -P) || common=''
-    [ -n "$common" ] && root=$(dirname -- "$common")
-  }
-  [ -n "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
+  local root
+  root=$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && root=$(cd -- "$root" 2>/dev/null && pwd -P) && root=$(dirname -- "$root") || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
   printf '%s\n' "$root"
 }
 
 # Resolved ONCE at source time, the way `plot-pr-merged.sh:105` resolves its
 # own bundle. Computing it inside a function reads `BASH_SOURCE[0]` at call
-# time, which is the caller's file once the function has been exported.
-_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
-_plot_desk_root_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
+# time, which is the caller's file once the function has been exported. It
+# starts no program: `plot-worker-state.sh` sources this file in every per-desk
+# probe. A bare file name has no directory part, and the cwd holds it.
+_plot_desk_root_mjs="$(cd -- "${BASH_SOURCE[0]%/*}" 2>/dev/null && pwd || pwd)/board/plot-desk-root.mjs"
+_plot_desk_root_config="${_plot_desk_root_mjs%/board/*}/plot-config.sh"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #
@@ -111,9 +139,7 @@ plot_exclude_desk_root() {
   # Already ignored, by a `.gitignore` line /plot-init wrote or by an earlier
   # run. A second rule for a path already ignored is noise in a file people read.
   ( cd -- "$repo" 2>/dev/null && git check-ignore -q ".$line" ) && return 0
-  common=$(cd -- "$repo" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null) || return 0
-  [ -n "$common" ] || return 0
-  case "$common" in /*) ;; *) common="$repo/$common" ;; esac
+  common=$(plot_given_common_dir "$repo" || git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   exclude="$common/info/exclude"
   if [ -f "$exclude" ] && grep -qxF "$line" "$exclude" 2>/dev/null; then return 0; fi
   mkdir -p "$common/info" 2>/dev/null || return 0

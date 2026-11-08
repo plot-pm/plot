@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import { RunLogStepSchema, type RunLog, type RunLogLine } from '../../ports/run-log.js';
-import { runProcess } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 
 /**
  * The environment variable naming the log's directory, for tests.
@@ -20,6 +20,8 @@ const FILE = 'run-log.tsv';
 export interface RunLogFileOptions {
   /** The repository to resolve the log for; the process's cwd when omitted. */
   cwd?: string;
+  /** The held answers that place the file; this process's own when omitted. */
+  answers?: FixedAnswers;
   /** An explicit log directory, bypassing the git lookup. */
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
@@ -106,7 +108,7 @@ export const runLogFile = (options: RunLogFileOptions = {}): RunLog => {
   let cachedCommon: string | null | undefined;
   const commonDirOf = async (): Promise<string | null> => {
     if (cachedCommon !== undefined) return cachedCommon;
-    const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+    const run = await (options.answers ?? processAnswers).commonDir(options.cwd);
     const out = run.stdout.trim();
     cachedCommon = run.code !== 0 || out === '' ? null : resolve(options.cwd ?? process.cwd(), out);
     return cachedCommon;

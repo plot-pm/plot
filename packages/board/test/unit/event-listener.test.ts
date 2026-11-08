@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { listenForEvents, openSharedEventSource, type EventSourceLike } from '../../src/app/lib/event-listener.js';
+import {
+  listenForEvents,
+  openSharedEventSource,
+  pageShown,
+  pollWhileShown,
+  type EventSourceLike,
+  type PageLike,
+} from '../../src/app/lib/event-listener.js';
 
 const fakeSource = () => {
   const source: EventSourceLike & { closed: boolean } = {
@@ -165,9 +172,19 @@ const fakeBrowser = () => {
   }
   // Grants a lock to one callback at a time, in request order, the next once the
   // held callback's promise settles.
+  // A request whose signal aborts before its turn is never granted, as in a browser.
+  const requests: { signal?: AbortSignal; granted: boolean; released: boolean }[] = [];
   const locks = {
-    request: (name: string, callback: () => unknown): Promise<unknown> => {
-      const granted = (holders.get(name) ?? Promise.resolve()).then(() => callback());
+    request: (name: string, options: { signal?: AbortSignal }, callback: () => unknown): Promise<unknown> => {
+      const request = { signal: options.signal, granted: false, released: false };
+      requests.push(request);
+      const granted = (holders.get(name) ?? Promise.resolve()).then(() => {
+        if (options.signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        request.granted = true;
+        return Promise.resolve(callback()).finally(() => {
+          request.released = true;
+        });
+      });
       holders.set(name, granted.then(() => undefined, () => undefined));
       return granted;
     },
@@ -175,7 +192,7 @@ const fakeBrowser = () => {
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
   vi.stubGlobal('navigator', { locks });
-  return { sources };
+  return { sources, channels, requests };
 };
 
 const settle = async (): Promise<void> => {
@@ -254,5 +271,248 @@ describe('openSharedEventSource', () => {
     clock = 120_000;
     sources[1].onmessage?.({ data: '{"type":"welcome"}' });
     expect(refetches).toBe(2);
+  });
+});
+
+/** A page whose visibility a test sets, with the listeners the page registered. */
+const fakePage = (state: DocumentVisibilityState = 'visible') => {
+  const listeners = new Set<() => void>();
+  const page: PageLike & { set: (next: DocumentVisibilityState) => void; listeners: Set<() => void> } = {
+    visibilityState: state,
+    addEventListener: (_type, listener) => listeners.add(listener),
+    removeEventListener: (_type, listener) => listeners.delete(listener),
+    set: (next) => {
+      page.visibilityState = next;
+      for (const listener of [...listeners]) listener();
+    },
+    listeners,
+  };
+  return page;
+};
+
+describe('pageShown', () => {
+  it('answers true for a visible page and false for a hidden one', () => {
+    expect(pageShown('visible')).toBe(true);
+    expect(pageShown('hidden')).toBe(false);
+  });
+
+  it('answers true where no visibility is known', () => {
+    expect(pageShown(undefined)).toBe(true);
+  });
+});
+
+describe('listenForEvents on a page that hides', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('closes the stream when the page hides and opens a new one when it shows', () => {
+    const page = fakePage();
+    const opened: ReturnType<typeof fakeSource>[] = [];
+    listenForEvents({ page, open: () => opened[opened.push(fakeSource()) - 1], refetch: () => undefined });
+    expect(opened).toHaveLength(1);
+    page.set('hidden');
+    expect(opened[0].closed).toBe(true);
+    page.set('visible');
+    expect(opened).toHaveLength(2);
+    expect(opened[1].closed).toBe(false);
+  });
+
+  it('refetches once when the page shows again, and not again for the new stream\'s welcome', () => {
+    const page = fakePage();
+    const opened: ReturnType<typeof fakeSource>[] = [];
+    let refetches = 0;
+    listenForEvents({ page, open: () => opened[opened.push(fakeSource()) - 1], refetch: () => (refetches += 1) });
+    page.set('hidden');
+    vi.advanceTimersByTime(60_000);
+    page.set('visible');
+    expect(refetches).toBe(1);
+    opened[1].onmessage?.({ data: '{"type":"welcome"}' });
+    vi.advanceTimersByTime(10_000);
+    expect(refetches).toBe(1);
+  });
+
+  it('opens no stream for a page that starts hidden, until it shows', () => {
+    const page = fakePage('hidden');
+    let opens = 0;
+    let refetches = 0;
+    listenForEvents({ page, open: () => ((opens += 1), fakeSource()), refetch: () => (refetches += 1) });
+    expect(opens).toBe(0);
+    page.set('visible');
+    expect(opens).toBe(1);
+    expect(refetches).toBe(1);
+  });
+
+  it('sends no trailing refetch after the page hides', () => {
+    const page = fakePage();
+    const source = fakeSource();
+    let refetches = 0;
+    listenForEvents({ page, open: () => source, refetch: () => (refetches += 1) });
+    source.onmessage?.({});
+    source.onmessage?.({});
+    page.set('hidden');
+    vi.advanceTimersByTime(5_000);
+    expect(refetches).toBe(1);
+  });
+
+  it('removes its visibility listener when stopped', () => {
+    const page = fakePage();
+    const stop = listenForEvents({ page, open: fakeSource, refetch: () => undefined });
+    stop();
+    expect(page.listeners.size).toBe(0);
+  });
+
+  it('reads the global document when no page is given', () => {
+    const page = fakePage('hidden');
+    vi.stubGlobal('document', page);
+    let opens = 0;
+    listenForEvents({ open: () => ((opens += 1), fakeSource()), refetch: () => undefined });
+    expect(opens).toBe(0);
+    page.set('visible');
+    expect(opens).toBe(1);
+  });
+});
+
+describe('listenForEvents across tabs that hide', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('releases the lock and closes the relay when the holder hides, and re-requests it when it shows', async () => {
+    const { sources, channels, requests } = fakeBrowser();
+    const page = fakePage();
+    let refetches = 0;
+    listenForEvents({ page, refetch: () => (refetches += 1) });
+    await settle();
+    expect(sources).toHaveLength(1);
+    expect(channels).toHaveLength(1);
+    page.set('hidden');
+    await settle();
+    expect(sources[0].closed).toBe(true);
+    expect(requests[0].released).toBe(true);
+    expect(channels).toHaveLength(0);
+    page.set('visible');
+    await settle();
+    expect(requests).toHaveLength(2);
+    expect(requests[1].granted).toBe(true);
+    expect(sources).toHaveLength(2);
+    expect(refetches).toBe(1);
+  });
+
+  it('aborts a pending lock request when a waiting tab hides, so the lock is never granted to it', async () => {
+    const { sources, requests } = fakeBrowser();
+    const holder = fakePage();
+    const waiter = fakePage();
+    listenForEvents({ page: holder, refetch: () => undefined });
+    listenForEvents({ page: waiter, refetch: () => undefined });
+    await settle();
+    waiter.set('hidden');
+    expect(requests[1].signal?.aborted).toBe(true);
+    holder.set('hidden');
+    await settle();
+    expect(requests[1].granted).toBe(false);
+    expect(sources).toHaveLength(1);
+    expect(sources[0].closed).toBe(true);
+  });
+
+  it('hands the stream to the next visible tab when the holder hides', async () => {
+    const { sources } = fakeBrowser();
+    const holder = fakePage();
+    const follower = fakePage();
+    let heard = 0;
+    listenForEvents({ page: holder, refetch: () => undefined });
+    listenForEvents({ page: follower, refetch: () => (heard += 1) });
+    await settle();
+    holder.set('hidden');
+    await settle();
+    expect(sources).toHaveLength(2);
+    expect(sources[0].closed).toBe(true);
+    expect(sources[1].closed).toBe(false);
+    sources[1].onmessage?.({ data: '{}' });
+    expect(heard).toBe(1);
+  });
+
+  it('holds no stream when every tab is hidden', async () => {
+    const { sources } = fakeBrowser();
+    const pages = [fakePage(), fakePage(), fakePage()];
+    for (const page of pages) listenForEvents({ page, refetch: () => undefined });
+    await settle();
+    for (const page of pages) page.set('hidden');
+    await settle();
+    expect(sources.every((source) => source.closed)).toBe(true);
+  });
+
+  it('closes and reopens a stream of its own without Web Locks or BroadcastChannel', () => {
+    const { sources } = fakeBrowser();
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('BroadcastChannel', undefined);
+    const first = fakePage();
+    const second = fakePage();
+    listenForEvents({ page: first, refetch: () => undefined });
+    listenForEvents({ page: second, refetch: () => undefined });
+    expect(sources).toHaveLength(2);
+    first.set('hidden');
+    expect(sources[0].closed).toBe(true);
+    expect(sources[1].closed).toBe(false);
+    second.set('hidden');
+    expect(sources[1].closed).toBe(true);
+    first.set('visible');
+    expect(sources).toHaveLength(3);
+    expect(sources[2].closed).toBe(false);
+  });
+});
+
+describe('pollWhileShown', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('polls on its interval while the page is visible', () => {
+    const page = fakePage();
+    let polls = 0;
+    pollWhileShown(page, () => (polls += 1), 30_000);
+    vi.advanceTimersByTime(90_000);
+    expect(polls).toBe(3);
+  });
+
+  it('clears the interval while the page is hidden and restores it when the page shows', () => {
+    const page = fakePage();
+    let polls = 0;
+    pollWhileShown(page, () => (polls += 1), 4_000);
+    vi.advanceTimersByTime(4_000);
+    page.set('hidden');
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60_000);
+    expect(polls).toBe(1);
+    page.set('visible');
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(4_000);
+    expect(polls).toBe(2);
+  });
+
+  it('polls nothing on show: the page\'s own visibility handler reloads', () => {
+    const page = fakePage('hidden');
+    let polls = 0;
+    pollWhileShown(page, () => (polls += 1), 4_000);
+    page.set('visible');
+    expect(polls).toBe(0);
+  });
+
+  it('clears the interval and its listener when stopped', () => {
+    const page = fakePage();
+    const stop = pollWhileShown(page, () => undefined, 4_000);
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(page.listeners.size).toBe(0);
+  });
+
+  it('runs two polls side by side and clears both on hide', () => {
+    const page = fakePage();
+    pollWhileShown(page, () => undefined, 30_000);
+    pollWhileShown(page, () => undefined, 4_000);
+    expect(vi.getTimerCount()).toBe(2);
+    page.set('hidden');
+    expect(vi.getTimerCount()).toBe(0);
+    page.set('visible');
+    expect(vi.getTimerCount()).toBe(2);
   });
 });

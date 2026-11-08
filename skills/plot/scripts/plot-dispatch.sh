@@ -839,7 +839,7 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
   export PLOT_SPAWN_CONTRACT="$(node "$script_dir/board/plot-prompt.mjs" --background-gate 2>/dev/null | sed -n "s/^export PLOT_SPAWN_CONTRACT='\\(.*\\)'$/\\1/p")"
   ( set -m; cd "$repo_root" \
     && PLOT_UNATTENDED=1 PLOT_MAIN_CHECKOUT_WRITER=1 PLOT_PLAN_SLUG="$bslug" PLOT_BRIEF_BRANCH="$branch" \
-       PLOT_AGENT_SETTINGS="$_brief_settings" \
+       PLOT_AGENT_SETTINGS="$_brief_settings" PLOT_GIT_COMMON_DIR= \
        exec nohup sh -c "$cmd \"\$@\"" plot-brief \
        "$(brief_prompt "$branch" "$bslug")" \
        >"$log" 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null
@@ -1494,7 +1494,7 @@ start_worker() {
       # the export reaches the wrapper and nothing else.
       { [ -n "$capabilities" ] && export PLOT_CAPABILITIES="$capabilities"; true; } && \
       PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
-      PLOT_SLUG="$slug" PLOT_MAIN_CHECKOUT_WRITER= \
+      PLOT_SLUG="$slug" PLOT_MAIN_CHECKOUT_WRITER= PLOT_GIT_COMMON_DIR= \
       PLOT_SESSION_ID="$session" \
       PLOT_AGENT="${PLOT_AGENT:-}" \
       PLOT_HARNESS="$launch_harness" \
@@ -1840,7 +1840,7 @@ if [ "$mode" = "restart" ]; then
     exit 1
   fi
   PLOT_RESTART_WORKTREE=$(worktree_holding_branch "$restart_branch") \
-    PLOT_RESTART_OFFLINE=$([ -n "$offline" ] && echo 1 || echo 0) \
+    PLOT_RESTART_OFFLINE=$([ -n "$offline" ] && echo 1 || echo 0) PLOT_GIT_COMMON_DIR= \
     node "$script_dir/board/plot-restart-command.mjs" "$restart_branch" || exit 1
   spend_action_receipt "restart"
   exit 0

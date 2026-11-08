@@ -46,6 +46,8 @@ A later plan may reuse a merged branch name. A reopened ticket does it on a Jira
 
 **A plan drafted on its own branch keeps a window.** Its adding commit lies on that branch, so the ancestry test excludes only the merges before the branch forked. A reused name merged on the default branch between the fork and the plan's own merge still counts. A first-parent walk would close this window, and it would also exclude the merge of a plan written on the work branch it implements — which sends that plan's own slice to the host. The window is the cheaper error.
 
+**A plan added on an integration branch keeps its subjects.** A plan added on a sprint branch, with its slices merged into that branch, has an adding commit on the sprint branch, so each slice merge is not its ancestor and each subject counts. A first-parent walk would read the sprint's merge into the default branch as the adding commit and refuse every one of them; `plan-walk-readings.corpus.test.ts` holds this case.
+
 **A renamed plan keeps the first add's age.** With git's default rename detection a retitled plan is listed `R` and never `A`, so the walk reads `R` lines in the same call and follows each back to the original `A`. A chain ending in no `A` line inside the walk leaves the plan with no subjects, and its branches go to the host.
 
 A subject refused for age is reported rather than silently dropped: the scan footer counts `subject_predates_plan` and the branch carries `subjectIgnored: "predates-plan"`. A slice with no subject and a slice whose subject was refused both read the same state, and only the second has an explanation.

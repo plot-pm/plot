@@ -477,7 +477,8 @@ export const spawnContractReadingFor = async (
  *
  * Built per call for the same reason as {@link refsFor}: the adapter is a
  * value, not a singleton, and a board handed a fixture lock elects nothing
- * real.
+ * real. A fresh `readerLockFile` reads the common git dir from the process's
+ * held answers, so a call after the first starts no `git rev-parse`.
  */
 export const readerLockFor = (opts: BuildBoardOptions): ReaderLock => opts.readerLock ?? readerLockFile({ cwd: opts.repoRoot });
 

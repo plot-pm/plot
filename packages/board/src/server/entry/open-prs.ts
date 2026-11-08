@@ -74,11 +74,13 @@ export const holdsCommit = async (ctx: OpenPrsContext, sha: string): Promise<boo
  * in {@link OpenPrsReading.unread} rather than silently dropped.
  *
  * @param refuseOnPrListFailure - the message to refuse with when `pr-list` fails; named by the caller, because each controller's repair text differs.
+ * @param against - the branch the changed paths are read against; the default branch where absent.
  * @throws Error (the caller's own class) where the host cannot list its open PRs.
  */
 export const openPrsOf = async (
   ctx: OpenPrsContext,
   refuseOnPrListFailure: () => Error,
+  against?: string,
 ): Promise<OpenPrsReading> => {
   const listed = await ctx.host.prList('open', PRS_LISTED);
   if (!listed.ok) throw refuseOnPrListFailure();
@@ -102,7 +104,7 @@ export const openPrsOf = async (
       unread.push({ number: pr.number, reason: 'git does not hold its head commit' });
       continue;
     }
-    const changed = await ctx.refs.changedFiles(headSha);
+    const changed = await ctx.refs.changedFiles(headSha, against);
     if (!changed.ok) {
       unread.push({ number: pr.number, reason: 'its changed files could not be read' });
       continue;
@@ -123,6 +125,7 @@ export const openPrsOf = async (
  *
  * @param branch - the PR's head branch.
  * @param askedSha - the sha the host reported for it; `''` where it named none.
+ * @param against - the branch the changed paths are read against; the default branch where absent.
  * @returns the full sha and its changed files, or `null` where git does not
  *   hold the commit after fetching.
  */
@@ -130,11 +133,12 @@ export const readHeadOf = async (
   ctx: OpenPrsContext,
   branch: string,
   askedSha: string,
+  against?: string,
 ): Promise<{ sha: string; changed: readonly string[] } | null> => {
   if (askedSha !== '' && !(await holdsCommit(ctx, askedSha))) await ctx.trees.fetch(ctx.repoRoot, branch);
   const sha = await resolvedCommit(ctx, askedSha !== '' ? askedSha : branch);
   if (sha === '') return null;
-  const changed = await ctx.refs.changedFiles(sha);
+  const changed = await ctx.refs.changedFiles(sha, against);
   if (!changed.ok) return null;
   return { sha, changed: changed.value };
 };
@@ -149,6 +153,8 @@ export const readHeadOf = async (
  *   the open PRs were listed at all.
  * @param refuseOnHostFailure - the message to refuse with when a host call
  *   fails; named by the caller, because each controller's repair text differs.
+ * @param against - the branch a PR head's changed paths are read against; the
+ *   default branch where absent.
  * @returns the PR {@link planPrOf} found, its own refusal passed through
  *   unevaluated, or `undefined` where the plan has no PR to find.
  */
@@ -159,6 +165,7 @@ export const choosePlanPr = async (
   file: string,
   onUnread: (unread: readonly UnreadPr[]) => void,
   refuseOnHostFailure: (detail: string) => Error,
+  against?: string,
 ): Promise<PlanPrFound | PlanPrRefusal | undefined> => {
   let current = readings;
   for (;;) {
@@ -183,12 +190,12 @@ export const choosePlanPr = async (
       }
       case 'named-head': {
         if (current.named === undefined || current.named === null) throw refuseOnHostFailure('the named PR vanished between readings.');
-        const head = await readHeadOf(ctx, `idea/${current.slug}`, current.named.headSha ?? '');
+        const head = await readHeadOf(ctx, `idea/${current.slug}`, current.named.headSha ?? '', against);
         current = { ...current, namedHead: head };
         break;
       }
       case 'open': {
-        const reading = await openPrsOf(ctx, () => refuseOnHostFailure("the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call)."));
+        const reading = await openPrsOf(ctx, () => refuseOnHostFailure("the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call)."), against);
         onUnread(reading.unread);
         current = { ...current, open: reading.open };
         break;

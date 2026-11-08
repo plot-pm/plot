@@ -81,7 +81,7 @@ const map = ({ event = 'pull_request', asked = 'success', changed = '', selectio
   }
 };
 
-const JOBS = ['corpus', 'contracts', 'board', 'domain', 'fleet', 'e2e', 'macos'];
+const JOBS = ['corpus', 'contracts', 'board', 'domain', 'fleet', 'e2e', 'macos', 'census'];
 
 const answer = (over) =>
   JSON.stringify({ suites: [], checks: [], tests: [], corpus: false, corpusTests: [], untested: [], ...over });
@@ -114,7 +114,7 @@ test('a plan-only change selects the corpus tier and no other job', () => {
   });
   assert.equal(out.corpus, 'true');
   assert.equal(out.corpus_tests, '');
-  for (const job of ['contracts', 'board', 'domain', 'fleet', 'e2e', 'macos']) assert.equal(out[job], 'false', job);
+  for (const job of ['contracts', 'board', 'domain', 'fleet', 'e2e', 'macos', 'census']) assert.equal(out[job], 'false', job);
 });
 
 test('a changeset or a document outside skills/ selects no job', () => {
@@ -148,6 +148,7 @@ test('a script named by contract tests selects those files, macOS for a .sh, and
   assert.equal(out.corpus_tests, 'corpus/refs.corpus.test.ts');
   assert.equal(out.macos, 'true');
   assert.equal(out.e2e, 'true');
+  assert.equal(out.census, 'true', 'a shipped script is part of the product the census counts');
   for (const job of ['board', 'domain', 'fleet']) assert.equal(out[job], 'false', job);
 });
 
@@ -158,7 +159,7 @@ test('a domain check selects the board and the fleet, which import the domain', 
       checks: [{ suite: 'packages/domain', command: 'vitest related …', tests: [], always: false }, always],
     }),
   });
-  for (const job of ['domain', 'board', 'fleet', 'e2e']) assert.equal(out[job], 'true', job);
+  for (const job of ['domain', 'board', 'fleet', 'e2e', 'census']) assert.equal(out[job], 'true', job);
   for (const job of ['contracts', 'macos', 'corpus']) assert.equal(out[job], 'false', job);
 });
 
@@ -172,6 +173,20 @@ test('a selected gate test selects macOS without a changed .sh', () => {
     }),
   });
   assert.equal(out.macos, 'true');
+  assert.equal(out.census, 'false');
+});
+
+test('a census or fleet change selects the process census, and a board change does too', () => {
+  for (const [suite, file] of [
+    ['packages/fleet', 'packages/fleet/test/census/census-report.ts'],
+    ['packages/board', 'packages/board/src/server/fleet.ts'],
+  ]) {
+    const out = map({
+      changed: `${file}\n`,
+      selection: answer({ checks: [{ suite, command: 'vitest related …', tests: [], always: false }, always] }),
+    });
+    assert.equal(out.census, 'true', file);
+  }
 });
 
 // ── the gated jobs ──────────────────────────────────────────────────────────
@@ -179,6 +194,7 @@ test('a selected gate test selects macOS without a changed .sh', () => {
 for (const [job, output] of [
   ['corpus', 'corpus'],
   ['macos-shell-contract', 'macos'],
+  ['process-census', 'census'],
   ['helper-contracts', 'contracts'],
   ['board-integration', 'board'],
 ]) {
