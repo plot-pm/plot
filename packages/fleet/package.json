@@ -16,7 +16,8 @@
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit -p .",
     "test": "node --test test/*.test.mjs && vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:census": "vitest run --config test/census/vitest.census.config.ts"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
