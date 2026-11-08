@@ -60,20 +60,24 @@ function stripComments(text: string): string {
 }
 
 /**
- * `code` with the body of `Trees.fetch` removed — the one method that may name
- * `fetch`. The body runs from the `fetch:` property to its matching brace, so
- * any other occurrence in the file stays visible to the sweeps below.
+ * `code` with the bodies of `Trees.fetch` and `Trees.fetchRef` removed — the
+ * two methods that may name `fetch` and `ls-remote`. Each body runs from its
+ * property to its matching brace, so any other occurrence in the file stays
+ * visible to the sweeps below.
  */
 const withoutFetchMethod = (code: string): string => {
-  const start = code.search(/^\s*fetch:\s*async\b/m);
-  if (start === -1) return code;
-  const open = code.indexOf('{', code.indexOf('=>', start));
-  let depth = 0;
-  for (let at = open; at < code.length; at++) {
-    if (code[at] === '{') depth++;
-    if (code[at] === '}' && --depth === 0) return code.slice(0, start) + code.slice(at + 1);
-  }
-  return code;
+  const without = (text: string, name: string): string => {
+    const start = text.search(new RegExp(`^\\s*${name}:\\s*async\\b`, 'm'));
+    if (start === -1) return text;
+    const open = text.indexOf('{', text.indexOf('=>', start));
+    let depth = 0;
+    for (let at = open; at < text.length; at++) {
+      if (text[at] === '{') depth++;
+      if (text[at] === '}' && --depth === 0) return text.slice(0, start) + text.slice(at + 1);
+    }
+    return text;
+  };
+  return without(without(code, 'fetch'), 'fetchRef');
 };
 
 const read = (file: string, at: string) => ({
@@ -98,7 +102,7 @@ const sources = [
 
 describe('the board never reaches the network to read refs', () => {
   it('calls no `ls-remote` anywhere in the server', () => {
-    const offenders = sources.filter((s) => /ls-remote/.test(s.code));
+    const offenders = sources.filter((s) => /ls-remote/.test(s.file === 'trees-git.ts' ? withoutFetchMethod(s.code) : s.code));
     expect(offenders.map((s) => s.file)).toEqual([]);
   });
 
