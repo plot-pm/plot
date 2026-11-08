@@ -186,7 +186,7 @@ Each row has one unit. A baseline names its fixture. Baselines come from the Lin
 | Measure | Unit | Baseline | Target |
 |---|---|---|---|
 | Whole tree, plot board + fleetd + desks, idle | new processes per second | about 90 (2026-11-05 census; fixture not recorded) | 0 between changes |
-| Board, no tab, no fleetd (S1) | `execve` per minute | `main` 1549 (GitHub), 1926 (Bitbucket); sprint head 0 (GitHub), 772 (Bitbucket) — 0 desks, 5 open PRs | 0 |
+| Board, no tab, no fleetd (S1) | `execve` per minute | `main` 1549 (GitHub), 1926 (Bitbucket); sprint head 0 (GitHub), 0 (Bitbucket; 772 before #3269) — 0 desks, 5 open PRs | 0 |
 | Board, one visible tab, fleetd running (S3) | `execve` per minute | `main` 1429; sprint head 1248 — GitHub, 0 desks, 5 open PRs | 0 |
 | fleetd, idle repository (S4) | `execve` per completed pass, N desks, M open PRs | `main` 1291.5 (GitHub, 0 desks), 2868.5 (GitHub, 3 desks), 2879.5 (Bitbucket, 3 desks); sprint head 1099.5, 2560.5, 2662 — 5 open PRs | 0, except the safety-net pass |
 | fleetd, safety-net pass | `execve` per pass | Phase 1 fixture | measured, then held by the gate |
@@ -311,6 +311,6 @@ Sprint `nothing-runs` built Phases 1 and 2: the census gate (#3243, #3247, #3253
 
 - An idle board with no tab or a hidden tab starts 0 processes per minute on GitHub, down from about 1550.
 - The monitor naps, the `kill -0` probes and the fixed git and host answers (P1–P4) read 0 on every fixture.
-- An idle Bitbucket board still starts 772 processes per minute (top: `tr`, `sed`, `rm`, `git`, `jq`); a follow-up looks for the source.
+- An idle Bitbucket board first read 772 processes per minute. The cause was the warm read: `bb_fetch_base_bounded` left its watcher's `sleep 10` holding stdout, so every PR read with an open row waited 10 s and the read ran into the census window. #3269 kills the watcher's process group, and CI at `007f1e427` read S1 on Bitbucket at 0.
 - An idle fleetd pass fell by about 11 % (S4); its zero waits on Phase 8. A board with a tab and fleetd running fell by about 13 % (S3); its zero waits on Phase 4.
 - The gate allows 10 % + 2 on a count whose merge base is above 0 and holds a zero strictly; two runs on unchanged code moved S1 by 8.8 %.
