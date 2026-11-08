@@ -6,7 +6,7 @@ import { answered, failed, type PortResult } from '../../port-result.js';
 import { encodeSliceSpend, type SliceSpend } from '../../entities/slice-spend.js';
 import type { TranscriptLine } from '../../rules/slice-tokens.js';
 import type { SliceSpendRecord } from '../../ports/slice-spend.js';
-import { runProcess } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 
 /**
  * The environment variable that names the record's directory, for tests.
@@ -31,6 +31,8 @@ const FILE = 'slice-spend.jsonl';
 export interface SliceSpendFileOptions {
   /** The repository to resolve the record for; the process's cwd when omitted. */
   cwd?: string;
+  /** The held answers that place the file; this process's own when omitted. */
+  answers?: FixedAnswers;
   /** An explicit record directory, bypassing the git lookup. */
   home?: string;
   /** An explicit transcript home, standing in for `~`. */
@@ -91,7 +93,7 @@ export const sliceSpendFile = (options: SliceSpendFileOptions = {}): SliceSpendR
     const override = env[SLICE_SPEND_HOME_ENV];
     if (override !== undefined && override !== '') return override;
     if (cached !== undefined) return cached;
-    const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+    const run = await (options.answers ?? processAnswers).commonDir(options.cwd);
     const out = run.stdout.trim();
     if (run.code !== 0 || out === '') {
       cached = null;

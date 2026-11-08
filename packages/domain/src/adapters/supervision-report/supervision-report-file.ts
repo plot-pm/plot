@@ -8,7 +8,7 @@ import {
   type SupervisionReport,
 } from '../../entities/supervision-report.js';
 import type { SupervisionReportStore } from '../../ports/supervision-report.js';
-import { runProcess } from '../run-script.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 
 /**
  * The environment variable that names the report's directory, for tests.
@@ -25,6 +25,8 @@ const FILE = 'supervision.json';
 export interface SupervisionReportFileOptions {
   /** The repository to resolve the report for; the process's cwd when omitted. */
   cwd?: string;
+  /** The held answers that place the file; this process's own when omitted. */
+  answers?: FixedAnswers;
   /** An explicit directory, bypassing the git lookup. */
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
@@ -71,7 +73,7 @@ export const supervisionReportFile = (
     const override = env[SUPERVISION_REPORT_HOME_ENV];
     if (override !== undefined && override !== '') return override;
     if (cached !== undefined) return cached;
-    const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+    const run = await (options.answers ?? processAnswers).commonDir(options.cwd);
     const out = run.stdout.trim();
     if (run.code !== 0 || out === '') {
       cached = null;

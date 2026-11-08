@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { PinnedTips } from '../../ports/pinned-tips.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { runProcess } from '../run-script.js';
 
 /**
@@ -20,6 +21,8 @@ const FILE = 'reaped.tsv';
 export interface PinnedTipsFileOptions {
   /** The checkout to resolve the record for, and to run `git update-ref` in; the process's cwd when omitted. */
   cwd?: string;
+  /** The held answers that place the file; this process's own when omitted. */
+  answers?: FixedAnswers;
   /** An explicit record directory, bypassing the git lookup. */
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
@@ -71,7 +74,7 @@ export const pinnedTipsFile = (options: PinnedTipsFileOptions = {}): PinnedTips 
     const override = env[PINNED_TIPS_HOME_ENV];
     if (override !== undefined && override !== '') return override;
     if (cached !== undefined) return cached;
-    const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd: options.cwd });
+    const run = await (options.answers ?? processAnswers).commonDir(options.cwd);
     const out = run.stdout.trim();
     if (run.code !== 0 || out === '') {
       cached = null;
