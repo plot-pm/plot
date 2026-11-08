@@ -626,6 +626,7 @@ export type * from './ports/performer.js';
 export type * from './ports/agents.js';
 export type * from './ports/trees.js';
 export type * from './ports/clock.js';
+export type * from './ports/watch.js';
 export type * from './ports/scripts.js';
 export type * from './ports/bounded-run.js';
 export type * from './ports/desk.js';

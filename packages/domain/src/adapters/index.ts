@@ -267,6 +267,8 @@ export {
 
 export { clockSystem, clockFixed, clockManual } from './clock/clock-system.js';
 
+export { watchFs } from './watch/watch-fs.js';
+
 export {
   machineSystem,
   DEFAULT_SAMPLE_BUDGET_MS,
