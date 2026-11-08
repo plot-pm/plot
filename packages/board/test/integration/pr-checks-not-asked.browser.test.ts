@@ -92,14 +92,15 @@ describe('a PR says what the board could not ask', () => {
   const note = (page: Page, slug: string) =>
     page.locator(`#plan-${slug} [data-pr-checks]`);
 
-  it('says nothing at all about a PR whose checks are green', async () => {
+  it('names a PR whose checks are green quietly — listed, never a warning', async () => {
     const page = await open();
     try {
       await expect.poll(() => page.locator('[data-pr-checks]').count(), { timeout: 10_000 })
         .toBeGreaterThan(0);
-      // Silent when the news is good. A badge on every PR is a badge nobody
-      // reads, which is the same outcome as not rendering it.
-      expect(await note(page, 'green-checks').count()).toBe(0);
+      // The PR list is a fact the card keeps: a green PR is listed with its
+      // state, in the neutral tone, so good news never reads as a finding.
+      expect(await note(page, 'green-checks').getAttribute('data-pr-checks-state')).toBe('green');
+      expect(await note(page, 'green-checks').getAttribute('data-tone')).toBe('neutral');
     } finally { await page.close(); }
   });
 
@@ -135,11 +136,10 @@ describe('a PR says what the board could not ask', () => {
       // `note`, never `warn`. A board that could not ask must render neither an
       // alarm nobody can act on nor an all-clear it cannot stand behind — the
       // supervisor badge's rule, applied to the capability a team reads most.
-      expect(await note(page, 'not-asked').getAttribute('data-pr-checks-prominence')).toBe('note');
+      expect(await note(page, 'not-asked').getAttribute('data-tone')).toBe('unknown');
       // While a failing-adjacent state on the same board still does warn, so
       // the quiet above is a decision rather than the styling being absent.
-      expect(await note(page, 'no-checks-conflicting').getAttribute('data-pr-checks-prominence'))
-        .toBe('warn');
+      expect(await note(page, 'no-checks-conflicting').getAttribute('data-tone')).toBe('warn');
     } finally { await page.close(); }
   });
 
@@ -206,16 +206,17 @@ describe('a failing PR names the commit its checks ran against', () => {
     await cat?.close();
   });
 
-  it('shows the short sha in the badge title', async () => {
+  it('shows the short sha in the PR link\'s title', async () => {
     const page = await cat.open('an-empty-estate', {
       over: { board: boardWithSha },
       tab: 'board',
       viewport: { width: 1400, height: 1400 },
     });
     try {
-      const badge = page.locator('#plan-failing-with-sha [data-pr-checks]');
-      await expect.poll(() => badge.count(), { timeout: 10_000 }).toBe(1);
-      expect(await badge.getAttribute('title')).toContain('a048b6f');
+      // The PR number is the link; the build sentence is its title.
+      const link = page.locator('#plan-failing-with-sha [data-pr-checks] [data-pr-link]');
+      await expect.poll(() => link.count(), { timeout: 10_000 }).toBe(1);
+      expect(await link.getAttribute('title')).toContain('a048b6f');
     } finally { await page.close(); }
   });
 });

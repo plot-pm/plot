@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Browser, type Page } from 'playwright';
 import {
-  openCatalogue, expandAgentFolds, scenario, board, fleet, row, slice,
+  openCatalogue, expandAgentFolds, scenario, board, fleet, row, slice, card, column,
   type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type Fleet } from '../../src/contract/schema.js';
@@ -832,6 +832,45 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     }
   });
 
+  it('dims a card\'s Deliver on a frozen page, as the row menu is', async () => {
+    // The card read the payload's last `deliver: available` while the row menu
+    // was dimmed, so a keyboard could still deliver from stale data.
+    const shipping = board({
+      columns: [column({
+        phase: 'Testing',
+        cards: [card({
+          slug: 'ready-to-ship', title: 'Ready to ship', phase: 'Testing',
+          path: 'docs/plans/2026-11-06-ready-to-ship.md', status: 'deliverable', deliverable: true,
+        })],
+      })],
+      deliver: { available: true, reason: '' },
+    });
+    let dead = false;
+    const page = await browser.newPage();
+    try {
+      const reply = (route: Parameters<Parameters<Page['route']>[1]>[0], body: unknown) =>
+        dead ? route.abort('connectionrefused') : route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
+      await page.route('**/api/board', (route) => reply(route, shipping));
+      await page.route('**/api/fleet', (route) => reply(route, localFleet()));
+      await page.goto(baseURL);
+      const deliver = page.locator('#plan-ready-to-ship [data-deliver="ready-to-ship"]');
+      await deliver.waitFor({ timeout: 10_000 });
+      expect(await deliver.getAttribute('aria-disabled')).toBeNull();
+
+      dead = true;
+      await failPolls(page, DIM_AFTER_FAILURES);
+      await overlay(page).waitFor({ timeout: 10_000 });
+      expect(await deliver.getAttribute('aria-disabled')).toBe('true');
+      // The board's reason is the control's description, in the tooltip — no native title.
+      expect(await deliver.getAttribute('title')).toBeNull();
+      const reasonId = await deliver.getAttribute('aria-describedby');
+      expect(reasonId).toBeTruthy();
+      expect(await page.locator(`[id="${reasonId}"]`).getAttribute('role')).toBe('tooltip');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('gives a screen reader the REASON a blocked control will not act', async () => {
     // `aria-disabled` says *this will not work*; on its own it does not say
     // why, and `title` is read inconsistently and never shown on touch.
@@ -858,9 +897,9 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // document the reader already has open.
     const { page, set } = await open('board');
     try {
-      // `Open` is the card's modal trigger — an anchor, so cmd-click still
+      // The card title is its modal trigger — an anchor, so cmd-click still
       // opens the plan natively and only a plain click is intercepted.
-      await page.getByRole('link', { name: 'Open' }).first().click();
+      await page.locator('[data-card-title]').first().click();
       const dialog = page.getByRole('dialog');
       await dialog.waitFor({ state: 'visible', timeout: 5_000 });
 
@@ -885,7 +924,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
 
-      const card = page.getByRole('link', { name: 'Open' }).first();
+      const card = page.locator('[data-card-title]').first();
       const blocked = await card
         .click({ timeout: 1_500, trial: true })
         .then(() => false)

@@ -749,7 +749,7 @@ const aWholeSmallEstate = (): Scenario => ({
           card({
             slug: 'fix-leaky-hose', title: 'Fix the leaky soaker hose', type: 'bug',
             phase: 'Development', path: 'docs/plans/2026-03-05-fix-leaky-hose.md',
-            sprint: 'spring-planting',
+            sprint: 'spring-planting', started: false,
             sliceSummary: { waves: 1, branches: 1, claimed: 0, eligible: 1, deferred: 0 },
           }),
           // The long badge's card, at the width the mobile bug was about.

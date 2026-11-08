@@ -3,11 +3,18 @@ import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
 import { execFileSync } from 'node:child_process';
-import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import {
+  collectStoryCards, configFor, defaultBranchOf, readConfig, readConfigAsync, refsFor, scriptsFor,
+  type BuildBoardOptions,
+} from './board.js';
+import { jiraProjectsOf, planAnswersTicket, repoIssuePrefixOf, STORY_SLUG_PATTERN, storyIsLive, type StoryIssueContext } from '@plot-pm/domain';
+import { TRACKER_PROJECT_KEY_SCHEMES } from '@plot-pm/domain/adapters';
+import type { Known, Ref } from '@plot-pm/domain/entities/card-facts';
+import { ticketStoriesOf } from './story-facts.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { localCapability } from './controllers/caller.js';
-import { planMetasAtDefault } from './fleet.js';
+import { branchUrlBaseFor, planMetasAtDefault } from './fleet.js';
 
 /**
  * Turning an issue into a plan — the row's one action, and the board's FOURTH
@@ -120,7 +127,11 @@ export type IdeaRefusal =
   /** The issue could not be read. NOT the same as "it has no body". */
   | 'issue-unreadable'
   /** A plan already references this issue — the row is answered already. */
-  | 'already-planned';
+  | 'already-planned'
+  /** The stories that answer this issue could not be read from the default branch. */
+  | 'stories-unread'
+  /** Two or more live stories answer this issue; the request cannot say which gets the plan. */
+  | 'linked-from-many-stories';
 
 export interface IdeaOptions extends BuildBoardOptions {
   /** The interface the server bound to (`HOST`), verbatim. */
@@ -182,6 +193,9 @@ export interface IssueDetail {
  * bodies; this asks for exactly the one issue a human just pointed at, at a
  * cadence no timer sets.
  *
+ * Rejects where the host call itself rejects, so a caller never waits on an
+ * answer that cannot come.
+ *
  * Rejects with `code` preserved so the caller can keep exit 4 (this host cannot
  * be asked) apart from every other failure — the same split `refreshIssues`
  * makes, and the reason the codes were reused.
@@ -218,7 +232,7 @@ export function readIssue(
           // error this repo keeps removing.
           reject(new Error('the host returned something that is not an issue'));
         }
-      });
+      }, reject);
   });
 }
 
@@ -255,14 +269,17 @@ export function composeIdeaPrompt(input: {
   slug: string;
   type: string;
   truncated: boolean;
+  /** The live story the plan belongs to; absent creates the plan outside any story. */
+  story?: string;
 }): string {
-  const { issue, slug, type, truncated } = input;
+  const { issue, slug, type, truncated, story } = input;
   const parts: string[] = [];
 
   parts.push(
     `/plot-idea ${slug}: ${issue.title || `issue #${issue.number}`}`,
     '',
     `Type: ${type}`,
+    ...(story === undefined ? [] : [`Story: ${story}`]),
     '',
     'This plan comes from a tracker issue somebody decided was worth planning.',
     'The issue below is the problem statement — read it as the brain dump',
@@ -387,7 +404,8 @@ export function ideaStatus(opts: BuildBoardOptions, number: number): IdeaStatus 
 
 /**
  * The issue numbers every plan at `origin/<default>` — plus every open draft
- * plan — references, read through the same {@link planMetasAtDefault} every
+ * plan — references, except a plan `planAnswersTicket` counts as answering
+ * nothing (`rejected`, `superseded`), read through the same {@link planMetasAtDefault} every
  * other plan-naming caller reads.
  *
  * There `ticketPlansOf` filters a list on a timer; here it is a PRECONDITION
@@ -410,13 +428,122 @@ export async function referencedIssues(
   if (metas === null) return null;
   const referenced = new Set<number>();
   for (const meta of metas) {
+    // A rejected or superseded plan answers nothing: the rule the ticket card reads.
+    if (!planAnswersTicket(meta.phase)) continue;
     for (const n of meta.issues ?? []) referenced.add(typeof n === 'string' ? Number(n) : n);
   }
   return referenced;
 }
 
-/** The two facts this route reads from outside itself, injectable for test. */
+/**
+ * The detached worktree `/plot-idea` runs in, cut fresh from `origin/<default>`
+ * (HEAD where no remote is there) under the agent log directory, so the branch
+ * `/plot-idea` checks out never moves the board's own checkout. A `repoRoot`
+ * that is no git repository is returned as it is: it has no checkout to move.
+ *
+ * @param opts - the board's repo root.
+ * @param name - the worktree's directory name, unique per request target.
+ * @returns the worktree's path.
+ * @throws where the worktree could not be made; the caller refuses rather than
+ *   running in the board's checkout.
+ */
+export const prepareIdeaTree = (opts: BuildBoardOptions, name: string): string => {
+  // THE DEFAULT BRANCH by the chain `board.ts` already settled on — configured
+  // `Main branch` first, then origin's symbolic ref, then `main`. Not
+  // `origin/HEAD` directly: that ref is unset in a fresh clone, and not
+  // `plot-host.sh default-branch`, which shells out to `gh repo view`.
+  const configured = readConfig(opts, 'Main branch', '');
+  const base = configured || (() => {
+    try {
+      return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+        { cwd: opts.repoRoot, encoding: 'utf8' }).trim().replace(/^origin\//, '') || 'main';
+    } catch { return 'main'; }
+  })();
+
+  // ONLY WHERE THERE IS A WORKTREE TO MOVE. `git worktree add` needs a git
+  // repository; a caller whose repoRoot is a plain directory — every unit test
+  // here builds one — has no checkout for `/plot-idea` to displace, so there is
+  // nothing to protect it from. Spawning in place is then correct rather than
+  // a fallback, and the distinction is measurable: `rev-parse --git-dir`
+  // answers it without a network or a remote.
+  const isGitRepo = (() => {
+    try {
+      execFileSync('git', ['rev-parse', '--git-dir'],
+        { cwd: opts.repoRoot, stdio: 'ignore' });
+      return true;
+    } catch { return false; }
+  })();
+
+  const ideaTree = isGitRepo
+    ? path.join(agentLogDir(opts.repoRoot), name)
+    : opts.repoRoot;
+  if (isGitRepo) {
+    // Detached, so the tree holds no branch of its own — `/plot-idea` creates
+    // and checks out `idea/<slug>` here, and a detached start leaves it free to.
+    fs.rmSync(ideaTree, { recursive: true, force: true });
+    execFileSync('git', ['worktree', 'prune'], { cwd: opts.repoRoot });
+    // `origin/<base>` where the remote is there, HEAD otherwise. A repo with no
+    // remote is an ordinary case — a fresh `git init`, an offline clone — and
+    // `origin/main` is simply an invalid reference there, not a signal of
+    // trouble. HEAD gives the new tree the same commit the board is already
+    // serving, which is what `origin/<base>` approximates when a remote exists.
+    const start = (() => {
+      try {
+        execFileSync('git', ['rev-parse', '--verify', `origin/${base}`],
+          { cwd: opts.repoRoot, stdio: 'ignore' });
+        return `origin/${base}`;
+      } catch { return 'HEAD'; }
+    })();
+    execFileSync('git', ['worktree', 'add', '--detach', ideaTree, start], {
+      cwd: opts.repoRoot,
+      stdio: 'ignore',
+    });
+  }
+  return ideaTree;
+};
+
+/**
+ * The stories that answer one issue, read from `origin/<default>` at call time:
+ * the stories whose `issue:` names it and the stories named by a plan that
+ * references it, through the same index `Board.ticketStories` carries.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param number - the issue number.
+ * @returns the story refs; `unknown` where the default branch's stories or the
+ *   plans could not be read, or a story's `issue:` could not be decided.
+ */
+export const storiesOfIssue = async (
+  opts: BuildBoardOptions, number: number,
+): Promise<Known<readonly Ref[]>> => {
+  const refs = refsFor(opts);
+  const [storyDir, defaultBranch, tracker, ticketPrefixes, metas] = await Promise.all([
+    readConfigAsync(opts, 'Story directory', 'docs/stories/'),
+    defaultBranchOf(opts, refs),
+    configFor(opts).config('Tracker', ''),
+    readConfigAsync(opts, 'Ticket prefixes', ''),
+    planMetasAtDefault(opts),
+  ]);
+  if (metas === null) return { unknown: 'failed' };
+  const issueContext: StoryIssueContext = {
+    issuePrefix: repoIssuePrefixOf(branchUrlBaseFor(opts)),
+    jiraProjects: tracker.ok ? jiraProjectsOf(tracker.value, TRACKER_PROJECT_KEY_SCHEMES, ticketPrefixes) : [],
+  };
+  const ref = `origin/${defaultBranch}`;
+  const [live, archived] = await Promise.all([
+    collectStoryCards(opts.repoRoot, storyDir, metas, false, ref, refs),
+    collectStoryCards(opts.repoRoot, storyDir, metas, true, ref, refs),
+  ]);
+  const index = ticketStoriesOf(
+    [...live.stories, ...archived.stories], live.refRead && archived.refRead, metas, issueContext,
+  );
+  if ('unknown' in index) return index;
+  return { value: index.value[String(number)] ?? [] };
+};
+
+/** The facts this route reads from outside itself, injectable for test. */
 export interface IdeaDeps {
+  /** The stories that answer one issue, read from the default branch. */
+  stories?: (opts: BuildBoardOptions, number: number) => Promise<Known<readonly Ref[]>>;
   /** The configured `Idea command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** The host's account of one issue. */
@@ -456,6 +583,7 @@ export async function handleIdea(
   const readCfg = deps.config ?? readConfig;
   const readOne = deps.issue ?? readIssue;
   const readReferenced = deps.referenced ?? referencedIssues;
+  const readStories = deps.stories ?? storiesOfIssue;
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -544,6 +672,43 @@ export async function handleIdea(
     return;
   }
 
+  // THE STORIES, RE-DERIVED FROM THE DEFAULT BRANCH AT CLICK TIME. The request
+  // carries only the number, so the card the person saw cannot vouch for them:
+  // an index that could not be built refuses rather than reading as *no story*.
+  const stories = await readStories(opts, number);
+  if ('unknown' in stories) {
+    refuse(
+      409,
+      'stories-unread',
+      number,
+      `the stories that answer #${number} could not be read from the default branch — refusing rather than creating a plan that may belong in one`,
+    );
+    return;
+  }
+  const liveStories = stories.value.filter(
+    (r): r is Extract<Ref, { kind: 'story' }> => r.kind === 'story' && storyIsLive(r),
+  );
+  if (liveStories.length > 1) {
+    refuse(
+      409,
+      'linked-from-many-stories',
+      number,
+      `#${number} is linked from ${liveStories.length} stories (${liveStories.map((r) => r.slug).join(', ')}) — create the plan from the story that should hold it`,
+    );
+    return;
+  }
+  // A slug enters the prompt only when it has the shape of a story directory name.
+  const storySlug = liveStories[0]?.slug;
+  if (storySlug !== undefined && !STORY_SLUG_PATTERN.test(storySlug)) {
+    refuse(
+      409,
+      'stories-unread',
+      number,
+      `the story slug \`${storySlug.slice(0, 80)}\` is not a valid slug — refusing rather than putting it in a prompt`,
+    );
+    return;
+  }
+
   let issue: IssueDetail;
   try {
     issue = await readOne(opts, number);
@@ -570,6 +735,7 @@ export async function handleIdea(
     slug: slugFromTitle(issue.title, issue.number),
     type,
     truncated,
+    story: storySlug,
   });
 
   const promptPath = ideaPromptPath(opts.repoRoot, number);
@@ -625,56 +791,9 @@ export async function handleIdea(
   // Spawning into `repoRoot` is exactly the defect above; doing it silently
   // when a worktree could not be made would reintroduce it on the rarer path,
   // which is the path nobody watches.
-  // THE DEFAULT BRANCH by the chain `board.ts` already settled on — configured
-  // `Main branch` first, then origin's symbolic ref, then `main`. Not
-  // `origin/HEAD` directly: that ref is unset in a fresh clone, and not
-  // `plot-host.sh default-branch`, which shells out to `gh repo view`.
-  const configured = readConfig(opts, 'Main branch', '');
-  const base = configured || (() => {
-    try {
-      return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
-        { cwd: opts.repoRoot, encoding: 'utf8' }).trim().replace(/^origin\//, '') || 'main';
-    } catch { return 'main'; }
-  })();
-
-  // ONLY WHERE THERE IS A WORKTREE TO MOVE. `git worktree add` needs a git
-  // repository; a caller whose repoRoot is a plain directory — every unit test
-  // here builds one — has no checkout for `/plot-idea` to displace, so there is
-  // nothing to protect it from. Spawning in place is then correct rather than
-  // a fallback, and the distinction is measurable: `rev-parse --git-dir`
-  // answers it without a network or a remote.
-  const isGitRepo = (() => {
-    try {
-      execFileSync('git', ['rev-parse', '--git-dir'],
-        { cwd: opts.repoRoot, stdio: 'ignore' });
-      return true;
-    } catch { return false; }
-  })();
-
-  const ideaTree = isGitRepo
-    ? path.join(agentLogDir(opts.repoRoot), `plot-idea-issue-${number}`)
-    : opts.repoRoot;
-  if (isGitRepo) try {
-    // Detached, so the tree holds no branch of its own — `/plot-idea` creates
-    // and checks out `idea/<slug>` here, and a detached start leaves it free to.
-    fs.rmSync(ideaTree, { recursive: true, force: true });
-    execFileSync('git', ['worktree', 'prune'], { cwd: opts.repoRoot });
-    // `origin/<base>` where the remote is there, HEAD otherwise. A repo with no
-    // remote is an ordinary case — a fresh `git init`, an offline clone — and
-    // `origin/main` is simply an invalid reference there, not a signal of
-    // trouble. HEAD gives the new tree the same commit the board is already
-    // serving, which is what `origin/<base>` approximates when a remote exists.
-    const start = (() => {
-      try {
-        execFileSync('git', ['rev-parse', '--verify', `origin/${base}`],
-          { cwd: opts.repoRoot, stdio: 'ignore' });
-        return `origin/${base}`;
-      } catch { return 'HEAD'; }
-    })();
-    execFileSync('git', ['worktree', 'add', '--detach', ideaTree, start], {
-      cwd: opts.repoRoot,
-      stdio: 'ignore',
-    });
+  let ideaTree: string;
+  try {
+    ideaTree = prepareIdeaTree(opts, `plot-idea-issue-${number}`);
   } catch (err) {
     // A REFUSAL, not a fallback to the board's checkout. Spawning into
     // `repoRoot` in a real repo is precisely the defect this exists to stop;
@@ -715,5 +834,10 @@ export async function handleIdea(
     statePath,
   });
 
-  json(202, { ok: true, number, prompt: promptPath, log });
+  // Said in the answer: a done or archived story, or none, means the plan is
+  // created outside any story, and the person is told which.
+  const placed = storySlug !== undefined
+    ? { story: storySlug }
+    : { story: null, outsideStory: stories.value.length === 0 ? 'no-story' : 'story-closed' };
+  json(202, { ok: true, number, prompt: promptPath, log, ...placed });
 }

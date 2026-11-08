@@ -48,7 +48,7 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * delivered (or released).
  *
  * ```
- * plot-deliver.mjs [--dry-run] [--who <name>] <slug>
+ * plot-deliver.mjs [--dry-run] [--who <name>] [--branch <name>] <slug>
  * plot-deliver.mjs --release <version> <slug>
  * ```
  *
@@ -72,6 +72,10 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * **THE RELEASE ARM is a separate path**, taken over before any deliver-only
  * refusal reads `phase`. It shares plan lookup with the deliver arm and
  * nothing past that: releasing moves no symlink and ticks no sprint item.
+ *
+ * **`--branch <name>`** reads the plan, the indexes and the sprint file from
+ * `origin/<name>` and pushes the booking to `<name>` instead of the default
+ * branch. The release arm does not take it.
  */
 
 /** What the command line asked for. */
@@ -79,6 +83,8 @@ export interface Args {
   dryRun: boolean;
   who: string;
   releaseVersion: string;
+  /** The branch the delivery is recorded on; `''` for the default branch. */
+  branch: string;
   slug: string;
 }
 
@@ -87,6 +93,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
   let dryRun = false;
   let who = '';
   let releaseVersion = '';
+  let branch = '';
   let slug = '';
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -98,14 +105,21 @@ const parseArgs = (argv: readonly string[]): Args | string => {
     } else if (arg === '--release') {
       releaseVersion = argv[++i];
       if (releaseVersion === undefined) return '--release needs a version';
+    } else if (arg === '--branch') {
+      branch = argv[++i];
+      if (branch === undefined || branch === '') return '--branch needs a branch name';
+      if (branch.startsWith('-')) return `--branch takes a branch name, not the flag '${branch}'`;
     } else if (arg === '-h' || arg === '--help') return '__help__';
     else if (arg.startsWith('-')) return `unknown flag '${arg}'`;
     else slug = arg;
   }
   if (slug === '') {
-    return 'need a plan slug (usage: plot-deliver.mjs [--dry-run] <slug>; or --release <version> <slug>)';
+    return 'need a plan slug (usage: plot-deliver.mjs [--dry-run] [--branch <name>] <slug>; or --release <version> <slug>)';
   }
-  return { dryRun, who, releaseVersion, slug };
+  if (branch !== '' && releaseVersion !== '') {
+    return '--branch records a delivery only; a release books on the default branch, so --release does not take --branch';
+  }
+  return { dryRun, who, releaseVersion, branch, slug };
 };
 
 /** Where the ports and scripts this entry needs live. */
@@ -200,6 +214,79 @@ const resolveMain = async (repoRoot: string, scripts: Scripts): Promise<string> 
   const hosted = await scripts.host(['default-branch']);
   const hostedTrimmed = hosted.ok ? hosted.value.trim() : '';
   return hostedTrimmed !== '' ? hostedTrimmed : 'main';
+};
+
+/**
+ * Where a delivery's booking worktree goes, and the booking branch it holds.
+ *
+ * @returns `tmpwt`, absolute, under the configured `Worktree root`; and
+ *   `bookbr`, `plot/deliver-<slug>`.
+ */
+const bookingPlace = async (ctx: Context, slug: string): Promise<{ tmpwt: string; bookbr: string }> => {
+  const wtRootCfg = await ctx.scripts.config('Worktree root', '');
+  const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
+  return {
+    tmpwt: path.join(wtRoot, `.plot-deliver-${slug}.${process.pid}`),
+    bookbr: `plot/deliver-${slug}`,
+  };
+};
+
+/**
+ * The worktree `--branch` checks out detached at `origin/<target>` before the
+ * plan is read, so the plan, the indexes and the sprint file are the branch's
+ * copy. The booking branch is created in it only on the write path.
+ */
+export interface BranchCopy {
+  /** The branch the delivery is read from and pushed to. */
+  target: string;
+  /** The worktree, absolute. */
+  tmpwt: string;
+  /** The booking branch `runDeliver` creates in `tmpwt` before it writes. */
+  bookbr: string;
+  /** A plan store rooted at `tmpwt`. */
+  planStore: PlanStore;
+  /**
+   * False while `tmpwt` is detached and `run` removes it alone; true once
+   * `runDeliver` has created `bookbr` in it and owns its removal.
+   */
+  handedOver: boolean;
+}
+
+/**
+ * Fetches `origin/<target>` and checks it out, detached, in a new worktree.
+ * No local branch is created or reset.
+ *
+ * @param ctx - the main repository and its ports.
+ * @param target - the branch named by `--branch`.
+ * @param slug - the plan's slug, which names the booking branch.
+ * @returns the branch copy; or the refusal sentence where origin does not hold
+ *   `target`, cannot be reached, or the worktree cannot be added. Nothing is
+ *   written in that case.
+ */
+const prepareBranchCopy = async (ctx: Context, target: string, slug: string): Promise<BranchCopy | string> => {
+  const listed = await runGit(['-C', ctx.repoRoot, 'ls-remote', '--exit-code', '--heads', 'origin', `refs/heads/${target}`]);
+  if (listed.code === 2) {
+    return `branch '${target}' does not exist on origin — nothing was written.\n  Check the name: git ls-remote --heads origin ${target}`;
+  }
+  if (listed.code !== 0) {
+    return `could not ask origin for branch '${target}' — nothing was written.\n  Check the remote: git ls-remote --heads origin ${target}`;
+  }
+  const fetched = await runGit(['-C', ctx.repoRoot, 'fetch', '-q', 'origin', target]);
+  if (fetched.code !== 0) {
+    return `could not fetch origin/${target} — nothing was written.\n  Check the remote: git fetch origin ${target}`;
+  }
+  const { tmpwt, bookbr } = await bookingPlace(ctx, slug);
+  const added = await ctx.trees.add(tmpwt, `origin/${target}`);
+  if (!added.ok) {
+    return `could not check out origin/${target} in a worktree at ${tmpwt}.\n  Check: git worktree list\n  Nothing has been written; the plan is untouched.`;
+  }
+  return {
+    target,
+    tmpwt,
+    bookbr,
+    planStore: planStoreShell({ repoRoot: tmpwt, scriptDir: ctx.scriptDir }),
+    handedOver: false,
+  };
 };
 
 /** The ports one booking write needs. */
@@ -344,13 +431,18 @@ const runDeliver = async (
   planFile: string,
   write: Printer,
   warn: Printer,
+  copy: BranchCopy | null = null,
 ): Promise<number> => {
-  const absPlanFile = path.join(ctx.repoRoot, planFile);
-  const plan = await transitionPlanOf(ctx.planStore, args.slug, absPlanFile);
+  // With `--branch`, the plan is read from the booking worktree cut from
+  // `origin/<target>`; otherwise from the caller's checkout.
+  const store = copy?.planStore ?? ctx.planStore;
+  const readRoot = copy?.tmpwt ?? ctx.repoRoot;
+  const absPlanFile = path.join(readRoot, planFile);
+  const plan = await transitionPlanOf(store, args.slug, absPlanFile);
   if (plan === null) {
     throw new Refused(`cannot parse '${planFile}' — refusing rather than guessing.\n  See what the parser reads: ${ctx.scriptDir}/plot-plan-meta.sh ${planFile}\n  A plan needs a '## Status' section with a 'State:' field.`);
   }
-  const parsedPlan = await ctx.planStore.readPlan(planFile);
+  const parsedPlan = await store.readPlan(planFile);
   const sprint = parsedPlan.ok ? parsedPlan.value.sprint : '';
 
   switch (plan.phase) {
@@ -377,11 +469,13 @@ const runDeliver = async (
   // as missing from a stale one. A failed fetch changes nothing here: the gate
   // then answers from the ref it has, and a commit it cannot find keeps the
   // slice open.
-  const main = await resolveMain(ctx.repoRoot, ctx.scripts);
+  // `main` names the branch the delivery is recorded on: the default branch,
+  // or the `--branch` target.
+  const main = copy !== null ? copy.target : await resolveMain(ctx.repoRoot, ctx.scripts);
   await runGit(['-C', ctx.repoRoot, 'fetch', '-q', 'origin', main]);
   const deliverability = await deliverabilityOf(
     {
-      planStore: ctx.planStore,
+      planStore: store,
       host: ctx.host,
       refs: ctx.refs,
       prIndex: ctx.prIndex,
@@ -413,13 +507,14 @@ const runDeliver = async (
     write(`step: would flip Phase → Delivered and fill Delivered: ${today}\n`);
     write('step: would move active/ → delivered/ symlink\n');
     write(`step: would tick the sprint item${sprint !== '' ? ` (sprint: ${sprint})` : ''}\n`);
+    if (copy !== null) write(`step: would record the delivery on ${copy.target}\n`);
     write('summary: phase=would record=would index=would sprint=would push=would\n');
     return 0;
   }
 
-  const rel = realPlanPath(ctx.repoRoot, planFile);
+  const rel = realPlanPath(readRoot, planFile);
   if (rel === null) {
-    throw new Refused(`${planFile} is outside the repository root (${ctx.repoRoot}).\n  Move the plan under the plan directory inside this checkout and re-run.`);
+    throw new Refused(`${planFile} is outside the repository root (${readRoot}).\n  Move the plan under the plan directory inside this checkout and re-run.`);
   }
 
   const [activeDirCfg, deliveredDirCfg, sprintDirCfg] = await Promise.all([
@@ -433,12 +528,12 @@ const runDeliver = async (
 
   await runGit(['-C', ctx.repoRoot, 'fetch', '-q', 'origin', main]);
 
-  const wtRootCfg = await ctx.scripts.config('Worktree root', '');
-  const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
-
-  const bookbr = `plot/deliver-${args.slug}`;
-  const tmpwt = path.join(wtRoot, `.plot-deliver-${args.slug}.${process.pid}`);
-  const added = await cutBooking(ctx, tmpwt, bookbr, main, 'add');
+  const { tmpwt, bookbr } = copy ?? (await bookingPlace(ctx, args.slug));
+  // With `--branch`, the detached worktree becomes the booking worktree here:
+  // `bookbr` is created or reset at `origin/<target>`, as `addBranch` does on
+  // the default path.
+  const added = copy !== null ? await ctx.trees.resetBranch(tmpwt, bookbr, `origin/${main}`) : await cutBooking(ctx, tmpwt, bookbr, main, 'add');
+  if (copy !== null && added.ok) copy.handedOver = true;
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }
@@ -635,23 +730,36 @@ export const run = async (
   const activeDir = activeDirCfg.ok ? activeDirCfg.value.trim() : 'docs/plans/active/';
   const deliveredDir = deliveredDirCfg.ok ? deliveredDirCfg.value.trim() : 'docs/plans/delivered/';
 
-  const planFile = await findPlanFile(ctx.planStore, planDir, activeDir, deliveredDir, parsed.slug);
-  if (planFile === '') {
-    warn(`plot-deliver: no plan found for '${parsed.slug}' — looked in ${planDir}, ${activeDir}, ${deliveredDir}.\n  Check the slug: ls ${planDir} | grep -i '${parsed.slug}'\n`);
-    return 1;
+  let copy: BranchCopy | null = null;
+  if (parsed.branch !== '') {
+    const prepared = await prepareBranchCopy(ctx, parsed.branch, parsed.slug);
+    if (typeof prepared === 'string') {
+      warn(`plot-deliver: ${prepared}\n`);
+      return 1;
+    }
+    copy = prepared;
   }
 
   try {
+    const planFile = await findPlanFile(copy?.planStore ?? ctx.planStore, planDir, activeDir, deliveredDir, parsed.slug);
+    if (planFile === '') {
+      const where = copy !== null ? ` on origin/${copy.target}` : '';
+      const list = copy !== null ? `git ls-tree --name-only origin/${copy.target} ${planDir}` : `ls ${planDir}`;
+      warn(`plot-deliver: no plan found for '${parsed.slug}'${where} — looked in ${planDir}, ${activeDir}, ${deliveredDir}.\n  Check the slug: ${list} | grep -i '${parsed.slug}'\n`);
+      return 1;
+    }
     if (parsed.releaseVersion !== '') {
       return await runRelease(ctx, parsed, planFile, write, warn);
     }
-    return await runDeliver(ctx, parsed, planFile, write, warn);
+    return await runDeliver(ctx, parsed, planFile, write, warn, copy);
   } catch (err) {
     if (err instanceof Refused) {
       warn(`plot-deliver: ${err.message}\n`);
       return 1;
     }
     throw err;
+  } finally {
+    if (copy !== null && !copy.handedOver) await ctx.trees.removeOnly(copy.tmpwt);
   }
 };
 

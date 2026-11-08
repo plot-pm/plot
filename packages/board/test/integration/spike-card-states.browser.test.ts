@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
-import { type Board, type Card } from '../../src/contract/schema.js';
+import { CardSchema, type Board, type Card } from '../../src/contract/schema.js';
+import { planFactsOf } from '../../src/server/plan-facts.js';
 
 /**
  * A DESIGN PLAN'S CARD READS ITS SPIKE — what only a rendered page can settle.
@@ -25,10 +26,14 @@ const controls = (spikeState: string | null, over: Record<string, unknown> = {})
   ...over,
 });
 
-const card = (spikeState: string | null): Card => ({
-  slug: 'greenhouse', title: 'greenhouse', type: 'feature', phase: 'Design', path: 'p-greenhouse.md', prs: [],
-  controls: controls(spikeState),
-}) as unknown as Card;
+const card = (spikeState: string | null): Card => {
+  const fields = CardSchema.omit({ facts: true }).parse({
+    slug: 'greenhouse', title: 'greenhouse', type: 'feature', phase: 'Design', path: 'p-greenhouse.md', prs: [],
+    status: 'draft', controls: controls(spikeState),
+  });
+  const spike = spikeState === null ? null : { branch: 'feature/greenhouse-spike', pr: 41 };
+  return { ...fields, facts: planFactsOf(fields, { spike }) };
+};
 
 const board = (c: Card) => ({
   generatedAt: new Date().toISOString(),
@@ -77,11 +82,18 @@ describe('a Design plan card states where its spike stands', () => {
     }
   });
 
-  it('offers no approval while the approved spike has not merged', async () => {
+  it('offers no approval while the approved spike has not merged, and says what it waits on', async () => {
     const page = await open('spike-approved');
     try {
       await expect.poll(() => article(page).locator('[data-spike-state="spike-approved"]').count()).toBe(1);
-      expect(await article(page).getByRole('button', { name: /Approve|Confirm slices/ }).count()).toBe(0);
+      expect(await article(page).getByRole('button', { name: 'Confirm slices and approve' }).count()).toBe(0);
+      // Approve shows as the disabled primary, its reason on the card itself.
+      const approve = article(page).getByRole('button', { name: 'Approve', exact: true });
+      expect(await approve.getAttribute('aria-disabled')).toBe('true');
+      expect(await article(page).locator('[data-action-reason]').textContent())
+        .toContain('waits on its spike feature/greenhouse-spike #41');
+      // The reason is plain text: a `role="tooltip"` element holds no links.
+      expect(await article(page).locator('[role="tooltip"] a').count()).toBe(0);
       expect(await article(page).locator('[data-interrogate="greenhouse"]').count()).toBe(1);
     } finally {
       await page.close();

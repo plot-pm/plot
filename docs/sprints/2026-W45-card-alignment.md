@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-11-08
 - **Start:** 2026-11-06
 - **End:** 2026-11-13
 <!-- Optional. The version this sprint is working toward, named before it is
@@ -30,7 +31,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
 ### Should Have
-- [ ] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate --> <!-- reason: live proof failed on 2.31.0, merged: #3209, remaining: bug/the-release-run-relays-validate -->
+- [x] [the-release-head-reports-validate-with] The release head reports validate with no person approving a run (#3073) <!-- pr: #3076, branch: bug/the-release-run-relays-validate --> <!-- reason: live proof failed on 2.31.0, merged: #3209, remaining: bug/the-release-run-relays-validate -->
 - [x] [continue-and-the-agent-panel-refuse] continue and the agent panel refuse unknown-branch with no pulse (#3117) <!-- pr: #3129, branch: feature/continue-refuses-no-pulse -->
 - [x] [controller-gate-refuses-read-only-commands] Controller gate refuses read-only commands that name a gated script (#2530) <!-- pr: #3135, branch: feature/controller-gate-reads-a-process-lookup -->
 - [x] [open-plot-review-findings-from-the] Open plot-review findings from the 2026-10-29 delivery-loop plans (#3069) <!-- pr: #3075, branch: bug/a-high-gets-its-own-fixer-attempts -->
@@ -38,7 +39,6 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 - [x] [plot-fleetctl-stop-unloads-another-checkout] plot-fleetctl --stop unloads another checkout's supervisor (#3060) <!-- pr: #3094, branch: bug/plot-fleetctl-stop-unloads-another-checkout -->
 - [x] [restart-refuses-unknown-branch-when-it] restart refuses unknown-branch when it has no current pulse (#3100) <!-- pr: #3114, branch: feature/restart-refuses-no-pulse -->
 - [x] [the-shell-lines-gate-missing-from] The shell-lines gate missing from the Local checks list (#3120) <!-- pr: #3130, branch: feature/the-shell-lines-gate-missing-from -->
-- [ ] [passkey-registration-moves-to-a-settings] Passkey registration moves to a settings menu; release approval moves to the release PR (#3214) <!-- pr: #3215, branch: feature/passkey-registration-reads-the-attestation-object -->
 
 <!-- add items here -->
 
@@ -47,6 +47,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 <!-- add items here -->
 
 ### Deferred
+- [ ] [passkey-registration-moves-to-a-settings] Passkey registration moves to a settings menu; release approval moves to the release PR (#3214) <!-- pr: #3215, branch: feature/passkey-registration-reads-the-attestation-object -->
 
 <!-- Items moved here during sprint when they won't make the timebox -->
 
@@ -72,6 +73,7 @@ three boards to it: Plans first as the tracer, then Stories, then Tickets.
 - 2026-11-07: Added [restart-refuses-unknown-branch-when-it] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
 - 2026-11-07: Added [the-shell-lines-gate-missing-from] to Should — carried over from follow-ups-2-30-1 at its close: shipped in v2.31.0, release booking waits on #3213
 - 2026-11-07: Added [passkey-registration-moves-to-a-settings] to Should — operator request 2026-11-07: the passkey panel moves to a settings menu (#3214); added at the operator's word
+- 2026-11-08: Deferred [passkey-registration-moves-to-a-settings] from Should — its slices merge to main, not to the sprint branch; carry it to the next sprint
   in Design on `idea/one-card-grammar`, PR #3192). The plan joins the sprint
   through `plot-sprint-member.mjs add card-alignment one-card-grammar` once its
   plan PR merges on approval — the writer sets the plan's `Sprint:` field, which
