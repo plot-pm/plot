@@ -9,7 +9,7 @@ import {
   encodeFleetdHeartbeat,
   type FleetdHeartbeat,
 } from '../src/entities/fleetd-heartbeat.js';
-import { bridgeVouched, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
+import { bridgeVouched, fleetdReadsPrs, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
 import { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 const T0 = 1_700_000_000_000;
@@ -186,6 +186,30 @@ describe('bridgeVouched', () => {
   it('refuses with a stale or absent heartbeat', () => {
     expect(bridgeVouched({ at: 5 }, heartbeat({ bridgeAt: 5, beatAt: T0 - 31_000 }), T0)).toBe(false);
     expect(bridgeVouched({ at: 5 }, null, T0)).toBe(false);
+  });
+});
+
+describe('bridgeVouched with a late scan', () => {
+  it('refuses while the scan loop is late and vouches once it is back', () => {
+    const named = { bridgeAt: T0 - 1_200_000 };
+    const late = heartbeat({ ...named, loops: { scan: { lastPassAt: T0 - 181_000 } } });
+    expect(bridgeVouched({ at: T0 - 1_200_000 }, late, T0)).toBe(false);
+    const onTime = heartbeat({ ...named, loops: { scan: { lastPassAt: T0 - 5_000 } } });
+    expect(bridgeVouched({ at: T0 - 1_200_000 }, onTime, T0)).toBe(true);
+  });
+  it('is not refused by another loop being late', () => {
+    const hb = heartbeat({ bridgeAt: 5, loops: { 'pr-reader': { lastPassAt: T0 - 700_000 } } });
+    expect(bridgeVouched({ at: 5 }, hb, T0)).toBe(true);
+  });
+});
+
+describe('fleetdReadsPrs', () => {
+  it('needs a live heartbeat whose pr-reader loop is not late', () => {
+    expect(fleetdReadsPrs(null, T0)).toBe(false);
+    expect(fleetdReadsPrs(heartbeat({ beatAt: T0 - 31_000 }), T0)).toBe(false);
+    expect(fleetdReadsPrs(heartbeat({ loops: { 'pr-reader': { lastPassAt: T0 - 700_000 } } }), T0)).toBe(false);
+    expect(fleetdReadsPrs(heartbeat({ loops: { 'pr-reader': { lastPassAt: T0 - 5_000 }, scan: { lastPassAt: null } } }), T0)).toBe(true);
+    expect(fleetdReadsPrs(heartbeat(), T0)).toBe(true);
   });
 });
 

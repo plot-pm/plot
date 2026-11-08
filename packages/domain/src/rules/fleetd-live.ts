@@ -53,6 +53,16 @@ export const observerFresh = (heartbeat: FleetdHeartbeat, now: number): boolean 
   lateLoops(heartbeat, now).length === 0;
 
 /**
+ * Reads whether fleetd is alive and its PR loop is not late.
+ *
+ * @param heartbeat - the heartbeat read, or null where there is none.
+ * @param now - the current time, epoch milliseconds.
+ * @returns true when the heartbeat reads `live` and `pr-reader` is not in {@link lateLoops}.
+ */
+export const fleetdReadsPrs = (heartbeat: FleetdHeartbeat | null, now: number): boolean =>
+  heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && !lateLoops(heartbeat, now).includes('pr-reader');
+
+/**
  * Names the loops that are late.
  *
  * @param heartbeat - the heartbeat read.
@@ -69,8 +79,8 @@ export const lateLoops = (heartbeat: FleetdHeartbeat, now: number): FleetdLoop[]
 /**
  * Reads whether fleetd vouches for a bridge as its latest write.
  *
- * True while the heartbeat reads `live` and its `bridgeAt` equals the
- * bridge's `at`. An idle repository writes no new bridge, so the bridge ages
+ * True while the heartbeat reads `live`, its `scan` loop is not late and its
+ * `bridgeAt` equals the bridge's `at`. An idle repository writes no new bridge, so the bridge ages
  * while fleetd is healthy; the heartbeat's `bridgeAt` names the one bridge
  * fleetd still stands behind. A heartbeat naming another bridge, or none,
  * vouches for nothing.
@@ -78,10 +88,13 @@ export const lateLoops = (heartbeat: FleetdHeartbeat, now: number): FleetdLoop[]
  * @param bridge - the bridge read, by its `at` in epoch milliseconds.
  * @param heartbeat - the heartbeat read, or null where there is none.
  * @param now - the current time, epoch milliseconds.
- * @returns true when fleetd is live and names this bridge.
+ * @returns true when fleetd is live, its scan is on time and it names this bridge.
  */
 export const bridgeVouched = (bridge: { at: number }, heartbeat: FleetdHeartbeat | null, now: number): boolean =>
-  heartbeat !== null && fleetdLiveness(heartbeat, now) === 'live' && heartbeat.bridgeAt === bridge.at;
+  heartbeat !== null &&
+  fleetdLiveness(heartbeat, now) === 'live' &&
+  !lateLoops(heartbeat, now).includes('scan') &&
+  heartbeat.bridgeAt === bridge.at;
 
 /**
  * The sentence the board shows while a live fleetd leaves the scan to it

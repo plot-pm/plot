@@ -5,6 +5,8 @@ import { join } from 'node:path';
 
 import { clockManual, fleetdHeartbeatFile, fleetStateFile, fleetStateVouched } from '@plot-pm/domain/adapters';
 import { answered, failed, fleetdLiveness, lateLoops, FleetReadingSchema, type FleetdHeartbeat } from '@plot-pm/domain';
+import { bridgeVouched } from '@plot-pm/domain/rules/fleetd-live';
+import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 
 import { run, type RunSeams } from '../../src/server/entry/registryd-main.js';
@@ -354,6 +356,55 @@ describe('run — the heartbeat', () => {
     expect(first).toMatchObject({ loops: { scan: { lastPassAt: null }, 'pr-reader': { lastPassAt: null }, 'issue-reader': { lastPassAt: null } } });
     const seen = last as unknown as FleetdHeartbeat;
     expect(lateLoops(seen, seen.beatAt)).toEqual(['scan']);
+  });
+
+  it('ends ownership and the bridge vouch once a failing scan passes its bound', async () => {
+    // The real scan runs in a plain directory with no scripts, so every scan fails.
+    const start = Date.now();
+    const clock = clockManual(start);
+    const old = start - 20 * 60_000;
+    await fleetStateFile({ repoRoot: dir, now: () => old }).write({
+      at: old,
+      pulse: FleetReadingSchema.parse({
+        main: 'main',
+        head: 'abc',
+        fetch_failed: false,
+        summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+        plans: [],
+      }),
+      ages: new Map(),
+      branchUrlBase: '',
+      approvedAt: new Map(),
+      ideaPlans: new Map(),
+      prError: null,
+    });
+    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    let sleeps = 0;
+    let last: FleetdHeartbeat | null = null;
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+        let beatAt = 0;
+        for (let i = 0; i < 19; i += 1) {
+          clock.advance(1);
+          beatAt = await nextBeat(store, beatAt);
+        }
+        const read = await store.read();
+        last = read.ok ? read.value : null;
+      },
+      () => sleeps > 0,
+      () => undefined,
+      dir,
+      quiet(clock, { scan: undefined }),
+    );
+    const seen = last as unknown as FleetdHeartbeat;
+    expect(seen.loops.scan?.lastPassAt).toBeNull();
+    expect(seen.bridgeAt).toBeNull();
+    expect(fleetOwnsScan({ heartbeat: seen, now: seen.beatAt })).toBe(false);
+    expect(bridgeVouched({ at: old }, seen, seen.beatAt)).toBe(false);
   });
 
   it('writes no heartbeat under --once', async () => {

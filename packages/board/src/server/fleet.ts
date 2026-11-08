@@ -99,7 +99,7 @@ import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesS
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
-import { fleetdLiveness, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
+import { fleetdLiveness, fleetdReadsPrs, lateLoopNote, lateLoops } from '@plot-pm/domain/rules/fleetd-live';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
@@ -2602,13 +2602,13 @@ const readerLockKey = async (opts: BuildBoardOptions, entry: CacheEntry): Promis
 const indexDirFor = (opts: BuildBoardOptions): Promise<string | null> => readerLockIndexDir({ cwd: opts.repoRoot });
 
 /**
- * Whether a live `fleetd` heartbeat (at most three beats old) already reads PRs under this lock — the
+ * Whether a live `fleetd` heartbeat (at most three beats old) whose `pr-reader` loop is on time already reads PRs under this lock — the
  * one check the board's spawn guard and the reader's own exit check must read
  * identically, per the brief, so the board never starts a second reader while
  * fleetd already holds.
  */
 const fleetdHeartbeatIsLive = async (opts: BuildBoardOptions, now: number): Promise<boolean> =>
-  fleetdLiveness(await fleetdHeartbeatFor(opts), now) === 'live';
+  fleetdReadsPrs(await fleetdHeartbeatFor(opts), now);
 
 /**
  * Creates `dir` one level at a time below `root`, and never creates `root`.

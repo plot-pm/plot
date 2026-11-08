@@ -3109,6 +3109,13 @@ export const run = async (
     return value;
   };
   const bridge = trackBridgeWrites(fleetStateFile({ repoRoot }));
+  // A scan passes only when it landed a bridge: `fleetScan` contains its own failures and
+  // returns, so a failing scan would otherwise read as a loop that keeps up.
+  const scanPassed = (scan: () => Promise<void>): (() => Promise<void>) => async () => {
+    const before = bridge.writes();
+    await scan();
+    if (bridge.writes() > before) passes.scan = Date.now();
+  };
   const fleetLabel =
     process.env.PLOT_FLEET_LABEL ||
     (args.once ? '' : await readConfigAsync({ repoRoot, scriptsDir }, 'Fleet label', 'com.plot-pm.fleetd')) ||
@@ -3154,7 +3161,7 @@ export const run = async (
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
-        scan: passed('scan', seams.scan ?? fleetScan(
+        scan: seams.scan ? passed('scan', seams.scan) : scanPassed(fleetScan(
           {
             repoRoot,
             scripts,

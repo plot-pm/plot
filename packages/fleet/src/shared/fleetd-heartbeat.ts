@@ -127,19 +127,24 @@ export const startFleetdHeartbeat = (
  * Wraps a bridge store to remember the `at` of the last bridge it wrote.
  *
  * @param state - the bridge store fleetd writes through.
- * @returns the wrapped store and `bridgeAt`, which reads null until a write lands; a failed write leaves it unchanged.
+ * @returns the wrapped store, `writes` (the count of landed writes) and `bridgeAt`, which reads null until a write lands; a failed write leaves it unchanged.
  */
-export const trackBridgeWrites = (state: FleetState): { state: FleetState; bridgeAt: () => number | null } => {
+export const trackBridgeWrites = (state: FleetState): { state: FleetState; bridgeAt: () => number | null; writes: () => number } => {
   let bridgeAt: number | null = null;
+  let writes = 0;
   return {
     state: {
       ...state,
       write: async (data) => {
         const written = await state.write(data);
-        if (written.ok) bridgeAt = data.at;
+        if (written.ok) {
+          bridgeAt = data.at;
+          writes += 1;
+        }
         return written;
       },
     },
     bridgeAt: () => bridgeAt,
+    writes: () => writes,
   };
 };
