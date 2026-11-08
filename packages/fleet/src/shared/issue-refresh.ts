@@ -24,6 +24,7 @@ import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import type { ClosedIssues, IssueRead, TrackerSpender } from '@plot-pm/domain/ports/tracker';
 
 import { hostReaction, prGateOpen, waitOf, type IssueGateReading } from './pr-refresh.js';
+import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 
 /** What the issue gate keeps from one pass to the next. */
 export interface IssueState {
@@ -85,6 +86,12 @@ export interface IssueWorld {
   prBackoff: () => PrBackoffReading;
   /** The clock in epoch ms; defaults to `Date.now`. */
   now?: () => number;
+  /**
+   * Records the pass's `issues` reading into the daemon's snapshot: the open
+   * rows where the tracker answered, a `failed` reading where it did not. A
+   * pass held by a backoff records nothing. It adds no read.
+   */
+  record?: RecordReading;
 }
 
 /**
@@ -404,6 +411,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   const source = issueSource({ declared: world.declaredTracker, gitHost: world.gitHost, listers: TRACKER_LISTERS });
   if (source.ask === 'nobody') {
     state.issueError = source.reason;
+    world.record?.('issues', failedOf(source.reason, startedAt));
     state.issueNextAt = startedAt + ISSUE_REFRESH_MS;
     state.issueNextIsBackoff = false;
     return;
@@ -450,6 +458,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       state.issueError = null;
       state.issueNextAt = nextAt;
       state.issueNextIsBackoff = false;
+      world.record?.('issues', readOf(fold.rows, startedAt));
       await world.issueStore.write({
         v: ISSUE_INDEX_VERSION,
         source: source.ask,
@@ -485,6 +494,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       state.issueError = reason;
       state.issueNextAt = backoffUntil ?? nextAt;
       state.issueNextIsBackoff = backoffUntil !== null;
+      world.record?.('issues', failedOf(reason, finishedAt));
       await world.issueStore.write({
         v: ISSUE_INDEX_VERSION,
         source: source.ask,
@@ -538,6 +548,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     state.issueError = (outcome.closed.answer === 'failed' ? outcome.error : null) ?? inboxOutcome.error;
     state.issueNextAt = backoffUntil ?? nextAt;
     state.issueNextIsBackoff = backoffUntil !== null;
+    world.record?.('issues', readOf(result.value.issues.map(issueIndexRowOf), startedAt));
     await world.issueStore.write({
       v: ISSUE_INDEX_VERSION,
       source: source.ask,
@@ -583,6 +594,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   state.issueError = answer === 'failed' ? reason : null;
   state.issueNextAt = backoffUntil ?? nextAt;
   state.issueNextIsBackoff = backoffUntil !== null;
+  world.record?.('issues', failedOf(reason, finishedAt));
 
   const failedAt = new Date(startedAt).toISOString();
   await world.issueStore.write({
