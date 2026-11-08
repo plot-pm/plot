@@ -30,7 +30,7 @@ All work for this sprint goes to the integration branch `sprint/nothing-runs`. T
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
 ### Should Have
-- [ ] [monitors-nap-without-sleep] The desk monitors nap and probe liveness without a process (#3170)
+- [ ] [monitors-nap-without-sleep] The desk monitors nap and probe liveness without a process (#3170) <!-- pr: #3238, branch: bug/is-alive-without-a-process -->
 - [ ] [fixed-answers-once] Answers fixed for a process's life are read once (#3170)
 
 <!-- add items here -->
