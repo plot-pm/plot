@@ -176,6 +176,7 @@ export * from './rules/issue-status.js';
 export * from './rules/issue-source.js';
 export * from './rules/issue-offline-fallback.js';
 export * from './rules/fold-issue-rows.js';
+export * from './rules/release-of.js';
 export * from './rules/issue-write-through.js';
 export * from './rules/listing-page.js';
 export * from './rules/listing-spend.js';

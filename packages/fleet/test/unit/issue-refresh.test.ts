@@ -184,6 +184,12 @@ describe('issueIndexRowOf', () => {
     });
   });
 
+  it('writes releases, including an empty list, and omits the key where the tracker was not asked', () => {
+    expect(issueIndexRowOf(issue({ releases: ['2.32.0'] })).releases).toEqual(['2.32.0']);
+    expect(issueIndexRowOf(issue({ releases: [] }))).toHaveProperty('releases', []);
+    expect(issueIndexRowOf(issue())).not.toHaveProperty('releases');
+  });
+
   it('omits assignees where the tracker named none', () => {
     expect(issueIndexRowOf(issue())).toEqual({ number: '1', title: 'one', url: 'u1' });
   });
@@ -417,6 +423,26 @@ describe('the incremental issue read', () => {
     expect(argv().some((call) => call.startsWith('issue-list --paged'))).toBe(false);
     expect(argv().some((call) => call.includes('--state changed'))).toBe(true);
     expect(index?.passesSinceFull).toBe(2);
+  });
+
+  it('replaces a held release with the changed row\'s new milestone', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1, { releases: ['2.33.0'], assignees: ['alice'] })] });
+    const store = issueIndexFile({ home: storeHome() });
+    const held = heldIncremental();
+    await store.write({ ...held, rows: (held.rows ?? []).map((r) => (r.number === '1' ? { ...r, releases: ['2.32.0'] } : r)) });
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const row = (await onDisk(store))?.rows?.find((r) => r.number === '1');
+    expect(row?.releases).toEqual(['2.33.0']);
+    expect(row?.assignees).toEqual(['alice']);
+  });
+
+  it('keeps a held release where the changed row states none', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1, { title: 'renamed' })] });
+    const store = issueIndexFile({ home: storeHome() });
+    const held = heldIncremental();
+    await store.write({ ...held, rows: (held.rows ?? []).map((r) => (r.number === '1' ? { ...r, releases: ['2.32.0'] } : r)) });
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    expect((await onDisk(store))?.rows?.find((r) => r.number === '1')?.releases).toEqual(['2.32.0']);
   });
 
   it('moves a changed row that is now closed out of rows and into closed.rows', async () => {

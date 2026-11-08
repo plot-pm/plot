@@ -104,6 +104,7 @@ export const issueIndexRowOf = (issue: Issue): IssueIndexRow => ({
   ...(issue.statusCategory === '' ? {} : { statusCategory: issue.statusCategory }),
   ...(issue.closedAt === null ? {} : { closedAt: issue.closedAt }),
   ...(issue.assignees.length === 0 ? {} : { assignees: issue.assignees }),
+  ...(issue.releases === undefined ? {} : { releases: [...issue.releases] }),
   ...(issue.type === undefined ? {} : { type: issue.type }),
 });
 

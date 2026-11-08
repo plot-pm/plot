@@ -178,3 +178,22 @@ describe('the inbox set', () => {
     expect(decodeIssueIndex('')).toBeNull();
   });
 });
+
+describe('the releases field', () => {
+  const row = (extra: Record<string, unknown>) => ({ number: '1', title: 't', url: 'u', ...extra });
+
+  it('round-trips a release list, an empty list and an absent field as three different rows', () => {
+    const rows = [row({ releases: ['2.32.0', '2.33.0'] }), row({ releases: [] }), row({})];
+    const back = decodeIssueIndex(encodeIssueIndex(store({ rows })));
+    expect(back?.rows).toEqual(rows);
+    expect(back?.rows?.[1]).toHaveProperty('releases', []);
+    expect(back?.rows?.[2]).not.toHaveProperty('releases');
+  });
+});
+
+describe('the format version', () => {
+  it('decodes a version 1 file to null, so the reader makes one full read', () => {
+    const text = JSON.stringify({ ...store(), v: 1 });
+    expect(decodeIssueIndex(text)).toBeNull();
+  });
+});
