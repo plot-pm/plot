@@ -90,6 +90,7 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
+import { stateSyncTick } from '../../shared/state-sync-tick.js';
 import { escalationPostWorldFor, postEscalation } from '../../shared/escalation-post.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
@@ -2640,6 +2641,8 @@ export interface RunSeams {
   readIssues?: () => Promise<void>;
   /** Replaces the drain of the tracker writes Plot made; tests only. */
   readIssueWrites?: () => Promise<void>;
+  /** Replaces the state-sync pass; tests only. */
+  stateSync?: () => Promise<void>;
   /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
   notifier?: () => Promise<Notifier>;
   /** The App key probe at start; reads every declared key through the adapter by default. */
@@ -3144,6 +3147,7 @@ export const run = async (
         prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
         issues: seams.readIssues ?? readIssues,
         issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
+        stateSync: seams.stateSync ?? stateSyncTick(scripts, warn),
       }, warn);
   const runTick = seams.tick ?? tick;
   // THE WAIT BETWEEN TICKS ENDS ON A STOP. A stop read before the wait skips
