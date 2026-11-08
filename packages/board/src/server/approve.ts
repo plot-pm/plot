@@ -394,6 +394,7 @@ export async function handleApprove(
       env: {},
       logFile: log,
       statePath,
+      detached: { alsoState: [] },
     });
   } else {
     // `--who` TRAVELS AS AN ARGUMENT, not folded into a shell string: this arm

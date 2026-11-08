@@ -808,11 +808,11 @@ export async function handleIdea(
   // THROUGH THE `agentRun` PORT, never a raw `spawn`: `startBoardRun` asks
   // `runnerChoice` for the role and starts the `command` or `sdk` connector.
   //
-  // STAYS IN THE BOARD'S PROCESS GROUP — no `detached`. The run is NOT awaited
-  // before the 202 answers: this server is single-threaded, and awaiting an
-  // agent would freeze every viewer's board for the length of somebody else's
-  // click. A board stop or restart now ends this run, and the state file then
-  // reads failed rather than running.
+  // `detached`: on the `command` runner the run outlives the board and records
+  // its own exit code in the state file; on the `sdk` runner it runs in this
+  // process and a board stop ends it. The run is NOT awaited before the 202
+  // answers: this server is single-threaded, and awaiting an agent would
+  // freeze every viewer's board for the length of somebody else's click.
   try {
     markBoardRun(statePath, log);
   } catch (err) {
@@ -832,6 +832,7 @@ export async function handleIdea(
     },
     logFile: log,
     statePath,
+    detached: { alsoState: [] },
   });
 
   // Said in the answer: a done or archived story, or none, means the plan is

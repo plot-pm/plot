@@ -5,6 +5,8 @@ import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-line
 import { boardAgentModel } from '@plot-pm/domain/rules/board-agent-models';
 import { runnerChoice } from '@plot-pm/domain/rules/runner-choice';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
+import type { DetachedRun } from '@plot-pm/domain/ports/detached-run';
+import { agentRunDetached } from '@plot-pm/domain/adapters/agent-run/agent-run-detached';
 import { readConfig as readConfigKey, type ConfigReadOptions } from './config-reader.js';
 
 /** Which runner starts one board role's agent, the model its request names, and the connector. */
@@ -17,6 +19,10 @@ export interface AgentRunChoice {
   readonly model: string;
   /** The connector; absent on a `refused` choice. */
   readonly agentRun?: AgentRun;
+  /** The launcher that starts the run so it outlives this process; present on the `command` runner only. */
+  readonly detachedRun?: DetachedRun;
+  /** The role's command fragment, as read; `''` where the role has none. */
+  readonly fragment: string;
 }
 
 /** Builds the SDK connector a board role on `Agent runner: sdk` runs on. */
@@ -76,7 +82,7 @@ export const agentRunFor = async (
     charterHarness: '',
     defaultsToSdkWhenNamed: false,
   });
-  if (choice.runner === 'refused') return { runner: 'refused', reason: choice.reason, model: '' };
+  if (choice.runner === 'refused') return { runner: 'refused', reason: choice.reason, model: '', fragment };
 
   if (choice.runner === 'command') {
     const processes = processesShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
@@ -87,7 +93,9 @@ export const agentRunFor = async (
       // A FRAGMENT NAMES ITS OWN MODEL. The `command` adapter does not read
       // `request.model`, so the request carries none.
       model: '',
+      fragment,
       agentRun: agentRunCommand({ boundedRun, fragment, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),
+      detachedRun: agentRunDetached({ scriptDir: opts.scriptsDir }),
     };
   }
 
@@ -98,8 +106,9 @@ export const agentRunFor = async (
       runner: 'refused',
       reason: `${choice.reason}, and this process does not carry the SDK runner; the board's own process starts SDK runs`,
       model: '',
+      fragment,
     };
   }
-  return { runner: 'sdk', reason, model: settings.model, agentRun: await sdkConnector(opts) };
+  return { runner: 'sdk', reason, model: settings.model, fragment, agentRun: await sdkConnector(opts) };
 };
 
