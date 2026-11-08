@@ -90,7 +90,7 @@ One agent run of about 15 to 20 minutes (17.5 measured once). No cost to a plan 
 
 ### Implementation
 
-- `feature/a-consistency-pass-in-the-skill` — the chosen skill gains the pass, with its Model Guidance row, its README and the severity scale. Waits on the trial's result. <!-- waits: feature/a-consistency-pass-trial -->
+- `feature/a-consistency-pass-in-the-skill` — the chosen skill gains the pass, with its Model Guidance row, its README and the severity scale. Waits on the trial's result. <!-- waits: feature/a-consistency-pass-trial --> → #3273
 
 ## Notes
 
