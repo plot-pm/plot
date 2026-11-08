@@ -33,6 +33,7 @@ import {
 } from '../../src/server/implement.js';
 import { rmTree } from '../helpers.mjs';
 import { boardRunsSettled } from '../../src/server/board-run.js';
+import { implementRunning } from '@plot-pm/fleet/shared/implement-run';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 const SLUG = 'an-approved-plan-offers-its-two-starts';
@@ -259,7 +260,10 @@ describe('the controller names the branch before the writer starts', () => {
     const dir = repo();
     await post({ repoRoot: dir, branch: BRANCH });
     // The first run holds the slug's lock until it ends; a second start while it lives is refused.
-    await boardRunsSettled();
+    // The run is detached, so the board holds nothing to settle: wait for the lock itself.
+    for (const end = Date.now() + 15_000; Date.now() < end && implementRunning(dir, SLUG); ) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
     await post({ repoRoot: dir, branch: null });
     assert.ok(!fs.existsSync(implementBranchRecordPath(dir, SLUG)));
   });
