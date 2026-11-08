@@ -76,7 +76,7 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
 } else if (argv[0] === 'pr' && argv[1] === 'ready') {
   state.draft = false;
   fs.writeFileSync(file, JSON.stringify(state));
-} else if (argv[0] === 'pr' && argv[1] === 'merge') {
+} else if (argv[0] === 'api' && argv.some((a) => /pulls\/\d+\/merge$/.test(a))) {
   state.state = 'MERGED';
   fs.writeFileSync(file, JSON.stringify(state));
   process.stdout.write('merged');
@@ -143,7 +143,7 @@ const planOnMain = (repo) => {
   return git(repo, 'show', `origin/main:${PLAN_REL}`);
 };
 
-const mutatingCalls = () => hostCalls().split('\n').filter((l) => /^gh pr (ready|merge)\b/.test(l));
+const mutatingCalls = () => hostCalls().split('\n').filter((l) => /^gh (pr ready\b|api -X PUT .*pulls\/\d+\/merge)/.test(l));
 
 /** Runs a shell snippet that sources one of the receipt files the gates source. */
 const shellRead = (repo, file, snippet) =>
@@ -344,7 +344,7 @@ test('approve entry: a completed approval leaves the state receipt the gate read
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.match(planOnMain(repo), /\*\*Phase:\*\* Approved/);
   assert.match(hostCalls(), /^gh pr ready\b/m, 'a draft is made ready first');
-  assert.match(hostCalls(), /^gh pr merge\b/m);
+  assert.match(hostCalls(), /^gh api -X PUT .*pulls\/\d+\/merge/m);
 
   assert.equal(shellRead(repo, 'plot-state-receipt.sh', 'action_receipt_clears approve'), 1,
     'the action receipt is spent once the action completes');
@@ -359,9 +359,9 @@ test('approve entry: the merge is pinned to the head the approval read', () => {
   const head = JSON.parse(fs.readFileSync(statePath, 'utf8')).headRefOid;
   const r = approve(repo);
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
-  const merge = mutatingCalls().filter((l) => l.startsWith('gh pr merge'));
+  const merge = mutatingCalls().filter((l) => /^gh api -X PUT .*pulls\/\d+\/merge/.test(l));
   assert.equal(merge.length, 1, hostCalls());
-  assert.match(merge[0], new RegExp(`--match-head-commit ${head}\\b`), `the merge must carry the head it read:\n${merge[0]}`);
+  assert.match(merge[0], new RegExp(`sha=${head}\\b`), `the merge must carry the head it read:\n${merge[0]}`);
 });
 
 test('approve entry: a rejected push leaves the action receipt, so the re-run needs no second controller call', () => {
@@ -372,7 +372,7 @@ test('approve entry: a rejected push leaves the action receipt, so the re-run ne
 
   const r = approve(repo);
   assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
-  assert.match(hostCalls(), /^gh pr merge\b/m, 'the irreversible merge ran before the push');
+  assert.match(hostCalls(), /^gh api -X PUT .*pulls\/\d+\/merge/m, 'the irreversible merge ran before the push');
   assert.equal(shellRead(repo, 'plot-state-receipt.sh', 'action_receipt_clears approve'), 0,
     'the action receipt survives a failed push');
 

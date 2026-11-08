@@ -150,7 +150,7 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   state.draft = false;
   fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify(state));
   process.stdout.write('ready');
-} else if (argv[0] === 'pr' && argv[1] === 'merge') {
+} else if (argv[0] === 'api' && argv.some((a) => /pulls\/\d+\/merge$/.test(a))) {
   if (state.mergeFails) { process.stderr.write('merge refused'); process.exit(1); }
   if (state.draft) { process.stderr.write('cannot merge a draft'); process.exit(1); }
   state.state = 'MERGED';
@@ -412,7 +412,7 @@ test('approve: a Design plan with a merged plan PR approves with a declared --wh
   assert.match(plan, /- \*\*Phase:\*\* Approved/, plan);
   assert.match(plan, /- \*\*Approved:\*\* \d{4}-\d{2}-\d{2}, jwloka, in-session/, plan);
   const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
-  assert.doesNotMatch(calls, /pr merge/, 'an already-merged PR is not merged again');
+  assert.doesNotMatch(calls, /pulls\/\d+\/merge/, 'an already-merged PR is not merged again');
 });
 
 test('approve: a Design plan with an open plan PR and --who merges it pinned to the PR head', () => {
@@ -423,7 +423,7 @@ test('approve: a Design plan with an open plan PR and --who merges it pinned to 
   assert.equal(code, 0, out);
   assert.equal(hostState().state, 'MERGED');
   const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
-  assert.match(calls, new RegExp(`^gh .*pr merge 42 .*--match-head-commit ${head}`, 'm'), calls);
+  assert.match(calls, new RegExp(`^gh api -X PUT .*pulls/42/merge .*sha=${head}`, 'm'), calls);
 });
 
 test('approve: a Draft plan on Review: pr still needs no --who', () => {
@@ -936,7 +936,7 @@ test('approve: --spike merges the draft plan PR pinned to its head, records the 
   assert.equal(hostState().state, 'MERGED');
   const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
   assert.match(calls, /^gh .*pr ready 42/m, calls);
-  assert.match(calls, new RegExp(`^gh .*pr merge 42 .*--match-head-commit ${head}`, 'm'), calls);
+  assert.match(calls, new RegExp(`^gh api -X PUT .*pulls/42/merge .*sha=${head}`, 'm'), calls);
 
   refreshMain();
   const plan = planOnMain();
