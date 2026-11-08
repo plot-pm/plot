@@ -14,6 +14,7 @@
 - **Rounds:**
 - **Approved:** 2026-11-08, Jan Wloka, plan-PR #3236 merged
 - **Started:** 2026-11-08, Jan Wloka, `bug/an-ended-repair-episode-releases-its-claim`
+- **Started:** 2026-11-08, Jan Wloka, `bug/the-board-names-a-claim-only-branch`
 
 ## Changelog
 
