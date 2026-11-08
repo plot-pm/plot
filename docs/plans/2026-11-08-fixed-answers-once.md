@@ -83,8 +83,13 @@ This plan depends on `process-census-gate`. Slice *Answers in process* turns its
 
 - `bug/fixed-answers-once-in-scripts` — the script-starting adapters pass `PLOT_REPO_ROOT`, `PLOT_GIT_COMMON_DIR` and `PLOT_HOST`; `plot-host.sh`, `plot-worker-state.sh` and `plot-desk-root.sh` read them; contract rows in `test/reconcile/`; census P4 flipped to `it`; a changeset for `plot` <!-- builds: PLOT_GIT_COMMON_DIR, an environment answer the helper scripts read -->
 
+### Remaining askers
+
+- `bug/fixed-answers-once-remaining` — `plot-desk-root.sh` (`plot_repo_root`, `plot_exclude_desk_root`), `plot_desk_exclude` in `plot-worker-state.sh`, `plot-agent-settings.sh` and `plot_env_file` in `plot-host.sh` read `PLOT_REPO_ROOT` / `PLOT_GIT_COMMON_DIR` before they ask git, under the same same-repository check as `plot_given_common_dir`; each node bundle fleetd starts reads them from its environment before it asks; census P4 flipped to `it` once it reads 0; a changeset for `plot` <!-- builds: the remaining fixed-answer readers in scripts and bundles -->
+
 ## Notes
 
 - Phase 2 of the story [`nothing-changed-nothing-runs`](../stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md); depends on `process-census-gate`.
 - Callers checked against `origin/sprint/nothing-runs` on 2026-11-08. The story's claim that the board starts `plot-host.sh backend` holds for its sub-paths (`gate.ts:899`, `plan-state.ts:153`, `released-labels.ts:165`, `finding-tickets.ts:158`), but the board's own cache already holds the backend (`fleet.ts:791`); fleetd builds a fresh `hostShell` at seven sites.
 - Definition of Done: docs/definition-of-done.md.
+- 2026-11-08: Slice *Remaining askers* added. With *Answers in process* (#3261) and *Answers in scripts* (#3262), P4 still has askers that ignore the environment: `plot-desk-root.sh`, `plot_desk_exclude` (`plot-worker-state.sh:537`), `plot-agent-settings.sh`, `plot_env_file` (`plot-host.sh`, Jira only), and every node bundle fleetd starts (one ask per new process). The first census also counted 1 tree-wide ask in 2 idle passes (github, 0 desks) that nobody has traced yet.
