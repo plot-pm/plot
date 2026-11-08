@@ -63,6 +63,7 @@ export const CENSUS_ROWS = {
     unit: 'sleep execve per minute',
     target: 'zero',
     greenBy: { plan: 'monitors-nap-without-sleep', slice: 'Builtin nap' },
+    green: true,
   },
   P2: {
     id: 'P2',
