@@ -38,7 +38,7 @@ const describeAsked = (raw: unknown): string => {
 
 export const admitBeforeSnapshot = (id: string, raw: unknown): Admission => {
   const asked = describeAsked(raw);
-  const canonical = ALIASES[asked.toLowerCase()] ?? asked;
+  const canonical: string = ALIASES[asked.toLowerCase()] ?? asked;
   if (asked !== '' && !MEASURABLE.includes(canonical as FindingName)) {
     return { ok: false, reason: `this channel does not measure '${asked}'`, asked, measurable: MEASURABLE };
   }
