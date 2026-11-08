@@ -20,9 +20,10 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { existsSync as fsExistsSync, mkdirSync, mkdtempSync, readdirSync as fsReaddirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync as fsExistsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync as fsReaddirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { makeApproveSandbox, pushPlanHead } from './approve-sandbox.mjs';
 
 // Every directory this file creates, removed after its last test by the exact
 // path mkdtempSync returned — never by a glob over the shared temp directory.
@@ -540,4 +541,218 @@ test('plot-push-lock.mjs release: removes the lock only for the holder that name
   assert.equal(fsExistsSync(lockDir(work)), true, 'another holder releases nothing');
   lockRelease(work, `${process.pid}.7`);
   assert.equal(fsExistsSync(lockDir(work)), false);
+});
+
+// ── State branch: a write lands on the state ref and never on the default ──
+
+const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
+const stateCut = path.join(SCRIPTS, 'board', 'plot-state-cut.mjs');
+
+/** A pre-receive hook that logs and refuses every push to refs/heads/main. */
+const refuseMainHook = (bare, log) => {
+  const hook = path.join(bare, 'hooks', 'pre-receive');
+  writeFileSync(hook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/main" ]; then echo "$ref" >> "${log}"; echo "main is protected" >&2; exit 1; fi
+done
+`, { mode: 0o755 });
+};
+
+const STATE_CLAUDE = (key) => '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n'
+  + (key ? `- **State branch:** ${key}\n` : '');
+
+const approvablePlan = (branch) => `# A plan
+
+## Status
+
+- **State:** Draft
+- **Type:** bug
+- **Review:** pr
+- **Impl:** own branches
+- **Approved:**
+
+## Branches
+
+### Wave one
+
+- \`${branch}\` — do the thing
+`;
+
+const deliverablePlan = `# A delivered plan
+
+## Status
+
+- **State:** Approved
+- **Type:** bug
+- **Review:** pr
+- **Impl:** own branches
+- **Approved:** 2026-01-01, T, in-session
+
+## Changelog
+
+- Did a thing.
+`;
+
+/** A `gh` stub that answers the plan PR's head and accepts the merge. */
+const ghStub = (dir, headSha) => {
+  const stateFile = path.join(dir, 'state.json');
+  writeFileSync(stateFile, JSON.stringify({ number: 42, state: 'OPEN', headSha }));
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nexec node "${dir}/gh.mjs" "$@"\n`, { mode: 0o755 });
+  writeFileSync(path.join(dir, 'gh.mjs'), `
+import fs from 'node:fs';
+const argv = process.argv.slice(2);
+const f = ${JSON.stringify(stateFile)};
+const st = JSON.parse(fs.readFileSync(f, 'utf8'));
+if (argv[0] === 'pr' && argv[1] === 'view') {
+  process.stdout.write(JSON.stringify({ number: st.number, state: st.state, isDraft: false,
+    url: 'https://example.invalid/pr/42', mergeCommit: null, headRefOid: st.headSha }));
+} else if (argv[0] === 'pr' && argv[1] === 'merge') {
+  st.state = 'MERGED'; fs.writeFileSync(f, JSON.stringify(st)); process.stdout.write('merged');
+} else if (argv[0] === 'pr' && argv[1] === 'list') { process.stdout.write('[]'); }
+else if (argv[0] === 'repo' && argv[1] === 'view') { process.stdout.write('main'); }
+else { process.stdout.write('{}'); }
+`);
+};
+
+const run = (cmd, args, opts) => {
+  const r = spawnSync(cmd, args, { encoding: 'utf8', ...opts });
+  return { code: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+};
+
+const cleanEnv = (extra = {}) => {
+  const env = { ...process.env, ...extra };
+  delete env.PLOT_REPO_ROOT;
+  delete env.PLOT_UNATTENDED;
+  return env;
+};
+
+const stateSandbox = (key) => {
+  const approveRel = 'docs/plans/2026-09-17-to-approve.md';
+  const deliverRel = 'docs/plans/2026-09-17-to-deliver.md';
+  const sbx = makeApproveSandbox({
+    prefix: 'plot-state-write-',
+    claudeMd: STATE_CLAUDE(key),
+    planRel: approveRel,
+    planBody: approvablePlan('bug/to-approve-work'),
+    activeLinkName: 'to-approve.md',
+    extraFiles: { [deliverRel]: deliverablePlan },
+  });
+  made.push(sbx.tmp);
+  return { ...sbx, approveRel, deliverRel };
+};
+
+test('state branch: approve and deliver land on the state ref and the default branch takes zero pushes', () => {
+  const { tmp, origin, repo, approveRel, deliverRel } = stateSandbox('plot/state');
+  const headSha = pushPlanHead({ tmp, repo, planRel: approveRel, branch: 'idea/to-approve' });
+  const stub = path.join(tmp, 'stub');
+  mkdirSync(stub);
+  ghStub(stub, headSha);
+  const log = path.join(tmp, 'main-pushes.log');
+  refuseMainHook(origin, log);
+  const env = cleanEnv({ PATH: `${stub}:${process.env.PATH}`, PLOT_HOST: 'github' });
+
+  const approved = run('bash', [path.join(SCRIPTS, 'plot-approve.sh'), 'to-approve'], { cwd: repo, env });
+  assert.equal(approved.code, 0, `approve should succeed against a protected main:\n${approved.out}`);
+  const delivered = run('bash', [path.join(SCRIPTS, 'plot-deliver.sh'), 'to-deliver'], { cwd: repo, env });
+  assert.equal(delivered.code, 0, `deliver should succeed against a protected main:\n${delivered.out}`);
+
+  assert.equal(fsExistsSync(log), false, `the default branch took a push:\n${fsExistsSync(log) ? log : ''}`);
+  git(repo, 'fetch', '-q', 'origin');
+  const onState = git(repo, 'show', `origin/plot/state:${approveRel}`);
+  assert.match(onState, /\*\*State:\*\* Approved/, 'the approval is on the state branch');
+  assert.match(git(repo, 'show', `origin/plot/state:${deliverRel}`), /\*\*State:\*\* Delivered/, 'the delivery is on the state branch');
+  assert.match(git(repo, 'show', `origin/main:${approveRel}`), /\*\*State:\*\* Draft/, 'main still reads Draft');
+  // origin/main is an ancestor of origin/plot/state after each write.
+  git(repo, 'merge-base', '--is-ancestor', 'origin/main', 'origin/plot/state');
+});
+
+test('state branch: a second write cuts from the state tip and keeps main an ancestor', () => {
+  const { tmp, origin, repo, deliverRel } = stateSandbox('plot/state');
+  // A write by someone else lands on main after the state branch was created.
+  const env = cleanEnv();
+  const first = run('bash', [path.join(SCRIPTS, 'plot-deliver.sh'), 'to-deliver'], { cwd: repo, env });
+  assert.equal(first.code, 0, first.out);
+  writeFileSync(path.join(repo, 'later.txt'), 'x\n');
+  git(repo, 'add', 'later.txt');
+  git(repo, 'commit', '-qm', 'main moves');
+  git(repo, 'push', '-q', 'origin', 'main');
+  const stateBefore = git(repo, 'ls-remote', origin, 'refs/heads/plot/state').split('\t')[0];
+
+  const land = run('node', [stateCut, '--land'], { cwd: repo, env });
+  assert.equal(land.code, 0, land.out);
+  git(repo, 'fetch', '-q', 'origin');
+  const stateAfter = git(repo, 'rev-parse', 'origin/plot/state').trim();
+  assert.notEqual(stateAfter, stateBefore, 'the land moved the state branch');
+  git(repo, 'merge-base', '--is-ancestor', 'origin/main', 'origin/plot/state');
+  assert.match(git(repo, 'show', `origin/plot/state:${deliverRel}`), /Delivered/);
+});
+
+test('state branch: with no key the write goes to main as today and the state branch is never created', () => {
+  const { origin, repo, deliverRel } = stateSandbox('');
+  const r = run('bash', [path.join(SCRIPTS, 'plot-deliver.sh'), 'to-deliver'], { cwd: repo, env: cleanEnv() });
+  assert.equal(r.code, 0, r.out);
+  git(repo, 'fetch', '-q', 'origin');
+  assert.match(git(repo, 'show', `origin/main:${deliverRel}`), /\*\*State:\*\* Delivered/);
+  assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/plot/state').trim(), '', 'no state branch appears');
+  const land = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv() });
+  assert.equal(land.code, 4, 'no key: --land answers NO_STATE_BRANCH');
+});
+
+test('state branch: a forward-merge conflict refuses, names the file and leaves the state branch unmoved', () => {
+  const { origin, repo, deliverRel } = stateSandbox('plot/state');
+  const env = cleanEnv();
+  const first = run('bash', [path.join(SCRIPTS, 'plot-deliver.sh'), 'to-deliver'], { cwd: repo, env });
+  assert.equal(first.code, 0, first.out);
+  // Main edits the line the state branch already changed.
+  git(repo, 'fetch', '-q', 'origin');
+  git(repo, 'checkout', '-q', 'main');
+  const body = readFileSync(path.join(repo, deliverRel), 'utf8').replace('**State:** Approved', '**State:** Rewritten on main');
+  writeFileSync(path.join(repo, deliverRel), body);
+  git(repo, 'commit', '-qam', 'main edits the plan');
+  git(repo, 'push', '-q', 'origin', 'main');
+  const before = git(repo, 'ls-remote', origin, 'refs/heads/plot/state').trim();
+
+  const land = run('node', [stateCut, '--land'], { cwd: repo, env });
+  assert.notEqual(land.code, 0, 'a conflict refuses');
+  assert.match(land.out, /to-deliver\.md/, 'the refusal names the file');
+  assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/plot/state').trim(), before, 'origin/plot/state did not move');
+});
+
+test('state branch: a non-branch ref is written like a branch', () => {
+  const { origin, repo, deliverRel } = stateSandbox('refs/plot/state');
+  const r = run('bash', [path.join(SCRIPTS, 'plot-deliver.sh'), 'to-deliver'], { cwd: repo, env: cleanEnv() });
+  assert.equal(r.code, 0, r.out);
+  const shown = git(repo, 'ls-remote', origin, 'refs/plot/state').trim();
+  assert.notEqual(shown, '', 'refs/plot/state exists on the origin');
+  assert.match(git(origin, 'show', `refs/plot/state:${deliverRel}`), /Delivered/);
+});
+
+test('state branch: a github origin without a Writer app key pushes the state ref and leaves main alone', () => {
+  const { work, bare } = githubRepo('## Plot Config\n\n- **Plan directory:** docs/plans/\n');
+  const before = mainLog(bare);
+  const res = spawnSync('bash', [helper, 'plot/tmp', 'refs/heads/plot/state'], {
+    cwd: work, encoding: 'utf8',
+    env: { ...process.env, PLOT_REPO_ROOT: work, GITHUB_API_URL: 'http://127.0.0.1:9' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /^push: clean/);
+  assert.equal(mainLog(bare), before, 'main did not move');
+  assert.match(execFileSync('git', ['log', '--oneline', 'plot/state'], { cwd: bare, encoding: 'utf8' }), /bookkeeping/);
+});
+
+test('state branch: the Writer app path takes the state ref as its destination and pushes nothing else', () => {
+  // plot-push-writer-app.mjs pushes `<branch>:<destination>` with the second
+  // argument verbatim, so a state ref needs no change there. The exchange fails
+  // at the unreachable installation lookup, which proves the App path ran for
+  // the state target and that no ambient push followed it.
+  const { dir, work, bare } = githubRepo(null);
+  const keyPath = throwawayKey(dir);
+  writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${keyPath}\n`);
+  const res = spawnSync('bash', [helper, 'plot/tmp', 'refs/heads/plot/state'], {
+    cwd: work, encoding: 'utf8',
+    env: { ...process.env, PLOT_REPO_ROOT: work, GITHUB_API_URL: 'http://127.0.0.1:9' },
+  });
+  assert.equal(res.status, 3);
+  assert.match(res.stderr, /App 999001 has no installation on example\/repo/);
+  assert.equal(execFileSync('git', ['for-each-ref', 'refs/heads/plot/state'], { cwd: bare, encoding: 'utf8' }), '');
 });
