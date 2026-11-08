@@ -1,13 +1,36 @@
 import { z } from 'zod';
 
 /** How far a host list call reached, as the branch rule reads it. */
+// plot-state: reading — the host list call of one walk; the next walk asks again.
 const HostReachSchema = z.enum(['ok', 'unasked', 'throttled', 'secondary', 'failed']);
 
 /** What the host said about one PR, as the branch rule reads it. */
+// plot-state: reading — the host's answer for one branch at one walk; the next walk asks again.
 const PrReadingSchema = z.enum(['OPEN', 'MERGED', 'CLOSED', 'none', 'unreadable']);
 
 /** Whether a commit is contained in the default branch. */
+// plot-state: reading — one ancestry answer at one walk; the next walk asks again.
 const ContainmentSchema = z.enum(['yes', 'no', 'unknown']);
+
+/** Why the `--loose` PR row is absent: no host, no cached row, or no PR. */
+// plot-state: reading — what one walk's listing held; the next walk reads it again.
+const PrAbsenceSchema = z.enum(['no-host', 'no-cache', 'none']);
+
+/** The PR state word of a `--loose` PR row. */
+// plot-state: reading — the host's word at one listing; the next listing replaces it.
+const PrRowStateSchema = z.enum(['OPEN', 'MERGED', 'CLOSED']);
+
+/** Where the estate read its plans: the default branch's ref, or the checkout. */
+// plot-state: classification — names a source; a walk reads either, whatever the last one read.
+const PlanSourceSchema = z.enum(['ref', 'worktree']);
+
+/** Which index directory a symlink sits in. */
+// plot-state: classification — names a directory; a link sits in one or the other.
+const IndexDirSchema = z.enum(['active', 'delivered']);
+
+/** Who wrote a `PLOT-BLOCKED` marker. */
+// plot-state: classification — names a writer; either writes any marker.
+const MarkerAuthorSchema = z.enum(['loop', 'fleetd']);
 
 /** One branch line's readings, as `readBranchReadings` gathers them. */
 const WalkBranchSchema = z.object({
@@ -31,8 +54,8 @@ const WalkBranchSchema = z.object({
   subjectPredatesPlan: z.boolean().optional(),
   prDetail: z
     .union([
-      z.enum(['no-host', 'no-cache', 'none']),
-      z.object({ state: z.enum(['OPEN', 'MERGED', 'CLOSED']), checks: z.string(), draft: z.boolean() }),
+      PrAbsenceSchema,
+      z.object({ state: PrRowStateSchema, checks: z.string(), draft: z.boolean() }),
     ])
     .optional(),
 });
@@ -70,10 +93,10 @@ export const WalkValueSchema = z.object({
   }),
   estate: z.object({
     mainSha: z.string(),
-    source: z.enum(['ref', 'worktree']),
+    source: PlanSourceSchema,
     /** One blob per record of the `plans` reading, in the same order. */
     blobs: z.array(z.object({ sha: z.string(), path: z.string(), source: z.string() })).readonly(),
-    indexes: z.array(z.object({ index: z.enum(['active', 'delivered']), path: z.string(), target: z.string() })).readonly(),
+    indexes: z.array(z.object({ index: IndexDirSchema, path: z.string(), target: z.string() })).readonly(),
     dangling: z.array(z.string()).readonly(),
   }),
   branches: z.object({
@@ -119,7 +142,7 @@ export const QuestionsValueSchema = z.record(
   z.object({
     firstLine: z.string(),
     askedAt: z.string(),
-    author: z.enum(['loop', 'fleetd']).optional(),
+    author: MarkerAuthorSchema.optional(),
     escalation: z.string().optional(),
   }),
 );
