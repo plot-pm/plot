@@ -115,25 +115,26 @@ An action is itself a trigger, so its re-read is an action-time process and the 
 
 ## Current Plan
 
-### Phase 1: The gate and the baseline ⏸️
+### Phase 1: The gate and the baseline ✅
 
-- ⏸️ The gate counts `execve` events per named scenario on a recorded fixture. A scenario states its fixture size beside its number: desks, open PRs, host. Scenarios: an idle board with no tab; an idle board with one visible tab; an idle fleetd per completed pass; fleetd with N idle desks; one desk commit; one PR whose CI turns green.
-- ⏸️ The gate runs on Linux CI under `strace -f -e trace=execve,execveat`, which follows every descendant, including the detached `nohup sh -c` wrapper. A step checks that `strace` is present on the runner. Linux `execve` is the accepted proxy for the macOS cost (`syspolicyd`); jwloka decided it on 2026-11-05 and confirmed it on 2026-11-08 (see Decisions). The operator's macOS figure comes from a documented manual measurement.
-- ⏸️ fleetd is measured per completed pass of all four loops (tick, scan, PR reader, issue reader, `registryd-main.ts:3221-3224`), delimited by fleetd's own log line, with the idle reader running. `--once` builds no idle reader (`registryd-main.ts:2804-2811`), so it is not the measured mode. Where a loop takes an injected clock (`startPulse(clockSystem(), …)`), the test drives the pass through it rather than a wall-clock window.
-- ⏸️ The gate compares each count against the merge base, as `check-shell-lines.sh` does, and stores no number. A non-zero count may carry a stated tolerance; a count that is structurally 0 has none.
-- ⏸️ Every zero target in Measures is written as an expected failure (`it.fails`). Each later plan names the assertion it turns into a required pass.
-- ⏸️ Fixtures: GitHub with a stub `gh` on `PATH`; Bitbucket with a stub `bb` and a stub tracker; N desks with a stub worker that starts nothing (for example a long `read` on a FIFO). After Phase 7, the stubs become an injectable base URL and a local HTTPS server, because a `PATH` stub no longer sees an in-process call.
-- ⏸️ Record the baseline on `main` in this story, GitHub and Bitbucket.
+- ✅ The gate counts `execve` events per named scenario on a recorded fixture. A scenario states its fixture size beside its number: desks, open PRs, host. Scenarios: an idle board with no tab; an idle board with one visible tab; an idle fleetd per completed pass; fleetd with N idle desks; one desk commit; one PR whose CI turns green. Delivered by `process-census-gate` (#3243, #3253): S1–S6 plus the per-source rows P1–P4.
+- ✅ The gate runs on Linux CI under `strace -f -e trace=execve,execveat`, which follows every descendant, including the detached `nohup sh -c` wrapper. A step checks that `strace` is present on the runner. Linux `execve` is the accepted proxy for the macOS cost (`syspolicyd`); jwloka decided it on 2026-11-05 and confirmed it on 2026-11-08 (see Decisions). The operator's macOS figure comes from a documented manual measurement. Delivered by #3247 (the `process-census` job); #3257 fixed the parent attribution on Ubuntu's padded `strace` lines.
+- ✅ fleetd is measured per completed pass of all four loops (tick, scan, PR reader, issue reader, `registryd-main.ts:3221-3224`), delimited by fleetd's own log line, with the idle reader running. `--once` builds no idle reader (`registryd-main.ts:2804-2811`), so it is not the measured mode. Where a loop takes an injected clock (`startPulse(clockSystem(), …)`), the test drives the pass through it rather than a wall-clock window. Delivered by #3253; the loops now sit at `registryd-main.ts:3251-3254`, and a pass is delimited by `reportTick`'s log line because the tick waits on `sleep`, not the injected clock.
+- ✅ The gate compares each count against the merge base, as `check-shell-lines.sh` does, and stores no number. A non-zero count may carry a stated tolerance; a count that is structurally 0 has none. Delivered by #3247; #3264 set the noise tolerance at 10 % + 2 for a count whose merge base is above 0.
+- ✅ Every zero target in Measures is written as an expected failure (`it.fails`). Each later plan names the assertion it turns into a required pass. Delivered by #3253; a row that turns green carries `green: true` in `census-rows.ts` (#3258).
+- ✅ Fixtures: GitHub with a stub `gh` on `PATH`; Bitbucket with a stub `bb` and a stub tracker; N desks with a stub worker that starts nothing (for example a long `read` on a FIFO). After Phase 7, the stubs become an injectable base URL and a local HTTPS server, because a `PATH` stub no longer sees an in-process call. Delivered by #3253; a desk also needs a registry manifest for a pass to reach `processes.isAlive`.
+- ✅ Record the baseline on `main` in this story, GitHub and Bitbucket. Recorded in Measures from CI on #3237 (`d1117a0a8`, `007f1e427`), with `main` and sprint-head figures per fixture.
 
-### Phase 2: Cheap wins ⏸️
+### Phase 2: Cheap wins ✅
 
 Each item stands alone and turns one Phase 1 assertion green.
 
-- ⏸️ No tab, no pulse. `ensureCache` starts a 5 s pulse (`fleet.ts:3225`) that nothing stops. The board stops it when `clients()` is 0 and no plain request arrived within a bound, and restarts it on the next request or SSE attach. The board then stops heartbeating the reader lock, so a `plot-pr-reader.mjs` it started exits after `HEARTBEAT_STALE_MS` (2 min, `reader-election.ts:137`).
-- ⏸️ The page closes its SSE stream and stops its polls while hidden.
-- ⏸️ The desk monitors nap without `sleep`. `plot_monitor_wait` runs an external `sleep 1` per second per monitor (`plot-monitor-subject.sh:193-203`). A builtin wait, for example `read -t 1` on a held-open descriptor, starts no process and runs on bash 3.2.
-- ⏸️ `processesShell.isAlive` starts `bash -c "kill -0 <pid>"` (`processes-shell.ts:158-159`); `process.kill(pid, 0)` answers with no process, as `process-probe-system.ts` already does.
-- ⏸️ Fixed answers read once per process lifetime: `--show-toplevel`, `--git-common-dir`, the host backend.
+- ✅ No tab, no pulse. `ensureCache` starts a 5 s pulse (`fleet.ts:3225`) that nothing stops. The board stops it when `clients()` is 0 and no plain request arrived within a bound, and restarts it on the next request or SSE attach. The board then stops heartbeating the reader lock, so a `plot-pr-reader.mjs` it started exits after `HEARTBEAT_STALE_MS` (2 min, `reader-election.ts:137`). Delivered by `no-tab-no-pulse` slices *Server pulse* (#3251) and *PR reader* (#3260): a cold read starts no pulse and no PR reader, and the reader ends within one beat of the last client leaving. S1 reads 0 on GitHub and Bitbucket.
+- ✅ The page closes its SSE stream and stops its polls while hidden. Delivered by *Hidden page* (#3252). S2 reads 0.
+- ✅ The desk monitors nap without `sleep`. `plot_monitor_wait` runs an external `sleep 1` per second per monitor (`plot-monitor-subject.sh:193-203`). A builtin wait, for example `read -t 1` on a held-open descriptor, starts no process and runs on bash 3.2. Delivered by *Builtin nap* (#3259). P1 reads 0.
+- ✅ `processesShell.isAlive` starts `bash -c "kill -0 <pid>"` (`processes-shell.ts:158-159`); `process.kill(pid, 0)` answers with no process, as `process-probe-system.ts` already does. Delivered by *Liveness syscall* (#3258). P2 reads 0.
+- ✅ Fixed answers read once per process lifetime: `--show-toplevel`, `--git-common-dir`, the host backend. Delivered by `fixed-answers-once` (#3261, #3262, #3270): adapters memoise the answers and pass `PLOT_REPO_ROOT` and `PLOT_GIT_COMMON_DIR` to the scripts they start; scripts and bundles reuse them for the same repository. P3 and P4 read 0.
+- ✅ The warm read on Bitbucket no longer waits on a stray `sleep 10`: `bb_fetch_base_bounded` ends its watcher's process group (#3269). Found by S1 on Bitbucket.
 
 ### Phase 3: The snapshot and the channel ⏸️
 
@@ -314,3 +315,4 @@ Sprint `nothing-runs` built Phases 1 and 2: the census gate (#3243, #3247, #3253
 - An idle Bitbucket board first read 772 processes per minute. The cause was the warm read: `bb_fetch_base_bounded` left its watcher's `sleep 10` holding stdout, so every PR read with an open row waited 10 s and the read ran into the census window. #3269 kills the watcher's process group, and CI at `007f1e427` read S1 on Bitbucket at 0.
 - An idle fleetd pass fell by about 11 % (S4); its zero waits on Phase 8. A board with a tab and fleetd running fell by about 13 % (S3); its zero waits on Phase 4.
 - The gate allows 10 % + 2 on a count whose merge base is above 0 and holds a zero strictly; two runs on unchanged code moved S1 by 8.8 %.
+- 2026-11-08: the four plans of Phases 1 and 2 were delivered on `sprint/nothing-runs` after CI on #3237 passed in full at `a269f54d6`, `process-census` included.
