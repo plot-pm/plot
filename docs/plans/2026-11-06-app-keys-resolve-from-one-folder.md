@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** ship-2-32-0
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-11-06, Jan Wloka, `feature/app-keys-resolve-from-one-folder`
 - **Started:** 2026-11-06, Jan Wloka, `feature/fleetd-names-a-missing-app-key`
 - **Started:** 2026-11-08, Jan Wloka, `infra/plot-config-names-app-ids-only`
+- **Delivered:** 2026-11-08
 
 ## Changelog
 
