@@ -23,6 +23,8 @@ import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
+import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
+
 /** How long a pending, red or unknown head waits before its runs are asked again, inside `Checks wait`. */
 export const REASK_MS = 5 * 60 * 1000;
 
@@ -73,6 +75,12 @@ export interface DefaultBranchWorld {
    * folded; an empty list folds every run.
    */
   checks: readonly string[];
+  /**
+   * Records the beat's `defaultBranch` reading into the daemon's snapshot: the
+   * reading written, the held one where the beat skips, a `failed` reading
+   * where a read gave no answer. It adds no read.
+   */
+  record?: RecordReading;
 }
 
 /** Where the settled part stands after a refresh, with the failing runs of its commit. */
@@ -250,12 +258,14 @@ export const refreshDefaultBranch = async (
   const branch = await world.branch();
   if (branch === null) {
     warn('plot-fleetd: default-branch read skipped — the default branch could not be read');
+    world.record?.('defaultBranch', failedOf('the default branch could not be read', world.now()));
     return 'unreadable';
   }
 
   const tip = await world.refs.remoteSha(branch);
   if (!tip.ok || tip.value === 'unknown') {
     warn(`plot-fleetd: default-branch read skipped — the remote tip of '${branch}' could not be read`);
+    world.record?.('defaultBranch', failedOf(`the remote tip of '${branch}' could not be read`, world.now()));
     return 'unreadable';
   }
   const sha = tip.value.sha;
@@ -267,12 +277,16 @@ export const refreshDefaultBranch = async (
   const unchanged = previous !== null && previous.headSha === sha;
   if (unchanged) {
     const pastWait = previous.head === 'green' || now - Date.parse(previous.headSince) >= world.checksWaitMs;
-    if (now - Date.parse(previous.at) < reaskIntervalMs(world.checksWaitMs, pastWait)) return 'skipped';
+    if (now - Date.parse(previous.at) < reaskIntervalMs(world.checksWaitMs, pastWait)) {
+      world.record?.('defaultBranch', readOf(previous, now));
+      return 'skipped';
+    }
   }
 
   const asked = await world.slot(() => world.build.runsForSha(branch, sha));
   if (!asked.ok && asked.why === 'unaskable') {
     warn(`plot-fleetd: default-branch read skipped — CI did not answer for '${branch}' at ${sha}`);
+    world.record?.('defaultBranch', failedOf(`CI did not answer for '${branch}' at ${sha}`, now));
     return 'unreadable';
   }
 
@@ -332,6 +346,7 @@ export const refreshDefaultBranch = async (
       at: stamp,
     };
   }
+  world.record?.('defaultBranch', readOf(reading, now));
   await world.store.write(reading);
   return 'asked';
 };
