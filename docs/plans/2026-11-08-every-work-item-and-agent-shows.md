@@ -54,7 +54,7 @@ Every rendered state is a domain property with a unit test (CLAUDE.md, "Every re
 
 ### Rule
 
-- `feature/delivery-placement-rule` — the domain rule: section, group and both-way links for every work item and agent, with unit tests for each placement case in the design, replacing `GROUP_ORDER` in `fleet.ts` <!-- builds: a placement rule for Delivery tab sections -->
+- `feature/delivery-placement-rule` — the domain rule: section, group and both-way links for every work item and agent, with unit tests for each placement case in the design, replacing `GROUP_ORDER` in `fleet.ts` <!-- builds: a placement rule for Delivery tab sections --> → #3255
 
 ### Tab
 
