@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
-- **Sprint:**
+- **Sprint:** ship-2-32-0
 - **Issue:** #3265
 - **Story:**
 - **Review:** pr
