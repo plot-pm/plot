@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3215 merged
 - **Started:** 2026-11-07, Jan Wloka, `feature/passkey-registration-reads-the-attestation-object`
 - **Started:** 2026-11-07, Jan Wloka, `feature/the-board-has-a-settings-view`
+- **Started:** 2026-11-08, Jan Wloka, `feature/the-release-row-approves-itself`
 
 ## Changelog
 
