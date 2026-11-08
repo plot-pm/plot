@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { accountNamesReader } from '../src/index.js';
 import {
   resolvePerson,
   samePerson,
   namesAPerson,
   parsePersonDirectory,
   declaresSpelling,
+  trackerAccountsOf,
   type PersonDirectory,
 } from '../src/index.js';
 
@@ -111,5 +113,72 @@ describe('a directory is read from its config form', () => {
     expect(parsePersonDirectory('')).toEqual({});
     expect(parsePersonDirectory(undefined)).toEqual({});
     expect(declaresSpelling('jwloka', {})).toBe(false);
+  });
+});
+
+describe('a person may declare a tracker account in angle form', () => {
+  const comma = parsePersonDirectory('jwloka = Jan Wloka, jira:jan.wloka@quatico.com');
+  const angle = parsePersonDirectory('jwloka = Jan Wloka <jira:jan.wloka@quatico.com>');
+
+  it('gives the same directory for the angle and the comma form', () => {
+    expect(angle).toEqual(comma);
+  });
+
+  it('matches a Jira assignee to the reader through the angle form', () => {
+    const reader = { hostUser: 'jwloka', directory: angle };
+    expect(accountNamesReader(['jan.wloka@quatico.com'], 'jira:', reader)).toBe(true);
+  });
+
+  it('answers the accounts a handle holds on a tracker', () => {
+    expect(trackerAccountsOf('jwloka', 'jira', angle)).toEqual(['jan.wloka@quatico.com']);
+  });
+
+  it('answers [] for a handle with no account', () => {
+    const dir = parsePersonDirectory('jwloka = Jan Wloka <jira:a@b.c>; eins78 = Max Albrecht');
+    expect(trackerAccountsOf('eins78', 'jira', dir)).toEqual([]);
+  });
+
+  it('returns both accounts of one tracker, sorted, and none of another tracker', () => {
+    const dir = parsePersonDirectory('jwloka = jira:z@q.com, Jan <jira:a@q.com>, github:jwloka');
+    expect(trackerAccountsOf('jwloka', 'jira', dir)).toEqual(['a@q.com', 'z@q.com']);
+    expect(trackerAccountsOf('jwloka', 'github', dir)).toEqual(['jwloka']);
+  });
+
+  it('lowercases accounts and resolves the handle case-insensitively', () => {
+    const dir = parsePersonDirectory('jwloka = Jan <jira:Jan.Wloka@Quatico.com>');
+    expect(trackerAccountsOf(' JWloka ', ' JIRA ', dir)).toEqual(['jan.wloka@quatico.com']);
+  });
+
+  it('resolves an account two handles claim to nobody', () => {
+    const dir = parsePersonDirectory('jwloka = Jan <jira:x@q.com>; eins78 = Max <jira:x@q.com>');
+    expect(trackerAccountsOf('jwloka', 'jira', dir)).toEqual([]);
+    expect(trackerAccountsOf('eins78', 'jira', dir)).toEqual([]);
+  });
+
+  it.each(['<jira:>', '<:acct>', '<plain text>', '< :acct>', '<jira: >', '<jira:a> trailing'])(
+    'declares no account for the malformed body %s',
+    (body) => {
+      const dir = parsePersonDirectory(`jwloka = Jan ${body}`);
+      expect(trackerAccountsOf('jwloka', 'jira', dir)).toEqual([]);
+    },
+  );
+
+  it('keeps a malformed angle spelling as one spelling', () => {
+    const dir = parsePersonDirectory('jwloka = Jan <plain text>');
+    expect(dir['jan <plain text>']).toBe('jwloka');
+  });
+
+  it('declares only the account when the name before the angle is empty', () => {
+    const dir = parsePersonDirectory('jwloka = <jira:a@q.com>');
+    expect(dir).toEqual({ jwloka: 'jwloka', 'jira:a@q.com': 'jwloka' });
+  });
+
+  it('leaves a directory without extension unchanged', () => {
+    expect(parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht')).toEqual({
+      jwloka: 'jwloka',
+      'jan wloka': 'jwloka',
+      eins78: 'eins78',
+      'max albrecht': 'eins78',
+    });
   });
 });

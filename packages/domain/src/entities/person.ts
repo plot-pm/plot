@@ -58,6 +58,15 @@ export const resolvePerson = (raw: string, directory: PersonDirectory = {}): Per
 export const declaresSpelling = (raw: string, directory: PersonDirectory): boolean =>
   directory[normalize(raw)] !== undefined;
 
+/** `Name <body>`: a spelling that ends in an angle-bracketed body. */
+const ANGLE_SPELLING = /^([^<>]*)<([^<>]*)>\s*$/;
+
+/** Whether `body` reads `<tracker>:<account>` with both parts non-empty. */
+const isTrackerIdentity = (body: string): boolean => {
+  const colon = body.indexOf(':');
+  return colon > 0 && body.slice(colon + 1).trim() !== '' && body.slice(0, colon).trim() !== '';
+};
+
 /**
  * Reads a directory from its `## Plot Config` form.
  *
@@ -68,7 +77,12 @@ export const declaresSpelling = (raw: string, directory: PersonDirectory): boole
  * spelling may carry a tracker prefix, `<tracker>:<account>` (for example
  * `jira:jan.wloka@quatico.com`), to declare that tracker's account for the
  * handle alongside its ordinary spellings; the prefix is part of the spelling,
- * compared and stored like any other free text.
+ * compared and stored like any other free text. The same fact may be written
+ * `Name <tracker:account>`, which declares the two spellings `Name` and
+ * `tracker:account`, so both forms give one directory. An angle body that is
+ * not `<tracker:account>` with both parts non-empty (`<jira:>`, `<:acct>`,
+ * `<plain text>`) declares no account and the whole text stays one spelling. A
+ * `,` or `;` inside `<…>` is not supported.
  *
  * A spelling that two entries claim for different handles resolves to nobody:
  * it is dropped, so it stays undeclared.
@@ -93,13 +107,48 @@ export const parsePersonDirectory = (text: string | undefined): PersonDirectory 
     const rest = parts.slice(1);
     if (handle === '') continue;
     claim(handle, handle);
-    for (const spelling of rest.join('=').split(',')) claim(spelling, handle);
+    for (const spelling of rest.join('=').split(',')) {
+      const angle = ANGLE_SPELLING.exec(spelling);
+      const body = angle === null ? '' : (angle[2] as string);
+      if (angle === null || !isTrackerIdentity(body)) {
+        claim(spelling, handle);
+        continue;
+      }
+      claim(angle[1] as string, handle);
+      claim(body, handle);
+    }
   }
   const directory: Record<string, string> = {};
   for (const [key, handles] of claims) {
     if (handles.size === 1) directory[key] = [...handles][0] as string;
   }
   return directory;
+};
+
+/**
+ * The accounts a handle holds on one tracker.
+ *
+ * Scans the directory for `<tracker>:<account>` spellings that resolve to the
+ * handle. Accounts come back lowercased, as the directory stores them. An empty
+ * list means no account is declared: the caller reads it as unknown, never as
+ * "has no tickets".
+ *
+ * @param handle - the person's handle; trimmed and lowercased.
+ * @param tracker - the tracker name, such as `jira`; trimmed and lowercased.
+ * @param directory - the declared spelling-to-handle mapping.
+ * @returns the accounts, sorted; `[]` where none is declared.
+ */
+export const trackerAccountsOf = (
+  handle: string,
+  tracker: string,
+  directory: PersonDirectory,
+): readonly string[] => {
+  const want = normalize(handle);
+  const prefix = `${normalize(tracker)}:`;
+  return Object.entries(directory)
+    .filter(([key, value]) => value === want && key.startsWith(prefix) && key.length > prefix.length)
+    .map(([key]) => key.slice(prefix.length))
+    .sort();
 };
 
 /**
