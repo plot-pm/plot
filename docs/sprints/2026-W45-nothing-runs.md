@@ -5,8 +5,8 @@
 ## Status
 
 - **State:** Planning
-- **Start:** YYYY-MM-DD
-- **End:** YYYY-MM-DD
+- **Start:** 2026-11-09
+- **End:** 2026-11-13
 - **Release:** 2.33.0
 
 ## Sprint Goal
