@@ -932,4 +932,12 @@ export interface Refs {
    *   file exists.
    */
   pickedHead(): Promise<PortResult<string | null>>;
+
+  /**
+   * The tree object the index holds, from `git write-tree`.
+   *
+   * @returns the full sha of the tree a commit made now would carry; a failed
+   *   read where the index holds an unresolved conflict.
+   */
+  indexTree(): Promise<PortResult<string>>;
 }

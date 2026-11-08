@@ -73,6 +73,8 @@ export interface RefsFixture {
   mergeParents?: readonly string[];
   /** The commit a rebase or cherry-pick is replaying — for {@link Refs.pickedHead}; absent means neither is in progress. */
   pickedHead?: string | null;
+  /** The tree the index holds — for {@link Refs.indexTree}; absent means the read fails. */
+  indexTree?: string;
   /**
    * The space-joined revisions to their merge-base sha, for {@link Refs.mergeBase}.
    *
@@ -358,6 +360,9 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     mergeParents: async () => answered(fixture.mergeParents ?? []),
 
     pickedHead: async () => answered(fixture.pickedHead ?? null),
+
+    indexTree: async () =>
+      fixture.indexTree === undefined ? failed<string>() : answered(fixture.indexTree),
 
     filesNaming: async (term, globs) => {
       const patterns = globs.map(globToRegExp);

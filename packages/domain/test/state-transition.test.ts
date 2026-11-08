@@ -13,6 +13,7 @@ import {
   pickedTransitionOf,
   slugOf,
   sprintVerb,
+  squashOfStateTip,
   renamedFromOf,
   SPIKE_APPROVED_FIELD,
   stateTransitionOf,
@@ -607,5 +608,21 @@ describe('issueTransitionOf', () => {
     const refusal = stateTransitionRefusal([transition!]) ?? '';
     expect(refusal).toContain(`(renamed from ${PLAN})`);
     expect(refusal).toContain('joined the Issue: line of a plan past Draft');
+  });
+});
+
+describe('squashOfStateTip', () => {
+  it('clears a commit whose tree equals the tip tree', () => {
+    expect(squashOfStateTip('abc', 'abc', [])).toBe(true);
+  });
+  it('refuses a different tree', () => {
+    expect(squashOfStateTip('abc', 'def', [])).toBe(false);
+  });
+  it('refuses a merge commit even when the trees match', () => {
+    expect(squashOfStateTip('abc', 'abc', ['f00'])).toBe(false);
+  });
+  it('refuses when either tree is unreadable', () => {
+    expect(squashOfStateTip('', '', [])).toBe(false);
+    expect(squashOfStateTip('abc', '', [])).toBe(false);
   });
 });

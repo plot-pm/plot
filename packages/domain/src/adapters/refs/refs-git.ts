@@ -609,6 +609,8 @@ export const refsGit = (context: ShellContext): Refs => {
         inRepo,
       ),
 
+    indexTree: () => runScript('git', ['write-tree'], asText, inRepo),
+
     filesNaming: async (term, globs) => {
       if (globs.length === 0) return answered<readonly string[]>([]);
       // `git grep` exits 1 when nothing matches, which is an answer, not a failure.
