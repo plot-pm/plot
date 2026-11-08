@@ -84,6 +84,14 @@ export interface Issue {
    */
   updatedAt?: string;
   /**
+   * The release versions the tracker plans the issue for — every Jira fix
+   * version name, or a GitHub issue's one milestone title — a read, like
+   * `assignees`, never mirrored back. `[]` where the tracker was asked and
+   * named none; absent where it was not asked (Bitbucket, a tracker with no
+   * release concept), never `[]` for "not asked".
+   */
+  releases?: readonly string[];
+  /**
    * The labels the issue carries, as the tracker names them. Absent where the
    * op was not asked for them — only the closed-issue read states them, for the
    * released-label backfill — and never `[]` for "not asked".

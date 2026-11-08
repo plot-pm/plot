@@ -19,6 +19,7 @@ interface RawIssue {
   statusCategory?: string;
   closedAt?: string;
   assignees?: string[];
+  releases?: string[];
   type?: string;
   updatedAt?: string;
   labels?: string[];
@@ -71,6 +72,7 @@ export const issueOf = (raw: RawIssue, labels = true): Issue => ({
   statusCategory: raw.statusCategory ?? '',
   closedAt: raw.closedAt !== undefined && raw.closedAt !== '' ? raw.closedAt : null,
   assignees: raw.assignees ?? [],
+  ...(raw.releases === undefined ? {} : { releases: raw.releases }),
   ...(raw.type === undefined || raw.type === '' ? {} : { type: raw.type }),
   ...(raw.updatedAt === undefined || raw.updatedAt === '' ? {} : { updatedAt: raw.updatedAt }),
   ...(!labels || raw.labels === undefined ? {} : { labels: raw.labels }),

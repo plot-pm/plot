@@ -2207,7 +2207,7 @@ test('host: pr-state branch gives "" for an open PR on bitbucket', () => {
 test('host: issue-list github derives status from the --state it asks for', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { number: 226, title: 'The board tells the truth', url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z', assignees: [] },
+      { number: 226, title: 'The board tells the truth', url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z', assignees: [], releases: [] },
     ]),
   });
   const res = spawnSync('bash', [adapter, 'issue-list'], {
@@ -2219,7 +2219,7 @@ test('host: issue-list github derives status from the --state it asks for', () =
   assert.deepEqual(row, {
     number: 226, title: 'The board tells the truth',
     url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z',
-    status: 'open', statusCategory: 'To Do', assignees: [],
+    status: 'open', statusCategory: 'To Do', assignees: [], releases: [],
   });
   // The projected status is the SAME word the call passed to `gh`, which is
   // what makes it derived rather than assumed.
@@ -2239,8 +2239,8 @@ test('host: issue-list github asks gh for no tracker state beyond what it projec
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
   const json = argv[argv.indexOf('--json') + 1];
-  assert.equal(json, 'number,title,url,createdAt,assignees,issueType');
-  for (const refused of ['labels', 'priority', 'milestone']) {
+  assert.equal(json, 'number,title,url,createdAt,assignees,issueType,milestone');
+  for (const refused of ['labels', 'priority']) {
     assert.ok(!json.includes(refused), `issue-list must not request ${refused}`);
   }
 });
@@ -2277,6 +2277,37 @@ test('host: issue-list github prints the issue type where there is one and no ty
   const rows = res.stdout.trim().split('\n').map((line) => JSON.parse(line));
   assert.equal(rows[0].type, 'Bug');
   assert.equal('type' in rows[1], false);
+});
+
+test('host: issue-list github prints the milestone as a one-element releases list, and [] where there is none', () => {
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { number: 1, title: 'planned', url: 'u1', createdAt: 'c1', assignees: [], milestone: { title: '2.32.0' } },
+      { number: 2, title: 'loose', url: 'u2', createdAt: 'c2', assignees: [], milestone: null },
+    ]),
+  });
+  const res = spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').map((line) => JSON.parse(line));
+  assert.deepEqual(rows.map((r) => r.releases), [['2.32.0'], []]);
+});
+
+test('host: issue-list jira prints every fix version name as releases', () => {
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-1', fields: { summary: 's', created: 'c', status: {}, fixVersions: [{ name: '2.32.0' }, { name: '2.33.0' }] } }],
+  });
+  const res = runJira(['issue-list'], makeJiraCurlStub({ body }));
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(JSON.parse(res.stdout.trim()).releases, ['2.32.0', '2.33.0']);
+});
+
+test('host: issue-list bitbucket emits no releases key', () => {
+  const res = runBb(['issue-list'], makeBbIssueStub({ out: BB_LIST_ANSI }));
+  assert.equal(res.status, 0, res.stderr);
+  for (const line of res.stdout.trim().split('\n').filter(Boolean)) assert.equal('releases' in JSON.parse(line), false);
 });
 
 // --- issue-view: one issue, with its body, and never a write ---------------
@@ -5375,8 +5406,8 @@ test('host: issue-list jira emits the {number,title,url,createdAt,status,statusC
   assert.equal(res.status, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows, [
-    { number: 'PROJ-123', title: 'Tickets reach the inbox', url: 'https://acme.atlassian.net/browse/PROJ-123', createdAt: '2026-08-20T09:00:00.000+0000', status: 'Internal Approving', statusCategory: 'In Progress', assignees: [] },
-    { number: 'PROJ-99', title: 'An older ticket', url: 'https://acme.atlassian.net/browse/PROJ-99', createdAt: '2026-08-10T09:00:00.000+0000', status: 'To Do', statusCategory: 'To Do', assignees: [] },
+    { number: 'PROJ-123', title: 'Tickets reach the inbox', url: 'https://acme.atlassian.net/browse/PROJ-123', createdAt: '2026-08-20T09:00:00.000+0000', status: 'Internal Approving', statusCategory: 'In Progress', assignees: [], releases: [] },
+    { number: 'PROJ-99', title: 'An older ticket', url: 'https://acme.atlassian.net/browse/PROJ-99', createdAt: '2026-08-10T09:00:00.000+0000', status: 'To Do', statusCategory: 'To Do', assignees: [], releases: [] },
   ]);
   // `number` is the Jira KEY, a string — #447 taught plot-plan-meta.sh to read it.
   assert.equal(typeof rows[0].number, 'string');
@@ -5392,7 +5423,7 @@ test('host: issue-list jira asks for status and assignee, and NOT the whole fiel
   runJira(['issue-list'], stub);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   const fields = argv.find((l) => l.startsWith('fields='));
-  assert.equal(fields, 'fields=summary,created,status,assignee,issuetype');
+  assert.equal(fields, 'fields=summary,created,status,assignee,issuetype,fixVersions');
   for (const refused of ['labels', 'priority', '*all', '*navigable']) {
     assert.ok(!fields.includes(refused), `issue-list must not request ${refused}`);
   }
@@ -5417,7 +5448,7 @@ test('host: issue-list jira projects no tracker state beyond the status keys and
   const row = JSON.parse(res.stdout.trim());
   assert.deepEqual(
     Object.keys(row).sort(),
-    ['assignees', 'createdAt', 'number', 'status', 'statusCategory', 'title', 'url'],
+    ['assignees', 'createdAt', 'number', 'releases', 'status', 'statusCategory', 'title', 'url'],
   );
 });
 
@@ -10182,14 +10213,14 @@ test('host: issue-list github --state closed searches by close date, asks no sor
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(JSON.parse(res.stdout.trim()), {
     number: 7, title: 'Done thing', url: 'u', createdAt: '2026-08-01T00:00:00Z',
-    status: 'closed', statusCategory: 'Done', assignees: [], closedAt: '2026-09-02T10:00:00Z',
+    status: 'closed', statusCategory: 'Done', assignees: [], releases: [], closedAt: '2026-09-02T10:00:00Z',
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
   assert.equal(argv[argv.indexOf('--state') + 1], 'closed');
   // GitHub search ignores `sort:closed-desc` (measured 2026-10-13), so no sort
   // qualifier is sent and the adapter sorts by `closedAt`.
   assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z');
-  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,issueType,closedAt,labels');
+  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,issueType,milestone,closedAt,labels');
 });
 
 test('host: issue-list github open rows carry no closedAt and ask for none', () => {
@@ -10265,7 +10296,7 @@ test('host: issue-list jira --state closed scopes by prefix, reads resolutiondat
   assert.deepEqual(lines, [
     {
       number: 'PROJ-5', title: 'Shipped', url: 'https://acme.atlassian.net/browse/PROJ-5',
-      createdAt: '2026-08-01T09:00:00.000+0000', status: 'Done', statusCategory: 'Done', assignees: [],
+      createdAt: '2026-08-01T09:00:00.000+0000', status: 'Done', statusCategory: 'Done', assignees: [], releases: [],
       closedAt: '2026-09-02T10:00:00.000+0000',
     },
     { nextPageToken: 'tok-2' },
@@ -10275,7 +10306,7 @@ test('host: issue-list jira --state closed scopes by prefix, reads resolutiondat
   // project scope exists — the lanes show every ticket of the declared
   // projects, not just the reader's own.
   assert.ok(argv.includes('jql=resolved >= "2026-09-01 08:30" AND project IN (PROJ) ORDER BY resolved DESC'));
-  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype,resolutiondate'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype,fixVersions,resolutiondate'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });
@@ -10368,7 +10399,7 @@ test('host: issue-list jira --fix-version scopes by project, escapes the name an
   const res = runJira(['issue-list', '--fix-version', name, '--limit', '500'], stub, { PLOT_TICKET_PREFIXES: 'PROJ, OTHER' });
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l)), [
-    { number: 'PROJ-8', title: 'In the release', url: 'https://acme.atlassian.net/browse/PROJ-8', createdAt: 'c', status: 'Done', statusCategory: 'Done', assignees: [] },
+    { number: 'PROJ-8', title: 'In the release', url: 'https://acme.atlassian.net/browse/PROJ-8', createdAt: 'c', status: 'Done', statusCategory: 'Done', assignees: [], releases: [] },
     { nextPageToken: 'tok-2' },
   ]);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
@@ -10666,7 +10697,7 @@ test('host: issue-list jira open read is unchanged: no resolutiondate, no token 
   assert.ok(!res.stdout.includes('nextPageToken'), res.stdout);
   assert.ok(!('closedAt' in lines[0]));
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype,fixVersions'));
   assert.ok(argv.includes('maxResults=50'));
 });
 
@@ -10682,7 +10713,7 @@ test('host: issue-list jira --paged open read asks 100 a page and prints the nex
   assert.deepEqual(lines.map((l) => l.number ?? l.nextPageToken), ['PROJ-1', 'tok-2']);
   assert.ok(!('closedAt' in lines[0]));
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype,fixVersions'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });

@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take — the same contract `PR_INDEX_VERSION` keeps.
  */
-export const ISSUE_INDEX_VERSION = 1;
+export const ISSUE_INDEX_VERSION = 2;
 
 /**
  * Rows in one page of an issue read, as `plot-host.sh` names it
@@ -52,6 +52,8 @@ export const IssueIndexRowSchema = z
     closedAt: z.string().optional(),
     /** The tracker's own logins or Jira accounts assigned; absent where the row predates this field. */
     assignees: z.array(z.string()).optional(),
+    /** The release versions the tracker planned the ticket for; `[]` where it was asked and named none, absent where it was not asked. */
+    releases: z.array(z.string()).optional(),
     /** The tracker's own word for the kind of work, as written; absent where it gave none or the row predates this field. */
     type: z.string().optional(),
   })

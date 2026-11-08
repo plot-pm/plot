@@ -17,6 +17,10 @@ const replaces = (held: IssueIndexRow, incoming: IssueIndexRow): boolean => {
   return incoming.updatedAt >= held.updatedAt;
 };
 
+/** Carries the held row's `releases` onto a replacing row that states none, so a delta that did not ask cannot erase them. */
+const withHeldReleases = (held: IssueIndexRow, incoming: IssueIndexRow): IssueIndexRow =>
+  incoming.releases === undefined && held.releases !== undefined ? { ...incoming, releases: held.releases } : incoming;
+
 /**
  * Folds two sets of issue rows by `number`, keeping the newer of any two
  * readings of the same key.
@@ -37,12 +41,14 @@ export const foldIssueRows = (
   const order: string[] = [];
   for (const row of held) {
     const current = byKey.get(row.number);
-    if (current === undefined || replaces(current, row)) byKey.set(row.number, row);
+    if (current === undefined) byKey.set(row.number, row);
+    else if (replaces(current, row)) byKey.set(row.number, withHeldReleases(current, row));
     if (!order.includes(row.number)) order.push(row.number);
   }
   for (const row of incoming) {
     const current = byKey.get(row.number);
-    if (current === undefined || replaces(current, row)) byKey.set(row.number, row);
+    if (current === undefined) byKey.set(row.number, row);
+    else if (replaces(current, row)) byKey.set(row.number, withHeldReleases(current, row));
     if (!order.includes(row.number)) order.push(row.number);
   }
   return order.map((key) => byKey.get(key)!);

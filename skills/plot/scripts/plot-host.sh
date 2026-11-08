@@ -5326,7 +5326,7 @@ case "$op" in
       # `search/jql` takes the same params as v3 but returns
       # `summary`/`description` as plain strings.
       max="${limit:-50}"
-      fields="summary,created,status,assignee,issuetype"
+      fields="summary,created,status,assignee,issuetype,fixVersions"
       if [ "$state" = closed ]; then
         # THE CLOSED READ REQUIRES `Ticket prefixes` AND READS NOT PLOT_JIRA_JQL.
         # An unscoped `resolved >=` query reads the whole instance — the hazard
@@ -5421,7 +5421,7 @@ case "$op" in
           url: ($base + "/browse/" + .key),
           createdAt: (.fields.created // ""),
           status: (.fields.status.name // ""),
-          statusCategory: (.fields.status.statusCategory.name // ""), assignees: ([.fields.assignee.emailAddress // .fields.assignee.accountId] | map(select(. != null)))
+          statusCategory: (.fields.status.statusCategory.name // ""), assignees: ([.fields.assignee.emailAddress // .fields.assignee.accountId] | map(select(. != null))), releases: [.fields.fixVersions[]?.name]
         } + (if .fields.issuetype.name then {type: .fields.issuetype.name} else {} end) + (if .fields.updated then {updatedAt: .fields.updated} else {} end) + (if ($state == "closed") or ($state == "changed" and .fields.status.statusCategory.name == "Done") then {closedAt: (.fields.resolutiondate // "")} else {} end)),
         (select($paged == "1") | (.nextPageToken // empty) | {nextPageToken: .})'
     elif [ "$be" = "github" ]; then
@@ -5452,7 +5452,7 @@ case "$op" in
       # several, so a state that already uses one here is refused instead of
       # silently losing the title filter (open issues is the lookup's only use).
       [ -z "$title_has" ] || [ "$gh_state" = open ] || die "issue-list: --title-has only works with --state open"
-      gh_json="number,title,url,createdAt,assignees,issueType"; search_args=(); ask_state="$gh_state"
+      gh_json="number,title,url,createdAt,assignees,issueType,milestone"; search_args=(); ask_state="$gh_state"
       [ -z "$label" ] || search_args=(--label "$label")
       if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args+=(--search "updated:>=$since")
       elif [ "$gh_state" != open ]; then gh_json+=",closedAt,labels"; search_args+=(--search "closed:>=$since")
@@ -5473,7 +5473,7 @@ case "$op" in
         jq -c --arg status "$gh_state" \
           '.[] | ((.state // $status) | ascii_downcase) as $actual |
                   {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
-                  status:$actual,statusCategory:(if $actual == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login]}
+                  status:$actual,statusCategory:(if $actual == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login],releases:[.milestone.title? // empty]}
                  + (if .updatedAt then {updatedAt:.updatedAt} else {} end) + (if .issueType.name? then {type:.issueType.name} else {} end)
                  + (if $actual == "closed" then {closedAt:(.closedAt // "")} else {} end) + (if .labels then {labels:[.labels[].name]} else {} end)' <<<"$out"
       else

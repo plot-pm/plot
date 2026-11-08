@@ -10,6 +10,29 @@ const row = (over: Partial<IssueIndexRow> = {}): IssueIndexRow => ({
   ...over,
 });
 
+describe('foldIssueRows releases', () => {
+  const at = (n: number): string => `2026-10-0${n}T00:00:00Z`;
+
+  it('takes the incoming release where both rows state one', () => {
+    const out = foldIssueRows([row({ updatedAt: at(1), releases: ['2.32.0'] })], [row({ updatedAt: at(2), releases: ['2.33.0'] })]);
+    expect(out[0]?.releases).toEqual(['2.33.0']);
+  });
+
+  it('keeps the held release where the replacing row states none', () => {
+    const out = foldIssueRows([row({ updatedAt: at(1), releases: ['2.32.0'] })], [row({ updatedAt: at(2) })]);
+    expect(out[0]?.releases).toEqual(['2.32.0']);
+  });
+
+  it('states none where neither row does', () => {
+    expect(foldIssueRows([row({ updatedAt: at(1) })], [row({ updatedAt: at(2) })])[0]).not.toHaveProperty('releases');
+  });
+
+  it('keeps the first held release when the held set repeats a key', () => {
+    const out = foldIssueRows([row({ updatedAt: at(1), releases: ['2.32.0'] }), row({ updatedAt: at(2) })], []);
+    expect(out[0]?.releases).toEqual(['2.32.0']);
+  });
+});
+
 describe('foldIssueRows', () => {
   it('keeps the incoming row when its updatedAt is newer', () => {
     const held = [row({ title: 'old', updatedAt: '2026-10-01T00:00:00Z' })];
