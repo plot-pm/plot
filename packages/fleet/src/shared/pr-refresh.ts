@@ -33,6 +33,7 @@ import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { PR_REFRESH_MS } from './fleet-scan.js';
+import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 
 /**
  * What the PR reader keeps from one pass to the next.
@@ -161,6 +162,12 @@ export interface PrWorld {
   fenceFold?: () => Promise<boolean>;
   /** The clock in epoch ms; defaults to `Date.now`. A test injects one. */
   now?: () => number;
+  /**
+   * Records the pass's `prs` reading into the daemon's snapshot: the whole
+   * row set where the pass holds one, a `failed` reading where the host did
+   * not answer. A pass the gates skip records nothing. It adds no read.
+   */
+  record?: RecordReading;
 }
 
 /**
@@ -1820,6 +1827,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // rate limit here gets the same backoff the catch would apply.
       const message = 'all PRs returned unknown — the host could not be reached';
       entry.prError = message;
+      world.record?.('prs', failedOf(message, clock()));
       const reaction = hostReaction(message, rate?.resetAt ?? null);
       applyReaction(entry, reaction);
       scheduleNextPr(entry, startedAt, waitOf(reaction), backend, scheduleRate);
@@ -1892,6 +1900,12 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // found no store to write already falls back to below.
       await judgeReviews(world.host, rows);
       const folded = (await world.fenceFold?.()) === false ? null : await writePrStore(backend, rows, kind, prStore);
+      // THE ROWS THE PASS HOLDS WHOLE: a full read's own, or the fold's. A delta
+      // whose fold is absent holds only the window, and a window is not the set.
+      // A PARTIAL ANSWER IS A FAILED READING: a host state did not answer, so the set is not whole.
+      if (kind === 'partial') world.record?.('prs', failedOf(partialSaid ?? 'a host state did not answer', clock()));
+      else if (kind === 'whole') world.record?.('prs', readOf(rows, clock()));
+      else if (folded !== null) world.record?.('prs', readOf(folded.rows, clock()));
       // A FULL READ SERVES ITS OWN ROWS, and that is not merely an
       // optimisation: a whole answer REPLACED the store, so the fold and this
       // pass hold the same rows by construction. Deriving from the fold anyway
@@ -1940,6 +1954,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // git-only group, which looks like state changing rather than data missing.
     const message = err instanceof Error ? err.message : String(err);
     entry.prError = message;
+    world.record?.('prs', failedOf(message, clock()));
     // A FAILED FULL READ IS RECORDED, AND ONLY A FULL READ — WHETHER IT THREW
     // OR CAME BACK PARTIAL. This is the thrown half; the happy path above
     // records the same latch for a full-read window that answered `partial`.

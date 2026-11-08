@@ -24,6 +24,7 @@ import {
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
 } from '@plot-pm/domain/rules/scan-listing';
 import { PR_FULL_READ_MS } from './pr-refresh.js';
+import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 
 /** The scan Plot ships, streamed one plan at a time. */
 export const FLEET_SCAN = 'plot-fleet-scan.sh';
@@ -146,6 +147,12 @@ export interface ScanWorld {
   backend: () => Promise<string>;
   /** The ports the in-process plan walk reads through. */
   walk: WalkPorts;
+  /**
+   * Records what the walk reads into the daemon's snapshot: `config`, `refs`,
+   * `plans`, `desks`, `deskFiles` and `workers`. Absent, the walk records
+   * nothing. It adds no read.
+   */
+  record?: RecordReading;
 }
 
 /** The ports the plan walk reads through, beside `refs` and `scripts`. */
@@ -689,11 +696,29 @@ export const walkOnce = async (
   listingSaid = '',
   cache?: WalkCache,
 ): Promise<FleetReading> => {
-  const { scripts, walk } = world;
+  const { scripts, record } = world;
   let refs = world.refs;
+  const configRead: Record<string, string> = {};
+  const configFailed: string[] = [];
   const cfg = async (key: string, fallback: string): Promise<string> => {
     const answer = await scripts.config(key, fallback);
+    if (answer.ok) configRead[key] = answer.value.trim();
+    else configFailed.push(key);
     return answer.ok && answer.value.trim() !== '' ? answer.value.trim() : fallback;
+  };
+  // THE LISTING `readDeskReadings` TAKES IS THE `desks` READING: tapped, never asked twice.
+  let listed = false;
+  const walk: WalkPorts = record === undefined ? world.walk : {
+    ...world.walk,
+    trees: {
+      ...world.walk.trees,
+      list: async () => {
+        const answer = await world.walk.trees.list();
+        listed = true;
+        record('desks', answer.ok ? readOf(answer.value.map((tree) => ({ ...tree }))) : failedOf('the worktree listing failed'));
+        return answer;
+      },
+    },
   };
   const planDir = await cfg('Plan directory', 'docs/plans/');
   const activeDir = await cfg('Active index', 'docs/plans/active/');
@@ -702,6 +727,9 @@ export const walkOnce = async (
   const prefixes = (await cfg('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/'))
     .split(',').map((p) => p.trim().replace(/\/$/, '')).filter((p) => p !== '');
   const configured = await scripts.config('Main branch', '');
+  if (configured.ok) configRead['Main branch'] = configured.value.trim();
+  else configFailed.push('Main branch');
+  record?.('config', configFailed.length === 0 ? readOf(configRead) : failedOf(`the config read failed for ${configFailed.join(', ')}`));
   let mainBranch = configured.ok ? configured.value.trim() : '';
   if (mainBranch === '') {
     const found = await refs.defaultBranch();
@@ -716,6 +744,9 @@ export const walkOnce = async (
   // cached read below resolves its names through it, so a ref that moves later
   // in the beat moves no key. A snapshot git cannot give runs the beat cold.
   const snapshot = cache === undefined ? null : await readRefSnapshot(refs);
+  if (snapshot !== null) {
+    record?.('refs', snapshot.ok ? readOf({ entries: snapshot.value.entries, digest: snapshot.value.digest }) : failedOf('the refs could not be listed'));
+  }
   let plansAt = walk.plans(`origin/${mainBranch}`, planDir);
   if (cache !== undefined && snapshot !== null && snapshot.ok) {
     cache.begin();
@@ -749,12 +780,26 @@ export const walkOnce = async (
   const estate = await readEstate(refs, plansAt, {
     mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
+  record?.('plans', estate.ok
+    ? readOf({ ref: estate.value.source === 'worktree' ? 'worktree' : `origin/${mainBranch}`, records: estate.value.plans.map((plan) => plan.record) })
+    : failedOf('the estate stage failed'));
   const branches = estate.ok
     ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
     : estate;
   const desks = branches.ok
     ? await readDeskReadings(walk.trees, walk.agents, walk.processes, branches.value)
     : branches;
+  if (record !== undefined) {
+    if (!listed) record('desks', failedOf(`the desk stage did not run: the ${!estate.ok ? 'estate' : 'branches'} stage failed`));
+    if (desks.ok) {
+      record('deskFiles', readOf(Object.fromEntries(desks.value.desks.map((each) => [each.worktree, each.desk]))));
+      record('workers', readOf(Object.fromEntries(desks.value.desks.map((each) => [each.worktree, each.process]))));
+    } else {
+      const why = `the desk stage did not answer: the ${!estate.ok ? 'estate' : !branches.ok ? 'branches' : 'desks'} stage failed`;
+      record('deskFiles', failedOf(why));
+      record('workers', failedOf(why));
+    }
+  }
   const assembled = assemblePlanWalk(
     { estate, branches: branches as never, desks: desks as never },
     { slug: '', offer: false },
