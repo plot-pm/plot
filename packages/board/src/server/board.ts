@@ -3004,7 +3004,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     cards: withFacts.filter((c) => c.phase === name),
   }));
 
-  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch });
+  // The open sync PR runs from the state branch, so its head names the key.
+  const syncPr = stateBranch.trim() === '' ? null
+    : [...(prLinks?.values() ?? [])].find((r) => r.state === 'OPEN' && r.head === stateBranch.trim())?.number ?? null;
+  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch }, syncPr);
   return {
     generatedAt: new Date().toISOString(),
     columns,

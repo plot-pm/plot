@@ -191,3 +191,12 @@ describe('derefRecord', () => {
     expect(await derefRecord(refsFixture({ trees: lone, files: abs }), 'r', 'docs/plans/active/x.md')).toBeNull();
   });
 });
+
+describe('the lag line names the open sync PR', () => {
+  it('prints the number where one is open and none where none is', async () => {
+    const shas = ['1'.repeat(40)];
+    const source = { stateBranch: 'plot/state', defaultBranch: 'main' };
+    expect((await readRecordFindings(refsFixture({ shas }), source, 12)).recordLag?.text).toContain('sync PR: #12');
+    expect((await readRecordFindings(refsFixture({ shas }), source)).recordLag?.text).toContain('sync PR: none');
+  });
+});
