@@ -139,16 +139,13 @@ desk_dirt_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-desk-dirt.sh"
 # only when the first `.git` above the directory is that dir itself (the main
 # checkout) or a file whose `gitdir:` lies under its `worktrees/` (a desk).
 # Every worktree of one repository shares the common dir, so an answer passes
-# between desks; another repository's `.git` refuses it. `GIT_DIR` and
-# `GIT_COMMON_DIR` override discovery, so either one refuses it too.
+# between desks; another repository's `.git` refuses it. Its one caller runs it
+# in a command substitution, so its variables need no `local`.
 plot_given_common_dir() { # $1=directory → the physical common dir, or "" (non-zero)
-  local c="${PLOT_GIT_COMMON_DIR:-${PLOT_REPO_ROOT:+$PLOT_REPO_ROOT/.git}}" d line
-  [ -z "${GIT_DIR:-}${GIT_COMMON_DIR:-}" ] && [ -d "$c" ] || return 1
-  c=$(cd -- "$c" && pwd -P) && d=$(cd -- "$1" && pwd -P) || return 1
-  while [ -n "$d" ] && [ ! -e "$d/.git" ]; do d=${d%/*}; done
-  [ -d "$d/.git" ] && [ "$d/.git" = "$c" ] && { printf '%s' "$c"; return 0; }
-  [ -f "$d/.git" ] && IFS= read -r line < "$d/.git" || return 1
-  case "${line#gitdir: }" in "$c"/worktrees/*) printf '%s' "$c" ;; *) return 1 ;; esac
+  c=$(cd -- "${PLOT_GIT_COMMON_DIR:-${PLOT_REPO_ROOT:-/nonexistent}/.git}" 2>/dev/null && pwd -P) && d=$(cd -- "$1" 2>/dev/null && pwd -P) || return 1
+  while [ ! -e "$d/.git" ] && [ -n "$d" ]; do d=${d%/*}; done
+  [ -d "$d/.git" ] && line="gitdir: $d/.git/worktrees/" || IFS= read -r line < "$d/.git" || return 1
+  [ "${line#"gitdir: $c/worktrees/"}" != "$line" ] && printf '%s' "$c"
 }
 
 # The MAIN checkout for a directory, or "" — the reading `plot_repo_root`
@@ -171,15 +168,10 @@ plot_given_common_dir() { # $1=directory → the physical common dir, or "" (non
 # AN EXPORTED ANSWER IS TAKEN WHEN IT IS THIS DIRECTORY'S, and git is asked
 # otherwise: see `plot_given_common_dir`.
 plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
-  local at="$1" common root=''
-  [ -n "$at" ] && [ -d "$at" ] || return 1
-  common=$(plot_given_common_dir "$at") || common=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
-    common=$(cd -- "$at" 2>/dev/null && cd -- "$common" 2>/dev/null && pwd -P) || common=''
-    [ -n "$common" ] && root=${common%/*}
-  }
-  [ -n "$root" ] || root=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null) || return 1
-  [ -n "$root" ] || return 1
-  printf '%s' "$root"
+  local at="$1" common
+  [ -n "$at" ] || return 1
+  common=$(plot_given_common_dir "$at") || { common=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) && common=$(cd -- "$at" && cd -- "$common" && pwd -P); } || return 1
+  printf '%s' "${common%/*}"
 }
 
 # The `Agent registry` directory for a main checkout — `manifestDirectory`'s rule.
@@ -232,14 +224,11 @@ _plot_wstate_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-co
 # sources this file in a worktree of the same repository reads it and asks git
 # nothing (`plot_given_common_dir`). Each dispatch launch blanks it, so an agent
 # asks for itself.
-if [ -z "$PLOT_MANIFEST_DIR" ]; then
-  _plot_wstate_root=$(plot_main_checkout_of "$PWD" 2>/dev/null) || _plot_wstate_root=''
-  if [ -n "$_plot_wstate_root" ]; then
-    [ ! -d "$_plot_wstate_root/.git" ] || export PLOT_GIT_COMMON_DIR="$_plot_wstate_root/.git"
-    PLOT_MANIFEST_DIR=$(plot_manifest_dir_for "$_plot_wstate_root")
-  fi
-  unset _plot_wstate_root
+if [ -z "$PLOT_MANIFEST_DIR" ] && _plot_wstate_root=$(plot_main_checkout_of "$PWD" 2>/dev/null); then
+  export PLOT_GIT_COMMON_DIR="$_plot_wstate_root/.git"
+  PLOT_MANIFEST_DIR=$(plot_manifest_dir_for "$_plot_wstate_root")
 fi
+unset _plot_wstate_root
 
 # Find the manifest for a worktree → the full path, or "" (non-zero).
 #
@@ -433,32 +422,6 @@ PLOT_EDITOR_LEFTOVER='\.(tmp[0-9]*|swp|orig|rej|bak)$'
 # it is right. A new `new-module.ts` is the most interesting thing a worktree
 # can hold; what it is not is a directory nobody will ever commit.
 PLOT_TOOL_SCRATCH='(^|/)\.(playwright-mcp|plot/agents|plot/state|omc/state)(/|$)'
-
-# Where the worker's log lives in this worktree, when one is there at all.
-#
-# THIS FILE OWNS THE RECORD'S FILENAMES, and that ownership is enforced rather
-# than merely intended: `workerstate.test.mjs` asserts that plot-fleet-scan.sh
-# never names `.plot-worker.` itself, because a read-only scan that touches the
-# worker record has started classifying workers again — the duplication removed
-# on 2026-08-18, after the two copies had already drifted.
-#
-# So the caller that needs the log's mtime asks for the PATH and reads the time
-# itself. The split is the same one this whole file draws: what Plot's records
-# are called is knowledge that lives here; what a timestamp MEANS is the
-# caller's question. `changed_ago_of` in plot-fleet-scan.sh is the one consumer
-# — the log is the only source that keeps moving while a build runs, so a
-# measurement of "when did anything last change" that could not see it would
-# report every worker mid-suite as maximally quiet.
-#
-# ABSENT IS ABSENT: no worktree, or no log in it, prints nothing and returns
-# non-zero. plot-dispatch writes the log only where it started the worker
-# itself, so a hand-started worker legitimately has none.
-plot_worker_log() { # $1=worktree → path to the worker log, or "" (non-zero)
-  local wt="$1"
-  [ -n "$wt" ] || return 1
-  [ -e "$wt/.plot-worker.log" ] || return 1
-  printf '%s' "$wt/.plot-worker.log"
-}
 
 # Is a person being waited on inside this worktree?
 #
