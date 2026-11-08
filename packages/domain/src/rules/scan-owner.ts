@@ -1,4 +1,4 @@
-import type { FleetdHeartbeat, FleetdLoop } from '../entities/fleetd-heartbeat.js';
+import type { FleetdHeartbeat } from '../entities/fleetd-heartbeat.js';
 import { fleetdLiveness, observerFresh } from './fleetd-live.js';
 
 /**
@@ -82,8 +82,6 @@ export interface OwnedBridgeNoteReadings {
   bridgeAt: number;
   /** The fleet's last scan attempt, or `null` where the bridge records none. */
   attempt: { startedAt: number; outcome: 'running' | 'ok' | 'failed'; error: string | null } | null;
-  /** The loops fleetd's heartbeat reports late, from {@link lateLoops}. */
-  lateLoops?: readonly FleetdLoop[];
   /** Epoch ms now. */
   now: number;
 }
@@ -91,8 +89,8 @@ export interface OwnedBridgeNoteReadings {
 /**
  * The sentence the board shows instead of starting a second scan.
  *
- * Names the bridge's age, the loops the heartbeat reports late and, where the
- * fleet's last attempt failed, that failure. `null` while the bridge is fresh: nothing is amiss to report.
+ * Names the bridge's age and, where the fleet's last attempt failed, that
+ * failure. `null` while the bridge is fresh: nothing is amiss to report.
  *
  * @param readings - the bridge's write time, the last attempt and the clock.
  * @returns the note, or `null` when the bridge is within {@link OWNED_BRIDGE_MAX_AGE_MS}.
@@ -100,11 +98,7 @@ export interface OwnedBridgeNoteReadings {
 export const ownedBridgeNote = (readings: OwnedBridgeNoteReadings): string | null => {
   if (bridgeIsFresh(readings.bridgeAt, readings.now)) return null;
   const seconds = Math.round((readings.now - readings.bridgeAt) / 1000);
-  const late = readings.lateLoops ?? [];
-  const base =
-    late.length > 0
-      ? `the fleet's last scan landed ${seconds} s ago; its ${late.join(', ')} loop has not completed a pass in time`
-      : `the fleet's last scan landed ${seconds} s ago and its next is under way`;
+  const base = `the fleet's last scan landed ${seconds} s ago and its next is under way`;
   const attempt = readings.attempt;
   if (attempt !== null && attempt.outcome === 'failed') {
     return `${base}; its last attempt failed: ${attempt.error ?? 'no reason recorded'}`;
