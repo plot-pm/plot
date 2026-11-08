@@ -1221,7 +1221,7 @@ branch_merged() { # $1=branch → 0 when its work landed
 # positive by treating "cannot confirm Approved" as "confirmed Delivered".
 # $1=path (working-tree-relative) → normalized phase, or empty if unreadable
 STATE_KEY=$(cfg "State branch" "")
-rec_ref() { if [ -n "$STATE_KEY" ]; then node "$script_dir/board/plot-record-ref.mjs" "$STATE_KEY" "$MAIN" "$1" 2>/dev/null || printf 'origin/%s' "$MAIN"; else printf 'origin/%s' "$MAIN"; fi; }
+rec_ref() { [ -n "$STATE_KEY" ] && node "$script_dir/board/plot-record-ref.mjs" "$STATE_KEY" "$MAIN" "$1" 2>/dev/null || printf 'origin/%s' "$MAIN"; }
 phase_at_main_ref() { plot_tmpfile blob mnd-ref && git show "$(rec_ref "$1"):$1" >"$blob" 2>/dev/null && "$script_dir/plot-plan-meta.sh" "$blob" --prefixes "$PREFIX_RE" 2>/dev/null | jq -r '.phase' 2>/dev/null; }
 
 mnd_out=""
@@ -3537,6 +3537,9 @@ if [ "$PR_SOURCE" = off ] && [ "$n_unrel_unchecked" -gt 0 ]; then
   echo "        without asking the host. Re-run without --offline/--no-pr."
 fi
 node "$script_dir/board/plot-released-labels.mjs" --section "$do_pr"
+
+# 26. A removed State branch key: records on plot/state that no reader sees.
+[ -n "$STATE_KEY" ] || node "$script_dir/board/plot-record-ref.mjs" --removed-key "" "$MAIN" 2>/dev/null
 
 echo "Sweep complete. This report is advisory — nothing was changed."
 echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits unread_heading_items=$n_unread_heading_items unread_branch_items=$n_unread_branch_items temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"

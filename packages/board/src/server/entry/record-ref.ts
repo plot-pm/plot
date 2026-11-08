@@ -1,7 +1,7 @@
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { shellContext } from '@plot-pm/domain/adapters/scripts';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { readRefFor } from '@plot-pm/domain/workflows/record-listing';
+import { derefRecord, readRecordFindings, readRefFor } from '@plot-pm/domain/workflows/record-listing';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -12,6 +12,12 @@ import { pathToFileURL } from 'node:url';
  * plot-record-ref.mjs <state-branch-key> <default-branch> [<path>]
  * # stdout — one ref, for example `origin/main` or `refs/remotes/origin/plot/state`
  * # exit 0 — the ref is printed; exit 2 — arguments missing
+ *
+ * plot-record-ref.mjs --removed-key <state-branch-key> <default-branch>
+ * # stdout — the reconcile section for a removed key, or nothing when no records are stranded
+ *
+ * plot-record-ref.mjs --deref <ref> <path>
+ * # stdout — the path the symlinks at <path> lead to; exit 1 where a link cycles or leaves the repository
  * ```
  *
  * `plot-dispatch.sh` and `plot-reconcile-scan.sh` run it only where a `State
@@ -30,6 +36,20 @@ export const run = async (
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
+  if (argv[0] === '--deref') {
+    const final = await derefRecord(refsGit(shellContext(cwd)), argv[1] ?? '', argv[2] ?? '');
+    if (final === null) return 1;
+    write(`${final}\n`);
+    return 0;
+  }
+  if (argv[0] === '--removed-key') {
+    const found = await readRecordFindings(refsGit(shellContext(cwd)), { stateBranch: argv[1] ?? '', defaultBranch: argv[2] ?? '' });
+    const finding = found.recordKeyRemoved;
+    if (finding !== null) {
+      write(`\n== Removed State branch key ==\n  ${finding.text}\n${finding.fix.map((step, i) => `    ${i + 1}. ${step}\n`).join('')}`);
+    }
+    return 0;
+  }
   const [stateBranch, defaultBranch, path] = argv;
   if (stateBranch === undefined || !defaultBranch) {
     warn('usage: plot-record-ref.mjs <state-branch-key> <default-branch> [<path>]\n');

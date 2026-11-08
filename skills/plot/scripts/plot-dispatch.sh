@@ -550,7 +550,7 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
 brief_path() { printf '.plot/briefs/%s.md' "${1##*/}"; }
 # The ref a path's records are read at: `origin/<main>`, or where `State branch`
 # is declared the ref the domain's `recordRef` names (`board/plot-record-ref.mjs`).
-rec_ref() { if [ -n "${STATE_KEY:-}" ]; then node "$script_dir/board/plot-record-ref.mjs" "$STATE_KEY" "$MAIN" "$1" 2>/dev/null || printf 'origin/%s' "$MAIN"; else printf 'origin/%s' "$MAIN"; fi; }
+rec_ref() { [ -n "${STATE_KEY:-}" ] && node "$script_dir/board/plot-record-ref.mjs" "$STATE_KEY" "$MAIN" "$1" 2>/dev/null || printf 'origin/%s' "$MAIN"; }
 brief_ref() { printf '%s:%s' "$(rec_ref "$(brief_path "$1")")" "$(brief_path "$1")"; }
 brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
   local sz
@@ -2702,52 +2702,21 @@ STATE_KEY=$("$script_dir/plot-config.sh" get "State branch" "")
 # follows the link and this never comes up; against a ref it must be
 # dereferenced by hand, or the gate parses a one-line path as a plan and reports
 # an unreadable phase instead of the real one.
-deref_on_ref() { # $1=path on $gate_ref → prints the path the blob really lives at
-  local p="$1" target dir hops=0
-  while [ "$(git ls-tree "$gate_ref" -- "$p" 2>/dev/null | awk '{print $1}')" = "120000" ]; do
-    hops=$((hops + 1))
-    [ "$hops" -le 8 ] || return 1        # a symlink cycle must not hang the gate
-    target=$(git show "$gate_ref:$p" 2>/dev/null) || return 1
-    case "$target" in
-      /*) return 1 ;;                    # absolute: not a path within the ref
-      *)  dir=$(dirname "$p")
-          # Normalise ../ and ./ without touching the filesystem.
-          p=$(printf '%s\n' "$dir/$target" | awk -F/ '{
-                n=0
-                for (i=1; i<=NF; i++) {
-                  if ($i == "" || $i == ".") continue
-                  if ($i == "..") { if (n>0) n--; continue }
-                  s[++n]=$i
-                }
-                out=""
-                for (i=1; i<=n; i++) out = (i==1 ? s[i] : out "/" s[i])
-                print out
-              }') ;;
-    esac
-  done
-  printf '%s\n' "$p"
-}
+deref_on_ref() { node "$script_dir/board/plot-record-ref.mjs" --deref "$gate_ref" "$1" 2>/dev/null; } # $1=path on $gate_ref → the path the blob really lives at
 
-# WHERE `State branch` IS DECLARED the records sit on the state ref, so the
-# candidates come from both refs and each path is read at the ref `recordRef`
-# names for it. With no key `gate_ref` stays `origin/$MAIN` throughout.
+# WHERE `State branch` IS DECLARED the records sit on the state ref: candidates
+# come from both refs and each path is read at the ref `recordRef` names for it.
 plan_path=""
-main_gate_ref="$gate_ref"
 if [ -n "$gate_sha" ]; then
   for cand in "$ACTIVE_DIR_CFG$slug.md" \
-              $( { git ls-tree -r --name-only "$main_gate_ref" -- "$PLAN_DIR_CFG" 2>/dev/null
-                   [ -n "$STATE_KEY" ] && git ls-tree -r --name-only "$(rec_ref)" -- "$PLAN_DIR_CFG" 2>/dev/null; } \
+              $( { git ls-tree -r --name-only "origin/$MAIN" -- "$PLAN_DIR_CFG"; [ -z "$STATE_KEY" ] || git ls-tree -r --name-only "$(rec_ref)" -- "$PLAN_DIR_CFG"; } 2>/dev/null \
                 | sort -u | grep -E "/[0-9]{4}-[0-9]{2}-[0-9]{2}-${slug}\.md$|/${slug}\.md$"); do
-    [ -z "$STATE_KEY" ] || gate_ref=$(rec_ref "$cand")
+    gate_ref=$(rec_ref "$cand")
     git cat-file -e "$gate_ref:$cand" 2>/dev/null || continue
     plan_path=$(deref_on_ref "$cand") || { plan_path=""; continue; }
     [ -n "$plan_path" ] && break
   done
-  if [ -n "$STATE_KEY" ]; then
-    gate_ref=$main_gate_ref
-    [ -z "$plan_path" ] || gate_ref=$(rec_ref "$plan_path")
-    gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
-  fi
+  gate_sha=$(git rev-parse --verify --quiet "$gate_ref^{commit}" 2>/dev/null) || gate_sha=""
 fi
 
 # --allow-local: read the working tree instead, and say so. The escape for a

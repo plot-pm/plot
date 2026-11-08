@@ -348,6 +348,8 @@ export function BoardView({
         frozen={planSourceFrozen}
         checksUnaskable={checksUnaskableOn(board)}
         ci={board.server?.ci ?? ''}
+        recordLag={board.recordLag}
+        recordKeyRemoved={board.recordKeyRemoved}
       />
     </>
   );

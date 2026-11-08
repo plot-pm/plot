@@ -116,7 +116,7 @@ export interface RemovedKeyFinding {
   readonly branch: string;
   readonly ahead: number;
   /** The fix, in order. */
-  readonly fix: readonly string[];
+  readonly fix: string[];
   /** The sentence the reconcile section and the board row show. */
   readonly text: string;
 }
@@ -143,3 +143,29 @@ export const removedKeyFinding = (key: string, defaultBranch: string, ahead: num
     text: `${DEFAULT_STATE_BRANCH} is ${ahead} ahead of ${defaultBranch} and no State branch key is declared: its records are invisible to every reader. Fix, in order: ${fix.join('; ')}.`,
   };
 };
+
+/**
+ * Resolves a symlink target against the directory that holds the link.
+ *
+ * @param linkPath - the repository-relative path of the link.
+ * @param target - the link's content.
+ * @returns the normalised repository-relative path; null where `target` is absolute or leaves the repository.
+ */
+export const linkTarget = (linkPath: string, target: string): string | null => {
+  if (target.startsWith('/')) return null;
+  const parts = linkPath.split('/').slice(0, -1);
+  for (const part of target.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part !== '..') {
+      parts.push(part);
+      continue;
+    }
+    if (parts.length === 0) return null;
+    parts.pop();
+  }
+  return parts.join('/');
+};
+
+/** The most symlinks a path may pass through before it counts as a cycle. */
+export const MAX_LINK_HOPS = 8;
+

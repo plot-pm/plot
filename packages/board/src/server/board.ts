@@ -25,7 +25,7 @@ import {
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
 import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, type PlanMetaFile, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
-import { listRecordBlobs, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
+import { listRecordBlobs, readRecordFindings, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
@@ -3003,6 +3003,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     cards: withFacts.filter((c) => c.phase === name),
   }));
 
+  const recordFindings = await readRecordFindings(refs, { stateBranch, defaultBranch });
   return {
     generatedAt: new Date().toISOString(),
     columns,
@@ -3015,6 +3016,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs): Promise<Boar
     // exactly what made a wrong badge and a refusing Deliver button mysteries
     // rather than diagnoses on 2026-08-27.
     planSource,
+    ...recordFindings,
     // Unavailable until the server says otherwise: this walker reads plans and
     // knows nothing about the socket the board is bound to, and "can I start
     // work" is a question about that socket. index.ts overwrites it at response

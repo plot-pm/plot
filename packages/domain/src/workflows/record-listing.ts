@@ -1,6 +1,18 @@
 import { answered, type PortResult } from '../port-result.js';
 import type { Refs, TreeBlob } from '../ports/refs.js';
-import { recordRef, stateTrackRef, unionBlobs, type RecordRef } from '../rules/record-ref.js';
+import {
+  DEFAULT_STATE_BRANCH,
+  lagLine,
+  linkTarget,
+  MAX_LINK_HOPS,
+  recordRef,
+  removedKeyFinding,
+  stateTrackRef,
+  unionBlobs,
+  type LagLine,
+  type RecordRef,
+  type RemovedKeyFinding,
+} from '../rules/record-ref.js';
 
 /** Where plan records live: the `State branch` key and the default branch. */
 export interface RecordSource {
@@ -87,4 +99,56 @@ export const readRefFor = async (refs: Refs, source: RecordSource, path?: string
   if (path === undefined) return where.ref;
   const held = refs.fileExistsSync(where.ref, path);
   return held.ok && held.value ? where.ref : `origin/${source.defaultBranch}`;
+};
+
+/** What the board and the reconcile scan report about the records' branch. */
+export interface RecordFindings {
+  /** The lag line; null where no key is declared or the count could not be read. */
+  readonly recordLag: LagLine | null;
+  /** The removed-key finding; null unless a default-named branch is stranded. */
+  readonly recordKeyRemoved: RemovedKeyFinding | null;
+}
+
+/**
+ * Reads the lag line and the removed-key finding.
+ *
+ * The sync PR is always `null` until the Sync slice opens one.
+ *
+ * @param refs - the ref reader.
+ * @param source - the key and the default branch.
+ * @returns both findings; a read that fails yields null for that finding.
+ */
+export const readRecordFindings = async (refs: Refs, source: RecordSource): Promise<RecordFindings> => {
+  if (source.stateBranch.trim() !== '') {
+    const ahead = await recordsAhead(refs, source);
+    return { recordLag: ahead === null ? null : lagLine(ahead, null, source.defaultBranch), recordKeyRemoved: null };
+  }
+  const stranded = await recordsAhead(refs, { stateBranch: DEFAULT_STATE_BRANCH, defaultBranch: source.defaultBranch });
+  return { recordLag: null, recordKeyRemoved: removedKeyFinding('', source.defaultBranch, stranded) };
+};
+
+/**
+ * Follows the symlinks at `path` on `ref` to the path the blob lives at.
+ *
+ * The active index is a directory of symlinks, and git stores a link as mode
+ * `120000` whose content is the target path.
+ *
+ * @param refs - the ref reader.
+ * @param ref - the ref to read.
+ * @param path - a repository-relative path.
+ * @returns the final path; null where a link cycles, is absolute, leaves the repository, or cannot be read.
+ */
+export const derefRecord = async (refs: Refs, ref: string, path: string): Promise<string | null> => {
+  let current = path;
+  for (let hops = 0; hops <= MAX_LINK_HOPS; hops += 1) {
+    const entry = await refs.listBlobs(ref, current);
+    if (!entry.ok) return null;
+    if (entry.value[0]?.mode !== '120000') return current;
+    const text = await refs.showFile(ref, current);
+    if (!text.ok) return null;
+    const next = linkTarget(current, text.value.trim());
+    if (next === null) return null;
+    current = next;
+  }
+  return null;
 };
