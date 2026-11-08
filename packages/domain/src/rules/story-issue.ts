@@ -42,12 +42,12 @@ const JIRA_KEY = /^([A-Z][A-Z0-9]+)-(\d+)$/;
  * A template placeholder reads as absent.
  *
  * @param issue - the frontmatter `issue:` value, unquoted; `''` where absent.
- * @param jira - the frontmatter `jira:` value, unquoted; `''` where absent.
+ * @param legacy - the frontmatter `jira:` value, unquoted; `''` where absent.
  * @returns the value to read, or `''` where the story names none.
  */
-export const storyIssueValue = (issue: string, jira: string): string => {
+export const storyIssueValue = (issue: string, legacy: string): string => {
   const present = (v: string) => (PLACEHOLDER.test(v.trim()) ? '' : v.trim());
-  return present(issue) || present(jira);
+  return present(issue) || present(legacy);
 };
 
 /** A Jira key whose project is declared, else `null`. */
@@ -75,9 +75,9 @@ export const storyIssueLink = (value: string, context: StoryIssueContext): Story
   if (v === '') return { kind: 'none' };
   const unreadable: StoryIssueLink = { kind: 'unreadable', value: v.slice(0, UNREADABLE_MAX) };
 
-  const jira = declaredJiraKey(v, context.jiraProjects)
+  const projectKey = declaredJiraKey(v, context.jiraProjects)
     ?? declaredJiraKey(/^https?:\/\/[^\s]+\/browse\/([A-Z][A-Z0-9]+-\d+)\/?$/.exec(v)?.[1] ?? '', context.jiraProjects);
-  if (jira !== null) return { kind: 'key', key: jira };
+  if (projectKey !== null) return { kind: 'key', key: projectKey };
 
   const short = /^#(\d+)$/.exec(v);
   // A trailing title segment (`/issues/12/the-title`, Bitbucket's form), `/` or fragment is allowed.
@@ -93,15 +93,18 @@ export const storyIssueLink = (value: string, context: StoryIssueContext): Story
 /**
  * The Jira project keys a repository declares: the keys after the URL in
  * `Tracker: jira <url> PROJ, OPS`, and the keys in `Ticket prefixes`, each once.
- * Only a `jira` tracker declares any.
+ * Only a tracker whose scheme is in `keySchemes` declares any.
  *
  * @param declaredTracker - the `Tracker` config value, verbatim.
+ * @param keySchemes - the schemes that name project keys, `TRACKER_PROJECT_KEY_SCHEMES` from the adapters.
  * @param ticketPrefixes - the `Ticket prefixes` config value, verbatim; `''` where unset.
  * @returns the declared project keys, in order; `[]` for another scheme or none declared.
  */
-export const jiraProjectsOf = (declaredTracker: string, ticketPrefixes = ''): string[] => {
+export const jiraProjectsOf = (
+  declaredTracker: string, keySchemes: readonly string[], ticketPrefixes = '',
+): string[] => {
   const [scheme = '', , ...rest] = declaredTracker.trim().split(/\s+/);
-  if (scheme.toLowerCase() !== 'jira') return [];
+  if (!keySchemes.includes(scheme.toLowerCase())) return [];
   const keys = [...rest.join(' ').split(/[,\s]+/), ...ticketPrefixes.split(/[,\s]+/)];
   return [...new Set(keys.filter((p) => /^[A-Z][A-Z0-9]+$/.test(p)))];
 };
