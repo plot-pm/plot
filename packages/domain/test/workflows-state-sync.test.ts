@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { writeTarget, type StateWriteTarget } from '../src/rules/write-target.js';
-import { answered, failed } from '../src/port-result.js';
+import { answered, failed, type PortResult } from '../src/port-result.js';
 import {
   commitsBetween,
   deliveredPending,
+  fleetLiveAt,
   forwardSyncAt,
   openSyncPr,
   syncPrAt,
@@ -169,5 +170,22 @@ describe('forwardSyncAt', () => {
   it('is idle where nothing is behind or the count is unread', async () => {
     expect((await forwardSyncAt(portsOf({ behind: 0 }).refs, t, { lockHeld: false, refused: null })).decision.kind).toBe('idle');
     expect((await forwardSyncAt(portsOf({ behind: 'fail' }).refs, t, { lockHeld: false, refused: null })).decision.kind).toBe('idle');
+  });
+});
+
+describe('fleetLiveAt', () => {
+  const lockOf = (beats: readonly { name: string; at: number }[] | 'fail') => ({
+    heartbeats: async (): Promise<PortResult<readonly { name: string; at: number }[]>> =>
+      beats === 'fail' ? failed<readonly { name: string; at: number }[]>() : answered(beats),
+  });
+  it('is live for a fresh fleetd heartbeat only', async () => {
+    const now = 1_000_000;
+    expect(await fleetLiveAt(lockOf([{ name: 'fleetd', at: now - 1000 }]), 'github', now)).toBe(true);
+    expect(await fleetLiveAt(lockOf([{ name: 'fleetd', at: 0 }]), 'github', now)).toBe(false);
+    expect(await fleetLiveAt(lockOf([{ name: 'reader.12', at: now }]), 'github', now)).toBe(false);
+    expect(await fleetLiveAt(lockOf([]), 'github', now)).toBe(false);
+  });
+  it('reads a failed ask as unknown', async () => {
+    expect(await fleetLiveAt(lockOf('fail'), 'github', 1)).toBe('unknown');
   });
 });

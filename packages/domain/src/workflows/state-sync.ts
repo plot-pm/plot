@@ -8,7 +8,9 @@
  * @concept state-sync
  */
 import type { Host } from '../ports/host.js';
+import type { ReaderLock } from '../ports/reader-lock.js';
 import type { Refs } from '../ports/refs.js';
+import { heartbeatIsFresh } from '../rules/reader-election.js';
 import { statusStateOf } from '../rules/state-transition.js';
 import {
   SYNC_PR_MARKER,
@@ -162,4 +164,18 @@ export const forwardSyncAt = async (
   const defaultTip = def.ok && def.value !== '' ? def.value : 'unknown';
   const stateTip = state.ok && state.value !== '' ? state.value : 'unknown';
   return { decision: forwardSync({ behind, defaultTip, stateTip, lockHeld: world.lockHeld, refused: world.refused }), defaultTip, stateTip };
+};
+
+/**
+ * Whether a fleetd heartbeat is live for a repository.
+ *
+ * @param lock - the reader lock port.
+ * @param backend - the host backend word, which keys the lock.
+ * @param now - the clock reading in milliseconds.
+ * @returns true where a heartbeat named `fleetd` is fresh; `'unknown'` where the heartbeats could not be read.
+ */
+export const fleetLiveAt = async (lock: Pick<ReaderLock, 'heartbeats'>, backend: string, now: number): Promise<boolean | 'unknown'> => {
+  const read = await lock.heartbeats(backend);
+  if (!read.ok) return 'unknown';
+  return read.value.some((beat) => beat.name === 'fleetd' && heartbeatIsFresh(beat.at, now));
 };
