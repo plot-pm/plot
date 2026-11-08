@@ -3,10 +3,14 @@ import { defineConfig } from 'vitest/config';
 // Unit tests for the fleet's shared modules and entries. `pnpm test` runs
 // them after the node:test bundle suite (test/*.test.mjs). The fleet binds no
 // port and drives no browser, so one project covers test/unit.
+//
+// `test/census/**/*.unit.test.ts` parse recorded `strace` text and need no
+// `strace`, so they run here. The census itself (`*.census.test.ts`) runs only
+// under `test/census/vitest.census.config.ts`.
 
 export default defineConfig({
   test: {
-    include: ['test/unit/**/*.test.ts'],
+    include: ['test/unit/**/*.test.ts', 'test/census/**/*.unit.test.ts'],
     // The delivery tests wait out a detached stub script, 4 s per pass.
     testTimeout: 30_000,
     /**
