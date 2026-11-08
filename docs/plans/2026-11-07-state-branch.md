@@ -145,7 +145,7 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 
 ### Read
 
-- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it; the board's lag line (D5) and the reconcile section for a removed key (D9) <!-- builds: the rule naming which ref holds a plan's records -->
+- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it; the board's lag line (D5) and the reconcile section for a removed key (D9) <!-- builds: the rule naming which ref holds a plan's records --> → #3276
 
 ### Sync
 
