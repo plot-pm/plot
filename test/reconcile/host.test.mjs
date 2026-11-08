@@ -7570,8 +7570,8 @@ test('host: no caller learns which transport ran', () => {
   const viaGraphql = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: graphql });
   const viaRest = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: rest });
   const { checks: _c, checksSha: _s, ciChecks: _cc, ...graphqlBody } = JSON.parse(viaGraphql);
-  const { checks: restChecks, ...restBody } = JSON.parse(viaRest);
-  assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
+  const { checks: restChecks, checksSha: _rs, ciChecks: _rc, ...restBody } = JSON.parse(viaRest);
+  assert.equal(restChecks, 'none', 'a head with no check run and no status reads none, as the GraphQL rollup does');
   assert.deepEqual(graphqlBody, restBody);
   // And nothing names the route. `MERGED` is the vocabulary both must speak —
   // REST says `closed` with the merge in a separate field, and an adapter that
@@ -7734,8 +7734,8 @@ test('host: the harvest costs no extra request', () => {
   });
   run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs });
   const calls = callsOf(stubs.callsFile).filter((c) => !c.startsWith('repo '));
-  assert.equal(calls.length, 1, `one request, not two; calls were:\n${calls.join('\n')}`);
-  assert.match(calls[0], /--include/, 'the same request, with its headers asked for');
+  assert.equal(calls.length, 3, `the pull, its check runs and its status — no request added for the headers; calls were:\n${calls.join('\n')}`);
+  assert.ok(calls.every((c) => c.includes('--include')), 'each request asks for its own headers');
   assert.ok(!calls.some((c) => c.includes('rate_limit')), 'nothing asks that endpoint to route');
 });
 
@@ -7752,7 +7752,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
     stubs,
   });
   assert.deepEqual(JSON.parse(out), {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'unknown',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'none', checksSha: '', ciChecks: 'none',
     mergeable: 'unknown', mergedAt: '',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');

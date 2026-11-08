@@ -91,20 +91,25 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
 } else if (argv[0] === 'pr' && argv[1] === 'ready') {
   find(argv[2]).draft = false;
   save();
-} else if (argv[0] === 'pr' && argv[1] === 'merge') {
-  const pr = find(argv[2]);
-  const pin = flag('--match-head-commit');
-  if (pin && pin !== pr.headRefOid) { process.stderr.write('head moved'); process.exit(1); }
+} else if (argv[0] === 'api' && argv.some((a) => /pulls\/\d+\/merge$/.test(a))) {
+  const num = argv.find((a) => /pulls\\/\\d+\\/merge$/.test(a)).match(/pulls\\/(\\d+)\\/merge$/)[1];
+  const pr = find(num);
+  const pin = (argv.find((a) => a.startsWith('sha=')) ?? '').slice(4);
+  if (pin && pin !== pr.headRefOid) { process.stderr.write('HTTP 409: head moved'); process.exit(1); }
   const g = (...a) => execFileSync('git', ['-C', state.mergeClone, ...a], { encoding: 'utf8' }).trim();
   g('fetch', '-q', 'origin');
   g('checkout', '-q', '-B', 'main', 'origin/main');
   g('merge', '-q', '--no-ff', '-m', 'Merge pull request #' + pr.number + ' from test/' + pr.head, 'origin/' + pr.head);
   g('push', '-q', 'origin', 'main');
-  if (argv.includes('--delete-branch')) g('push', '-q', 'origin', '--delete', pr.head);
   pr.state = 'MERGED';
   pr.mergeCommit = g('rev-parse', 'HEAD');
   save();
-  process.stdout.write('merged');
+  process.stdout.write('{"merged":true}');
+} else if (argv[0] === 'api' && argv.includes('--jq') && argv.some((a) => /pulls\\/\\d+$/.test(a))) {
+  process.stdout.write(find(argv.find((a) => /pulls\\/\\d+$/.test(a)).split('/').pop()).head);
+} else if (argv[0] === 'api' && argv.includes('DELETE')) {
+  const ref = argv.find((a) => /git\\/refs\\/heads\\//.test(a));
+  execFileSync('git', ['-C', state.mergeClone, 'push', '-q', 'origin', '--delete', ref.replace(/^.*refs\\/heads\\//, '')]);
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
   process.stdout.write('main');
 } else {
@@ -118,7 +123,7 @@ beforeEach(() => {
 });
 
 const hostCalls = () => (fs.existsSync(callsPath) ? fs.readFileSync(callsPath, 'utf8') : '');
-const merges = () => hostCalls().split('\n').filter((l) => /^gh pr merge\b/.test(l));
+const merges = () => hostCalls().split('\n').filter((l) => /^gh api -X PUT .*pulls\/\d+\/merge/.test(l));
 
 /**
  * A sandbox with a bare origin, an empty plan directory on main, and a batch
@@ -208,7 +213,7 @@ test('approve batch: a plan only on the open batch PR head is approved, the PR m
   const r = approve(repo, 'first-plan');
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.equal(merges().length, 1, hostCalls());
-  assert.match(merges()[0], new RegExp(`--match-head-commit ${head}\\b`), 'the merge is pinned to the head the approval read');
+  assert.match(merges()[0], new RegExp(`sha=${head}\\b`), 'the merge is pinned to the head the approval read');
   assert.match(onMain(repo, FIRST), /\*\*State:\*\* Approved/);
   assert.match(onMain(repo, FIRST), /\*\*Approved:\*\* .*plan-PR #77 merged/);
   assert.match(onMain(repo, SECOND), /\*\*State:\*\* Draft/, 'the other plan lands unapproved');
