@@ -32,7 +32,7 @@ All work for this sprint goes to the integration branch `sprint/the-board-reads-
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
 ### Should Have
-- [ ] [quality-gates-fail-fast] Quality gates fail fast
+- [ ] [quality-gates-fail-fast] Quality gates fail fast <!-- pr: #3278, branch: infra/census-parallel-halves -->
 
 <!-- add items here -->
 

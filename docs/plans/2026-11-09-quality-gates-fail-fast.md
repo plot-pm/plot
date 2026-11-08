@@ -4,11 +4,12 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Sprint:** the-board-reads-the-channel
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-11-08, Jan Wloka, plan-PR #3278 merged
 
 ## Changelog
 
