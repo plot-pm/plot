@@ -5,8 +5,10 @@ import { join } from 'node:path';
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fixedAnswers, type ProcessRunner } from '../src/adapters/git-dirs/git-dirs.js';
+import { fixedAnswers, withFixedEnv, type ProcessRunner } from '../src/adapters/git-dirs/git-dirs.js';
 import { hostShell } from '../src/adapters/host/host-shell.js';
+import { processesShell } from '../src/adapters/processes/processes-shell.js';
+import { scriptsShell } from '../src/adapters/scripts/scripts-shell.js';
 import { readerLockIndexDir } from '../src/adapters/reader-lock/reader-lock-file.js';
 import { refsGit } from '../src/adapters/refs/refs-git.js';
 import { runProcess, type ScriptRun } from '../src/adapters/run-script.js';
@@ -252,5 +254,124 @@ describe('the adapters read through the held answers', () => {
     expect(first).not.toBeNull();
     expect(second).toBe(first);
     expect(calls).toEqual([['git', 'rev-parse', '--git-common-dir']]);
+  });
+});
+
+describe('withFixedEnv', () => {
+  const fixed = { PLOT_REPO_ROOT: '/repo', PLOT_GIT_COMMON_DIR: '/repo/.git' };
+
+  it('adds both variables where neither the caller nor the process sets them', () => {
+    expect(withFixedEnv(fixed, undefined, {})).toEqual(fixed);
+  });
+
+  it('keeps a value the caller gives, a blank one included', () => {
+    expect(withFixedEnv(fixed, { PLOT_GIT_COMMON_DIR: '', X: '1' }, {})).toEqual({ PLOT_REPO_ROOT: '/repo', PLOT_GIT_COMMON_DIR: '', X: '1' });
+  });
+
+  it('keeps a non-empty value the process carries, and fills a blank one', () => {
+    expect(withFixedEnv(fixed, undefined, { PLOT_REPO_ROOT: '/elsewhere', PLOT_GIT_COMMON_DIR: '' })).toEqual({ PLOT_GIT_COMMON_DIR: '/repo/.git' });
+  });
+
+  it('adds nothing for an answer that is not held', () => {
+    expect(withFixedEnv({}, undefined, {})).toEqual({});
+  });
+});
+
+describe('a script started by an adapter receives the fixed variables', () => {
+  /** A git repository whose `skills/plot/scripts` holds stubs that print the two variables. */
+  const repoWithStubs = (): { repoRoot: string; scriptDir: string; top: string; common: string } => {
+    const repo = tempDir('plot-git-dirs-env-');
+    execFileSync('git', ['init', '--quiet', repo]);
+    const scriptDir = join(repo, 'skills', 'plot', 'scripts');
+    mkdirSync(scriptDir, { recursive: true });
+    const said = 'printf "%s|%s" "${PLOT_REPO_ROOT:-}" "${PLOT_GIT_COMMON_DIR:-}"';
+    for (const name of ['plot-env.sh', 'plot-dispatch.sh', 'plot-config.sh']) writeFileSync(join(scriptDir, name), `${said}\n`);
+    writeFileSync(join(scriptDir, 'plot-host.sh'), `[ "$1" = account ] && { ${said}; echo; exit 0; }\nexit 1\n`);
+    writeFileSync(
+      join(scriptDir, 'plot-worker-state.sh'),
+      'plot_worker_state() { printf \'none\\t%s\\t%s\\t\\n\' "${PLOT_REPO_ROOT:-}" "${PLOT_GIT_COMMON_DIR:-}"; }\n',
+    );
+    const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: repo, encoding: 'utf8' }).trim();
+    return { repoRoot: repo, scriptDir, top, common: join(repo, '.git') };
+  };
+
+  const unset = (): void => {
+    vi.stubEnv('PLOT_REPO_ROOT', '');
+    vi.stubEnv('PLOT_GIT_COMMON_DIR', '');
+  };
+
+  it('scriptsShell: awaited, config, configSync and sourced pass PLOT_REPO_ROOT and PLOT_GIT_COMMON_DIR', async () => {
+    unset();
+    const ctx = repoWithStubs();
+    const scripts = scriptsShell(ctx, fixedAnswers());
+    const expected = `${ctx.top}|${ctx.common}`;
+
+    expect((await scripts.awaited('plot-env.sh', [])).stdout).toBe(expected);
+    expect(await scripts.config('Any', '')).toEqual({ ok: true, value: expected });
+    expect(scripts.configSync('Any', '')).toEqual({ ok: true, value: expected });
+    expect(scripts.sourced('plot-env.sh', '. "$1"', [])).toEqual({ ok: true, value: expected });
+  });
+
+  it('scriptsShell: a value the caller passes wins', async () => {
+    unset();
+    const ctx = repoWithStubs();
+
+    const run = await scriptsShell(ctx, fixedAnswers()).awaited('plot-env.sh', [], { env: { PLOT_GIT_COMMON_DIR: '/given' } });
+
+    expect(run.stdout).toBe(`${ctx.top}|/given`);
+  });
+
+  it('scriptsShell: a value this process already carries wins', async () => {
+    unset();
+    vi.stubEnv('PLOT_REPO_ROOT', '/inherited');
+    const ctx = repoWithStubs();
+
+    const run = await scriptsShell(ctx, fixedAnswers()).awaited('plot-env.sh', []);
+
+    expect(run.stdout).toBe(`/inherited|${ctx.common}`);
+  });
+
+  it('scriptsShell: plot-dispatch.sh, which launches agents, receives neither variable', async () => {
+    unset();
+    const ctx = repoWithStubs();
+
+    const run = await scriptsShell(ctx, fixedAnswers()).awaited('plot-dispatch.sh', []);
+
+    expect(run.stdout).toBe('|');
+  });
+
+  it('hostShell: plot-host.sh receives both variables', async () => {
+    unset();
+    const ctx = repoWithStubs();
+
+    expect(await hostShell(ctx, fixedAnswers()).account()).toEqual({ ok: true, value: `${ctx.top}|${ctx.common}` });
+  });
+
+  it('processesShell: the sourced plot-worker-state.sh reads both variables', async () => {
+    unset();
+    const ctx = repoWithStubs();
+
+    const reading = await processesShell(ctx, fixedAnswers()).workerState(ctx.repoRoot, false);
+
+    expect(reading).toEqual({ ok: true, value: { state: 'none', pid: ctx.top, exitCode: ctx.common, activity: '' } });
+  });
+
+  it('starts git for the variables once across adapters that share the answers', async () => {
+    unset();
+    const ctx = repoWithStubs();
+    const calls: string[][] = [];
+    const answers = fixedAnswers((command, args, options) => {
+      calls.push([command, ...args]);
+      return runProcess(command, args, options);
+    });
+
+    await scriptsShell(ctx, answers).awaited('plot-env.sh', []);
+    await scriptsShell(ctx, answers).config('Any', '');
+    await hostShell(ctx, answers).account();
+
+    expect(calls).toEqual([
+      ['git', 'rev-parse', '--show-toplevel'],
+      ['git', 'rev-parse', '--git-common-dir'],
+    ]);
   });
 });

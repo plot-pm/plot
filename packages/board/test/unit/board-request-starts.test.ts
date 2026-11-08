@@ -188,7 +188,6 @@ const WARM_STARTS: readonly string[] = [
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
   "spawn git for-each-ref --format=%(refname) %(objectname) %(HEAD) refs/heads refs/remotes",
-  "spawn git rev-parse --git-common-dir",
   "spawn git rev-parse origin/main^{commit}",
   "spawn node <gate>/plot-gate.mjs --spawn-contract",
 ];

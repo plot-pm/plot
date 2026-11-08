@@ -161,7 +161,7 @@ describe('continueOnDesk clears the main-checkout-writer marker for the spawn', 
     removeAll(desks.splice(0));
   });
 
-  it('spawns with no PLOT_MAIN_CHECKOUT_WRITER=1 even though the parent process carries it', async () => {
+  it('spawns with no PLOT_MAIN_CHECKOUT_WRITER=1 and no PLOT_GIT_COMMON_DIR even though the parent process carries them', async () => {
     const worktree = mkdtempSync(join(tmpdir(), 'plot-continue-env-'));
     desks.push(worktree);
     const repoRoot = mkdtempSync(join(tmpdir(), 'plot-continue-repo-'));
@@ -174,6 +174,8 @@ describe('continueOnDesk clears the main-checkout-writer marker for the spawn', 
 
     const previousWriter = process.env[MAIN_CHECKOUT_WRITER_ENV];
     process.env[MAIN_CHECKOUT_WRITER_ENV] = '1';
+    const previousCommon = process.env['PLOT_GIT_COMMON_DIR'];
+    process.env['PLOT_GIT_COMMON_DIR'] = join(repoRoot, '.git');
 
     const spawnCalls: { env: Readonly<Record<string, string | undefined>> }[] = [];
     const fakeSpawn = ((_cmd: string, _args: readonly string[], opts: { env: Readonly<Record<string, string | undefined>> }) => {
@@ -199,10 +201,13 @@ describe('continueOnDesk clears the main-checkout-writer marker for the spawn', 
     } finally {
       if (previousWriter === undefined) delete process.env[MAIN_CHECKOUT_WRITER_ENV];
       else process.env[MAIN_CHECKOUT_WRITER_ENV] = previousWriter;
+      if (previousCommon === undefined) delete process.env['PLOT_GIT_COMMON_DIR'];
+      else process.env['PLOT_GIT_COMMON_DIR'] = previousCommon;
     }
 
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]?.env[MAIN_CHECKOUT_WRITER_ENV]).not.toBe('1');
+    expect(spawnCalls[0]?.env['PLOT_GIT_COMMON_DIR']).toBe('');
   });
 });
 

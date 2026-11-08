@@ -2,6 +2,7 @@ import type { WorkerActivity, WorkerState } from '../../entities/fleet.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Processes, ProcessReading } from '../../ports/processes.js';
 import { asLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
+import { processAnswers, scriptRunner, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { signalZero } from '../signal-zero.js';
 
@@ -149,11 +150,13 @@ const readingOf = (stdout: string): ProcessReading => {
  * became their single home.
  *
  * @param context - where the scripts and the repository are.
+ * @param answers - the held answers the sourced script reads from its environment; this process's own by default.
  * @returns a `Processes` backed by the shell function and the process table.
  */
-export const processesShell = (context: ShellContext): Processes => {
+export const processesShell = (context: ShellContext, answers: FixedAnswers = processAnswers): Processes => {
   const workerState = scriptPath(context, 'plot-worker-state.sh');
   const inRepo = { cwd: context.repoRoot };
+  const runScripted = scriptRunner(context.repoRoot, answers);
 
   return {
     isAlive: async (pid) => {
@@ -163,7 +166,7 @@ export const processesShell = (context: ShellContext): Processes => {
     },
 
     workerState: async (worktree, hasPr): Promise<PortResult<ProcessReading>> => {
-      const run = await runProcess(
+      const run = await runScripted(
         'bash',
         [
           '-c',
