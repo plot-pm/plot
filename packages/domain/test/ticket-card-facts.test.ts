@@ -145,6 +145,12 @@ describe('ticketCardFacts lineage and progress', () => {
     expect(out.progress.work).toEqual({ unit: 'slices', done: { value: 1 }, total: 4 });
   });
 
+  it('reads a Draft or Design plan as draft, and an Approved plan with no merged slice as approved', () => {
+    const out = facts({ plans: { value: [plan({ state: 'draft' }), plan({ slug: 'b', state: 'design' }), plan({ slug: 'c', merged: 0 })] } });
+    const statuses = 'value' in out.lineage.plans ? out.lineage.plans.value.map((p) => p.kind === 'plan' && p.status) : [];
+    expect(statuses).toEqual(['draft', 'draft', 'approved']);
+  });
+
   it('reads a plan with no merged-PR reading as unknown slice progress', () => {
     const out = facts({ plans: { value: [plan({ merged: null })] } });
     expect(out.progress.work).toEqual({ unit: 'slices', done: { unknown: 'unasked' }, total: 4 });
@@ -160,6 +166,18 @@ describe('ticketCardFacts lineage and progress', () => {
     expect(out.progress.state).toEqual({ value: { kind: 'ticket', lane: 'in-progress' } });
     expect(out.ownership.since).toEqual({ at: '2026-10-14', event: 'opened' });
     expect(out.ownership.assignees).toEqual({ value: ['jwloka'] });
+  });
+
+  it('reads no opened date and no assignment for a ticket with no date, an undated value, or no assignee', () => {
+    for (const createdAt of [null, 'yesterday']) {
+      const out = facts({ row: row({ createdAt }) });
+      expect(out.ownership.since).toBeNull();
+      expect(out.ownership.assignedFrom).toBeNull();
+    }
+  });
+
+  it('carries no slice progress for a lone plan that names no slices', () => {
+    expect(facts({ plans: { value: [plan({ total: 0 })] } }).progress.work).toBeNull();
   });
 
   it('opens the ticket itself', () => {
