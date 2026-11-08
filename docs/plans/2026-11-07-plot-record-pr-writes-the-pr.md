@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** ship-2-32-0
 - **Issue:** #3225
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-07, Jan Wloka, plan-PR #3226 merged
 - **Started:** 2026-11-07, Jan Wloka, `bug/plot-record-pr-writes-the-pr`
+- **Delivered:** 2026-11-08
 
 ## Changelog
 
