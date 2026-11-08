@@ -4,6 +4,7 @@ import {
   quietNote,
   quietPlacement,
   fetchPredatesTip,
+  offersReleaseClaim,
   type QuietBranchReadings,
   type QuietKind,
 } from '../src/index.js';
@@ -241,3 +242,12 @@ const everyCase = (): QuietBranchReadings[] => {
   }
   return cases;
 };
+
+describe('offersReleaseClaim', () => {
+  it('offers the release for an orphaned claim only', () => {
+    expect(offersReleaseClaim('orphaned-claim')).toBe(true);
+    for (const kind of ['merged', 'closed-pr', 'abandoned', 'quiet', null, undefined] as const) {
+      expect(offersReleaseClaim(kind)).toBe(false);
+    }
+  });
+});

@@ -231,4 +231,51 @@ describe('the board shows which kind of quiet a row is in', () => {
       await page.close();
     }
   });
+
+  it('offers Release claim on a claim-only branch no plan names, and posts to the route', async () => {
+    // The row is stated, as above: the deciding is `quietKind` and
+    // `offersReleaseClaim`, unit-tested without a browser. This asks whether a
+    // reader sees the kind word and the action, and whether the click reaches
+    // `POST /api/release-claim` with the branch.
+    const branch = 'bug/main-repair-fcc797085ba9';
+    const posted: unknown[] = [];
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents',
+      over: {
+        fleet: buildFleet({
+          ...envelope(),
+          rows: [buildRow({
+            branch, plan: '', planFile: '', wave: '', state: 'claimed', group: 'quiet',
+            ageMinutes: 4_320, note: 'claimed, no work committed — claimed 3 days ago',
+            quietKind: 'orphaned-claim', pr: null,
+          })],
+        }) as Fleet,
+      },
+    });
+    try {
+      await page.route('**/api/release-claim', (r) => {
+        posted.push(r.request().postDataJSON());
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ branch, released: true, hadClaim: true, detail: 'claim released' }),
+        });
+      });
+      const toggle = page.locator('[data-group-toggle="quiet"]');
+      await toggle.waitFor({ timeout: 10_000 });
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+      await expandAgentFolds(page);
+      const li = rowFor(page, branch);
+      await expect.poll(() => li.textContent()).toContain('unclaimed');
+      await li.locator('[data-row-actions]').click();
+      const release = page.locator('[data-release-claim]');
+      await release.waitFor({ timeout: 5_000 });
+      await release.click();
+      await release.click();
+      await page.locator('[data-release-claim-done]').waitFor({ timeout: 5_000 });
+      expect(posted).toEqual([{ branch }]);
+    } finally {
+      await page.close();
+    }
+  });
 });

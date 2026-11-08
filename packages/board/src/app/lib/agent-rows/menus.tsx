@@ -9,6 +9,8 @@ import {
   type IssueAnswer,
   type IssueRow,
 } from '../../../contract/schema.js';
+import { offersReleaseClaim } from '@plot-pm/domain/rules/quiet';
+import { ReleaseClaimButton } from '../../components/ReleaseClaimButton.js';
 import { ApproveButton } from '../../components/ApproveButton.js';
 import { NeedsDesignButton } from '../../components/NeedsDesignButton.js';
 import { CreatePlanButton } from '../../components/CreatePlanButton.js';
@@ -298,6 +300,12 @@ export function menuState(items: {
    * do: opening a page the row already names is not an act the server refuses.
    */
   hasOpen: boolean;
+  /**
+   * This row is an orphaned claim, which offers Release claim — see
+   * {@link offersReleaseClaim}. Joins `enabled` without a `WillAct` term: the
+   * route refuses a live agent or an open PR itself and says why in the item.
+   */
+  hasReleaseClaim?: boolean;
   // APPROVE AND COMMISSION DESIGN ARE NOT HERE, and their absence is the point.
   // Both are PLAN-level acts — approving a plan, or sending it to design — and a
   // branch row is never the honest place for either: a branch BLOCKED by an
@@ -314,12 +322,12 @@ export function menuState(items: {
 }): { present: boolean; enabled: boolean } {
   const {
     canStart, canResolve, canWriteBrief, hasRun, hasLog, hasStatus, hasOpen,
-    hasChangedFiles, serverWillAct, implementWillAct,
+    hasChangedFiles, serverWillAct, implementWillAct, hasReleaseClaim = false,
   } = items;
   return {
     present:
       canStart || canResolve || canWriteBrief || hasRun || hasLog || hasStatus || hasOpen ||
-      hasChangedFiles,
+      hasChangedFiles || hasReleaseClaim,
     enabled:
       (canStart && serverWillAct) ||
       (canResolve && serverWillAct) ||
@@ -328,7 +336,8 @@ export function menuState(items: {
       hasLog ||
       hasStatus ||
       hasOpen ||
-      hasChangedFiles,
+      hasChangedFiles ||
+      hasReleaseClaim,
   };
 }
 
@@ -655,6 +664,9 @@ export function RowActions({
   // there is no address (a merged branch, a host with no PR url) there is no
   // item either, and the row falls back to whatever else it offers.
   const openUrl = offersOpen(row) ? openTarget(row) : '';
+  // RELEASE CLAIM — the domain's answer on the row's quiet kind, so no kind word
+  // is read here. The act is `POST /api/release-claim`.
+  const hasReleaseClaim = row.group === 'quiet' && offersReleaseClaim(row.quietKind);
   // COMMISSION DESIGN IS NOT HERE EITHER — it is a plan decision, the OTHER
   // answer to a Draft plan beside Approve, and it left the branch row for the
   // same reason Approve did. It now lives on the plan head (`PlanActions`), so
@@ -694,6 +706,7 @@ export function RowActions({
   const { present: hasItems, enabled } = menuState({
     canStart, canResolve, canWriteBrief, hasRun: Boolean(runUrl), hasLog, hasStatus,
     hasOpen: Boolean(openUrl), hasChangedFiles, serverWillAct, implementWillAct,
+    hasReleaseClaim,
   });
   const reason =
     canStart && !serverWillAct && dispatch?.reason
@@ -828,6 +841,11 @@ export function RowActions({
               >
                 {openLabel(row)}
               </a>
+            </div>
+          )}
+          {hasReleaseClaim && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <ReleaseClaimButton branch={row.branch} />
             </div>
           )}
           {canStart && dispatch && card && (

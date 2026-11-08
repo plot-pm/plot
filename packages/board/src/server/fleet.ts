@@ -45,6 +45,7 @@ import { electReader, heartbeatIsFresh, HEARTBEAT_STALE_MS, type ReaderClaim, ty
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
+import { claimOnly, CLAIM_SUBJECT_PREFIX } from '@plot-pm/domain/rules/empty-claim';
 import { logDir } from '@plot-pm/fleet/shared/process-log';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -507,6 +508,12 @@ export interface CacheEntry {
    * is briefly incomplete rather than one that is confidently wrong.
    */
   unmerged: Set<string>;
+  /**
+   * The subset of {@link unmerged} whose only commits are empty claim markers —
+   * see {@link claimOnlyBranches}. Scan clock, not bridged, for the reason
+   * `unmerged` is not.
+   */
+  claimOnly: Set<string>;
   /**
    * What each `waiting` worker asked, by branch — see `workerQuestions`.
    *
@@ -1271,6 +1278,53 @@ async function unmergedBranches(opts: BuildBoardOptions, main: string): Promise<
     }
   } catch {
     /* no refs readable — the set stays empty, and no row is added from it */
+  }
+  return found;
+}
+
+/**
+ * Which of the unmerged branches carry nothing but empty `plot: claim` markers.
+ *
+ * The planless-branch loop in `rowsFromPulse` builds a row from the refs alone
+ * and used to state `wip` for every one of them, so a claim-only branch no plan
+ * names read `abandoned`. This is the reading that loop was missing: the same
+ * definition the plan walk uses (`claimOnly` over `Refs.commitSubjects`), not a
+ * second one.
+ *
+ * ONE `for-each-ref` FOR THE WHOLE SET, then a `commitSubjects` walk only for
+ * a branch whose TIP subject is a claim marker. A claim-only branch's tip is
+ * its claim marker, so no other branch can qualify, and the walk is bounded by
+ * claims rather than by every unmerged branch.
+ *
+ * A BRANCH WHOSE WALK FAILED IS LEFT OUT, and out means *not read as a claim*,
+ * which is the reading the loop gave every branch before this existed. The set
+ * only ever adds the word `claimed`; it never says a branch has real work.
+ */
+async function claimOnlyBranches(
+  opts: BuildBoardOptions,
+  main: string,
+  unmerged: ReadonlySet<string>,
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  if (unmerged.size === 0) return found;
+  let listing = '';
+  try {
+    listing = await run('git',
+      ['for-each-ref', '--format=%(refname:short)%09%(subject)', 'refs/remotes/origin'],
+      opts.repoRoot);
+  } catch {
+    return found;
+  }
+  const refs = refsFor(opts);
+  for (const line of listing.split('\n')) {
+    const at = line.indexOf('\t');
+    if (at < 0) continue;
+    const ref = line.slice(0, at);
+    if (!ref.startsWith('origin/') || !line.slice(at + 1).startsWith(CLAIM_SUBJECT_PREFIX)) continue;
+    const branch = ref.slice('origin/'.length);
+    if (!unmerged.has(branch)) continue;
+    const range = await refs.commitSubjects(`origin/${main}..origin/${branch}`);
+    if (range.ok && claimOnly(range.value)) found.add(branch);
   }
   return found;
 }
@@ -3054,7 +3108,10 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // `complete.main` rather than a literal — the default branch is the pulse's
     // to name, and a repo whose trunk is not `main` must not have every one of
     // its branches read as unmerged.
-    if (!skipDisplay) entry.unmerged = await unmergedBranches(opts, complete.main);
+    if (!skipDisplay) {
+      entry.unmerged = await unmergedBranches(opts, complete.main);
+      entry.claimOnly = await claimOnlyBranches(opts, complete.main, entry.unmerged);
+    }
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -3138,6 +3195,7 @@ export function freshCacheEntry(): CacheEntry {
     // empty set, so a board that has not scanned yet looks exactly as it did
     // before this field existed.
     unmerged: new Set(),
+    claimOnly: new Set(),
     questions: new Map(),
     // `null` before the first lookup — not `unsupported` and not `answered`:
     // a board that has not asked must not render an empty inbox as a clear
@@ -6281,6 +6339,16 @@ export function rowsFromPulse(
    * predates the fields.
    */
   fieldsBySlug?: Map<string, PlanOwnerFields> | null,
+  /**
+   * The unmerged branches carrying only empty claim markers — see
+   * {@link claimOnlyBranches}. The planless-branch loop reads each as
+   * `claimed` rather than `wip`.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged: a caller passing nothing has not looked, and every
+   * planless branch reads `wip` as it did before.
+   */
+  claimOnly?: ReadonlySet<string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
@@ -7332,8 +7400,12 @@ export function rowsFromPulse(
     // labelled `closed`. The label was right and the placement was not — the
     // board knew, and the rule was never asked.
     const prClosed: 'closed' | null = known?.state === 'CLOSED' ? 'closed' : null;
+    // `claimed` WHERE THE BRANCH'S ONLY COMMITS ARE EMPTY CLAIM MARKERS, the
+    // state the plan walk gives the same branch. A closed or merged PR outranks
+    // it inside `quietKind`, so the word still follows the evidence order.
+    const state: BranchState = claimOnly?.has(branch) ? 'claimed' : 'wip';
     const { group, note, startability } = classify(
-      'wip', 'eligible', ageMinutes, NO_QUIET_WINDOW, null,
+      state, 'eligible', ageMinutes, NO_QUIET_WINDOW, null,
       // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
       // localLocked, workerDirtyPaths, workerQuestion, held, localWorktree,
       // deferredReason — every default, spelled out because `hostUnasked` is
@@ -7371,7 +7443,7 @@ export function rowsFromPulse(
     // exposed to it — they reach the board through the refs, so a failed fetch
     // is the only thing standing between the row and a PR it cannot see.
     const kind = rowQuietKind(
-      prClosed, 'wip', placed, 'elsewhere', null, prMerged, hostUnasked,
+      prClosed, state, placed, 'elsewhere', null, prMerged, hostUnasked,
       // THIS BRANCH'S TIP, and the PULSE'S FETCH TIME — #1240, so the kind
       // agrees with the sentence `classify` just built from the same pair.
       tipAt?.get(branch) ?? null, prAt ?? null);
@@ -7400,7 +7472,7 @@ export function rowsFromPulse(
       version: versions?.get(branch) ?? '',
       releaseStage: '',
       wave: '',
-      state: 'wip',
+      state,
       deferredReason: '',
       // NO PLAN TO READ A PHASE FROM, so null — the same rule the loop above
       // follows for every non-idea branch. `Discovery` on a branch nobody
@@ -7931,7 +8003,7 @@ export async function buildFleet(
       approvedSpikes,
       // EACH PLAN'S ASSIGNEE, AUTHOR AND APPROVER, from the same parse — so
       // `ownedFromRow` can answer whose a no-PR row is. See `PlanOwnerFields`.
-      fieldsBySlug), entry.agents)
+      fieldsBySlug, entry.claimOnly), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
