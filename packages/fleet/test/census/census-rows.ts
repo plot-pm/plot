@@ -6,13 +6,13 @@ export type GreenBy = { plan: string; slice?: string; phase?: string };
 
 /** One row of the plan's scenario table (S1..S6) or per-source table (P1..P4). */
 export type CensusRow =
-  | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy }
+  | { id: string; claim: string; unit: string; target: 'zero'; greenBy: GreenBy; green?: true }
   | { id: string; claim: string; unit: string; target: 'measured'; tolerance: CensusTolerance };
 
 /**
  * The rows of `docs/plans/2026-11-08-process-census-gate.md`, in its order.
  * A zero row is written as `it.fails` until the plan and slice it names turn
- * it green; that slice changes the row to `it`.
+ * it green; that slice sets `green: true` and changes the row to `it`.
  */
 export const CENSUS_ROWS = {
   S1: {
@@ -70,6 +70,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'monitors-nap-without-sleep', slice: 'Liveness syscall' },
+    green: true,
   },
   P3: {
     id: 'P3',
@@ -95,10 +96,14 @@ const greenByText = ({ plan, slice, phase }: GreenBy): string =>
 
 /**
  * The test title of a row. A zero row's title names the plan and slice that
- * turn it green, so an `it.fails` that starts to pass says which plan to read.
+ * turn it green, so an `it.fails` that starts to pass says which plan to read;
+ * a green zero row names the plan and slice that turned it green.
  */
 export const rowTitle = (row: CensusRow, fixture?: CensusFixture): string => {
   const size = fixture === undefined ? '' : ` [${fixture.host}, ${fixture.desks} desks, ${fixture.openPrs} open PRs]`;
+  if (row.target === 'zero' && row.green === true) {
+    return `${row.id}: ${row.claim}${size} (turned green by ${greenByText(row.greenBy)})`;
+  }
   return row.target === 'zero'
     ? `${row.id}: ${row.claim}${size} (expected to fail until ${greenByText(row.greenBy)})`
     : `${row.id}: ${row.claim}${size} (measured, held within ${row.tolerance === 'strict' ? 'no growth' : `${row.tolerance.ratio * 100} % + ${row.tolerance.plus}`})`;

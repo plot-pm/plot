@@ -117,7 +117,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
   });
 
   if (fixture.desks > 0) {
-    it.fails(rowTitle(CENSUS_ROWS.P2, fixture), () => {
+    it(rowTitle(CENSUS_ROWS.P2, fixture), () => {
       const { mean, each, execs } = perPass(isKillZero);
       recordCount(CENSUS_ROWS.P2, fixture, mean, execs);
       expect(each).toEqual([0, 0]);
