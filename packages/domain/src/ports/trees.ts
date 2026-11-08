@@ -578,6 +578,38 @@ export interface Trees {
   commitAs(path: string, who: string, message: string): Promise<PortResult<void>>;
 
   /**
+   * Fetches one remote ref into a local ref, and says whether the origin holds it.
+   *
+   * `git ls-remote --exit-code origin <ref>` first, so a ref the origin lacks
+   * (exit 2) answers `false` and a failed ask (any other non-zero exit) answers
+   * `failed`: an empty answer is never read as absence. Where the ref exists,
+   * `git fetch -q origin +<ref>:<into>` stores its tip in `into`.
+   *
+   * @param path - the checkout to fetch in, absolute.
+   * @param ref - the full ref on the origin, for example `refs/heads/plot/state`.
+   * @param into - the full local ref that receives the tip.
+   * @returns `true` once fetched, `false` where the origin has no such ref;
+   *   a failure means the origin could not be asked or the fetch failed.
+   */
+  fetchRef(path: string, ref: string, into: string): Promise<PortResult<boolean>>;
+
+  /**
+   * Merges a ref into the checkout's branch with a merge commit where the
+   * histories differ.
+   *
+   * `git -C <path> -c user.name=<who> merge --no-edit <ref>`. On a conflict the
+   * merge is aborted, so the worktree is as it was, and the answer lists the
+   * conflicting paths.
+   *
+   * @param path - the checkout to merge in, absolute.
+   * @param ref - the ref to merge, for example `refs/remotes/origin/main`.
+   * @param who - the name to attribute the merge commit to.
+   * @returns the conflicting paths, empty where the merge applied or `ref` was
+   *   already contained; a failure means git refused for another reason.
+   */
+  mergeIn(path: string, ref: string, who: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Commits whatever is staged under the checkout's own identity.
    *
    * `git -C <path> commit -q -m <message>` — the commit an `Impl: same branch`

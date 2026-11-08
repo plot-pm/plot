@@ -857,3 +857,46 @@ test('state gate: an issue added to a Draft plan passes with no receipt', () => 
   });
   assert.equal(run(dir).status, 0);
 });
+
+// A repo whose declared state ref holds an Approved plan, with the main
+// checkout staging a squash of that tip (D14). `extra` stages more on top.
+function squashRepo({ key = 'plot/state', trackRef = 'refs/remotes/origin/plot/state', extra = {} } = {}) {
+  const claude = `# R\n\n## Plot Config\n\n${key === '' ? '' : `- **State branch:** ${key}\n`}`;
+  const planPath = 'docs/plans/2026-01-01-x.md';
+  const dir = repo({ committed: { 'CLAUDE.md': claude, [planPath]: plan('Draft') } });
+  const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe', shell: '/bin/bash' }).toString().trim();
+  writeFileSync(path.join(dir, planPath), plan('Approved'));
+  sh('git commit -qam state');
+  const tip = sh('git rev-parse HEAD');
+  sh(`git update-ref ${trackRef} ${tip}`);
+  sh('git reset -q --hard HEAD~1');
+  sh(`git checkout -q ${tip} -- .`);
+  for (const [rel, body] of Object.entries(extra)) {
+    writeFileSync(path.join(dir, rel), body);
+    sh('git add -A');
+  }
+  return dir;
+}
+
+test('state gate: a squash of the state ref tip clears its State transition (D14)', () => {
+  const r = run(squashRepo());
+  assert.equal(r.status, 0, `a squash of the declared state tip must pass (stderr: ${r.stderr})`);
+});
+
+test('state gate: a squash of a non-branch state ref clears too (D16)', () => {
+  const r = run(squashRepo({ key: 'refs/plot/state', trackRef: 'refs/plot/state-tip/plot/state' }));
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+test('state gate: a squash plus another hand-written State change stays refused', () => {
+  const dir = squashRepo();
+  writeFileSync(path.join(dir, 'docs/plans/2026-01-01-x.md'), plan('Delivered'));
+  execSync('git add -A', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 2, `a tree differing from the tip must refuse (stderr: ${r.stderr})`);
+});
+
+test('state gate: with no State branch key a matching tree is still a hand edit', () => {
+  const r = run(squashRepo({ key: '' }));
+  assert.equal(r.status, 2, `stderr: ${r.stderr}`);
+});

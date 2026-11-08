@@ -344,6 +344,10 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       return answered(undefined);
     },
 
+    fetchRef: async (): Promise<PortResult<boolean>> => answered(false),
+
+    mergeIn: async (): Promise<PortResult<readonly string[]>> => answered<readonly string[]>([]),
+
     commitStaged: async (path, message): Promise<PortResult<void>> => {
       if ((fixture.commitStagedFailsAt ?? []).includes(path)) return failed<void>();
       fixture.calls?.commits.push({ path, message });

@@ -667,6 +667,27 @@ export const treesGit = (context: ShellContext): Trees => {
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 
+    fetchRef: async (path, ref, into): Promise<PortResult<boolean>> => {
+      const asked = await runProcess('git', ['-C', path, 'ls-remote', '--exit-code', 'origin', ref], inRepo);
+      if (asked.code === 2) return answered(false);
+      if (asked.code !== 0) return failed<boolean>();
+      const run = await runProcess('git', ['-C', path, 'fetch', '-q', 'origin', `+${ref}:${into}`], inRepo);
+      return run.code === 0 ? answered(true) : failed<boolean>();
+    },
+
+    mergeIn: async (path, ref, who): Promise<PortResult<readonly string[]>> => {
+      const run = await runProcess(
+        'git',
+        ['-C', path, '-c', `user.name=${who}`, '-c', 'user.email=plot@localhost', 'merge', '-q', '--no-edit', ref],
+        inRepo,
+      );
+      if (run.code === 0) return answered<readonly string[]>([]);
+      const unmerged = await runProcess('git', ['-C', path, 'diff', '--name-only', '--diff-filter=U'], inRepo);
+      const files = unmerged.code === 0 ? asText(unmerged.stdout).split('\n').filter((line) => line !== '') : [];
+      await runProcess('git', ['-C', path, 'merge', '--abort'], inRepo);
+      return files.length > 0 ? answered<readonly string[]>(files) : failed<readonly string[]>();
+    },
+
     commitStaged: async (path, message): Promise<PortResult<void>> => {
       const run = await runProcess('git', ['-C', path, 'commit', '-q', '-m', message], inRepo);
       return run.code === 0 ? answered(undefined) : failed<void>();

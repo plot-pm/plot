@@ -60,7 +60,7 @@ describe('plot-deliver --branch records the delivery on the named branch', () =>
    * branch on origin holds it as Approved with an active index link and a
    * sprint that names it. The checkout stays on `main`.
    */
-  const setup = (): { repo: string; origin: string } => {
+  const setup = (stateKey = '', branch = BRANCH): { repo: string; origin: string } => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-deliver-branch-')));
     roots.push(root);
     const origin = path.join(root, 'origin.git');
@@ -73,21 +73,22 @@ describe('plot-deliver --branch records the delivery on the named branch', () =>
     mkdirSync(path.join(repo, 'docs/plans/active'), { recursive: true });
     mkdirSync(path.join(repo, 'docs/sprints'), { recursive: true });
     writeFileSync(path.join(repo, PLAN), planText('Draft'));
+    if (stateKey !== '') writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **State branch:** ${stateKey}\n`);
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'init');
     git(repo, 'remote', 'add', 'origin', origin);
     git(repo, 'push', '-q', 'origin', 'main');
     git(repo, 'remote', 'set-head', 'origin', 'main');
 
-    git(repo, 'switch', '-q', '-c', BRANCH);
+    git(repo, 'switch', '-q', '-c', branch);
     writeFileSync(path.join(repo, PLAN), planText('Approved'));
     symlinkSync('../2026-11-07-p.md', path.join(repo, 'docs/plans/active/p.md'));
     writeFileSync(path.join(repo, SPRINT), sprintText);
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'approve p on the sprint branch');
-    git(repo, 'push', '-q', 'origin', BRANCH);
+    git(repo, 'push', '-q', 'origin', branch);
     git(repo, 'switch', '-q', 'main');
-    git(repo, 'branch', '-q', '-D', BRANCH);
+    git(repo, 'branch', '-q', '-D', branch);
     return { repo, origin };
   };
 
@@ -120,6 +121,31 @@ describe('plot-deliver --branch records the delivery on the named branch', () =>
     expect(git(origin, 'show', `main:${PLAN}`)).toContain('- **State:** Draft');
     expect(worktreesOf(repo)).toBe(1);
     expect(git(repo, 'branch', '--list', 'plot/deliver-p').trim()).toBe('');
+  }, 60_000);
+
+  it('books on <name> and not on the declared State branch, where the repository declares one', async () => {
+    const { repo, origin } = setup('plot/state');
+    const mainBefore = tipOf(origin, 'main');
+
+    const r = await deliver(repo, ['--who', 'jw', '--branch', BRANCH, 'p']);
+    expect(r.code, r.said).toBe(0);
+    expect(r.said).toMatch(/push=clean /);
+
+    expect(git(origin, 'show', `${BRANCH}:${PLAN}`)).toContain('- **State:** Delivered');
+    expect(git(origin, 'for-each-ref', '--format=%(refname)', 'refs/heads/plot/')).toBe('');
+    expect(tipOf(origin, 'main')).toBe(mainBefore);
+  }, 60_000);
+
+  it('books on the State branch itself when --branch names it, rather than refusing the key', async () => {
+    const { repo, origin } = setup('plot/state', 'plot/state');
+    const mainBefore = tipOf(origin, 'main');
+
+    const r = await deliver(repo, ['--who', 'jw', '--branch', 'plot/state', 'p']);
+    expect(r.code, r.said).toBe(0);
+    expect(r.said).not.toContain('the State branch key is refused');
+
+    expect(git(origin, 'show', `plot/state:${PLAN}`)).toContain('- **State:** Delivered');
+    expect(tipOf(origin, 'main')).toBe(mainBefore);
   }, 60_000);
 
   it('reports the target branch on a dry run, and writes nothing', async () => {

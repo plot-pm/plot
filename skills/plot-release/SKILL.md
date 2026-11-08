@@ -315,8 +315,10 @@ RC: v<version>-rc.<n> (YYYY-MM-DD)
 ```bash
 git add docs/releases/vnext-checklist.md
 git commit -m "release: v<version>-rc.<n> checklist"
-git push
+node ../plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
 ```
+
+Where `State branch` is declared in `## Plot Config`, `plot-state-cut.mjs --land` merges the state ref and the default branch into HEAD and pushes the record at the state ref. Exit 4 means no key is declared, and the plain `git push` runs.
 
 **Summary (RC):**
 - RC tag: `v<version>-rc.<n>`
