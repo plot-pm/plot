@@ -841,6 +841,12 @@ export interface CacheEntry {
    */
   pulseClock: RunningPulse | null;
   /**
+   * Event streams attached on `GET /api/events`, as `watchEntry` last heard.
+   * The board writes its reader-lock heartbeat and starts a PR reader only
+   * while this is above 0.
+   */
+  clients: number;
+  /**
    * Epoch ms the last scan a plain request started began, or null before the
    * first. Bounds cold reads where `at` stays old: a failed scan, or a scan
    * stamped with the fleet bridge's time.
@@ -2554,8 +2560,11 @@ const ensureBelowRoot = (root: string, dir: string): boolean => {
   return fs.existsSync(dir);
 };
 
-/** The reader this board process last started per repository, index directory and connector, and when. */
-const startedReaders = new Map<string, { child: DetachedProcess; at: number }>();
+/**
+ * The reader this board process last started per repository, index directory
+ * and connector, when, and whether the board has since released it.
+ */
+const startedReaders = new Map<string, { child: DetachedProcess; at: number; released: boolean }>();
 
 /**
  * Starts this machine's PR reader for `key`, unless the reader this board
@@ -2577,12 +2586,32 @@ const startedReaders = new Map<string, { child: DetachedProcess; at: number }>()
 const startReader = (opts: BuildBoardOptions, key: string, indexDir: string, now: number): void => {
   const guardKey = `${opts.repoRoot}\0${indexDir}\0${key}`;
   const last = startedReaders.get(guardKey);
-  if (last !== undefined && (last.child.exitCode() === null || now - last.at < HEARTBEAT_STALE_MS)) return;
+  if (last !== undefined && (last.child.exitCode() === null || (!last.released && now - last.at < HEARTBEAT_STALE_MS))) return;
   const log = path.join(logDir(opts.repoRoot), 'pr-reader.log');
   const script = path.join(opts.scriptsDir, PR_READER_BUNDLE);
   if (!ensureBelowRoot(opts.repoRoot, path.dirname(log))) return;
   const child = detachedFor(opts).node(script, ['--lock-dir', indexDir, '--connector', key], opts.repoRoot, log);
-  startedReaders.set(guardKey, { child, at: now });
+  startedReaders.set(guardKey, { child, at: now, released: false });
+};
+
+/**
+ * Stops following this machine's PR reader: removes this board's
+ * `board.<pid>` heartbeat under the connector the board resolved, so the
+ * reader reads no follower on its next beat and exits. Marks the readers this
+ * board started for the repository as released, so the start bound of
+ * {@link startReader} does not hold back a reader for the next attach.
+ *
+ * Writes nothing where the board never resolved a connector.
+ *
+ * @param opts - the board's options.
+ * @param entry - the board's cache entry.
+ */
+export const releaseReader = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+  for (const [guardKey, record] of startedReaders) {
+    if (guardKey.startsWith(`${opts.repoRoot}\0`)) record.released = true;
+  }
+  if (entry.backend === null || entry.backend === '') return;
+  await readerLockFor(opts).removeHeartbeat(entry.backend, `board.${process.pid}`);
 };
 
 /**
@@ -2729,7 +2758,8 @@ export const refreshPrs = async (
  *
  *   * `elect` — no live holder, or this reads as the one that would win. The
  *     board serves this tick from its own overlay, same as a fleet-less run
- *     always has, and starts this machine's reader unless a live `fleetd`
+ *     always has, and starts this machine's reader where `readerWanted`
+ *     says so: an event stream is attached, and no live `fleetd`
  *     heartbeat already reads for this lock (checked separately, since
  *     `electReader`'s own staleness math uses a ten-minute claim bound while
  *     the spawn guard needs the tighter, heartbeat-age-only bound the reader's
@@ -2745,10 +2775,13 @@ export const refreshPrs = async (
  * by: it reads and writes no lock, starts no reader, and serves its own
  * overlay.
  *
- * Every tick writes this board's own heartbeat, also while the PR gate is
- * closed, and an open tick writes it before any read, whether it follows,
- * starts a reader, or serves its own overlay, so the reader this tick may
- * have started counts this board as a live follower on its first exit check.
+ * Every tick with an event stream attached writes this board's own
+ * heartbeat, also while the PR gate is closed, and an open tick writes it
+ * before any read, whether it follows, starts a reader, or serves its own
+ * overlay, so the reader this tick may have started counts this board as a
+ * live follower on its first exit check. A tick with no stream attached
+ * writes none, and a tick during which the last stream left removes the one
+ * it wrote.
  *
  * Issues do not follow the verdict: they come from the issue index while a
  * fleet runs and from the host otherwise.
@@ -2759,10 +2792,13 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     // A CLOSED GATE STILL HEARTBEATS. During a reader backoff longer than
     // HEARTBEAT_STALE_MS, a board that wrote no heartbeat would read as gone,
     // and the reader would exit while this board still follows it.
-    if (entry.backend !== null && entry.backend !== '') await readerLockFor(opts).heartbeat(entry.backend, `board.${process.pid}`, Date.now());
+    if (pulseWanted({ clients: entry.clients }) && entry.backend !== null && entry.backend !== '') {
+      await readerLockFor(opts).heartbeat(entry.backend, `board.${process.pid}`, Date.now());
+    }
     return;
   }
   entry.prRunning = true;
+  let followed = false;
   try {
     const lock = readerLockFor(opts);
     const key = await readerLockKey(opts, entry);
@@ -2780,11 +2816,16 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
       entry.prReader = whoReadsPrs(held, verdict, fleetdLive);
       // BEFORE ANY READ, so a reader started on this tick already counts this
       // board on its first exit check, and a tick that throws still leaves it.
-      await lock.heartbeat(key, `board.${process.pid}`, now);
+      // ONLY WHILE A STREAM IS ATTACHED: a board nobody watches follows no
+      // reader, so the reader exits on its next beat.
+      if (pulseWanted({ clients: entry.clients })) {
+        await lock.heartbeat(key, `board.${process.pid}`, now);
+        followed = true;
+      }
       if (verdict === 'follow') {
         await readPrsFromStore(opts, entry, key);
       } else {
-        if (verdict === 'elect' && !fleetdLive) {
+        if (readerWanted({ clients: entry.clients, verdict, fleetdLive })) {
           const indexDir = await indexDirFor(opts);
           if (indexDir !== null) startReader(opts, key, indexDir, now);
         }
@@ -2813,6 +2854,9 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     else if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
+    // The last stream left while this tick ran: a heartbeat it wrote after
+    // `watchEntry` released the reader would keep the reader for 2 minutes.
+    if (followed && !pulseWanted({ clients: entry.clients })) await releaseReader(opts, entry);
   }
 }
 
@@ -3177,7 +3221,7 @@ export function freshCacheEntry(): CacheEntry {
     // than being judged against nothing.
     lastComplete: null,
     // Null: no event stream is attached yet, so no pulse runs.
-    pulseClock: null, coldReadAt: null, stopped: false, running: false, prRunning: false,
+    pulseClock: null, clients: 0, coldReadAt: null, stopped: false, running: false, prRunning: false,
   };
 }
 
@@ -3221,25 +3265,29 @@ const cacheEntry = (opts: BuildBoardOptions): CacheEntry => {
     if (warm.pulse.fetch_failed !== true) entry.fetchedAt = warm.at;
     entry.lastComplete = warm.pulse;
   }
-  // THE FIRST READ, whoever asked: one scan and one PR read. No pulse starts
-  // here; `watchFleet` starts it when an event stream attaches.
+  // THE FIRST READ, whoever asked: one scan and no PR read. No pulse starts
+  // here; `watchFleet` starts it when an event stream attaches, and its first
+  // PR read starts the PR reader. A PR read here would start a
+  // `plot-pr-reader.mjs` that no attached page asked for.
   entry.coldReadAt = Date.now();
   void refresh(opts, entry);
-  void maybeRefreshPrs(opts, entry);
   return entry;
 };
 
-/** What the pulse and a cold read start: a clock, the scan and the PR read. */
+/** What the pulse and a cold read start: a clock, the scan, the PR read, and the reader's release. */
 export interface FleetWatchDeps {
   clock: Clock;
   scan: () => Promise<void>;
   readPrs: () => Promise<void>;
+  /** Stops following the PR reader, so it exits on its next beat. */
+  releaseReader: () => Promise<void>;
 }
 
 const watchDepsFor = (opts: BuildBoardOptions, entry: CacheEntry): FleetWatchDeps => ({
   clock: clockSystem(),
   scan: () => refresh(opts, entry),
   readPrs: () => maybeRefreshPrs(opts, entry),
+  releaseReader: () => releaseReader(opts, entry),
 });
 
 /**
@@ -3247,17 +3295,21 @@ const watchDepsFor = (opts: BuildBoardOptions, entry: CacheEntry): FleetWatchDep
  *
  * With `pulseWanted` true and no pulse running, it starts the pulse and runs one
  * scan and one PR read at once, so a page that attaches after a stop catches up
- * within one scan. With `pulseWanted` false it stops the pulse and keeps the
- * cache. A stopped pulse writes no reader-lock heartbeat.
+ * within one scan. With `pulseWanted` false it stops the pulse, keeps the
+ * cache, and releases the PR reader: the board removes its reader-lock
+ * heartbeat, and the reader exits on its next beat.
  *
  * @param entry - the cache entry.
  * @param count - the event streams now attached.
- * @param deps - the clock, the scan and the PR read.
+ * @param deps - the clock, the scan, the PR read and the reader's release.
  */
 export const watchEntry = (entry: CacheEntry, count: number, deps: FleetWatchDeps): void => {
+  entry.clients = count;
   if (!pulseWanted({ clients: count })) {
+    const wasRunning = entry.pulseClock !== null;
     entry.pulseClock?.stop();
     entry.pulseClock = null;
+    if (wasRunning) void deps.releaseReader();
     return;
   }
   if (entry.pulseClock !== null) return;
@@ -3731,6 +3783,7 @@ import {
   startPulse,
   pulseWanted,
   coldReadDue,
+  readerWanted,
   waveVerdict as sliceVerdict,
   type QuietBranchReadings,
   type QuietKind,
