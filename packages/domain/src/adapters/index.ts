@@ -279,6 +279,7 @@ export { performerShell } from './performer/performer-shell.js';
 export { deskMonitorsShell } from './desk-monitors/desk-monitors-shell.js';
 
 export { mergerAppShell } from './merger-app/merger-app-shell.js';
+export { appKeyShell } from './merger-app/app-key-shell.js';
 
 export { claimReleaseShell } from './claim-release/claim-release-shell.js';
 

@@ -7,6 +7,7 @@ import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, startBundleFor, type BuildBoardOptions } from './board.js';
 import { issuesClosedReading } from './fleet.js';
 import { fleetState } from './controllers/fleet-state.js';
+import { probeAppKeysAtBoardStart } from './app-key-probe.js';
 import { boardAnswer } from './controllers/board-answer.js';
 import { estateFromEnv } from './estate.js';
 import { bindNext, type BindListen } from './bind-chain.js';
@@ -1106,6 +1107,7 @@ server.listen(REQUESTED_PORT, BIND_ADDRESSES[0], () => {
   // `BIND_ADDRESSES` finished binding got `ECONNREFUSED`.
   bindNext(BIND_ADDRESSES.slice(1), boundPort, listenExtra, {
     host: HOST,
+    afterReady: () => probeAppKeysAtBoardStart(opts.repoRoot, opts.scriptsDir ?? null, console.warn),
     privateAddress: async () => {
       const address = await machineSystem(shellContext(opts.repoRoot)).privateAddress();
       return isAnswered(address) && address.value ? address.value : undefined;

@@ -69,8 +69,19 @@ if (arg === '--check') {
   process.exit(0);
 }
 
+// `--check-app <config key>`: the same exit contract as `--check` for any App
+// key (`Review app`, `Merger app`, `Writer app`). Reads, mints nothing.
+if (arg === '--check-app') {
+  const configKey = process.argv[3];
+  if (!configKey) refuse(1, 'usage: plot-merger-token.mjs --check-app <config key>');
+  const { app, absent, reason } = configKey === 'Merger app' ? checkMergerApp() : resolveApp(configKey, here);
+  if (absent) refuse(5, reason);
+  if (!app) refuse(4, reason);
+  process.exit(0);
+}
+
 const repo = arg;
-if (!repo) refuse(1, 'usage: plot-merger-token.mjs <owner/repo> | --check');
+if (!repo) refuse(1, 'usage: plot-merger-token.mjs <owner/repo> | --check | --check-app <config key>');
 
 const { app, absent, reason } = checkMergerApp();
 if (absent) refuse(5, reason);
