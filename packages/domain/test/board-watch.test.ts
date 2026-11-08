@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { coldReadDue, pulseWanted, readerWanted, type ColdReadReading, type ReaderWatchReading } from '../src/rules/board-watch.js';
+import { boardSource, coldReadDue, pulseWanted, readerWanted, type BoardSourceReading, type ColdReadReading, type ReaderWatchReading } from '../src/rules/board-watch.js';
 
 describe('pulseWanted', () => {
   it('answers false with no client attached', () => {
@@ -87,5 +87,31 @@ describe('readerWanted', () => {
 
   it('answers false where the lock could not be read', () => {
     expect(readerWanted(reader({ verdict: 'unknown' }))).toBe(false);
+  });
+});
+
+describe('boardSource', () => {
+  const live: BoardSourceReading = { clients: 1, fleetd: 'live', observerFresh: true, channel: 'current' };
+
+  it('answers snapshot for a live fleetd, a fresh observer and a current channel with one client', () => {
+    expect(boardSource(live)).toBe('snapshot');
+  });
+
+  it.each([
+    ['a stale heartbeat', { fleetd: 'stale' as const }],
+    ['an absent heartbeat', { fleetd: 'absent' as const }],
+    ['a stale observer', { observerFresh: false }],
+    ['a protocol mismatch', { channel: 'mismatch' as const }],
+    ['a resyncing channel', { channel: 'resyncing' as const }],
+    ['no snapshot held', { channel: 'none' as const }],
+  ])('answers own with one client and %s', (_name, over) => {
+    expect(boardSource({ ...live, ...over })).toBe('own');
+  });
+
+  it.each([
+    ['a live fleetd', live],
+    ['a mismatched channel', { ...live, channel: 'mismatch' as const }],
+  ])('answers idle with no client and %s', (_name, reading) => {
+    expect(boardSource({ ...reading, clients: 0 })).toBe('idle');
   });
 });

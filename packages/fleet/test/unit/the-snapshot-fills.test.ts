@@ -101,6 +101,10 @@ describe('fleetd fills the snapshot from the readings its loops already take', (
     expect(held.prs.state).toBe('read');
     if (held.prs.state === 'read') expect(held.prs.value).toHaveLength(5);
     if (held.desks.state === 'read') expect(held.desks.value.filter((desk) => !desk.isMain)).toHaveLength(3);
+    for (const key of ['walk', 'branchDates', 'ideaPlans', 'releaseVersions', 'unmerged', 'questions'] as const) {
+      expect(held[key].state, key).toBe('read');
+    }
+    if (held.walk.state === 'read') expect(held.walk.value.desks.desks).toHaveLength(3);
   }, 240_000);
 });
 
