@@ -19,7 +19,61 @@
 
 - An optional consistency pass before approval: one agent lists the claims a plan takes from outside itself (specs, existing code or config, other plans, the environment), checks each against its source, and records every contradiction in the plan's Open Questions with the quoted source line and a severity.
 
-<!-- Board impact: none expected. The pass writes into the existing `### Open Questions
+<!-- Board impact: none expected. The pass writes into the existing `### Open Questions` section and adds no field, so the plan format, the template and the board's parser are untouched. If the open question about recording the run as a `Consistency:` status line resolves to yes, that line is a new plan field and the board impact has to be re-read. -->
+
+## Motivation
+
+**Plan review reads the plan against itself. Nothing reads it against what it quotes.**
+
+`/challenge-the-plan` interrogates a plan through questions, and `/plot-panel` puts several lenses on it. Both take the plan's claims about the world as given: that a spec id exists and says what the plan says, that a function takes the arguments the plan passes, that a config key is spelled as written, that another plan has not already moved the thing this plan builds on, that a tick runs every five minutes. Each of those claims can be checked with a read of the source, and a wrong one costs a slice or a rebuild, not a sentence.
+
+**One replay, measured on the build's own record.** A consistency pass was run once, as a trial, on a 30-file tracer plan from a private workspace, after the plan had already been through its own review and had been built. The run took 17.5 minutes of wall time and 101 tool calls and raised 24 flags. The yardstick is the build's own record, which is not a complete list of what was wrong:
+
+- Of the 8 surprises the build's progress notes recorded, the pass found 2 clearly and 1 partly. The ones it missed all came from what the live system does: host reach, tooling on the build machine, a missing binary, a metric nobody built.
+- Of the 24 flags, **5 were confirmed by the build**. Three of them (a monitoring threshold that assumed a 5-minute tick when the tick was 30 minutes, an auth client missing two attributes, a variable never passed into a container) were defects the plan's earlier review had left in and the build fixed later.
+- **3 were refuted** by a later read-only check: one flagged a mechanism that did not break (the flag was right about the list and wrong about the consequence), one flagged a size cap that the route in question never applies, one assumed a permission the role turned out to have.
+- **16 were not tested** by the record: not wrong, neither confirmed nor refuted.
+
+**What the evidence does not show.** One plan, one run, one replay. The second replay was not made because the first was not mixed. The yardstick is the build's own notes, which count what hurt rather than everything that was wrong, so 16 untested flags are not 16 false ones and not 16 true ones. Of the 8 flags that were resolved either way, 3 were refuted, which is a small sample and not a false-positive rate. Nobody has run the pass on a plan whose build is still ahead, and that is the only test of whether it saves anything.
+
+**It cannot find behaviour that only the running system shows.** A document pass reads documents and code. A plan's live checks stay.
+
+## Design
+
+### Approach
+
+One step, optional, placed after the plan is written and reviewed and before `/plot-approve` records the approval. One agent run, about 15 to 20 minutes.
+
+1. **List the claims.** The agent walks the plan and lists every claim it takes from a source outside the plan: spec or design ids, existing code and config (names, signatures, paths, defaults), other plans (what they build, what state they are in), and the environment (versions, intervals, limits).
+2. **Check each against its source at the approval commit.** The source is read with `git show <approval-commit>:<path>`, so the answer is a function of recorded state and not of a working tree that has moved. A claim about the environment that only a live system can answer is marked `live check` and is never run by this pass.
+3. **Write each contradiction into the plan's `### Open Questions`.** Each entry quotes the source line it contradicts, names the plan line that makes the claim, and carries a severity.
+4. **List the claims found fine.** The pass also records which claims it checked and found consistent, so that a reader can see the false-positive rate by dividing and can see what the pass did not look at.
+
+The pass changes no claim in the plan. It writes questions, and the author answers them, like any other open question. It reads sources and runs nothing, so it has no side effect beyond the plan file.
+
+### Where it sits
+
+| Step | Reads | Asks |
+|---|---|---|
+| `/challenge-the-plan` | the plan | is this the right plan, and is it complete |
+| `/plot-panel` | the plan, through N lenses | do several readers commit to a position |
+| **consistency pass** | the plan **and what it quotes** | are the plan's claims true of their sources |
+| `/plot-approve` | | records the approval |
+
+It complements the other two and replaces neither. It is the only one of the three that opens a file the plan does not contain.
+
+### Cost
+
+One agent run of about 15 to 20 minutes (17.5 measured once). No cost to a plan that does not opt in.
+
+### What it will not do
+
+- Run anything. It reads sources and marks what needs a live system.
+- Find behaviour that only the running system shows. The plan's own live checks stay.
+- Judge the design. A claim can be consistent with its source and still be a bad idea.
+- Decide anything. A contradiction is an Open Question until a person answers it.
+
+### Open Questions
 
 - [x] **Which skill runs it?** A mode of `/challenge-the-plan`. It is a design-phase step and needs no new spoke, README row or helper script. The skill had no `## Model Guidance` table; this slice adds one. Settled by Jan Wloka on 2026-11-08.
 - [x] **How does the severity scale read?** `blocks`, `misleads`, `cosmetic`, as proposed. The trial recorded no run, so no note on fit exists; the skill says the scale is a working draft. Settled by Jan Wloka on 2026-11-08.
