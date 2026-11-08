@@ -79,6 +79,7 @@ export const CENSUS_ROWS = {
     unit: 'execve per pass',
     target: 'zero',
     greenBy: { plan: 'fixed-answers-once', slice: 'Answers in process' },
+    green: true,
   },
   P4: {
     id: 'P4',

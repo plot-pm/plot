@@ -124,7 +124,7 @@ describe.skipIf(gate.kind !== 'run').each(FIXTURES)('fleetd on $host, $desks des
     });
   }
 
-  it.fails(rowTitle(CENSUS_ROWS.P3, fixture), () => {
+  it(rowTitle(CENSUS_ROWS.P3, fixture), () => {
     const { mean, each, execs } = perPass((e) => e.ppid === root && (isFixedAnswer(e) || isBackendAsk(e)));
     recordCount(CENSUS_ROWS.P3, fixture, mean, execs);
     expect(each).toEqual([0, 0]);

@@ -152,7 +152,7 @@ describe.skipIf(gate.kind !== 'run')('an idle board with one visible page and fl
   // slice Server pulse), so S1's window holds no pass after the first, and a
   // zero there says nothing about P3. Here the attached page starts the pulse:
   // a scan every 5 s and a PR beat every 60 s inside the window.
-  it.fails(`${rowTitle(CENSUS_ROWS.P3, fixture)} - the board`, () => {
+  it(`${rowTitle(CENSUS_ROWS.P3, fixture)} - the board`, () => {
     const direct = window.execs.filter((e) => e.ppid === window.board && isFixedAnswer(e));
     recordCount({ ...CENSUS_ROWS.P3, id: 'P3-board', unit: 'execve per minute' }, fixture, perMinute(direct.length), direct);
     expect(direct).toHaveLength(0);
