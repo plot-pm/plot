@@ -132,6 +132,25 @@ desk_dirt_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-desk-dirt.sh"
 # is resolved once at source time, below.
 : "${PLOT_MANIFEST_DIR:=}"
 
+# The common git dir of a directory from an exported answer, with no git
+# process — or non-zero, and the caller asks git.
+#
+# The candidate is `PLOT_GIT_COMMON_DIR`, else `$PLOT_REPO_ROOT/.git`. It holds
+# only when the first `.git` above the directory is that dir itself (the main
+# checkout) or a file whose `gitdir:` lies under its `worktrees/` (a desk).
+# Every worktree of one repository shares the common dir, so an answer passes
+# between desks; another repository's `.git` refuses it. `GIT_DIR` and
+# `GIT_COMMON_DIR` override discovery, so either one refuses it too.
+plot_given_common_dir() { # $1=directory → the physical common dir, or "" (non-zero)
+  local c="${PLOT_GIT_COMMON_DIR:-${PLOT_REPO_ROOT:+$PLOT_REPO_ROOT/.git}}" d line
+  [ -z "${GIT_DIR:-}${GIT_COMMON_DIR:-}" ] && [ -d "$c" ] || return 1
+  c=$(cd -- "$c" && pwd -P) && d=$(cd -- "$1" && pwd -P) || return 1
+  while [ -n "$d" ] && [ ! -e "$d/.git" ]; do d=${d%/*}; done
+  [ -d "$d/.git" ] && [ "$d/.git" = "$c" ] && { printf '%s' "$c"; return 0; }
+  [ -f "$d/.git" ] && IFS= read -r line < "$d/.git" || return 1
+  case "${line#gitdir: }" in "$c"/worktrees/*) printf '%s' "$c" ;; *) return 1 ;; esac
+}
+
 # The MAIN checkout for a directory, or "" — the reading `plot_repo_root`
 # (`plot-desk-root.sh:38-46`) makes, asked of a path rather than of the cwd.
 #
@@ -148,12 +167,15 @@ desk_dirt_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-desk-dirt.sh"
 # `plot-desk-root.sh` does: `git worktree list` prints resolved paths, and a
 # directory composed from a logical one (`/tmp` against `/private/tmp` on macOS)
 # is a prefix no worktree path starts with.
+#
+# AN EXPORTED ANSWER IS TAKEN WHEN IT IS THIS DIRECTORY'S, and git is asked
+# otherwise: see `plot_given_common_dir`.
 plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
   local at="$1" common root=''
   [ -n "$at" ] && [ -d "$at" ] || return 1
-  common=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
+  common=$(plot_given_common_dir "$at") || common=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) && [ -n "$common" ] && {
     common=$(cd -- "$at" 2>/dev/null && cd -- "$common" 2>/dev/null && pwd -P) || common=''
-    [ -n "$common" ] && root=$(dirname -- "$common")
+    [ -n "$common" ] && root=${common%/*}
   }
   [ -n "$root" ] || root=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null) || return 1
   [ -n "$root" ] || return 1
@@ -205,9 +227,15 @@ _plot_wstate_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-co
 #
 # A CALLER-SET VALUE WINS and is never overwritten: the dispatcher and the tests
 # set it, and they know their repo root without being asked.
+#
+# THE COMMON DIR IS EXPORTED for every process this one starts: a child that
+# sources this file in a worktree of the same repository reads it and asks git
+# nothing (`plot_given_common_dir`). Each dispatch launch blanks it, so an agent
+# asks for itself.
 if [ -z "$PLOT_MANIFEST_DIR" ]; then
   _plot_wstate_root=$(plot_main_checkout_of "$PWD" 2>/dev/null) || _plot_wstate_root=''
   if [ -n "$_plot_wstate_root" ]; then
+    [ ! -d "$_plot_wstate_root/.git" ] || export PLOT_GIT_COMMON_DIR="$_plot_wstate_root/.git"
     PLOT_MANIFEST_DIR=$(plot_manifest_dir_for "$_plot_wstate_root")
   fi
   unset _plot_wstate_root
