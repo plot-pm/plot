@@ -1211,8 +1211,9 @@ describe('no host call is added', () => {
     // to arrive by replacing the first. The allowlist is what the guard means.
     const imports = src.match(/^import .*$/gm) ?? [];
     expect(imports.length).toBeGreaterThan(0);
+    // `./glyphs.js` is the board's glyph table: constant path data, no import of its own.
     for (const line of imports) {
-      expect(line, line).toMatch(/contract\/schema\.js|@plot-pm\/domain/);
+      expect(line, line).toMatch(/contract\/schema\.js|@plot-pm\/domain|'\.\/glyphs\.js'/);
     }
   });
 });

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { discoveryGroups, lanesForReader, lanesForTopic, storyDateText, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
+import { discoveryGroups, lanesForReader, lanesForTopic, topicCountFor } from '@plot-pm/domain';
 import type { DiscoveryShow, MineMode, Reader } from '@plot-pm/domain';
-import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
-import { CreatePlanButton } from './CreatePlanButton.js';
-import { CreateStoryButton } from './CreateStoryButton.js';
+import type { Card as PlanCardData, StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
+import type { BoardLinks } from '../lib/plan.js';
+import { StoryItemCard } from './StoryItemCard.js';
+import { TicketItemCard } from './TicketItemCard.js';
+import { TicketModal } from './TicketModal.js';
 
 /** Lane metadata for display, in D7's order. */
 const STORY_LANE_META: Record<StoryLaneGroup['lane'], { label: string; icon: string }> = {
@@ -56,6 +58,10 @@ export interface StoriesTabProps {
   onOpenStory: (story: StoryCard) => void;
   /** Open a sprint in the Delivery tab. */
   onOpenSprint?: (sprintSlug: string) => void;
+  /** Open a plan in the in-board overlay; a story card's plan links call it. */
+  onOpenPlan?: (card: PlanCardData) => void;
+  /** The board's lookups for the items a card names; absent leaves them as text. */
+  links?: BoardLinks;
   /** Whether *Create plan* can act — the same binding `AgentList`'s issue rows read. */
   idea: DispatchInfo;
   /** Whether *Create story* can act — the same binding `AgentList`'s issue rows read. */
@@ -87,51 +93,10 @@ function topicSizeClass(count: number, maxCount: number): string {
 }
 
 /**
- * Render basic markdown (bold, italic) to JSX for inline display.
- */
-function renderInlineMarkdown(text: string): React.ReactNode {
-  // Split on **bold** and *italic* patterns
-  const parts: React.ReactNode[] = [];
-  let remaining = text;
-  let key = 0;
-
-  while (remaining) {
-    // Check for **bold**
-    const boldMatch = remaining.match(/\*\*([^*]+)\*\*/);
-    // Check for *italic*
-    const italicMatch = remaining.match(/\*([^*]+)\*/);
-
-    // Find the earliest match
-    const boldIdx = boldMatch?.index ?? Infinity;
-    const italicIdx = italicMatch?.index ?? Infinity;
-
-    if (boldIdx === Infinity && italicIdx === Infinity) {
-      // No more markdown
-      parts.push(remaining);
-      break;
-    }
-
-    if (boldIdx <= italicIdx && boldMatch) {
-      // Bold comes first
-      if (boldIdx > 0) parts.push(remaining.slice(0, boldIdx));
-      parts.push(<strong key={key++}>{boldMatch[1]}</strong>);
-      remaining = remaining.slice(boldIdx + boldMatch[0].length);
-    } else if (italicMatch) {
-      // Italic comes first
-      if (italicIdx > 0) parts.push(remaining.slice(0, italicIdx));
-      parts.push(<em key={key++}>{italicMatch[1]}</em>);
-      remaining = remaining.slice(italicIdx + italicMatch[0].length);
-    }
-  }
-
-  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>;
-}
-
-/**
  * Discovery tab — the strategic layer above plans.
  *
  * Shows story cards grouped by status (Draft/Active/Done/Archived), with a tag
- * cloud for topic navigation. Clicking a story opens the StoryModal.
+ * cloud for topic navigation. A story card's title opens the StoryModal.
  */
 export function StoriesTab({
   storyLaneGroups,
@@ -146,6 +111,8 @@ export function StoriesTab({
   onShow,
   onOpenStory,
   onOpenSprint,
+  onOpenPlan,
+  links,
   idea,
   story,
   issueAnswer,
@@ -154,6 +121,8 @@ export function StoriesTab({
   onCounts,
 }: StoriesTabProps) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  // The ticket whose modal is open, by id, so the modal reads the row of the latest board.
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
   // Per-view only — not kept in the URL. `?archived=1` is the one URL
   // parameter; a second one for Done's expansion would let the two interact
   // in ways neither toggle's name describes.
@@ -173,6 +142,9 @@ export function StoriesTab({
   // same role `boardForReader`'s counts play for Planning. Zeroed on unmount,
   // so a return to Discovery never shows the last visit's count.
   const { hiddenCount, unknownCount } = owned;
+  const openTicket = openTicketId === null
+    ? null
+    : Object.values(owned.tickets ?? {}).flatMap((l) => (l && 'rows' in l ? l.rows : [])).find((r) => r.id === openTicketId) ?? null;
   useEffect(() => {
     onCounts?.({ hiddenCount, unknownCount });
   }, [hiddenCount, unknownCount, onCounts]);
@@ -336,13 +308,17 @@ export function StoriesTab({
                 <div className="flex flex-col gap-2">
                   {visibleRows.length > 0 ? (
                     visibleRows.map((row) => (
-                      <TicketRowView
+                      <TicketItemCard
                         key={row.id}
                         ticket={row}
-                        lane={lane}
                         idea={idea}
                         story={story}
                         issueAnswer={issueAnswer}
+                        links={links}
+                        onOpenStory={onOpenStory}
+                        onOpenPlan={onOpenPlan}
+                        onOpenSprint={onOpenSprint}
+                        onOpenTicket={(t) => setOpenTicketId(t.id)}
                       />
                     ))
                   ) : (
@@ -404,13 +380,16 @@ export function StoriesTab({
                   {group.rows.length}
                 </span>
               </header>
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3" data-story-lane={group.lane}>
                 {visibleStories.length > 0 ? (
                   visibleStories.map((story) => (
-                    <StoryCardView
+                    <StoryItemCard
                       key={story.slug}
                       story={story}
-                      onOpen={() => onOpenStory(story)}
+                      idea={idea}
+                      links={links}
+                      onOpenStory={onOpenStory}
+                      onOpenPlan={onOpenPlan}
                       onOpenSprint={onOpenSprint}
                     />
                   ))
@@ -438,185 +417,18 @@ export function StoriesTab({
         })}
       </div>
       ) : null}
-    </div>
-  );
-}
-
-/**
- * The open/closed state icons a ticket card wears on its first line.
- *
- * NEW — no open/closed pair exists in `KIND_ICON_PATH` (`tuple-row.ts`):
- * `KindIcon` renders exactly one glyph per row `kind`, and a ticket row's
- * `kind` is always `'ticket'`, so there is no variant to reuse here. These
- * match `KindIcon`'s own 14px/`currentColor`/`aria-hidden` Octicon convention
- * (`issue-opened` / `issue-closed`) rather than `KIND_ICON_PATH` itself,
- * since that map has no slot for a second glyph under one kind.
- */
-const TICKET_STATE_ICON_PATH: Record<'open' | 'closed', string> = {
-  open: 'M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z',
-  closed:
-    'M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z' +
-    'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z',
-};
-
-function TicketStateIcon({ state }: { state: 'open' | 'closed' }) {
-  return (
-    <svg
-      aria-hidden
-      data-ticket-card-icon={state}
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="currentColor"
-      className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500"
-    >
-      <path d={TICKET_STATE_ICON_PATH[state]} />
-    </svg>
-  );
-}
-
-interface TicketRowViewProps {
-  ticket: TicketLaneRow;
-  lane: 'open' | 'in-progress' | 'done';
-  idea: DispatchInfo;
-  story: DispatchInfo;
-  issueAnswer: IssueAnswer | null;
-}
-
-/** A ticket row in the ticket lane group — the card helper's view, rendered. */
-function TicketRowView({ ticket, lane, idea, story, issueAnswer }: TicketRowViewProps) {
-  const view = useMemo(() => ticketCardView(ticket, lane, Date.now()), [ticket, lane]);
-  const issue = useMemo(() => ticketCardIssueRow(ticket), [ticket]);
-  return (
-    <div
-      data-ticket-card={ticket.id}
-      className="block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm hover:border-cyan-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-cyan-600"
-    >
-      <a href={view.url} target="_blank" rel="noreferrer" className="flex items-start gap-1.5">
-        <TicketStateIcon state={view.icon} />
-        <span className="line-clamp-2 text-slate-700 dark:text-slate-200">{view.heading}</span>
-      </a>
-      {view.type || view.owner ? (
-        <p className="mt-1 flex items-center gap-1.5 pl-[20px]">
-          {view.type ? (
-            <span
-              data-ticket-type
-              className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-            >
-              {view.type}
-            </span>
-          ) : null}
-          {view.owner ? (
-            <span data-ticket-owner className="text-slate-500 dark:text-slate-400">
-              {view.owner}
-            </span>
-          ) : null}
-        </p>
-      ) : null}
-      {view.subtitle ? (
-        <p className="mt-1 truncate pl-[20px] text-slate-400 dark:text-slate-500">{view.subtitle}</p>
-      ) : null}
-      {view.showsActions ? (
-        <div className="mt-2 flex items-center gap-2 pl-[20px]">
-          <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
-          <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-interface StoryCardViewProps {
-  story: StoryCard;
-  onOpen: () => void;
-  onOpenSprint?: (sprintSlug: string) => void;
-}
-
-/**
- * A story card in the column view.
- */
-function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
-  const now = new Date();
-  const createdText = storyDateText(story.created, now);
-  const updatedText = storyDateText(story.updated, now);
-
-  return (
-    <div className="w-full rounded-md border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      {/* Clickable header area */}
-      <button
-        type="button"
-        onClick={onOpen}
-        className="w-full text-left transition-opacity hover:opacity-80"
-      >
-        {/* Header: title + drift warning */}
-        <div className="mb-1 flex items-start justify-between gap-2">
-          <h3 className="min-w-0 text-sm font-medium text-slate-800 dark:text-slate-100">
-            {story.title || story.slug}
-          </h3>
-          {story.statusDrift && (
-            <span
-              className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
-              title={story.statusDrift}
-            >
-              ⚠️
-            </span>
-          )}
-        </div>
-
-        {story.owner ? (
-          <p data-story-owner className="mb-1 text-xs text-slate-500 dark:text-slate-400">
-            {story.owner}
-          </p>
-        ) : null}
-
-        {/* Counts */}
-        <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-          {story.planCount} {story.planCount === 1 ? 'plan' : 'plans'} · {story.deliveredCount} delivered
-        </p>
-
-        {/* Age */}
-        {(createdText || updatedText) && (
-          <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">
-            {createdText && `Created: ${createdText}`}
-            {createdText && updatedText && ' · '}
-            {updatedText && `Updated: ${updatedText}`}
-          </p>
-        )}
-
-        {/* Objective preview - more lines, with markdown rendering */}
-        {story.objective && (
-          <p className="line-clamp-4 text-xs italic text-slate-600 dark:text-slate-300">
-            {renderInlineMarkdown(story.objective)}
-          </p>
-        )}
-      </button>
-
-      {/* Sprints - vertical list with links */}
-      {story.sprints && story.sprints.length > 0 && (
-        <div className="mt-3 border-t border-slate-200 pt-2 dark:border-slate-700">
-          <p className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-            Sprints
-          </p>
-          <ul className="space-y-1">
-            {story.sprints.map((s) => (
-              <li key={s.slug}>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenSprint?.(s.slug);
-                  }}
-                  className="text-xs text-cyan-600 hover:underline dark:text-cyan-400"
-                >
-                  {s.slug}
-                </button>
-                <span className="ml-1 text-xs text-slate-400">
-                  ({s.planCount} {s.planCount === 1 ? 'plan' : 'plans'})
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {openTicket !== null && (
+        <TicketModal
+          ticket={openTicket}
+          idea={idea}
+          story={story}
+          issueAnswer={issueAnswer}
+          links={links}
+          onOpenStory={onOpenStory}
+          onOpenPlan={onOpenPlan}
+          onOpenSprint={onOpenSprint}
+          onClose={() => setOpenTicketId(null)}
+        />
       )}
     </div>
   );

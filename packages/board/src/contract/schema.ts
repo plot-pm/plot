@@ -20,6 +20,7 @@ import {
   type SprintState,
 } from '@plot-pm/domain';
 import { AgentStateSchema, AgentIdentitySchema, type AgentState, type AgentIdentity } from '@plot-pm/fleet/shared/agent-wire';
+import { CardFactsSchema, knownSchema, RefSchema } from '@plot-pm/domain/entities/card-facts';
 
 /**
  * The contract between Plot's plan-format helper (`plot-plan-meta.sh`) and the
@@ -304,6 +305,11 @@ export const CardPrSchema = z.object({
   number: z.number(),
   url: z.string().default(''),
   /**
+   * The PR's checks page on the host, from the PR's own `url`; `''` where the
+   * URL is unknown or the host has no checks page of its own.
+   */
+  checksUrl: z.string().default(''),
+  /**
    * The build, summarized onto this PR — the five states of `ChecksSchema`.
    *
    * `none` AND `unknown` ARE DIFFERENT ANSWERS AND MUST NOT RENDER THE SAME.
@@ -481,18 +487,6 @@ export const CardSchema = z.object({
   author: z.string().optional(),
   /** The name from the plan's `approved_raw` record's second field. */
   approver: z.string().optional(),
-  /**
-   * The type badge's text, from the domain's `planCardView`: the plan's own
-   * `Type:` word, lowercased. `null` where the plan states none, and the card
-   * then renders no badge. `type` stays as the colour key.
-   */
-  typeLabel: z.string().nullable().default(null),
-  /**
-   * The owner's handle, from the domain's `planCardView` and resolved through
-   * `People`: the plan's `Assignee:` before approval, the `Approved:` record's
-   * approver after. `null` where the plan names nobody.
-   */
-  owner: z.string().nullable().default(null),
   /**
    * Approved cards only: true once the plan has a `Started:` record —
    * the board's Ready (approved, idle) vs In-progress split.
@@ -746,6 +740,12 @@ export const CardSchema = z.object({
    * `"EWZKUS-3430"`. The plan row prints them before its slug.
    */
   issues: z.array(z.string()).default([]),
+  /**
+   * What is true about this plan in the card grammar's five facets, from the
+   * domain's `planCardFacts`. The card renders from these; the fields above stay
+   * for the filters, swimlanes, modal and menus that still read them.
+   */
+  facts: CardFactsSchema,
 });
 export type Card = z.infer<typeof CardSchema>;
 
@@ -974,31 +974,32 @@ export const StoryCardSchema = z.object({
    * Story status from frontmatter: draft, active, done, or archived.
    *
    * Unlike plan phases, story statuses are manually maintained by authors.
-   * A story in "active" status may have all plans released — the `statusDrift`
-   * field warns about such conflicts.
+   * Holds the standing its plans prove (`derivedStanding`); `declaredStatus`
+   * holds what the file writes.
    *
    * Typed as string rather than enum so the existing `collectStories` function
    * continues to work — the Backend slice (`feature/story-file-parsing`) will
    * add validation. Renderers should treat unknown values as 'draft'.
    */
   status: z.string(),
+  /** The `status:` the story file writes, verbatim; `''` where absent and `UNKNOWN` where the domain does not admit it. */
+  declaredStatus: z.string().default(''),
   /**
-   * Warning message when the story's manual `status:` field conflicts with its
-   * plan states — e.g., story says `active` but all plans are Released.
-   *
-   * null means no drift detected. The card displays this as a warning badge.
-   * The author corrects manually; the board reports drift but does not
-   * auto-derive status.
+   * The story's `issue:` value, else its legacy `jira:` value, as written; `''`
+   * where it names none. The domain's `storyIssueLink` decides what it names.
    */
-  statusDrift: z.string().nullable().optional().default(null),
+  issue: z.string().default(''),
+  /** Whether the story file was read from `origin/<default>`; a working-tree-only story is `false`. */
+  committed: z.boolean().default(false),
+  /** Whether the story lives in the archived directory. */
+  archived: z.boolean().default(false),
+  /**
+   * What is true about the story, from the domain's `storyCardFacts`. Absent
+   * where the board built no facts for it; the card then says so.
+   */
+  facts: CardFactsSchema.optional(),
   /** Story author from frontmatter. */
   author: z.string().optional().default(''),
-  /**
-   * The author's handle, from the domain's `storyCardView` and resolved
-   * through `People`. `null` where the story names no author; a story has no
-   * type, so no type field accompanies it.
-   */
-  owner: z.string().nullable().default(null),
   /** ISO date when the story was created. */
   created: z.string().optional().default(''),
   /** ISO date when the story was last updated. */
@@ -1013,10 +1014,6 @@ export const StoryCardSchema = z.object({
    * expandable for full context.
    */
   design: z.string().optional().default(''),
-  /** Total count of plans referencing this story via `Story:` field. */
-  planCount: z.number().optional().default(0),
-  /** Count of plans in Released phase. */
-  deliveredCount: z.number().optional().default(0),
   /**
    * Plans referencing this story, with phase badges for the expandable list.
    * Defaults to empty so a story with no plans still renders normally.
@@ -1257,6 +1254,11 @@ export const TicketLaneRowSchema = z.object({
   assignees: z.array(z.string()).default([]),
   /** How the source writes `assignees`; `null` where it could not be determined. */
   source: TicketSourceSchema.nullable().default(null),
+  /**
+   * What is true about the ticket, from the domain's `ticketCardFacts`. Absent
+   * where the board built no facts for it; the card then says so.
+   */
+  facts: CardFactsSchema.optional(),
 });
 export type TicketLaneRow = z.infer<typeof TicketLaneRowSchema>;
 
@@ -1528,6 +1530,19 @@ export const BoardSchema = z.object({
    */
   plansUnreadable: z.boolean().default(false),
   /**
+   * The prefix for this repository's branch pages on its host, read from
+   * `origin` by the fleet scan (`https://github.com/org/repo/tree/`); `''`
+   * where the host's branch-page shape is unknown or no scan has run.
+   */
+  branchUrlBase: z.string().default(''),
+  /**
+   * The prefix for this repository's issue pages on its host
+   * (`https://github.com/org/repo/issues/`), where the git host answers the
+   * repository's issues; `''` where a declared tracker names another service
+   * or the host's page shape is unknown.
+   */
+  issueUrlBase: z.string().default(''),
+  /**
    * Whether the tracker can be asked at all, read from the SAME cache entry
    * `Fleet.issueAnswer` reads — so Discovery's Create plan/Create story
    * controls work without a Delivery-tab fleet poll. `null` before the first
@@ -1544,6 +1559,14 @@ export const BoardSchema = z.object({
   issueAbsence: z.string().nullable().optional(),
   /** The Discovery tab's story lanes (Draft/Active/Done/Archived). `.default([])` for an older server. */
   storyLanes: z.array(StoryLaneGroupSchema).default([]),
+  /**
+   * Which committed stories answer each ticket, by issue key: the stories whose
+   * `issue:` names it and the stories a plan answering it names in `Story:`
+   * (the domain's `ticketStoryIndex`). `unknown` where the default branch's
+   * stories could not be read, and from a server that sends none — never an
+   * empty index.
+   */
+  ticketStories: knownSchema(z.record(z.string(), z.array(RefSchema))).default({ unknown: 'unasked' }),
   /**
    * The board's own spawn contract against the gate's, read at start —
    * `spawnerStatus` in `@plot-pm/domain` turns this into `current`/`stale`/

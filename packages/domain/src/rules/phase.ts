@@ -24,6 +24,11 @@ export const PlanStatusSchema = z.enum([
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 
+/** The kind of change a plan's `Type:` field names. */
+// plot-state: classification — a plan's declared kind of change; no kind leads to another.
+export const PlanTypeSchema = z.enum(['feature', 'bug', 'docs', 'infra']);
+export type PlanType = z.infer<typeof PlanTypeSchema>;
+
 /**
  * What was read of ONE plan, from the file and from the pulse.
  *

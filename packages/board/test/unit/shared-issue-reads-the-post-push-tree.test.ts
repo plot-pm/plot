@@ -46,7 +46,7 @@ const hostMergedAt = (mergeCommit: string): Host =>
     prState: async () => ({ ok: true, value: { mergeCommit } }),
   }) as unknown as Host;
 
-const releaseArgs = (slug: string, version: string): Args => ({ dryRun: false, who: 'jw', releaseVersion: version, slug });
+const releaseArgs = (slug: string, version: string): Args => ({ dryRun: false, who: 'jw', releaseVersion: version, branch: '', slug });
 
 describe('the release arm reads shared-issue siblings from the booking worktree, not the main checkout', () => {
   const roots: string[] = [];

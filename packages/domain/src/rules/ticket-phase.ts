@@ -2,6 +2,12 @@ import { phaseOrder, type Phase } from '../entities/workflow.js';
 
 /** One plan that names a ticket through `Issue:`, as far as the ticket's phase needs it. */
 export interface TicketPlan {
+  /** The plan's slug, from its file name. */
+  readonly slug: string;
+  /** The plan's title. */
+  readonly title: string;
+  /** The plan's `Story:` slug; `''` where it names none. */
+  readonly story: string;
   /** The plan's `State:`, lowercased: `draft`, `design`, `approved`, `delivered`, `released`, … */
   readonly state: string;
   /** How many non-deferred slice branches the plan lists; 0 where it lists none. */
@@ -72,3 +78,16 @@ export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null =>
  */
 export const allFinished = (plans: readonly TicketPlan[]): boolean =>
   plans.length > 0 && plans.every((plan) => plan.state === 'released' || PLACED[plan.state] === undefined);
+
+/** States a plan holds once the ticket's work stopped counting on it. */
+const WITHDRAWN: ReadonlySet<string> = new Set(['rejected', 'superseded']);
+
+/**
+ * Whether a plan whose `Issue:` names a ticket still answers it. A `rejected`
+ * or `superseded` plan answers nothing, so its ticket can get a new plan.
+ * The ticket card and `POST /api/idea` both read this.
+ *
+ * @param state - the plan's `State:`, in any case.
+ * @returns `false` for `rejected` and `superseded`, `true` for every other state.
+ */
+export const planAnswersTicket = (state: string): boolean => !WITHDRAWN.has(state.trim().toLowerCase());

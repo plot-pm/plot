@@ -33,8 +33,9 @@ import {
 } from './approve.js';
 import { handleRelease, releaseStatus } from './release.js';
 import { handleNeedsDesign } from './needs-design.js';
-import { handleIdea, ideaStatus } from './idea.js';
+import { handleIdea, ideaStatus, readIssue } from './idea.js';
 import { handleStory, storyStatus } from './story.js';
+import { handleStoryPlan, storyPlanStatus, STORY_SLUG_RE } from './story-plan.js';
 import { handleInterrogate, interrogateStatus } from './interrogate.js';
 import { handleReslice, resliceStatus } from './reslice.js';
 import { handleDeliver, deliverStatus } from './deliver.js';
@@ -324,6 +325,12 @@ async function handleRequest(
     // day from the prompt. What is gone is the claim that no such route could
     // exist; the refusals that remain are CONDITIONAL and name their key.
     { path: '/api/story', verb: 'creating a story', handle: handleStory },
+    // POST /api/story-plan — *Add plan* on a story card: a Draft plan inside it.
+    //
+    // The same class of route as /api/idea, with the same spawn path: the idea
+    // agent in its own worktree. The body names a story by slug and nothing
+    // else; the brief is built from that story's file on the default branch.
+    { path: '/api/story-plan', verb: 'adding a plan to a story', handle: handleStoryPlan },
     // POST /api/interrogate — a Draft or Design plan is sent to /plot-panel.
     //
     // The same class of route as /api/idea and the same binding: it spawns
@@ -730,6 +737,28 @@ async function handleRequest(
     return;
   }
 
+  // One issue's title, body and URL, for the ticket modal — `readIssue`, the same
+  // read `/api/idea` plans from, asked per click and never on a timer. The
+  // number is validated as one; a failed read answers 502 and never an empty body.
+  if (url.pathname.startsWith('/api/issue/')) {
+    const raw = url.pathname.slice('/api/issue/'.length);
+    const number = Number(raw);
+    if (!/^[0-9]{1,9}$/.test(raw) || !Number.isInteger(number) || number <= 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'number must be an issue number' }));
+      return;
+    }
+    try {
+      const issue = await readIssue(opts, number);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, ...issue }));
+    } catch (err) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
   // What happened to a creation somebody asked for — the same read-it-back
   // shape `/api/approve/<slug>` has, and for the same reason: a refused
   // creation moves no row, so there is nothing on the board to watch and the
@@ -747,6 +776,16 @@ async function handleRequest(
         ? JSON.stringify(ideaStatus(opts, number))
         : JSON.stringify({ error: 'number must be an issue number' }),
     );
+    return;
+  }
+
+  // What happened to a plan somebody asked for inside a story — slug-keyed,
+  // validated by the story slug shape before it names a log.
+  if (url.pathname.startsWith('/api/story-plan/')) {
+    const slug = url.pathname.slice('/api/story-plan/'.length);
+    const ok = STORY_SLUG_RE.test(slug);
+    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(ok ? JSON.stringify(storyPlanStatus(opts, slug)) : JSON.stringify({ error: 'slug must be a story slug' }));
     return;
   }
 

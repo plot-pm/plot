@@ -1,4 +1,4 @@
-# Tickets, Stories and Plans cards share one five-row card
+# Tickets, Stories and Plans cards share one card layout
 
 > The card grammar is a domain concept: every board item projects into the same five semantic facets in the domain, and the UI presents them in one layout, so a reader learns where to look once.
 
@@ -20,7 +20,7 @@
 
 ## Changelog
 
-- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who owns it since when. A ticket links to the plan and the story that answer it instead of offering to create them again, and *Create plan* on a ticket inside a story creates the plan in that story. A story names its ticket in an `issue:` frontmatter field.
+- Ticket, story and plan cards on the board answer the same five questions in the same place: what it is, what it is part of, how far it is, what to do next and why not, and who is assigned since when. Each card has three sections, a header, a status panel and a footer, and its status opens with the item's own state. A related sprint reads as its release number, the way a ticket reads as its number. A ticket links to the plan and the story that answer it instead of offering to create them again, and *Create plan* on a ticket inside a story creates the plan in that story. A story names its ticket in an `issue:` frontmatter field. Each card leads with an icon for its kind, its actions sit in a separate band, and a disabled action shows why on hover or keyboard focus.
 
 <!-- Board impact: board rendering, the domain package, the story format and two
      endpoints. No change to the plan format, the plan template, helper scripts or
@@ -81,9 +81,9 @@ reader, no row numbers, no icons, no order on screen:
   |---|---|---|---|
   | `identity` | what is it? | kind (`ticket` · `story` · `plan`), number, title, the item's own reference that *open* resolves to, alerts as typed kinds | — always present |
   | `lineage` | what is it part of? | references to the related ticket, story, plans and sprints, each as kind + id + phase | that relation does not exist — never a placeholder value |
-  | `progress` | how far is it? | done / total and the unit (`slices`, `plans`), plus PR counts by check state | nothing was measured |
+  | `progress` | how far is it? | the item's own state in its kind's vocabulary (ticket lane, story status, plan phase), then done / total and the unit (`slices`, `plans`), plus PR counts by check state | — always present: every item has a state; a measure that was not taken is absent |
   | `next` | what can be done now? | at most one primary action — kind, `enabled`, and when disabled a typed reason — then the enabled secondary actions | no action belongs here: `primary` is null and `secondary` empty |
-  | `ownership` | whose, since when? | owner handle, last change, source reference (`repo#N` or plan path) | — always present |
+  | `ownership` | whose, since when? | assignees, last change, source reference (`repo#N` or plan path) | — always present |
 
   **Absent and unknown are different values, and the schema keeps them apart.**
   Every fact the board reads from somewhere that can fail to answer — a PR's
@@ -123,10 +123,11 @@ neither is rewritten for a card this plan has not reached yet.
 **The UI answers *how it looks*, and decides no fact.** In `packages/board`:
 
 - **A presentation mapping** (`card-presentation.ts`, pure, unit-tested without a
-  browser) turns `CardFacts` into rows: the five-row order, wording (`4/6 slices
+  browser) turns `CardFacts` into the card's three sections (header, status,
+  footer), wording (`4/6 slices
   merged · 1 PR running`, `waits on #3105`), alert labels, icons, which chips
   show, and what collapses (*in 9 sprints*, a PR list behind one line).
-- **Every board uses the same row positions; each board emphasises a different
+- **Every board uses the same section positions; each board emphasises a different
   facet** — the one its reader came for. The Tickets reader asks *is this answered
   yet?*, so `lineage` is strongest there; the Stories reader asks *how far is the
   umbrella?*, so `progress`; the Plans reader asks *what can I do now?*, so `next`.
@@ -134,9 +135,9 @@ neither is rewritten for a card this plan has not reached yet.
   one board can still find every fact on the other two. The mapping takes the
   board as an input and returns the emphasised facet; nothing in `CardFacts`
   knows which board renders it.
-- **A long list collapses to a count and expands in place.** Nine sprints read
+- **A long list collapses to a count that opens a popover.** Nine sprints read
   *in 9 sprints*, six PRs read *6 PRs · 1 running*, sixty-two plans read *62
-  plans · 60 delivered*, and one click expands the list inside the card, so every
+  plans · 60 delivered*, and one click opens the list in a popover dialog under the count, so every
   card is the same height until a reader asks for more. The count comes from
   `CardFacts`; the summary sentence, the collapsed state and the expander are
   presentation. A first-three preview was rejected because which three to show
@@ -146,13 +147,35 @@ neither is rewritten for a card this plan has not reached yet.
 - **Every card opens and acts the same way.** The title is the card's only open
   link, on every board, so no card carries a separate *Open* word and none opens
   on a click anywhere — Stories' whole-card button goes, because an action nested
-  inside a clickable card is a trap for keyboard and screen-reader users. Below
-  the facts sits one action row: the primary action from `next` first, styled as
-  the primary, then the secondary actions as text links in a fixed order per
-  kind. A disabled primary stays visible with its reason beside it (*Start work —
-  waits on #3105*); a disabled secondary is omitted. A ticket's *Create plan* /
-  *Create story* pair and a plan's *Approve* / *Interrogate* pair both become one
-  primary plus secondaries in that row.
+  inside a clickable card is a trap for keyboard and screen-reader users. The
+  title row leads with the card's kind icon — ticket, story or plan, from
+  `identity.kind` — with the kind as its accessible name, in the same place on
+  every kind; a lineage link to another item carries that item's kind icon.
+  Every kind icon comes from the board's one Octicon glyph set — the
+  `KIND_ICON_PATH` table in `lib/tuple-row.ts` that the tuple rows already draw
+  for ticket, plan, slice, PR and branch — which gains Octicons `iterations` for
+  a sprint and `book` for a story; no second icon set exists. An icon is as
+  large as the text it sits beside (`1em`), so the title's icon matches the
+  title and a link's icon matches the link. The
+  subtype is a tag beside it: a plan's `feature` / `bug` / `docs` / `infra`, and
+  a ticket's tracker issue type, which stops being an icon of its own. Below the
+  facts sits the action band, visually separate from the facts above it (a top
+  divider, its own tint and padding) and omitted when the card offers no action.
+  It holds the primary action from `next` first, styled as the primary, then the
+  secondary actions in a fixed order per kind. Every action renders as a control
+  — a `<button>` or a link — and never as plain text. A disabled primary stays
+  visible as a control with `aria-disabled="true"`, focusable, in a muted style;
+  its reason (*waits on #3105*) shows in a tooltip that opens below the control
+  on hover and on keyboard focus, so it never covers the card's facts, closes on
+  Escape, and is the control's `aria-describedby`, and a tap on touch shows it
+  and does nothing else. The native `title` attribute is not the carrier,
+  because it shows on neither focus nor touch; this holds for an action the
+  board disables (a frozen page, an unconfigured command) as much as for one the
+  plan's state disables. A secondary disabled by the item's own state is
+  omitted; a secondary the board's configuration refuses stays visible as a
+  disabled control with its reason. A ticket's *Create plan* / *Create story* pair and a
+  plan's *Approve* / *Interrogate* pair both become one primary plus secondaries
+  in that band.
 - **Creating is a `next` action, and `lineage` decides which create is offered.**
   An item offers to create only the relation it does not have yet, so a ticket
   whose plan exists can never offer *Create plan* again — the 3102 defect is
@@ -180,8 +203,9 @@ neither is rewritten for a card this plan has not reached yet.
   unknown*, never *0 failing* and never nothing. Absent facts are omitted.
 - **No meaning by colour alone.** Emphasis may use colour, but every alert, check
   state and disabled reason also carries text, in both themes. Each card is one
-  focus group in a fixed tab order — title link, primary action, secondaries,
-  then expanders — and each expander is a `<button>` with `aria-expanded`. The
+  focus group in a fixed tab order — title link, primary action (disabled or
+  not), secondaries, then expanders — and each expander is a `<button>` with
+  `aria-expanded`. The
   mapping's tests assert the text exists; the browser test asserts the tab order.
 - **One `<Card>` component** renders that mapping on all three boards; one browser
   test per board proves it shows what the mapping returned.
@@ -297,7 +321,7 @@ all three boards would leave every card half in the old layout.
       `statusDrift` returns a phrase today (`BEHIND[derived]`) — a word made in the
       domain, which this plan's split moves to the mapping.
 - [x] **Where does a sprint list go on a story with nine sprints?** It collapses
-      to *in 9 sprints* and expands in place, like every long list (Approach).
+      to *in 9 sprints* and opens a popover, like every long list (Approach).
 - [x] **Does `cardControls` become the `next` facet, or stay beside it?**
       *Answered 2026-11-06: beside it, as `next`'s input.* `cardControls`
       (`rules/card-controls.ts:62`, two callers: `board.ts:2687`, `mock-fleet.ts:498`)
@@ -324,7 +348,7 @@ type Ref =
   | { kind: 'ticket'; key: string; title: string; lane: TicketLane }
   | { kind: 'story'; slug: string; title: string; status: StoryStatus; archived: boolean }
   | { kind: 'plan'; slug: string; title: string; status: PlanStatus }
-  | { kind: 'sprint'; slug: string; title: string; state: SprintState }
+  | { kind: 'sprint'; slug: string; title: string; state: SprintState; release: string | null }   // release: the sprint's Release:, verbatim
   | { kind: 'slice'; plan: string; branch: string; pr: number | null };
 
 // One unknown vocabulary, the domain's own: HostReach without 'ok'.
@@ -347,8 +371,9 @@ type CardFacts = {
     plans: Known<Ref[]>;
     sprints: Known<Ref[]>;
   };
-  progress: null | {                  // null: nothing to measure for this item
-    work: null | { unit: 'slices' | 'plans'; done: Known<number>; total: number };
+  progress: {                         // always present: every item has a state
+    state: Known<ItemState>;          // the item's own state in its kind's vocabulary
+    work: null | { unit: 'slices' | 'plans'; done: Known<number>; total: number };   // a ticket: its one answering plan's work; null with several
     prs: Known<{ number: number; branch: string; checks: Checks }[]>;   // Checks incl. 'pending', 'unknown'
     design: null | { rounds: number | null; spike: SpikeCardState | null };
     verification: VerificationReading | null;
@@ -356,14 +381,19 @@ type CardFacts = {
   };
   next: {
     primary: Action | null;           // null: this card has no primary action
-    secondary: Action[];              // enabled only; a disabled secondary is omitted
+    secondary: Action[];              // a secondary disabled by the item's state is omitted; one the board refuses carries its reason
   };
   ownership: {
-    owner: string | null;
+    assignees: Known<string[]>;       // handles via People; { value: [] } = read, unassigned
     since: null | { at: string; event: 'opened' | 'updated' | 'transitioned' };
     source: Ref | { path: string };
   };
 };
+
+type ItemState =
+  | { kind: 'ticket'; lane: TicketLane }
+  | { kind: 'story'; status: StoryStatus }
+  | { kind: 'plan'; status: PlanState };   // PlanState: draft | design | approved | delivered | released
 
 type Action = { action: ActionKind; enabled: boolean; reason: Reason | null };
 
@@ -395,8 +425,8 @@ into the domain as types; the words built from them (`plan-spend.ts:138-144`,
 
 **Invariants, each a unit test:**
 
-1. **No generated words.** The only string fields are identifiers (`id`, `key`,
-   `slug`, `branch`, `plan`, `owner`, `path`), ISO dates (`at`), and **content
+1. **No generated words.** The only string fields are identifiers (`id`, `key`, `release`,
+   `slug`, `branch`, `plan`, the handles in `assignees`, `path`), ISO dates (`at`), and **content
    copied verbatim from the item** (`title`, `summary`, `value`). The schema gate
    refuses any other string field.
 2. A `Known` relation is `unknown` whenever its input was not read —
@@ -422,6 +452,10 @@ into the domain as types; the words built from them (`plan-spend.ts:138-144`,
 | `planCardFacts` | `board.ts` build, where `planCardView` and `cardControls` run | plan meta, `cardControls`, pulse slices and `blockedBy`, PR index rows with reach, spend readings, verification | `planCardView` |
 | `storyCardFacts` | `board.ts` story read (`:2225-2262`) | story frontmatter incl. `issue:`, its plans, `derivedStanding` | `storyCardView` |
 | `ticketCardFacts` | `discovery-lanes.ts`, server side, beside `ticketLanes` | ticket row, `TicketPlan` (now `slug`, `title`, `story`), the ticket → story index, `plansUnreadable` | `ticketCardView`, `ticketCardShowsActions`, `ticketCardSubtitle`, `ticketCardAge` — today run in the browser at `StoriesTab.tsx:488` |
+
+**`ownership.assignees`**: a ticket's tracker `assignees`; a story's `author:` (the template's *who owns/drives this story*); a plan's `Assignee:` handles, and where it has none the person on its newest `Started:` record — who took the work up; neither gives unassigned. The tooltip names the source (*Assigned: Jan Wloka*, *Started by Jan Wloka on 2026-11-06*). The approver is not an assignee: the `Approved:` record names the approver, and the card no longer switches to them after approval. A tracker that did not answer gives `unknown`; a read with nobody assigned gives `{ value: [] }`.
+
+**`progress.state`**: a ticket's lane, a story's `status:`, a plan's `State:`. A ticket whose tracker did not answer reads `unknown`, never *open*.
 
 **`ownership.since`**: a plan's newest transition record (`Approved:`,
 `Started:`, `Delivered:`, `Design:`), else its file date — `transitioned`; a
@@ -483,23 +517,122 @@ and `StoryModal.tsx` reads that alert through the mapping.
 
 ### Presentation (board — `card-presentation.ts`, `<Card>`, detail views)
 
-`presentCard(facts, board) → rows`, fixed order: title (the `opens` link), type
-and labelled alerts; the lineage line; the progress line (work, PR summary,
-design rounds and spike, verification, cost); the action row; the ownership
-line. It returns the emphasised row — `lineage` on discovery's ticket lanes,
-`progress` on discovery's story lanes, `next` on the planning and delivery
-boards and in swimlanes — and every word: summaries, reasons (*waits on
+`presentCard(facts, board) → sections`. The five facets are the model; the card
+has three sections, each in a fixed place on every kind and each on its own
+surface, and the mapping decides which facet parts go into which section. An
+empty section, and an empty line inside one, is not drawn.
+
+| Section | Surface | Holds | From |
+|---|---|---|---|
+| **Header** | the card surface | the kind icon and the title (the `opens` link, at most two lines), prefixed by the item's ticket number where it has one (*#3073 The release head reports…*); below it one muted meta line: subtype tag, labelled alerts, then each related item | `identity`, `lineage` |
+| **Status** | an inset panel, rounded, one surface step lighter (dark) or darker (light) than the card | line 1: the state pill, then work done / total with a progress bar stretched to the panel's width; line 2, the signals: PRs and their builds, design rounds and spike state, verification | `progress` |
+| **Footer** | a tinted band flush at the bottom with a top hairline | the assignees and the age on the left, the actions on the right: primary, then secondaries | `ownership`, `next` |
+
+**A related item reads as icon + identifier + name**, the identifier first the
+way a ticket number leads its title, with its state in the tooltip:
+
+| Item | On the card | Tooltip |
+|---|---|---|
+| ticket | `◎ #3170` or `◎ PROJ-12` | title, tracker state |
+| story | `▥ <title>`, shortened to fit | title, status |
+| plan | `▤ #3092 <title>` with its ticket number, else `▤ <title>`, shortened to fit | title, phase |
+| sprint | `↻ 2.32.0 · <title>`, shortened to fit — the release target first, copied verbatim from the sprint's `Release:`; the title alone when it names none | title, release, state |
+
+Two or more of one kind fold to a count (*↻ 2 sprints*). The release is not
+validated, as `/plot-sprint` states: it is named before it is cut, so the card
+copies it.
+
+**Every referenced item is a link.** A click on an item navigates to it; a
+click on a count opens a popover that lists the items, each a link.
+
+| Item | A click |
+|---|---|
+| ticket | opens `TicketModal` (Tickets slice); until then the host issue |
+| story | opens `StoryModal` |
+| plan | opens `PlanModal` |
+| sprint | opens `SprintModal` |
+| branch | opens the branch on the host |
+| PR | opens the PR on the host |
+| build | opens the PR's checks on the host — the run's own URL where the reading carries one |
+| a count (*2 PRs*, *↻ 2 sprints*, *3 plans*) | opens a popover listing each item as a link, a PR with its branch, check state and build link |
+
+A link to an item inside the board opens that item's detail view in place; a
+link to the host opens a new tab and says so in its accessible name. **Links
+carry no decoration at rest** — no underline and no link colour, so the card
+reads as text — and show their underline and pointer on hover and on keyboard
+focus, with a visible focus ring. The popover is a dialog: it opens on click,
+Enter or Space, takes focus, closes on Escape or a click outside, and returns
+focus to the count. The host URLs come from the readings that name them (a
+PR's `url`, a run's URL) or from the repository's own host address; the
+mapping builds no URL from free text.
+
+The card shows what a reader scans for; the detail view holds the rest. **Not on
+the card**: the source path or `repo#N` (`ownership.source`), the author or
+approver, and cost unless it was measured — these show in `PlanModal`,
+`StoryModal` and `TicketModal`. Age reads relative (*2 days ago*) with the
+exact date and its event (*opened*, *updated*, *transitioned*) in the same
+tooltip that carries disabled reasons. Assignees are round initials avatars;
+two or more show the first plus a count, all names in the tooltip; nobody
+assigned is an empty dashed circle followed by a muted *unassigned*, whose
+tooltip says *Unassigned*; an unread assignee is the same circle named *Assignee unknown*.
+The footer is drawn on a card with no actions too, because it holds the
+assignees and the age.
+
+**Visual design.** The card reads as one calm object with three groups, told
+apart by surface and spacing rather than by rules:
+
+- **Surface steps**: column → card → status panel, each one step apart, the same
+  tokens in both themes; the footer has its own tint and a top hairline. The
+  emphasised section takes the stronger tint: the status panel on the Testing
+  column and discovery's story lanes, the footer on Design and Development and
+  in swimlanes, the header's meta line on discovery's ticket lanes.
+- **Spacing**: 16 px card padding, 12 px between sections, 4–6 px between lines
+  inside a section, 12 px between cards. Every section aligns to the card's
+  left padding; only the title is indented past the kind icon.
+- **Card**: rounded corners (`rounded-xl`), a 1 px hairline border, a soft
+  shadow that deepens on hover and on keyboard focus within the card, and a
+  3 px left accent in the state's colour.
+- **Type scale**: three steps only — title 15 px semibold; body 13 px; meta 12
+  px in tabular figures. No italics for facts. An unknown is a muted word with a
+  dotted underline, the same treatment everywhere. A measure takes a warning or
+  error tone only when it reports one (a failing check, a conflict), never
+  because it is a count.
+- **Kind icon**: the board's Octicon glyph, 1 em of the text beside it, in the
+  kind's hue (ticket, story, plan, sprint each one hue, AA contrast in both
+  themes).
+- **Status panel**: the state is a pill with a coloured dot and its word; the
+  progress bar fills the panel's width so cards compare at a glance; the PR
+  summary shows one dot per check state with its count, the words in the
+  tooltip.
+- **Footer**: the primary is a small solid button; secondaries are ghost
+  buttons of the same height; a disabled control is an outline in the muted
+  tone with a not-allowed cursor.
+- **Footer wrapping**: the assignees and age sit left and the action group
+  right on one row while both fit. When they do not, the whole action group
+  moves to its own row, aligned right, and never splits: the primary and its
+  secondaries stay together and in order. Button text never shrinks, truncates
+  or wraps; the card grows by a row instead. More than two secondaries put the
+  rest into a `⋯` button named *More actions*, whose menu lists them in the same
+  order, a disabled one with its reason. Wrapping changes no tab order: title
+  links, primary, secondaries, `⋯`. The layout is a wrapping flex row with the
+  action group as one item; no script measures it.
+- **Every colour carries a word** beside it or in its accessible name.
+
+The mapping names the kind icon and its accessible name per `identity.kind`;
+`<Card>` draws it. It returns the emphasised section as the visual design above names it — and every word: summaries, reasons (*waits on
 feature/x #3105*, *no fleet scan yet*, *linked from 2 stories*, *plans unread —
 host throttled*), unknowns (*checks unknown*, *cost not measured here*) and alert
-labels. **Every list with two or more entries collapses to a count and expands
-in place** — lineage relations and the PR list alike. `<Card>` renders rows and
+labels. **Every list with two or more entries collapses to a count that opens a
+popover dialog** — lineage relations and the PR list alike. `<Card>` renders sections and
 decides nothing; tab order is title, primary, secondaries, expanders; each
-expander is a `<button aria-expanded>`. Every string from `CardFacts` renders as
+expander is a `<button aria-haspopup="dialog" aria-expanded>`. The action band renders every action as
+a control; a disabled one is `aria-disabled`, focusable, and described by a
+tooltip holding the mapping's reason. Every string from `CardFacts` renders as
 text, never as HTML.
 
 **Detail views.** Plans open `PlanModal`, stories `StoryModal`, and **tickets a
 new `TicketModal`**: title, body read through the existing issue read, the
-`lineage` relations as links, the action row, and a link out to the host
+`lineage` relations as links, the action band, the source, author or approver, cost, and a link out to the host
 issue. `StoryModal.renderMarkdown` (`StoryModal.tsx:14-31`) is fixed in the
 Stories slice before the story title becomes its only way in: it escapes `"`
 and admits `http(s)` link schemes only.
@@ -516,37 +649,57 @@ and admits `http(s)` link schemes only.
 ### Done when
 
 - **Tracer:** every plan card on the planning and delivery boards and in swimlanes
-  renders through `<Card>` from `facts`, and `planCardView` is gone. Type, rounds,
-  spike state, verification, cost, `not-pushed` and the PR list all still show.
+  renders through `<Card>` from `facts` in the three sections, and `planCardView`
+  is gone. Type, rounds, spike state, verification, `not-pushed` and the PR list
+  all still show on the card; the plan path, the approver and an unmeasured cost
+  show in `PlanModal` instead. The status section opens with the plan's phase,
+  shows slices done / total (never *progress unknown* when the pulse answered),
+  and ends with the plan's assignees and a relative age whose exact date is in
+  the tooltip; an approved plan still shows its assignee, not its approver. A
+  spike merged with no `Spike approved:` record offers *Approve spike* as the
+  primary and *Confirm slices* as a secondary. The card follows the visual
+  design above in both themes. A plan with a ticket shows its number before the title; its sprint reads `↻ <release> · <title>`. Every referenced item on the card (sprint, plan, story, ticket, branch, PR, build) is a link without decoration at rest, underlined on hover and focus; *2 PRs* opens a popover listing both PRs as links with their builds. A plan in a sprint with a `Release:` shows `↻ <release>` in its meta line. The status panel and footer keep their lines aligned across cards: a card with no PRs has no empty signals line, and the assignee and age sit in the footer on every card.
   No plan card shows *not measured here* or *checks not asked* as a chip of its
-  own; each shows as an unknown in its row. A disabled *Start work* names its
-  reason on the card, not only on hover. A fixture with a throttled host reads
+  own; each shows as an unknown in its row. Every plan card leads with the plan
+  kind icon from `KIND_ICON_PATH`, sized to the title text, with an accessible
+  name, and its type as a tag; its sprint and story links carry the `iterations`
+  and `book` glyphs at link-text size. The action band is
+  visually separate, and no action renders as plain text. A disabled *Start
+  work* is a focusable `aria-disabled` control whose reason appears on hover and
+  on focus and is its `aria-describedby`. A fixture with a throttled host reads
   *checks unknown*, never zero. Both gates fail on a seeded violation. One
-  browser test proves rows and tab order.
+  browser test proves the section order, the tooltip on focus, and tab order
+  through the action band including the disabled control. At 320 px card width the action
+  group sits on its own row below the assignee and every button shows its whole
+  label.
 - **Stories:** story *Nothing changed, nothing runs* links ticket #3170, and
   #3170 offers no *Create story*. A ticket whose plan names a story shows that
   story. The ⚠ reads as a labelled alert. An `issue:` to another repository
   shows `issue-link-unreadable` and is not indexed. *Add plan* on a live story
   reaches `/api/story-plan`, whose brief names the story. A fixture story with 62
   plans and 9 sprints renders collapsed at uniform height. `StoryModal` refuses
-  a `javascript:` link.
+  a `javascript:` link. Every story card's status opens with its status and
+  shows its `author:` as assignee.
 - **Tickets:** #3102 links its plan and offers no *Create plan*. With plans
   unreadable, every ticket's *Create plan* is disabled with *plans unread*. A
   ticket in two stories gets a disabled *Create plan* naming both, and
   `POST /api/idea` for it refuses `linked-from-many-stories`. A ticket in one
   live story produces a brief carrying its slug above the issue body.
-  `TicketModal` opens from the title.
+  `TicketModal` opens from the title. A ticket's issue type shows as a tag, and
+  the ticket kind icon leads its title row. Every ticket's status opens with its
+  tracker state (*state unknown* when the tracker did not answer) and shows its
+  tracker assignees.
 
 
 ## Slices
 
 ### Tracer
 
-- `feature/one-card-grammar-plans` — the `CardFacts` entity and its schema gate, `docs/domain/card-grammar.md`, `planCardFacts` replacing `planCardView`, plan `facts` in `/api/board`, the presentation mapping and its import gate, and the shared `<Card>` on the Plans board only <!-- builds: CardFacts entity and planCardFacts projection --> <!-- spike -->
+- `feature/one-card-grammar-plans` — the `CardFacts` entity and its schema gate, `docs/domain/card-grammar.md`, `planCardFacts` replacing `planCardView`, plan `facts` in `/api/board`, the presentation mapping and its import gate, and the shared `<Card>` on the Plans board only → #3198 <!-- builds: CardFacts entity and planCardFacts projection --> <!-- spike -->
 
 ### Stories
 
-- `feature/one-card-grammar-stories` — the story's `issue:` field and its validator (`jira:` read as legacy, the story-tracking template and `/api/story`'s brief writing it, `Tracker: jira` project keys), the ticket → story index from `origin/<default>`, `storyCardFacts`, `POST /api/story-plan` for *Add plan*, the `StoryModal` link fix, and the Stories lanes rendering through `<Card>` <!-- builds: storyCardFacts projection, the story issue field and the story-plan endpoint -->
+- `feature/one-card-grammar-stories` — the story's `issue:` field and its validator (`jira:` read as legacy, the story-tracking template and `/api/story`'s brief writing it, `Tracker: jira` project keys), the ticket → story index from `origin/<default>`, `storyCardFacts`, `POST /api/story-plan` for *Add plan*, the `StoryModal` link fix, and the Stories lanes rendering through `<Card>` → #3216 <!-- builds: storyCardFacts projection, the story issue field and the story-plan endpoint -->
 
 ### Tickets
 

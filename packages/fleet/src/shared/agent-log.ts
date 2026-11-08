@@ -320,6 +320,7 @@ export const KINDS = [
   'deliver',
   'dispatch',
   'idea-issue',
+  'idea-story',
   'implement',
   'interrogate',
   'needs-design',
@@ -361,7 +362,7 @@ const EXTENSIONS: Record<AgentLogFile, string> = {
  * Where the `<file>` for a `<kind>` run keyed by `id` lives.
  *
  * `id` is whatever names the run to its module — a plan slug for `dispatch` and
- * `deliver`, an issue number for `idea-issue` and `story-issue`, a branch with
+ * `deliver`, an issue number for `idea-issue` and `story-issue`, a story slug for `idea-story`, a branch with
  * its slashes flattened for `resolve`. The resolver does not interpret it: the
  * module that spawned the agent knows what identifies its run, and a resolver
  * that second-guessed that would need to know all nine.

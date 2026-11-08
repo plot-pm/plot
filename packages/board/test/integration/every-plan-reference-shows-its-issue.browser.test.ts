@@ -48,17 +48,27 @@ describe('every plan reference shows its issue (real browser renders the shipped
       await expect.poll(
         () => page.locator('[data-plan-ref]').count(), { timeout: 10_000 },
       ).toBeGreaterThan(0);
+      // Every element whose OWN text names the plan, and the reference it sits
+      // in: the card's title styles the key apart, so the key and the title
+      // are sibling nodes of one reference rather than one leaf.
       const named = await page.evaluate((title) => {
-        const leaves = [...document.querySelectorAll('body *')]
-          .filter((el) => el.children.length === 0 && (el.textContent ?? '').includes(title));
-        return leaves.map((el) => ({
-          text: (el.textContent ?? '').trim(),
-          inRef: el.closest('[data-plan-ref]') !== null,
-        }));
+        const owners = [...document.querySelectorAll('body *')]
+          .filter((el) => [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(title)));
+        return owners.map((el) => {
+          const ref = el.closest('[data-plan-ref]');
+          // A card's title names the key on its meta line and in its title attribute.
+          const card = el.closest('[data-card]');
+          const text = card && ref
+            ? (ref.getAttribute('title') ?? '')
+            : ((ref ?? el).textContent ?? '').trim();
+          return { text, inRef: ref !== null, metaKey: card?.querySelector('[data-key]')?.textContent ?? null };
+        });
       }, TITLE);
       expect(named.length).toBeGreaterThan(0);
       expect(named.filter((n) => !n.inRef)).toEqual([]);
       for (const n of named) expect(n.text.startsWith('1089: ')).toBe(true);
+      // On the card, the number itself shows on the meta line under the title.
+      for (const n of named.filter((x) => x.metaKey !== null)) expect(n.metaKey).toBe('#1089');
     } finally { await page.close(); }
   });
 });

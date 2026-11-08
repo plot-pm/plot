@@ -1,4 +1,9 @@
-import { storyLanes, phaseOfStory, ticketLanes, type StoryLaneMap, type TicketLaneGroups } from '@plot-pm/domain';
+import {
+  storyLanes, phaseOfStory, ticketLanes, ticketCardFacts, withActionAvailability,
+  type ActionAvailability, type StoryLaneMap, type TicketLaneGroups, type TicketLaneRow, type TicketPlan,
+} from '@plot-pm/domain';
+import type { TicketLaneGroups as WireTicketLanes, TicketLaneRow as WireTicketRow } from '../contract/schema.js';
+import type { Known, Ref } from '@plot-pm/domain/entities/card-facts';
 import { readConfigAsync, declaredPhaseMap, deriveStoryStatus, type BuildBoardOptions } from './board.js';
 import { keptClosedRows, ensureCache, type TicketLaneData } from './fleet.js';
 
@@ -12,6 +17,53 @@ import { keptClosedRows, ensureCache, type TicketLaneData } from './fleet.js';
  * rather than null.
  */
 const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
+
+/** What the ticket cards' facts read beside the lanes. */
+export interface TicketFactsReading {
+  /** The ticket → story index `Board.ticketStories` carries. */
+  ticketStories: Known<Record<string, Ref[]>>;
+  /** Which card actions this board runs. */
+  available: ActionAvailability;
+}
+
+/**
+ * The lanes with each ticket's card facts. The plans are the readings
+ * `ticketLaneData` made, so a ticket's lane and its facts agree; with the plans
+ * unread they read `unknown`.
+ *
+ * @param lanes - the ticket lanes to draw.
+ * @param plans - the plans naming each issue key, or `null` where they could not be read.
+ * @param reading - the story index and the board's action availability.
+ * @param directory - the declared `People` spellings.
+ * @returns the lanes, every row carrying `facts`.
+ */
+const withTicketFacts = (
+  lanes: TicketLaneGroups,
+  plans: ReadonlyMap<string, readonly TicketPlan[]> | null,
+  reading: TicketFactsReading,
+  directory: TicketLaneData['directory'],
+): WireTicketLanes => {
+  const factsFor = (lane: 'open' | 'in-progress' | 'done') => (row: TicketLaneRow): WireTicketRow => ({
+    ...row,
+    facts: withActionAvailability(
+      ticketCardFacts({
+        row,
+        lane,
+        plans: plans === null ? { unknown: 'failed' } : { value: plans.get(row.id) ?? [] },
+        stories: 'unknown' in reading.ticketStories
+          ? reading.ticketStories
+          : { value: reading.ticketStories.value[row.id] ?? [] },
+      }, directory),
+      reading.available,
+    ),
+  });
+  return {
+    open: lanes.open.map(factsFor('open')),
+    'in-progress': lanes['in-progress'].map(factsFor('in-progress')),
+    done: lanes.done.map(factsFor('done')),
+    moreCount: lanes.moreCount,
+  };
+};
 
 /**
  * Builds the Discovery tab's lane groups for `/api/board`.
@@ -39,6 +91,7 @@ const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
  * @param board - the board payload already built by `boardState`.
  * @param archived - whether the Discovery tab's `?archived=1` toggle is on.
  * @param data - the request's one `ticketLaneData` answer, or null where it has none.
+ * @param facts - what the ticket cards' facts read beside the lanes.
  * @returns tickets grouped by lane, stories grouped by lane, and the tracker answer.
  */
 export const discoveryLanes = async (
@@ -46,6 +99,7 @@ export const discoveryLanes = async (
   board: { stories: Array<{ status: string; plans: Array<{ phase: string }> }>; archivedStories: Array<{ status: string; plans: Array<{ phase: string }> }> },
   archived: boolean,
   data: TicketLaneData | null,
+  facts: TicketFactsReading,
 ) => {
   const phasesValue = await readConfigAsync(opts, 'Workflow phases', '');
   const { map: phaseMap } = declaredPhaseMap(phasesValue);
@@ -95,5 +149,8 @@ export const discoveryLanes = async (
     stories: g.stories.map((s) => s.story),
   }));
 
-  return { tickets: lanes, plansUnreadable, storyLanes: storyLaneGroups, issueAnswer, issueAbsence };
+  // Facts are attached after the kept lanes are stored, so a kept lane is re-derived
+  // against the current plans reading and stories rather than served stale.
+  const tickets = lanes !== null && data !== null ? withTicketFacts(lanes, data.plans, facts, data.directory) : lanes;
+  return { tickets, plansUnreadable, storyLanes: storyLaneGroups, issueAnswer, issueAbsence };
 };

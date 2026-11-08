@@ -1,4 +1,5 @@
 import { useState, type MouseEvent } from 'react';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import { planIndexOf, planReference, planRefOfIssue, type PlanIndex } from '@plot-pm/domain';
 import {
@@ -146,6 +147,8 @@ export function rowSubject(row: Pick<AgentRow, 'pr' | 'branch'>): 'pr' | 'branch
 
 export interface AgentListProps {
   fleet: Fleet;
+  /** The board's ticket card facts by issue number; the issue rows' *Create plan* follows them. */
+  ticketFacts?: ReadonlyMap<string, CardFacts>;
   /**
    * Seconds between fleet polls, or null when the tab is not open and nothing
    * is polling. Null suppresses the git countdown: a counter ticking toward a
@@ -2852,9 +2855,11 @@ export function inferredPlanName(title: string): string {
  * than borrowing a word from another object's vocabulary.
  */
 export function IssueRowView(
-  { issue, idea, story, issueAnswer, showKindLabel = true, onOpenPlan, planIndex = EMPTY_PLAN_INDEX }:
+  { issue, idea, story, issueAnswer, facts, showKindLabel = true, onOpenPlan, planIndex = EMPTY_PLAN_INDEX }:
   {
     issue: IssueRow;
+    /** The ticket's card facts, where the board carries them; *Create plan* follows them. */
+    facts?: CardFacts;
     idea: DispatchInfo;
     story: DispatchInfo;
     issueAnswer: IssueAnswer | null;
@@ -2948,7 +2953,7 @@ export function IssueRowView(
       // full set: Create plan, Create story, Open on host. Both creating actions
       // WORK now; *Create story* was offered-and-always-refused until 2026-08-27,
       // on a ground the skill it named contradicts.
-      menu={<IssueRowActions issue={issue} idea={idea} story={story} issueAnswer={issueAnswer} />}
+      menu={<IssueRowActions issue={issue} idea={idea} story={story} issueAnswer={issueAnswer} facts={facts} />}
     />
   );
 }

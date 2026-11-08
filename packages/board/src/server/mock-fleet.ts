@@ -1,5 +1,6 @@
 import { planRecord } from '@plot-pm/domain/adapters';
 import { DEFAULT_PHASE_MAP, cardControls, phaseColumns, phaseOfPlan } from '@plot-pm/domain';
+import { planFactsOf, type CardFields } from './plan-facts.js';
 import type { FleetReading, PlanRecord, PlanStatus } from '@plot-pm/domain';
 
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
@@ -486,7 +487,7 @@ export const MOCK_KINDS = RowKindSchema.options;
  * looks a card up.
  *
  * `phase: 'Development'` with `started: false` is what makes a plan startable —
- * see `PlanCard`'s `isReadyToStart`, which read `phase === 'Design'` until #289.
+ * see `cardControls`' `readyToStart`, which makes Start work the card's primary action.
  */
 export function mockCards(): Column[] {
   // Each card states the plan's state and status, and `cardControls` answers its
@@ -496,7 +497,8 @@ export function mockCards(): Column[] {
     over: Partial<Card> & Pick<Card, 'slug' | 'title' | 'path'>,
   ): Card => {
     const controls = cardControls({ ...plan, started: over.started ?? false });
-    return { type: 'feature', phase: 'Development', prs: [], controls, ...over } as Card;
+    const fields = { type: 'feature', phase: 'Development', prs: [], issues: [], status: plan.status, controls, ...over } as CardFields;
+    return { ...fields, facts: planFactsOf(fields, { state: plan.state }) };
   };
   const approved = { state: 'approved', status: 'approved' } as const;
   const column = (name: string, cards: Card[]): Column => {
@@ -540,9 +542,9 @@ export function mockCards(): Column[] {
           // one has no CI configured, and one the board could not ask about —
           // and a mock showing only the first would hide the whole feature.
           prs: [
-            { number: 57, url: 'https://example.invalid/pull/57', checks: 'green', mergeable: 'mergeable', author: '' },
-            { number: 58, url: 'https://example.invalid/pull/58', checks: 'none', mergeable: 'mergeable', author: '' },
-            { number: 59, url: 'https://example.invalid/pull/59', checks: 'unknown', mergeable: 'unknown', author: '' },
+            { number: 57, url: 'https://example.invalid/pull/57', checksUrl: '', checks: 'green', mergeable: 'mergeable', author: '' },
+            { number: 58, url: 'https://example.invalid/pull/58', checksUrl: '', checks: 'none', mergeable: 'mergeable', author: '' },
+            { number: 59, url: 'https://example.invalid/pull/59', checksUrl: '', checks: 'unknown', mergeable: 'unknown', author: '' },
           ],
         }),
     ]),

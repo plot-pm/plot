@@ -522,10 +522,22 @@ describe('a browser test that stubs its own state starts no board', () => {
 // and `test/unit/panels-show-the-prefix.test.ts`, which imports the catalogue
 // builders (`drivesAPage` counts it) to prove PlanCard, PlanModal, StoryModal
 // and SprintModal print the prefix. Neither starts a board.
-// 80 → 81 on 2026-11-07: `settings-view.browser.test.ts`, for the header gear's
+// 80 → 81 on 2026-11-06: `plan-card-grammar.browser.test.ts`, for the plan
+// card's rows, tab order and expander through the shared `<Card>`
+// (one-card-grammar). A plain addition; it serves its state through the
+// catalogue and starts no board.
+// 81 → 82 on 2026-11-06: `test/unit/plan-card-renders-safely.test.ts`, which
+// imports the catalogue builders (`drivesAPage` counts it) to prove a plan card
+// with no facts and an action row with no control render safely. It renders
+// static markup and starts no board.
+// 82 → 83 on 2026-11-07: `story-card-grammar.browser.test.ts`, for the story
+// card's sections, its collapsed relations, *Add plan* and the ticket a story
+// answers (one-card-grammar, Stories slice). It serves its state through the
+// catalogue and starts no board.
+// 83 → 84 on 2026-11-07: `settings-view.browser.test.ts`, for the header gear's
 // marker and Settings closing back to the tab it left. It serves its state
 // through the catalogue and starts no board.
-const EXPECTED_FILES = 81;
+const EXPECTED_FILES = 84;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -844,9 +856,41 @@ const EXPECTED_FILES = 81;
 // 638 → 644 on 2026-11-01: one `it(` in the new `every-plan-reference-shows-
 // its-issue.browser.test.ts` and five in the new `panels-show-the-prefix.test
 // .ts`. `EXPECTED_FILES` moves by 2, matching the two new files.
-// 645 → 647 on 2026-11-07: two `it(` in the new `settings-view.browser.test.ts`.
+// 645 → 649 on 2026-11-06: four `it(` in the new `plan-card-grammar.browser
+// .test.ts` (one-card-grammar). `EXPECTED_FILES` moves by 1, matching the file.
+// 649 → 652 on 2026-11-06: three `it(` in the new `plan-card-renders-safely
+// .test.ts`. `EXPECTED_FILES` moves by 1, matching the file.
+// 652 → 657 on 2026-11-06: in `plan-card-grammar.browser.test.ts` the
+// on-card reason test became the tooltip test and two more `it(` were added
+// (kind icon, action band); two `it(` in `plan-card-renders-safely.test.ts`
+// (kind icon, disabled control); one in `unreachable-overlay.browser.test.ts`
+// (Deliver dims on a frozen page). The files already drove a page, so
+// `EXPECTED_FILES` is unchanged.
+// 657 → 658 on 2026-11-06: one `it(` in `plan-card-grammar.browser.test.ts`
+// for the Octicon kind icons drawn at the text's size. The file already drove
+// a page, so `EXPECTED_FILES` is unchanged.
+// 658 → 659 on 2026-11-06: in `plan-card-grammar.browser.test.ts` the
+// expand-in-place PR test became the PR popover test, and one `it(` was added
+// for the sprint link and the link style. `EXPECTED_FILES` is unchanged.
+// 659 → 661 on 2026-11-06: two `it(` in `plan-card-grammar.browser.test.ts`,
+// for the footer's action group wrapping whole at 320 px and for the `⋯` More
+// actions menu. `EXPECTED_FILES` is unchanged.
+// 661 → 662 on 2026-11-06: one `it(` in `plan-card-grammar.browser.test.ts`
+// for a long action refusal wrapping in its own row inside a 320 px card.
+// 662 → 665 on 2026-11-06: two `it(` in `plan-card-grammar.browser.test.ts`,
+// for the sprint link's `/?sprint=<slug>` route and for a running action
+// keeping its state in the closed More actions menu, and one in
+// `button-claims.browser.test.ts` for the dispatched notice outliving Start
+// work. The files already drove a page, so `EXPECTED_FILES` is unchanged.
+// 665 → 667 on 2026-11-06: one `it(` in `button-claims.browser.test.ts` for the
+// notice returning once the wait runs out, and one in
+// `plan-moves-through-sections.browser.test.ts` for the notice beside Start
+// work in an agent row's menu. `EXPECTED_FILES` is unchanged.
+// 667 → 671 AND 82 → 83 FILES on 2026-11-07: four `it(` in the new
+// `story-card-grammar.browser.test.ts`. Added, not moved.
+// 671 → 673 on 2026-11-07: two `it(` in the new `settings-view.browser.test.ts`.
 // `EXPECTED_FILES` moves by 1.
-const EXPECTED_TESTS = 647;
+const EXPECTED_TESTS = 673;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

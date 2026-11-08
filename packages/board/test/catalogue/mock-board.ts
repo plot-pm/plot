@@ -3,6 +3,8 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scenario, type Scenario, type ScenarioName } from './states.js';
+import type { Board } from '../../src/contract/schema.js';
+import { columnsWithAvailability } from '../../src/server/plan-facts.js';
 
 /**
  * THE MOCK BOARD — it serves a named state, and it is NOT the board.
@@ -196,7 +198,10 @@ export const startMockBoard = async (
       if (failing) return res.socket?.destroy();
       const which = url.pathname === '/api/board' ? 'board' : 'fleet';
       counts[which] += 1;
-      return json(res, current[which]);
+      // The board answer marks each card's actions against the capabilities it
+      // carries, as the server's `boardAnswer` does, so a test reads what the
+      // server would actually send.
+      return json(res, which === 'board' ? servedBoard(current.board) : current.fleet);
     }
     // A DOCUMENT, if one was registered for this path. Checked before the
     // page, and only for the two viewer prefixes, so a mock with no documents
@@ -243,4 +248,10 @@ export const startMockBoard = async (
     stop: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
     kill: () => { server.close(); },
   };
+};
+
+/** A board payload with its cards' actions marked against its own capability answers. */
+const servedBoard = (board: Board): Board => {
+  if (!Array.isArray(board?.columns)) return board;
+  return { ...board, columns: columnsWithAvailability(board.columns, board) };
 };

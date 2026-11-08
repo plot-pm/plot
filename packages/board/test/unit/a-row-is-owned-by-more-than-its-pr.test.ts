@@ -28,6 +28,7 @@ import {
   rowsForReader,
 } from '../../src/app/lib/agent-rows/mine-filter.js';
 import { AgentList } from '../../src/app/components/AgentList.js';
+import { SOME_FACTS } from '../fixtures/card-facts.js';
 
 /**
  * `a-row-is-owned-by-more-than-its-pr` — the ownership rule reaches agents and
@@ -68,7 +69,7 @@ const agent = (over: Partial<AgentEntry> = {}): AgentEntry => AgentEntrySchema.p
 });
 const card = (over: Partial<Card> = {}): Card => CardSchema.parse({
   slug: 'a-plan', title: 'A plan', type: 'feature', phase: 'Development',
-  path: 'docs/plans/2026-08-24-a-plan.md',
+  path: 'docs/plans/2026-08-24-a-plan.md', facts: SOME_FACTS,
   controls: { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: false }, ...over,
 });
 const column = (over: Partial<Column> = {}): Column => ColumnSchema.parse({ phase: 'Development', cards: [], ...over });

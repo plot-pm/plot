@@ -7,8 +7,8 @@ import { board, card, column } from '../catalogue/build.js';
  * WHAT THE COST BADGE SHOWS — the half only a real page can settle.
  *
  * The badge's WORDS are pure functions pinned without a browser in
- * `test/unit/plan-cost.test.ts`: every edge case of `costBadgeText` and
- * `costBadgeDetail` is asserted there, which is this repo's standing rule that
+ * `test/unit/plan-cost.test.ts`: every edge case of the cost piece
+ * `presentCard` returns is asserted there, which is this repo's standing rule that
  * a view state which cannot be tested without a browser has not been extracted
  * yet. What is left for a page, and only for a page:
  *
@@ -90,10 +90,11 @@ describe('the cost badge on a plan card', () => {
       over: { board: withCost(MEASURED) },
       tab: 'board',
     });
-    const tip = await page
-      .locator('span[title*="cache-read"]')
-      .first()
-      .getAttribute('title');
+    // In the shared tooltip, which opens on keyboard focus as well as hover.
+    const cost = page.locator('[data-cost="measured"]').first();
+    await cost.focus();
+    const tipId = await cost.getAttribute('aria-describedby');
+    const tip = await page.locator(`[id="${tipId}"]`).textContent();
 
     expect(tip).toContain('40,690,450');
     expect(tip).toContain('in 502');
@@ -101,7 +102,7 @@ describe('the cost badge on a plan card', () => {
     await page.close();
   });
 
-  it('says NOT MEASURED HERE for a plan with nothing measured, never a zero', async () => {
+  it('says NOT MEASURED HERE in the plan view for a plan with nothing measured, never a zero on the card', async () => {
     const page = await cat.open('a-board-of-plans', {
       over: {
         board: withCost({ tokens: null, measured: 0, absent: 2, unreadable: 0, slices: 2 }),
@@ -113,10 +114,15 @@ describe('the cost badge on a plan card', () => {
       .first()
       .innerText();
 
-    expect(cardText).toContain('not measured here');
+    // An unmeasured cost leaves the card for the plan view.
+    expect(cardText).not.toContain('not measured here');
     // A ZERO IS THE FAILURE THE WHOLE DESIGN AVOIDS — indistinguishable from a
     // free run, and wrong in the direction nobody checks.
     expect(cardText).not.toMatch(/\b0 (tokens|slices)\b/);
+    await page.locator('article', { hasText: 'Measured plan' }).first().locator('[data-card-title]').click();
+    const modalCost = page.getByRole('dialog').locator('[data-plan-cost]');
+    await modalCost.waitFor({ timeout: 5_000 });
+    expect(await modalCost.textContent()).toBe('cost not measured here');
     await page.close();
   });
 
