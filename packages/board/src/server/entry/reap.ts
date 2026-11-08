@@ -42,7 +42,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSy
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
 
 /**
@@ -340,7 +340,7 @@ const indexRows = (rows: readonly ReapRecordRow[]): RecordIndex => {
 
 /** The realpath of `git rev-parse --git-common-dir`, for comparing against a record's `repoIdentity`. */
 const repoIdentityOf = async (cwd: string): Promise<string | null> => {
-  const run = await runProcess('git', ['rev-parse', '--git-common-dir'], { cwd });
+  const run = await processAnswers.commonDir(cwd);
   const out = run.stdout.trim();
   if (run.code !== 0 || out === '') return null;
   return realpathSync(path.resolve(cwd, out));

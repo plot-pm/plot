@@ -1389,6 +1389,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
             // inherit that run's writer marker through the `...process.env`
             // spread above.
             [MAIN_CHECKOUT_WRITER_ENV]: '',
+            // AN AGENT ASKS FOR ITS OWN COMMON GIT DIR: a value this process
+            // inherited from a script that sourced `plot-worker-state.sh` is
+            // blanked, as `plot-dispatch.sh` blanks it on every agent launch.
+            PLOT_GIT_COMMON_DIR: '',
             PLOT_BRANCH: branch,
             PLOT_WORKTREE: worktree,
             PLOT_EXIT_FILE: exitFile,

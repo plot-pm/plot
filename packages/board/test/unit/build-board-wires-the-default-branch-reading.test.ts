@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { answered, type DefaultBranchReading, type DefaultBranchStore } from '@plot-pm/domain';
+import { answered, type Detached, type DefaultBranchReading, type DefaultBranchStore } from '@plot-pm/domain';
+import { readerLockFixture } from '@plot-pm/domain/adapters';
 
 import { buildBoard } from '../../src/server/board.js';
-import { prsByNumber, stopFleetRefresh } from '../../src/server/fleet.js';
+import { prsByNumber, stopFleetRefresh, watchFleet } from '../../src/server/fleet.js';
 import { type Card } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
 
@@ -125,10 +126,15 @@ describe('buildBoard wires the fixture default-branch store and the PR record in
         read: async () => answered(READING),
         write: async () => answered(undefined),
       } satisfies DefaultBranchStore,
+      // An attached page starts the PR reader; these keep it in memory.
+      readerLock: readerLockFixture(),
+      detached: { node: () => ({ pid: 1, exitCode: () => null }) } satisfies Detached,
     };
 
-    // The first build starts the PR refresh and returns before it lands.
+    // A plain build reads no PRs. An attached page starts the PR read, which
+    // returns before it lands.
     await buildBoard(opts);
+    watchFleet(opts, 1);
     await until(() => prsByNumber(opts)?.get(42));
     const board = await buildBoard(opts);
 

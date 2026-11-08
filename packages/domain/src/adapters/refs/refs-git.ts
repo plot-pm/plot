@@ -32,6 +32,7 @@ import {
   resultOf,
 } from '../run-script.js';
 import { parseDiff } from './diff-parse.js';
+import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { agentsFs } from '../agents/agents-fs.js';
 import { hostShell } from '../host/host-shell.js';
 import { planStoreRef } from '../plan-store/plan-store-ref.js';
@@ -434,7 +435,14 @@ const walkPulse = async (context: ShellContext, refs: Refs) => {
   return reading.data;
 };
 
-export const refsGit = (context: ShellContext): Refs => {
+/**
+ * Reads refs, commits and the working tree through git.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param answers - the held top-level and git-directory answers; this process's own by default.
+ * @returns a `Refs` backed by git.
+ */
+export const refsGit = (context: ShellContext, answers: FixedAnswers = processAnswers): Refs => {
   const inRepo = { cwd: context.repoRoot };
 
   const defaultBranch = (): Promise<PortResult<string>> =>
@@ -576,16 +584,11 @@ export const refsGit = (context: ShellContext): Refs => {
 
     currentBranch: () => runScript('git', ['rev-parse', '--abbrev-ref', 'HEAD'], asText, inRepo),
 
-    linkedWorktree: () =>
-      runScript(
-        'git',
-        ['rev-parse', '--absolute-git-dir', '--path-format=absolute', '--git-common-dir'],
-        (stdout) => {
-          const [gitDir, commonDir] = asLines(stdout);
-          return commonDir !== undefined && gitDir !== commonDir;
-        },
-        inRepo,
-      ),
+    linkedWorktree: async () =>
+      resultOf(await answers.gitDirs(context.repoRoot), (stdout) => {
+        const [gitDir, commonDir] = asLines(stdout);
+        return commonDir !== undefined && gitDir !== commonDir;
+      }),
 
     mergeParents: () =>
       runScript(
@@ -726,7 +729,7 @@ export const refsGit = (context: ShellContext): Refs => {
             inRepo,
           ),
 
-    repoRoot: () => runScript('git', ['rev-parse', '--show-toplevel'], asText, inRepo),
+    repoRoot: async () => resultOf(await answers.toplevel(context.repoRoot), asText),
 
     countBehind: async (ref) => {
       // IS THE QUESTION ANSWERABLE, THEN ANSWER IT. A detached HEAD parked at

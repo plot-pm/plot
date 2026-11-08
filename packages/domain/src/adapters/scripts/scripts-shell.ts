@@ -4,6 +4,7 @@ import type { PortResult } from '../../port-result.js';
 import type { HostAnswer, ScriptOptions, Scripts, StartedRun } from '../../ports/scripts.js';
 import { EXIT_OK, EXIT_PARTIAL, EXIT_QUOTA, EXIT_SECONDARY, EXIT_UNASKABLE } from '../host-exit.js';
 import { killGroup, runProcess, runScript, runScriptSync } from '../run-script.js';
+import { processAnswers, withFixedEnv, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** The plan-format contract. */
@@ -17,6 +18,13 @@ const HOST = 'plot-host.sh';
 
 /** The settings file every fleet agent starts with, and the refusal in front of it. */
 const AGENT_SETTINGS = 'plot-agent-settings.sh';
+
+/**
+ * The scripts that start agents. They are started without the fixed
+ * variables, so an agent never inherits `PLOT_REPO_ROOT` or
+ * `PLOT_GIT_COMMON_DIR` from this process's answers.
+ */
+const AGENT_LAUNCHERS: ReadonlySet<string> = new Set(['plot-dispatch.sh', 'plot-fleetctl.sh']);
 
 /** Stdout verbatim, because the scripts ARE the contracts and a parse here would be a second one. */
 const verbatim = (stdout: string): string => stdout;
@@ -36,19 +44,41 @@ const verbatim = (stdout: string): string => stdout;
  * the callers that read those payloads already validate against schemas of their
  * own.
  *
+ * Every script but an agent launcher starts with `PLOT_REPO_ROOT` and
+ * `PLOT_GIT_COMMON_DIR` from the held answers, unless the caller or this
+ * process already sets them.
+ *
  * @param context - where the scripts and the repository are.
+ * @param answers - the held answers the scripts read from their environment; this process's own by default.
  * @returns a `Scripts` backed by the shipped helpers.
  */
-export const scriptsShell = (context: ShellContext): Scripts => {
+export const scriptsShell = (context: ShellContext, answers: FixedAnswers = processAnswers): Scripts => {
   const inRepo = { cwd: context.repoRoot };
-  const withRepo = (options: ScriptOptions = {}) => ({ ...inRepo, ...options });
 
-  const ask = (
+  /** The options for `script`, with the fixed variables read now (and asked on first use). */
+  const withRepo = async (script: string, options: ScriptOptions = {}) =>
+    AGENT_LAUNCHERS.has(script)
+      ? { ...inRepo, ...options }
+      : { ...inRepo, ...options, env: withFixedEnv(await answers.scriptEnv(context.repoRoot), options.env) };
+
+  /** The options for `script`, with the fixed variables this process already holds. Starts no process. */
+  const withRepoSync = (script: string, options: ScriptOptions = {}) =>
+    AGENT_LAUNCHERS.has(script)
+      ? { ...inRepo, ...options }
+      : { ...inRepo, ...options, env: withFixedEnv(answers.heldScriptEnv(context.repoRoot), options.env) };
+
+  /** The environment a detached start of `script` gets, or `undefined` for the process's own. */
+  const startEnv = (script: string, env: Readonly<Record<string, string>> | undefined, fixed: Record<string, string>) => {
+    const extra = AGENT_LAUNCHERS.has(script) ? env : withFixedEnv(fixed, env);
+    return extra === undefined || Object.keys(extra).length === 0 ? undefined : extra;
+  };
+
+  const ask = async (
     script: string,
     args: readonly string[],
     options?: ScriptOptions,
   ): Promise<PortResult<string>> =>
-    runScript('bash', [scriptPath(context, script), ...args], verbatim, withRepo(options));
+    runScript('bash', [scriptPath(context, script), ...args], verbatim, await withRepo(script, options));
 
   return {
     planMeta: (files, options) =>
@@ -63,7 +93,7 @@ export const scriptsShell = (context: ShellContext): Scripts => {
             'bash',
             [scriptPath(context, PLAN_META), ...files],
             verbatim,
-            withRepo(options),
+            withRepoSync(PLAN_META, options),
           ),
 
     config: (key, fallback, options) => ask(CONFIG, ['get', key, fallback], options),
@@ -73,7 +103,7 @@ export const scriptsShell = (context: ShellContext): Scripts => {
         'bash',
         [scriptPath(context, CONFIG), 'get', key, fallback],
         verbatim,
-        withRepo(options),
+        withRepoSync(CONFIG, options),
       ),
 
     host: (args, options) => ask(HOST, args, options),
@@ -81,15 +111,15 @@ export const scriptsShell = (context: ShellContext): Scripts => {
     // THE RAW EXIT CODE TRAVELS, unlike `host` above. This script's 0-with-a-path,
     // 0-with-nothing and 3 are three answers a caller acts on differently, and a
     // PortResult would collapse the two zeroes into one.
-    agentSettings: (options) =>
-      runProcess('bash', [scriptPath(context, AGENT_SETTINGS)], withRepo(options)),
+    agentSettings: async (options) =>
+      runProcess('bash', [scriptPath(context, AGENT_SETTINGS)], await withRepo(AGENT_SETTINGS, options)),
 
 
     hostSaid: async (args, options): Promise<HostAnswer> => {
       const run = await runProcess(
         'bash',
         [scriptPath(context, HOST), ...args],
-        withRepo(options),
+        await withRepo(HOST, options),
       );
       // THE CODE IS READ EXACTLY ONCE, HERE, and what leaves is a word. `4` is
       // the host having no such capability at all, which no caller may retry;
@@ -127,7 +157,7 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       const run = await runProcess(
         interpreter,
         [scriptPath(context, script), ...args],
-        withRepo(options),
+        await withRepo(script, options),
       );
       return run.interrupted === undefined
         ? { stdout: run.stdout, stderr: run.stderr, code: run.code }
@@ -137,11 +167,12 @@ export const scriptsShell = (context: ShellContext): Scripts => {
     start: (script, args, options = {}): StartedRun => {
       const stdio: ('ignore' | number)[] =
         options.log === undefined ? ['ignore', 'ignore', 'ignore'] : ['ignore', options.log, options.log];
+      const env = startEnv(script, options.env, answers.heldScriptEnv(context.repoRoot));
       const child = spawn('bash', [scriptPath(context, script), ...args], {
         cwd: context.repoRoot,
         detached: true,
         stdio,
-        ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
+        ...(env ? { env: { ...process.env, ...env } } : {}),
       });
       if (options.onError) child.on('error', options.onError);
       if (options.onExit) child.on('exit', (code, signal) => options.onExit?.(code, signal));
@@ -155,14 +186,15 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       return { pid: child.pid ?? 0, started: child.pid !== undefined };
     },
 
-    stream: (script, args, onLine, options = {}) =>
-      new Promise<void>((resolve, reject) => {
+    stream: async (script, args, onLine, options = {}) => {
+      const env = startEnv(script, options.env, await answers.scriptEnv(context.repoRoot));
+      return new Promise<void>((resolve, reject) => {
         // DETACHED, so the script leads its own process group and a timeout
         // can end the subshells and children it started, not only `bash`.
         const child = spawn('bash', [scriptPath(context, script), ...args], {
           cwd: context.repoRoot,
           detached: true,
-          ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
+          ...(env ? { env: { ...process.env, ...env } } : {}),
         });
         let buffered = '';
         let settled = false;
@@ -226,14 +258,15 @@ export const scriptsShell = (context: ShellContext): Scripts => {
           if (code === 0) resolve();
           else reject(new Error(`exited ${code}`));
         });
-      }),
+      });
+    },
 
     sourced: (script, program, args, options) =>
       runScriptSync(
         'bash',
         ['-c', program, 'bash', scriptPath(context, script), ...args],
         verbatim,
-        withRepo(options),
+        withRepoSync(script, options),
       ),
 
     pathOf: (script) => scriptPath(context, script),

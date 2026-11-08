@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, startBundleFor, type BuildBoardOptions } from './board.js';
-import { issuesClosedReading } from './fleet.js';
+import { issuesClosedReading, watchFleet } from './fleet.js';
 import { fleetState } from './controllers/fleet-state.js';
 import { probeAppKeysAtBoardStart } from './app-key-probe.js';
 import { boardAnswer } from './controllers/board-answer.js';
@@ -121,6 +121,10 @@ const boardLog = processLog(path.join(logDir(opts.repoRoot), 'board.log'));
 const events = startEventHub({
   address: path.join(opts.repoRoot, '.plot', 'fleet.sock'),
   log: (line) => boardLog.write(`${line}\n`),
+  // THE PULSE RUNS WHILE A STREAM IS ATTACHED. A shown tab is an attached
+  // stream; with none, the board starts no process on its own, and a plain
+  // request gets one cold read through `ensureCache`.
+  onClients: (count) => watchFleet(opts, count),
 });
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
@@ -501,7 +505,8 @@ async function handleRequest(
   }
 
   if (url.pathname === '/api/fleet') {
-    // Reads a cache the server refreshes on its own timer — never runs the
+    // Reads a cache the server refreshes on its pulse while a stream is
+    // attached, or once per cold read otherwise — never runs the
     // scan inline. A 1.05 s synchronous scan on a 4 s poll would block this
     // single-threaded server roughly a quarter of the time.
     try {

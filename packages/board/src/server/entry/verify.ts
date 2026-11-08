@@ -6,6 +6,7 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
 import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-write-spool/hand-off-issue-write';
 import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-write-spool/issue-write-spool-file';
 import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
@@ -835,7 +836,7 @@ const retryWaitFromEnv = (raw: string | undefined): (() => Promise<void>) | unde
  * @returns the root, or `null` outside a repository.
  */
 const resolveRepoRoot = async (cwd: string, scriptDir: string): Promise<string | null> => {
-  const common = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const common = await processAnswers.absoluteCommonDir(cwd, process.cwd());
   const dir = common.stdout.trim();
   if (common.code === 0 && path.basename(dir) === '.git') return path.dirname(dir);
   const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
@@ -850,7 +851,7 @@ const resolveRepoRoot = async (cwd: string, scriptDir: string): Promise<string |
  * @returns the relative path.
  */
 const scriptsRelOf = async (scriptDir: string, repoRoot: string): Promise<string> => {
-  const top = await git(scriptDir, ['rev-parse', '--show-toplevel']);
+  const top = await processAnswers.toplevel(scriptDir);
   if (top.code !== 0) return path.relative(repoRoot, scriptDir);
   return path.relative(realpathSync(top.stdout.trim()), realpathSync(scriptDir));
 };

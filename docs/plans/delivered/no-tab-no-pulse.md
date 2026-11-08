@@ -1,0 +1,1 @@
+../2026-11-08-no-tab-no-pulse.md
