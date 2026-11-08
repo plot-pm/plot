@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
+import { liveFleetdHeartbeat, rmTree } from '../helpers.mjs';
 import { buildBoard } from '../../src/server/board.js';
 import { lastCompletePulseFor, stopFleetRefresh } from '../../src/server/fleet.js';
 
@@ -60,11 +60,12 @@ const fixture = () => {
     summary: { plans: 2, waves: 2, branches: 2, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   };
   // The scan runs in process, so a stub script cannot supply the pulse: the fleet
-  // owns the scan (supervisor up, fresh bridge) and the board reads its pulse.
+  // owns the scan (live fleetd heartbeat, fresh bridge) and the board reads its pulse.
   fs.mkdirSync(path.join(repoRoot, '.plot/state'), { recursive: true });
   fs.writeFileSync(path.join(repoRoot, '.plot/state/last-pulse.json'), JSON.stringify({
     version: 1, at: Date.now(), pulse: reading, ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
   }));
+  liveFleetdHeartbeat(repoRoot);
   const ctl = path.join(scripts, 'plot-fleetctl.sh');
   fs.writeFileSync(ctl, '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n');
   fs.chmodSync(ctl, 0o755);

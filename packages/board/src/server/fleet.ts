@@ -2602,7 +2602,7 @@ const readerLockKey = async (opts: BuildBoardOptions, entry: CacheEntry): Promis
 const indexDirFor = (opts: BuildBoardOptions): Promise<string | null> => readerLockIndexDir({ cwd: opts.repoRoot });
 
 /**
- * Whether a live `fleetd` heartbeat (at most three beats old) whose `pr-reader` loop is on time already reads PRs under this lock — the
+ * Whether `.plot/state/fleetd.json` reads live (at most three beats old) with its `pr-reader` loop on time, so fleetd already reads PRs under this lock — the
  * one check the board's spawn guard and the reader's own exit check must read
  * identically, per the brief, so the board never starts a second reader while
  * fleetd already holds.
@@ -2772,7 +2772,7 @@ const readPrsFromStore = async (opts: BuildBoardOptions, entry: CacheEntry, key:
  *
  * @param held - the lock's highest claim, or null where it names none.
  * @param verdict - the board's own verdict over that claim.
- * @param fleetdLive - whether a live `fleetd` heartbeat exists under the lock.
+ * @param fleetdLive - whether `.plot/state/fleetd.json` reads live with its `pr-reader` loop on time (`fleetdReadsPrs`).
  * @returns the display label.
  */
 export const whoReadsPrs = (held: ReaderClaim | null, verdict: ReaderVerdict, fleetdLive: boolean): string => {

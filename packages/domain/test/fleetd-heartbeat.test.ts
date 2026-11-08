@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -222,6 +223,30 @@ describe('readFleetdHeartbeatSync', () => {
       expect(readFleetdHeartbeatSync(root)).toEqual(heartbeat());
     } finally {
       rmSync(root, { recursive: true });
+    }
+  });
+});
+
+describe('the heartbeat of a linked worktree', () => {
+  it('is the main checkout heartbeat, whichever checkout reads or writes it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-hb-worktree-'));
+    try {
+      const main = join(root, 'main');
+      const linked = join(root, 'linked');
+      mkdirSync(main);
+      const git = (...args: string[]): void => {
+        execFileSync('git', args, { cwd: main, stdio: 'ignore' });
+      };
+      git('init', '--quiet', '-b', 'main');
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'seed');
+      git('worktree', 'add', '--quiet', linked, '-b', 'side');
+      await fleetdHeartbeatFile({ repoRoot: main }).write(heartbeat());
+      expect(fleetdHeartbeatPath(linked)).toBe(fleetdHeartbeatPath(main));
+      expect(readFleetdHeartbeatSync(linked)).toEqual(heartbeat());
+      await fleetdHeartbeatFile({ repoRoot: linked }).write(heartbeat({ pid: 7 }));
+      expect(readFleetdHeartbeatSync(main)?.pid).toBe(7);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

@@ -358,11 +358,14 @@ describe('run — the heartbeat', () => {
     expect(lateLoops(seen, seen.beatAt)).toEqual(['scan']);
   });
 
-  it('ends ownership and the bridge vouch once a failing scan passes its bound', async () => {
+  it.each([
+    ['older than', 20 * 60_000],
+    ['younger than', 5 * 60_000],
+  ])('ends ownership and the bridge vouch once a failing scan passes its bound, with a bridge %s 15 minutes', async (_name, bridgeAge) => {
     // The real scan runs in a plain directory with no scripts, so every scan fails.
     const start = Date.now();
     const clock = clockManual(start);
-    const old = start - 20 * 60_000;
+    const old = start - bridgeAge;
     await fleetStateFile({ repoRoot: dir, now: () => old }).write({
       at: old,
       pulse: FleetReadingSchema.parse({
@@ -403,6 +406,9 @@ describe('run — the heartbeat', () => {
     const seen = last as unknown as FleetdHeartbeat;
     expect(seen.loops.scan?.lastPassAt).toBeNull();
     expect(seen.bridgeAt).toBeNull();
+    // A bridge under 15 minutes old still takes the scan's own `failed` attempt record.
+    const bridge = await fleetStateFile({ repoRoot: dir }).read();
+    if (bridgeAge < 15 * 60_000) expect(bridge.ok && bridge.value?.attempt?.outcome).toBe('failed');
     expect(fleetOwnsScan({ heartbeat: seen, now: seen.beatAt })).toBe(false);
     expect(bridgeVouched({ at: old }, seen, seen.beatAt)).toBe(false);
   });
@@ -440,6 +446,7 @@ describe('the heartbeat vouches for the bridge fleetd wrote', () => {
     approvedAt: new Map(),
     ideaPlans: new Map(),
     prError: null,
+    attempt: { startedAt: at, endedAt: at, outcome: 'ok' as const, error: null },
   });
 
   const beatWith = async (beatClockAt: number): Promise<number> => {
