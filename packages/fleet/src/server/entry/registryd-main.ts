@@ -66,7 +66,7 @@ import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
-import { startFleetdHeartbeat, supervisedFrom } from '../../shared/fleetd-heartbeat.js';
+import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../shared/fleetd-heartbeat.js';
 import { deskDead, type DeskDeadAnswer } from '@plot-pm/domain/rules/desk-dead';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { indexMergedHeads, mergedSetWindowFor, viewLanded } from '@plot-pm/domain/rules/known-pr';
@@ -3104,6 +3104,7 @@ export const run = async (
     passes[loop] = Date.now();
     return value;
   };
+  const bridge = trackBridgeWrites(fleetStateFile({ repoRoot }));
   const fleetLabel =
     process.env.PLOT_FLEET_LABEL ||
     (args.once ? '' : await readConfigAsync({ repoRoot, scriptsDir }, 'Fleet label', 'com.plot-pm.fleetd')) ||
@@ -3118,6 +3119,7 @@ export const run = async (
           startedAt: fleetdStartedAt,
           supervised: supervisedFrom(process.env, fleetLabel),
           passes: () => ({ ...passes }),
+          bridgeAt: bridge.bridgeAt,
           generation: seams.snapshotGeneration ?? (() => 0),
         },
         warn,
@@ -3175,7 +3177,7 @@ export const run = async (
               },
             },
           },
-          fleetStateFile({ repoRoot }),
+          bridge.state,
           scanState,
           () => Date.now(),
           warn,

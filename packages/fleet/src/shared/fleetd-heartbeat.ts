@@ -6,6 +6,7 @@ import {
   type FleetdSupervised,
 } from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
+import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetdHeartbeatStore } from '@plot-pm/domain/ports/fleetd-heartbeat';
 
 /**
@@ -38,6 +39,8 @@ export interface FleetdHeartbeatSource {
   supervised: FleetdSupervised;
   /** The generation of the `RepoSnapshot` fleetd holds. */
   generation: () => number;
+  /** The `at` of the last bridge this process wrote, epoch milliseconds; null before the first write. */
+  bridgeAt: () => number | null;
   /** When each loop last completed a pass, epoch milliseconds; a loop absent here has not passed. */
   passes: () => Partial<Record<FleetdLoop, number>>;
 }
@@ -78,7 +81,7 @@ export const startFleetdHeartbeat = (
       startedAt: source.startedAt,
       beatAt,
       generation: source.generation(),
-      bridgeAt: null,
+      bridgeAt: source.bridgeAt(),
       supervised: source.supervised,
       watchesWanted: 0,
       watchesArmed: 0,
@@ -114,5 +117,26 @@ export const startFleetdHeartbeat = (
     cancel();
     await inflight;
     await store.write(record(0));
+  };
+};
+
+/**
+ * Wraps a bridge store to remember the `at` of the last bridge it wrote.
+ *
+ * @param state - the bridge store fleetd writes through.
+ * @returns the wrapped store and `bridgeAt`, which reads null until a write lands; a failed write leaves it unchanged.
+ */
+export const trackBridgeWrites = (state: FleetState): { state: FleetState; bridgeAt: () => number | null } => {
+  let bridgeAt: number | null = null;
+  return {
+    state: {
+      ...state,
+      write: async (data) => {
+        const written = await state.write(data);
+        if (written.ok) bridgeAt = data.at;
+        return written;
+      },
+    },
+    bridgeAt: () => bridgeAt,
   };
 };
