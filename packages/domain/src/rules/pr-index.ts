@@ -300,6 +300,12 @@ export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] =>
     .map((row) => row.number);
 };
 
+/** The row fields `trustedReview` reads. */
+export type ReviewReading = Pick<
+  PrIndexRow,
+  'headSha' | 'plotReview' | 'plotReviewSha' | 'plotReviewJudged' | 'plotReviewCheckedSha'
+>;
+
 /**
  * Whether a row's `plot/review` rollup reads `success` or `failure` on its head
  * and no judgment holds for that head.
@@ -307,7 +313,7 @@ export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] =>
  * @param row - the stored row.
  * @returns true where fleetd has yet to judge the status against the Review app's login.
  */
-export const needsReviewJudgment = (row: PrIndexRow): boolean =>
+export const needsReviewJudgment = (row: ReviewReading): boolean =>
   row.headSha !== undefined
   && (row.plotReview === 'success' || row.plotReview === 'failure')
   && row.plotReviewSha === row.headSha
@@ -321,7 +327,7 @@ export const needsReviewJudgment = (row: PrIndexRow): boolean =>
  * @param row - the stored row.
  * @returns the trusted state, `'unchecked'`, or `undefined` for a row never asked.
  */
-export const trustedReview = (row: PrIndexRow): NonNullable<PrIndexRow['plotReviewJudged']> | 'unchecked' | undefined => {
+export const trustedReview = (row: ReviewReading): NonNullable<PrIndexRow['plotReviewJudged']> | 'unchecked' | undefined => {
   if (row.plotReviewJudged !== undefined && row.headSha !== undefined && row.plotReviewCheckedSha === row.headSha) {
     return row.plotReviewJudged;
   }
