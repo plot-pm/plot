@@ -3588,6 +3588,9 @@ describe('the row carries the PR condition as fields', () => {
       states: ['green'],
       // The fixture's record names no author, so the owner is unknown.
       author: '',
+      // The release row's approval reading: `open` is always stated, the rest
+      // only where the record carries them.
+      open: true,
     });
   });
 
