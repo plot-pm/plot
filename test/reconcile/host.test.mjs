@@ -293,6 +293,8 @@ function makeStubsRateAware({
   coreRemaining = 5000,
   graphqlJson = '{}',
   restJson = '{}',
+  checkRunsJson = '{"total_count":0,"check_runs":[]}',
+  statusJson = '{"total_count":0,"statuses":[]}',
   rateFail = null,
   restFail = null,
 } = {}) {
@@ -335,7 +337,11 @@ case "$1 $2" in
   "api graphql") ${rateBody} ;;
   *)
     case "$1" in
-      api) ${restBody} ;;
+      api) case "$2" in
+        */check-runs*) printf '%s' '${q(checkRunsJson)}' ;;
+        */commits/*/status*) printf '%s' '${q(statusJson)}' ;;
+        *) ${restBody} ;;
+      esac ;;
       pr) printf '%s' '${q(graphqlJson)}' ;;
       repo) printf '%s' '{"defaultBranchRef":{"name":"main"},"nameWithOwner":"owner/repo"}' ;;
       *) printf '%s' '{}' ;;
@@ -6700,19 +6706,21 @@ test('host: rate-limit bitbucket reports unknown and asks nothing', () => {
 // arrives THROUGH REST. Asserting "no error was thrown" would pass against an
 // adapter that answered from nowhere — the argv is what proves the route.
 test('host: pr-state falls back to REST when the GraphQL budget is spent', () => {
+  const sha = 'c'.repeat(40);
   const stubs = makeStubsRateAware({
     graphqlRemaining: 0,
     coreRemaining: 4997,
     restJson: JSON.stringify({
       number: 7, state: 'open', draft: false,
       html_url: 'https://example.test/pr/7', merged: false, merge_commit_sha: null,
-      base: { ref: 'main' },
+      head: { ref: 'feature/x', sha }, base: { ref: 'main' }, mergeable: true, mergeable_state: 'clean',
     }),
+    checkRunsJson: JSON.stringify({ total_count: 1, check_runs: [{ name: 'build', status: 'completed', conclusion: 'success' }] }),
   });
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: '', headSha: '', base: 'main', checks: 'unknown',
-    mergeable: 'unknown', mergedAt: '',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', head: 'feature/x', headSha: sha, base: 'main',
+    checks: 'green', ciChecks: 'green', checksSha: sha, mergeable: 'mergeable', mergedAt: '',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -6802,15 +6810,18 @@ test('host: an unreadable budget keeps the cheap path, never the fallback', () =
 // reports every merged PR as CLOSED — the same confusion `plot-reap.sh` was
 // built around.
 test('host: the REST fallback and the GraphQL path speak one vocabulary', () => {
+  const sha = 'c'.repeat(40);
+  const merge = '6302e85b7123790c8f7419831ed1500957bcf571';
   const viaRest = JSON.parse(run(['pr-state', '7'], {
     env: { PLOT_HOST: 'github' },
     stubs: makeStubsRateAware({
       graphqlRemaining: 0,
       restJson: JSON.stringify({
-        number: 7, state: 'closed', draft: false, merged: true,
-        html_url: 'https://example.test/pr/7',
-        merge_commit_sha: '6302e85b7123790c8f7419831ed1500957bcf571',
+        number: 7, state: 'closed', draft: false, merged: true, merged_at: '2026-11-08T10:00:00Z',
+        html_url: 'https://example.test/pr/7', merge_commit_sha: merge,
+        head: { ref: 'feature/x', sha }, base: { ref: 'main' }, mergeable: null, mergeable_state: 'unknown',
       }),
+      checkRunsJson: JSON.stringify({ total_count: 1, check_runs: [{ name: 'build', status: 'completed', conclusion: 'success' }] }),
     }),
   }));
   const viaGraphql = JSON.parse(run(['pr-state', '7'], {
@@ -6818,18 +6829,77 @@ test('host: the REST fallback and the GraphQL path speak one vocabulary', () => 
     stubs: makeStubsRateAware({
       graphqlRemaining: 4998,
       graphqlJson: JSON.stringify({
-        number: 7, state: 'MERGED', isDraft: false,
-        url: 'https://example.test/pr/7',
-        mergeCommit: { oid: '6302e85b7123790c8f7419831ed1500957bcf571' },
+        number: 7, state: 'MERGED', isDraft: false, url: 'https://example.test/pr/7', mergeCommit: { oid: merge },
+        headRefName: 'feature/x', headRefOid: sha, baseRefName: 'main', mergedAt: '2026-11-08T10:00:00Z',
+        mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN',
+        statusCheckRollup: [{ name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
       }),
     }),
   }));
-  // REST carries no rollup, so it answers checks `unknown` where GraphQL reads one; that is the one deliberate difference.
-  const { checks: restChecks, checksSha: _rs, ciChecks: _rc, ...restRest } = viaRest;
-  const { checks: _gc, checksSha: _gs, ciChecks: _gcc, ...graphqlRest } = viaGraphql;
-  assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
-  assert.deepEqual(restRest, graphqlRest, 'a caller must not be able to tell which route answered');
+  assert.deepEqual(viaRest, viaGraphql, 'a caller must not be able to tell which route answered');
   assert.equal(viaRest.state, 'MERGED', "REST's lowercase `closed` + `merged:true` is MERGED");
+});
+
+// AN OPEN PR'S `merge_commit_sha` IS A TEST MERGE, NOT A MERGE. REST fills it for
+// a PR that has not merged, so reading it as `mergeCommit` would answer "which
+// release contains this?" with a commit no release holds.
+test('host: pr-state over REST gives mergeCommit "" for an open PR whose merge_commit_sha is a test merge', () => {
+  const stubs = makeStubsRateAware({
+    restJson: JSON.stringify({ number: 7, state: 'open', merged: false, merge_commit_sha: 'f'.repeat(40), head: { sha: 'c'.repeat(40) } }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs }));
+  assert.equal(out.mergeCommit, '');
+});
+
+// EVERY ROW OF THE GRAPHQL FOLD'S TABLE HOLDS OVER REST: a check-run or a legacy
+// status folds to the same word either way, because both routes share one jq.
+for (const [runs, statuses, word] of [
+  [[{ status: 'completed', conclusion: 'success' }], [], 'green'],
+  [[{ status: 'completed', conclusion: 'failure' }], [], 'failing'],
+  [[{ status: 'in_progress', conclusion: null }], [], 'pending'],
+  [[{ status: 'completed', conclusion: 'success' }], [{ context: 'ci', state: 'failure' }], 'failing'],
+  [[], [{ context: 'ci', state: 'success' }], 'green'],
+  [[], [], 'none'],
+]) {
+  test(`host: pr-state over REST folds ${JSON.stringify([runs, statuses])} to ${word}`, () => {
+    const stubs = makeStubsRateAware({
+      restJson: JSON.stringify({ number: 7, state: 'open', merged: false, head: { sha: 'c'.repeat(40) } }),
+      checkRunsJson: JSON.stringify({ total_count: runs.length, check_runs: runs.map((r, i) => ({ name: `c${i}`, ...r })) }),
+      statusJson: JSON.stringify({ total_count: statuses.length, statuses }),
+    });
+    const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs }));
+    assert.equal(out.checks, word);
+  });
+}
+
+// A PAGE THAT HOLDS FEWER ROWS THAN THE HOST COUNTS IS NOT GREEN. 100 check-runs
+// is one page; a 101st run could be red, so the fold reads the unseen rest as
+// pending rather than letting the first page decide.
+test('host: pr-state over REST reads a truncated check-run page as pending, never green', () => {
+  const stubs = makeStubsRateAware({
+    restJson: JSON.stringify({ number: 7, state: 'open', merged: false, head: { sha: 'c'.repeat(40) } }),
+    checkRunsJson: JSON.stringify({ total_count: 101, check_runs: [{ name: 'a', status: 'completed', conclusion: 'success' }] }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs }));
+  assert.equal(out.checks, 'pending');
+});
+
+// ABSENT IS NOT FALSE. A failed checks read must not print `checks: none` for a PR
+// that has checks: it exits 3 and prints no JSON, like a failed PR read.
+test('host: pr-state over REST exits 3 and prints no JSON when the checks read fails', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-checkfail-')));
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+case "$2" in
+  */check-runs*) echo 'gh: Bad Gateway (HTTP 502)' >&2; exit 1 ;;
+  */pulls/7) printf '%s' '{"number":7,"state":"open","merged":false,"head":{"sha":"${'c'.repeat(40)}"}}' ;;
+  *) printf '{}' ;;
+esac
+`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const res = runAllowFail(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs: { dir } });
+  assert.equal(res.code, 3);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /checks read failed/);
 });
 
 // A branch name is not a PR number, and REST needs a different endpoint for it
@@ -7353,22 +7423,23 @@ test('host: PLOT_HOST_FORCE_REST routes without reading the budget', () => {
   );
 });
 
-test('host: pr-state over REST names the head and claims no checks', () => {
+test('host: pr-state over REST names the head and binds the checks to it', () => {
   const sha = 'c'.repeat(40);
   const stubs = makeStubsRateAware({
     restJson: JSON.stringify({
       number: 7, state: 'open', draft: false, html_url: 'u', merged: false,
       merge_commit_sha: null, head: { sha },
     }),
+    checkRunsJson: JSON.stringify({ total_count: 1, check_runs: [{ name: 'build', status: 'completed', conclusion: 'success' }] }),
   });
   const out = JSON.parse(run(['pr-state', '7'], {
     env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs,
   }));
   assert.equal(out.headSha, sha);
-  assert.equal(out.checks, 'unknown');
-  assert.ok(!('checksSha' in out), 'a REST answer binds no checks to a commit');
+  assert.equal(out.checks, 'green');
+  assert.equal(out.checksSha, sha, 'the checks were read for this commit');
+  assert.ok(callsOf(stubs.callsFile).some((c) => c.startsWith(`api repos/{owner}/{repo}/commits/${sha}/check-runs`)));
 });
-
 test('host: a GraphQL-only op stays on GraphQL even under PLOT_HOST_FORCE_REST', () => {
   // THE ROUTER ANSWERS FOR WHAT THIS SCRIPT HAS, NOT FOR WHAT GITHUB OFFERS.
   // GitHub serves `pr list` over REST perfectly well; this script has not
@@ -11671,7 +11742,7 @@ printf '%s\\n' "$*" >> "${callsFile}"
 case "$1" in
   pr) echo 'GraphQL: API rate limit already exceeded for user ID 870334.' >&2; exit 1 ;;
   repo) printf '%s' '{"nameWithOwner":"owner/repo"}'; exit 0 ;;
-  api) case "$2" in 'repos/{owner}/{repo}/'*) ${restArm} ;; *) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;; esac ;;
+  api) case "$2" in *check-runs*|*/status*) [ "${rest}" = throttled ] && { echo 'gh: API rate limit exceeded (HTTP 403)' >&2; exit 1; }; printf '{}' ;; 'repos/{owner}/{repo}/'*) ${restArm} ;; *) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;; esac ;;
 esac
 `);
   chmodSync(path.join(dir, 'gh'), 0o755);
