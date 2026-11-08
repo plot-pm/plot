@@ -242,18 +242,23 @@ test('commit-status: a failed statuses write exits 3 and names the context', asy
   assert.match(got.err, /HTTP 422 writing plot\/review on deadbeef/);
 });
 
-test('commit-status: a failed gh repo view names the lookup in the refusal', async () => {
-  // CATCHES the uninformative "could not resolve owner/repo" refusal the
-  // brief names: a reader debugging a stuck commit-status write had to
-  // re-derive that `gh repo view` was the failing call themselves.
+test('commit-status: an origin remote naming no owner/repo refuses before any API call', async () => {
+  // CATCHES the uninformative "could not resolve owner/repo" refusal: with no
+  // origin remote the slug is empty, the call exits 3 and nothing is asked.
   const box = sandbox();
-  fs.writeFileSync(path.join(box.bin, 'gh'), '#!/bin/sh\necho "gh $*" >> "' + box.calls + '"\nexit 1\n');
-  fs.chmodSync(path.join(box.bin, 'gh'), 0o755);
+  execFileSync('git', ['-C', box.root, 'remote', 'remove', 'origin']);
   const api = await fakeGitHub();
   const got = await commitStatus(box, ARGS, api.url);
   assert.equal(got.code, 3);
-  assert.match(got.err, /gh repo view/);
+  assert.match(got.err, /could not resolve owner\/repo/);
   assert.equal(api.requests.length, 0, 'no API call once the repo lookup failed');
+});
+
+test('commit-status: the repo is read from the origin remote and gh is never asked', async () => {
+  const box = sandbox();
+  const api = await fakeGitHub();
+  await commitStatus(box, ARGS, api.url);
+  assert.doesNotMatch(callLog(box), /^gh /m);
 });
 
 test('commit-status: a missing argument exits 1 before gh or the API is asked', async () => {

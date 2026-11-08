@@ -22,16 +22,19 @@ const tmp = (tag) => {
 after(() => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
 
 /**
- * A `gh` answering `pr view` and the paginated statuses read. `view` is the JSON
- * body; `statuses` is one page, or `pages` several, printed back to back the way
- * `gh api --paginate` prints them.
+ * A `gh` answering the REST reads `pr-review` makes: the pull, its issue comments
+ * and the paginated statuses. `view` holds the head sha and the comments;
+ * `statuses` is one page, or `pages` several, printed back to back the way
+ * `gh api --paginate` prints them. A call to `pr view` or `api graphql` exits 9,
+ * so a GraphQL read fails the test.
  */
-const ghStub = ({ view, statuses, pages = [statuses], failOn = null }) => {
+const ghStub = ({ view, statuses, pages = [statuses], commentPages = [view.comments], failOn = null }) => {
   const dir = tmp('pr-review');
   const body = `#!/usr/bin/env bash
 case "$*" in
   *${failOn ?? 'NEVER-MATCHES'}*) echo "HTTP 502" >&2; exit 1 ;;
-  "pr view 7 --json headRefOid,comments") printf '%s' ${JSON.stringify(JSON.stringify(view))} ;;
+  "api repos/{owner}/{repo}/pulls/7 --include") printf '%s' ${JSON.stringify(JSON.stringify({ head: { sha: view.headRefOid } }))} ;;
+  "api --paginate repos/{owner}/{repo}/issues/7/comments?per_page=100") printf '%s' ${JSON.stringify(commentPages.map((page) => JSON.stringify(page)).join(''))} ;;
   "api --paginate repos/{owner}/{repo}/commits/abc123/statuses?per_page=100") printf '%s' ${JSON.stringify(pages.map((page) => JSON.stringify(page)).join(''))} ;;
   *) exit 9 ;;
 esac
@@ -110,12 +113,30 @@ test('pr-review reports a comment starting review-bypass:', () => {
 });
 
 test('pr-review exits 3 and prints no JSON when a read fails', () => {
-  for (const failOn of ['pr view', 'statuses']) {
+  for (const failOn of ['pulls/7', 'issues/7/comments', 'statuses']) {
     const r = prReview(ghStub({ view: view(), statuses: [], failOn }));
     assert.equal(r.status, 3, `${failOn}: ${r.stderr}`);
     assert.equal(r.stdout, '');
     assert.match(r.stderr, /pr-review: the read failed/);
   }
+});
+
+test('pr-review finds a review-bypass: comment that exists only on the second page', () => {
+  const r = prReview(ghStub({
+    view: view(),
+    commentPages: [[{ body: 'looks fine' }], [{ body: 'review-bypass: reviewer stuck — jwloka' }]],
+    statuses: [],
+  }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).bypass, true);
+});
+
+test('pr-review makes no GraphQL call', () => {
+  const dir = ghStub({ view: view(), statuses: [] });
+  const log = path.join(dir, 'calls');
+  fs.writeFileSync(path.join(dir, 'gh'), fs.readFileSync(path.join(dir, 'gh'), 'utf8').replace('case "$*" in', `echo "$*" >> ${JSON.stringify(log)}\ncase "$*" in`));
+  assert.equal(prReview(dir).status, 0);
+  assert.doesNotMatch(fs.readFileSync(log, 'utf8'), /graphql|pr view/);
 });
 
 /**
