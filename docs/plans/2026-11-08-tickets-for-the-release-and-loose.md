@@ -49,13 +49,13 @@ The design spec settles the behaviour. This plan orders the work and names the s
 
 Every rendered state is a domain property (CLAUDE.md, "Every rendered state is a domain property"). New domain code uses arrow functions and the vocabulary Slice, Agent, Worker.
 
-### Open Questions
+### Settled Questions
 
-- [ ] Do plans 1 and 2 of the Delivery tab design exist as plans yet? The groups under **You** and the one-line row forms belong to them. Slices 3 to 5 below place rows into groups that plan 1 creates, so those slices wait on it.
-- [ ] Where does the "opened by sprint" record live: a field in the issue index, a label on the ticket, or a record in the sprint file? A label writes to the tracker, and the index holds bought answers only, so the record may belong to the sprint file.
-- [ ] Which Jira field and which GitHub field hold the release name for a ticket that has several milestones or fix versions? The design says "a milestone whose name is the release version" and does not say what a ticket with two does.
-- [ ] Which existing controller owns "release" for a loose PR: `plot-ask.mjs merge` (refuses a release PR) or a new one? The word "release" in the design may mean "hand the branch to the fleet", and it must not mean "publish a version".
-- [ ] Does the delete controller run with no board, like `plot-restart-command.mjs`, or only over HTTP?
+- Plans 1 and 2 exist: `every-work-item-and-agent-shows` (#3248) and `rows-share-seven-columns-and-link` (#3249). The slices that place rows into **You** or onto the release line wait on plan 1's `feature/delivery-tab-sections`.
+- The "opened by sprint" record lives in the sprint file: a line under the sprint's Notes names the ticket and the slice that opened it. Nothing is written to the tracker, and the issue index keeps bought answers only. Settled by jwloka, 2026-11-08.
+- A ticket is planned for the release when any of its Jira fix versions, or its one GitHub milestone, has the release version as its name. Writer's call.
+- "Release" for a loose end means giving up its claim and deleting its ref through `plot-dispatch.sh --release`, never publishing a version. Writer's call.
+- The delete controller runs over HTTP and with no board, as `plot-restart-command.mjs` does. Writer's call.
 
 ## Slices
 
@@ -66,13 +66,13 @@ Every rendered state is a domain property (CLAUDE.md, "Every rendered state is a
 
 ### Tickets on the board
 
-- `feature/tickets-reach-input-to-the-fleet` — the rule lists my unplanned tickets, and the Sprint filter narrows them to the target release
-- `feature/sprint-work-records-the-ticket-it-opened` — the board records "opened by sprint" where sprint work opens a ticket, and the row shows the mark
-- `feature/the-release-line-counts-tickets` — closed, planned and untriaged ticket counts on the release line
+- `feature/tickets-reach-input-to-the-fleet` <!-- waits: feature/delivery-tab-sections --> — the rule lists my unplanned tickets, and the Sprint filter narrows them to the target release
+- `feature/sprint-work-records-the-ticket-it-opened` <!-- waits: feature/delivery-tab-sections --> — the board records "opened by sprint" where sprint work opens a ticket, and the row shows the mark
+- `feature/the-release-line-counts-tickets` <!-- waits: feature/delivery-tab-sections --> — closed, planned and untriaged ticket counts on the release line
 
 ### Loose ends
 
-- `feature/loose-ends-show-under-unblock` — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch -->
+- `feature/loose-ends-show-under-unblock` <!-- waits: feature/delivery-tab-sections --> — a PR or branch that no plan names and nobody works on shows under **You › Unblock** with its actions <!-- builds: release and delete controllers for a loose PR or branch -->
 
 ## Notes
 
