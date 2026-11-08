@@ -58,7 +58,7 @@ The release action goes through a controller, not a script call (CLAUDE.md, *The
 
 ### Episode
 
-- `bug/an-ended-repair-episode-releases-its-claim` — release the attempt's claim ref and desk when an episode ends with outcome `ended`
+- `bug/an-ended-repair-episode-releases-its-claim` — release the attempt's claim ref and desk when an episode ends with outcome `ended` → #3239
 
 ### Board
 
