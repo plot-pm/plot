@@ -260,7 +260,10 @@ export {
 
 export {
   subscribe,
+  subscribeSnapshot,
   findingsIn,
+  type SnapshotStateListener,
+  type SubscribeSnapshotOptions,
   type SubscribeOptions,
   type Subscribed,
 } from './channel/channel-client.js';

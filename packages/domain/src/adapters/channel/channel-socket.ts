@@ -8,7 +8,9 @@ import {
 } from '../../entities/channel-message.js';
 import { MEASURABLE, absorb, admit, monitorLiveness, onJoin, route } from '../../rules/channel.js';
 import { FindingSchema, type Finding, type MonitorName } from '../../entities/finding.js';
-import { isServed, type Subscription } from '../../entities/subscription.js';
+import { SNAPSHOT_PROTOCOL, isServed, type Subscription } from '../../entities/subscription.js';
+import type { ReadingKey, RepoSnapshot } from '../../entities/snapshot.js';
+import { deltaOf } from '../../rules/snapshot-delta.js';
 
 /**
  * The channel's transport: a unix socket under `.plot/`, speaking NDJSON.
@@ -45,6 +47,19 @@ export interface ChannelOptions {
   heartbeatMs?: number;
   /** Reads the clock. Injected so `measuredAt` is assertable. */
   now?: () => string;
+  /**
+   * The snapshot a `snapshot` subscriber receives when it joins.
+   *
+   * Absent where the process holds none: the purpose is then refused by name.
+   */
+  snapshot?: () => RepoSnapshot;
+  /** This process's epoch; its start time and pid by default. A test names one. */
+  epoch?: string;
+  /**
+   * Decides whether a request is served. `admit` by default; a test passes a
+   * recorded older version to stand in for a channel built from an older commit.
+   */
+  admit?: typeof admit;
 }
 
 /** The channel, once it is listening. */
@@ -53,6 +68,19 @@ export interface RunningChannel extends ChannelPort {
   findings(): readonly Finding[];
   /** How many subscribers are connected. */
   subscriberCount(): number;
+  /** The epoch this channel sends in `snapshot` and `delta` messages. */
+  epoch: string;
+  /**
+   * Sends one `delta` to every `snapshot` subscriber after the snapshot changed.
+   *
+   * Sends nothing where no key changed. An `everything` or `until` subscriber
+   * receives nothing from it.
+   *
+   * @param before - the snapshot before the change.
+   * @param after - the snapshot after it.
+   * @param changed - the keys whose content changed.
+   */
+  snapshotChanged(before: RepoSnapshot, after: RepoSnapshot, changed: readonly ReadingKey[]): void;
   /**
    * Publishes a finding from inside the process and leaves its monitor's
    * `lastSeen` unchanged.
@@ -101,6 +129,8 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
   const { address } = options;
   const heartbeatMs = options.heartbeatMs ?? HEARTBEAT_MS;
   const now = options.now ?? (() => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'));
+  const epoch = options.epoch ?? `${new Date().toISOString()}#${process.pid}`;
+  const admitRequest = options.admit ?? admit;
 
   /** The current findings, keyed by monitor and branch — replaced, never appended. */
   let held: readonly Finding[] = [];
@@ -138,7 +168,7 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
       if (joined) return;
       joined = true;
 
-      const admission = admit(id, parsed);
+      const admission = admitRequest(id, parsed);
       if (!admission.ok) {
         // REFUSED IMMEDIATELY rather than left pending, which is the whole
         // point — a subscriber waiting forever on a condition nobody checks is
@@ -154,6 +184,25 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
       }
 
       const { subscription } = admission;
+      if (subscription.purpose.kind === 'snapshot') {
+        // A SNAPSHOT SUBSCRIBER GETS THE WHOLE SNAPSHOT AND THEN DELTAS, and no
+        // `welcome`: it holds no findings. A process with no snapshot refuses
+        // by name rather than leaving the reader waiting.
+        if (options.snapshot === undefined) {
+          connection.send({
+            type: 'refused',
+            reason: 'this channel holds no snapshot',
+            asked: `snapshot protocol ${SNAPSHOT_PROTOCOL}`,
+            measurable: [...MEASURABLE],
+          });
+          connection.close();
+          return;
+        }
+        const snapshot = options.snapshot();
+        connection.send({ type: 'snapshot', protocol: SNAPSHOT_PROTOCOL, epoch, generation: snapshot.generation, snapshot });
+        subscriptions.set(id, { subscription, connection });
+        return;
+      }
       const { send, finished } = onJoin(subscription, held);
       connection.send({ type: 'welcome', current: [...send], measurable: [...MEASURABLE] });
 
@@ -241,6 +290,14 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
       lastSeen.set(monitor, now());
     },
     subscriberCount: () => subscriptions.size,
+    epoch,
+    snapshotChanged: (before, after, changed) => {
+      const delta = deltaOf(epoch, before, after, changed);
+      if (delta === undefined) return;
+      for (const { subscription, connection } of subscriptions.values()) {
+        if (subscription.purpose.kind === 'snapshot') connection.send(delta);
+      }
+    },
     stop: async () => {
       clearInterval(beat);
       for (const { connection } of subscriptions.values()) connection.close();
