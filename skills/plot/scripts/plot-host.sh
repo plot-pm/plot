@@ -2552,11 +2552,7 @@ rest_pr_state() { # $1=owner/repo $2=PR number
   if [ -n "$sha" ]; then
     ck="$(gh_api_harvest "repos/$1/commits/$sha/check-runs?per_page=100")" && st="$(gh_api_harvest "repos/$1/commits/$sha/status?per_page=100")" || return 2
   fi
-  printf '%s\n%s\n%s\n' "$pr" "$ck" "$st" | jq -cs "$CHECKS_OF$MERGEABLE_OF"'.[0] as $p | (.[1].check_runs // []) as $c | (.[2].statuses // []) as $s | (($p.merged == true) or ($p.merged_at != null)) as $m
-    | {number: $p.number, state: (if $m then "MERGED" else ($p.state // "" | ascii_upcase) end), isDraft: ($p.draft // false), url: ($p.html_url // ""), mergeCommit: (if $m then {oid: ($p.merge_commit_sha // "")} else null end), headRefName: ($p.head.ref // ""), headRefOid: ($p.head.sha // ""), baseRefName: ($p.base.ref // ""), mergedAt: ($p.merged_at // ""),
-       mergeable: (if $p.mergeable == true then "MERGEABLE" elif $p.mergeable == false then "CONFLICTING" else "UNKNOWN" end), mergeStateStatus: (($p.mergeable_state // "") | ascii_upcase),
-       statusCheckRollup: ([$c[] | {name, status: ((.status // "") | ascii_upcase), conclusion: ((.conclusion // "") | ascii_upcase)}] + [$s[] | {context, state: ((.state // "") | ascii_upcase)}] + (if ((.[1].total_count // 0) > ($c | length)) or ((.[2].total_count // 0) > ($s | length)) then [{status: "QUEUED"}] else [] end))}
-    | '"$PR_STATE_OF"
+  printf '%s\n%s\n%s\n' "$pr" "$ck" "$st" | jq -cs "$CHECKS_OF$MERGEABLE_OF"'.[0] as $p | (.[1].check_runs // []) as $c | (.[2].statuses // []) as $s | (($p.merged == true) or ($p.merged_at != null)) as $m | {number: $p.number, state: (if $m then "MERGED" else ($p.state // "" | ascii_upcase) end), isDraft: ($p.draft // false), url: ($p.html_url // ""), mergeCommit: (if $m then {oid: ($p.merge_commit_sha // "")} else null end), headRefName: ($p.head.ref // ""), headRefOid: ($p.head.sha // ""), baseRefName: ($p.base.ref // ""), mergedAt: ($p.merged_at // ""), mergeable: (if $p.mergeable == true then "MERGEABLE" elif $p.mergeable == false then "CONFLICTING" else "UNKNOWN" end), mergeStateStatus: (($p.mergeable_state // "") | ascii_upcase), statusCheckRollup: ([$c[] | {name, status: ((.status // "") | ascii_upcase), conclusion: ((.conclusion // "") | ascii_upcase)}] + [$s[] | {context, state: ((.state // "") | ascii_upcase)}] + (if ((.[1].total_count // 0) > ($c | length)) or ((.[2].total_count // 0) > ($s | length)) then [{status: "QUEUED"}] else [] end))} |'"$PR_STATE_OF"
 }
 
 # `owner/repo` from the `origin` URL, with no host call. An `ssh://` URL may carry
@@ -2564,7 +2560,7 @@ rest_pr_state() { # $1=owner/repo $2=PR number
 # colon. Prints nothing and exits 1 where the URL names no `owner/repo`.
 gh_origin_slug() {
   local u; u="$(git config --get remote.origin.url 2>/dev/null)" || return 1
-  if [[ "$u" == *://* ]]; then u="$(sed -E 's#^[^:]+://([^@/]*@)?[^/:]+(:[0-9]+)?/##' <<<"$u")"; else u="$(sed -E 's#^([^@/:]*@)?[^/:]+:##' <<<"$u")"; fi
+  if [[ "$u" == *://* ]]; then u="${u#*://}"; u="${u#*@}"; u="${u#*/}"; else u="${u#*:}"; fi
   u="${u%/}"; u="${u%.git}"; [[ "$u" =~ ^[^/]+/[^/]+$ ]] && printf '%s\n' "$u"
 }
 
