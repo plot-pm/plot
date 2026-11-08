@@ -15,6 +15,7 @@
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-write`
 - **Approved:** 2026-11-08, jwloka, in-session
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-read`
+- **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-sync`
 
 ## Changelog
 
