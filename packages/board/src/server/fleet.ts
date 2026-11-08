@@ -5802,11 +5802,19 @@ export function rowKind(
 export function agentPr(pr: PrRecord): {
   number: number; url: string; draft: boolean;
   state: PrStateWord; states: PrStateWord[]; author: string;
+  open: boolean;
+  headSha?: string; checksSha?: string; ciChecks?: PrRecord['ciChecks'];
+  plotReview?: PrRecord['plotReview']; plotReviewSha?: string;
+  plotReviewJudged?: PrRecord['plotReviewJudged']; plotReviewCheckedSha?: string;
 } {
   const states = prStates(pr);
   return {
     number: pr.number, url: pr.url ?? '', draft: pr.draft === true, state: states[0], states,
     author: pr.author ?? '',
+    open: pr.state === 'OPEN',
+    headSha: pr.headSha, checksSha: pr.checksSha, ciChecks: pr.ciChecks,
+    plotReview: pr.plotReview, plotReviewSha: pr.plotReviewSha,
+    plotReviewJudged: pr.plotReviewJudged, plotReviewCheckedSha: pr.plotReviewCheckedSha,
   };
 }
 

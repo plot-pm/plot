@@ -1,5 +1,5 @@
 // The browser's calls to the passkey routes, shared by the settings view
-// (registration) and the sidebar panel (release approval). The server decides;
+// (registration) and the release PR row (release approval). The server decides;
 // this file only calls.
 import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
 import { ACTION_TIMEOUT_MS } from './bounded-fetch.js';
