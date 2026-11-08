@@ -20,6 +20,10 @@ The census measures the outcome. Row S3 (an idle board with one visible tab and 
 All work for this sprint goes to the integration branch `sprint/the-board-reads-the-channel`. The sprint PR merges into `main` at sprint close.
 
 ### Must Have
+- [ ] [the-snapshot-entity] One snapshot of answers per repository (#3170)
+- [ ] [the-channel-carries-readings] The channel carries the snapshot (#3170)
+- [ ] [fleetd-heartbeat-not-data-age] fleetd says it is alive on a timer (#3170)
+- [ ] [board-reads-the-channel] The board reads fleetd's snapshot and starts nothing (#3170)
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`
