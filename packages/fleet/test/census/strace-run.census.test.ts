@@ -14,6 +14,10 @@ describe.skipIf(gate.kind !== 'run')('traceExecs under strace -f', () => {
     const one = rest.find((e) => e.argv.join(' ') === '/bin/echo one');
     const inner = rest.find((e) => e.path === '/bin/sh');
     const two = rest.find((e) => e.argv.join(' ') === '/bin/echo two');
+    const seen = JSON.stringify(actual.execs);
+    expect(one, seen).toBeDefined();
+    expect(inner, seen).toBeDefined();
+    expect(two, seen).toBeDefined();
     expect(one?.ppid).toBe(root?.pid);
     expect(inner?.ppid).toBe(root?.pid);
     expect(two?.ppid).toBe(inner?.pid);
