@@ -534,7 +534,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // card's sections, its collapsed relations, *Add plan* and the ticket a story
 // answers (one-card-grammar, Stories slice). It serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 83;
+// 83 → 84 on 2026-11-07: `settings-view.browser.test.ts`, for the header gear's
+// marker and Settings closing back to the tab it left. It serves its state
+// through the catalogue and starts no board.
+const EXPECTED_FILES = 84;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -885,7 +888,9 @@ const EXPECTED_FILES = 83;
 // work in an agent row's menu. `EXPECTED_FILES` is unchanged.
 // 667 → 671 AND 82 → 83 FILES on 2026-11-07: four `it(` in the new
 // `story-card-grammar.browser.test.ts`. Added, not moved.
-const EXPECTED_TESTS = 671;
+// 671 → 673 on 2026-11-07: two `it(` in the new `settings-view.browser.test.ts`.
+// `EXPECTED_FILES` moves by 1.
+const EXPECTED_TESTS = 673;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
