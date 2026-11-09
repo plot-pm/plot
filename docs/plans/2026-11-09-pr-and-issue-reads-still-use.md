@@ -11,6 +11,7 @@
 - **Issue:** #3317
 - **Review:** pr
 - **Impl:** own branches
+- **Started:** 2026-11-09, Jan Wloka, `bug/pr-and-issue-reads-still-use`
 
 ## Changelog
 
