@@ -104,6 +104,22 @@ test('ci.yml no longer lists changeset-release/main under push', () => {
   assert.match(push, /branches: \[main\]/, 'the push trigger must keep main');
 });
 
+test('ci.yml starts a pull request run for main and sprint branches, and a push run for main only', () => {
+  const pr = triggerBlock(CI, 'pull_request');
+  assert.match(pr, /branches: \[main, 'sprint\/\*\*'\]/, 'a slice PR into a sprint branch must start a run');
+  const push = triggerBlock(CI, 'push');
+  assert.match(push, /branches: \[main\]/, 'the push trigger must stay main only');
+  assert.doesNotMatch(push, /sprint/, 'a direct push to a sprint branch must start no run');
+});
+
+test('a pull request run into a sprint branch gets the group of a pull request run into main', () => {
+  const head = preamble(CI);
+  const block = head.slice(head.indexOf('\nconcurrency:'));
+  const group = block.split('\n').find((l) => /^\s*group:/.test(l));
+  assert.ok(group, 'ci.yml must declare a top-level concurrency group');
+  assert.doesNotMatch(group, /base_ref/, 'the group must not branch on the PR base');
+});
+
 test("ci.yml's comment states the measured mechanism rather than the push run", () => {
   const head = preamble(CI);
   // The predecessor comment claimed a push-triggered run "reports without
