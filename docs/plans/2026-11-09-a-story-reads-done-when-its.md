@@ -50,7 +50,7 @@ Measured 2026-11-09 on the board, three stories read Done and the Active lane wa
 
 ### Lane and progress
 
-- `bug/a-story-reads-done-when-its` — a new domain rule `laneStanding(declared, derived)` caps the lane at Active unless the story declares `done` or `archived`, and `board.ts` places the lane with it; `derivedStanding`, `statusBehind` and `statusDrift` keep their answers; the progress denominator takes the union of the story's plan-table slugs and the plan files that name the story; the status-behind hint for `done`/`archived` reads as a hint ("all plans so far delivered"), not as a proven state
+- `bug/a-story-reads-done-when-its` — a new domain rule `laneStanding(declared, derived)` caps the lane at Active unless the story declares `done` or `archived`, and `board.ts` places the lane with it; `derivedStanding`, `statusBehind` and `statusDrift` keep their answers; the progress denominator takes the union of the story's plan-table slugs and the plan files that name the story; the status-behind hint for `done`/`archived` reads as a hint ("all plans so far delivered"), not as a proven state → #3310
 
 ## Notes
 
