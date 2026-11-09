@@ -1111,7 +1111,7 @@ export function AgentList({
               {foldable && (
                 <button
                   type="button"
-                  data-collapse-toggle={key}
+                  data-group-toggle={key}
                   aria-expanded={!folded}
                   aria-label={`${folded ? 'Expand' : 'Collapse'} ${key}`}
                   onClick={() => toggle(key)}
