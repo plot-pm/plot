@@ -21,6 +21,8 @@ export type FixtureSize = CensusFixture;
 export type SandboxOptions = FixtureSize & {
   /** The checkout whose `skills/plot/scripts` the sandbox runs; `productRoot()` by default. */
   productRoot?: string;
+  /** The directory the sandbox's root is made in; `tmpdir()` by default. A test that binds `.plot/fleet.sock` passes `SOCKET_TEMP_ROOT`. */
+  tempRoot?: string;
 };
 
 /** One desk: a worktree on a slice branch, with a stub worker's pid in `.plot-worker.pid`. */
@@ -171,7 +173,7 @@ const writeStub = (bin: string, name: string, text: string): void => {
  * @returns the sandbox.
  */
 export const buildSandbox = async (options: SandboxOptions): Promise<Sandbox> => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'plot-census-')));
+  const root = realpathSync(mkdtempSync(join(options.tempRoot ?? tmpdir(), 'plot-census-')));
   const desks: Desk[] = [];
   try {
     const size: FixtureSize = { host: options.host, desks: options.desks, openPrs: options.openPrs };

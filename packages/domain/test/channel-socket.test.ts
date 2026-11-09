@@ -393,6 +393,18 @@ describe('the channel socket — the boundary, not the protocol', () => {
     }
   });
 
+  it('names the byte length of a socket path too long to bind', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-channel-'));
+    const address = join(dir, `${'a'.repeat(120)}.sock`);
+    try {
+      const failure = startChannel({ address });
+      await expect(failure).rejects.toThrow(`the path is ${Buffer.byteLength(address)} bytes`);
+      await expect(failure).rejects.toMatchObject({ code: expect.stringMatching(/^(EINVAL|ENAMETOOLONG)$/) });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('removes its socket when it stops, leaving nothing for the next start', async () => {
     const address = addressIn();
     channel = await startChannel({ address });
