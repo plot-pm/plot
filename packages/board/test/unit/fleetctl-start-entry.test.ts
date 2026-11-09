@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { run, shadowIsOther } from '../../src/server/entry/fleetctl-start.js';
+import { removeTree } from '../rm-tree.mjs';
 
 /** Runs one verb and collects both streams. */
 const ask = (argv: string[], uid = 501) => {
@@ -56,7 +57,7 @@ describe('shadowIsOther', () => {
       fs.chmodSync(other, 0o644);
       expect(shadowIsOther(other, harness)).toBe(false);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeTree(dir);
     }
   });
 });
