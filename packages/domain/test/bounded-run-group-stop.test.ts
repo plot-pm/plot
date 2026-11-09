@@ -331,6 +331,18 @@ const slowPgrepPath = (seconds: number): string => {
   return `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
 };
 
+/**
+ * The stand-in's environment for a case that asserts the wrapper's own tree
+ * walk ran: the slow `pgrep` first on `PATH`, and a prompt that ignores
+ * SIGTERM. A prompt the group SIGTERM ends can be reaped before the wrapper
+ * handles its own SIGTERM; the run then finishes, and the wrapper exits 143
+ * without calling `pgrep`.
+ */
+const slowPgrepEnv = (seconds: number): Record<string, string> => ({
+  PATH: slowPgrepPath(seconds),
+  BOUNDED_RUN_PROMPT_IGNORES_SIGTERM: '1',
+});
+
 afterEach(async () => {
   // THE GROUP IS KILLED EVEN WHEN THE WRAPPER IS GONE: a prompt or grandchild
   // that outlived it still carries the wrapper's pgid. It is signalled only
@@ -462,7 +474,7 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
 
   it('passes when a slow pgrep delays the wrapper\'s exit inside the bound', async () => {
     outFile = freshOutFile();
-    const tracked = startWrapper([outFile], { PATH: slowPgrepPath(1) });
+    const tracked = startWrapper([outFile], slowPgrepEnv(1));
     const ready = await readyOf(wrapper!);
 
     const stoppedAt = Date.now();
@@ -476,7 +488,7 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
   it('reads a pgrep slower than the bound as a slow stop with code 143, not a survival', async () => {
     outFile = freshOutFile();
     const seconds = GROUP_STOP_BOUND_MS / 1000 + 1;
-    const tracked = startWrapper([outFile], { PATH: slowPgrepPath(seconds) });
+    const tracked = startWrapper([outFile], slowPgrepEnv(seconds));
     const ready = await readyOf(wrapper!);
 
     const stoppedAt = Date.now();
