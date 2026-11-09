@@ -9,6 +9,7 @@ import type {
   CommitSubject,
   Containment,
   FileChange,
+  FirstParentCommit,
   MergeCommit,
   MergeStatus,
   RefScope,
@@ -283,6 +284,36 @@ export const commitSubjectsOf = (stdout: string): readonly CommitSubject[] => {
       tree: row.tree,
       parentTree: row.parent === '' ? null : (trees.get(row.parent) ?? null),
     }));
+};
+
+/**
+ * Walks a `git log --topo-order --format='%H|%T|%P'` listing of a range into
+ * its first-parent line.
+ *
+ * The walk starts at the first row (the tip) and follows each first parent
+ * while the parent is a row of the listing. A commit with a second parent that
+ * is not a row of the listing is `forward`: that parent lies on the range's
+ * excluded side.
+ *
+ * @param stdout - the range's commits, tip first.
+ * @returns the first-parent commits, newest first.
+ */
+export const firstParentCommitsOf = (stdout: string): readonly FirstParentCommit[] => {
+  const rows = new Map<string, { tree: string; parents: readonly string[] }>();
+  let tip: string | null = null;
+  for (const line of asLines(stdout)) {
+    const [sha, tree, parents] = line.split('|');
+    if (!sha || !tree) continue;
+    rows.set(sha, { tree, parents: (parents ?? '').split(' ').filter((p) => p !== '') });
+    tip ??= sha;
+  }
+  const line: FirstParentCommit[] = [];
+  for (let at = tip; at !== null && rows.has(at); ) {
+    const row = rows.get(at)!;
+    line.push({ sha: at, tree: row.tree, forward: row.parents.slice(1).some((p) => !rows.has(p)) });
+    at = row.parents[0] ?? null;
+  }
+  return line;
 };
 
 /**
@@ -868,6 +899,14 @@ export const refsGit = (context: ShellContext, answers: FixedAnswers = processAn
         'git',
         ['log', '--boundary', '--format=%m|%H|%T|%P|%at|%s', range],
         commitSubjectsOf,
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      ),
+
+    firstParentCommits: (range) =>
+      runScript(
+        'git',
+        ['log', '--topo-order', '--format=%H|%T|%P', range],
+        firstParentCommitsOf,
         { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
       ),
 
