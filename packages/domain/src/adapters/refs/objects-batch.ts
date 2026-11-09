@@ -110,6 +110,13 @@ export interface ObjectsBatch {
   info(objects: readonly string[]): Promise<PortResult<readonly ObjectInfo[]>>;
   /** The processes this reader ended, oldest first, at most 16. */
   drops(): readonly Drop[];
+  /**
+   * Whether the running process or one of its pipes holds this process open,
+   * read from each handle's `hasRef()`.
+   *
+   * @returns null while no process runs.
+   */
+  holdsOpen(): boolean | null;
   /** Fails every pending request, closes the process's stdin, and refuses every later request. */
   close(): void;
 }
@@ -130,6 +137,10 @@ interface Live {
   /** How many buffered bytes the head answer needs before parsing is worth trying. */
   awaiting: number;
 }
+
+/** Whether a process or pipe handle holds the event loop open; false where it carries no handle. */
+const refOf = (owner: unknown): boolean =>
+  (owner as { _handle?: { hasRef?: () => boolean } | null } | null | undefined)?._handle?.hasRef?.() === true;
 
 /** Lets a pipe or process stop holding the event loop open, where it can. */
 const unrefOf = (handle: unknown): void => {
@@ -323,6 +334,8 @@ export const objectsBatch = (options: ObjectsBatchOptions): ObjectsBatch => {
     contents: (objects) => ask<ObjectContents>('contents', objects),
     info: (objects) => ask<ObjectInfo>('info', objects),
     drops: () => [...dropped],
+    holdsOpen: () =>
+      live === undefined ? null : [live.child, live.child.stdin, live.child.stdout].some(refOf),
     close: () => {
       closed = true;
       const ended = live;
