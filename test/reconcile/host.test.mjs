@@ -855,13 +855,13 @@ test('host: pr-merged still answers not-merged for a genuine PR lookup miss', ()
 // PR's `mergedAt` and asks with no base filter, so such a PR reads as merged.
 test('host: pr-merged reads a PR merged into an integration branch as merged, and asks with no base filter', () => {
   const stubs = makeStubs({ ghJson: JSON.stringify([
-    { mergedAt: '2026-11-07T10:00:00Z', baseRefName: 'sprint/card-alignment' },
+    { merged_at: '2026-11-07T10:00:00Z', base: { ref: 'sprint/card-alignment' } },
   ]) });
   const res = runAllowFail(['pr-merged', 'feature/one-card-grammar'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.equal(res.code, 0, res.stderr);
   assert.equal(res.stdout.trim(), 'merged');
   assert.deepEqual(argvOf(stubs.ghArgv), [
-    'pr', 'list', '--head', 'feature/one-card-grammar', '--state', 'all', '--limit', '100', '--json', 'mergedAt',
+    'api', 'repos/{owner}/{repo}/pulls?state=all&head={owner}:feature/one-card-grammar&per_page=100&page=1', '--include',
   ]);
 });
 
@@ -869,13 +869,13 @@ test('host: pr-merged reads a PR merged into an integration branch as merged, an
 // empty, so a silent CLI failure must fail rather than read as a lookup miss.
 test('host: pr-merged-heads prints only the heads of merged PRs', () => {
   const stubs = makeStubs({ ghJson: JSON.stringify([
-    { mergedAt: '2026-10-01T00:00:00Z', headRefOid: 'aaa111' },
-    { mergedAt: null, headRefOid: 'bbb222' },
+    { merged_at: '2026-10-01T00:00:00Z', head: { sha: 'aaa111' } },
+    { merged_at: null, head: { sha: 'bbb222' } },
   ]) });
   const out = run(['pr-merged-heads', 'feature/x'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.equal(out.trim(), 'aaa111');
   assert.deepEqual(argvOf(stubs.ghArgv), [
-    'pr', 'list', '--head', 'feature/x', '--state', 'all', '--limit', '100', '--json', 'mergedAt,headRefOid',
+    'api', 'repos/{owner}/{repo}/pulls?state=all&head={owner}:feature/x&per_page=100&page=1', '--include',
   ]);
 });
 
@@ -11465,47 +11465,35 @@ test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with 
   assert.equal(resFailPage2.stdout.trim(), '');
 });
 
-// --- #2238: GitHub's pr-merge-commit/pr-merge-dest must page past --limit ---
+// --- #2238: GitHub's pr-merge-commit/pr-merge-dest must page past 100 rows ---
 //
-// `gh pr list --limit N` serves the newest N matching PRs; a branch with more
-// merged PRs than the limit silently drops the rest. `pr_list_report_truncation`
-// already proves completeness by growing `--limit` until a page returns short
-// of what it asked for — this stub answers that same way: it reads `--limit`
-// from argv and returns exactly that many synthetic rows until the one real
-// PR (planted beyond row 100) is included in a page big enough to hold it.
+// REST serves `per_page=100`; a branch with more PRs than one page needs the
+// next page, and a page of exactly 100 means another may follow. This stub
+// reads `page=` from the endpoint and answers that slice of one synthetic list,
+// with the one real PR planted at `targetIndex`.
 
 function makeGhPagingStub(totalMerged, targetIndex, targetNumber, targetSha, targetMergedAt) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-paging-')));
   const callsFile = path.join(dir, 'gh.calls');
-  // One row per merged PR; the planted target sits at `targetIndex`, so a
-  // page whose width is less than or equal to that index never includes it —
-  // the exact shape a fixed `--limit 100` leaves silently incomplete past 100
-  // merged PRs.
   const body = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(callsFile)}
-limit=""
-prev=""
-for a in "$@"; do
-  if [ "$prev" = "--limit" ]; then limit="$a"; fi
-  prev="$a"
-done
+page=1
+case "$2" in *page=*) page="\${2##*page=}" ;; esac
 node -e '
-  const limit = Number(process.argv[1]);
+  const page = Number(process.argv[1]);
   const total = ${totalMerged};
-  const n = Math.min(limit, total);
   const rows = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = (page - 1) * 100; i < Math.min(page * 100, total); i++) {
     const isTarget = i === ${targetIndex};
-    const number = isTarget ? ${targetNumber} : 90000 - i;
     rows.push({
-      number,
-      mergedAt: isTarget ? ${JSON.stringify(targetMergedAt)} : "2026-09-01T00:00:00Z",
-      mergeCommit: { oid: isTarget ? ${JSON.stringify(targetSha)} : "decoy" + i },
-      baseRefName: "main",
+      number: isTarget ? ${targetNumber} : 90000 - i,
+      merged_at: isTarget ? ${JSON.stringify(targetMergedAt)} : "2026-09-01T00:00:00Z",
+      merge_commit_sha: isTarget ? ${JSON.stringify(targetSha)} : "decoy" + i,
+      base: { ref: "main" },
     });
   }
   process.stdout.write(JSON.stringify(rows));
-' "$limit"
+' "$page"
 `;
   writeFileSync(path.join(dir, 'gh'), body);
   chmodSync(path.join(dir, 'gh'), 0o755);
@@ -11514,10 +11502,7 @@ node -e '
 
 test('host: pr-merge-commit finds a merge commit carried by a PR past the 100-row limit', () => {
   // 150 merged PRs on this branch; the one carrying the previous hop's commit
-  // sits at index 120 — inside page 2 (limit 200) but past a fixed `--limit
-  // 100`'s first page. A fix that only raises the fixed limit to e.g. 200
-  // still fails past that threshold — the total here is unrelated to any
-  // specific raised constant, and the stub would equally serve a 101-row case.
+  // sits at index 120 — on page 2, past the first 100-row page.
   const gh = makeGhPagingStub(150, 120, 4242, 'cafed00d', '2026-01-15T00:00:00Z');
   const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/big-branch'], {
     encoding: 'utf8',
