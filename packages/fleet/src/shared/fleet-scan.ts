@@ -709,10 +709,11 @@ export const walkOnce = async (
   const tracker = await cfg('Tracker', '');
   const prefixes = (await cfg('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/'))
     .split(',').map((p) => p.trim().replace(/\/$/, '')).filter((p) => p !== '');
+  const stateBranch = await cfg('State branch', '');
   const configured = await scripts.config('Main branch', '');
   if (configured.ok) configRead['Main branch'] = configured.value.trim();
   else configFailed.push('Main branch');
-  record?.('config', configFailed.length === 0 ? readOf(configRead) : failedOf(`the config read failed for ${configFailed.join(', ')}`));
+  record?.('config', configFailed.length === 0 ? readOf({ ...configRead }) : failedOf(`the config read failed for ${configFailed.join(', ')}`));
   let mainBranch = configured.ok ? configured.value.trim() : '';
   if (mainBranch === '') {
     const found = await refs.defaultBranch();
@@ -760,7 +761,6 @@ export const walkOnce = async (
   const indexRows = walk.prIndexRows === undefined ? null : await walk.prIndexRows();
   const indexMerged = indexMergedHeads(indexRows ?? []);
   const indexOpen = indexRows === null ? undefined : indexOpenHeads(indexRows);
-  const stateBranch = await cfg('State branch', '');
   const estate = await readEstate(refs, plansAt, {
     mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
