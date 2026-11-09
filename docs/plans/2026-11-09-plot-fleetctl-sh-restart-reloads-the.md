@@ -7,7 +7,7 @@
 - **State:** Approved
 - **Type:** feature
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3330 merged
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Sprint:** ship-2-32-0
 - **Issue:** #3329
 - **Story:** <!-- optional -->
 - **Review:** pr
