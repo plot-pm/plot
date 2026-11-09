@@ -3,7 +3,8 @@
 //
 // `ci.yml` has `select` (tier 0), `gates` (tier 1: the static steps), the
 // tier-2 jobs (`checks`, `corpus`, `helper-contracts`, `board-integration`,
-// `macos-shell-contract`) and the process census (tier 3). A failed `gates`
+// `macos-shell-contract`) and the process census (tier 3: `census-head` and
+// `census-base` in parallel, `census-compare` after both). A failed `gates`
 // skips every job still waiting only when each of them says
 // `needs: [..., gates]` and tests `needs.gates.result == 'success'`; a job
 // that drops either runs on after a red static gate.
@@ -23,7 +24,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const CI = fs.readFileSync(path.join(here, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
 
 const TIER_2 = ['checks', 'corpus', 'helper-contracts', 'board-integration', 'macos-shell-contract'];
-const TIER_3 = ['process-census'];
+const TIER_3 = ['census-head', 'census-base', 'census-compare'];
 const GATES_CAP_MINUTES = 4;
 
 /** The top-level job names of a workflow text, in file order. */
@@ -61,6 +62,18 @@ const needsOf = (header) => {
     .filter(Boolean);
 };
 
+/** The `census-gate.mjs` invocations of a job, each as one logical line (a `\\` continues it). */
+const censusCalls = (lines) => {
+  const calls = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*#/.test(lines[i]) || !lines[i].includes('census-gate.mjs')) continue;
+    let call = lines[i];
+    while (call.trimEnd().endsWith('\\') && i + 1 < lines.length) call = `${call.trimEnd().slice(0, -1)} ${lines[++i].trim()}`;
+    calls.push(call);
+  }
+  return calls;
+};
+
 /** One line per way `ci` breaks the tier contract. */
 export const tierRefusals = (ci) => {
   const out = [];
@@ -84,6 +97,38 @@ export const tierRefusals = (ci) => {
         out.push(`${name}: if: does not test needs.checks.result == 'success'`);
       }
     }
+  }
+  const halves = new Set();
+  for (const name of TIER_3) {
+    const lines = jobLines(ci, name);
+    if (!lines) continue;
+    for (const call of censusCalls(lines)) {
+      const only = /--only (head|before)\b/.exec(call)?.[1];
+      if (only) halves.add(`${name}:${only}`);
+      if (!only && !/--compare\b/.test(call)) {
+        out.push(`${name}: runs both census halves in one step (census-gate.mjs without --only or --compare)`);
+      }
+    }
+    const jobHalves = [...halves].filter((h) => h.startsWith(`${name}:`));
+    if (jobHalves.length > 1) out.push(`${name}: runs both census halves in one job`);
+  }
+  const compare = jobLines(ci, 'census-compare');
+  if (compare) {
+    const header = headerOf(compare);
+    for (const dep of ['census-head', 'census-base']) {
+      if (!needsOf(header).includes(dep)) out.push(`census-compare: needs: lacks ${dep}`);
+    }
+    if (!header.some((l) => /^ {4}if:/.test(l) && l.includes("needs.census-head.result == 'success'"))) {
+      out.push("census-compare: if: does not test needs.census-head.result == 'success'");
+    }
+  }
+  for (const [name, half] of [['census-head', 'head'], ['census-base', 'before']]) {
+    const lines = jobLines(ci, name);
+    if (lines && !censusCalls(lines).some((c) => c.includes(`--only ${half}`))) out.push(`${name}: does not run --only ${half}`);
+  }
+  for (const line of ci.split('\n')) {
+    const m = /uses:\s*actions\/(upload|download)-artifact@(\S+)/.exec(line);
+    if (m && !/^[0-9a-f]{40}$/.test(m[2])) out.push(`actions/${m[1]}-artifact is not pinned by a full commit SHA: ${m[2]}`);
   }
   const validate = jobLines(ci, 'validate');
   if (validate && !needsOf(headerOf(validate)).includes('gates')) out.push('validate: needs: lacks gates');
@@ -135,14 +180,68 @@ for (const name of [...TIER_2, ...TIER_3]) {
   });
 }
 
-test('process-census: a copy whose needs: lacks checks is refused', () => {
-  const copy = mutate('process-census', 'needs: [select, gates, checks]', 'needs: [select, gates]');
-  assert.ok(tierRefusals(copy).includes('process-census: needs: lacks checks'));
+for (const name of TIER_3) {
+  test(`${name}: a copy whose needs: lacks checks is refused`, () => {
+    const copy = mutate(name, /\n {4}needs: \[select, gates, checks/, '\n    needs: [select, gates');
+    assert.ok(tierRefusals(copy).includes(`${name}: needs: lacks checks`));
+  });
+
+  test(`${name}: a copy whose if: ignores the checks result is refused`, () => {
+    const copy = mutate(name, " && needs.checks.result == 'success'", '');
+    assert.ok(tierRefusals(copy).includes(`${name}: if: does not test needs.checks.result == 'success'`));
+  });
+}
+
+// ── the two-tree census ─────────────────────────────────────────────────────
+
+test('census-head: a step that runs both halves in one process is refused', () => {
+  const copy = mutate('census-head', '--only head --report "$RUNNER_TEMP/census-head.jsonl"', '--base origin/main');
+  const bad = tierRefusals(copy);
+  assert.ok(bad.some((l) => l.startsWith('census-head: runs both census halves in one step')), bad.join('\n'));
+  assert.ok(bad.includes('census-head: does not run --only head'), bad.join('\n'));
 });
 
-test('process-census: a copy whose if: ignores the checks result is refused', () => {
-  const copy = mutate('process-census', " && needs.checks.result == 'success'", '');
-  assert.ok(tierRefusals(copy).includes("process-census: if: does not test needs.checks.result == 'success'"));
+test('census-base: a step that runs both halves in one process is refused', () => {
+  const copy = mutate('census-base', /--only before --base/, '--base');
+  assert.ok(tierRefusals(copy).some((l) => l.startsWith('census-base: runs both census halves in one step')));
+});
+
+test('a job that runs the merge-base half beside the HEAD half is refused', () => {
+  const copy = mutate('census-head', 'node packages/fleet/test/census/census-gate.mjs --only head --report "$RUNNER_TEMP/census-head.jsonl"',
+    'node packages/fleet/test/census/census-gate.mjs --only head --report "$RUNNER_TEMP/census-head.jsonl"\n          node packages/fleet/test/census/census-gate.mjs --only before --base origin/main --report "$RUNNER_TEMP/census-before.jsonl"');
+  assert.ok(tierRefusals(copy).includes('census-head: runs both census halves in one job'), tierRefusals(copy).join('\n'));
+});
+
+test('one census job running the whole census (the former process-census) is refused', () => {
+  const copy = mutate('census-compare', 'census-gate.mjs --compare', 'census-gate.mjs --base origin/main #');
+  assert.ok(tierRefusals(copy).some((l) => l.startsWith('census-compare: runs both census halves in one step')));
+});
+
+test('census-compare: a copy that does not wait on both halves is refused', () => {
+  const copy = mutate('census-compare', 'census-head, census-base]', 'census-head]');
+  assert.ok(tierRefusals(copy).includes('census-compare: needs: lacks census-base'));
+});
+
+test('census-compare: a copy whose if: ignores the HEAD half is refused', () => {
+  const copy = mutate('census-compare', " && needs.census-head.result == 'success'", '');
+  assert.ok(tierRefusals(copy).includes("census-compare: if: does not test needs.census-head.result == 'success'"));
+});
+
+test('an artifact action pinned by tag instead of SHA is refused', () => {
+  const copy = CI.replace(/actions\/upload-artifact@[0-9a-f]{40} # v7\.0\.1/, 'actions/upload-artifact@v7');
+  assert.notEqual(copy, CI);
+  assert.ok(tierRefusals(copy).includes('actions/upload-artifact is not pinned by a full commit SHA: v7'));
+});
+
+test('the census halves upload and the compare job downloads, each pinned by SHA', () => {
+  assert.match(jobLines(CI, 'census-head').join('\n'), /actions\/upload-artifact@[0-9a-f]{40}/);
+  assert.match(jobLines(CI, 'census-base').join('\n'), /actions\/upload-artifact@[0-9a-f]{40}/);
+  assert.match(jobLines(CI, 'census-compare').join('\n'), /actions\/download-artifact@[0-9a-f]{40}/);
+});
+
+test('the census jobs stay outside validate needs', () => {
+  const needs = needsOf(headerOf(jobLines(CI, 'validate')));
+  for (const name of TIER_3) assert.ok(!needs.includes(name), `${name} must not be in validate's needs:`);
 });
 
 test('validate: a copy that does not require gates is refused', () => {

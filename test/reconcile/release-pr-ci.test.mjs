@@ -186,7 +186,9 @@ for (const [job, skip] of [
   ['select', 0],
   ['corpus', 0],
   ['macos-shell-contract', 0],
-  ['process-census', 0],
+  ['census-head', 0],
+  ['census-base', 0],
+  ['census-compare', 0],
   ['helper-contracts', 0],
   ['board-integration', 0],
   ['checks', 0],
@@ -354,8 +356,16 @@ test('every uses: in both workflows is still pinned to a full SHA', () => {
 });
 
 test('the set of actions used did not grow', () => {
-  // Three actions, and the dispatch adds none: `gh` is preinstalled.
-  const expected = ['actions/checkout', 'actions/setup-node', 'pnpm/action-setup'];
+  // The dispatch adds none (`gh` is preinstalled). The two artifact actions
+  // carry the census halves' reports to `census-compare` (`ci-tiers.test.mjs`
+  // holds their SHA pins).
+  const expected = [
+    'actions/checkout',
+    'actions/download-artifact',
+    'actions/setup-node',
+    'actions/upload-artifact',
+    'pnpm/action-setup',
+  ];
   const used = new Set(
     [...`${CI}\n${RELEASE}`.matchAll(/^\s*- uses: ([^@\s]+)@/gm)].map((m) => m[1]),
   );
