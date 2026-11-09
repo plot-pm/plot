@@ -92,6 +92,10 @@ This plan depends on `the-channel-carries-readings` (the board receives `RepoSna
 
 - `bug/board-reads-the-channel-vendor-gate` — `branchUrlBase` names `github` and `bitbucket` in `packages/domain/src/rules/branch-url.ts` since #3289, and CI's "The domain names no vendor" gate refuses it on the sprint PR (#3277, run 42578481530); move the host knowledge behind an adapter, as #3232 did for tracker keys <!-- builds: branchUrlBase outside the domain's rules -->
 
+### Main merge
+
+- `bug/board-reads-the-channel-main-merge` — the sprint PR's CI (run 42589744654) fails three fleet tests after `main` merged in: the snapshot's `config` reading drops the `State branch` key `main` added, and two heartbeat `run` tests time out waiting for a beat under coverage <!-- builds: a config reading that carries every Plot Config key, and heartbeat run tests that wait on the beat itself -->
+
 ## Notes
 
 - Phase 4 of the story [`nothing-changed-nothing-runs`](../stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md); depends on `the-channel-carries-readings` and `fleetd-heartbeat-not-data-age`.
