@@ -271,11 +271,14 @@ describe('the three sprint-item readers agree about what an item is', () => {
     // `~~[slug]…` string; the TypeScript side consumes the reference, so its
     // own text no longer carries the marker.
     //
-    // Measured 2026-09-29: 5 lines, the same five the footnote names. If the
-    // count moves the population changed, which is a finding and not a pass.
+    // Measured 2026-09-29: 5 lines, the same five the footnote names. The
+    // sixth is `pr-and-issue-reads-still-use` in `2026-W45-ship-2-32-0.md`,
+    // struck on 2026-11-09 by 82b8b73ec when github-reads-in-process
+    // superseded it. If the count moves the population changed, which is a
+    // finding and not a pass.
     const byKey = new Map(tsSide.map((it) => [`${it.sprint}#${it.ordinal}`, it]));
     const struck = shellSide.filter((it) => it.text.startsWith('~~'));
-    expect(struck).toHaveLength(5);
+    expect(struck).toHaveLength(6);
     for (const it of struck) {
       const other = byKey.get(`${it.sprint}#${it.ordinal}`);
       expect(other, subjectOf(it)).toBeDefined();
