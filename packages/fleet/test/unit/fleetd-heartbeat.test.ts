@@ -223,6 +223,23 @@ const nextBeat = async (store: FleetdHeartbeatStore, after: number | null): Prom
   throw new Error('the heartbeat did not move');
 };
 
+/**
+ * Fires beats until the heartbeat's beatAt differs from `after`. The heartbeat
+ * drops a beat that fires while its previous write is still in flight, so a
+ * single `advance` can be swallowed on a slow runner; a swallowed beat is
+ * fired again rather than waited for. The test's own timeout bounds the loop.
+ */
+const advanceToBeat = async (clock: ReturnType<typeof clockManual>, store: FleetdHeartbeatStore, after: number | null): Promise<number> => {
+  for (;;) {
+    clock.advance(1);
+    for (let i = 0; i < 20; i += 1) {
+      const read = await store.read();
+      if (read.ok && read.value !== null && read.value.beatAt !== after) return read.value.beatAt;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  }
+};
+
 describe('run — the heartbeat', () => {
   let dir = '';
   beforeEach(() => {
@@ -341,8 +358,7 @@ describe('run — the heartbeat', () => {
         sleeps += 1;
         let beatAt = 0;
         for (let i = 0; i < 19; i += 1) {
-          clock.advance(1);
-          beatAt = await nextBeat(store, beatAt);
+          beatAt = await advanceToBeat(clock, store, beatAt);
         }
         const read = await store.read();
         last = read.ok ? read.value : null;
@@ -392,8 +408,7 @@ describe('run — the heartbeat', () => {
         sleeps += 1;
         let beatAt = 0;
         for (let i = 0; i < 19; i += 1) {
-          clock.advance(1);
-          beatAt = await nextBeat(store, beatAt);
+          beatAt = await advanceToBeat(clock, store, beatAt);
         }
         const read = await store.read();
         last = read.ok ? read.value : null;
