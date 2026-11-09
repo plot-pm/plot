@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { stateSyncFile } from '../src/adapters/state-sync/state-sync-file.js';
+import { stateSyncFile } from '../src/adapters/state-sync-record/state-sync-file.js';
 
 const homes: string[] = [];
 const home = (): string => {

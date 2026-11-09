@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
-import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync/state-sync-file';
+import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync-record/state-sync-file';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { StateSyncRecord } from '@plot-pm/domain/ports/state-sync-record';
 import { readRecordFindings } from '@plot-pm/domain/workflows/record-listing';

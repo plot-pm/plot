@@ -86,7 +86,7 @@ import {
   readerLockFile,
   TRACKER_PROJECT_KEY_SCHEMES,
 } from '@plot-pm/domain/adapters';
-import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync/state-sync-file';
+import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync-record/state-sync-file';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { dispatchLogExists } from './dispatch.js';

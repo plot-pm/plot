@@ -1,7 +1,7 @@
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
-import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync/state-sync-file';
+import { stateSyncFile } from '@plot-pm/domain/adapters/state-sync-record/state-sync-file';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { readerLockFile } from '@plot-pm/domain/adapters/reader-lock/reader-lock-file';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
