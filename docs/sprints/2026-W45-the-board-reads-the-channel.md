@@ -23,7 +23,7 @@ All work for this sprint goes to the integration branch `sprint/the-board-reads-
 - [x] [the-snapshot-entity] One snapshot of answers per repository (#3170) <!-- pr: #3278, branch: feature/the-snapshot-entity-entity -->
 - [x] [the-channel-carries-readings] The channel carries the snapshot (#3170) <!-- pr: #3278, branch: feature/the-channel-carries-readings-contract -->
 - [x] [fleetd-heartbeat-not-data-age] fleetd says it is alive on a timer (#3170) <!-- pr: #3278, branch: feature/fleetd-heartbeat-not-data-age-beat -->
-- [ ] [board-reads-the-channel] The board reads fleetd's snapshot and starts nothing (#3170) <!-- pr: #3278, branch: feature/board-reads-the-channel-census -->
+- [x] [board-reads-the-channel] The board reads fleetd's snapshot and starts nothing (#3170) <!-- pr: #3278, branch: feature/board-reads-the-channel-census -->
 
 <!-- An item is `- [ ] <description>`. A leading `[<plan-slug>]` names the plan
      it commits to, and only a plan slug is read as one: `- [ ] [#123](url) …`
