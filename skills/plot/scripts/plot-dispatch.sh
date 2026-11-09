@@ -1231,141 +1231,15 @@ start_worker() {
     echo "      key) and dispatch again."
     return 1
   fi
-  # TWO PIDS, TWO NAMES. `.plot-worker.pid` must name the AGENT — the process
-  # doing the work, which is what the panel, `--status` and the scan describe.
-  # `$!` from the parent names the `sh -c` WRAPPER, and recording that is the
-  # bug this fixes: every field read correctly off the dispatcher's shell rather
-  # than off the agent. The wrapper is the one thing that knows its own child,
-  # so the wrapper writes the agent's pid; only the wrapper can, and a `pgrep`
-  # by command string is the failure this repo already recorded (`wait on your
-  # own PID, not a process name`).
-  #
-  # The wrapper's own pid is KEPT, under `.plot-worker.wrapper.pid`, because the
-  # wrapper is what writes `.plot-worker.exit` when the agent exits and that must
-  # keep working — `--stop` kills the agent, the wrapper survives to record the
-  # code. The paths travel as env vars so no quoting level inside the
-  # single-quoted `sh -c` mangles a path with spaces, exactly as the exit file
-  # already does.
-  #
-  # AND THE WRAPPER WRITES IT ITSELF, from `$$` inside the `sh -c`. Until
-  # 2026-08-31 the dispatcher wrote `echo $!` beside the spawn, which named an
-  # intermediate subshell rather than the wrapper: three of three live workers
-  # measured that day recorded a pid one process above the agent's real parent
-  # (7357 against 7358, 71953 against 71954, 92947 against 92949).
-  #
-  # THE LAUNCH NOW ENDS IN `exec`, so the forked bash IS the wrapper: `$$`
-  # inside the `sh -c` and the pid bash forked name one process, and no process
-  # carrying the dispatcher's command line survives the launch. The wrapper
-  # reparents to init — measured 2026-10-01, its PPID is 1.
-  #
-  # `exec` is also what gives the caller its streams back. The outer subshell
-  # inherited the dispatcher's stdout, and the inner redirect applies to the
-  # backgrounded job alone, so a reader on a pipe waited for an EOF the forked
-  # bash held for as long as the agent lived: measured 2026-10-01, `--start 1`
-  # took 20.39 s through `| cat` against 1.12 s with `exec`. The subshell is
-  # redirected too, because `exec` alone leaves the wrapper holding that pipe.
-  #
-  # So the same rule the agent pid already follows applies here: THE PROCESS
-  # THAT KNOWS A PID IS THE ONE THAT WRITES IT. The wrapper knows `$$`; no
-  # ancestor can name it without guessing. It is written FIRST, before the
-  # monitors and the agent, so the file exists as early as it can.
-  #
-  # The agent runs backgrounded inside the wrapper so the wrapper can capture its
-  # `$!` and `wait` for it. There is a sub-millisecond window after the wrapper
-  # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
-  # absent pid file as `none` — honest, never "running" off a stale value.
-  #
-  # THE WRAPPER ALSO STAMPS THE MANIFEST PID, for the same reason it writes the
-  # pid file: it is the one process that knows the agent's own pid. The manifest
-  # path travels as `PLOT_MANIFEST_FILE`, beside the exit/pid paths, so no quoting
-  # level inside the single-quoted `sh -c` mangles a path with spaces. The stamp
-  # is inline `awk` rather than a bash helper, because a helper would live in this
-  # bash script and the detached `sh -c` is a fresh shell with no access to it —
-  # the same isolation that makes the wrapper own the pid.
-  #
-  # ONE CONTRACT, TWO IMPLEMENTATIONS. This inline `awk` is the mechanical twin of
-  # `manifest-stamp.ts`'s `stampManifest`; `/api/continue` calls that helper, and a
-  # parity test (`manifest-stamp-parity.test.ts`) runs THIS awk against the same
-  # inputs and asserts a byte-identical result. The two exist because the callers
-  # cannot share code — a detached `sh -c` reaches no TypeScript, and a bash helper
-  # is out of a fresh shell's reach — but they must not drift, the
-  # `plot-worker-state.sh` lesson after five of six states diverged in duplicate.
-  #
-  # It replaces ANY `pid` line, not only the empty placeholder — a full-line
-  # anchored match on bytes we control, so nothing in the command value (one
-  # escaped JSON string on its own line) can be mistaken for it. On a FIRST
-  # dispatch the placeholder is empty: the pid is filled and nothing else changes,
-  # byte-identical to the manifest before relaunch bookkeeping existed. On a
-  # RELAUNCH the line already holds a pid: it is overwritten, `startedAt` is
-  # rewritten to now, and two lines are inserted after `pid` — `previousPid` (the
-  # corpse displaced) and `relaunches` (the restart count, +1 from any it carried).
-  # The dispatcher mints a fresh session per launch so its own manifest is always a
-  # first stamp; the relaunch arms exist for parity with `/api/continue`, which
-  # reuses a worktree's existing manifest. A pid is digits, so no JSON escaping is
-  # needed. Rewritten through a temp file and `mv`, atomic like the original write.
-  # Any failure leaves the pid untouched — the registry reads an absent one as
-  # `unknown`.
-  #
-  # The awk reads the manifest TWICE — the same file passed as two arguments, so
-  # `FNR==NR` is the pre-scan. Pass one learns whether the pid is already filled
-  # (a relaunch) and the count any prior `relaunches` line held; pass two rewrites.
-  # This mirror of a two-pass read is what lets a SECOND relaunch increment rather
-  # than reset: the old count sits AFTER the pid line, so a single pass could not
-  # know it when it must emit the new `relaunches` immediately after `pid`.
-  #
-  # On the pid line: an empty placeholder is filled and nothing else changes (a
-  # first stamp, byte-identical to before); a filled pid is overwritten and the
-  # two relaunch records — `previousPid` then `relaunches` — are emitted right
-  # after it, then any stale copies of those lines are dropped and `startedAt` is
-  # rewritten to the current run. This is exactly `stampManifest`, line for line,
-  # which the parity test pins byte for byte.
-  #
-  # EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
-  #
-  # The AgentMonitor starts INSIDE the wrapper, as its child, immediately
-  # before the agent, watching the desk. The PROCESS is no longer a monitor's
-  # subject: since `bug/the-loop-reports-idle` the loop's own watcher judges `idle`
-  # (`board/plot-worker-loop.mjs`'s `idleVerdict`, built from the domain's
-  # `idleNow`), and the wrapper itself reports `gone`/`clear` after
-  # `wait "$agent"` returns, below.
-  #
-  # WHY INSIDE THE WRAPPER RATHER THAN BESIDE IT. The wrapper already outlives
-  # its agent by construction — it must, or there would be no exit code to
-  # write — so a child of it inherits that survival for free. Two processes
-  # started SIDE BY SIDE are independently mortal: the monitor could be killed
-  # or crash with nothing noticing, which is the failure being fixed one level
-  # up. `--stop` kills the agent; the monitors and the exit record survive it.
-  #
-  # WHY HERE RATHER THAN ANYWHERE ELSE. `start_worker` is the single path to a
-  # worker, which is what makes "every worker is born monitored" a gate rather
-  # than a rule: there is no other place to forget. Ask CLAUDE.md's test — *can
-  # you answer "did I attach a monitor?" without doing the work?* Here you
-  # cannot: no monitor start, no monitored worker, and a mutation test says so.
-  #
-  # ORDER, AND WHY IT IS THIS WAY ROUND. The monitors are backgrounded FIRST so
-  # they exist before their subject does; the agent is backgrounded next and
-  # `$!` is captured on the VERY NEXT command, because `$!` names the most
-  # recent background job and the pid file must name the AGENT. Starting a
-  # monitor between the agent and its `$!` would record a monitor's pid as the
-  # worker's — the panel bug the two-pid split already exists to prevent.
-  #
-  # THEY INHERIT THE STARTUP WINDOW RATHER THAN WIDENING IT. There is a
-  # sub-millisecond gap after the wrapper starts and before `.plot-worker.pid`
-  # is written, and a scan landing in it reads `none` — honest. The monitors
-  # start inside that same window; they must never turn an unwritten pid file
-  # into a finding of their own, which is why the no-op reads no pid at all and
-  # the next slice treats an absent pid file as *not yet*.
-  #
-  # THE PATHS TRAVEL AS ENV VARS, like every other path the wrapper needs. The
-  # `sh -c` body is single-quoted and a path with spaces would not survive
-  # interpolation into it — the same reason the exit, pid and manifest paths are
-  # passed this way. An EMPTY value means "not attached", which is what keeps a
-  # missing script from turning into `command not found` in a detached shell
-  # nobody is reading.
-  #
-  # A HAND-MADE WORKTREE GETS NEITHER, and that falls out rather than being
-  # enforced: this is the only code that starts a wrapper, and a worktree with
-  # no wrapper has nothing for a monitor to be a child of.
+  # THE WRAPPER IS `board/plot-worker-wrapper.mjs`, one process per launch. It
+  # writes its own pid to `.plot-worker.wrapper.pid`, starts the AgentMonitor as
+  # its child, starts the agent as `sh -c "$cmd"`, ignores `SIGTERM` itself,
+  # writes the agent's pid and `ps -o lstart=` text, and stamps the manifest
+  # through `writeManifestStamp`. Once the agent ends it appends one
+  # WorkerMonitor line (`gone` for a non-zero exit, `clear` for 0) to the
+  # watched desk and writes the code to `.plot-worker.exit`. `--stop` kills the
+  # agent, and the wrapper survives to record the code. The paths travel as env
+  # vars, so a path with spaces needs no quoting.
   # WHAT THIS AGENT MAY TOUCH — `PLOT_CAPABILITIES`, AND WHY IT IS RESOLVED HERE.
   #
   # A charter's `capabilities` list is the one differentiation Plot can express
@@ -1431,54 +1305,21 @@ start_worker() {
   [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  # THE THREE NAMES THE CHARTER DECLARED, and they travel as env vars for the
-  # reason every other path here does: the `sh -c` body is single-quoted, so a
-  # value with spaces would not survive interpolation into it.
+  # `PLOT_HARNESS`, `PLOT_MODEL` and `PLOT_EFFORT` are the three names the
+  # charter declared, and empty where it declared none. `PLOT_AGENT` is
+  # forwarded, so the loop's own `resolve_prompt_file` asks about the agent
+  # this launch resolved.
   #
-  # EMPTY IS THE ESTATE TODAY and must stay indistinguishable from before. An
-  # agent with no charter exports three empty strings, a prompt file
-  # interpolating `${PLOT_MODEL:-}` gets nothing, and the command line is
-  # byte-identical to what it was — which is the 100% case, since zero charters
-  # exist. `PLOT_AGENT` is forwarded too, so the loop's own `resolve_prompt_file`
-  # asks about the same agent this launch resolved.
-  #
-  # `set -m` FIRST: THE AGENT LEADS ITS OWN PROCESS GROUP. With job control on,
-  # the backgrounded list below is a job, the job gets a group of its own, and
-  # `exec` keeps the job's pid, so the wrapper's pid IS its group id. A SIGKILL
-  # to the starter's group — `killGroup` in `run-script.ts` — then misses the
-  # agent, and `--stop` on one agent ends that wrapper's group and no sibling's.
-  # It goes in this bash subshell and never in the `sh -c` body: dash refuses
-  # `set -m` without a terminal.
-  #
-  # THE WRAPPER IGNORES SIGTERM, AND ONLY AFTER ITS CHILDREN EXIST. `--stop`
-  # signals this whole group, and the wrapper must outlive the agent to write
-  # `.plot-worker.exit` (`test/e2e/monitors-attached.test.mjs`). `trap "" TERM`
-  # comes after `agent=$!`, because an ignored signal is inherited by every child
-  # started after it: set earlier, the monitors and the agent would ignore the
-  # stop too. The wrapper then records the exit code and ends on its own.
-  #
-  # THE WRAPPER ALSO REPORTS `gone`/`clear` ITSELF, right after `wait "$agent"`
-  # returns inside the `sh -c` body below. It already knows the instant the
-  # agent ends, because it `wait`s on it — the same fact `workerAlive` reads in
-  # `rules/supervision.ts`. A non-zero exit (124, 137 for SIGKILL, anything
-  # else) appends `gone`; exit 0 appends `clear`, so a finished agent asks for
-  # no restart and no earlier `idle` stays the newest line. The appended line
-  # matches `publish()`'s own shape exactly (`monitor`, `branch`, `worktree`,
-  # `finding`, `since`, `evidence`, `measuredAt`, `monitor: "WorkerMonitor"`),
-  # so the board's reader cannot tell the difference. This replaces the
-  # WorkerMonitor process `bug/the-loop-reports-idle` removed — which published
-  # `gone` on ANY death of the watched pid, including an honest exit 0, where
-  # this reports `clear` instead.
-  #
-  # THE LINE LANDS IN THE WATCHED DESK, ASKED ONCE, RIGHT AFTER `wait "$agent"`
-  # RETURNS. `PLOT_WORKTREE` is fixed at launch, but a hop rewrites the
-  # manifest's `worktree` field before the agent exits — so the wrapper sources
-  # `plot-monitor-subject.sh` off `$PATH` (set further down, before the agent
-  # starts) and asks `plot_watched_desk` for the desk to write into, exactly
-  # once. Reading it once here, rather than threading `PLOT_WORKTREE` through
-  # the publish, is what keeps a killed hopped agent's `gone` line landing where
-  # the loop's watcher (and the board's reader) actually look.
-  ( set -m; cd "$wt" && \
+  # `board/plot-worker-start.mjs` STARTS THE WRAPPER DETACHED AND EXITS. The
+  # wrapper leads its own session and process group, so its pid is its group
+  # id: `--stop`'s group signal reaches this desk's wrapper and agent and no
+  # sibling desk's, and a SIGKILL to the starter's group (`killGroup` in
+  # `run-script.ts`) misses the agent. The wrapper's output goes to `$log`, so
+  # the caller's streams close when the start exits. A Node major other than
+  # the one `.nvmrc` pins starts no wrapper, and this function reports the
+  # refusal.
+  local start_err
+  if ! start_err=$( ( cd "$wt" && \
       # AN `export`, NOT AN ENV PREFIX, AND THE REASON IS A MEASUREMENT. Bash
       # recognises an assignment prefix BEFORE it expands parameters, so a
       # `${caps:+PLOT_CAPABILITIES="$caps"}` in the prefix below is not an
@@ -1507,43 +1348,12 @@ start_worker() {
       PLOT_PID_STARTED_FILE="$wt/.plot-worker.pid.startedAt" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wrapperstarted=$(LC_ALL=C ps -o lstart= -p "$$" 2>/dev/null); wmon=""; amon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; agentstarted=$(LC_ALL=C ps -o lstart= -p "$agent" 2>/dev/null); printf "%s" "$agentstarted" > "$PLOT_PID_STARTED_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v pidstarted="$agentstarted" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wrapperstarted="$wrapperstarted" -v wmon="$wmon" -v amon="$amon" '"'"'
-        BEGIN { relaunch = 0; count = 1; stamped = 0 }
-        FNR == NR {
-          if ($0 ~ /^  "pid": "[^"]*",$/) {
-            p = $0; sub(/^  "pid": "/, "", p); sub(/",$/, "", p)
-            if (p != "") { relaunch = 1; displaced = p }
-          }
-          if ($0 ~ /^  "relaunches": [0-9]+,$/) {
-            n = $0; sub(/^  "relaunches": /, "", n); sub(/,$/, "", n); count = n + 1
-          }
-          next
-        }
-        !stamped && $0 ~ /^  "pid": "[^"]*",$/ {
-          stamped = 1
-          print "  \"pid\": \"" pid "\","
-          print "  \"pidStartedAt\": \"" pidstarted "\","
-          print "  \"wrapperPid\": \"" wrapper "\","
-          print "  \"wrapperPidStartedAt\": \"" wrapperstarted "\","
-          print "  \"workerMonitorPid\": \"" wmon "\","
-          print "  \"agentMonitorPid\": \"" amon "\","
-          if (relaunch) {
-            print "  \"previousPid\": \"" displaced "\","
-            print "  \"relaunches\": " count ","
-          }
-          next
-        }
-        $0 ~ /^  "pidStartedAt": "[^"]*",$/ { next }
-        $0 ~ /^  "wrapperPid": "[^"]*",$/ { next }
-        $0 ~ /^  "wrapperPidStartedAt": "[^"]*",$/ { next }
-        $0 ~ /^  "workerMonitorPid": "[^"]*",$/ { next }
-        $0 ~ /^  "agentMonitorPid": "[^"]*",$/ { next }
-        relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
-        relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
-        relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
-        { print }
-      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; wd="$PLOT_WORKTREE"; . plot-monitor-subject.sh 2>/dev/null && wd=$(plot_watched_desk "$PLOT_MANIFEST_FILE" "$PLOT_WORKTREE"); wf="$wd/.plot-worker.monitor.worker.jsonl"; if [ -n "$wd" ]; then now=$(date -u +%Y-%m-%dT%H:%M:%SZ); if [ "$rc" -ne 0 ]; then f=gone; e="the agent pid $agent exited $rc; the wrapper that started it is unattended"; else f=clear; e="the agent pid $agent exited 0; the worker is finished"; fi; printf "{\"monitor\":\"WorkerMonitor\",\"branch\":\"%s\",\"worktree\":\"%s\",\"finding\":\"%s\",\"since\":\"%s\",\"evidence\":\"%s\",\"measuredAt\":\"%s\"}\n" "$PLOT_BRANCH" "$wd" "$f" "$now" "$e" "$now" >> "$wf" 2>/dev/null; fi; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
-      >"$log" 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null
+      PLOT_WORKER_LOG="$log" \
+      node "$script_dir/board/plot-worker-start.mjs" "$cmd" ) 2>&1 >/dev/null </dev/null ); then
+    echo "    refusing to start ${branch:-a free agent} — the worker wrapper did not start:"
+    printf '%s\n' "$start_err" | sed 's/^/      /'
+    return 1
+  fi
   echo "    started worker (log: $log)"
   return 0
 }
@@ -1789,8 +1599,8 @@ if [ "$mode" = "stop" ]; then
       # THE WHOLE PROCESS GROUP, NOT ONE PID. Measured 2026-09-30 (#1084):
       # `--stop` signalled the wrapper, the group leader, and the loop, the
       # prompt shell, `claude` and its children survived reparented to pid 1;
-      # `kill -TERM -<pgid>` ended all of them. `start_worker` launches under
-      # `set -m`, so an agent leads its own group and that group holds one
+      # `kill -TERM -<pgid>` ended all of them. `start_worker` starts the
+      # wrapper detached, so an agent leads its own group and that group holds one
       # wrapper with its monitors, its loop and its `claude`: the signal ends
       # this agent and nothing else. An agent started before that change still
       # shares its starter's group with every sibling the same run started and
