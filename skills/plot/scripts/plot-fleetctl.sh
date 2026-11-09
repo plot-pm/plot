@@ -468,8 +468,7 @@ plot_processes_block() { # $1=pid to skip, $2=comparison root for --stop's comma
     return 0
   fi
   [ "$noisy" = 1 ] || return 0
-  echo ""
-  echo "plot processes on this machine:"
+  printf '\nplot processes on this machine:\n'
   printf '%s' "$rows" | awk -F'\t' '
     function where(r) { return "    serves:     " S[r] "\n    installed:  " I[r] }
     { n++; K[n] = $1; P[n] = $2; O[n] = $3; S[n] = $4; I[n] = $5; L[n] = $6 }
@@ -897,8 +896,7 @@ if [ "$mode" = "status" ]; then
     case "$install_state" in
       interrupted)
         unit=$(unit_target)
-        echo "supervisor: NOT LOADED ($LABEL) — the unit is installed and launchd does not know it"
-        echo "  A --start filled this unit and did not finish. Tell launchd about it:"
+        printf 'supervisor: NOT LOADED (%s) — the unit is installed and launchd does not know it\n  A --start filled this unit and did not finish. Tell launchd about it:\n' "$LABEL"
         case "$plat" in
           launchd) echo "    launchctl bootstrap gui/\$(id -u) $unit" ;;
           systemd) echo "    systemctl --user enable --now $UNIT_NAME" ;;
@@ -1130,8 +1128,7 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
   # `--restart` asks with the `stop` verb: `start` refuses a unit that is loaded
   # whatever it serves, and a restart's unit is loaded by definition. `stop`
   # proceeds for `this` and refuses `another` and `unknown`.
-  ask_verb=start; [ "$mode" = start ] || ask_verb=stop
-  ! old_label_refuses "$ask_verb" || exit 1
+  ! old_label_refuses "${mode/restart/stop}" || exit 1
   [ "$LABEL" = com.plot-pm.fleetd ] || { ! LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd old_label_refuses start-default || exit 1; }
 
   # REFUSAL 5 — the worker command cannot write. One `-p` run of the project's
@@ -1168,7 +1165,7 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
     case "$plat" in
       launchd) launchctl kickstart -k "gui/$(id -u)/$LABEL" ;;
       systemd) systemctl --user restart "$UNIT_NAME" ;;
-    esac || { echo "plot-fleetctl: the reload of '$LABEL' was refused; nothing else was done" >&2; exit 1; }
+    esac
     poll_while pid_unchanged || { printf "plot-fleetctl: '%s' reported no new pid within %ss (was %s, now %s)\n  Read it: %s\n" "$LABEL" "$wait_bound" "${old_pid:-unreadable}" "${new_pid:-unreadable}" "$(read_cmd)" >&2; exit 1; }
     printf "supervisor restarted — %s\n  old pid: %s\n  new pid: %s\n  bundle commit: %s\n  agents untouched\n" "$LABEL" "${old_pid:-unreadable}" "$new_pid" "$commit"
     exit 0
@@ -1261,8 +1258,7 @@ if [ "$mode" = "start" ] || [ "$mode" = "restart" ]; then
       ;;
   esac
   pid=$(supervisor_pid)
-  echo "supervisor loaded${pid:+ (pid $pid)} — $LABEL"
-  echo "  log: $repo_root/.plot/logs/fleetd.log"
+  printf 'supervisor loaded%s — %s\n  log: %s/.plot/logs/fleetd.log\n' "${pid:+ (pid $pid)}" "$LABEL" "$repo_root"
 
   # EXACTLY WHAT THE LAST "--stop" STOPPED, through the restart controller —
   # never a branch stopped by other means. It runs BEFORE dispatch, so the
@@ -1343,8 +1339,7 @@ if [ "$mode" = "stop" ]; then
   if [ "$n_detached" -gt 0 ]; then
     echo "  $n_detached free agent(s) hold no branch and are LEFT RUNNING:"
     printf '%s' "$detached"
-    echo "  plot-dispatch --stop takes a branch and refuses to guess. Stop one by pid,"
-    echo "  or let the eight-hour Worker bound end it."
+    printf '  plot-dispatch --stop takes a branch and refuses to guess. Stop one by pid,\n  or let the eight-hour Worker bound end it.\n'
   fi
 
   still="" stopped_ok=""
