@@ -63,5 +63,7 @@ The rule "read human PR comments before merging" exists only as a master agent's
 
 ## Notes
 
+- 2026-11-09, Jan Wloka: Wave 1's GitHub arm (pushed at b04c6a089, no PR) grows `plot-host.sh` by 16 commands, which `scripts/check-shell-lines.sh pr` refuses. `pr-conversation` waits for the in-process GitHub adapter of plan `github-reads-in-process` (Seam slice PR #3338), and its Bitbucket arm for the matching in-process Bitbucket reads.
+- 2026-11-09, Jan Wloka: the Bitbucket arm may ship with `user.type` unmeasured for app accounts (no app comment existed on the ewz-kus-portal PRs sampled, PR 3717). An unknown or unmeasured `user.type` counts as a person, the strict side.
 - 2026-11-09: drafted from issue #3327. The master agent's memory entry "Read human PR comments before merging" is the rule this plan turns into a gate.
 - Gate versus rule: the test "can you answer *did I complete this?* without doing the work" fails for the memory entry and passes for a refusal in `mergeAt`.
