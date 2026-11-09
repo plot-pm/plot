@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn as spawnProcess } from 'node:child_process';
+import { spawn as spawnProcess, spawnSync } from 'node:child_process';
 
 import { useSdkConnector, type BuildBoardOptions } from '../../src/server/board.js';
 import { boardSdkConnector } from '../../src/server/sdk-runner.js';
@@ -23,6 +23,7 @@ import {
   processStartedAt,
   readRunState,
   startBoardRun,
+  NO_EXIT_RECORD,
   STOPPED_RECORD,
   type BoardConfigReader,
 } from '../../src/server/board-run.js';
@@ -315,8 +316,13 @@ describe('the state file after the board stops', () => {
 
 describe('parseRunMarker', () => {
   it('reads a marker with and without a start time', () => {
-    assert.deepEqual(parseRunMarker('running 42 1700000000000'), { pid: 42, startedAt: 1_700_000_000_000 });
-    assert.deepEqual(parseRunMarker('running 42\n'), { pid: 42, startedAt: null });
+    assert.deepEqual(parseRunMarker('running 42 1700000000000'), { pid: 42, startedAt: 1_700_000_000_000, detached: false });
+    assert.deepEqual(parseRunMarker('running 42\n'), { pid: 42, startedAt: null, detached: false });
+    assert.deepEqual(parseRunMarker('running 42 1700000000000 detached'), {
+      pid: 42,
+      startedAt: 1_700_000_000_000,
+      detached: true,
+    });
   });
 
   it('reads an exit code, an empty file and other text as no marker', () => {
@@ -324,5 +330,138 @@ describe('parseRunMarker', () => {
     assert.equal(parseRunMarker(''), null);
     assert.equal(parseRunMarker('running'), null);
     assert.equal(parseRunMarker('running 42 later'), null);
+  });
+});
+
+describe('a detached run on the command runner', () => {
+  /** The pids from `pid` up to the root, read through `ps` as `plot-boardctl.sh` walks them. */
+  const ancestors = (pid: number): number[] => {
+    const chain: number[] = [];
+    for (let p = pid, hops = 0; p > 1 && hops < 20; hops++) {
+      const parent = Number(spawnSync('ps', ['-o', 'ppid=', '-p', String(p)], { encoding: 'utf8' }).stdout.trim());
+      if (!Number.isInteger(parent) || parent < 1) break;
+      chain.push(parent);
+      p = parent;
+    }
+    return chain;
+  };
+  const waitFor = async (done: () => boolean, ms = 10_000): Promise<void> => {
+    for (const end = Date.now() + ms; Date.now() < end && !done(); ) await new Promise((r) => setTimeout(r, 50));
+  };
+
+  it('has a parent outside the board, and books its exit code after a board stop', async () => {
+    const logFile = path.join(dir, 'idea.log');
+    const statePath = path.join(dir, 'idea.state');
+    fs.writeFileSync(logFile, '', 'utf8');
+    markBoardRun(statePath, logFile);
+    let started = 0;
+    await startBoardRun(opts(), {
+      role: 'idea',
+      fragmentKey: 'Role command',
+      readCfg: config({ 'Role command': 'echo ran; sleep 1; exit 3 #', 'Agent runner': 'command' }),
+      tree: dir,
+      prompt: 'ignored',
+      env: { PLOT_UNATTENDED: '1' },
+      logFile,
+      statePath,
+      detached: { alsoState: [] },
+      onDetached: (pid) => {
+        started = pid;
+      },
+    });
+    assert.ok(started > 0, 'the run reports its own pid');
+    const marker = parseRunMarker(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(marker?.pid, started);
+    assert.equal(marker?.detached, true);
+    assert.notEqual(started, process.pid);
+    assert.deepEqual(readRunState(statePath, logFile), { state: 'running', recorded: '' });
+    assert.ok(!ancestors(started).includes(process.pid), 'the run is not a descendant of the board');
+
+    // What the board's exit listener does on a stop: it must leave this file alone.
+    endHeldRuns(143);
+    await waitFor(() => /^\d+$/.test(fs.readFileSync(statePath, 'utf8').trim()));
+    assert.equal(fs.readFileSync(statePath, 'utf8').trim(), '3');
+    assert.deepEqual(readRunState(statePath, logFile), { state: 'failed', recorded: '3' });
+    assert.ok(fs.readFileSync(logFile, 'utf8').includes('ran'));
+    assert.ok(!fs.readFileSync(logFile, 'utf8').includes('the board exited'));
+  });
+
+  it('reads a run killed before it recorded an exit as failed with its own reason', async () => {
+    const logFile = path.join(dir, 'idea.log');
+    const statePath = path.join(dir, 'idea.state');
+    fs.writeFileSync(logFile, '', 'utf8');
+    markBoardRun(statePath, logFile);
+    let started = 0;
+    await startBoardRun(opts(), {
+      role: 'idea',
+      fragmentKey: 'Role command',
+      readCfg: config({ 'Role command': 'sleep 30.17 #', 'Agent runner': 'command' }),
+      tree: dir,
+      prompt: 'ignored',
+      env: {},
+      logFile,
+      statePath,
+      detached: { alsoState: [] },
+      onDetached: (pid) => {
+        started = pid;
+      },
+    });
+    process.kill(started, 'SIGKILL');
+    await waitFor(() => readRunState(statePath, logFile).state === 'failed');
+    assert.deepEqual(readRunState(statePath, logFile), { state: 'failed', recorded: NO_EXIT_RECORD });
+    spawnSync('pkill', ['-f', 'sleep 30.17']);
+  });
+});
+
+describe('a detached run that exits 0', () => {
+  const waitFor = async (done: () => boolean, ms = 10_000): Promise<void> => {
+    for (const end = Date.now() + ms; Date.now() < end && !done(); ) await new Promise((r) => setTimeout(r, 50));
+  };
+  /** Starts a detached `idea` run that prints `output` and exits 0; resolves with its state file and log once it records a code. */
+  const ranPrinting = async (output: string): Promise<{ state: string; log: string; read: ReturnType<typeof readRunState> }> => {
+    const logFile = path.join(dir, 'idea.log');
+    const statePath = path.join(dir, 'idea.state');
+    const printed = path.join(dir, 'printed.txt');
+    fs.writeFileSync(printed, `${output}\n`, 'utf8');
+    fs.writeFileSync(logFile, 'Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.\n', 'utf8');
+    markBoardRun(statePath, logFile);
+    await startBoardRun(opts(), {
+      role: 'idea',
+      fragmentKey: 'Role command',
+      readCfg: config({ 'Role command': `cat '${printed}'; exit 0 #`, 'Agent runner': 'command' }),
+      tree: dir,
+      prompt: 'ignored',
+      env: {},
+      logFile,
+      statePath,
+      detached: { alsoState: [] },
+    });
+    await waitFor(() => /^\d+$/.test(fs.readFileSync(statePath, 'utf8').trim()));
+    return {
+      state: fs.readFileSync(statePath, 'utf8').trim(),
+      log: fs.readFileSync(logFile, 'utf8'),
+      read: readRunState(statePath, logFile),
+    };
+  };
+
+  it('records 1 with the usage-limit reason when its last line is a usage-limit line', async () => {
+    const run = await ranPrinting("You've hit your session limit · resets 5:20pm (Europe/Zurich)");
+    assert.equal(run.state, '1');
+    assert.equal(run.read.state, 'failed');
+    assert.match(run.log, /the idea run stopped at the account's usage limit/);
+  });
+
+  it('records 1 with the dropped-work reason when its turn ends waiting on background work', async () => {
+    const run = await ranPrinting("I'll pause further polling and wait for the Monitor's notification before taking the next action.");
+    assert.equal(run.state, '1');
+    assert.equal(run.read.state, 'failed');
+    assert.match(run.log, /the idea run ended with its background work dropped/);
+  });
+
+  it('records 0 and appends no reason for a finished turn, whatever an earlier run left in the log', async () => {
+    const run = await ranPrinting('Wrote docs/ideas/one.md.');
+    assert.equal(run.state, '0');
+    assert.deepEqual(run.read, { state: 'done', recorded: '0' });
+    assert.doesNotMatch(run.log, /the idea run/);
   });
 });

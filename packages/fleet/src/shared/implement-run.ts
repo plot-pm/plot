@@ -344,18 +344,22 @@ const isMine = (text: string | null, mine: ImplementHolder): boolean => {
  * @param slug - the plan slug.
  * @param mine - the record {@link takeImplementLock} returned.
  * @param agent - the agent's pid and start time.
+ * @param options - `asHolder` makes the agent the lock's holder, for a run that outlives its starter:
+ *   the lock then holds while that run lives and frees when it dies.
  */
 export const recordImplementAgent = (
   repoRoot: string,
   slug: string,
   mine: ImplementHolder,
   agent: LockedProcess,
+  options: { readonly asHolder?: boolean } = {},
 ): void => {
   const lock = implementLockPath(repoRoot, slug);
   const scratch = `${lock}.${process.pid}.agent.tmp`;
   try {
     if (!isMine(readLock(lock), mine)) return;
-    fs.writeFileSync(scratch, encodeImplementHolder({ ...mine, agent }), 'utf8');
+    const record = options.asHolder ? { ...mine, pid: agent.pid, startedAt: agent.startedAt, pgid: null, agent } : { ...mine, agent };
+    fs.writeFileSync(scratch, encodeImplementHolder(record), 'utf8');
     fs.renameSync(scratch, lock);
   } catch {
     /* the holder's own record still holds the slug */
@@ -561,8 +565,11 @@ export interface ImplementStartFailure {
  * nothing of the winner's. The lock names the agent process once it starts and
  * is removed when the run ends. Both the state file and the log are read back
  * as the answer, and a stale one reports a previous attempt's outcome for this
- * one. The run stays in the caller's process group, bounded by
- * {@link IMPLEMENT_TIMEOUT_MS}; a run ended on the bound records `124`.
+ * one. The run is bounded by {@link IMPLEMENT_TIMEOUT_MS}; a run ended on the
+ * bound records `124`. A `detached` run on the `command` runner outlives this
+ * process: its launcher records the exit code in the plan-keyed and the
+ * branch-keyed state files, the lock names the run as its holder so it frees
+ * when the run dies, and `onExit` and the checkout restore do not run.
  *
  * @param opts - where the repository and its scripts are; `repoRoot` names the log.
  * @param slug - the plan slug, already `SLUG_RE`-validated by the caller.
@@ -574,6 +581,7 @@ export interface ImplementStartFailure {
  *   `null` leaves the run naming none. It is recorded beside the plan-keyed state,
  *   with its own `running <pid>` state, and passed to the run as `PLOT_BRIEF_BRANCH`.
  * @param lockDeps - the implement lock's test seams.
+ * @param detached - `true` to start a `command` run that outlives this process.
  * @returns the log path, or a failure where the lock or the log could not be written.
  */
 export const startImplement = (
@@ -584,6 +592,7 @@ export const startImplement = (
   readCfg: BoardConfigReader = readConfig,
   branch: string | null = null,
   lockDeps: ImplementLockDeps = {},
+  detached = false,
 ): { log: string } | { failure: ImplementStartFailure } => {
   const log = implementLogPath(opts.repoRoot, slug);
   const statePath = implementStatePath(opts.repoRoot, slug);
@@ -662,6 +671,9 @@ export const startImplement = (
       statePath,
       boundSeconds: IMPLEMENT_TIMEOUT_MS / 1000,
       onStarted: (pid) => recordImplementAgent(opts.repoRoot, slug, held, { pid, startedAt: Date.now() }),
+      ...(detached ? { detached: { alsoState: branchStatePath === null ? [] : [branchStatePath] } } : {}),
+      onDetached: (pid) =>
+        recordImplementAgent(opts.repoRoot, slug, held, { pid, startedAt: Date.now() }, { asHolder: true }),
     },
     (record) => {
       // Restored on every exit this callback sees — success, an agent

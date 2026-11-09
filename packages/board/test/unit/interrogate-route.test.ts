@@ -189,7 +189,10 @@ describe('the four refusals', () => {
     const second = await post({ repoRoot: dir, command: `sh -c 'sleep 1' _` });
     assert.equal(second.status, 409);
     assert.equal(refusal(second), 'already-running');
-    await boardRunsSettled();
+    // The run is detached: the board holds nothing to settle, so wait for the run's own exit record.
+    for (const end = Date.now() + 15_000; Date.now() < end && !/^\d+$/.test(fs.readFileSync(statePath(dir), 'utf8').trim()); ) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
     assert.equal(interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).state, 'done');
   });
 
@@ -385,20 +388,18 @@ describe('the read-back', () => {
     assert.match(stopped.message, /stopped without recording an exit code/);
   });
 
-  it('records the board exit code for a run it still holds when it exits', async () => {
+  it('leaves a detached run its own exit code when the board exits', async () => {
     const dir = repo();
     draftPlan(dir);
-    const pidFile = path.join(dir, '..', 'panel.pid');
-    const got = await post({ repoRoot: dir, command: `sh -c 'echo $$ > "${pidFile}"; exec sleep 30' _` });
+    const got = await post({ repoRoot: dir, command: `sh -c 'sleep 2; exit 3' _` });
     assert.equal(got.status, 202);
+    // The run is not held by the board, so a board exit overwrites nothing.
     endHeldRuns(143);
-    assert.equal(fs.readFileSync(statePath(dir), 'utf8'), '143');
-    const status = interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG);
-    assert.equal(status.state, 'failed');
-    assert.match(status.message, /the board exited with code 143/);
-    for (let i = 0; i < 100 && !fs.existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 20));
-    signalRecorded(pidFile, 'SIGKILL', { command: 'sleep' });
-    await boardRunsSettled();
+    for (const end = Date.now() + 15_000; Date.now() < end && !/^\d+$/.test(fs.readFileSync(statePath(dir), 'utf8').trim()); ) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(fs.readFileSync(statePath(dir), 'utf8').trim(), '3');
+    assert.equal(interrogateStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).state, 'failed');
   });
 
   it('signalRecorded refuses a pid file whose pid was reused by another process — raw process.kill would not', async () => {

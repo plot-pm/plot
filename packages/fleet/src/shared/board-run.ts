@@ -3,19 +3,30 @@
  * how it ended where the route's status read-back finds it.
  *
  * Ten routes start a board role. Each one truncates its own log, then calls
- * {@link markBoardRun} before it answers, and {@link startBoardRun} after. The
- * run stays in the board's process group, so a board stop or restart ends it.
- * Three readings keep its state file from reading `running` after that:
+ * {@link markBoardRun} before it answers, and {@link startBoardRun} after. A
+ * run a route starts `detached` on the `command` runner outlives the board: its
+ * launcher records the run's pid, and the code its classified exit reads as, in
+ * the state file. Any other run
+ * stays in the board's process group, so a board stop or restart ends it, and
+ * three readings keep its state file from reading `running` after that:
  *
  * - the run's settlement writes the code {@link boardRunEnd} answers;
  * - a board that exits writes its own exit code for every run it still holds;
  * - {@link readRunState} reads a `running <pid>` marker whose board is gone,
  *   or whose run this board does not hold, as stopped.
+ *
+ * A run on the `sdk` runner always runs in this process.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 
 import { boardRunEnd, type BoardRunRecord } from '@plot-pm/domain/rules/board-run-end';
+import {
+  NO_EXIT_RECORD,
+  STOPPED_RECORD,
+  runStateOf,
+  type RunMarkerReading,
+} from '@plot-pm/domain/rules/run-state';
 import { agentRunFor } from './agent-run-for.js';
 import { readConfig, type ConfigReadOptions } from './config-reader.js';
 
@@ -44,6 +55,18 @@ export interface BoardRunSpec {
   readonly readCfg?: BoardConfigReader;
   /** Called with the agent process's pid once the run has started it. */
   readonly onStarted?: (pid: number) => void;
+  /**
+   * Starts the run so that it outlives this process, where the role runs on
+   * the `command` runner. The run records its pid in `statePath` and in each
+   * of `alsoState`. When it ends, its launcher classifies the exit as
+   * {@link boardRunEnd} does for a `command` run (a usage-limit or dropped
+   * background exit records `1` with its reason in the log, whatever the
+   * status) and records that code. This process does not observe the end and
+   * calls no `onEnd`. A role on the `sdk` runner runs in this process as before.
+   */
+  readonly detached?: { readonly alsoState: readonly string[] };
+  /** Called with the detached run's own pid once it is started and marked; not called for a run that is not detached. */
+  readonly onDetached?: (pid: number) => void;
 }
 
 /** The runs this board process holds: each state file, and its log. */
@@ -220,6 +243,31 @@ export const startBoardRun = async (
     finish(failed(choice.reason));
     return 'refused';
   }
+  if (spec.detached && runner === 'command' && choice.detachedRun !== undefined && spec.statePath !== null) {
+    const stateFiles = [spec.statePath, ...spec.detached.alsoState];
+    const started = await choice.detachedRun.start({
+      role: spec.role,
+      cwd: spec.tree,
+      fragment: choice.fragment,
+      prompt: spec.prompt,
+      env: spec.env,
+      logFile: spec.logFile,
+      boundSeconds: spec.boundSeconds ?? 0,
+      stateFiles,
+    });
+    if (!started.ok) {
+      finish(failed(`the ${spec.role} run could not start: the launcher did not start it`));
+      return 'refused';
+    }
+    // The launcher owns these files now; this board's exit must not overwrite them.
+    for (const file of stateFiles) held.delete(file);
+    try {
+      spec.onDetached?.(started.value);
+    } catch (err) {
+      console.error(`${spec.role} start handler failed:`, err);
+    }
+    return runner;
+  }
 
   const settled: Promise<void> = agentRun
     .run({
@@ -273,8 +321,7 @@ export interface RunState {
   readonly recorded: string;
 }
 
-/** The record a `running <pid>` marker reads as once its board no longer holds the run. */
-export const STOPPED_RECORD = 'on the board stopping before the run ended';
+export { STOPPED_RECORD, NO_EXIT_RECORD };
 
 /** Whether a process with this pid exists. */
 const alive = (pid: number): boolean => {
@@ -286,15 +333,6 @@ const alive = (pid: number): boolean => {
     return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
 };
-
-/**
- * How much later than its recorded start a pid may read as started and still
- * be the recorded process, in milliseconds. Both values come from
- * {@link processStartedAt} where it answers, so they differ only by the drift
- * of `/proc/stat`'s whole-second `btime`; where the record fell back to
- * `process.uptime()`, the two clocks differ by up to about a second.
- */
-const START_TOLERANCE_MS = 5000;
 
 /**
  * Clock ticks per second in `/proc/<pid>/stat`'s start time — `USER_HZ`,
@@ -325,13 +363,8 @@ export const processStartedAt = (pid: number): number | null => {
   }
 };
 
-/** A parsed `running <pid> [<startedAt>]` marker. */
-export interface RunMarker {
-  /** The pid of the process that holds the run. */
-  readonly pid: number;
-  /** Epoch milliseconds at which that process started, or `null` where the marker records none. */
-  readonly startedAt: number | null;
-}
+/** A parsed `running <pid> [<startedAt>] [detached]` marker. */
+export type RunMarker = RunMarkerReading;
 
 /**
  * The text of a `running` marker.
@@ -351,22 +384,13 @@ export const runMarker = (pid: number, startedAt: number): string => `running ${
  *          not a `running` marker — an exit code, or nothing.
  */
 export const parseRunMarker = (recorded: string): RunMarker | null => {
-  const m = /^running (\d+)(?: (\d+))?$/.exec(recorded.trim());
-  return m ? { pid: Number(m[1]), startedAt: m[2] === undefined ? null : Number(m[2]) } : null;
+  const m = /^running (\d+)(?: (\d+)(?: (detached))?)?$/.exec(recorded.trim());
+  return m ? { pid: Number(m[1]), startedAt: m[2] === undefined ? null : Number(m[2]), detached: m[3] !== undefined } : null;
 };
 
 /**
  * Reads one run's state from its state file and the log's presence. Never
- * spawns, never blocks, never throws.
- *
- * A `running <pid>` marker reads `running` only while that board is alive and,
- * where it is this board, while this board still holds the run. Otherwise it
- * reads `failed` with {@link STOPPED_RECORD}: the board stopped, and the run
- * ended with it. Where the marker records a start time and the OS can say when
- * that pid started, a pid that started more than {@link START_TOLERANCE_MS}
- * after the record is a reused pid and reads `failed` the same way. A log with
- * no state file reads `running`, as a run started before the marker existed
- * does.
+ * spawns, never blocks, never throws. The rule is {@link runStateOf}.
  *
  * @param statePath - the run's state file.
  * @param logFile - the run's log.
@@ -378,21 +402,21 @@ export const readRunState = (
   logFile: string,
   startedAt: (pid: number) => number | null = processStartedAt,
 ): RunState => {
-  let recorded: string;
+  let recorded: string | null = null;
   try {
     recorded = fs.readFileSync(statePath, 'utf8').trim();
   } catch {
-    return { state: fs.existsSync(logFile) ? 'running' : 'unknown', recorded: '' };
+    /* an unreadable file reads by the log's presence */
   }
-  const marker = parseRunMarker(recorded);
-  if (marker) {
-    const { pid, startedAt: recordedAt } = marker;
-    const actual = recordedAt === null || pid === process.pid ? null : startedAt(pid);
-    // A reused pid starts later than the process it replaces; an earlier or
-    // equal start is the recorded process read through a coarser clock.
-    const recycled = recordedAt !== null && actual !== null && actual > recordedAt + START_TOLERANCE_MS;
-    const holds = pid === process.pid ? held.has(statePath) : alive(pid) && !recycled;
-    return holds ? { state: 'running', recorded: '' } : { state: 'failed', recorded: STOPPED_RECORD };
-  }
-  return { state: recorded === '0' ? 'done' : 'failed', recorded };
+  const marker = recorded === null ? null : parseRunMarker(recorded);
+  const ownPid = marker?.pid === process.pid;
+  return runStateOf({
+    recorded,
+    logExists: recorded === null && fs.existsSync(logFile),
+    marker,
+    ownPid,
+    held: held.has(statePath),
+    alive: marker !== null && alive(marker.pid),
+    actualStartedAt: marker === null || marker.startedAt === null || ownPid ? null : startedAt(marker.pid),
+  });
 };
