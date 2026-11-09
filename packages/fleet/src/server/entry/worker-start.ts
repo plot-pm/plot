@@ -7,7 +7,7 @@
 // leads its own session and process group, and writes its output to
 // `PLOT_WORKER_LOG`: truncated for a dispatch, appended to where
 // `PLOT_WORKER_LOG_APPEND=1`, as a continue or a restart sets it.
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -90,6 +90,24 @@ export const startWorker = (input: StartInput, detached: Detached): StartOutcome
   return { code: 0, pid: started.pid, message: '' };
 };
 
+/**
+ * Plot's `.nvmrc`: the nearest one in the bundle's directory or above it. A
+ * checkout ships the bundles at `skills/plot/scripts/board/`, four levels
+ * below that file; a copied scripts directory directly under the repository
+ * root, as a mutation test makes, sits two levels below it.
+ *
+ * @param bundleDir - the directory the bundle runs from.
+ * @param exists - whether a path names a file.
+ * @returns the nearest `.nvmrc`; the checkout's location when none exists, so a refusal names where it looked.
+ */
+export const pinFileFor = (bundleDir: string, exists: (file: string) => boolean): string => {
+  for (let dir = path.resolve(bundleDir); ; dir = path.dirname(dir)) {
+    const file = path.join(dir, '.nvmrc');
+    if (exists(file)) return file;
+    if (path.dirname(dir) === dir) return path.resolve(bundleDir, '../../../../.nvmrc');
+  }
+};
+
 /** The pin's text, or `''` when the file cannot be read. */
 const readPin = (file: string): string => {
   try {
@@ -107,10 +125,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     process.stderr.write(`${args.why}\n`);
     void endEntry(2);
   } else {
-    // The bundle ships at `skills/plot/scripts/board/`, beside the wrapper and
-    // four levels below the root that holds Plot's `.nvmrc`.
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const pinFile = path.resolve(here, '../../../../.nvmrc');
+    const pinFile = pinFileFor(here, existsSync);
     const outcome = startWorker(
       {
         command: args.command,

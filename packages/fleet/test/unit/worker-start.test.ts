@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Detached } from '@plot-pm/domain/ports/detached';
 
-import { startArgs, startWorker, type StartInput } from '../../src/server/entry/worker-start.js';
+import { pinFileFor, startArgs, startWorker, type StartInput } from '../../src/server/entry/worker-start.js';
 
 /** A Detached that records each start and answers `pid`. */
 const recording = (pid: number): { detached: Detached; starts: unknown[][] } => {
@@ -96,5 +96,26 @@ describe('startWorker', () => {
       pid: 0,
       message: 'plot-worker-start: /plot/skills/plot/scripts/board/plot-worker-wrapper.mjs did not start\n',
     });
+  });
+});
+
+describe('pinFileFor', () => {
+  it('finds the checkout root four levels above the shipped bundles', () => {
+    const files = new Set(['/plot/.nvmrc']);
+    expect(pinFileFor('/plot/skills/plot/scripts/board', (f) => files.has(f))).toBe('/plot/.nvmrc');
+  });
+
+  it('finds the repository root two levels above a copied scripts directory', () => {
+    const files = new Set(['/plot/.nvmrc']);
+    expect(pinFileFor('/plot/.plot-mutant-x/board', (f) => files.has(f))).toBe('/plot/.nvmrc');
+  });
+
+  it('takes the nearest pin', () => {
+    const files = new Set(['/plot/.nvmrc', '/plot/skills/.nvmrc']);
+    expect(pinFileFor('/plot/skills/plot/scripts/board', (f) => files.has(f))).toBe('/plot/skills/.nvmrc');
+  });
+
+  it('names the checkout location when no pin exists, so the refusal says where it looked', () => {
+    expect(pinFileFor('/plot/skills/plot/scripts/board', () => false)).toBe('/plot/.nvmrc');
   });
 });
