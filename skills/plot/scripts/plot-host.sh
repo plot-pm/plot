@@ -2533,9 +2533,7 @@ gh_route() { # $1=op → graphql|rest
 # `--repo` may already carry it (the caller passed `-R owner/repo`). Otherwise
 # `gh api` fills `{owner}/{repo}` from the git remote, with no request. A path
 # naming no real repository answers 404, which `is_lookup_miss` reads as NONE.
-gh_rest_repo() {
-  if [ ${#repo_args[@]} -gt 0 ]; then echo "${repo_args[1]}"; else echo '{owner}/{repo}'; fi
-}
+gh_rest_repo() { local d='{owner}/{repo}'; echo "${repo_args[1]:-$d}"; }
 
 # ONE REST ANSWER IN GRAPHQL'S VOCABULARY: `pulls/{n}` for the PR, `check-runs` and
 # `status` for the rollup, folded through the SAME `PR_STATE_OF` the GraphQL arm
