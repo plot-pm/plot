@@ -819,6 +819,29 @@ await esbuild.build({
 fs.copyFileSync(proposeStackArtifact, shippedProposeStack);
 fs.chmodSync(shippedProposeStack, 0o755);
 
+// What to say about the `State branch` key, for /plot-init and /plot-board-setup.
+//
+// ONCE PER ADOPTION, like plot-propose-stack.mjs, and its own bundle for the
+// same reason: it asks one host question and judges the answer, and loads
+// nothing of the fleet controller.
+const stateBranchArtifact = path.join(here, 'dist/plot-state-branch.mjs');
+const shippedStateBranch = path.join(here, '../../skills/plot/scripts/board/plot-state-branch.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/state-branch.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: stateBranchArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(stateBranchArtifact, shippedStateBranch);
+fs.chmodSync(shippedStateBranch, 0o755);
+
 // How many agents to start, for plot-dispatch.sh --start.
 //
 // ONCE PER DISPATCH, which docs/shell-and-domain.md puts on the calling side: a
@@ -1996,6 +2019,7 @@ const standingKb = (fs.statSync(shippedStanding).size / 1024).toFixed(1);
 const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
 const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
+const stateBranchKb = (fs.statSync(shippedStateBranch).size / 1024).toFixed(1);
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
 const fleetSizeKb = (fs.statSync(shippedFleetSize).size / 1024).toFixed(1);
 const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
@@ -2050,6 +2074,7 @@ console.log(`Built plot-standing.mjs (${standingKb} KB) → skills/plot/scripts/
 console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-state-branch.mjs (${stateBranchKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-fleet-size.mjs (${fleetSizeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/scripts/board/`);

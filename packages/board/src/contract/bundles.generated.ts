@@ -105,6 +105,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-sprint-transition.mjs',
   'skills/plot/scripts/board/plot-standing.mjs',
   'skills/plot/scripts/board/plot-start-command.mjs',
+  'skills/plot/scripts/board/plot-state-branch.mjs',
   'skills/plot/scripts/board/plot-state-cut.mjs',
   'skills/plot/scripts/board/plot-state-sync.mjs',
   'skills/plot/scripts/board/plot-task.mjs',

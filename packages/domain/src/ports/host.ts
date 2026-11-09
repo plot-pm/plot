@@ -461,6 +461,23 @@ export interface Host {
   reviewWriter(): Promise<PortResult<string>>;
 
   /**
+   * The restrictions the host holds on a branch, in the host's own words.
+   *
+   * A RESTRICTION IS A READING AND ITS ABSENCE IS NOT. An empty list means the
+   * host was asked and holds none; a host that could not be asked (a token
+   * without the scope answers HTTP 403, an adapter that does not drive this
+   * backend) fails or answers `unaskable`, and a caller must not read either as
+   * an empty list. Which words count as a restriction is
+   * `rules/state-branch.ts`'s; this port names no vendor and no setting.
+   *
+   * @param branch - the branch to ask about, short name.
+   * @returns one word per restriction kind found, unique; empty where the host
+   *   holds none. `unaskable` where this host cannot be asked; `failed` where
+   *   the call did not answer, with the reason in {@link lastRefusal}.
+   */
+  branchRestrictions(branch: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Why the most recent call did not answer, or null where it did.
    *
    * THE SENTENCE `PortResult` CANNOT CARRY, and the reason it is a second

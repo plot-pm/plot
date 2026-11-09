@@ -25,6 +25,10 @@
 #                                 answer — that ref is a clone-time cache and a
 #                                 default branch moved since then never updates
 #                                 it. Prints "" where neither can answer.
+#   default-branch-protection <b> print the restriction kinds on branch <b>, one
+#                                 per line, or `none` where the host answered
+#                                 and found none. No output with exit 3 is no
+#                                 answer (a 403 reads this way), never `none`.
 #   account                       print the signed-in host user, read from the
 #                                 CLI's config file (no API request).
 #                                 `PLOT_BUDGET_ACCOUNT` overrides it. Exit 3
@@ -4029,6 +4033,22 @@ case "$op" in
     printf '%s\n' "$_acct"
     ;;
 
+  default-branch-protection)
+    # THE KINDS THAT RESTRICT THE DEFAULT BRANCH, one per line; `none` where the
+    # host answered and found no restriction. NO STDOUT IS NO ANSWER: a 403 (the
+    # Bitbucket CLI token lacks the scope) exits 3 and prints nothing, and the
+    # caller reads that as unverified, never as `none`. GitHub folds its
+    # protection into one word, `protected`; deciding which Bitbucket kinds
+    # count is `rules/state-branch.ts`'s.
+    _db="${1:?default-branch-protection needs the default branch}"
+    if [ "$be" = "github" ]; then
+      gh api "repos/{owner}/{repo}/branches/$_db" --jq 'if .protected then "protected" else "none" end' || die3 "default-branch-protection: the read failed"
+    else
+      _rs="$(_bb_paged_walk "/repositories/{ws}/{repo}/branch-restrictions?pagelen=100" "bitbucket branch-restrictions" "a restriction on a later page would be missed" "")" || die3 "default-branch-protection: the read failed"
+      jq -r --arg b "$_db" '[.[] | select(.pattern == $b or (.branch_match_kind == "branching_model" and .branch_type == "production")) | .kind] | unique | if length == 0 then "none" else .[] end' <<<"$_rs"
+    fi
+    ;;
+
   pr-state)
     ref="${1:?pr-state needs a PR number or branch}"; shift || true
     repo_args=(); repo_slug=""; with_checks=0
@@ -6059,6 +6079,6 @@ case "$op" in
     gh_edit_or_post_comment "$cid" pr "$num" "${2:?pr-comment needs a body}" || gh_fail; rm -f "$HOST_ERR" ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
+    die "unknown op '$op' (backend|default-branch|default-branch-protection|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-comment-read|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
     ;;
 esac

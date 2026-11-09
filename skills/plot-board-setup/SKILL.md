@@ -62,6 +62,7 @@ a start: it proves the board serves and leaves nothing running. `/plot-board
 |-------|-----------|-------|
 | 1. Probe | Small | Three script calls, JSON out; merge without transforming, then ask the rule what it proposes |
 | 2. Propose and confirm | Mid | Wording the proposals and reading a one-directional signal (prefix proposes, silence asks) is judgment; the thresholds behind them, and the default-branch comparison, are not — `proposeStack` answers those |
+| 2b. State branch | Mid | One script call, JSON out; wording the proposal and the delete offer is judgment, and every decision is `proposeStateBranch`'s — an unverified answer is never read as unrestricted |
 | 3. Write config | Small | Append known keys to a known section |
 | 4. Verify | Small | Run commands, compare to documented output shapes; 4d states a fixed reading and decides nothing |
 | 5. Diagnose an empty board | Mid | Mapping a parse failure to a human cause |
@@ -173,6 +174,29 @@ command already refuses for `auth`.
 > default branch is a fact about a shared repository and the key changes where
 > every later command looks for plans:
 > `PLOT-UNASKED: Which branch is the default — the host and this clone disagree? — refused — no Main branch key appended; run 'git remote set-head origin -a' to refresh the clone, or add the key`
+
+**Where the default branch restricts pushes or requires a merge check, propose `State branch: plot/state`.** Lifecycle writes push at the default branch unless a `State branch` key names another ref, and a protected default branch refuses them. Ask the host once:
+
+```
+node ../plot/scripts/board/plot-state-branch.mjs --default <default branch> [--key <State branch value>]
+```
+
+Pass `--key` only where Plot Config carries one. The output is one JSON object, and `proposeStateBranch` owns what its `state` means — do not read a restriction word here.
+
+| `state` | What it means | What setup does |
+|---|---|---|
+| `restricted` | the default branch restricts pushes or requires a merge check | propose `State branch: plot/state`, naming the restriction the host reported, and make the delete offer |
+| `unrestricted` | the host answered and found none | print nothing |
+| `unverified` | a 403, no adapter, or an empty answer | propose no key, and say the host's restrictions went unverified; never read it as unrestricted |
+| `declared` | the key is already set | no proposal; where `warning` is set, say what a ref outside `refs/heads/` gives up and recommend `warning.recommended`; where `offerDelete` is true, make the delete offer |
+| `invalid` | the key is not a usable ref | print `reason`; propose nothing |
+
+**The delete-restriction offer is an offer and never an action.** Name the host's own setting — a branch protection or ruleset for `plot/state` with *Allow deletions* off on GitHub, a branch restriction of kind `delete` on Bitbucket — and say a person adds it. Setup runs no write against the host.
+
+**`plot/` is never added to `Branch prefixes`**, and a repository with no restriction and no key runs exactly as before. The fleet is not required.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** propose nothing, append no key and run no question tool:
+> `PLOT-UNASKED: Which branch takes lifecycle writes — the default branch is protected? — refused — no State branch key appended; add 'State branch: plot/state' to Plot Config to route them to plot/state`
 
 **One signal proposes, two signals ask, and `proposeCi` answers it.** Every
 inferred field is a *proposal* built from a single structural signal. Where two
