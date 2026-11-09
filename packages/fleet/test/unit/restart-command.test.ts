@@ -9,7 +9,7 @@ import { ENDING_FILENAME, readEnding } from '@plot-pm/domain/entities/ending';
 import { killedWorkerEnding } from '@plot-pm/domain/rules/ending-action';
 import type { FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/restart-command.js';
-import { adapterReaders, restartBranch, type RestartReaders } from '../../src/shared/restart-command.js';
+import { adapterReaders, restartAnswer, RESTART_ANSWER, restartBranch, type RestartReaders } from '../../src/shared/restart-command.js';
 import { continueOnDesk } from '../../src/shared/continuation.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
@@ -97,12 +97,45 @@ describe('restartBranch', () => {
   });
 });
 
+const hostRoots: string[] = [];
+afterEach(() => {
+  for (const d of hostRoots.splice(0)) rmTree(d);
+});
+
+describe('restartAnswer', () => {
+  it('names the PR and its Not done list for an open draft', () => {
+    const answer = restartAnswer({ reachedReview: true, draft: true, number: 3267, state: 'OPEN' });
+    expect(answer).toContain('#3267');
+    expect(answer).toContain('Not done');
+    expect(answer.startsWith(RESTART_ANSWER)).toBe(true);
+  });
+
+  it('is the plain text where there is no PR or a non-draft one', () => {
+    expect(restartAnswer({ reachedReview: false, draft: false, number: 0, state: '' })).toBe(RESTART_ANSWER);
+    expect(restartAnswer({ reachedReview: true, draft: false, number: 5, state: 'OPEN' })).toBe(RESTART_ANSWER);
+  });
+});
+
 describe('adapterReaders under --offline', () => {
   const opts = { repoRoot: '/nonexistent', scriptsDir: '/nonexistent' };
 
   it('answers no PR without asking the host, unlike a real call that fails', async () => {
     const reading = await adapterReaders(opts, true).pr('feature/x');
-    expect(reading).toEqual({ reachedReview: false, number: 0, state: '' });
+    expect(reading).toEqual({ reachedReview: false, draft: false, number: 0, state: '' });
+  });
+
+  const hostAnswering = (body: string) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-restart-host-'));
+    hostRoots.push(root);
+    fs.writeFileSync(path.join(root, 'plot-host.sh'), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+    return { repoRoot: root, scriptsDir: root };
+  };
+
+  it('carries the draft flag of an answered PR', async () => {
+    const draft = await adapterReaders(hostAnswering(`printf '{"number":9,"state":"OPEN","draft":true}'`)).pr('feature/x');
+    expect(draft).toEqual({ reachedReview: true, draft: true, number: 9, state: 'OPEN' });
+    const ready = await adapterReaders(hostAnswering(`printf '{"number":9,"state":"OPEN"}'`)).pr('feature/x');
+    expect(ready).toEqual({ reachedReview: true, draft: false, number: 9, state: 'OPEN' });
   });
 
   it('asks the host when offline is false, and a host with no backend reads unanswerable', async () => {
@@ -168,6 +201,46 @@ describe('the restart on a desk', () => {
     const pid = /pid (\d+)/.exec(out.join(''))?.[1];
     expect(pid).toBeDefined();
     expect(fs.readFileSync(path.join(desk, '.plot-worker.pid'), 'utf8').trim()).toBe(pid);
+  });
+
+  it('restarts a desk whose PR is an open draft, telling the worker reader no PR reached review', async () => {
+    const { repo, desk } = fixture('true');
+    const seen: boolean[] = [];
+    const readers: RestartReaders = {
+      pr: async () => ({ reachedReview: true, draft: true, number: 3267, state: 'OPEN' }),
+      worker: async (_worktree, hasPr) => {
+        seen.push(hasPr);
+        return { state: hasPr ? 'finished' : 'failed', pid: '', exitCode: '143', activity: 'idle' };
+      },
+    };
+    const started = await restartBranch({
+      opts: { repoRoot: repo, scriptsDir: scriptDir },
+      pulse: pulseOf(branch, desk),
+      branch,
+      caller: 'person',
+      readers,
+      monitors,
+    });
+    expect(started.kind).toBe('started');
+    expect(seen).toEqual([false]);
+    expect(fs.readFileSync(path.join(desk, '.plot-worker.continue.md'), 'utf8')).toContain('#3267');
+  });
+
+  it('refuses reached-review for a non-draft open PR', async () => {
+    const { repo, desk } = fixture('true');
+    const readers: RestartReaders = {
+      pr: async () => ({ reachedReview: true, draft: false, number: 3267, state: 'OPEN' }),
+      worker: async () => ({ state: 'finished', pid: '', exitCode: '0', activity: 'idle' }),
+    };
+    const out = await restartBranch({
+      opts: { repoRoot: repo, scriptsDir: scriptDir },
+      pulse: pulseOf(branch, desk),
+      branch,
+      caller: 'person',
+      readers,
+      monitors,
+    });
+    expect(out).toMatchObject({ kind: 'refused', reason: 'reached-review' });
   });
 
   it('refuses an unattended caller by name and starts nothing', async () => {

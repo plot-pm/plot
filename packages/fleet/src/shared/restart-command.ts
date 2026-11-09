@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { pulseBranchReading, type Caller, type FleetReading } from '@plot-pm/domain';
 import { hostShell, processesShell } from '@plot-pm/domain/adapters';
 import type { ProcessReading } from '@plot-pm/domain/ports/processes';
-import { restartWorker, type BranchPrReading } from '@plot-pm/domain/workflows/dispatch-verbs';
+import { isOpenDraft, restartWorker, type BranchPrReading } from '@plot-pm/domain/workflows/dispatch-verbs';
 import { deskManifestFor } from './manifest-stamp.js';
 import { readDeskLoop } from './desk-loop.js';
 import { branchFromPulse, refusal } from './continue-command.js';
@@ -18,6 +18,17 @@ import type { DeskMonitors } from '@plot-pm/domain';
 /** The prompt the restarted worker reads in place of a person's answer. */
 export const RESTART_ANSWER =
   'A person restarted this worker with the restart controller. Read the brief, the tree and `git log`, and carry on from where the previous run stopped.';
+
+/**
+ * The prompt a restart gives the new agent.
+ *
+ * @param pr - the branch's pull request reading.
+ * @returns {@link RESTART_ANSWER} for a branch with no draft PR; for an open draft, that text plus the PR number and the instruction to finish its Not done list.
+ */
+export const restartAnswer = (pr: BranchPrReading): string =>
+  isOpenDraft(pr)
+    ? `${RESTART_ANSWER} The branch has a draft pull request, #${pr.number}. Read its body and finish its "Not done" list.`
+    : RESTART_ANSWER;
 
 /** What a restart asks of the world, as values; a test replaces each. */
 export interface RestartReaders {
@@ -67,11 +78,11 @@ export const adapterReaders = (opts: ContinuationOptions, offline = false): Rest
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
   return {
     pr: async (branch) => {
-      if (offline) return { reachedReview: false, number: 0, state: '' };
+      if (offline) return { reachedReview: false, draft: false, number: 0, state: '' };
       const asked = await hostShell(context).prState(branch);
-      if (!asked.ok) return { reachedReview: 'unanswerable', number: 0, state: '' };
-      if (asked.value === null) return { reachedReview: false, number: 0, state: '' };
-      return { reachedReview: true, number: asked.value.number, state: asked.value.state };
+      if (!asked.ok) return { reachedReview: 'unanswerable', draft: false, number: 0, state: '' };
+      if (asked.value === null) return { reachedReview: false, draft: false, number: 0, state: '' };
+      return { reachedReview: true, draft: asked.value.draft === true, number: asked.value.number, state: asked.value.state };
     },
     worker: async (worktree, hasPr) => {
       const asked = await processesShell(context).workerState(worktree, hasPr);
@@ -136,7 +147,7 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
   const readers = input.readers ?? adapterReaders(opts, input.offline);
   const restart = async (): Promise<RestartVerdict> => {
     const pr = await readers.pr(branch);
-    const worker = await readers.worker(worktree, pr.reachedReview === true);
+    const worker = await readers.worker(worktree, pr.reachedReview === true && !isOpenDraft(pr));
     if (worker === null) {
       return { ok: false, status: 409, reason: 'worker-alive', detail: 'the process table could not be read; the worker is not known to be dead' };
     }
@@ -148,7 +159,7 @@ export const restartBranch = async (input: RestartBranchInput): Promise<DeskCont
       loop,
       caller: input.caller,
     });
-    if (outcome.outcome === 'decided') return { ok: true };
+    if (outcome.outcome === 'decided') return { ok: true, answer: restartAnswer(pr) };
     return { ok: false, status: 409, reason: continueReason(outcome.reason), detail: outcome.detail };
   };
   return continueOnDesk({

@@ -56,11 +56,19 @@ export interface BranchPrReading {
    * discards exactly what the `finished` refusal protects.
    */
   reachedReview: boolean | 'unanswerable';
+  /**
+   * Whether the PR is a draft. Absent reads as not a draft: a restart that
+   * guessed draft would replace an agent whose work is under review.
+   */
+  draft?: boolean;
   /** The PR's number, 0 where none. */
   number: number;
   /** The state as the host reports it. */
   state: string;
 }
+
+/** Whether a PR reading is an open draft, which no reviewer or merge acts on. */
+export const isOpenDraft = (pr: BranchPrReading): boolean => pr.draft === true && pr.state === 'OPEN';
 
 /** What `--stop` reads. */
 export interface StopReadings {
@@ -211,7 +219,7 @@ export const restartWorker = (
       `plot-dispatch: the host could not say whether ${readings.branch} has a pull request — an unanswered question is not "no PR".`,
     );
   }
-  if (readings.pr.reachedReview) {
+  if (readings.pr.reachedReview && !isOpenDraft(readings.pr)) {
     return no(
       'reached-review',
       `plot-dispatch: ${readings.branch} has a pull request (#${readings.pr.number}, ${readings.pr.state}) — the work reached review, whatever the worker's exit code says.`,

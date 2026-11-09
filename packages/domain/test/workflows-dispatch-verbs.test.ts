@@ -115,6 +115,24 @@ describe('--restart: the PR is asked FIRST, then the loop, then the marker', () 
     expect(reason(out)).toBe('reached-review');
   });
 
+  it('restarts a dead worker whose PR is an open draft', () => {
+    const out = restart({
+      tree: tree({ state: 'failed' }),
+      pr: pr({ reachedReview: true, draft: true, number: 7, state: 'OPEN' }),
+    });
+    expect(reason(out)).toBe('decided');
+  });
+
+  it('refuses a non-draft open PR, and one whose draft flag is absent', () => {
+    expect(reason(restart({ pr: pr({ reachedReview: true, draft: false, number: 7, state: 'OPEN' }) }))).toBe('reached-review');
+    expect(reason(restart({ pr: pr({ reachedReview: true, number: 7, state: 'OPEN' }) }))).toBe('reached-review');
+  });
+
+  it('refuses a merged PR even when its draft flag is true', () => {
+    const out = restart({ pr: pr({ reachedReview: true, draft: true, number: 7, state: 'MERGED' }) });
+    expect(reason(out)).toBe('reached-review');
+  });
+
   it('refuses when the host could not say — absent is not "no PR"', () => {
     expect(reason(restart({ pr: pr({ reachedReview: 'unanswerable' }) }))).toBe('pr-unanswerable');
   });
