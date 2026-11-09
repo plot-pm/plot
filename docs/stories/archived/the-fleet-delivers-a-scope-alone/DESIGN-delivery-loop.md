@@ -102,7 +102,7 @@ fleetd evaluates each open slice PR of the scope on every pulse. One rule (`rule
 
 The **unblocker** role agent answers every `PLOT-BLOCKED` question through the `continue` controller. It reads the question, the desk's branch, its PR, the plan, the brief and the recent CI runs, and writes one answer. The escalation ladder stays, but as a record, not a wait: the question, the answer and who gave it go into the plan issue's Plot comment, so a person can read every answer later.
 
-This reverses one line of the archived story [`the-supervisor-delivers-the-approved-scope`](../archived/the-supervisor-delivers-the-approved-scope/STORY-the-supervisor-delivers-the-approved-scope.md): *"The supervisor escalates a question; it never answers one."* The new rule: the fleet answers, and records the answer where a person looks.
+This reverses one line of the archived story [`the-supervisor-delivers-the-approved-scope`](../the-supervisor-delivers-the-approved-scope/STORY-the-supervisor-delivers-the-approved-scope.md): *"The supervisor escalates a question; it never answers one."* The new rule: the fleet answers, and records the answer where a person looks.
 
 A question the unblocker cannot answer from the estate gets the most reversible answer it can name (for example: "keep the current behaviour and say so in the PR body"), never no answer.
 

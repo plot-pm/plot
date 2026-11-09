@@ -34,7 +34,7 @@
 
 ## Motivation
 
-No slice PR merges into `main` without a `plot/review` status: the ruleset requires it since 2026-10-15 and pins it to the `Review app` (integration 5317669). Only a master agent runs `plot-review` today, and no file under `packages/fleet/src` names it. From 2026-10-16 to 2026-10-29 the master agent ran every review from a watcher script. When that session ends, no PR gets a review and delivery stops. [DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka, 2026-10-29) gives this step to fleetd. Sections: *The scope*, *The loop*, *Tickets*. The decisions below correct two of its claims: the scope moves with a person's scope change, and a HIGH ticket exists only after the fixer attempts.
+No slice PR merges into `main` without a `plot/review` status: the ruleset requires it since 2026-10-15 and pins it to the `Review app` (integration 5317669). Only a master agent runs `plot-review` today, and no file under `packages/fleet/src` names it. From 2026-10-16 to 2026-10-29 the master agent ran every review from a watcher script. When that session ends, no PR gets a review and delivery stops. [DESIGN-delivery-loop.md](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md) (approved by jwloka, 2026-10-29) gives this step to fleetd. Sections: *The scope*, *The loop*, *Tickets*. The decisions below correct two of its claims: the scope moves with a person's scope change, and a HIGH ticket exists only after the fixer attempts.
 
 The panel of round 1 measured four facts that the first draft did not name:
 

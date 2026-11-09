@@ -31,7 +31,7 @@
 
 ## Motivation
 
-Issue #2905 is the "Tickets" part of [DESIGN-delivery-loop.md](../stories/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), approved by jwloka on 2026-10-29. Goal 3 of that spec: ticket statuses follow the work without a hand edit.
+Issue #2905 is the "Tickets" part of [DESIGN-delivery-loop.md](../stories/archived/the-fleet-delivers-a-scope-alone/DESIGN-delivery-loop.md), approved by jwloka on 2026-10-29. Goal 3 of that spec: ticket statuses follow the work without a hand edit.
 
 **The comment holds one line.** The plan's issue changes at four points: Draft, Approved, Delivered and Released. `planStateComment` (`packages/domain/src/adapters/tracker/tracker-plan-state.ts:44-47`) renders the marker `<!-- plot:plan-link -->` (`:35`) and one line, `Plan <phase>: <link>`. `githubPlanStateWrite` (`:65`) sets the `plan:*` label and then edits the marked comment in place (`:74-78`, `skills/plot/scripts/plot-host.sh:5745`). Between Approved and Delivered the issue shows nothing, so a person reads the board or the PR list to learn that 2 of 3 slices merged. The HIGH ticket is visible only where it was written.
 
