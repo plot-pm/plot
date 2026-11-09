@@ -101,7 +101,15 @@ exec node "${stubDir}/gh.mjs" "$@"
 import fs from 'node:fs';
 const argv = process.argv.slice(2);
 const state = JSON.parse(fs.readFileSync(${JSON.stringify(statePath)}, 'utf8'));
-if (argv[0] === 'pr' && argv[1] === 'list') {
+if (argv[0] === 'api' && /\\/pulls\\?/.test(argv[1] || '')) {
+  const st = (/[?&]state=([a-z]+)/.exec(argv[1]) || [0, 'open'])[1];
+  const rows = state.prs.map((p) => ({
+    number: p.number, title: p.title, state: String(p.state).toLowerCase() === 'open' ? 'open' : 'closed', draft: false,
+    html_url: 'https://example.invalid/pr/' + p.number, updated_at: '2026-01-01T00:00:00Z', merged_at: p.state === 'MERGED' ? '2026-01-01T00:00:00Z' : null,
+    user: { login: '' }, head: { ref: p.head, sha: null }, base: { ref: 'main' },
+  })).filter((r) => st === 'all' || r.state === st);
+  process.stdout.write('HTTP/2 200\\r\\n\\n' + JSON.stringify(rows));
+} else if (argv[0] === 'pr' && argv[1] === 'list') {
   // The host CLI's own shape: a JSON ARRAY whose head field is headRefName.
   // plot-host.sh reshapes it to the {number,title,state,head} lines its callers
   // read, so a stub emitting the reshaped form would test a wire nobody uses.
