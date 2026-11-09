@@ -8,7 +8,7 @@
 # FOUR READERS, not three. `plot_worker_dirty_filter` (`plot-worker-state.sh`)
 # decides `stalled`, `desk_is_resettable`, and the `--restart`/`--release`
 # refusals; `desk_dirt` below serves the reaper and reconcile §21;
-# `bashCleanliness` (`packages/board/src/server/registry.ts`) serves the
+# `deskCleanliness` (`packages/fleet/src/shared/registry.ts`) serves the
 # board's drop rule; and the raw porcelain reads in `plot-dispatch.sh` and
 # `plot-fleetctl.sh`. All four must read one desk the same way: a desk the
 # reaper removes and section 21 keeps for `uncommitted-changes` is two answers

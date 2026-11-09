@@ -32,7 +32,7 @@ vi.mock('../../src/shared/fleet-settings-store.js', () => ({
   readFleetSettings: async () => ({ autoDispatch: true, parallelAgents: 2, machineOverride: false }),
 }));
 vi.mock('../../src/shared/registry.js', () => ({
-  bashCleanliness: async () => [],
+  deskCleanliness: async () => [],
   readAgentRegistryWithInfo: async () => ({ entries: [], info: {} }),
 }));
 
