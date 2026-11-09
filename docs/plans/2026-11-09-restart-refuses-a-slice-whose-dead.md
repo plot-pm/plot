@@ -54,7 +54,7 @@ The decision stays in the domain, per the layering rule: the controller passes t
 
 ### Restart a draft-PR slice
 
-- `bug/restart-a-slice-whose-dead-agent-left-a-draft-pr` — carry the PR's draft flag into the restart decision and refuse `reached-review` only for a non-draft open PR; tests cover a draft PR with a dead worker (restarts) and a non-draft open PR (refuses `reached-review`)
+- `bug/restart-a-slice-whose-dead-agent-left-a-draft-pr` — carry the PR's draft flag into the restart decision and refuse `reached-review` only for a non-draft open PR; tests cover a draft PR with a dead worker (restarts) and a non-draft open PR (refuses `reached-review`) → #3300
 
 ## Notes
 
