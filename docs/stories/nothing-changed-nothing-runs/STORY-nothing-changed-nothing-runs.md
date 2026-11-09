@@ -136,17 +136,17 @@ Each item stands alone and turns one Phase 1 assertion green.
 - ✅ Fixed answers read once per process lifetime: `--show-toplevel`, `--git-common-dir`, the host backend. Delivered by `fixed-answers-once` (#3261, #3262, #3270): adapters memoise the answers and pass `PLOT_REPO_ROOT` and `PLOT_GIT_COMMON_DIR` to the scripts they start; scripts and bundles reuse them for the same repository. P3 and P4 read 0.
 - ✅ The warm read on Bitbucket no longer waits on a stray `sleep 10`: `bb_fetch_base_bounded` ends its watcher's process group (#3269). Found by S1 on Bitbucket.
 
-### Phase 3: The snapshot and the channel ⏸️
+### Phase 3: The snapshot and the channel ✅
 
-- ⏸️ The snapshot entity in `@plot-pm/domain`, the watch port the domain owns, a watcher adapter, and the domain rule that maps a change to the readings it makes stale. In this phase the existing tick fills the snapshot; the watches arm in Phase 8.
-- ⏸️ A versioned channel contract. The channel carries findings today (`WelcomeSchema.current`, `channel-message.ts:15-18`), and the board ignores event bodies and refetches `/api/board` (`channel-events.ts:9-13`). New message kinds: a full snapshot on welcome for a late joiner, deltas after it, a generation number so a reader detects a missed delta and resynchronises, and a protocol version. The board does not reload its bundle when `main` moves, so a board and a fleetd from different commits share one socket; on a version mismatch the reader says so and falls back to its own reader.
-- ⏸️ fleetd liveness that does not depend on activity. Three checks infer liveness from data age today: `OWNED_BRIDGE_MAX_AGE_MS = 180 s` (`scan-owner.ts:10`), `HEARTBEAT_STALE_MS = 2 min` (written only on a PR beat with a host backend, so a repository with no git host has none), and `BRIDGE_MAX_AGE_MS = 15 min` (the CLI controllers refuse past it). Under write-on-change an idle repository ages out all three. fleetd writes a heartbeat on an in-process timer, under a key that exists with no host backend, carrying the observer fields. `fleetOwnsScan`, the bridge consumers and the board read that heartbeat in place of data age.
-- ⏸️ The board stops running `plot-fleetctl.sh --status` on every tick (`fleet.ts:2873`, 0.46–1.42 s per call, it walks every desk). It reads fleetd's heartbeat and the channel's own 10 s heartbeat (`channel-socket.ts:33`) instead.
+- ✅ The snapshot entity in `@plot-pm/domain`, the watch port the domain owns, a watcher adapter, and the domain rule that maps a change to the readings it makes stale. In this phase the existing tick fills the snapshot; the watches arm in Phase 8. Delivered by `the-snapshot-entity`: *Entity* (#3279), *Watch port* (#3282), *Fleetd fills* (#3285).
+- ✅ A versioned channel contract. The channel carries findings today (`WelcomeSchema.current`, `channel-message.ts:15-18`), and the board ignores event bodies and refetches `/api/board` (`channel-events.ts:9-13`). New message kinds: a full snapshot on welcome for a late joiner, deltas after it, a generation number so a reader detects a missed delta and resynchronises, and a protocol version. The board does not reload its bundle when `main` moves, so a board and a fleetd from different commits share one socket; on a version mismatch the reader says so and falls back to its own reader. Delivered by `the-channel-carries-readings`: *Contract* (#3283) and *Fleetd publishes* (#3288); `SNAPSHOT_PROTOCOL` is 2 since *View from snapshot* (#3289), held by the protocol fixture gate.
+- ✅ fleetd liveness that does not depend on activity. Three checks infer liveness from data age today: `OWNED_BRIDGE_MAX_AGE_MS = 180 s` (`scan-owner.ts:10`), `HEARTBEAT_STALE_MS = 2 min` (written only on a PR beat with a host backend, so a repository with no git host has none), and `BRIDGE_MAX_AGE_MS = 15 min` (the CLI controllers refuse past it). Under write-on-change an idle repository ages out all three. fleetd writes a heartbeat on an in-process timer, under a key that exists with no host backend, carrying the observer fields. `fleetOwnsScan`, the bridge consumers and the board read that heartbeat in place of data age. Delivered by `fleetd-heartbeat-not-data-age`: *Heartbeat* (#3287), *Readers* (#3286), *Follow-ups* (#3298: scan ownership follows the scan loop, the bridge and heartbeat resolve to the main checkout), *Issue index* (#3302).
+- ✅ The board stops running `plot-fleetctl.sh --status` on every tick (`fleet.ts:2873`, 0.46–1.42 s per call, it walks every desk). It reads fleetd's heartbeat and the channel's own 10 s heartbeat (`channel-socket.ts:33`) instead. Delivered by the heartbeat *Board* slice (#3284): the script runs only when the heartbeat is not `live`, a fleetd is not supervised, or a loop is late.
 
-### Phase 4: The board is a pure reader ⏸️
+### Phase 4: The board is a pure reader ✅
 
-- ⏸️ While fleetd's heartbeat is fresh, the board reads the snapshot from the channel, derives its verdicts with the domain rules, and starts nothing. The agent registry, the supervisor reading and plan content travel in the snapshot; today the board reads them itself every beat (`fleet.ts:2836-2875`).
-- ⏸️ With no fleetd and a visible tab, the board keeps its own reader, at the cost Phase 1 measures. When the last tab leaves, it stops that reader.
+- ✅ While fleetd's heartbeat is fresh, the board reads the snapshot from the channel, derives its verdicts with the domain rules, and starts nothing. The agent registry, the supervisor reading and plan content travel in the snapshot; today the board reads them itself every beat (`fleet.ts:2836-2875`). Delivered by `board-reads-the-channel`: *View from snapshot* (#3289), *Serve from snapshot* (#3291), *Census zero* (#3299); repairs #3301 and #3303. S3 reads 0. `GET /api/board` still reads plans from the ref and starts about 5 `git` processes per request; S3 sends none (Open Question 2 of that plan).
+- ✅ With no fleetd and a visible tab, the board keeps its own reader, at the cost Phase 1 measures. When the last tab leaves, it stops that reader. Delivered by `no-tab-no-pulse` (#3251, #3260); *Serve from snapshot* (#3291) holds it with a regression row.
 
 ### Phase 5: The largest sources ⏸️
 
@@ -188,7 +188,7 @@ Each row has one unit. A baseline names its fixture. Baselines come from the Lin
 |---|---|---|---|
 | Whole tree, plot board + fleetd + desks, idle | new processes per second | about 90 (2026-11-05 census; fixture not recorded) | 0 between changes |
 | Board, no tab, no fleetd (S1) | `execve` per minute | `main` 1549 (GitHub), 1926 (Bitbucket); sprint head 0 (GitHub), 0 (Bitbucket; 772 before #3269) — 0 desks, 5 open PRs | 0 |
-| Board, one visible tab, fleetd running (S3) | `execve` per minute | `main` 1429; sprint head 1248 — GitHub, 0 desks, 5 open PRs | 0 |
+| Board, one visible tab, fleetd running (S3) | `execve` per minute | `main` 1429; sprint head 1248 — GitHub, 0 desks, 5 open PRs. 2026-11-09: `main` 1212, sprint `the-board-reads-the-channel` 0, census fleetd under `systemd-run --user` (#3277, run 42595561157) | 0 |
 | fleetd, idle repository (S4) | `execve` per completed pass, N desks, M open PRs | `main` 1291.5 (GitHub, 0 desks), 2868.5 (GitHub, 3 desks), 2879.5 (Bitbucket, 3 desks); sprint head 1099.5, 2560.5, 2662 — 5 open PRs | 0, except the safety-net pass |
 | fleetd, safety-net pass | `execve` per pass | Phase 1 fixture | measured, then held by the gate |
 | A board page turned hidden (S2) | `execve` per minute | `main` 1546; sprint head 0 — GitHub, 0 desks, 5 open PRs | 0 |
@@ -303,6 +303,19 @@ Four jurors read the story through the lenses layering, safety, testability and 
 - Destructive local actions re-read their evidence before they act.
 - The gate counts `execve` per scenario on Linux CI; the macOS proxy stays an open point.
 - A Candidate Plans table estimates 18 plans.
+
+### 2026-11-09 — The board reads the channel
+
+Sprint `the-board-reads-the-channel` built Phases 3 and 4 in four plans and 15 slices, plus `quality-gates-fail-fast`. CI on #3277 (run 42595561157) counted every row against `main`.
+
+**Key outcomes:**
+
+- An idle board with a visible tab and fleetd running starts 0 processes per minute (S3), down from 1212 on `main`. The row is now a required pass.
+- The census fleetd runs under `systemd-run --user`, so S3 measures the operator setup. The GitHub runner's own `INVOCATION_ID` had leaked into every step, so a hand-started fleetd already read as supervised; the sandbox now removes the systemd variables.
+- Three residual sources in S3 were removed: a `git for-each-ref` per PR beat for issue rows, the identity read every 60 s, and one `plot-config.sh` read.
+- The census runs as two parallel halves in about 12.5 minutes instead of about 26, and a red static gate ends a run after the `gates` job (77–80 s).
+- PRs into a sprint branch run no CI, so four defects reached the sprint PR: the domain vendor gate (#3301), the actor-name and teardown gates (#3301), and a config reading recorded by reference (#3303).
+- Open: S4 (an idle fleetd pass) is unchanged; its zero waits on Phase 8. `GET /api/board` still starts processes.
 
 ### 2026-11-08 — The first full census
 
