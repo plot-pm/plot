@@ -11017,7 +11017,7 @@ test('host: issue-comment with an empty marker always posts and never reads or e
     stubs: gh,
   });
   assert.equal(res.code, 0, res.stderr);
-  assert.deepEqual(gh.calls(), [['issue', 'comment', '12', '--body', 'the new head']]);
+  assert.deepEqual(gh.calls(), [['api', '-X', 'POST', 'repos/{owner}/{repo}/issues/12/comments', '-f', 'body=the new head']]);
 });
 
 test('host: issue-comment with a marker edits the comment holding it', () => {
@@ -11060,6 +11060,62 @@ test('host: issue-comment with a marker comment that has no user field edits it'
   });
   assert.equal(res.code, 0, res.stderr);
   assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
+// --- issue-label: REST only ---------------------------------------------------
+
+/**
+ * A `gh` that answers the REST label routes only and fails every GraphQL-backed
+ * subcommand (`issue`, `label`, `api graphql`). `carried` is what the issue's
+ * label GET prints; `getFails` and `createAnswer` ('422' answers already_exists)
+ * steer the other two reads and writes.
+ */
+const makeRestLabelGh = ({ carried = [], getFails = false, createAnswer = 'ok' } = {}) => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-rest-')));
+  const log = path.join(dir, 'gh.log');
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "--- call" "$@" >> "${log}"
+case "$1" in issue|label) echo "gh: GraphQL: API rate limit already exceeded" >&2; exit 1 ;; esac
+[ "$1 $2" = "api user" ] && { echo u; exit 0; }
+case "$*" in
+  *graphql*) echo "gh: GraphQL: API rate limit already exceeded" >&2; exit 1 ;;
+  "api --paginate repos/{owner}/{repo}/issues/12/labels"*) ${getFails ? "echo 'HTTP 502' >&2; exit 1" : `printf '%s\\n' ${carried.map((l) => `'${l}'`).join(' ') || "''"} | grep . ; exit 0`} ;;
+  "api -X POST repos/{owner}/{repo}/labels"*) ${createAnswer === '422' ? `echo '{"errors":[{"code":"already_exists"}]}'; echo 'gh: Validation Failed (HTTP 422)' >&2; exit 1` : 'exit 0'} ;;
+esac
+exit 0
+`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').split('--- call\n').filter(Boolean).map((c) => c.trim().split('\n')) : []);
+  return { dir, calls };
+};
+const labelEnv = { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' };
+const restWrites = (gh) => gh.calls().filter((c) => c[0] === 'api' && ['POST', 'DELETE'].includes(c[2])).map((c) => c.slice(2, 4));
+
+test('host: issue-label creates, adds and removes through REST with every GraphQL route refused', () => {
+  const gh = makeRestLabelGh({ carried: ['plan:delivered', 'bug'] });
+  const res = runAllowFail(['issue-label', '12', 'plan:released', 'plan:delivered,plan:draft'], { env: labelEnv, stubs: gh });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(restWrites(gh), [
+    ['POST', 'repos/{owner}/{repo}/labels'],
+    ['POST', 'repos/{owner}/{repo}/issues/12/labels'],
+    ['DELETE', 'repos/{owner}/{repo}/issues/12/labels/plan%3Adelivered'],
+  ]);
+  const create = gh.calls().find((c) => c[3] === 'repos/{owner}/{repo}/labels');
+  assert.ok(create.includes('color=ededed') && create.includes('description=Plot plan phase: released'));
+});
+
+test('host: issue-label treats a 422 already_exists on the label create as present and still adds it', () => {
+  const gh = makeRestLabelGh({ createAnswer: '422' });
+  const res = runAllowFail(['issue-label', '12', 'plan:released'], { env: labelEnv, stubs: gh });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(restWrites(gh).at(-1), ['POST', 'repos/{owner}/{repo}/issues/12/labels']);
+});
+
+test('host: issue-label refuses and adds nothing when the label read fails', () => {
+  const gh = makeRestLabelGh({ getFails: true });
+  const res = runAllowFail(['issue-label', '12', 'plan:released', 'plan:delivered'], { env: labelEnv, stubs: gh });
+  assert.notEqual(res.code, 0);
+  assert.deepEqual(restWrites(gh), []);
 });
 
 // --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------

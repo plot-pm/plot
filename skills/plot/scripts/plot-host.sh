@@ -699,7 +699,7 @@ gh_marker_comment_id() { gh api --paginate "repos/{owner}/{repo}/issues/$1/comme
 # EDITS THE COMMENT `$1` HOLDS, OR POSTS `$4` TO `$3` ON `$2` (`issue` or
 # `pr`) — shared by `issue-comment` and `pr-comment`, whose tails differed
 # only in that one word.
-gh_edit_or_post_comment() { if [ -n "$1" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$1" -f body="$4" >/dev/null 2>"$HOST_ERR"; else gh "$2" comment "$3" --body "$4" >/dev/null 2>"$HOST_ERR"; fi; }
+gh_edit_or_post_comment() { if [ -n "$1" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$1" -f body="$4" >/dev/null 2>"$HOST_ERR"; else gh api -X POST "repos/{owner}/{repo}/issues/$3/comments" -f body="$4" >/dev/null 2>"$HOST_ERR"; fi; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
@@ -833,7 +833,6 @@ host_cli() { # → the CLI this backend drives, or '' where none is known
   case "$1" in
     github)    echo "gh" ;;
     bitbucket) echo "bb" ;;
-    *)         echo "" ;;
   esac
 }
 
@@ -2534,9 +2533,7 @@ gh_route() { # $1=op → graphql|rest
 # `--repo` may already carry it (the caller passed `-R owner/repo`). Otherwise
 # `gh api` fills `{owner}/{repo}` from the git remote, with no request. A path
 # naming no real repository answers 404, which `is_lookup_miss` reads as NONE.
-gh_rest_repo() {
-  if [ ${#repo_args[@]} -gt 0 ]; then echo "${repo_args[1]}"; else echo '{owner}/{repo}'; fi
-}
+gh_rest_repo() { local d='{owner}/{repo}'; echo "${repo_args[1]:-$d}"; }
 
 # ONE REST ANSWER IN GRAPHQL'S VOCABULARY: `pulls/{n}` for the PR, `check-runs` and
 # `status` for the rollup, folded through the SAME `PR_STATE_OF` the GraphQL arm
@@ -5738,7 +5735,7 @@ case "$op" in
     # comment per issue and closes the issue at release; nothing reads any back,
     # except `issue-comment-read`, the plan-state comment's one sanctioned
     # read-back (D6: recovering ticket lines a write has no record to redo).
-    #   issue-label      <n> <add> [<remove,...>]  adds one label, creating it first where the repo lacks it, and removes only the listed ones the issue carries, in one `gh issue edit`
+    #   issue-label      <n> <add> [<remove,...>]  adds one label, creating it first where the repo lacks it, and removes only the listed ones the issue carries, all through REST
     #   issue-comment      <n> <marker> <body>     edits the comment holding <marker>, else posts; an empty <marker> always posts
     #   issue-comment-read <n> <marker>            prints the marked comment's body, or nothing where none carries it
     #   issue-close      <n>
@@ -5747,7 +5744,10 @@ case "$op" in
     num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
     [ "$be" = github ] && { [ "$source_said" = git-host ] || [ "$source_said" = $'tracker\tgithub-issues' ]; } || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
     case "$op" in
-      issue-label) add="${2:?issue-label needs a label}"; carried="$(gh issue view "$num" --json labels -q '.labels[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort) | paste -sd, -)"; gh label create "$add" --color ededed --description "Plot plan phase: ${add#plan:}" >/dev/null 2>"$HOST_ERR" || grep -qi 'already exists' "$HOST_ERR" || gh_fail; gh issue edit "$num" --add-label "$add" ${keep:+--remove-label "$keep"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-label) add="${2:?issue-label needs a label}"; carried="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/labels" -q '.[].name' 2>"$HOST_ERR")" || gh_fail
+        gh api -X POST "repos/{owner}/{repo}/labels" -f name="$add" -f color=ededed -f description="Plot plan phase: ${add#plan:}" >"$HOST_ERR" 2>&1 || grep -q already_exists "$HOST_ERR" || gh_fail
+        gh api -X POST "repos/{owner}/{repo}/issues/$num/labels" -f "labels[]=$add" >/dev/null 2>"$HOST_ERR" || gh_fail
+        while IFS= read -r l; do [ -z "$l" ] || gh api -X DELETE "repos/{owner}/{repo}/issues/$num/labels/$(jq -rn --arg s "$l" '$s|@uri')" >/dev/null 2>"$HOST_ERR" || gh_fail; done < <(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort)) ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
         cid="${2:+$(gh_marker_comment_id "$num" "$2")}" || gh_fail

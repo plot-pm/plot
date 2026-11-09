@@ -104,7 +104,7 @@ const sectionOf = (out) => {
   return at < 0 ? null : lines.slice(at, at + 3);
 };
 
-const writes = (stub) => stub.calls().filter((l) => /issue (edit|comment|close)|label create/.test(l));
+const writes = (stub) => stub.calls().filter((l) => /issue (edit|comment|close)|label create|api -X (POST|PATCH|DELETE)/.test(l));
 
 test('one drifted issue prints 1 and the --yes command, and nothing is written', () => {
   const stub = stubGh(['bug']);
