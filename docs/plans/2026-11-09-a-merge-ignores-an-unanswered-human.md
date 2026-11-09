@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3328 merged
+- **Started:** 2026-11-09, Jan Wloka, `bug/the-host-reads-a-pr-conversation`
 
 ## Changelog
 
