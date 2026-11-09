@@ -14,6 +14,7 @@ import { readDeskReadings } from '@plot-pm/domain/workflows/plan-walk-desks';
 import { readEstate, type Estate } from '@plot-pm/domain/workflows/plan-walk-estate';
 import { readBranchPlans, readDeliveredInputs, readSprints, readStories } from '@plot-pm/domain/workflows/board-card-reads';
 import { resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
+import { STORY_LEGACY_ISSUE_KEY } from '@plot-pm/domain/adapters/story-front-matter';
 import type { PortResult } from '@plot-pm/domain';
 import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
@@ -745,7 +746,7 @@ const recordCardReadings = async (
   record('branchPlans', branchPlans.ok ? readOf(branchPlans.value) : failedOf('the branch plans could not be read'));
   const sprints = await readSprints(refs, main, input.sprintDir);
   record('sprints', sprints.ok ? readOf(sprints.value) : failedOf('the sprint files could not be read'));
-  const stories = await readStories(refs, main, input.storyDir);
+  const stories = await readStories(refs, main, input.storyDir, STORY_LEGACY_ISSUE_KEY);
   record('stories', stories.ok ? readOf(stories.value) : failedOf('the story files could not be read'));
 };
 

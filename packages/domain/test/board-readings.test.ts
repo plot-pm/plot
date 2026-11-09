@@ -163,7 +163,7 @@ const STORY = [
 
 describe('storyRecordOf', () => {
   it('reads the front matter and the sections', () => {
-    const story = storyRecordOf(STORY, 'nothing', 'docs/stories/nothing/STORY-nothing.md', ['DESIGN-a.md']);
+    const story = storyRecordOf(STORY, 'nothing', 'docs/stories/nothing/STORY-nothing.md', ['DESIGN-a.md'], 'jira');
     expect(story).toMatchObject({
       slug: 'nothing',
       title: 'Nothing changed, nothing runs',
@@ -184,13 +184,13 @@ describe('storyRecordOf', () => {
   });
 
   it('reads an unadmitted status and falls back to the heading, then to the slug', () => {
-    expect(storyRecordOf('---\nstatus: archived\n---\n# Head\n', 's', 'p', [])).toMatchObject({ status: UNADMITTED_STATE, title: 'Head', issue: '' });
-    expect(storyRecordOf('no front matter', 's', 'p', [])).toMatchObject({ status: '', title: 's', objective: '', design: '' });
-    expect(storyRecordOf('---\nauthor: a\n---\n', 's', 'p', [])).toMatchObject({ status: '', title: 's' });
+    expect(storyRecordOf('---\nstatus: archived\n---\n# Head\n', 's', 'p', [], 'jira')).toMatchObject({ status: UNADMITTED_STATE, title: 'Head', issue: '' });
+    expect(storyRecordOf('no front matter', 's', 'p', [], 'jira')).toMatchObject({ status: '', title: 's', objective: '', design: '' });
+    expect(storyRecordOf('---\nauthor: a\n---\n', 's', 'p', [], 'jira')).toMatchObject({ status: '', title: 's' });
   });
 
   it('cuts an objective with no space at its length', () => {
-    const story = storyRecordOf(`## Objective\n\n${'x'.repeat(250)}\n`, 's', 'p', []);
+    const story = storyRecordOf(`## Objective\n\n${'x'.repeat(250)}\n`, 's', 'p', [], 'jira');
     expect(story.objective).toBe(`${'x'.repeat(200)}…`);
   });
 

@@ -162,10 +162,16 @@ export const readSprints = async (refs: Refs, ref: string, sprintDir: string): P
  * @param refs - the ref reader.
  * @param ref - the ref to read, such as `origin/main`.
  * @param storyDir - the configured story directory, such as `docs/stories/`.
+ * @param legacyIssueKey - the front-matter key read for a story's ticket where `issue:` names none.
  * @returns the live and the archived stories, in listing order. Fails where
  *   the listing or the blobs cannot be read.
  */
-export const readStories = async (refs: Refs, ref: string, storyDir: string): Promise<PortResult<StoriesValue>> => {
+export const readStories = async (
+  refs: Refs,
+  ref: string,
+  storyDir: string,
+  legacyIssueKey: string,
+): Promise<PortResult<StoriesValue>> => {
   const read = await readMarkdown(refs, ref, storyDir);
   if (!read.ok) return failed();
   const live: StoryRecord[] = [];
@@ -175,7 +181,7 @@ export const readStories = async (refs: Refs, ref: string, storyDir: string): Pr
     if (slug === undefined) continue;
     const into = path.split('/').includes('archived') ? archived : live;
     if (into.some((story) => story.slug === slug)) continue;
-    into.push(storyRecordOf(text, slug, path, designDocsIn(read.value.paths, dirOf(path))));
+    into.push(storyRecordOf(text, slug, path, designDocsIn(read.value.paths, dirOf(path)), legacyIssueKey));
   }
   return answered({ live, archived });
 };

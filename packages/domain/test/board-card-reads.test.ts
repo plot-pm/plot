@@ -158,13 +158,13 @@ describe('readStories', () => {
       },
       blobs: { ['1'.repeat(40)]: '# S\n', ['2'.repeat(40)]: '# D\n', ['3'.repeat(40)]: '# Old\n', ['4'.repeat(40)]: '# R\n' },
     });
-    const read = await readStories(refs, 'origin/main', 'docs/stories/');
+    const read = await readStories(refs, 'origin/main', 'docs/stories/', 'jira');
     if (!read.ok) throw new Error('expected a reading');
     expect(read.value.live.map((s) => [s.slug, s.path, s.designDocs])).toEqual([['s', 'docs/stories/s/STORY-s.md', ['DESIGN-a.md']]]);
     expect(read.value.archived.map((s) => [s.slug, s.title])).toEqual([['old', 'Old']]);
   });
 
   it('fails where the listing cannot be read', async () => {
-    expect((await readStories(refsOf({}), 'origin/main', 'docs/stories/')).ok).toBe(false);
+    expect((await readStories(refsOf({}), 'origin/main', 'docs/stories/', 'jira')).ok).toBe(false);
   });
 });

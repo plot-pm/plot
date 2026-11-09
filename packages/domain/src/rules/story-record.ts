@@ -58,6 +58,7 @@ export const designDocsIn = (paths: readonly string[], dir: string): string[] =>
  * @param slug - the story's slug, from its filename.
  * @param relPath - the file's path relative to the repository root.
  * @param designDocs - the `DESIGN-*.md` basenames beside the file.
+ * @param legacyIssueKey - the front-matter key read for the ticket where `issue:` names none.
  * @returns the story. The title falls back to the first `# ` heading, then to
  *   `slug`. A `status:` the domain does not admit reads as `UNKNOWN`.
  */
@@ -66,6 +67,7 @@ export const storyRecordOf = (
   slug: string,
   relPath: string,
   designDocs: readonly string[],
+  legacyIssueKey: string,
 ): StoryRecord => {
   let title = '';
   let status = '';
@@ -87,7 +89,7 @@ export const storyRecordOf = (
       const match = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(frontmatter);
       return match === null ? '' : unquoteScalar(match[1]!.replace(/\s+#.*$/, '').trim());
     };
-    issue = storyIssueValue(fieldValue('issue'), fieldValue('jira'));
+    issue = storyIssueValue(fieldValue('issue'), fieldValue(legacyIssueKey));
   }
   if (title === '') title = /^# (.+)$/m.exec(content)?.[1]?.trim() ?? slug;
   return {

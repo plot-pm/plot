@@ -28,6 +28,7 @@ import type { RefState } from '@plot-pm/domain/ports/refs';
 import { listRecordBlobs, readRecordFindings, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
 import { branchPlanSet, type BranchPlanTree } from '@plot-pm/domain/rules/branch-plans';
+import { STORY_LEGACY_ISSUE_KEY } from '@plot-pm/domain/adapters/story-front-matter';
 import { sprintRecordOf, UNADMITTED_STATE as DOMAIN_UNADMITTED_STATE } from '@plot-pm/domain/rules/sprint-record';
 import { storyRecordOf, unquoteScalar as domainUnquoteScalar } from '@plot-pm/domain/rules/story-record';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
@@ -1959,7 +1960,7 @@ export function parseStoryContent(
 ): StoryCardInput | null {
   // THE DOMAIN'S PARSE, `storyRecordOf`, which fleetd's `stories` reading
   // calls too. Design docs are listed from disk here.
-  const story = storyRecordOf(content, slug, relPath, listDesignDocs(storyDir));
+  const story = storyRecordOf(content, slug, relPath, listDesignDocs(storyDir), STORY_LEGACY_ISSUE_KEY);
   return { ...story, designDocs: [...story.designDocs] };
 }
 
