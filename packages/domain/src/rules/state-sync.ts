@@ -16,6 +16,8 @@
  * @concept state-sync
  */
 import type { StateWriteTarget } from './write-target.js';
+import { BRIEFS_DIR } from './brief-path.js';
+import { HOLD_FILE } from './hold-clear.js';
 
 /** The directories Plot writes, from the config keys that name them. */
 export interface SyncPathKeys {
@@ -40,14 +42,23 @@ const asDir = (value: string): string => {
 };
 
 /**
- * Enumerates the directories a sync pull request may change.
+ * The paths Plot writes to the state ref at a fixed place, whatever the config
+ * says: the brief directory `brief-book` pushes to, and the hold file an
+ * approval stages. A directory ends in `/`; a file does not.
+ */
+export const FIXED_SYNC_PATHS: readonly string[] = [`${BRIEFS_DIR}/`, HOLD_FILE];
+
+/**
+ * Enumerates the paths a sync pull request may change.
  *
  * @param keys - the config values.
- * @returns each non-empty directory once, with a trailing slash, in key order.
+ * @returns each non-empty configured directory once, with a trailing slash,
+ *   in key order, followed by {@link FIXED_SYNC_PATHS}. An entry ending in `/`
+ *   is a directory; any other entry is one file.
  */
 export const syncPathSet = (keys: SyncPathKeys): readonly string[] => {
   const dirs = [keys.planDir, keys.activeIndex, keys.deliveredIndex, keys.sprintDir, keys.releaseDir].map(asDir);
-  return [...new Set(dirs.filter((dir) => dir !== ''))];
+  return [...new Set([...dirs.filter((dir) => dir !== ''), ...FIXED_SYNC_PATHS])];
 };
 
 /** The answer of the path gate. */
@@ -62,16 +73,17 @@ const normalized = (path: string): string => path.replace(/^\.\//, '');
  *
  * The judgement reads the paths of the diff and nothing else: not the title,
  * not the head branch's name. A path counts as inside when it lies beneath one
- * of the directories; a path with `..` segments never does.
+ * of the set's directories or equals one of its files; a path with `..`
+ * segments never does.
  *
  * @param files - the paths the pull request changes; `'unknown'` where the diff could not be read.
- * @param set - the directories from {@link syncPathSet}.
+ * @param set - the entries from {@link syncPathSet}.
  * @returns ok, or the refusal naming every path outside the set. An unread
  *   diff refuses as `sync-diff-unread`: absent is not clean.
  */
 export const syncPathVerdict = (files: readonly string[] | 'unknown', set: readonly string[]): SyncPathVerdict => {
   if (files === 'unknown') return { ok: false, refusal: 'sync-diff-unread', paths: [] };
-  const outside = files.map(normalized).filter((file) => file.split('/').includes('..') || !set.some((dir) => file.startsWith(dir)));
+  const outside = files.map(normalized).filter((file) => file.split('/').includes('..') || !set.some((entry) => (entry.endsWith('/') ? file.startsWith(entry) : file === entry)));
   return outside.length === 0 ? { ok: true } : { ok: false, refusal: 'sync-path-outside-set', paths: outside };
 };
 
@@ -230,19 +242,17 @@ export const syncPrDecision = (reading: SyncPrReading): SyncPrDecision => {
 };
 
 /**
- * Whether the sync is complete, from the host's answer and the trees.
+ * Whether the sync is complete, from the trees.
  *
  * Never ancestry: a squash-merge rewrites the state tip's commits, so the tip
  * is not an ancestor of the default branch after every sync.
  *
- * @param mergedAt - the sync pull request's `mergedAt`; null where unmerged.
  * @param stateTree - the state tip's tree id.
  * @param defaultTree - the default tip's tree id.
- * @returns true where the trees are equal. A merged pull request with unequal
- *   trees reads false: the state ref moved after the merge.
+ * @returns true where both trees are read and equal; an empty tree id reads false.
  */
-export const syncedByTrees = (mergedAt: string | null, stateTree: string, defaultTree: string): boolean =>
-  stateTree !== '' && stateTree === defaultTree && (mergedAt === null || mergedAt !== '');
+export const syncedByTrees = (stateTree: string, defaultTree: string): boolean =>
+  stateTree !== '' && stateTree === defaultTree;
 
 /** The title of a sync pull request. */
 export const syncPrTitle = (stateBranch: string, defaultBranch: string): string =>

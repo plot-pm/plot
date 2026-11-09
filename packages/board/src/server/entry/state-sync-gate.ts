@@ -8,7 +8,11 @@ export interface StateSyncGate {
   target: StateWriteTarget;
   pathSet: readonly string[];
   defaultBranch: string;
-  /** The paths the sync PR changes at head `sha`, or `'unknown'` where any read failed or the state tip is not `sha`. */
+  /**
+   * The paths the sync PR changes at head `sha`, read after fetching both the
+   * state ref and the default branch; `'unknown'` where any fetch or read
+   * failed or the state tip is not `sha`.
+   */
   diff: (sha: string) => Promise<readonly string[] | 'unknown'>;
 }
 
@@ -43,6 +47,8 @@ export const stateSyncGateFor = async (
     diff: async (sha) => {
       const fetched = await deps.trees.fetchRef(deps.repoRoot, target.pushRef, target.trackRef);
       if (!fetched.ok || !fetched.value) return 'unknown';
+      const defaults = await deps.trees.fetchRef(deps.repoRoot, `refs/heads/${main.value}`, target.defaultRef);
+      if (!defaults.ok || !defaults.value) return 'unknown';
       const tip = await deps.refs.resolve(target.trackRef);
       if (!tip.ok || tip.value === '' || !(tip.value.startsWith(sha) || sha.startsWith(tip.value))) return 'unknown';
       const files = await deps.refs.changedFiles(target.trackRef, main.value);

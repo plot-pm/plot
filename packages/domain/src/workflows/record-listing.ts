@@ -89,7 +89,7 @@ export const recordsAhead = async (refs: Refs, source: RecordSource): Promise<nu
     refs.resolve(`${where.ref}^{tree}`),
     refs.resolve(`${where.defaultRef}^{tree}`),
   ]);
-  return stateTree.ok && defaultTree.ok && syncedByTrees(null, stateTree.value, defaultTree.value) ? 0 : range.value.length;
+  return stateTree.ok && defaultTree.ok && syncedByTrees(stateTree.value, defaultTree.value) ? 0 : range.value.length;
 };
 
 

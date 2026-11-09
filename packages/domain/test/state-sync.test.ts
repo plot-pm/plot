@@ -13,6 +13,8 @@ import {
   type ForwardSyncReading,
   type SyncPrReading,
 } from '../src/rules/state-sync.js';
+import { briefPath } from '../src/rules/brief-path.js';
+import { HOLD_FILE } from '../src/rules/hold-clear.js';
 
 const target = (key: string): StateWriteTarget => {
   const t = writeTarget(key, 'main');
@@ -30,11 +32,40 @@ const set = syncPathSet({
 
 describe('syncPathVerdict', () => {
   it('enumerates each directory once, with a trailing slash', () => {
-    expect(set).toEqual(['docs/plans/', 'docs/plans/active/', 'docs/plans/delivered/', 'docs/sprints/', 'docs/releases/']);
+    expect(set).toEqual(['docs/plans/', 'docs/plans/active/', 'docs/plans/delivered/', 'docs/sprints/', 'docs/releases/', '.plot/briefs/', '.plot/hold']);
   });
 
   it('drops a directory key that is empty', () => {
-    expect(syncPathSet({ planDir: 'docs/plans', activeIndex: '', deliveredIndex: ' ', sprintDir: './', releaseDir: 'r/' })).toEqual(['docs/plans/', 'r/']);
+    expect(syncPathSet({ planDir: 'docs/plans', activeIndex: '', deliveredIndex: ' ', sprintDir: './', releaseDir: 'r/' })).toEqual(['docs/plans/', 'r/', '.plot/briefs/', '.plot/hold']);
+  });
+
+  it('passes a sync diff that carries a brief and the hold file', () => {
+    expect(syncPathVerdict([briefPath('feature/state-branch-sync'), HOLD_FILE, 'docs/plans/2026-11-07-x.md'], set)).toEqual({ ok: true });
+  });
+
+  it('holds every path a writer of the state ref pushes', () => {
+    const written = [
+      'docs/plans/2026-11-07-x.md',
+      'docs/plans/active/x.md',
+      'docs/plans/delivered/x.md',
+      'docs/sprints/2026-w45.md',
+      'docs/releases/vnext-checklist.md',
+      briefPath('bug/a-slice'),
+      HOLD_FILE,
+    ];
+    expect(syncPathVerdict(written, set)).toEqual({ ok: true });
+  });
+
+  it('matches the hold file by its whole path, never as a directory prefix', () => {
+    expect(syncPathVerdict(['.plot/holdings.sh', '.plot/hold/x'], set)).toEqual({
+      ok: false,
+      refusal: 'sync-path-outside-set',
+      paths: ['.plot/holdings.sh', '.plot/hold/x'],
+    });
+  });
+
+  it('refuses a file under .plot that no writer pushes', () => {
+    expect(syncPathVerdict(['.plot/state/index/github.json'], set).ok).toBe(false);
   });
 
   it('passes a diff inside the set', () => {
@@ -167,9 +198,9 @@ describe('isSyncHead', () => {
 
 describe('syncedByTrees', () => {
   it('reads equal trees as synced, with no ancestry', () => {
-    expect(syncedByTrees('2026-11-08T00:00:00Z', 't1', 't1')).toBe(true);
-    expect(syncedByTrees('2026-11-08T00:00:00Z', 't2', 't1')).toBe(false);
-    expect(syncedByTrees(null, '', '')).toBe(false);
+    expect(syncedByTrees('t1', 't1')).toBe(true);
+    expect(syncedByTrees('t2', 't1')).toBe(false);
+    expect(syncedByTrees('', '')).toBe(false);
   });
 });
 
