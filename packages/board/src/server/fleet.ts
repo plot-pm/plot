@@ -2563,8 +2563,8 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
 };
 
 /**
- * Whether the fleet owns the issue index: fleetd's heartbeat is live with every
- * loop fresh. The same signal as the scan's, so one fleet answers both. The
+ * Whether the fleet owns the issue index: fleetd's heartbeat is live with its
+ * scan loop fresh. The same signal as the scan's, so one fleet answers both. The
  * bridge is not consulted: issues are read from `issues.json`, which the
  * heartbeat's `issue-reader` loop keeps.
  *
@@ -3261,8 +3261,8 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // has reported some entries and re-derived others, and adopting that
     // partial map would quietly drop the branches it never reached — turning
     // a slow pulse into a cold cache on the pulse after it.
-    // WHO SCANS. The fleet does when fleetd's heartbeat is live and every loop it
-    // runs has passed within its bound (`fleetOwnsScan`); the board then reads
+    // WHO SCANS. The fleet does when fleetd's heartbeat is live and its scan loop
+    // has passed within its bound (`fleetOwnsScan`); the board then reads
     // the bridge, whatever its age, and spawns nothing.
     // Otherwise the board scans for display and writes NOTHING: `record: false`
     // keeps the script from touching the bridge, and the board has no writer
@@ -3271,7 +3271,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     entry.scanNote = owned && bridged !== null
       ? ownedBridgeNote({ bridgeAt: bridged.at, attempt: bridged.attempt ?? null, now: Date.now() })
       : heartbeat !== null && fleetdLiveness(heartbeat, Date.now()) === 'live'
-        ? lateLoopNote(lateLoops(heartbeat, Date.now()))
+        ? lateLoopNote(lateLoops(heartbeat, Date.now()).filter((loop) => loop === 'scan'))
         : null;
     const skipDisplay = owned && sameBridge;
     let scanned: ScanResult | null = null;

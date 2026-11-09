@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { mainRootOf } from '@plot-pm/domain/adapters/main-checkout';
 import { answer, held } from './delta-core.js';
 
 /**
@@ -71,7 +72,8 @@ export const logToPlan = (file: string, line: string): boolean => {
  *   left as it was, with no temporary file beside it, and the pulse goes on.
  */
 export const recordBridge = (root: string, reading: Record<string, unknown>, now: number, respectHold = true): string => {
-  const file = join(root, '.plot', 'state', 'last-pulse.json');
+  const stateDir = join(mainRootOf(root), '.plot', 'state');
+  const file = join(stateDir, 'last-pulse.json');
   const previous = existsSync(file) ? readFileSync(file, 'utf8').replace(/\n/g, '') : '';
   let delta = '';
   try {
@@ -82,7 +84,7 @@ export const recordBridge = (root: string, reading: Record<string, unknown>, now
   if (respectHold && previous !== '' && held(previous, now)) return delta;
   const tmp = `${file}.${process.pid}.tmp`;
   try {
-    mkdirSync(join(root, '.plot', 'state'), { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
     writeFileSync(tmp, `{"version":1,"at":${now},"pulse":${JSON.stringify(reading)},"ages":[],"branchUrlBase":"","approvedAt":[],"ideaPlans":[]}`);
     renameSync(tmp, file);
   } catch {

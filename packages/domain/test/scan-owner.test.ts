@@ -22,7 +22,7 @@ const beat = (overrides: Partial<FleetdHeartbeat> = {}): FleetdHeartbeat => ({
 });
 
 describe('fleetOwnsScan', () => {
-  it('is true while the heartbeat is live and every loop is fresh', () => {
+  it('is true while the heartbeat is live and the scan loop is fresh', () => {
     expect(fleetOwnsScan({ heartbeat: beat(), now: NOW })).toBe(true);
     expect(fleetOwnsScan({ heartbeat: beat({ beatAt: NOW - 30_000 }), now: NOW })).toBe(true);
   });
@@ -35,8 +35,23 @@ describe('fleetOwnsScan', () => {
   it('is false for an absent heartbeat', () => {
     expect(fleetOwnsScan({ heartbeat: null, now: NOW })).toBe(false);
   });
-  it('is false while a loop is late under a fresh beat', () => {
+  it('is false while the scan loop is late under a fresh beat', () => {
     expect(fleetOwnsScan({ heartbeat: beat({ loops: { scan: { lastPassAt: NOW - 181_000 } } }), now: NOW })).toBe(false);
+  });
+  it('is false for a scan loop that never passed and started more than its bound ago', () => {
+    expect(fleetOwnsScan({ heartbeat: beat({ startedAt: NOW - 181_000, loops: { scan: { lastPassAt: null } } }), now: NOW })).toBe(false);
+  });
+  it('stays true while a tick, pr-reader or issue-reader loop is late and the scan is on time', () => {
+    const loops = {
+      scan: { lastPassAt: NOW - 10_000 },
+      tick: { lastPassAt: NOW - 301_000 },
+      'pr-reader': { lastPassAt: NOW - 601_000 },
+      'issue-reader': { lastPassAt: NOW - 601_000 },
+    };
+    expect(fleetOwnsScan({ heartbeat: beat({ loops }), now: NOW })).toBe(true);
+  });
+  it('judges a scan loop absent from the heartbeat as not run', () => {
+    expect(fleetOwnsScan({ heartbeat: beat({ loops: { tick: { lastPassAt: NOW - 301_000 } } }), now: NOW })).toBe(true);
   });
 });
 

@@ -1,7 +1,6 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import {
@@ -10,33 +9,7 @@ import {
   type FleetdHeartbeat,
 } from '../../entities/fleetd-heartbeat.js';
 import type { FleetdHeartbeatStore } from '../../ports/fleetd-heartbeat.js';
-
-const mainRoots = new Map<string, string>();
-
-/**
- * The main checkout a repository root belongs to.
- *
- * A linked worktree shares fleetd and the reader lock with its main checkout,
- * so all of them read one heartbeat. The root comes from `git rev-parse
- * --git-common-dir`, the directory the reader lock and `issues.json` resolve
- * from. Where that is not a `.git` directory, or git cannot answer, the root
- * is `repoRoot` itself. Cached per root: the answer cannot change while a
- * process runs.
- */
-const mainRootOf = (repoRoot: string): string => {
-  const known = mainRoots.get(repoRoot);
-  if (known !== undefined) return known;
-  let root = repoRoot;
-  try {
-    const out = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    const common = out === '' ? null : resolve(repoRoot, out);
-    if (common !== null && basename(common) === '.git') root = realpathSync(dirname(common));
-  } catch {
-    root = repoRoot;
-  }
-  mainRoots.set(repoRoot, root);
-  return root;
-};
+import { mainRootOf } from '../main-checkout.js';
 
 /**
  * Where the heartbeat lives, beside `last-pulse.json`, under the main

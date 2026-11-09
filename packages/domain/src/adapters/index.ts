@@ -217,6 +217,7 @@ export {
 // FLEETD'S HEARTBEAT. One file under the repository's `.plot/state/`, replaced
 // every `HEARTBEAT_MS` by the daemon's `run()` and read by whoever asks whether
 // fleetd is alive.
+export { mainRootOf } from './main-checkout.js';
 export { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from './fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 // THE GATE-NUMBER READER. Resolves which gate a Claude Code session would
