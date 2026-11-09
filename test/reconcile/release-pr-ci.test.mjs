@@ -227,9 +227,9 @@ for (const [job, skip] of [
 // last step must fail unless each needed job ended `success`, or ended
 // `skipped` while the selection named it `false`.
 // `ci-selection-jobs.test.mjs` runs that step under each result.
-test("ci.yml's validate needs the selection, checks and both split jobs, and runs unless cancelled", () => {
+test("ci.yml's validate needs the selection, gates, checks and both split jobs, and runs unless cancelled", () => {
   const head = jobBlock(CI, 'validate').split('\n    steps:')[0];
-  assert.match(head, /^ {4}needs: \[select, checks, helper-contracts, board-integration\]$/m);
+  assert.match(head, /^ {4}needs: \[select, gates, checks, helper-contracts, board-integration\]$/m);
   assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
 });
 
@@ -238,7 +238,7 @@ test("ci.yml's validate needs the selection, checks and both split jobs, and run
 test("ci.yml's validate ends with a step that reads every needed job's result", () => {
   const steps = jobSteps(CI, 'validate');
   const last = steps[steps.length - 1];
-  for (const job of ['checks', 'helper-contracts', 'board-integration']) {
+  for (const job of ['gates', 'checks', 'helper-contracts', 'board-integration']) {
     const key = job.replace('-', '_').toUpperCase();
     assert.match(
       last,
