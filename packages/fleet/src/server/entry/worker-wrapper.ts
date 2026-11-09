@@ -3,8 +3,10 @@
 // It starts the `Worker command` as `bash -c`, outlives it, and leaves the records
 // `start_worker`'s inline `sh -c` wrapper left: `.plot-worker.wrapper.pid`,
 // `.plot-worker.pid`, `.plot-worker.pid.startedAt`, the manifest stamp, one
-// WorkerMonitor line, and `.plot-worker.exit`. It reads the environment that
-// `start_worker` exports and takes the command as its one argument.
+// WorkerMonitor line, and `.plot-worker.exit`. Before the agent starts it makes
+// the desk's liveness token, `.plot-worker.token.fifo`, and hands it to the
+// agent as fd 3. It reads the environment that `start_worker` exports and takes
+// the command as its one argument.
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,7 +14,10 @@ import { pathToFileURL } from 'node:url';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { agentStartShell, workerRecordsFile } from '@plot-pm/domain/adapters/worker-records/worker-records-file';
 import { deskMonitorsShell } from '@plot-pm/domain/adapters/desk-monitors/desk-monitors-shell';
+import { livenessTokenFifo } from '@plot-pm/domain/adapters/liveness-token/liveness-token-fifo';
+import type { LivenessToken } from '@plot-pm/domain/ports/liveness-token';
 import type { AgentStart, LaunchRecords } from '@plot-pm/domain/ports/worker-records';
+import { TOKEN_FD, TOKEN_FD_ENV } from '@plot-pm/domain/rules/worker-liveness';
 import { watchedDesk } from '@plot-pm/domain/rules/desk-manifest';
 import { agentExitCode, monitorTime, workerEnding, workerEndingLine } from '@plot-pm/domain/rules/worker-ending';
 
@@ -44,6 +49,10 @@ export interface WrapperInput {
 export interface WrapperDeps {
   records: LaunchRecords;
   agents: AgentStart;
+  /** Makes the desk's liveness token. */
+  token: LivenessToken;
+  /** Writes one line to the desk log, the wrapper's stdout. */
+  log: (line: string) => void;
   /** Starts the AgentMonitor and returns its pid, `''` for none. */
   startMonitor: (input: WrapperInput) => string;
   /** Stamps the manifest; a no-op when the file is absent. */
@@ -91,10 +100,16 @@ export const wrapperInput = (
 };
 
 /**
- * Runs one agent launch to its end, in the order the `sh` wrapper uses: the
- * wrapper pid and its start, the AgentMonitor, the agent, `SIGTERM` ignored,
- * the agent pid and its start, the manifest stamp; then, once the agent ends,
- * one WorkerMonitor line into the watched desk and the exit code.
+ * Runs one agent launch to its end: the wrapper pid and its start, the
+ * AgentMonitor, the liveness token, the earlier exit record removed, the agent
+ * with the token on fd 3, `SIGTERM` ignored, the agent pid and its start, the
+ * manifest stamp; then, once the agent ends, one WorkerMonitor line into the
+ * watched desk and the exit code.
+ *
+ * The wrapper closes its own copy of the token once the agent runs, so only
+ * the agent and what it starts hold it. A token that cannot be made leaves no
+ * file at the token path; the desk log names the reason, the manifest records
+ * `token: none (<reason>)`, and the agent starts with no token.
  *
  * @param input - the command and the environment `start_worker` set.
  * @param deps - the ports.
@@ -106,8 +121,15 @@ export const runWorkerWrapper = async (input: WrapperInput, deps: WrapperDeps): 
   const wrapperStarted = records.startedText(deps.pid);
   const agentMonitorPid = input.agentMonitor === '' ? '' : deps.startMonitor(input);
 
+  const made = input.worktree === '' ? { ok: false as const, reason: 'no desk named' } : deps.token.make(input.worktree);
+  if (!made.ok) deps.log(`plot-worker-wrapper: no liveness token: ${made.reason}`);
+  records.removeExit();
+
   const pathPrefix = input.scriptDir === '' ? '' : `${input.scriptDir}:`;
-  const agent = deps.agents.start(input.command, { ...input.env, PATH: `${pathPrefix}${input.env.PATH ?? ''}` });
+  const { [TOKEN_FD_ENV]: _inherited, ...env } = input.env;
+  const agentEnv = { ...env, PATH: `${pathPrefix}${input.env.PATH ?? ''}`, ...(made.ok ? { [TOKEN_FD_ENV]: String(TOKEN_FD) } : {}) };
+  const agent = deps.agents.start(input.command, agentEnv, made.ok ? made.token.fd : null);
+  if (made.ok) deps.token.close(made.token);
   deps.ignoreTerm();
   if (agent === null) {
     records.writeExit(127);
@@ -125,6 +147,7 @@ export const runWorkerWrapper = async (input: WrapperInput, deps: WrapperDeps): 
     wrapperPidStartedAt: wrapperStarted,
     workerMonitorPid: '',
     agentMonitorPid,
+    token: made.ok ? made.token.path : `none (${made.reason})`,
   });
 
   const code = agentExitCode(await agent.ended);
@@ -141,7 +164,8 @@ export const runWorkerWrapper = async (input: WrapperInput, deps: WrapperDeps): 
 
 /**
  * The production ports: the desk files `start_worker` names, a `bash -c` agent
- * start, the AgentMonitor through `deskMonitorsShell`, and the manifest stamp.
+ * start, the FIFO token, the AgentMonitor through `deskMonitorsShell`, and the
+ * manifest stamp.
  *
  * @param env - the process environment.
  * @returns the deps.
@@ -154,6 +178,10 @@ export const productionDeps = (env: Readonly<Record<string, string | undefined>>
     wrapperPidFile: env.PLOT_WRAPPER_PID_FILE ?? '',
   }),
   agents: agentStartShell(),
+  token: livenessTokenFifo(),
+  log: (line) => {
+    process.stdout.write(`${line}\n`);
+  },
   startMonitor: (input) => {
     const monitors = deskMonitorsShell({ repoRoot: input.worktree, scriptDir: path.dirname(input.agentMonitor) });
     const started = monitors.start({

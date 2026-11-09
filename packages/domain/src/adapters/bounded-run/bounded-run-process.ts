@@ -150,7 +150,7 @@ export const boundedRunProcess = (processes: Pick<Processes, 'childrenOf'>): Bou
       const child = spawn(command, [...args], {
         cwd: options.cwd,
         env: options.env ? { ...process.env, ...options.env } : process.env,
-        stdio: ['ignore', out, out],
+        stdio: options.holdFd === undefined ? ['ignore', out, out] : ['ignore', out, out, options.holdFd],
       });
 
       // A THROWING CALLBACK MUST NOT ABANDON A STARTED CHILD: the listeners

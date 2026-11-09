@@ -83,6 +83,7 @@ const PORCELAIN: Array<[name: string, text: string]> = [
     ].join('\n'),
   ],
   ['short-lines', ' M a\n?? b'],
+  ['token', '?? .plot-worker.token.fifo\n?? .plot-worker.token.fifo.4242.tmp\n?? sub/.plot-worker.token.fifo'],
 ];
 
 /** One subject: a porcelain file, and the worktree the shell is handed, or none. */
@@ -193,6 +194,7 @@ describe('deskDirtFilter agrees with plot-worker-state.sh plot_worker_dirty_filt
     };
     const both = (list: string[]): [string[], string[]] => [list, list];
     expect(answer('correction-root/no-worktree')).toEqual(both([]));
+    expect(answer('token/no-worktree')).toEqual(both([]));
     expect(answer('renames/no-worktree')).toEqual(both(['old.ts -> new.ts', 'x.ts -> y.ts']));
     expect(answer('bundles/build-desk')).toEqual(
       both([
@@ -250,7 +252,10 @@ describe('treesGit.dirtyPaths agrees with plot-worker-state.sh plot_worker_dirty
     gitDesk('desk-main-build', BUILD, changed),
     gitDesk('desk-no-build', null, changed),
     gitDesk('desk-clean', BUILD, {}),
+    gitDesk('desk-token', BUILD, {}),
   ];
+  // A REAL FIFO: the liveness token the wrapper makes, and its temporary name.
+  execFileSync('mkfifo', [join(desks[4]!, '.plot-worker.token.fifo'), join(desks[4]!, '.plot-worker.token.fifo.4242.tmp')]);
   const trees = treesGit(shellContext(ROOT));
 
   /** `plot_worker_dirty` per desk, in one bash process. */
@@ -282,5 +287,6 @@ describe('treesGit.dirtyPaths agrees with plot-worker-state.sh plot_worker_dirty
     expect(shell[0]).toEqual(['skills/plot/scripts/board/board-server.mjs', 'src/a.ts']);
     expect(shell[1]).toEqual(['out/own.mjs', 'src/a.ts']);
     expect(shell[3]).toEqual([]);
+    expect(shell[4]).toEqual([]);
   });
 });

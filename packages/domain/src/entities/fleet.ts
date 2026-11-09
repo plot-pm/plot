@@ -533,6 +533,12 @@ export const BranchSchema = z.object({
    */
   worker_activity: WorkerActivitySchema.default(''),
   /**
+   * What the worker reading's liveness rests on: `token` for a desk whose
+   * liveness token answered, `start-time` for a desk with none, `""` where no
+   * desk was read. Absent in a pulse from an older scan, which reads as "".
+   */
+  worker_basis: z.enum(['token', 'start-time', '']).optional(),
+  /**
    * The files that would collide merging this branch into the default branch.
    *
    * A SET, not a yes/no. `plot-merge-queue.sh` has predicted conflicts since it

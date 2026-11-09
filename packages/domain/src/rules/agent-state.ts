@@ -24,6 +24,9 @@ import { taskState, type TaskReadings } from './task.js';
  *   under it. The recorded pid is the loop shell, which outlives its agent for
  *   the whole `Worker bound`, so this is a live wrapper around nothing.
  * - `dead` — the pid does not answer.
+ * - `stray-holder` — the desk's liveness token is held and the recorded pid
+ *   does not answer: the worker ended without an exit record while a process
+ *   that inherited the token still runs (`workerLiveness`).
  *
  * `orphaned` IS NOT `dead`, AND THE DIFFERENCE IS WHAT THE DESK IS WORTH.
  * A dead pid left an exit file, so the process can still say how it ended. An
@@ -32,7 +35,7 @@ import { taskState, type TaskReadings } from './task.js';
  * Measured 2026-09-11: four agents ended this way in one session, and three of
  * the four desks held work one step from done.
  */
-export type PidLiveness = 'live' | 'stale' | 'orphaned' | 'dead';
+export type PidLiveness = 'live' | 'stale' | 'orphaned' | 'dead' | 'stray-holder';
 
 /**
  * What a recorded exit says, as read rather than as parsed.
@@ -116,7 +119,8 @@ const exitIsNumeric = (exit: ExitReading): exit is string =>
  *    nothing below it can be read without a desk to read.
  * 2. **No pid is `none`.** An absent record is its own answer; guessing
  *    `finished` would be the same mistake in the other direction.
- * 3. **A live pid is `running`**, and a `stale` one is `ended` — a reused
+ * 3. **A live pid is `running`, and so is a stray holder of the token**: it
+ *    starts no restart and releases no claim. A `stale` one is `ended` — a reused
  *    number means the worker is dead and no exit file can be trusted either.
  *    **An `orphaned` one is the DESK's answer**, because the wrapper is still
  *    alive and has therefore written no exit code: there is no process fact
@@ -148,7 +152,7 @@ const exitIsNumeric = (exit: ExitReading): exit is string =>
 export const agentState = (readings: AgentStateReadings): AgentState => {
   if (!readings.worktreeHere) return 'elsewhere';
   if (!readings.pidRecorded) return 'none';
-  if (readings.liveness === 'live') return 'running';
+  if (readings.liveness === 'live' || readings.liveness === 'stray-holder') return 'running';
   if (readings.liveness === 'stale') return 'ended';
   // BEFORE THE EXIT ARMS, because an orphaned wrapper has written no exit file
   // and the `-` it reports would otherwise fall through to `ended`, discarding

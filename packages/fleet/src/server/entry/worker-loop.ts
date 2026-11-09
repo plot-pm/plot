@@ -1,5 +1,5 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, fstatSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -11,8 +11,10 @@ import {
   claudeOnPath,
   DEFAULT_READ_ONLY_DENY,
   settingsFilesOf,
-  spawnAttached,
+  spawnAttachedHolding,
 } from '@plot-pm/domain/adapters/agent-run/agent-run-sdk';
+import { PASS_FILE } from '@plot-pm/domain/adapters/processes/processes-files';
+import { TOKEN_FD, TOKEN_FD_ENV } from '@plot-pm/domain/rules/worker-liveness';
 
 import {
   agentsFs,
@@ -1312,6 +1314,10 @@ export interface LoopDeps {
   readonly now: () => number;
   readonly sleep: (ms: number) => Promise<void>;
   readonly log: (line: string) => void;
+  /** The liveness token's descriptor the command runner's harness receives as fd 3; `null` or absent passes none. */
+  readonly tokenFd?: number | null;
+  /** Rewrites the desk's pass record at the start of every pass; absent writes none. */
+  readonly recordPass?: (worktree: string, at: number) => void;
   /** Resolves which prompt file runs: `<resolution>\t<prompt>\t<detail>`. */
   readonly resolvePrompt?: (repoRoot: string, agent: string) => string;
   /** Whether the resolved prompt file exists; defaults to `existsSync`. */
@@ -1680,6 +1686,7 @@ const runPrompt = async (
     env,
     boundSeconds: deps.config.boundSeconds,
     outFile: deps.outFile,
+    ...(deps.tokenFd === undefined || deps.tokenFd === null ? {} : { holdFd: deps.tokenFd }),
   });
 
   const first = await Promise.race([run.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
@@ -1761,6 +1768,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       localChecks: held.localChecks,
       droppedOn: held.droppedOn,
     };
+    deps.recordPass?.(deps.worktree, deps.now());
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock, deps.log);
     const decision = agentLoop(readings);
     if (readings.assignedBranch !== '') {
@@ -2155,6 +2163,8 @@ export interface RunnerInput {
   readonly checksOutFile: string;
   readonly now: () => number;
   readonly log: (line: string) => void;
+  /** The liveness token's descriptor the harness receives as fd 3; `null` or absent passes none. */
+  readonly tokenFd?: number | null;
 }
 
 /**
@@ -2224,7 +2234,7 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
           agentSettings,
           agentSettingsPath: input.agentSettings,
           pathToClaudeCodeExecutable,
-          spawnClaudeCodeProcess: spawnAttached,
+          spawnClaudeCodeProcess: spawnAttachedHolding(input.tokenFd ?? null),
           processes: input.ports.processes,
           now: () => Math.floor(input.now() / 1000),
           afterWait: context.afterWait,
@@ -2473,6 +2483,41 @@ export const selfCheck = async (
 };
 
 /**
+ * The liveness token's descriptor, where the wrapper handed one: `PLOT_WORKER_TOKEN_FD`
+ * names fd 3 and fd 3 is a FIFO.
+ *
+ * @param env - the process environment.
+ * @param isFifo - whether a descriptor is open on a FIFO.
+ * @returns 3, or `null` where no token was handed.
+ */
+export const tokenFdOf = (env: NodeJS.ProcessEnv, isFifo: (fd: number) => boolean = fdIsFifo): number | null =>
+  env[TOKEN_FD_ENV] === String(TOKEN_FD) && isFifo(TOKEN_FD) ? TOKEN_FD : null;
+
+/** Whether a descriptor is open on a FIFO. */
+const fdIsFifo = (fd: number): boolean => {
+  try {
+    return fstatSync(fd).isFIFO();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Rewrites the desk's pass record, `.plot-worker.pass`, with the pass time. A
+ * reader takes a change of its modification time as a new loop pass.
+ *
+ * @param worktree - the desk.
+ * @param at - the pass time, epoch milliseconds.
+ */
+export const recordPassFile = (worktree: string, at: number): void => {
+  try {
+    writeFileSync(join(worktree, PASS_FILE), `${new Date(at).toISOString()}\n`);
+  } catch {
+    /* a desk that cannot take the record walks its process table on the next token change */
+  }
+};
+
+/**
  * Starts the loop from its environment, as `plot-worker-loop.sh` hands it over.
  *
  * @param env - the process environment.
@@ -2530,7 +2575,9 @@ export const main = async (
   delete env.PLOT_HOP_FROM;
   const restart = await restartDeps(ports.trees, scriptDir, env, stderrLog);
   const now = offsetClock(env);
+  const tokenFd = tokenFdOf(env);
   const runner = await runnerDeps({
+    tokenFd,
     env,
     scriptDir,
     repoRoot,
@@ -2559,6 +2606,7 @@ export const main = async (
     sliceAgent: (branch) => sliceAgentOf(repoRoot, scriptDir, planDir, branch),
     runnerFor: (agent) =>
       runnerDeps({
+        tokenFd,
         env,
         scriptDir,
         repoRoot,
@@ -2605,6 +2653,8 @@ export const main = async (
     now,
     sleep: systemSleep,
     log: stderrLog,
+    tokenFd,
+    recordPass: recordPassFile,
   });
   await leave();
   return code;

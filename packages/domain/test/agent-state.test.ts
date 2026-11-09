@@ -55,6 +55,10 @@ describe('agentState', () => {
     expect(agentState(desk({ pidRecorded: true, liveness: 'live' }))).toBe('running');
   });
 
+  it('answers running for a stray holder of the token, so no restart starts', () => {
+    expect(agentState(desk({ pidRecorded: true, liveness: 'stray-holder' }))).toBe('running');
+  });
+
   it('answers running without consulting the exit record', () => {
     // A live process has not exited. A recorded code beside it belongs to an
     // earlier run of the same desk.

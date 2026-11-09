@@ -128,11 +128,11 @@ const rig = (
   };
 
   const deskCalls = deskFixtureCalls();
-  const runs: { command: string; args: readonly string[]; env?: Readonly<Record<string, string>> }[] = [];
+  const runs: { command: string; args: readonly string[]; env?: Readonly<Record<string, string>>; holdFd?: number }[] = [];
   let call = 0;
   const boundedRun: BoundedRun = {
     run: async (command, args, options) => {
-      runs.push({ command, args, env: options.env });
+      runs.push({ command, args, env: options.env, ...(options.holdFd === undefined ? {} : { holdFd: options.holdFd }) });
       const script = scripts[call] ?? {};
       call += 1;
       await script.during?.();
@@ -296,6 +296,25 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.runs[0].args.slice(0, 5)).toEqual(['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS', 'bash']);
     expect(r.runs[0].env?.PLOT_SESSION_FLAG).toBe('--session-id');
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('blocked');
+  });
+
+  it('hands the harness the liveness token on fd 3, and records each pass', async () => {
+    const passes: string[] = [];
+    const r = rig(ASSIGNED, [
+      { during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which one?\n') },
+    ], { tokenFd: 3, recordPass: (worktree) => passes.push(worktree) });
+    await runWorkerLoop(r.deps);
+    expect(r.runs[0]?.holdFd).toBe(3);
+    expect(passes.length).toBeGreaterThan(0);
+    expect(new Set(passes)).toEqual(new Set([r.wt]));
+  });
+
+  it('hands the harness no descriptor where the wrapper gave no token', async () => {
+    const r = rig(ASSIGNED, [
+      { during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which one?\n') },
+    ], { tokenFd: null });
+    await runWorkerLoop(r.deps);
+    expect(r.runs[0]?.holdFd).toBeUndefined();
   });
 
   it('passes --resume when the conversation has already written', async () => {

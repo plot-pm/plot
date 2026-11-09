@@ -147,7 +147,7 @@ const one = async (command, act = async () => undefined) => {
   return records(run);
 };
 
-/** The masked records the `sh` wrapper left for an agent that ended with `code`. */
+/** The masked records the `sh` wrapper left for an agent that ended with `code`, plus the token line. */
 const expected = (code) => {
   const [finding, evidence] = code === 0
     ? ['clear', 'the agent pid <agent> exited 0; the worker is finished']
@@ -170,6 +170,8 @@ const expected = (code) => {
       '  "wrapperPidStartedAt": "<lstart>",',
       '  "workerMonitorPid": "",',
       '  "agentMonitorPid": "",',
+      // The one line the `sh` wrapper never wrote: the node wrapper's liveness token.
+      '  "token": "<desk>/.plot-worker.token.fifo",',
       '  "startedAt": "<time>"',
       '}',
       '',
