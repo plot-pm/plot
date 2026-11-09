@@ -304,19 +304,6 @@ Four jurors read the story through the lenses layering, safety, testability and 
 - The gate counts `execve` per scenario on Linux CI; the macOS proxy stays an open point.
 - A Candidate Plans table estimates 18 plans.
 
-### 2026-11-09 — The board reads the channel
-
-Sprint `the-board-reads-the-channel` built Phases 3 and 4 in four plans and 15 slices, plus `quality-gates-fail-fast`. CI on #3277 (run 42595561157) counted every row against `main`.
-
-**Key outcomes:**
-
-- An idle board with a visible tab and fleetd running starts 0 processes per minute (S3), down from 1212 on `main`. The row is now a required pass.
-- The census fleetd runs under `systemd-run --user`, so S3 measures the operator setup. The GitHub runner's own `INVOCATION_ID` had leaked into every step, so a hand-started fleetd already read as supervised; the sandbox now removes the systemd variables.
-- Three residual sources in S3 were removed: a `git for-each-ref` per PR beat for issue rows, the identity read every 60 s, and one `plot-config.sh` read.
-- The census runs as two parallel halves in about 12.5 minutes instead of about 26, and a red static gate ends a run after the `gates` job (77–80 s).
-- PRs into a sprint branch run no CI, so four defects reached the sprint PR: the domain vendor gate (#3301), the actor-name and teardown gates (#3301), and a config reading recorded by reference (#3303).
-- Open: S4 (an idle fleetd pass) is unchanged; its zero waits on Phase 8. `GET /api/board` still starts processes.
-
 ### 2026-11-08 — The first full census
 
 Sprint `nothing-runs` built Phases 1 and 2: the census gate (#3243, #3247, #3253, with fixes #3257 and #3264), *no-tab-no-pulse* (#3251, #3252, #3260), *monitors-nap-without-sleep* (#3258, #3259) and two slices of *fixed-answers-once* (#3261, #3262). CI on #3237 at `d1117a0a8` counted every row against `main`.
@@ -329,3 +316,16 @@ Sprint `nothing-runs` built Phases 1 and 2: the census gate (#3243, #3247, #3253
 - An idle fleetd pass fell by about 11 % (S4); its zero waits on Phase 8. A board with a tab and fleetd running fell by about 13 % (S3); its zero waits on Phase 4.
 - The gate allows 10 % + 2 on a count whose merge base is above 0 and holds a zero strictly; two runs on unchanged code moved S1 by 8.8 %.
 - 2026-11-08: the four plans of Phases 1 and 2 were delivered on `sprint/nothing-runs` after CI on #3237 passed in full at `a269f54d6`, `process-census` included.
+
+### 2026-11-09 — The board reads the channel
+
+Sprint `the-board-reads-the-channel` built Phases 3 and 4 in four plans and 15 slices, plus `quality-gates-fail-fast`. CI on #3277 (run 42595561157) counted every row against `main`.
+
+**Key outcomes:**
+
+- An idle board with a visible tab and fleetd running starts 0 processes per minute (S3), down from 1212 on `main`. The row is now a required pass.
+- The census fleetd runs under `systemd-run --user`, so S3 measures the operator setup. The GitHub runner's own `INVOCATION_ID` had leaked into every step, so a hand-started fleetd already read as supervised; the sandbox now removes the systemd variables.
+- Three residual sources in S3 were removed: a `git for-each-ref` per PR beat for issue rows, the identity read every 60 s, and one `plot-config.sh` read.
+- The census runs as two parallel halves in about 12.5 minutes instead of about 26, and a red static gate ends a run after the `gates` job (77–80 s).
+- PRs into a sprint branch run no CI, so four defects reached the sprint PR: the domain vendor gate (#3301), the actor-name and teardown gates (#3301), and a config reading recorded by reference (#3303).
+- Open: S4 (an idle fleetd pass) is unchanged; its zero waits on Phase 8. `GET /api/board` still starts processes.
