@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** desk-probes-and-liveness
 - **Issue:** #3170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-11-09, jwloka, plan-PR #3308 merged
+- **Delivered:** 2026-11-09
 
 ## Changelog
 
