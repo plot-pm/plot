@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { StateSyncRecord } from '../../ports/state-sync-record.js';
-import type { ForwardRefusal } from '../../rules/state-sync.js';
+import type { ForwardRefusal, SyncPrRefresh } from '../../rules/state-sync.js';
 import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 
 /** The environment variable naming the common git directory, for tests. */
@@ -14,6 +14,9 @@ const LOCK = 'plot-push-main.lock';
 
 /** The refusal's filename, under the common git directory's `.plot/state/`. */
 const FILE = 'state-sync-refusal.json';
+
+/** The last sync pull request refresh's filename, beside the refusal. */
+const REFRESH_FILE = 'state-sync-refresh.json';
 
 /** The seams the adapter needs so a test never touches the operator's own files. */
 export interface StateSyncFileOptions {
@@ -129,6 +132,30 @@ export const stateSyncFile = (options: StateSyncFileOptions = {}): StateSyncReco
       if (common === null) return failed<void>();
       try {
         await rm(join(common, '.plot', 'state', FILE), { force: true });
+        return answered(undefined);
+      } catch {
+        return failed<void>();
+      }
+    },
+
+    refreshed: async (): Promise<PortResult<SyncPrRefresh | null>> => {
+      const common = await commonOf();
+      if (common === null) return failed<SyncPrRefresh | null>();
+      try {
+        const r = JSON.parse(await readFile(join(common, '.plot', 'state', REFRESH_FILE), 'utf8')) as Partial<SyncPrRefresh>;
+        const ok = Number.isInteger(r.pr) && Number.isInteger(r.ahead);
+        return ok ? answered<SyncPrRefresh | null>({ pr: r.pr as number, ahead: r.ahead as number }) : failed<SyncPrRefresh | null>();
+      } catch (error) {
+        return isMissing(error) ? answered<SyncPrRefresh | null>(null) : failed<SyncPrRefresh | null>();
+      }
+    },
+
+    noteRefresh: async (refresh): Promise<PortResult<void>> => {
+      const common = await commonOf();
+      if (common === null) return failed<void>();
+      try {
+        await mkdir(join(common, '.plot', 'state'), { recursive: true });
+        await writeFile(join(common, '.plot', 'state', REFRESH_FILE), `${JSON.stringify({ pr: refresh.pr, ahead: refresh.ahead })}\n`);
         return answered(undefined);
       } catch {
         return failed<void>();

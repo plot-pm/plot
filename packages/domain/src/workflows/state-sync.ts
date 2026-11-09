@@ -10,6 +10,7 @@
 import type { Host } from '../ports/host.js';
 import type { ReaderLock } from '../ports/reader-lock.js';
 import type { Refs } from '../ports/refs.js';
+import type { StateSyncRecord } from '../ports/state-sync-record.js';
 import { heartbeatIsFresh } from '../rules/reader-election.js';
 import { statusStateOf } from '../rules/state-transition.js';
 import {
@@ -38,6 +39,8 @@ export interface StateSyncSource {
 export interface StateSyncPorts {
   readonly host: Pick<Host, 'prList' | 'prCreate' | 'prComment'>;
   readonly refs: Pick<Refs, 'commitSubjects' | 'changedFiles' | 'showFile' | 'fileExistsSync' | 'resolve'>;
+  /** The last refresh this machine posted; a refresh the host took is recorded here. */
+  readonly record: Pick<StateSyncRecord, 'refreshed' | 'noteRefresh'>;
 }
 
 /**
@@ -102,10 +105,12 @@ export type SyncPrResult =
  *
  * The host is asked for an open sync pull request first, so a second pass
  * refreshes the first one's pull request and never opens another. A refresh
- * replaces the marked comment; the pull request's head already carries the
- * new commits.
+ * replaces the marked comment, and only where the count ahead differs from the
+ * last recorded refresh; the pull request's head already carries the new
+ * commits. An unreadable record reads as no refresh: the edit it costs lands
+ * on the same marked comment.
  *
- * @param ports - the host and refs.
+ * @param ports - the host, the refs and the refresh record.
  * @param source - the target, the default branch and the plan directory.
  * @param caller - fleetd, or the command that wrote Delivered.
  * @param fleetLive - whether a fleet heartbeat is live; `'unknown'` where unread. Read only for the command caller.
@@ -119,14 +124,18 @@ export const syncPrAt = async (
   const open = source.target.isBranch ? await openSyncPr(ports.host, source) : null;
   const pending = source.target.isBranch ? await deliveredPending(ports.refs, source) : false;
   const ahead = source.target.isBranch ? await commitsBetween(ports.refs, source.target.defaultRef, source.target.trackRef) : 0;
-  const decision: SyncPrDecision = syncPrDecision({ caller, target: source.target, deliveredPending: pending, ahead, open, fleetLive });
+  const said = open !== null && open !== 'unknown' ? await ports.record.refreshed() : null;
+  const refreshed = said !== null && said.ok ? said.value : null;
+  const decision: SyncPrDecision = syncPrDecision({ caller, target: source.target, deliveredPending: pending, ahead, open, fleetLive, refreshed });
   const branch = source.target.pushRef.replace(/^refs\/heads\//, '');
   const body = syncPrBody(ahead ?? 0, branch, source.defaultBranch);
   if (decision.kind === 'none') return { done: 'none', reason: decision.reason };
   if (decision.kind === 'unknown') return { done: 'unknown', reason: decision.reason };
   if (decision.kind === 'refresh') {
-    const said = await ports.host.prComment(decision.pr, body, SYNC_PR_MARKER);
-    return said.ok ? { done: 'refreshed', pr: decision.pr } : { done: 'failed', why: `the host did not take the refresh comment on PR #${decision.pr}` };
+    const posted = await ports.host.prComment(decision.pr, body, SYNC_PR_MARKER);
+    if (!posted.ok) return { done: 'failed', why: `the host did not take the refresh comment on PR #${decision.pr}` };
+    await ports.record.noteRefresh({ pr: decision.pr, ahead: ahead ?? 0 });
+    return { done: 'refreshed', pr: decision.pr };
   }
   const created = await ports.host.prCreate({
     head: branch,

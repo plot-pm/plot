@@ -28,7 +28,8 @@ interface World {
   ahead?: number | 'fail';
   behind?: number | 'fail';
   created?: string[];
-  comments?: { pr: number; marker?: string }[];
+  comments?: { pr: number; marker?: string; body?: string }[];
+  refreshed?: { pr: number; ahead: number } | null;
   fail?: readonly ('comment' | 'create' | 'exists' | 'resolve' | 'base')[];
 }
 
@@ -43,10 +44,17 @@ const portsOf = (world: World): StateSyncPorts => {
         if (world.fail?.includes('create')) return failed();
         return answered('https://host/pr/9');
       },
-      prComment: async (pr, _body, marker) => {
-        world.comments?.push({ pr, marker });
+      prComment: async (pr, body, marker) => {
+        world.comments?.push({ pr, marker, body });
         if (world.fail?.includes('comment')) return failed();
         return answered(undefined as never);
+      },
+    },
+    record: {
+      refreshed: async () => answered(world.refreshed ?? null),
+      noteRefresh: async (refresh) => {
+        world.refreshed = refresh;
+        return answered(undefined);
       },
     },
     refs: {
@@ -83,11 +91,23 @@ describe('syncPrAt', () => {
   });
 
   it('refreshes the open sync PR and opens none', async () => {
-    const world = { ...delivered(), created: [] as string[], comments: [] as { pr: number; marker?: string }[], prs: [{ number: 7, head: 'plot/state', base: 'main', state: 'OPEN' }] };
+    const world: World = { ...delivered(), created: [], comments: [], prs: [{ number: 7, head: 'plot/state', base: 'main', state: 'OPEN' }] };
     const done = await syncPrAt(portsOf(world), source(), 'fleetd', 'unknown');
     expect(done).toEqual({ done: 'refreshed', pr: 7 });
     expect(world.created).toEqual([]);
-    expect(world.comments).toEqual([{ pr: 7, marker: 'plot-state-sync' }]);
+    expect(world.comments).toMatchObject([{ pr: 7, marker: 'plot-state-sync' }]);
+    expect(world.comments?.[0]?.body).toContain('plot-state-sync');
+    expect(world.refreshed).toEqual({ pr: 7, ahead: 3 });
+  });
+
+  it('posts nothing on a later tick until the count ahead changes', async () => {
+    const world: World = { ...delivered(), comments: [], prs: [{ number: 7, head: 'plot/state', base: 'main', state: 'OPEN' }] };
+    await syncPrAt(portsOf(world), source(), 'fleetd', 'unknown');
+    expect(await syncPrAt(portsOf(world), source(), 'fleetd', 'unknown')).toEqual({ done: 'none', reason: 'unchanged' });
+    expect(world.comments).toHaveLength(1);
+    world.ahead = 4;
+    expect(await syncPrAt(portsOf(world), source(), 'fleetd', 'unknown')).toEqual({ done: 'refreshed', pr: 7 });
+    expect(world.comments).toHaveLength(2);
   });
 
   it('reads a failed PR list as unknown and opens nothing', async () => {
@@ -119,7 +139,7 @@ describe('syncPrAt', () => {
 
 describe('a host that refuses', () => {
   it('reports a refused refresh comment and a refused create as failed', async () => {
-    const open = { ...delivered(), fail: ['comment' as const], ahead: 'fail' as const, prs: [{ number: 7, head: 'plot/state', base: 'main', state: 'OPEN' }] };
+    const open = { ...delivered(), fail: ['comment' as const], prs: [{ number: 7, head: 'plot/state', base: 'main', state: 'OPEN' }] };
     expect(await syncPrAt(portsOf(open), source(), 'fleetd', 'unknown')).toEqual({ done: 'failed', why: 'the host did not take the refresh comment on PR #7' });
     const none = { ...delivered(), fail: ['create' as const] };
     expect(await syncPrAt(portsOf(none), source(), 'fleetd', 'unknown')).toEqual({ done: 'failed', why: 'the host did not open the sync pull request' });

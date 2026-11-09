@@ -70,3 +70,21 @@ describe('the refusal', () => {
     expect((await stateSyncFile({ home: dir }).refusal()).ok).toBe(false);
   });
 });
+
+describe('the last refresh', () => {
+  it('round-trips and replaces', async () => {
+    const file = stateSyncFile({ home: home() });
+    expect(await file.refreshed()).toEqual({ ok: true, value: null });
+    await file.noteRefresh({ pr: 7, ahead: 3 });
+    expect(await file.refreshed()).toEqual({ ok: true, value: { pr: 7, ahead: 3 } });
+    await file.noteRefresh({ pr: 7, ahead: 4 });
+    expect(await file.refreshed()).toEqual({ ok: true, value: { pr: 7, ahead: 4 } });
+  });
+
+  it('reads a malformed file as failed, never as no refresh', async () => {
+    const dir = home();
+    mkdirSync(join(dir, '.plot', 'state'), { recursive: true });
+    writeFileSync(join(dir, '.plot', 'state', 'state-sync-refresh.json'), '{"pr":"7","ahead":3}');
+    expect((await stateSyncFile({ home: dir }).refreshed()).ok).toBe(false);
+  });
+});

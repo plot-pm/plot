@@ -154,7 +154,7 @@ export const prOnce = async (deps: StateSyncDeps, caller: SyncCaller): Promise<{
     const backend = await deps.host.backend();
     fleetLive = backend.ok ? await fleetLiveAt(deps.lock, backend.value, deps.now()) : 'unknown';
   }
-  const done = await syncPrAt({ host: deps.host, refs: deps.refs }, await sourceOf(deps, target, main), caller, fleetLive);
+  const done = await syncPrAt({ host: deps.host, refs: deps.refs, record: deps.record }, await sourceOf(deps, target, main), caller, fleetLive);
   return { report: { ...done }, code: done.done === 'unknown' || done.done === 'failed' ? 1 : 0 };
 };
 

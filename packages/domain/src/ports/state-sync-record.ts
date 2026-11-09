@@ -1,5 +1,5 @@
 import type { PortResult } from '../port-result.js';
-import type { ForwardRefusal } from '../rules/state-sync.js';
+import type { ForwardRefusal, SyncPrRefresh } from '../rules/state-sync.js';
 
 /**
  * What the forward sync reads from, and writes to, the machine it runs on.
@@ -25,4 +25,10 @@ export interface StateSyncRecord {
 
   /** Removes the recorded conflict. Removing none is not a failure. */
   clear(): Promise<PortResult<void>>;
+
+  /** Reads the last sync pull request refresh; null where none is recorded. A failed read is a failed result. */
+  refreshed(): Promise<PortResult<SyncPrRefresh | null>>;
+
+  /** Records a refresh the host took, replacing any earlier one. */
+  noteRefresh(refresh: SyncPrRefresh): Promise<PortResult<void>>;
 }

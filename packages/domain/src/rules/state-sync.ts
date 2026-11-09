@@ -167,11 +167,19 @@ export interface SyncPrReading {
   readonly open: number | null | 'unknown';
   /** Whether a fleet heartbeat is live; `'unknown'` where it could not be read. Read only for the command caller. */
   readonly fleetLive: boolean | 'unknown';
+  /** The last refresh this machine posted; null where none is recorded or the record could not be read. */
+  readonly refreshed: SyncPrRefresh | null;
+}
+
+/** One refresh of a sync pull request: the pull request and the count its comment stated. */
+export interface SyncPrRefresh {
+  readonly pr: number;
+  readonly ahead: number;
 }
 
 /** What the sync pull request's decision answers. */
 export type SyncPrDecision =
-  | { readonly kind: 'none'; readonly reason: 'no-branch' | 'not-delivered' | 'nothing-ahead' | 'fleet-owns-it' }
+  | { readonly kind: 'none'; readonly reason: 'no-branch' | 'not-delivered' | 'nothing-ahead' | 'fleet-owns-it' | 'unchanged' }
   | { readonly kind: 'unknown'; readonly reason: 'delivered-unread' | 'ahead-unread' | 'open-unread' | 'fleet-unread' }
   | { readonly kind: 'open' }
   | { readonly kind: 'refresh'; readonly pr: number };
@@ -182,7 +190,9 @@ export type SyncPrDecision =
  * The moment is Delivered (D13): a plan that reached Delivered on the state
  * ref makes the pull request open, or refreshes the open one. A state ref that
  * is not a branch gets none. Where a sync pull request is open, the decision
- * is `refresh` and never a second `open`, whatever else it reads. The command
+ * is never a second `open`: it is `refresh` where the count ahead differs from
+ * the last refresh recorded for that pull request, and `none` (`unchanged`)
+ * where it equals it, so a 60 s tick posts nothing between changes. The command
  * caller yields to a live fleet, so fleetd stays the one opener; where it
  * cannot tell, it does not act.
  *
@@ -196,7 +206,12 @@ export const syncPrDecision = (reading: SyncPrReading): SyncPrDecision => {
     if (reading.fleetLive) return { kind: 'none', reason: 'fleet-owns-it' };
   }
   if (reading.open === 'unknown') return { kind: 'unknown', reason: 'open-unread' };
-  if (reading.open !== null) return { kind: 'refresh', pr: reading.open };
+  if (reading.open !== null) {
+    if (reading.ahead === null) return { kind: 'unknown', reason: 'ahead-unread' };
+    const said = reading.refreshed;
+    if (said !== null && said.pr === reading.open && said.ahead === reading.ahead) return { kind: 'none', reason: 'unchanged' };
+    return { kind: 'refresh', pr: reading.open };
+  }
   if (reading.deliveredPending === 'unknown') return { kind: 'unknown', reason: 'delivered-unread' };
   if (!reading.deliveredPending) return { kind: 'none', reason: 'not-delivered' };
   if (reading.ahead === null) return { kind: 'unknown', reason: 'ahead-unread' };
@@ -232,10 +247,13 @@ export const SYNC_PR_MARKER = 'plot-state-sync';
  * @param ahead - commits the state ref holds that the default branch lacks.
  * @param stateBranch - the state branch's short name.
  * @param defaultBranch - the default branch's short name.
- * @returns the text; it names the squash and the merge rule, never a bypass.
+ * @returns the text; its first line is an HTML comment carrying {@link SYNC_PR_MARKER}, which the host's
+ *   marker lookup finds, so a refresh edits the comment it posted before. It names the squash and the merge rule,
+ *   never a bypass.
  */
 export const syncPrBody = (ahead: number, stateBranch: string, defaultBranch: string): string =>
   [
+    `<!-- ${SYNC_PR_MARKER} -->`,
     `${ahead} record commit${ahead === 1 ? '' : 's'} on \`${stateBranch}\` that \`${defaultBranch}\` lacks.`,
     '',
     `Squash-merge this pull request: one commit lands on \`${defaultBranch}\`, and \`${stateBranch}\` keeps its history.`,

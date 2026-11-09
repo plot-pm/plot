@@ -5,6 +5,7 @@ import {
   isSyncPr,
   syncPathSet,
   syncPathVerdict,
+  SYNC_PR_MARKER,
   syncPrBody,
   syncPrDecision,
   syncedByTrees,
@@ -115,6 +116,7 @@ const pr = (over: Partial<SyncPrReading> = {}): SyncPrReading => ({
   ahead: 3,
   open: null,
   fleetLive: false,
+  refreshed: null,
   ...over,
 });
 
@@ -125,6 +127,12 @@ describe('syncPrDecision', () => {
   it('refreshes the open one and never opens a second', () => {
     expect(syncPrDecision(pr({ open: 41 }))).toEqual({ kind: 'refresh', pr: 41 });
     expect(syncPrDecision(pr({ open: 41, deliveredPending: false }))).toEqual({ kind: 'refresh', pr: 41 });
+  });
+  it('refreshes only where the count ahead differs from the last refresh of that pull request', () => {
+    expect(syncPrDecision(pr({ open: 41, refreshed: { pr: 41, ahead: 3 } }))).toEqual({ kind: 'none', reason: 'unchanged' });
+    expect(syncPrDecision(pr({ open: 41, refreshed: { pr: 41, ahead: 2 } }))).toEqual({ kind: 'refresh', pr: 41 });
+    expect(syncPrDecision(pr({ open: 41, refreshed: { pr: 40, ahead: 3 } }))).toEqual({ kind: 'refresh', pr: 41 });
+    expect(syncPrDecision(pr({ open: 41, ahead: null }))).toEqual({ kind: 'unknown', reason: 'ahead-unread' });
   });
   it('opens nothing before a plan is delivered', () => {
     expect(syncPrDecision(pr({ deliveredPending: false }))).toEqual({ kind: 'none', reason: 'not-delivered' });
@@ -159,5 +167,8 @@ describe('syncPrBody', () => {
   it('names the squash and counts the commits', () => {
     expect(syncPrBody(1, 'plot/state', 'main')).toContain('1 record commit on');
     expect(syncPrBody(3, 'plot/state', 'main')).toContain('3 record commits');
+  });
+  it('carries the marker the host finds the comment by', () => {
+    expect(syncPrBody(3, 'plot/state', 'main').split('\n')[0]).toBe(`<!-- ${SYNC_PR_MARKER} -->`);
   });
 });
