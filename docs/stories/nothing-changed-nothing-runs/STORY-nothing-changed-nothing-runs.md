@@ -2,9 +2,9 @@
 title: Nothing changed, nothing runs
 author: jwloka
 issue: https://github.com/plot-pm/plot/issues/3170
-status: ready
+status: active
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-09
 ---
 
 # Nothing changed, nothing runs
