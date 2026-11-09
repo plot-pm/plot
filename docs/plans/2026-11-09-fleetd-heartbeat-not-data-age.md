@@ -93,6 +93,10 @@ This plan depends on `the-snapshot-entity`: the heartbeat names the snapshot's `
 
 - `feature/fleetd-heartbeat-not-data-age-board` — `refresh` runs `readSupervisor` only when the heartbeat is not `live`, and `/api/fleet` reports the file and channel heartbeats; a changeset for `@plot-pm/board` <!-- builds: a board refresh that runs plot-fleetctl.sh --status only without a live fleetd heartbeat -->
 
+### Follow-ups
+
+- `feature/fleetd-heartbeat-not-data-age-followups` — `fleetOwnsScan` follows the scan loop only; the bridge resolves to the main checkout through the shared `mainRootOf`; decided 2026-11-09 (see Notes); a changeset for `@plot-pm/board` <!-- builds: scan ownership by the scan loop, and the bridge at the main checkout -->
+
 ## Notes
 
 - **Decided 2026-11-09, jwloka — three follow-ups from the Readers reviews (#3286).**
