@@ -165,13 +165,15 @@ describe('the reader agrees with plot-worker-state.sh on constructed desks', () 
     mkdirSync(manifests, { recursive: true });
     const agentBinary = join(root, 'claude');
     // A symlink, not a copy: macOS kills a copied platform binary at exec.
-    symlinkSync(realpathSync('/bin/sleep'), agentBinary);
+    // To node, not to `sleep`: a multicall coreutils (uutils on ubuntu-26.04)
+    // picks its utility from argv[0] and exits at once for `claude`.
+    symlinkSync(realpathSync(process.execPath), agentBinary);
 
     const dead = spawnSync('true').pid ?? 999_999;
     const reused = start('sleep', ['600']);
     const plain = start('sleep', ['600']);
     const orphan = start('sleep', ['600']);
-    const withAgent = start('sh', ['-c', `'${agentBinary}' 600; :`]);
+    const withAgent = start('sh', ['-c', `'${agentBinary}' -e 'setTimeout(() => {}, 600000)'; :`]);
     const freeProven = start('sleep', ['600']);
     const freeUnproven = start('sleep', ['600']);
     await wait(8_500);
