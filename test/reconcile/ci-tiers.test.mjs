@@ -74,6 +74,21 @@ const censusCalls = (lines) => {
   return calls;
 };
 
+const BASE_GATES = ['check-shell-lines.sh pr', 'check-decision-count.sh pr', 'check-no-bundle-diff.sh', 'check-sprint-members.sh'];
+
+/** One line per merge-base gate call in `ci` that names `origin/main`, or lacks the pull request's base. */
+const gateBaseRefusals = (ci) => {
+  const out = [];
+  const calls = ci.split('\n').filter((l) => !/^\s*#/.test(l) && l.includes('./scripts/check-'));
+  for (const gate of BASE_GATES) {
+    const mine = calls.filter((l) => l.includes(`./scripts/${gate}`));
+    if (mine.length === 0) out.push(`${gate}: no call in ci.yml`);
+    if (mine.some((l) => l.includes('origin/main'))) out.push(`${gate}: a call passes origin/main instead of the pull request's base`);
+    if (!mine.some((l) => l.includes('origin/$GITHUB_BASE_REF'))) out.push(`${gate}: no call passes origin/$GITHUB_BASE_REF`);
+  }
+  return out;
+};
+
 /** One line per way `ci` breaks the tier contract. */
 export const tierRefusals = (ci) => {
   const out = [];
@@ -146,6 +161,7 @@ export const tierRefusals = (ci) => {
       out.push(`${name}: the timeout-minutes cap has no comment in the five lines above it`);
     }
   }
+  out.push(...gateBaseRefusals(ci));
   const gates = jobLines(ci, 'gates');
   const cap = gates?.find((l) => /^ {4}timeout-minutes: \d+$/.test(l));
   if (cap && Number(cap.split(':')[1]) > GATES_CAP_MINUTES) {
@@ -161,6 +177,20 @@ const mutate = (name, from, to) => {
   assert.notEqual(changed, block, `${name}: fixture text moved: ${from}`);
   return CI.replace(block, changed);
 };
+
+for (const [gate, from] of [
+  ['check-shell-lines.sh pr', './scripts/check-shell-lines.sh pr "origin/$GITHUB_BASE_REF"'],
+  ['check-decision-count.sh pr', './scripts/check-decision-count.sh pr "origin/$GITHUB_BASE_REF"'],
+  ['check-no-bundle-diff.sh', './scripts/check-no-bundle-diff.sh . HEAD "origin/$GITHUB_BASE_REF"'],
+  ['check-sprint-members.sh', './scripts/check-sprint-members.sh "origin/$GITHUB_BASE_REF"'],
+]) {
+  test(`${gate}: a copy that passes origin/main is refused`, () => {
+    const copy = CI.replace(from, from.replace('origin/$GITHUB_BASE_REF', 'origin/main'));
+    assert.notEqual(copy, CI, `fixture text moved: ${from}`);
+    const bad = tierRefusals(copy);
+    assert.ok(bad.some((l) => l.startsWith(`${gate}: a call passes origin/main`)), bad.join('\n'));
+  });
+}
 
 test('ci.yml holds the tier contract', () => {
   assert.deepEqual(tierRefusals(CI), []);

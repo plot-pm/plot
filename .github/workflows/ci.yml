@@ -1380,7 +1380,7 @@ jobs:
       # asked further down.
       - name: A PR carries no bundle
         if: github.event_name == 'pull_request'
-        run: ./scripts/check-no-bundle-diff.sh
+        run: ./scripts/check-no-bundle-diff.sh . HEAD "origin/$GITHUB_BASE_REF"
 
       # The bundles `check-sprint-members.sh` reads.
       - name: Build the board bundles
@@ -1392,7 +1392,7 @@ jobs:
       # bundle built one step above.
       - name: A sprint member names its sprint
         if: github.event_name == 'pull_request'
-        run: ./scripts/check-sprint-members.sh
+        run: ./scripts/check-sprint-members.sh "origin/$GITHUB_BASE_REF"
 
       # ── Domain: the package the board now imports its entities from. Gated
       #    BEFORE the board, because the board resolves these shapes from here
@@ -1584,13 +1584,22 @@ jobs:
       # A pull request, or a dispatched run, compares with its merge base. A push
       # to `main` compares with the event's `before` SHA, as one range, and
       # reports rather than refuses: the commit has landed already.
-      - name: Fetch the default branch the shell count reads
-        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      # A pull request compares with the branch it targets (`main`, or a sprint
+      # branch); a dispatched run has no base branch and compares with `main`.
+      - name: Fetch the base branch the shell count reads
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
+          else
+            git fetch --no-tags origin main:refs/remotes/origin/main
+          fi
 
       - name: The shell does not grow
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             ./scripts/check-shell-lines.sh push "${{ github.event.before }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./scripts/check-shell-lines.sh pr "origin/$GITHUB_BASE_REF"
           else
             ./scripts/check-shell-lines.sh pr
           fi
@@ -1599,6 +1608,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             ./scripts/check-decision-count.sh push "${{ github.event.before }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./scripts/check-decision-count.sh pr "origin/$GITHUB_BASE_REF"
           else
             ./scripts/check-decision-count.sh pr
           fi
