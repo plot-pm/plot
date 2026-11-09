@@ -7,6 +7,7 @@ import { refusedSlicesFixture, runLogFixture, answerRecordFile, ANSWER_RECORD_HO
 import type { AgentRun, AgentRunEnd, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import { UNBLOCKER_BOUND_SECONDS } from '@plot-pm/domain/rules/unblocker-due';
 import { QUESTION_MAX } from '../../src/shared/worker-question.js';
+import { REPORTER_FIFO_FILENAME } from '../../src/shared/continuation.js';
 import { join } from 'node:path';
 import { connect, createServer } from 'node:net';
 
@@ -3166,6 +3167,26 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
     return { repoRoot, scriptsDir };
   };
 
+  /**
+   * Waits until the detached reporter `reporterShell` starts on `desk` has made
+   * its last write: one line in `.plot-worker.monitor.worker.jsonl`, and the
+   * reporter FIFO removed.
+   *
+   * @param desk the worktree the reporter writes to.
+   * @param boundMs how long to wait before failing.
+   * @throws when the reporter has not finished within `boundMs`, naming the desk and the bound.
+   */
+  const reporterFinished = async (desk: string, boundMs = 10_000): Promise<void> => {
+    const findings = join(desk, '.plot-worker.monitor.worker.jsonl');
+    const fifo = join(desk, REPORTER_FIFO_FILENAME);
+    const deadline = Date.now() + boundMs;
+    const done = (): boolean => existsSync(findings) && readFileSync(findings, 'utf8').trim() !== '' && !existsSync(fifo);
+    while (!done()) {
+      if (Date.now() >= deadline) throw new Error(`the reporter on ${desk} did not finish within ${boundMs} ms`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  };
+
   it('unblockWorldForRepo reads a real marker and answerCap through real config', async () => {
     const { repoRoot, scriptsDir } = fixture();
     writeFileSync(join(repoRoot, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
@@ -3256,6 +3277,10 @@ describe('unblockWorldForRepo and unblockPortsFor — the production wiring', ()
       expect(runCalls).toBe(1);
       expect(applied).toHaveLength(1);
       expect(applied[0]!.outcome, applied[0]?.detail).toBe('started');
+      // THE STARTED WORKER'S REPORTER IS DETACHED AND OUTLIVES THIS CALL by
+      // design; it appends to the desk after `true` exits, so it must finish
+      // before `afterAll` removes the desk.
+      await reporterFinished(repoRoot);
     },
   );
 });
