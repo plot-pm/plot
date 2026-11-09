@@ -9,7 +9,7 @@ import { answerRecordFile } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeResumeId } from './manifest-stamp.js';
 import { briefPath } from './brief-path.js';
-import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
+import { agentMonitorScript, deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import type { Caller, DeskMonitors, ProcessProbe } from '@plot-pm/domain';
 import { deskWaitsFree, FREE_WAIT_FILENAME } from '@plot-pm/domain/rules/desk-loop-alive';
 import { deskFreeWait, readDeskLoop } from './desk-loop.js';
@@ -663,16 +663,6 @@ const pollStamp = async (manifestFile: string, pid: number): Promise<boolean> =>
   }
 };
 
-/** Whether `file` is an executable regular file. */
-const isExecutable = (file: string): boolean => {
-  try {
-    fs.accessSync(file, fs.constants.X_OK);
-    return fs.statSync(file).isFile();
-  } catch {
-    return false;
-  }
-};
-
 /** A manifest's text, or `null` when it cannot be read. */
 const manifestText = (file: string): string | null => {
   try {
@@ -1241,7 +1231,6 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     if (previousMonitors.length > 0 && !monitors.stop(previousMonitors).ok) {
       logLine(log, `could not stop the previous monitors (pids ${previousMonitors.join(', ')}); they may still run`);
     }
-    const agentMonitor = path.join(opts.scriptsDir, 'plot-agent-monitor.sh');
 
     // THE SAME WRAPPER AS A DISPATCH. `plot-worker-start.mjs` starts
     // `plot-worker-wrapper.mjs` detached and exits, so the wrapper leads its own
@@ -1279,7 +1268,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
           // `continueTarget` found one to stamp or wrote a new one.
           PLOT_MANIFEST_FILE: manifestPath,
           PLOT_STAMP_STARTED: new Date().toISOString(),
-          PLOT_AGENT_MONITOR: isExecutable(agentMonitor) ? agentMonitor : '',
+          PLOT_AGENT_MONITOR: agentMonitorScript({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
           PLOT_SCRIPT_DIR: opts.scriptsDir,
           PLOT_WORKER_LOG: log,
           PLOT_WORKER_LOG_APPEND: '1',
