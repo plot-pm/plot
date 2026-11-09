@@ -214,6 +214,15 @@ export const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
 };
 
 /**
+ * Who is reading, as {@link identity} last asked it; asks only where nothing
+ * is held yet. The PR beat reads this, so a board whose page attaches its
+ * event stream starts no `plot-host.sh account` and no `git config` per beat:
+ * `/api/board`'s {@link serverInfo} keeps the reading within its TTL.
+ */
+export const heldIdentity = async (opts: BuildBoardOptions): Promise<Identity> =>
+  cachedIdentity ?? identity(opts);
+
+/**
  * Assemble the server's self-description for the board payload.
  *
  * `port` must be the port actually BOUND, never the one requested: under

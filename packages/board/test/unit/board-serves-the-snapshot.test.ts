@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type http from 'node:http';
-import { FLEETD_HEARTBEAT_VERSION, answered, type FleetdHeartbeat, type Scripts } from '@plot-pm/domain';
+import { FLEETD_HEARTBEAT_VERSION, ISSUE_INDEX_VERSION, answered, type FleetdHeartbeat, type Scripts } from '@plot-pm/domain';
 import type { PlanEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { emptySnapshot } from '@plot-pm/domain/entities/snapshot';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
@@ -277,6 +277,79 @@ describe('the board serves from fleetd snapshot', () => {
     await fleet.refresh({ ...opts, channelSnapshot: () => current({ epoch: 'e', snapshot }) }, entry);
     expect(entry.versions).toEqual(new Map([['changeset-release/main', '1.0.0']]));
     expect(entry.scanNote).toContain('holds no reading for versions');
+  });
+});
+
+describe('the PR beat on snapshot, with an issue index to serve', () => {
+  // THE CENSUS S3 RESIDUE (2026-11-09): with fleetd's issue index present, each
+  // PR beat read the plans an issue names through `git for-each-ref`, and the
+  // Waiting-on-you rows asked `plot-host.sh account` and `git config` once their
+  // 60 s identity reading lapsed.
+  it('serves the inbox at fleetd\'s refs and spawns 0 processes in 12 PR beats', async () => {
+    const { dir, opts } = await fixture();
+    const git = (...args: string[]): string =>
+      String((originals.execFileSync as typeof cp.execFileSync)('git', args, { cwd: dir, encoding: 'utf8' })).trim();
+    fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/plans/2026-01-01-x.md'),
+      '# X\n\n## Status\n\n- **State:** Approved\n- **Type:** feature\n- **Issue:** #3\n\n## Slices\n\n### One\n\n- `feature/x` - x\n',
+    );
+    git('-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'add', '.');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'commit', '--quiet', '-m', 'plan');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const refState = await adapters.refsGit({ repoRoot: dir, scriptDir: dir }).refState('both');
+    if (!refState.ok) throw new Error('the fixture refs could not be listed');
+    const row = (n: number) => ({ number: String(n), title: `issue ${n}`, url: `u${n}`, createdAt: new Date().toISOString() });
+    await adapters.issueIndexFile({ cwd: dir }).write({
+      v: ISSUE_INDEX_VERSION,
+      source: 'git-host',
+      connector: 'github',
+      requests: 1,
+      nextAt: Date.now() + 120_000,
+      backoffUntil: null,
+      at: new Date().toISOString(),
+      answer: 'answered',
+      rows: [row(3), row(4)],
+      complete: true,
+    });
+    const snapshot = snapshotTitled('X', 1);
+    snapshot.readings.refs = read({ entries: refState.value, digest: 'd1' });
+    const held = { epoch: 'e1', snapshot };
+    const scriptsDir = path.resolve(__dirname, '../../../../skills/plot/scripts');
+    const served = {
+      ...opts,
+      scriptsDir,
+      // The plan parser runs for real on the warm beat; config answers its fallbacks.
+      config: { ...adapters.scriptsShell({ repoRoot: dir, scriptDir: scriptsDir }), ...quietConfig() } as Scripts,
+      hostAdapter: adapters.hostFixture({ account: 'jwloka' }),
+      trees: adapters.treesFixture({ emails: { [dir]: 't@t.invalid' } }),
+      channelSnapshot: () => current(held),
+    };
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    // THE WARM BEAT parses the plan once and reads the identity once.
+    await fleet.refresh(served, entry);
+    await fleet.maybeRefreshPrs(served, entry);
+    counted.calls.length = 0;
+    const start = Date.now();
+    const now = vi.spyOn(Date, 'now');
+    try {
+      for (let i = 1; i <= 12; i += 1) {
+        // A minute per beat: past the identity reading's 60 s TTL, with the
+        // heartbeat and the snapshot still live.
+        now.mockReturnValue(start + i * 61_000);
+        await adapters.fleetdHeartbeatFile({ repoRoot: dir }).write(heartbeat(start + i * 61_000));
+        await fleet.maybeRefreshPrs(served, entry);
+      }
+    } finally {
+      now.mockRestore();
+    }
+    expect(counted.calls).toEqual([]);
+    expect(entry.issueError).toBeNull();
+    expect(entry.issueAnswer).toBe('answered');
+    expect(entry.issues?.map((issue) => issue.number)).toEqual(['4']);
+    expect(entry.waiting).not.toBeNull();
   });
 });
 
