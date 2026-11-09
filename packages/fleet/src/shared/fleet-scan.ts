@@ -760,8 +760,9 @@ export const walkOnce = async (
   const indexRows = walk.prIndexRows === undefined ? null : await walk.prIndexRows();
   const indexMerged = indexMergedHeads(indexRows ?? []);
   const indexOpen = indexRows === null ? undefined : indexOpenHeads(indexRows);
+  const stateBranch = await cfg('State branch', '');
   const estate = await readEstate(refs, plansAt, {
-    mainBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
+    mainBranch, stateBranch, planDir, activeDir, deliveredDir, prefixes: prefixes.length > 0 ? prefixes : ['idea', 'feature', 'bug', 'docs', 'infra'],
   }, walk.worktree);
   record?.('plans', estate.ok
     ? readOf({ ref: estate.value.source === 'worktree' ? 'worktree' : `origin/${mainBranch}`, records: estate.value.plans.map((plan) => plan.record) })

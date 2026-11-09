@@ -15,6 +15,7 @@
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-write`
 - **Approved:** 2026-11-08, jwloka, in-session
 - **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-read`
+- **Started:** 2026-11-08, Jan Wloka, `feature/state-branch-sync`
 
 ## Changelog
 
@@ -145,11 +146,11 @@ Decisions, numbered. Max Albrecht decided D1 to D16 on 2026-11-07. Jan Wloka dec
 
 ### Read
 
-- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it; the board's lag line (D5) and the reconcile section for a removed key (D9) <!-- builds: the rule naming which ref holds a plan's records -->
+- `feature/state-branch-read` — one rule names the ref that holds a plan's records and lists the union of plan paths; the board's plan list, the reconcile scan, dispatch's gate and brief read, and the pulse read through it; the board's lag line (D5) and the reconcile section for a removed key (D9) <!-- builds: the rule naming which ref holds a plan's records --> → #3276
 
 ### Sync
 
-- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names; the path gate (D6), the squash (D12), the Delivered trigger (D13), and the command-side sync where no fleet runs (D19) <!-- builds: the state-sync arm of fleetd -->
+- `feature/state-branch-sync` — fleetd merges the default branch into the state branch when it moves, and opens, refreshes and (where it may) merges the sync PR from the state branch to the default branch at the moment the Spec names; the path gate (D6), the squash (D12), the Delivered trigger (D13), and the command-side sync where no fleet runs (D19) <!-- builds: the state-sync arm of fleetd --> → #3292
 
 ### Setup
 

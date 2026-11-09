@@ -177,6 +177,10 @@ refusal to the user; each names the fact that disagrees and what to look at.
 | the recorded pid is alive and nothing holds the port | The process is alive and not serving, so its identity is unproven. Look at it before ending it. |
 | the recorded pid is alive and the port's holder does not descend from it | Two boards are involved, or the pid was recycled. Stopping either on this evidence would be a guess. |
 
+## Records line
+
+The board shows `Records: N ahead of <default> · sync PR: none|#N` where a `State branch` is declared, and a row naming the removed-key fix order where `plot/state` is stranded with no key. Both come from the domain; the view only shows them.
+
 ## Guardrails
 
 - **`--status` changes nothing on the machine.** It reads a pidfile, asks the

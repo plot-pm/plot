@@ -241,6 +241,7 @@ For each finding, decide whether to run the printed command. The scan never runs
 - **Prose wave names (section 8):** a wave heading written as a sentence, not a label. The fix is a human editing the plan — shorten the heading to a label; the full name stays on hover on the board. Non-blocking: never present it alongside drift as comparable work.
 - **Index drift (section 9):** optional, always. Run the printed `ln -s` only if someone wants the browsing path back. A phase-less file listed here is pre-plot history or a note — leave it (no backfill) unless you are deliberately adopting it into the plot lifecycle. Never propose "fixing" all of section 9.
 - **Double-claimed branches (section 12):** two plans listing one branch. There is no command to run — deciding which plan OWNS the branch is the judgment, and the other plan should cite it in prose rather than list it. Read both plans before proposing either side; the branch itself is usually fine, and the fault is in the bookkeeping. Non-blocking: never present it alongside drift as comparable work.
+- **Removed State branch key (section 26):** `plot/state` is ahead of the default branch while no `State branch` key is declared, so every reader skips its records. Fix in the printed order: merge the sync PR, then remove the key. Never delete `plot/state` first. Non-blocking for drift, blocking for the records it strands.
 
 Batch the fixes you choose into one commit, then re-run the scan to confirm the sections you acted on are clear.
 
