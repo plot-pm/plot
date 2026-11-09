@@ -52,10 +52,19 @@ const stubGh = ({ merged = [], reachable = true } = {}) => {
     const [n, head] = l.split(' ');
     return { number: Number(n), title: head, state: 'MERGED', headRefName: head };
   }));
+  const restPage = JSON.stringify(merged.map((l) => {
+    const [n, head] = l.split(' ');
+    return {
+      number: Number(n), title: head, state: 'closed', draft: false, html_url: '', updated_at: '2026-01-01T00:00:00Z',
+      merged_at: '2026-01-01T00:00:00Z', user: { login: '' }, head: { ref: head, sha: null }, base: { ref: 'main' },
+    };
+  }));
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 ${reachable ? '' : `echo 'HTTP 503: Service Unavailable' >&2; exit 1`}
 case "$*" in
+  *"api repos/"*"/pulls?state=closed"*) printf 'HTTP/2 200\\r\\n\\n%s' '${restPage}' ;;
+  *"api repos/"*"/pulls?"*) printf 'HTTP/2 200\\r\\n\\n[]' ;;
   *"--state merged"*) printf '%s' '${page}' ;;
   *"--state open"*)   printf '%s' '[]' ;;
   *"issue list"*)     printf '%s' '[]' ;;
@@ -71,7 +80,7 @@ exit 0
   };
 };
 
-const mergedCalls = (stub) => stub.calls().filter((l) => l.includes('--state merged'));
+const mergedCalls = (stub) => stub.calls().filter((l) => l.includes('pulls?state=closed'));
 
 /** A merged row, with only the fields the store holds. */
 const row = (number, head, state = 'MERGED') => ({
