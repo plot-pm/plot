@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { branchUrlBase } from '../src/rules/branch-url.js';
+import { HOST_BRANCH_URL_SCHEMES } from '../src/adapters/host/host-branch-urls.js';
+import { branchUrlBase as baseOf } from '../src/rules/branch-url.js';
+
+const branchUrlBase = (origin: string): string => baseOf(origin, HOST_BRANCH_URL_SCHEMES);
 
 describe('branchUrlBase', () => {
   it.each([
@@ -21,5 +24,20 @@ describe('branchUrlBase', () => {
     ['another host', 'git@gitlab.com:o/r.git'],
   ])('answers an empty prefix for %s', (_name, origin) => {
     expect(branchUrlBase(origin)).toBe('');
+  });
+});
+
+describe('branchUrlBase over an explicit scheme table', () => {
+  it('answers the first scheme that matches the host', () => {
+    const schemes = [
+      { matches: (host: string) => host === 'a.test', base: (host: string, path: string) => `A:${host}/${path}/` },
+      { matches: () => true, base: (_host: string, path: string) => `B:${path}/` },
+    ];
+    expect(baseOf('git@a.test:o/r.git', schemes)).toBe('A:a.test/o/r/');
+    expect(baseOf('git@other.test:o/r.git', schemes)).toBe('B:o/r/');
+  });
+
+  it('answers an empty prefix from an empty table', () => {
+    expect(baseOf('git@github.com:o/r.git', [])).toBe('');
   });
 });

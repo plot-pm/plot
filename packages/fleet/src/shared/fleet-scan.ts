@@ -20,7 +20,8 @@ import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { indexMergedHeads, indexOpenHeads } from '@plot-pm/domain/rules/known-pr';
 import { githubListingPages } from '@plot-pm/domain/rules/listing-page';
-import { branchUrlBase } from '@plot-pm/domain/rules/branch-url';
+import { branchUrlBase as branchUrlBaseOf } from '@plot-pm/domain/rules/branch-url';
+import { HOST_BRANCH_URL_SCHEMES } from '@plot-pm/domain/adapters/host/host-branch-urls';
 import {
   foldScanListing, parseScanListingRows, readCarriedPrStates, renderScanListing, scanListingWindowFor,
   type CarriedListing, type ScanListingAnswer, type ScanListingFold, type ScanListingWindow,
@@ -30,7 +31,8 @@ import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
 import { workerQuestions } from './worker-question.js';
 
 /** The scan Plot ships, streamed one plan at a time. */
-export { branchUrlBase };
+/** The branch-URL prefix for an origin URL, over the hosts Plot drives. */
+export const branchUrlBase = (origin: string): string => branchUrlBaseOf(origin, HOST_BRANCH_URL_SCHEMES);
 
 export const FLEET_SCAN = 'plot-fleet-scan.sh';
 

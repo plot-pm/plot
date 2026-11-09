@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { HOST_BRANCH_URL_SCHEMES } from '../src/adapters/host/host-branch-urls.js';
 import { FleetReadingSchema } from '../src/entities/fleet.js';
 import type { PlanEntry, RepoSnapshot } from '../src/entities/snapshot.js';
 import type { WalkValue } from '../src/entities/view-readings.js';
@@ -147,45 +148,45 @@ const snapshotOf = (walk: WalkValue = walkValueOf(estate, branchStage, deskStage
 
 describe('fleetViewFrom', () => {
   it('assembles the pulse the walk assembles from the same readings', () => {
-    expect(fleetViewFrom(snapshotOf(), 0).pulse).toEqual(FleetReadingSchema.parse(walked()));
+    expect(fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES).pulse).toEqual(FleetReadingSchema.parse(walked()));
   });
 
   it('survives the channel: a JSON round trip changes no field of the view', () => {
-    const direct = fleetViewFrom(snapshotOf(), 2_000_000);
-    const carried = fleetViewFrom(JSON.parse(JSON.stringify(snapshotOf())) as RepoSnapshot, 2_000_000);
+    const direct = fleetViewFrom(snapshotOf(), 2_000_000, HOST_BRANCH_URL_SCHEMES);
+    const carried = fleetViewFrom(JSON.parse(JSON.stringify(snapshotOf())) as RepoSnapshot, 2_000_000, HOST_BRANCH_URL_SCHEMES);
     expect(carried).toEqual(direct);
   });
 
   it('dates the view by the walk reading and its fetch', () => {
-    const view = fleetViewFrom(snapshotOf(), 0);
+    const view = fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES);
     expect(view.at).toBe(5_000);
     expect(view.fetchedAt).toBe(5_000);
     const failedFetch = snapshotOf({ ...walkValueOf(estate, branchStage, deskStage, conflicts, header), header: { ...header, fetchFailed: true } });
-    expect(fleetViewFrom(failedFetch, 0).fetchedAt).toBeNull();
+    expect(fleetViewFrom(failedFetch, 0, HOST_BRANCH_URL_SCHEMES).fetchedAt).toBeNull();
   });
 
   it('measures branch ages from now and keeps the tip time', () => {
-    const view = fleetViewFrom(snapshotOf(), 1_600_000);
+    const view = fleetViewFrom(snapshotOf(), 1_600_000, HOST_BRANCH_URL_SCHEMES);
     expect(view.ages).toEqual(new Map([['feature/x', 10]]));
     expect(view.tipAt).toEqual(new Map([['feature/x', 1_000_000]]));
   });
 
   it('reads the branch-URL prefix from the walk origin', () => {
-    expect(fleetViewFrom(snapshotOf(), 0).branchUrlBase).toBe('https://github.com/o/r/tree/');
+    expect(fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES).branchUrlBase).toBe('https://github.com/o/r/tree/');
   });
 
   it('dates the approval of each plan the pulse lists', () => {
-    expect(fleetViewFrom(snapshotOf(), 0).approvedAt).toEqual(new Map([['2026-01-01-x.md', Date.parse('2026-01-02T00:00:00Z')]]));
+    expect(fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES).approvedAt).toEqual(new Map([['2026-01-01-x.md', Date.parse('2026-01-02T00:00:00Z')]]));
   });
 
   it('leaves out a plan with no dated approval and a plan the pulse does not list', () => {
     const snapshot = snapshotOf();
     snapshot.readings.plans = read({ ref: 'origin/main', records: [record({ approvedRaw: '' })] });
-    expect(fleetViewFrom(snapshot, 0).approvedAt).toEqual(new Map());
+    expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES).approvedAt).toEqual(new Map());
   });
 
   it('carries the idea plans, versions, unmerged sets and questions', () => {
-    const view = fleetViewFrom(snapshotOf(), 0);
+    const view = fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES);
     expect(view.ideaPlans).toEqual(new Map([['idea/y', '2026-01-03-y.md']]));
     expect(view.versions).toEqual(new Map([['changeset-release/main', '2.0.0']]));
     expect(view.unmerged).toEqual(new Set(['feature/x', 'feature/claim']));
@@ -194,7 +195,7 @@ describe('fleetViewFrom', () => {
   });
 
   it('builds the three PR maps from the PR rows', () => {
-    const view = fleetViewFrom(snapshotOf(), 0);
+    const view = fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES);
     expect([...(view.prs?.keys() ?? [])]).toEqual(['feature/x']);
     expect([...(view.prsByNumber?.keys() ?? [])]).toEqual([7, 6]);
     expect(view.prsByHead?.get('feature/x')?.number).toBe(7);
@@ -205,7 +206,7 @@ describe('fleetViewFrom', () => {
     for (const key of ['walk', 'branchDates', 'ideaPlans', 'releaseVersions', 'unmerged', 'questions', 'prs'] as const) {
       snapshot.readings[key] = { state: 'failed', readAt: 1, reason: 'down' };
     }
-    expect(fleetViewFrom(snapshot, 0)).toEqual({
+    expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES)).toEqual({
       pulse: 'unknown',
       at: null,
       fetchedAt: null,
@@ -228,24 +229,24 @@ describe('fleetViewFrom', () => {
   it.each(['plans', 'deskFiles', 'workers'] as const)('answers an unknown pulse where %s is not read', (key) => {
     const snapshot = snapshotOf();
     snapshot.readings[key] = { state: 'unread' };
-    expect(fleetViewFrom(snapshot, 0).pulse).toBe('unknown');
+    expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES).pulse).toBe('unknown');
   });
 
   it('answers an unknown pulse where the plans reading holds another number of records than the walk read', () => {
     const snapshot = snapshotOf();
     snapshot.readings.plans = read({ ref: 'origin/main', records: [] });
-    expect(fleetViewFrom(snapshot, 0).pulse).toBe('unknown');
+    expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES).pulse).toBe('unknown');
   });
 
   it.each(['deskFiles', 'workers'] as const)('answers an unknown pulse where %s holds no entry for a desk the walk read', (key) => {
     const snapshot = snapshotOf();
     snapshot.readings[key] = read({});
-    expect(fleetViewFrom(snapshot, 0).pulse).toBe('unknown');
+    expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES).pulse).toBe('unknown');
   });
 
   it('answers an unknown pulse where a plan branch has no branch reading', () => {
     const walk = walkValueOf(estate, { ...branchStage, branches: [] }, deskStage, conflicts, header);
-    expect(fleetViewFrom(snapshotOf(walk), 0).pulse).toBe('unknown');
+    expect(fleetViewFrom(snapshotOf(walk), 0, HOST_BRANCH_URL_SCHEMES).pulse).toBe('unknown');
   });
 
 });
@@ -329,10 +330,10 @@ describe('registryViewFrom', () => {
   });
 
   it('carries the walk\'s backend into the view, and null with no walk', () => {
-    expect(fleetViewFrom(snapshotOf(), 0).backend).toBe('github');
+    expect(fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES).backend).toBe('github');
     const snapshot = snapshotOf();
     snapshot.readings.walk = { state: 'unread' };
-    expect(fleetViewFrom(snapshot, 0).backend).toBeNull();
+    expect(fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES).backend).toBeNull();
   });
 
   it('carries the PR rows', () => {
@@ -351,7 +352,7 @@ describe('registryViewFrom', () => {
 
 describe('unreadViewFields and snapshotViewNote', () => {
   it('names no field and gives no note for a snapshot with every reading', () => {
-    const view = fleetViewFrom(snapshotOf(), 0);
+    const view = fleetViewFrom(snapshotOf(), 0, HOST_BRANCH_URL_SCHEMES);
     expect(unreadViewFields(view)).toEqual([]);
     expect(snapshotViewNote(view, 3)).toBeNull();
   });
@@ -360,7 +361,7 @@ describe('unreadViewFields and snapshotViewNote', () => {
     const snapshot = snapshotOf();
     snapshot.readings.releaseVersions = { state: 'unread' };
     snapshot.readings.prs = { state: 'failed', readAt: 1, reason: 'host' };
-    const view = fleetViewFrom(snapshot, 0);
+    const view = fleetViewFrom(snapshot, 0, HOST_BRANCH_URL_SCHEMES);
     expect(unreadViewFields(view)).toEqual(['versions', 'prs']);
     expect(snapshotViewNote(view, 9)).toBe(
       "fleetd's snapshot (generation 9) holds no reading for versions, prs; the board keeps the last value it had for each",
