@@ -105,6 +105,12 @@ jobs:
     # 10 minutes. Measured 2026-11-09 on runs 42543760580 and 42542438425: 30 s
     # and 24 s, install and board build included. The cap is a bound on a hang.
     timeout-minutes: 10
+    # A JOB-LEVEL BLOCK REPLACES THE WORKFLOW-LEVEL ONE, so `contents: read` is
+    # named again. `actions: read` lets the reuse read list this pull
+    # request's earlier runs, their artifacts and their jobs.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       corpus: ${{ steps.map.outputs.corpus }}
       corpus_tests: ${{ steps.map.outputs.corpus_tests }}
@@ -116,6 +122,13 @@ jobs:
       e2e: ${{ steps.map.outputs.e2e }}
       macos: ${{ steps.map.outputs.macos }}
       census: ${{ steps.map.outputs.census }}
+      # EMPTY UNLESS THE DECISION STEP SUCCEEDED, so a failed read, fetch or
+      # bundle runs every selected job. A value is `reused:<40 hex>`.
+      reuse_corpus: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.reuse_corpus || '' }}
+      reuse_macos: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.reuse_macos || '' }}
+      reuse_contracts: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.reuse_contracts || '' }}
+      reuse_board: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.reuse_board || '' }}
+      reuse_census: ${{ steps.reuse.outcome == 'success' && steps.reuse.outputs.reuse_census || '' }}
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -195,32 +208,11 @@ jobs:
           }
           [ "$EVENT" = "pull_request" ] || every "a $EVENT run"
           [ "$ASKED" = "success" ] || every "the selection step ended '$ASKED'"
-          if ! jq -r --rawfile changed "$RUNNER_TEMP/changed.txt" '
-            def under($p): . == $p or startswith($p + "/");
-            ($changed | split("\n") | map(select(. != ""))) as $paths
-            | [.checks[] | select(.always | not) | .suite] as $suites
-            | ([.checks[] | select((.always | not) and .suite == "test/reconcile") | .tests[]] | unique) as $contracts
-            | ([.untested[] | select((endswith(".md") and (startswith("skills/") | not)) | not)]) as $wide
-            | ($wide | length > 0) as $all
-            | any($suites[]; under("packages/domain")) as $domain
-            | ($all or $domain or any($suites[]; under("packages/board"))) as $board
-            | ($all or $domain or any($suites[]; under("packages/fleet"))) as $fleet
-            | ($all or ($contracts | length > 0)) as $contract
-            | {
-                corpus: ($all or .corpus or (.corpusTests | length > 0)),
-                corpus_tests: (if $all or .corpus then "" else (.corpusTests | map(sub("^packages/domain/"; "")) | join(" ")) end),
-                contracts: $contract,
-                contracts_tests: (if $all then "" else ($contracts | join(" ")) end),
-                board: $board,
-                domain: ($all or $domain),
-                fleet: $fleet,
-                e2e: ($all or $contract or $board or $domain or $fleet),
-                macos: ($all or any($paths[]; endswith(".sh")) or any($contracts[]; test("^test/reconcile/[^/]*gate[^/]*[.]test[.]mjs$"))),
-                census: ($all or $board or $fleet or any($paths[]; under("skills/plot/scripts"))),
-                widened_by: ($wide | join(" "))
-              }
-            | to_entries[] | "\(.key)=\(.value)"
-          ' "$RUNNER_TEMP/selection.json" > "$RUNNER_TEMP/outputs.txt"; then
+          # THE JOB MAP LIVES IN scripts/ci-job-map.jq, so the reuse read
+          # below maps its diff with the same program.
+          if ! jq -c --rawfile changed "$RUNNER_TEMP/changed.txt" -f scripts/ci-job-map.jq \
+              "$RUNNER_TEMP/selection.json" > "$RUNNER_TEMP/map.json" \
+            || ! jq -r 'to_entries[] | "\(.key)=\(.value)"' "$RUNNER_TEMP/map.json" > "$RUNNER_TEMP/outputs.txt"; then
             every "the selection could not be read"
           fi
           cat "$RUNNER_TEMP/outputs.txt"
@@ -277,6 +269,160 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # THE REUSE READ. A green job of an earlier run of this pull request is
+      # reused only while that run's recorded base equals this run's `HEAD^1`
+      # (docs/plans/2026-11-09-ci-reuses-green-runs.md). The read lists the 20
+      # newest completed runs on this head branch, newest first. For each it
+      # lists the artifacts, skips a run with no unexpired record, and stops at
+      # the first run whose recorded base differs. It downloads the record and
+      # reads the jobs only of a run on this base. The reuse diff, `diff(H1,
+      # H2)` joined with the symmetric difference of the two changed lists, is
+      # mapped with scripts/ci-job-map.jq. `ciReuse` decides in the next step.
+      - name: Read the earlier green runs
+        id: reuse_read
+        if: ${{ github.event_name == 'pull_request' && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          CORPUS: ${{ steps.map.outputs.corpus }}
+          CORPUS_TESTS: ${{ steps.map.outputs.corpus_tests }}
+          CONTRACTS: ${{ steps.map.outputs.contracts }}
+          CONTRACTS_TESTS: ${{ steps.map.outputs.contracts_tests }}
+          BOARD: ${{ steps.map.outputs.board }}
+          DOMAIN: ${{ steps.map.outputs.domain }}
+          FLEET: ${{ steps.map.outputs.fleet }}
+          E2E: ${{ steps.map.outputs.e2e }}
+          MACOS: ${{ steps.map.outputs.macos }}
+          CENSUS: ${{ steps.map.outputs.census }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/reuse"
+          mkdir -p "$dir"
+          bundle=skills/plot/scripts/board/plot-ci-reuse.mjs
+          # The call the read is at, for the warning a failure writes.
+          at() { printf '%s\n' "$1" > "$dir/at"; }
+          # One transient 5xx must not fail the read; three must.
+          api() {
+            local attempt
+            for attempt in 1 2 3; do
+              if out=$(gh api "$@"); then
+                printf '%s\n' "$out"
+                return 0
+              fi
+              echo "::warning::gh api attempt $attempt of 3 failed" >&2
+              [ "$attempt" -lt 3 ] && sleep "${API_RETRY_SECONDS:-10}"
+            done
+            return 1
+          }
+          download() {
+            local attempt
+            for attempt in 1 2 3; do
+              gh api "repos/$REPO/actions/artifacts/$1/zip" > "$2" && return 0
+              echo "::warning::artifact download attempt $attempt of 3 failed" >&2
+              [ "$attempt" -lt 3 ] && sleep "${API_RETRY_SECONDS:-10}"
+            done
+            return 1
+          }
+          no_record() { jq -c '. + {record: null, jobs: null, jobMap: null}' <<< "$1" >> "$dir/runs.jsonl"; }
+          at "the merge parents"
+          base=$(git rev-parse --verify HEAD^1)
+          head=$(git rev-parse --verify HEAD^2)
+          git diff --name-only --no-renames HEAD^1 HEAD > "$dir/changed.txt"
+          at "the run list"
+          api --method GET "repos/$REPO/actions/workflows/ci.yml/runs" \
+            -f event=pull_request -f status=completed -f branch="$HEAD_REF" -f per_page=20 \
+            --jq "[.workflow_runs[] | select(.id != $RUN_ID and ([.pull_requests[].number] | index($PR_NUMBER) != null))
+                  | {id, headSha: .head_sha, conclusion: (.conclusion // \"\"), pullRequests: [.pull_requests[].number]}]" \
+            > "$dir/runs.json"
+          : > "$dir/runs.jsonl"
+          count=$(jq length "$dir/runs.json")
+          i=0
+          while [ "$i" -lt "$count" ]; do
+            row=$(jq -c ".[$i]" "$dir/runs.json")
+            i=$((i + 1))
+            id=$(jq -r .id <<< "$row")
+            at "the artifacts of run $id"
+            art=$(api --method GET "repos/$REPO/actions/runs/$id/artifacts" -f per_page=100 \
+              --jq '[.artifacts[] | select((.expired | not) and (.name | test("^ci-inputs-[0-9a-f]{40}-[0-9a-f]{40}$")))] | first // empty | {id, name}')
+            if [ -z "$art" ]; then
+              no_record "$row"
+              continue
+            fi
+            pair=$(jq -r .name <<< "$art")
+            pair=${pair#ci-inputs-}
+            if [ "${pair%-*}" != "$base" ]; then
+              # The base only advances, so no older run is on this base.
+              jq -c --arg b "${pair%-*}" --arg h "${pair#*-}" \
+                '. + {record: {base: $b, head: $h, selection: {}}, jobs: null, jobMap: null}' <<< "$row" >> "$dir/runs.jsonl"
+              break
+            fi
+            at "the record of run $id"
+            download "$(jq -r .id <<< "$art")" "$dir/$id.zip"
+            unzip -p "$dir/$id.zip" ci-inputs.json > "$dir/$id.json"
+            if [ "$(jq -r .version "$dir/$id.json")" != 1 ]; then
+              no_record "$row"
+              continue
+            fi
+            at "the jobs of run $id"
+            api --method GET "repos/$REPO/actions/runs/$id/jobs" -f per_page=100 \
+              --jq '[.jobs[] | {key: .name, value: (.conclusion // "")}] | from_entries' > "$dir/$id.jobs.json"
+            # A head that cannot be fetched gives no diff, and the run is no source.
+            map=null
+            earlier=$(jq -r .head "$dir/$id.json")
+            if { git cat-file -e "$earlier^{commit}" 2> /dev/null || git fetch -q --no-tags --depth=1 origin "$earlier"; } \
+              && git diff --name-only --no-renames "$earlier" "$head" > "$dir/$id.head.txt" \
+              && node "$bundle" diff "$dir/$id.head.txt" "$dir/$id.json" "$dir/changed.txt" > "$dir/$id.paths.txt" \
+              && node skills/plot/scripts/board/plot-local-checks.mjs --ci --corpus 'packages/domain/corpus/**' \
+                --files "$dir/$id.paths.txt" > "$dir/$id.selection.json" \
+              && jq -c --rawfile changed "$dir/$id.paths.txt" -f scripts/ci-job-map.jq \
+                "$dir/$id.selection.json" > "$dir/$id.map.json"; then
+              map=$(cat "$dir/$id.map.json")
+            fi
+            jq -c --slurpfile rec "$dir/$id.json" --slurpfile jobs "$dir/$id.jobs.json" --argjson map "$map" \
+              '. + {record: ($rec[0] | {base, head, selection}), jobs: $jobs[0], jobMap: $map}' <<< "$row" >> "$dir/runs.jsonl"
+          done
+          at "the readings"
+          jq -n --arg event "$EVENT" --arg headRef "$HEAD_REF" --argjson runAttempt "$RUN_ATTEMPT" \
+            --argjson pr "$PR_NUMBER" --arg base "$base" --arg head "$head" --slurpfile runs "$dir/runs.jsonl" \
+            '{event: $event, headRef: $headRef, runAttempt: $runAttempt, pullRequest: $pr, base: $base, head: $head,
+              selection: {corpus: env.CORPUS, corpus_tests: env.CORPUS_TESTS,
+                contracts: env.CONTRACTS, contracts_tests: env.CONTRACTS_TESTS,
+                board: env.BOARD, domain: env.DOMAIN, fleet: env.FLEET,
+                e2e: env.E2E, macos: env.MACOS, census: env.CENSUS},
+              runs: $runs}' > "$dir/readings.json"
+          echo "Read $(jq '.runs | length' "$dir/readings.json") earlier runs"
+
+      # `ciReuse` decides. The bundle prints a value only in the form
+      # `reused:<40 hex>`, so a malformed value runs the job, and it names the
+      # source run or the reason a job runs in the step summary.
+      - name: Decide the reuse
+        id: reuse
+        if: ${{ github.event_name == 'pull_request' && steps.reuse_read.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/reuse"
+          printf 'the decision\n' > "$dir/at"
+          node skills/plot/scripts/board/plot-ci-reuse.mjs decide "$dir/readings.json" "$GITHUB_STEP_SUMMARY" "$RUN_URL" \
+            > "$dir/decision.txt"
+          grep '^::notice ' "$dir/decision.txt" || true
+          grep '^reuse_[a-z]*=' "$dir/decision.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Warn on a failed reuse read
+        if: ${{ github.event_name == 'pull_request' && (steps.reuse_read.outcome == 'failure' || steps.reuse.outcome == 'failure') }}
+        run: |
+          at=$(cat "$RUNNER_TEMP/reuse/at" 2> /dev/null || echo 'the read step')
+          echo "::warning::reuse read failed at $at: every selected job runs"
+          echo "Reuse read failed at $at: every selected job runs." >> "$GITHUB_STEP_SUMMARY"
+
   # ── The corpus tier: do the adapters feed the domain the same readings
   #    production reads, against this repository's real estate — and does a
   #    rule answer what its shell duplicate answers? ────────────────────────
@@ -316,7 +462,7 @@ jobs:
   corpus:
     runs-on: ubuntu-latest
     needs: [select, gates]
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.corpus != 'false' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.corpus != 'false' && needs.select.outputs.reuse_corpus == '' }}
     # Generous against the measured 42 s, and still a bound: a wedged fleet scan
     # becomes a re-runnable failure rather than a job that sits in `in_progress`
     # looking like work — the lesson `validate`'s own ceiling records.
@@ -472,7 +618,7 @@ jobs:
   macos-shell-contract:
     runs-on: macos-latest
     needs: [select, gates]
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.macos != 'false' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.macos != 'false' && needs.select.outputs.reuse_macos == '' }}
     # Guard first, same reason as every job above: a checkout ahead of it
     # would clone an unpinned ref before anything refused.
     #
@@ -610,7 +756,7 @@ jobs:
   census-head:
     runs-on: ubuntu-latest
     needs: [select, gates, checks]
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' && needs.select.outputs.reuse_census == '' }}
     # THE JOB CAP EXCEEDS THE STEP CAP by the setup steps, so a wedged census
     # ends the step `failure` rather than the job `cancelled`. 25 minutes: the
     # census step's 20-minute cap, plus the setup (checkout through the board
@@ -745,7 +891,7 @@ jobs:
   census-base:
     runs-on: ubuntu-latest
     needs: [select, gates, checks]
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.select.outputs.census != 'false' && needs.select.outputs.reuse_census == '' }}
     # THE JOB CAP EXCEEDS THE STEP CAP, as `census-head`'s does. 25 minutes:
     # the step's 20-minute cap, plus the same setup and the report upload. The
     # "before" half runs the same rows as the HEAD half (830 s at HEAD, PR
@@ -893,7 +1039,7 @@ jobs:
     # Runs when the HEAD half succeeded, whatever the "before" half did: a
     # failed or cancelled `census-base` leaves no report, and every row reads
     # "no before", as a failed build of the "before" tree does.
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.census-head.result == 'success' && needs.select.outputs.census != 'false' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.checks.result == 'success' && needs.census-head.result == 'success' && needs.select.outputs.census != 'false' && needs.select.outputs.reuse_census == '' }}
     # 5 minutes. Checkout, Node and two artifact downloads; the comparison reads
     # two files of a few lines. Setup of the other census jobs took 32 s with a
     # full install and build, and this job runs neither.
@@ -957,7 +1103,7 @@ jobs:
   helper-contracts:
     runs-on: ubuntu-latest
     needs: [select, gates]
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.contracts != 'false' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.contracts != 'false' && needs.select.outputs.reuse_contracts == '' }}
     # THE JOB CAP EXCEEDS THE STEP CAP, so a wedged test step ends `failure`
     # and reaches the diagnostic step below rather than ending `cancelled` at
     # the same instant the job cap fires. Equal caps hid that step entirely:
@@ -1121,7 +1267,7 @@ jobs:
   board-integration:
     runs-on: ubuntu-latest
     needs: [select, gates]
-    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.board != 'false' }}
+    if: ${{ !cancelled() && needs.gates.result == 'success' && needs.select.outputs.board != 'false' && needs.select.outputs.reuse_board == '' }}
     # The longest legitimate run was measured at 606 s (10.1 min). Raised from
     # 15 to 20 on 2026-10-23 (#2392) for the install steps' step bounds below:
     # setup (checkout, pnpm install, board build, cache restore) ~45s, system
@@ -2721,18 +2867,27 @@ jobs:
           CHECKS: ${{ needs.checks.result }}
           HELPER_CONTRACTS: ${{ needs.helper-contracts.result }}
           HELPER_CONTRACTS_SELECTED: ${{ needs.select.outputs.contracts }}
+          HELPER_CONTRACTS_REUSED: ${{ needs.select.outputs.reuse_contracts }}
           BOARD_INTEGRATION: ${{ needs.board-integration.result }}
           BOARD_INTEGRATION_SELECTED: ${{ needs.select.outputs.board }}
+          BOARD_INTEGRATION_REUSED: ${{ needs.select.outputs.reuse_board }}
         run: |
           set -euo pipefail
           failed=0
-          # require <job> <result> <selected>: success passes; skipped passes
-          # only when the selection named the job `false`.
+          # require <job> <result> <selected> [<reused>]: success passes;
+          # skipped passes only when the selection named the job `false`, or
+          # when `select` reused it (`reused:<40 hex>`). A malformed reuse
+          # value fails.
           require() {
-            if [ "$2" = "success" ]; then
+            if [ -n "${4:-}" ] && ! [[ "$4" =~ ^reused:[0-9a-f]{40}$ ]]; then
+              echo "::error::$1 carries a malformed reuse value '$4'"
+              failed=1
+            elif [ "$2" = "success" ]; then
               echo "$1 ended success"
             elif [ "$2" = "skipped" ] && [ "$3" = "false" ]; then
               echo "$1 was not selected and was skipped"
+            elif [ "$2" = "skipped" ] && [ -n "${4:-}" ]; then
+              echo "$1 was skipped: ${4}"
             else
               echo "::error::$1 ended '$2', not 'success' (selected: '${3:-unset}')"
               failed=1
@@ -2740,8 +2895,8 @@ jobs:
           }
           require gates "$GATES" true
           require checks "$CHECKS" true
-          require helper-contracts "$HELPER_CONTRACTS" "$HELPER_CONTRACTS_SELECTED"
-          require board-integration "$BOARD_INTEGRATION" "$BOARD_INTEGRATION_SELECTED"
+          require helper-contracts "$HELPER_CONTRACTS" "$HELPER_CONTRACTS_SELECTED" "${HELPER_CONTRACTS_REUSED:-}"
+          require board-integration "$BOARD_INTEGRATION" "$BOARD_INTEGRATION_SELECTED" "${BOARD_INTEGRATION_REUSED:-}"
           if [ "$failed" -ne 0 ]; then
             exit 1
           fi
