@@ -96,7 +96,7 @@ import {
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
-import { fleetdHeartbeatFile, agentsFs, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -1035,14 +1035,11 @@ export function estateReport(m: EstateMeasurement): string {
  */
 async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement | null> {
   try {
-    const wtOut = await run('git', ['worktree', 'list', '--porcelain'], opts.repoRoot);
-    const worktrees = wtOut.split('\n').filter((l) => l.startsWith('worktree ')).length;
-
-    const brOut = await run('git',
-      ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin'], opts.repoRoot);
-    const branches = brOut.split('\n').filter((l) => l.trim() !== '').length;
-
-    return { worktrees, branches };
+    const context = shellContext(opts.repoRoot);
+    const trees = await treesGit(context).list();
+    const remote = await refsGit(context).refState('remote');
+    if (!trees.ok || !remote.ok) return null;
+    return { worktrees: trees.value.length, branches: remote.value.length };
   } catch {
     return null;
   }

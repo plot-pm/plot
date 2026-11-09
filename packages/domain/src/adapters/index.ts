@@ -230,6 +230,7 @@ export { gateContractFile, type GateContractFileOptions } from './gate-contract/
 export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';
 
 export { refsGit } from './refs/refs-git.js';
+export { refFilesFs, type RefFiles } from './refs/ref-files-fs.js';
 export { refsRemoteGit, type RunCommand } from './refs/refs-remote-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 

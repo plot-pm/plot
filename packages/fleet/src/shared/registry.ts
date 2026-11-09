@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
 import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from './agent-wire.js';
-import { hostShell, prIndexFile, scriptsShell } from '@plot-pm/domain/adapters';
+import { hostShell, prIndexFile, scriptsShell, shellContext, treesGit } from '@plot-pm/domain/adapters';
 import type { PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-desk';
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
@@ -1166,49 +1166,21 @@ function bashLiveness(scriptsDir: string, worktrees: string[]): string[] {
 }
 
 /**
- * The default worktree lister — `git worktree list --porcelain` for Fix C.
+ * The default worktree lister for Fix C, through the `Trees` port.
  *
- * The porcelain form emits one block per worktree: a `worktree <path>` line,
- * then `HEAD <sha>`, then EITHER `branch refs/heads/<name>` OR `detached`. The
- * FIRST block is always the primary checkout — the main repo — which is the one
- * exclusion git itself hands us; a block with no `branch` line is branchless and
- * carries `branch: ''`, the other exclusion.
+ * The port reads the `worktrees/*` files and asks `git worktree list
+ * --porcelain` only where the files cannot answer. The main checkout comes
+ * first and carries `isMain`; a detached worktree carries `branch: ''`.
  *
- * Answers `[]` on any git failure (no repo, git absent), which
- * `readAgentRegistry` renders as "synthesize nothing": the worktree list is an
- * enrichment, never a dependency the listing can fail on. It used to throw and
- * be caught into the same outcome; awaited, the failure is a value rather than
- * a control-flow jump, and the outcome is unchanged.
+ * Answers `[]` on any failure (no repo, git absent), which `readAgentRegistry`
+ * renders as "synthesize nothing": the worktree list is an enrichment, never a
+ * dependency the listing can fail on.
  */
-export async function gitWorktrees(repoRoot: string): Promise<WorktreeInfo[]> {
-  const out = await run('git', ['worktree', 'list', '--porcelain'], { cwd: repoRoot });
-  if (out === null) return [];
-  const infos: WorktreeInfo[] = [];
-  let cur: { path: string; branch: string } | null = null;
-  let first = true;
-  const flush = () => {
-    if (cur) {
-      infos.push({ path: cur.path, branch: cur.branch, isMain: first });
-      first = false;
-      cur = null;
-    }
-  };
-  for (const line of out.split('\n')) {
-    if (line.startsWith('worktree ')) {
-      flush();
-      cur = { path: line.slice('worktree '.length), branch: '' };
-    } else if (line.startsWith('branch ') && cur) {
-      // `branch refs/heads/feature/x` → `feature/x`. A ref outside refs/heads is
-      // left whole rather than mangled — an agent row still names something real.
-      const ref = line.slice('branch '.length);
-      cur.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
-    }
-    // `detached` and every other porcelain key leave `branch` as '' — the
-    // branchless exclusion, decided by the absence of a `branch` line.
-  }
-  flush();
-  return infos;
-}
+export const gitWorktrees = async (repoRoot: string): Promise<WorktreeInfo[]> => {
+  const listed = await treesGit(shellContext(repoRoot)).list();
+  if (!listed.ok) return [];
+  return listed.value.map((tree) => ({ path: tree.path, branch: tree.branch, isMain: tree.isMain }));
+};
 
 /**
  * Drop entries whose session has ended AND whose worktree is clean.
