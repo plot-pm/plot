@@ -45,8 +45,8 @@ The decision stays in the domain, per the layering rule: the controller passes t
 
 ### Open Questions
 
-- [ ] Does the fleet reading's `someone-is-on-it` / `quiet` answer for the same slice need a change, or does the restart fix suffice?
-- [ ] Does the restart brief already name the PR body's Not done list, or does the brief builder need a line for it?
+- [x] Does the fleet reading's `someone-is-on-it` / `quiet` answer for the same slice need a change, or does the restart fix suffice? → The restart fix suffices. The `quiet` row already tells a person that nobody is on the slice; what was missing is a controller that acts on it. A change to the fleet reading is out of scope.
+- [x] Does the restart brief already name the PR body's Not done list, or does the brief builder need a line for it? → It needs a line. The restart prompt (`packages/fleet/src/shared/restart-command.ts:20`) says only "Read the brief, the tree and `git log`". When the slice has an open draft PR, the prompt also names the PR number and tells the agent to read its body and finish its Not done list. The slice's test asserts that line.
 
 ## Slices
 
