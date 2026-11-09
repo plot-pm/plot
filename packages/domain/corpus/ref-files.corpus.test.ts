@@ -63,7 +63,7 @@ interface Pass {
 
 const comparePass = async (dir: string, reader: RefFiles): Promise<Pass> => {
   // `null` keeps the right side git: the adapters read the files first by default.
-  const refs = refsGit(shellContext(dir), undefined, null);
+  const refs = refsGit(shellContext(dir), undefined, undefined, null);
   const trees = treesGit(shellContext(dir), undefined, null);
   const pass: Pass = { found: [], answered: 0, leftToGit: [] };
   const check = <T>(subject: string, field: string, mine: PortResult<T>, theirs: PortResult<T>): void => {

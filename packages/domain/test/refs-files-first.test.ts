@@ -118,7 +118,7 @@ describe('refsGit and treesGit read the ref files first', () => {
   });
 
   it('ask git for every answer the reader leaves unaskable, and git answers', async () => {
-    const refs = refsGit(context, undefined, refusing);
+    const refs = refsGit(context, undefined, undefined, refusing);
     const trees = treesGit(context, undefined, refusing);
     const viaFiles = refsGit(context);
     const head = git(repo, 'rev-parse', 'HEAD');
@@ -153,7 +153,7 @@ describe('refsGit and treesGit read the ref files first', () => {
   });
 
   it('ask git for everything with no reader', async () => {
-    const refs = refsGit(context, undefined, null);
+    const refs = refsGit(context, undefined, undefined, null);
     const trees = treesGit(context, undefined, null);
     expect(await refs.currentBranch()).toEqual({ ok: true, value: 'main' });
     expect((await trees.list()).ok).toBe(true);

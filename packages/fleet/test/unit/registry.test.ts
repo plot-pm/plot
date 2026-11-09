@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  parseManifest, readAgentRegistry, gitWorktrees, bashCleanliness, AGENT_MANIFEST_DIR,
+  parseManifest, readAgentRegistry, gitWorktrees, deskCleanliness, deskLiveness, AGENT_MANIFEST_DIR,
 } from '../../src/shared/registry.js';
 import { execFileSync } from 'node:child_process';
 import { AgentStateSchema as DomainAgentStateSchema, LIVE_STATES, type AgentState as DomainAgentState } from '@plot-pm/domain';
@@ -974,10 +974,10 @@ describe('gitWorktrees — the real porcelain, parsed', () => {
   });
 });
 
-describe('liveness through the REAL plot-worker-state.sh — the reuse, proven', () => {
-  // The unit tests inject a fake resolver; this one runs the actual shell the
-  // brief requires the registry to reuse. A live pid must read `running`, a pid
-  // that exited tidily `finished` — end to end, no reimplementation.
+describe('liveness through the desk reader — real processes, real files', () => {
+  // The unit tests inject a fake resolver; this one runs the default resolver,
+  // `deskLiveness`, over real pids and desk files. `worker-readings.corpus`
+  // holds the same reader against `plot_worker_state`.
   let live: ReturnType<typeof spawn> | null = null;
 
   afterEach(() => {
@@ -1086,6 +1086,49 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
     const [e] = await readAgentRegistry(root, home);
     assert.equal(e.state, 'unknown');
     assert.equal(e.session, 'x', 'still listed');
+  });
+});
+
+describe('the registry keeps its contract when a reader fails', () => {
+  it('reads every entry unknown and logs the reason when the process table cannot be read', async () => {
+    const wt = path.join(root, 'wt-table');
+    fs.mkdirSync(wt);
+    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '999994');
+    manifest('a.json', { session: 'table', pid: '999994', worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
+    const lines: string[] = [];
+    const failingPs = async (command: string) =>
+      command === 'ps' ? { code: 1, stdout: '', stderr: 'ps: refused' } : { code: 0, stdout: '', stderr: '' };
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: deskLiveness(root, SCRIPTS_DIR, path.join(root, AGENT_MANIFEST_DIR), (l) => lines.push(l), failingPs),
+    });
+    assert.equal(e.state, 'unknown');
+    assert.ok(lines.some((l) => /1 desks read unknown: the process table could not be read/.test(l)), lines.join('\n'));
+    assert.ok(lines.some((l) => /process table unreadable \(ps exit 1\)/.test(l)), lines.join('\n'));
+  });
+
+  it('logs the reason through the registry option when the default resolver fails', async () => {
+    const lines: string[] = [];
+    const wt = path.join(root, 'wt-log');
+    fs.mkdirSync(wt);
+    manifest('a.json', { session: 'log', worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: deskLiveness(root, SCRIPTS_DIR, path.join(root, AGENT_MANIFEST_DIR), (l) => lines.push(l), async () => ({ code: 2, stdout: '', stderr: '' })),
+    });
+    assert.equal(e.state, 'unknown');
+    assert.equal(lines.filter((l) => l.startsWith('agent registry:')).length, 1);
+  });
+
+  it('reads a worktree that cannot be read as not clean', async () => {
+    assert.deepEqual(await deskCleanliness([path.join(root, 'no-such-desk')]), [false]);
+  });
+
+  it('keeps an ended entry whose worktree cannot be read', async () => {
+    manifest('a.json', { session: 'gone', pid: '4242', worktree: path.join(root, 'no-such-desk'), startedAt: '2026-08-20T10:00:00Z' });
+    const got = await readAgentRegistry(root, home, {
+      liveness: (wts) => wts.map(() => 'finished'),
+      cleanliness: deskCleanliness,
+    });
+    assert.equal(got.length, 1);
   });
 });
 
@@ -1232,7 +1275,7 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
   });
 });
 
-describe('bashCleanliness — a rebuilt bundle is excused, a source change beside it is not', () => {
+describe('deskCleanliness — a rebuilt bundle is excused, a source change beside it is not', () => {
   // ONE OF THE FOUR READERS `bug/a-pr-carries-no-bundle` NAMES. `main` rebuilds
   // and pushes every generated board bundle (`bug/main-builds-its-bundles`,
   // #1249), so a desk that locally rebuilt one to test holds nothing an agent
@@ -1276,7 +1319,7 @@ describe('bashCleanliness — a rebuilt bundle is excused, a source change besid
       path.join(wt, 'skills', 'plot', 'scripts', 'board', 'board-server.mjs'),
       'rebuilt locally\n',
     );
-    const [clean] = await bashCleanliness([wt]);
+    const [clean] = await deskCleanliness([wt]);
     assert.equal(clean, true, 'a rebuilt bundle alone is not unlanded work');
   });
 
@@ -1287,12 +1330,12 @@ describe('bashCleanliness — a rebuilt bundle is excused, a source change besid
       'rebuilt locally\n',
     );
     fs.writeFileSync(path.join(wt, 'my-source.ts'), 'real work\n');
-    const [clean] = await bashCleanliness([wt]);
+    const [clean] = await deskCleanliness([wt]);
     assert.equal(clean, false, 'a source change beside the bundle is still unlanded work');
   });
 });
 
-describe('bashCleanliness — PLOT-CORRECTION.md reads as the shell readers read it', () => {
+describe('deskCleanliness — PLOT-CORRECTION.md reads as the shell readers read it', () => {
   // `plot-desk-dirt.sh` names the readers that must read one desk the same
   // way. This compares the board's drop rule against `plot_worker_dirty`
   // (`plot-worker-state.sh`) and `desk_dirt` (`plot-desk-dirt.sh`) on one
@@ -1344,15 +1387,15 @@ describe('bashCleanliness — PLOT-CORRECTION.md reads as the shell readers read
     it(`reads ${expected ? 'clean' : 'dirty'} for ${name}, as the shell readers do`, async () => {
       const wt = tree();
       arrange(wt);
-      const [clean] = await bashCleanliness([wt]);
-      assert.equal(clean, expected, `bashCleanliness on ${name}`);
+      const [clean] = await deskCleanliness([wt]);
+      assert.equal(clean, expected, `deskCleanliness on ${name}`);
       assert.deepEqual(shellClean(wt), { worker: expected, reaper: expected },
         `the shell readers on ${name}`);
     });
   }
 });
 
-describe('bashCleanliness — .plot-worker.exit reads as the shell readers read it', () => {
+describe('deskCleanliness — .plot-worker.exit reads as the shell readers read it', () => {
   // `desk_dirt` lists names and the other two readers excuse the prefix
   // `(^|/)\.plot-worker\.`, so a nested or tracked copy is where they differ.
   let repo = '';
@@ -1405,8 +1448,8 @@ describe('bashCleanliness — .plot-worker.exit reads as the shell readers read 
     it(`reads ${name} as board=${expected.board} worker=${expected.worker} reaper=${expected.reaper}`, async () => {
       const wt = tree();
       arrange(wt);
-      const [clean] = await bashCleanliness([wt]);
-      assert.equal(clean, expected.board, `bashCleanliness on ${name}`);
+      const [clean] = await deskCleanliness([wt]);
+      assert.equal(clean, expected.board, `deskCleanliness on ${name}`);
       assert.deepEqual(shellClean(wt), { worker: expected.worker, reaper: expected.reaper },
         `the shell readers on ${name}`);
     });
@@ -1448,7 +1491,7 @@ describe('a desk whose loop ended at the free-wait bound — listed only while i
     readAgentRegistry(root, home, {
       scriptsDir: SCRIPTS_DIR,
       worktrees: () => [{ path: wt, branch: 'main', isMain: false }],
-      cleanliness: bashCleanliness,
+      cleanliness: deskCleanliness,
     });
 
   it('drops a clean desk: no marker, no uncommitted work, nothing owed', async () => {
@@ -1462,7 +1505,7 @@ describe('a desk whose loop ended at the free-wait bound — listed only while i
 
   it('keeps the desk while it holds an untracked PLOT-BLOCKED.md marker, the same as any other untracked file', async () => {
     // Renamed from "keeps the desk ... while it carries a PLOT-BLOCKED
-    // marker": `bashCleanliness` applies one exclusion set to every untracked
+    // marker": `deskCleanliness` applies one exclusion set to every untracked
     // path, and PLOT-BLOCKED.md is not in it — it reads dirty for the same
     // reason `half-done.ts` below does, not because the name is special-cased.
     const wt = endedDesk((d) => fs.writeFileSync(path.join(d, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which retry?\n'));
