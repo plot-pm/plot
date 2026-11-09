@@ -123,6 +123,7 @@ This plan depends on `the-snapshot-entity` (delivered): every reading lands in t
 
 ## Notes
 
+- **Decided 2026-11-09, jwloka:** `lstartMs` reads a start-time stamp in the locale it was recorded in (German and French included), and agrees with `_plot_lstart_epoch` under that locale. The shell under `LC_ALL=C` reads such an old stamp as nothing; the corpus declares that divergence. New stamps are written under `LC_ALL=C` (PR #3319). The unblocker defect found by the same slice is #3320.
 - Phase 5 of the story [`nothing-changed-nothing-runs`](../stories/nothing-changed-nothing-runs/STORY-nothing-changed-nothing-runs.md), candidate plan `desk-probes-in-domain`; takes over Phase 4 of [`the-shell-holds-no-behavior`](../stories/archived/the-shell-holds-no-behavior/STORY-the-shell-holds-no-behavior.md).
 - The story says `plot_worker_activity` "runs `sleep 0.4` per running desk per probe under fleetd". On this worktree the shell function has one caller, `plot-quiet-stretch.sh:120`; the TypeScript `processesShell.activity` waits on an in-process timer (no `sleep` process) and two `ps` reads, and its one production caller is the agent's own loop (`worker-loop.ts:1273`), not fleetd. Slice 4 still removes the two `ps` reads per idle check.
 - The script is 1,480 lines on this worktree (`wc -l`); the story cites 1,506.
