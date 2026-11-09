@@ -1384,7 +1384,7 @@ async function claimOnlyBranches(
  * the honest fallback rather than an invented tag: the same rule the board
  * applies to a missing URL.
  */
-async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, string>> {
+export const releaseVersions = async (opts: BuildBoardOptions): Promise<Map<string, string>> => {
   const found = new Map<string, string>();
   // THE REFS, not the plans — and the first version of this read the plans,
   // which is why it found nothing on the live board while the mock looked right.
@@ -1403,12 +1403,13 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
   const branches = refs.split('\n')
     .map((l) => l.trim().replace(/^origin\//, ''))
     .filter(Boolean);
+  const reader = refsFor(opts);
   for (const branch of branches) {
-    // `?? ''` because `run` rejects on a missing ref, and a release branch that
-    // vanished between the ref listing and this read is a race rather than a
-    // defect — it reads as *no version*, which is what the row then says.
-    const raw = await run('git', ['show', `origin/${branch}:package.json`], opts.repoRoot)
-      .catch(() => '');
+    // A release branch that vanished between the ref listing and this read is
+    // a race rather than a defect — it reads as *no version*, which is what
+    // the row then says. `showFile` reads through the board's object reader.
+    const shown = await reader.showFile(`origin/${branch}`, 'package.json');
+    const raw = shown.ok ? shown.value : '';
     if (!raw) continue;
     try {
       const version = (JSON.parse(raw) as { version?: unknown }).version;
@@ -1419,7 +1420,7 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
     }
   }
   return found;
-}
+};
 
 
 

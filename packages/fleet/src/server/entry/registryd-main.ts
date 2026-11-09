@@ -40,6 +40,7 @@ import {
   fleetdHeartbeatFile,
   writeProbeShell,
   appKeyShell,
+  installObjectsReader,
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
 import { probeAppKeysAtStart } from '@plot-pm/domain/workflows/app-key-start-probe';
@@ -2787,7 +2788,7 @@ export const sweepTempIfDue = async (
  * @param warn - where failures go.
  * @param repoRoot - the checkout supervised; `PLOT_REPO_ROOT`, else the working directory.
  * @param seams - replacements for what `run` builds itself; see {@link RunSeams}.
- * @returns the exit code: 0 for a stopped loop, 2 for a bad argument.
+ * @returns the exit code: 0 for a stopped loop, 1 for a git older than 2.42, 2 for a bad argument.
  */
 export const run = async (
   argv: readonly string[],
@@ -2806,6 +2807,14 @@ export const run = async (
       'usage: plot-fleetd.mjs [--once] [--dry-run] [--start-agents] [--sweep-temp] [--max N] [--interval SECONDS]\n',
     );
     return 2;
+  }
+
+  // ONE OBJECT READER FOR THE DAEMON'S WHOLE LIFE: every `refsGit` built below
+  // reads blobs and trees through it. A git older than 2.42 refuses the start.
+  const objects = await installObjectsReader(repoRoot);
+  if (!objects.installed && objects.why === 'git-version') {
+    warn(`plot-fleetd: ${objects.refusal}\n`);
+    return 1;
   }
 
   const scriptsDir = scriptsDirFor(here);

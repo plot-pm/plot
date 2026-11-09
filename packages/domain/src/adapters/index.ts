@@ -234,6 +234,16 @@ export { gateContractFile, type GateContractFileOptions } from './gate-contract/
 export { tempSweepShell, TEMP_SWEEP_MARKER } from './temp-sweep/temp-sweep-shell.js';
 
 export { refsGit } from './refs/refs-git.js';
+// THE OBJECT READER. fleetd and the board server install one per repository at
+// start; `refsGit` reads blobs and trees through it where one is held.
+export {
+  installObjectsReader,
+  objectReaders,
+  processObjects,
+  type InstallObjectsOptions,
+  type ObjectReaders,
+  type ObjectsInstall,
+} from './refs/object-readers.js';
 export { refsRemoteGit, type RunCommand } from './refs/refs-remote-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
