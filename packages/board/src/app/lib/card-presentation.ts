@@ -572,8 +572,8 @@ const PROVEN: Readonly<Record<Extract<CardFacts['identity']['alerts'][number], {
   active: 'plans approved',
   'in-review': 'plans in review',
   paused: 'plans paused',
-  done: 'plans delivered',
-  archived: 'plans released',
+  done: 'plans delivered; story still open',
+  archived: 'plans released; story still open',
 };
 
 const ALERT_DETAIL = 'This plan is in the board\'s working tree but not on the ref it reads — nobody else can see it yet';

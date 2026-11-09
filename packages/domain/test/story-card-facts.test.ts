@@ -84,6 +84,29 @@ describe('storyCardFacts: lineage and progress', () => {
     expect(f.progress.work).toEqual({ unit: 'plans', done: { value: 2 }, total: 3 });
   });
 
+  it('counts a table slug with no file as not started in the total', () => {
+    const table = Array.from({ length: 18 }, (_, i) => `p${i}`);
+    const files = table.slice(0, 4).map((slug) => plan(slug, { state: 'delivered' }));
+    const f = facts({ status: 'ready', plans: { value: files }, tablePlans: table });
+    expect(f.progress.work).toEqual({ unit: 'plans', done: { value: 4 }, total: 18 });
+  });
+
+  it('adds a plan file the table does not name to the total', () => {
+    const table = ['p0', 'p1'];
+    const files = [plan('p0', { state: 'delivered' }), plan('extra', { state: 'delivered' })];
+    expect(facts({ plans: { value: files }, tablePlans: table }).progress.work)
+      .toEqual({ unit: 'plans', done: { value: 2 }, total: 3 });
+  });
+
+  it('shows no work where the plans were not read, whatever the table names', () => {
+    expect(facts({ plans: { unknown: 'failed' }, tablePlans: ['a', 'b'] }).progress.work).toBeNull();
+  });
+
+  it('still alerts status-behind on a ready story whose plans are all delivered', () => {
+    const f = facts({ status: 'ready', plans: { value: [plan('a', { state: 'delivered' })] } });
+    expect(f.identity.alerts).toContainEqual({ kind: 'status-behind', proven: 'done' });
+  });
+
   it('shows no work for a story with no plans', () => {
     expect(facts().progress.work).toBeNull();
   });
