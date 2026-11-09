@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-09, Jan Wloka, plan-PR #3307 merged
+- **Started:** 2026-11-09, Jan Wloka, `bug/a-story-reads-done-when-its`
 
 ## Changelog
 
