@@ -2556,6 +2556,46 @@ rest_pr_state() { # $1=owner/repo $2=PR number or branch; returns 3 when the bra
 # colon. Prints nothing and exits 1 where the URL names no `owner/repo`.
 gh_origin_slug() { git config --get remote.origin.url | sed -E 's#\.git/?$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#' | grep -E '^[^/]+/[^/]+$'; }
 
+# ONE REST PAGER for every list read that GraphQL's secondary limit used to refuse
+# (`pr-list`, the `pr-merged` family, `issue-list`). Pages of 100 from
+# `repos/<slug>/$1`; `$2` is a `jq` filter over one page (the caller's own shape);
+# `$3` stops paging once that many rows are kept ("" = unbounded); `$4` non-empty
+# stops at the first page holding a row with `updated_at <= $5` (a list sorted by
+# update, so everything beyond it is older than the watermark). A failed page
+# returns 1 with the CLI's words in `$HOST_ERR` and prints nothing, never a
+# partial list. A page of exactly 100 pulls the next one.
+gh_rest_rows() { # $1=endpoint+query $2=page filter $3=max rows $4=stop at watermark $5=$a for the filter
+  local out kept all='[]' p=1 sep='?'; [[ "$1" == *\?* ]] && sep='&'
+  while :; do
+    out="$(gh_api_harvest "repos/$(gh_rest_repo)/$1${sep}per_page=100&page=$p" 2>"$HOST_ERR")" || return 1
+    rm -f "$HOST_ERR"
+    kept="$(jq -c --arg a "$5" "$2" <<<"$out")" || return 1
+    all="$(jq -cs '.[0] + .[1]' <<<"$all$kept")"
+    [ "$(jq length <<<"$out")" -lt 100 ] && break
+    [ -n "$3" ] && [ "$(jq length <<<"$all")" -ge "$3" ] && break
+    [ -n "$4" ] && jq -e --arg a "$5" 'any(.[]; .updated_at <= $a)' >/dev/null <<<"$out" && break
+    p=$((p + 1))
+  done
+  jq -c --argjson n "${3:-null}" 'if $n then .[:$n] else . end' <<<"$all"
+}
+
+# EVERY PR whose head is branch `$1`, any state, as raw REST rows (`merged_at`, `head.sha`,
+# `merge_commit_sha`). Fails as `gh_rest_rows` does.
+gh_head_prs() { gh_rest_rows "pulls?state=all&head=$(gh_rest_repo | sed 's#/.*##'):$1" '.' "" "" ""; }
+
+# `pr list`'s rows over REST, in `gh pr list --json`'s own shape so the jq below each call is the one it always was: `$1` state (open|closed|merged|all),
+# `$2` limit (gh's default of 30 where empty), `$3` watermark (verbatim, exclusive; the
+# `pulls` endpoint has no `since`, so it cuts `updated_at` here), `$4` one head branch.
+# `statusCheckRollup`, `reviewDecision` and `mergeable` are absent: this read answers no verdict.
+gh_pr_rows() {
+  local s="$1" q="state=open" cut='.merged_at == null' stop=""
+  case "$s" in open) cut=true ;; all) q="state=all"; cut=true ;; closed) q="state=closed" ;; merged) q="state=closed"; cut='.merged_at != null' ;; *) die "pr-list: --state $s has no REST form" ;; esac
+  [ -z "$4" ] || q="$q&head=$(gh_rest_repo | sed 's#/.*##'):$4"
+  [ -z "$3" ] || { q="$q&sort=updated&direction=desc"; cut="($cut) and .updated_at > \$a"; stop=1; }
+  gh_rest_rows "pulls?$q" "map(select($cut) | {number, title, state: (if .merged_at != null then \"MERGED\" else (.state | ascii_upcase) end), headRefName: .head.ref, isDraft: (.draft // false), url: .html_url, updatedAt: .updated_at, author: {login: (.user.login // \"\")}, headRefOid: .head.sha, mergedAt: .merged_at})" "${2:-30}" "$stop" "$3" \
+    || { host_err; pr_list_failed "$err"; } # a failed page exits as `pr_list_call` does: callers keep `|| exit $?`
+}
+
 # `gh` as the merger identity where a Merger app token was minted, as the
 # signed-in one where none was. The token goes into `GH_TOKEN` only.
 merger_gh() { GH_TOKEN="${merger_token:-${GH_TOKEN-}}" gh "$@"; }
@@ -3307,7 +3347,7 @@ bb_list_page_length() {
 # $1 backend  $2 requested limit (may be "")  $3 state word  $4 row count
 # $5 envelope's own completeness reading: "0" no next, "1" next present, ""
 #    unknown (`BB_LIST_NEXT`, bitbucket only — github's listing carries none)
-pr_list_report_truncation() {
+pr_list_report_truncation() { # $6=rest: the rows came over REST, which `gh_api_harvest` already recorded
   local be="$1" limit="$2" state="$3" count="$4" next="${5:-}" len=""
   # no --limit → no completeness claim owed; an empty page had nothing to hide
   [ -n "$limit" ] || return 0; [ "$count" -gt 0 ] 2>/dev/null || [ "$next" = "1" ] || return 0
@@ -3315,7 +3355,7 @@ pr_list_report_truncation() {
     # `gh` pages inside this one process and `gh()` recorded one request for it, so
     # the pages past the first are recorded here, from the rows: a request count,
     # not GraphQL points. The rule is the domain's (`githubExtraPages`).
-    budget_record_call github github graphql "$(node "$here/board/plot-listing-pages.mjs" "$count" 2>/dev/null)"
+    [ "${6:-}" = rest ] || budget_record_call github github graphql "$(node "$here/board/plot-listing-pages.mjs" "$count" 2>/dev/null)"
     # github honours the limit: complete unless the page came back AT the limit.
     # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
     # answered 1065 rows and `--limit 2000` the same 1065, so a page short of
@@ -3978,7 +4018,8 @@ case "$op" in
     # tested for a NON-EMPTY value of its own, never for a pipeline's status.
     _db=""
     if [ "$be" = "github" ]; then
-      _db=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)
+      # REST, NOT `gh repo view`: that is GraphQL and its secondary limit refuses it while core is nearly full.
+      _db=$(gh_api_harvest "repos/$(gh_rest_repo)" 2>/dev/null | jq -r '.default_branch // empty' 2>/dev/null || true)
     else
       # `--json` IS A CAPABILITY, NOT A GIVEN. Two products share the name `bb`
       # and craftamap's rejects the flag (see `bb_require_json`) — against it
@@ -4206,9 +4247,9 @@ case "$op" in
         # --state all, because a merged PR reports CLOSED and the default `open`
         # would hide every one of them. --limit 100 rather than 1: the newest PR
         # is not the merge, exactly as the state is not the merge.
-        if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>"$HOST_ERR")"; then
-          rm -f "$HOST_ERR"
-          jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
+        # REST `merged_at`, never `state`; `gh_head_prs` pages until a short page.
+        if out="$(gh_head_prs "$ref")"; then
+          jq -e 'any(.[]; .merged_at != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
           host_err
           miss_or_unknown "$err"
@@ -4275,17 +4316,8 @@ case "$op" in
     done
     if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
-      limit=100
-      # A page as long as `--limit` may have been cut, so the limit doubles and
-      # the query re-asks. The loop ends one of two ways: a short page, after
-      # which `$HOST_ERR` is gone, or a failed call, which leaves `$HOST_ERR`
-      # in place because the redirect creates it before `gh` runs.
-      while out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit "$limit" --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; do
-        rm -f "$HOST_ERR"
-        [ "$(jq 'length' <<<"$out")" -lt "$limit" ] && break
-        limit=$((limit * 2))
-      done
-      if [ -e "$HOST_ERR" ]; then
+      # `gh_head_prs` pages until a short page, and leaves `$HOST_ERR` in place on a failed one.
+      if ! out="$(gh_head_prs "$ref")"; then
         host_err
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
         # is the question failing, and silence must not read as "carried
@@ -4294,8 +4326,9 @@ case "$op" in
       else
         # Every merged PR carrying a sha, earliest-first ordering left to the
         # reader — `pickReleaseHop` and `pr-merge-commit`'s own `first` both sort.
-        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
-               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
+        # `merge_commit_sha` is a test-merge sha on an open PR: read it only where `merged_at` is set.
+        jq -r 'map(select(.merged_at != null and .merge_commit_sha != null)
+               | {n: .number, b: (.base.ref // ""), s: .merge_commit_sha, t: .merged_at}) | '"$pick" <<<"$out"
       fi
     else
       bb_require_json
@@ -4332,9 +4365,8 @@ case "$op" in
       esac
     done
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,headRefOid 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
-        jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
+      if out="$(gh_head_prs "$ref")"; then
+        jq -r '.[] | select(.merged_at != null and .head.sha != null) | .head.sha' <<<"$out" || exit 3
       else
         host_err
         [ -n "$err" ] && is_lookup_miss "$err" || die3 "${err:-gh pr list failed}"
@@ -4559,7 +4591,7 @@ case "$op" in
     search_args=()
     [ -n "$since" ] && search_args=(--search "updated:>$since")
     # One named branch is asked as one: `--head` filters server-side in the same single list call.
-    head_args=(); [ "$(wc -w <<<"$branches")" -eq 1 ] && head_args=(--head "$branches")
+    head_args=(); _head=""; [ "$(wc -w <<<"$branches")" -eq 1 ] && head_args=(--head "$branches") && _head="$branches"
 
     # --- Jenkins CI integration (orthogonal to Git host) ---
     # When `CI: jenkins` is configured, build status comes from Jenkins rather
@@ -4732,10 +4764,14 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
+          # GRAPHQL FIRST FOR ITS `mergeable`/`reviewDecision`; where it refuses, the REST rows
+          # carry neither, and `mergeable_of` reads that as `unknown` and `review` as `""`.
+          _rest=""
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
+            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt 2>/dev/null)" \
+            || { _rest=rest; _gh_raw="$(gh_pr_rows "$state" "$limit" "$since" "$_head")" || exit $?; }
           pr_list_report_truncation github "$limit" "$state" \
-            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
+            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)" "" "$_rest"
           # GAPS 3/4/10: `jmap` names no commit, so a push between builds would
           # carry the OLD head's colour onto the new one. The bundle names the
           # rows `jmap` cannot settle (green/failing with a head sha, at most
@@ -4777,22 +4813,29 @@ case "$op" in
               } + (if $jstatus == "ok" and $ambiguous and $eff == null then {checksLookup:"skipped"} else {} end)'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
+          # WHERE GRAPHQL REFUSES, THE ROWS COME OVER REST AND CARRY NO VERDICT: `checks`,
+          # `mergeable` and `review` read `unknown`, `unknown` and `""`, and no `ciChecks` or
+          # `plotReview` field is written. ABSENT IS NOT FALSE: a row that was never asked
+          # must not read `passed`, `MERGEABLE` or `APPROVED`. The per-PR REST reads that
+          # would answer them cost about 20 calls a scan, over 1,200 an hour.
+          _rest=""
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
+            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt 2>/dev/null)" \
+            || { _rest=rest; _gh_raw="$(gh_pr_rows "$state" "$limit" "$since" "$_head")" || exit $?; }
           pr_list_report_truncation github "$limit" "$state" \
-            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
+            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)" "" "$_rest"
           printf '%s' "$_gh_raw" \
-            | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
+            | jq -c --arg rest "$_rest" "$CHECKS_OF$MERGEABLE_OF"'.[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
-                checks:checks_of, mergeable:mergeable_of,
+                checks:(if $rest == "" then checks_of else "unknown" end), mergeable:mergeable_of,
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
                 author:(.author.login // ""),
                 failing_checks:[
-                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")), ciChecks:ci_checks_of
-              } + (([.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0]) as $pr | if $pr == null then {plotReview:"absent"} else {plotReview:($pr.state // "" | ascii_downcase), plotReviewSha:(.headRefOid // ""), plotReviewAt:($pr.startedAt // "")} end)'
+                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != "")) 
+              } + (if $rest != "" then {} else {ciChecks:ci_checks_of} end) + (([.statusCheckRollup[]? | select((.context // "") == "plot/review")] | .[0]) as $pr | if $rest != "" then {} elif $pr == null then {plotReview:"absent"} else {plotReview:($pr.state // "" | ascii_downcase), plotReviewSha:(.headRefOid // ""), plotReviewAt:($pr.startedAt // "")} end)'
         fi
       else
         # `isDraft`, `url` AND `updatedAt` TRAVEL ON THE PLAIN ARM TOO, and they
@@ -4808,10 +4851,10 @@ case "$op" in
         # advances its watermark by. Without it a split full read would leave
         # the store unable to narrow and the daily full read would never fall
         # due against anything but a cold window.
-        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
-          --json number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
+        # REST ONLY: no verdict is asked here, so GraphQL's secondary limit has nothing to refuse.
+        _gh_raw="$(gh_pr_rows "$state" "$limit" "$since" "$_head")" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
-          "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
+          "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)" "" rest
         printf '%s' "$_gh_raw" \
           | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName,draft:.isDraft,url:.url,updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),author:(.author.login // "")}'
       fi
@@ -5455,35 +5498,26 @@ case "$op" in
       # several, so a state that already uses one here is refused instead of
       # silently losing the title filter (open issues is the lookup's only use).
       [ -z "$title_has" ] || [ "$gh_state" = open ] || die "issue-list: --title-has only works with --state open"
-      gh_json="number,title,url,createdAt,assignees,issueType,milestone"; search_args=(); ask_state="$gh_state"
-      [ -z "$label" ] || search_args=(--label "$label")
-      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args+=(--search "updated:>=$since")
-      elif [ "$gh_state" != open ]; then gh_json+=",closedAt,labels"; search_args+=(--search "closed:>=$since")
-      # TITLE SEARCH NARROWS, IT DOES NOT REPLACE THE LABEL FILTER: both are
-      # qualifiers `gh` combines in one `--search` string, so a backlog's
-      # label stays the safety net while the title cuts the read to the one PR
-      # asked about. Quoted so a PR number with no other digit around it cannot
-      # match a longer one; `findOpenReviewIssue` still checks every candidate,
-      # since GitHub's search is not an exact title match.
-      elif [ -n "$title_has" ]; then search_args+=(--search "in:title \"$title_has\""); fi
-      if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
-                  ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
-        # `gh` pages inside ONE process and the wrapper records one call per
-        # process, so each page past the first is recorded here. Run before the jq
-        # print below so that print's exit status is the branch's, not this call's.
-        budget_record_call github github graphql "$(node "$here/board/plot-listing-pages.mjs" <<<"$out" 2>/dev/null)"
-        jq -c --arg status "$gh_state" \
-          '.[] | ((.state // $status) | ascii_downcase) as $actual |
-                  {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
+      # REST, NOT `gh issue list`: that is GraphQL, and its secondary limit refused four reads on 2026-11-09 while core was nearly full.
+      # THE `issues` ENDPOINT RETURNS PULL REQUESTS AS ISSUES, so a row with a `pull_request` key is dropped on each page, and the limit
+      # (`gh`'s 30 where none is given) counts what REMAINS: a page full of PRs must not shorten the answer. The search qualifiers stay
+      # off the search endpoint, which has its own 30-a-minute limit: title, close date and update date are cut here.
+      rest_ts="$since"; [[ "$rest_ts" == *T* ]] || rest_ts="${rest_ts}T00:00:00Z"; [[ "$rest_ts" == *Z ]] || rest_ts="${rest_ts}Z"
+      ask_state="$gh_state"; [ "$gh_state" != changed ] || ask_state=all
+      rest_q="state=$ask_state"; keep='select(has("pull_request") | not)'
+      [ -z "$label" ] || rest_q="$rest_q&labels=$(jq -rn --arg l "$label" '$l | @uri')"
+      if [ "$gh_state" = changed ]; then rest_q="$rest_q&since=$rest_ts"; keep="$keep | select(.updated_at >= \$a)"
+      elif [ "$gh_state" != open ]; then rest_q="$rest_q&since=$rest_ts"; keep="$keep | select((.closed_at // \"\") >= \$a)"
+      elif [ -n "$title_has" ]; then keep="$keep | select(.title | ascii_downcase | contains((\$a | ascii_downcase)))"; rest_ts="$title_has"; fi
+      if out="$(gh_rest_rows "issues?$rest_q" "map($keep)" "${limit:-30}" "" "$rest_ts")"; then
+        jq -c --arg status "$gh_state" '.[] | (.state | ascii_downcase) as $actual |
+                  {number:.number,title:.title,url:(.html_url // ""),createdAt:(.created_at // ""),
                   status:$actual,statusCategory:(if $actual == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login],releases:[.milestone.title? // empty]}
-                 + (if .updatedAt then {updatedAt:.updatedAt} else {} end) + (if .issueType.name? then {type:.issueType.name} else {} end)
-                 + (if $actual == "closed" then {closedAt:(.closedAt // "")} else {} end) + (if .labels then {labels:[.labels[].name]} else {} end)' <<<"$out"
+                 + (if $status == "changed" then {updatedAt:.updated_at} else {} end) + (if .type.name? then {type:.type.name} else {} end)
+                 + (if $actual == "closed" then {closedAt:(.closed_at // "")} else {} end) + (if $status == "closed" then {labels:[.labels[].name]} else {} end)' <<<"$out"
       else
-        # NO empty-list fallback. `host_miss_or_fail` exists for a lookup whose
-        # subject is absent — one PR that does not exist. A LIST has no absent
-        # subject: if the call failed, the answer is unknown, and printing
-        # nothing while exiting non-zero is what says so.
+        # NO empty-list fallback. A LIST has no absent subject: a failed read is an unknown answer, which
+        # printing nothing while exiting non-zero says.
         gh_fail
       fi
     else
@@ -5590,9 +5624,9 @@ case "$op" in
           state: (if .fields.status.statusCategory.key == "done" or .fields.resolution != null then "closed" else "open" end)
         }'
     elif [ "$be" = "github" ]; then
-      if out="$(gh issue view "$num" --json number,title,body,url,state 2>"$HOST_ERR")"; then
+      if out="$(gh_api_harvest "repos/$(gh_rest_repo)/issues/$num" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // ""),state:((.state // "open") | ascii_downcase)}' <<<"$out"
+        jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.html_url // ""),state:((.state // "open") | ascii_downcase)}' <<<"$out"
       else
         # NO miss/fail split here, and that is deliberate. `host_miss_or_fail`
         # exists where an absent subject is a NORMAL answer — a branch with no
