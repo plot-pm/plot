@@ -2565,13 +2565,14 @@ gh_origin_slug() { git config --get remote.origin.url | sed -E 's#\.git/?$##; s#
 # returns 1 with the CLI's words in `$HOST_ERR` and prints nothing, never a
 # partial list. A page of exactly 100 pulls the next one.
 gh_rest_rows() { # $1=endpoint+query $2=page filter $3=max rows $4=stop at watermark $5=$a for the filter
-  local out kept all='[]' p=1 sep='?'; [[ "$1" == *\?* ]] && sep='&'
+  local out n kept all='[]' p=1 sep='?'; [[ "$1" == *\?* ]] && sep='&'
   while :; do
     out="$(gh_api_harvest "repos/$(gh_rest_repo)/$1${sep}per_page=100&page=$p" 2>"$HOST_ERR")" || return 1
     rm -f "$HOST_ERR"
     kept="$(jq -c --arg a "$5" "$2" <<<"$out")" || return 1
     all="$(jq -cs '.[0] + .[1]' <<<"$all$kept")"
-    [ "$(jq length <<<"$out")" -lt 100 ] && break
+    n="$(jq length <<<"$out")" && [ -n "$n" ] || return 1 # an answer that is no JSON array is a failed read, never an end of list
+    [ "$n" -lt 100 ] && break
     [ -n "$3" ] && [ "$(jq length <<<"$all")" -ge "$3" ] && break
     [ -n "$4" ] && jq -e --arg a "$5" 'any(.[]; .updated_at <= $a)' >/dev/null <<<"$out" && break
     p=$((p + 1))

@@ -2248,7 +2248,7 @@ test('host: pr-state branch gives "" for an open PR on bitbucket', () => {
 test('host: issue-list github derives status from the --state it asks for', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { number: 226, title: 'The board tells the truth', url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z', assignees: [], releases: [] },
+      { number: 226, title: 'The board tells the truth', html_url: 'https://example.test/issues/226', created_at: '2026-08-20T09:00:00Z', state: 'open', assignees: [] },
     ]),
   });
   const res = spawnSync('bash', [adapter, 'issue-list'], {
@@ -2262,36 +2262,32 @@ test('host: issue-list github derives status from the --state it asks for', () =
     url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z',
     status: 'open', statusCategory: 'To Do', assignees: [], releases: [],
   });
-  // The projected status is the SAME word the call passed to `gh`, which is
-  // what makes it derived rather than assumed.
+  // The projected status is the SAME word the call passed to the endpoint,
+  // which is what makes it derived rather than assumed.
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
-  const stateFlag = argv[argv.indexOf('--state') + 1];
-  assert.equal(stateFlag, row.status);
+  assert.match(argv[1], new RegExp(`[?&]state=${row.status}(&|$)`));
 });
 
-test('host: issue-list github asks gh for no tracker state beyond what it projects', () => {
-  // The same refusal the Jira arm asserts, on the backend that makes it
-  // cheapest to breach: `--json labels,priority` is one word away.
-  // `assignees` IS requested and projected — the one field this slice adds.
+test('host: issue-list github reads REST only, never a GraphQL subcommand', () => {
+  // `gh issue list` is GraphQL, and its secondary limit refused four idea reads
+  // on 2026-11-09 while the REST quota was nearly full.
   const stubs = makeStubs({ ghJson: '[]' });
   spawnSync('bash', [adapter, 'issue-list'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
-  const json = argv[argv.indexOf('--json') + 1];
-  assert.equal(json, 'number,title,url,createdAt,assignees,issueType,milestone');
-  for (const refused of ['labels', 'priority']) {
-    assert.ok(!json.includes(refused), `issue-list must not request ${refused}`);
-  }
+  assert.equal(argv[0], 'api');
+  assert.match(argv[1], /^repos\/\{owner\}\/\{repo\}\/issues\?state=open&per_page=100&page=1$/);
+  assert.ok(!argv.includes('issue') && !argv.includes('graphql'));
 });
 
 test('host: issue-list github prints assignees with zero, one and two logins', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { number: 1, title: 'none', url: 'u1', createdAt: 'c1', assignees: [] },
-      { number: 2, title: 'one', url: 'u2', createdAt: 'c2', assignees: [{ login: 'alice' }] },
-      { number: 3, title: 'two', url: 'u3', createdAt: 'c3', assignees: [{ login: 'alice' }, { login: 'bob' }] },
+      { number: 1, title: 'none', html_url: 'u1', created_at: 'c1', state: 'open', assignees: [] },
+      { number: 2, title: 'one', html_url: 'u2', created_at: 'c2', state: 'open', assignees: [{ login: 'alice' }] },
+      { number: 3, title: 'two', html_url: 'u3', created_at: 'c3', state: 'open', assignees: [{ login: 'alice' }, { login: 'bob' }] },
     ]),
   });
   const res = spawnSync('bash', [adapter, 'issue-list'], {
@@ -2306,8 +2302,8 @@ test('host: issue-list github prints assignees with zero, one and two logins', (
 test('host: issue-list github prints the issue type where there is one and no type key where there is none', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { number: 1, title: 'typed', url: 'u1', createdAt: 'c1', assignees: [], issueType: { name: 'Bug' } },
-      { number: 2, title: 'untyped', url: 'u2', createdAt: 'c2', assignees: [], issueType: null },
+      { number: 1, title: 'typed', html_url: 'u1', created_at: 'c1', state: 'open', assignees: [], type: { name: 'Bug' } },
+      { number: 2, title: 'untyped', html_url: 'u2', created_at: 'c2', state: 'open', assignees: [], type: null },
     ]),
   });
   const res = spawnSync('bash', [adapter, 'issue-list'], {
@@ -2323,8 +2319,8 @@ test('host: issue-list github prints the issue type where there is one and no ty
 test('host: issue-list github prints the milestone as a one-element releases list, and [] where there is none', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { number: 1, title: 'planned', url: 'u1', createdAt: 'c1', assignees: [], milestone: { title: '2.32.0' } },
-      { number: 2, title: 'loose', url: 'u2', createdAt: 'c2', assignees: [], milestone: null },
+      { number: 1, title: 'planned', html_url: 'u1', created_at: 'c1', state: 'open', assignees: [], milestone: { title: '2.32.0' } },
+      { number: 2, title: 'loose', html_url: 'u2', created_at: 'c2', state: 'open', assignees: [], milestone: null },
     ]),
   });
   const res = spawnSync('bash', [adapter, 'issue-list'], {
@@ -7888,13 +7884,13 @@ test('host: GitHub issue-list, 250 rows sums spent to 3 (the sum, not three line
   // stub) answers any gh argv with the same JSON, which is what `gh issue
   // list` needs here — `makeStubsRateAware` only recognises `pr`/`api`.
   const stubs = makeStubs({
-    ghJson: JSON.stringify(Array.from({ length: 250 }, (_, i) => ({
-      number: 1000 - i, title: `Issue ${1000 - i}`, url: `https://example.test/issues/${1000 - i}`,
-      createdAt: '2026-10-27T00:00:00Z', assignees: [],
+    ghJson: JSON.stringify(Array.from({ length: 100 }, (_, i) => ({
+      number: 1000 - i, title: `Issue ${1000 - i}`, html_url: `https://example.test/issues/${1000 - i}`,
+      created_at: '2026-10-27T00:00:00Z', state: 'open', assignees: [],
     }))),
   });
-  run(['issue-list'], { env: { PLOT_HOST: 'github', ...budgetEnvFor(stubs) }, stubs });
-  assert.equal(spentSum(stubs, 'graphql'), 3,
+  run(['issue-list', '--limit', '250'], { env: { PLOT_HOST: 'github', ...budgetEnvFor(stubs) }, stubs });
+  assert.equal(spentSum(stubs, 'core'), 3,
     `record was:\n${JSON.stringify(recordOf(stubs), null, 2)}`);
 });
 
@@ -10312,29 +10308,29 @@ const runGh = (args, stub, extraEnv = {}) =>
 test('host: issue-list github --state closed searches by close date, asks no sort, and carries closedAt', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { number: 7, title: 'Done thing', url: 'u', createdAt: '2026-08-01T00:00:00Z', closedAt: '2026-09-02T10:00:00Z' },
+      { number: 7, title: 'Done thing', html_url: 'u', created_at: '2026-08-01T00:00:00Z', state: 'closed', closed_at: '2026-09-02T10:00:00Z', labels: [] },
+      { number: 8, title: 'Closed long ago', html_url: 'u', created_at: '2026-01-01T00:00:00Z', state: 'closed', closed_at: '2026-08-02T10:00:00Z', labels: [] },
+      { number: 9, title: 'A pull request', html_url: 'u', created_at: '2026-08-01T00:00:00Z', state: 'closed', closed_at: '2026-09-03T10:00:00Z', pull_request: {}, labels: [] },
     ]),
   });
   const res = runGh(['issue-list', '--state', 'closed', '--since', '2026-09-01T00:00:00Z'], stubs);
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(JSON.parse(res.stdout.trim()), {
     number: 7, title: 'Done thing', url: 'u', createdAt: '2026-08-01T00:00:00Z',
-    status: 'closed', statusCategory: 'Done', assignees: [], releases: [], closedAt: '2026-09-02T10:00:00Z',
+    status: 'closed', statusCategory: 'Done', assignees: [], releases: [], closedAt: '2026-09-02T10:00:00Z', labels: [],
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
-  assert.equal(argv[argv.indexOf('--state') + 1], 'closed');
-  // GitHub search ignores `sort:closed-desc` (measured 2026-10-13), so no sort
-  // qualifier is sent and the adapter sorts by `closedAt`.
-  assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z');
-  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,issueType,milestone,closedAt,labels');
+  // REST has no close-date filter: `since` bounds the update time, and the
+  // adapter keeps rows closed at or after the date, dropping pull requests.
+  assert.equal(argv[1], 'repos/{owner}/{repo}/issues?state=closed&since=2026-09-01T00:00:00Z&per_page=100&page=1');
 });
 
 test('host: issue-list github open rows carry no closedAt and ask for none', () => {
-  const stubs = makeStubs({ ghJson: JSON.stringify([{ number: 1, title: 't', url: 'u', createdAt: 'c' }]) });
+  const stubs = makeStubs({ ghJson: JSON.stringify([{ number: 1, title: 't', html_url: 'u', created_at: 'c', state: 'open', closed_at: null }]) });
   const res = runGh(['issue-list'], stubs);
   assert.equal(res.status, 0, res.stderr);
   assert.ok(!('closedAt' in JSON.parse(res.stdout.trim())));
-  assert.ok(!readFileSync(stubs.ghArgv, 'utf8').includes('--search'));
+  assert.ok(!readFileSync(stubs.ghArgv, 'utf8').includes('since='));
 });
 
 test('host: issue-list --state closed without --since, or with a bad one, is a usage error', () => {
@@ -10895,17 +10891,15 @@ test('host: issue-list jira --state closed --limit 500 is unaffected: closed for
   assert.equal(res.status, 0, res.stderr);
 });
 
-test('host: issue-list github closed records one extra call per 100 rows past the first', () => {
-  // Sums `spent`, not lines: `gh_record_pages` writes the extra pages as one
-  // line with `spent=extra`, not one line per extra page — the shape the
-  // loop this replaced used. The sum is what the brief's Done-when table
-  // pins, and what every other case in this file asserts.
-  const rows = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({
-    number: i + 1, title: 't', url: 'u', createdAt: 'c', closedAt: 'd',
+test('host: issue-list github closed records one REST call per page read', () => {
+  // The stub answers every page with the same 100 rows, so `--limit` decides
+  // how many pages the adapter reads: one per 100 rows asked for.
+  const rows = JSON.stringify(Array.from({ length: 100 }, (_, i) => ({
+    number: i + 1, title: 't', html_url: 'u', created_at: 'c', state: 'closed', closed_at: '2026-09-02T00:00:00Z', labels: [],
   })));
-  const spent = (n) => {
+  const spent = (limit) => {
     const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-budget-')));
-    const res = runGh(['issue-list', '--state', 'closed', '--since', '2026-09-01'], makeStubs({ ghJson: rows(n) }), {
+    const res = runGh(['issue-list', '--state', 'closed', '--since', '2026-09-01', '--limit', String(limit)], makeStubs({ ghJson: rows }), {
       PLOT_BUDGET_HOME: home,
     });
     assert.equal(res.status, 0, res.stderr);
