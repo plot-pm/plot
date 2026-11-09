@@ -368,6 +368,8 @@ function stubGh(body) {
   fs.chmodSync(path.join(dir, 'gh'), 0o755);
   return dir;
 }
+/** The `gh api repos/<slug> --include` answer for a repository whose default is `branch`. */
+const repoAnswer = (branch) => `printf 'HTTP/2 200\\r\\n\\n%s' '{"default_branch":"${branch}"}'`;
 /** Probe `cwd` with `stubDir` ahead of the real PATH. */
 function probeWith(cwd, stubDir) {
   return JSON.parse(execFileSync('bash', [detect], {
@@ -379,7 +381,7 @@ function probeWith(cwd, stubDir) {
 
 test('detect: reports the host default branch beside the local one when they agree', () => {
   const r = repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:acme/thing.git' });
-  const d = probeWith(r, stubGh(`printf '%s' main`));
+  const d = probeWith(r, stubGh(repoAnswer('main')));
   assert.equal(d.host_default_branch, 'main');
   assert.equal(d.host_default_branch_status, 'ok');
   assert.equal(d.default_branch, 'main', 'the local reading keeps its value');
@@ -391,7 +393,7 @@ test('detect: reports BOTH answers where the host and origin/HEAD disagree', () 
   // fixture is on) and the host says `develop`; both survive into the report,
   // because the proposal /plot-init makes has to name each of them.
   const r = repoWith({ 'a.txt': 'x' }, { remote: 'git@github.com:acme/thing.git' });
-  const d = probeWith(r, stubGh(`printf '%s' develop`));
+  const d = probeWith(r, stubGh(repoAnswer('develop')));
   assert.equal(d.host_default_branch, 'develop', "the host's answer is the host's");
   assert.equal(d.default_branch, 'main', 'and the local reading is NOT overwritten');
   assert.equal(d.host_default_branch_status, 'ok');
