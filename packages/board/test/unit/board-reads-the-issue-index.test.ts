@@ -178,4 +178,21 @@ describe('the board reads its inbox from the issue index under a fleet (Acceptan
     expect(entry.issueAnswer).toBe('unsupported');
     expect(entry.issueAbsence).toContain('`linear`');
   });
+
+  it('reads issues itself when the issue-reader loop is late', async () => {
+    const { dir, opts, issueListed } = await fixture();
+    await writeFleetdHeartbeat(dir, 0, { loops: { 'issue-reader': { lastPassAt: Date.now() - 700_000 } } });
+    await issueIndexFile({ cwd: dir }).write(indexOf(3));
+    await readUnderFleet(dir, opts);
+    expect(issueListed()).toBeGreaterThan(0);
+  });
+
+  it('still serves the index when only the scan loop is late', async () => {
+    const { dir, opts, issueListed } = await fixture();
+    await writeFleetdHeartbeat(dir, 0, { loops: { scan: { lastPassAt: Date.now() - 700_000 }, 'issue-reader': { lastPassAt: Date.now() - 5_000 } } });
+    await issueIndexFile({ cwd: dir }).write(indexOf(3));
+    const entry = await readUnderFleet(dir, opts);
+    expect(issueListed()).toBe(0);
+    expect(entry.issues.map((issue) => issue.number)).toEqual(['1', '3']);
+  });
 });

@@ -10,7 +10,7 @@ import {
   encodeFleetdHeartbeat,
   type FleetdHeartbeat,
 } from '../src/entities/fleetd-heartbeat.js';
-import { bridgeVouched, fleetdReadsPrs, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
+import { bridgeVouched, fleetdReadsIssues, fleetdReadsPrs, lateLoopNote, fleetdLiveness, lateLoops, observerFresh } from '../src/rules/fleetd-live.js';
 import { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from '../src/adapters/fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 const T0 = 1_700_000_000_000;
@@ -257,5 +257,27 @@ describe('lateLoopNote', () => {
     expect(lateLoopNote(['scan', 'tick'])).toBe(
       'the fleet is beating but its scan, tick loop has not completed a pass in time; the board scans in its place',
     );
+  });
+});
+
+describe('fleetdReadsIssues', () => {
+  it('needs a live heartbeat', () => {
+    expect(fleetdReadsIssues(null, T0)).toBe(false);
+    expect(fleetdReadsIssues(heartbeat({ beatAt: T0 - 31_000 }), T0)).toBe(false);
+    expect(fleetdReadsIssues(heartbeat(), T0)).toBe(true);
+  });
+
+  it('is refused by a late issue-reader loop', () => {
+    expect(fleetdReadsIssues(heartbeat({ loops: { 'issue-reader': { lastPassAt: T0 - 700_000 } } }), T0)).toBe(false);
+    expect(fleetdReadsIssues(heartbeat({ startedAt: T0 - 700_000, loops: { 'issue-reader': { lastPassAt: null } } }), T0)).toBe(false);
+  });
+
+  it('is not refused by a late scan, tick or pr-reader loop', () => {
+    const late = { lastPassAt: T0 - 700_000 };
+    expect(fleetdReadsIssues(heartbeat({ loops: { 'issue-reader': { lastPassAt: T0 - 5_000 }, scan: late, tick: late, 'pr-reader': late } }), T0)).toBe(true);
+  });
+
+  it('does not judge an issue-reader loop absent from the heartbeat', () => {
+    expect(fleetdReadsIssues(heartbeat({ loops: { scan: { lastPassAt: T0 - 700_000 } } }), T0)).toBe(true);
   });
 });
