@@ -39,7 +39,7 @@ export interface TokenReading {
 }
 
 /** What {@link workerLiveness} decides from. */
-export interface WorkerLivenessReadings {
+export interface LivenessReadings {
   /** The exit record's modification time, epoch milliseconds; `null` where no record exists. */
   readonly exitAtMs: number | null;
   /** The token read. */
@@ -68,7 +68,7 @@ export interface WorkerLivenessReadings {
 export type TokenLiveness = 'exited' | 'live' | 'stray-holder' | 'dead';
 
 /** The answer and what it rests on: the token, or the start-time path for a desk with none. */
-export type WorkerLiveness =
+export type LivenessAnswer =
   | { readonly basis: 'token'; readonly liveness: TokenLiveness; readonly exitCurrent: boolean }
   | { readonly basis: 'start-time' };
 
@@ -85,7 +85,7 @@ export type WorkerLiveness =
  * @param readings - the exit record's time, the token read, the pid's answer and the bound.
  * @returns the liveness and its basis.
  */
-export const workerLiveness = (readings: WorkerLivenessReadings): WorkerLiveness => {
+export const workerLiveness = (readings: LivenessReadings): LivenessAnswer => {
   const { token } = readings;
   if (token.state === 'none' || token.madeAtMs === null) return { basis: 'start-time' };
   const exitCurrent = readings.exitAtMs !== null && readings.exitAtMs >= token.madeAtMs;

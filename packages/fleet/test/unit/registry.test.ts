@@ -1090,11 +1090,13 @@ describe('liveness through the desk reader — real processes, real files', () =
 });
 
 describe('the registry keeps its contract when a reader fails', () => {
+  // A DESK THAT NEEDS THE TABLE: a live pid with a recorded start. A desk the
+  // start-time path can answer without it (a dead pid, or none) reads no table.
   it('reads every entry unknown and logs the reason when the process table cannot be read', async () => {
     const wt = path.join(root, 'wt-table');
     fs.mkdirSync(wt);
-    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), '999994');
-    manifest('a.json', { session: 'table', pid: '999994', worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
+    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(process.pid));
+    manifest('a.json', { session: 'table', pid: String(process.pid), worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
     const lines: string[] = [];
     const failingPs = async (command: string) =>
       command === 'ps' ? { code: 1, stdout: '', stderr: 'ps: refused' } : { code: 0, stdout: '', stderr: '' };
@@ -1110,7 +1112,7 @@ describe('the registry keeps its contract when a reader fails', () => {
     const lines: string[] = [];
     const wt = path.join(root, 'wt-log');
     fs.mkdirSync(wt);
-    manifest('a.json', { session: 'log', worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
+    manifest('a.json', { session: 'log', pid: String(process.pid), worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
     const [e] = await readAgentRegistry(root, home, {
       liveness: deskLiveness(root, SCRIPTS_DIR, path.join(root, AGENT_MANIFEST_DIR), (l) => lines.push(l), async () => ({ code: 2, stdout: '', stderr: '' })),
     });

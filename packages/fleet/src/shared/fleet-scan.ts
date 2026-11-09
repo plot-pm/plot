@@ -886,7 +886,9 @@ export const walkOnce = async (
     if (!listed) record('desks', failedOf(`the desk stage did not run: the ${!estate.ok ? 'estate' : 'branches'} stage failed`));
     if (desks.ok) {
       record('deskFiles', readOf(Object.fromEntries(desks.value.desks.map((each) => [each.worktree, each.desk]))));
-      record('workers', readOf(Object.fromEntries(desks.value.desks.map((each) => [each.worktree, each.process]))));
+      // THE SNAPSHOT CARRIES NO LIVENESS BASIS: `DeskProcessReadingSchema` is
+      // protocol 3, and adding `basis` raises `SNAPSHOT_PROTOCOL`.
+      record('workers', readOf(Object.fromEntries(desks.value.desks.map(({ worktree, process: { basis: _basis, ...reading } }) => [worktree, reading]))));
     } else {
       const why = `the desk stage did not answer: the ${!estate.ok ? 'estate' : !branches.ok ? 'branches' : 'desks'} stage failed`;
       record('deskFiles', failedOf(why));

@@ -4,7 +4,7 @@ import {
   withLivenessBasis,
   workerLiveness,
   type TokenReading,
-  type WorkerLivenessReadings,
+  type LivenessReadings,
 } from '../src/rules/worker-liveness.js';
 
 const MADE = 1_000_000;
@@ -12,7 +12,7 @@ const BOUND = 28_800_000;
 const held: TokenReading = { state: 'held', madeAtMs: MADE };
 const released: TokenReading = { state: 'released', madeAtMs: MADE };
 
-const desk = (over: Partial<WorkerLivenessReadings> = {}): WorkerLivenessReadings => ({
+const desk = (over: Partial<LivenessReadings> = {}): LivenessReadings => ({
   exitAtMs: null,
   token: held,
   pidAnswers: true,

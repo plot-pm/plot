@@ -28,7 +28,7 @@ import {
   RELEASED_WITH_NO_EXIT,
   workerLiveness,
   type TokenReading,
-  type WorkerLiveness,
+  type LivenessAnswer,
 } from '../../rules/worker-liveness.js';
 
 /** What {@link readWorkerReadings} reads beside the files: the process questions and the desk's work. */
@@ -270,7 +270,7 @@ export const readWorkerReadings = async (
   const rows = async (): Promise<readonly ProcessRow[]> => (typeof table === 'function' ? table() : table);
 
   const token = io.token?.(worktree) ?? { state: 'none', madeAtMs: null };
-  let answer: WorkerLiveness = { basis: 'start-time' };
+  let answer: LivenessAnswer = { basis: 'start-time' };
   let liveness: PidLiveness = 'dead';
   if (pidRecorded && token.state !== 'none') {
     const startedMs = Date.parse(startedAt);
