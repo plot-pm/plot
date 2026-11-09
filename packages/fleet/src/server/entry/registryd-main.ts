@@ -64,7 +64,7 @@ import { tempSweepDue } from '@plot-pm/domain/rules/temp-sweep';
 import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
-import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
+import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
 import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
 import { answered, failed } from '@plot-pm/domain';
 import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../shared/fleetd-heartbeat.js';
@@ -900,24 +900,27 @@ export const queueWorldForRepo = (
       // 3-request budget `PR_REQUESTS_PER_REFRESH.bitbucket` already assumes.
       const backend = await host.backend();
       const limit = backend.ok && backend.value === 'bitbucket' ? 50 : 500;
+      /** The heads of the listed rows the host reports as `MERGED`. */
+      const mergedHeads = (rows: readonly PrListingRow[]): string[] =>
+        rows.flatMap((row) => (row.state === 'MERGED' && typeof row.head === 'string' ? [row.head] : []));
       const full = async (): Promise<MergedListing> => {
         tally.calls += 1;
-        const answer = await host.prList('merged', limit);
+        const answer = await host.prListing({ state: 'merged', limit });
         // A FAILED LISTING NAMES ITS OWN REFUSAL. `whole: false` says the set is
         // incomplete and cannot say why; the tick line prints the kind, so an
         // operator reads `unaskable(throttled)` rather than inferring a rate
         // limit from a count of held slices (#1094).
-        if (!answer.ok)
+        if (answer.answer === 'failed' || answer.answer === 'unaskable')
           return {
             merged: new Set<string>(),
             whole: false,
-            kind: host.lastRefusal()?.kind ?? 'failed',
+            kind: answer.refusal?.kind ?? 'failed',
             failed: true,
           };
-        // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prList` answers
-        // the rows that arrived and leaves a refusal behind, so a branch
-        // missing from them may still have merged.
-        const refusal = host.lastRefusal();
+        // A PARTIAL ANSWER KEEPS ITS ROWS AND IS NOT WHOLE. `prListing` answers
+        // the rows that arrived beside its refusal, so a branch missing from
+        // them may still have merged.
+        const refusal = answer.refusal;
         const whole = refusal === null;
         // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
         // The repo's rule is that `mergedAt` decides *did this land* — a merged
@@ -927,7 +930,7 @@ export const queueWorldForRepo = (
         // so filtering on it would reject every row. Ask `prMerged` for a single
         // branch; this is the bundle.
         return {
-          merged: new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head)),
+          merged: new Set(mergedHeads(answer.rows)),
           whole,
           kind: refusal?.kind ?? null,
           failed: false,
@@ -944,14 +947,13 @@ export const queueWorldForRepo = (
       const window = mergedSetWindowFor(store);
       if (window.kind === 'full') return full();
       tally.calls += 1;
-      const answer = await host.prList('merged', limit, window.since);
-      const refusal = host.lastRefusal();
+      const answer = await host.prListing({ state: 'merged', limit, since: window.since });
       // ANY DELTA TROUBLE FALLS THROUGH TO THE FULL CALL IN THE SAME TICK.
       // A failed call, a left-behind refusal, or exactly `limit` rows (the
       // page may have been truncated) are each a reason not to trust this
       // answer — none of them are unioned with the stored rows.
-      if (!answer.ok || refusal !== null || answer.value.length === limit) return full();
-      const deltaHeads = answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head);
+      if (answer.answer !== 'answered' || answer.rows.length === limit) return full();
+      const deltaHeads = mergedHeads(answer.rows);
       const merged = new Set([...deltaHeads, ...indexMergedHeads(store?.rows ?? [])]);
       return { merged, whole: true, kind: 'delta', failed: false };
     },

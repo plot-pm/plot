@@ -17,6 +17,7 @@ import {
   reactionTo,
   refreshIntervalMs,
   refusalKind,
+  refusalKindOf,
   reviewReaskPrNumbers,
   slotVerdict,
   waitExhausted,
@@ -28,7 +29,7 @@ import {
   type Reaction,
 } from '@plot-pm/domain';
 import { prIndexFile, slotsFile } from '@plot-pm/domain/adapters';
-import type { Host } from '@plot-pm/domain/ports/host';
+import type { Host, HostRefusal, PrListingQuery } from '@plot-pm/domain/ports/host';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
@@ -482,6 +483,8 @@ export const rateLimitBackoffMs = (
  * @param resetAt - when the record says this account's bucket refills, epoch
  *   milliseconds; null where no live reading carries one.
  * @param now - epoch milliseconds.
+ * @param refusal - the connector's typed refusal, or null where the failure
+ *   carries only words.
  * @returns the reaction, or null where the failure was not a limit at all and
  *   the ordinary cadence should simply continue.
  */
@@ -489,16 +492,22 @@ export const hostReaction = (
   message: string,
   resetAt: number | null,
   now = Date.now(),
+  refusal: Pick<HostRefusal, 'kind' | 'waitMs'> | null = null,
 ): Reaction | null => {
-  const kind = refusalKind(message);
+  // THE CONNECTOR'S KIND DECIDES WHERE IT NAMED ONE; a `failed` refusal and a
+  // thrown error with no refusal are classified by their words, as before.
+  const kind = refusal === null ? refusalKind(message) : refusalKindOf(refusal.kind, message);
   if (kind === null) return null;
   // The connector's own words first: a named wait and an absolute stamp are
   // both durations the host stated, and `rateLimitBackoffMs` is where this repo
   // already reads them. Its bare-message ceiling is NOT wanted here — that is
   // the guess `reactionTo` replaces with the record's reset — so the ceiling is
-  // recognised by value and dropped.
+  // recognised by value and dropped. A wait the connector named outside its
+  // words outranks both.
   const said = rateLimitBackoffMs(message, now);
-  const named = typeof said === 'number' && said !== PR_BACKOFF_MAX_MS ? said : null;
+  const named = refusal?.waitMs !== undefined && refusal.waitMs > 0
+    ? refusal.waitMs
+    : typeof said === 'number' && said !== PR_BACKOFF_MAX_MS ? said : null;
   const reaction = reactionTo(kind, resetAt, now, named);
   if (reaction === null) return null;
   // A QUOTA THE HOST NAMED A WAIT FOR HONOURS THAT WAIT. `reactionTo` reads the
@@ -1399,6 +1408,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   const window = prWindowFor(
     stored, Date.now(), PR_FULL_READ_MS, failedFullRead, PR_FULL_READ_GRACE_MS,
   );
+  // THE CONNECTOR'S REFUSAL, carried past the throw so the catch reacts to its
+  // kind and wait rather than to its words alone.
+  let refused: HostRefusal | null = null;
   try {
     // BOUNDED HERE, WHERE THE CALL IS. The gate wraps the host request and
     // nothing else — reading the record, parsing the answer and scheduling the
@@ -1423,9 +1435,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // STILL ONE `pr-list` CALL PER REFRESH, so `PR_REQUESTS_PER_REFRESH` needs
     // no new arithmetic — the adapter makes two host calls inside the one
     // question, and the budget counts questions.
-    const args = ['pr-list', window.since === null ? '--rich-open' : '--rich',
-      '--state', 'all', '--limit', String(PR_LIMIT)];
-    if (window.since !== null) args.push('--since', window.since);
+    const query: PrListingQuery = window.since === null
+      ? { state: 'all', limit: PR_LIMIT, richOpen: true }
+      : { state: 'all', limit: PR_LIMIT, rich: true, since: window.since };
     // ROTATION'S READ-ONLY INPUT (`bitbucket-jenkins-a-pr-list-row`): each
     // open branch's stored `checksSha`, so a Jenkins-backed `pr-list` spends
     // this pass's capped lookups on branches the store does NOT yet confirm
@@ -1437,8 +1449,8 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // gave. A row holding a CARRIED colour is left out (`boundShasFor`), so the
     // rotation reads it again rather than ranking it with the rows read.
     const boundShas = boundShasFor(stored);
-    if (Object.keys(boundShas).length > 0) args.push('--bound-shas', JSON.stringify(boundShas));
-    const said = await withHostSlot(entry, () => scripts.hostSaid(args));
+    if (Object.keys(boundShas).length > 0) query.boundShas = boundShas;
+    const said = await withHostSlot(entry, () => host.prListing(query));
     // A refusal is thrown so the catch below keeps owning the backoff. It is one
     // policy — keep the last good map, wait where the host named a wait — and
     // the two paths that reach it (a refused call, and a map that came back all
@@ -1454,9 +1466,11 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // IT IS STILL SAID. The rows are used AND the sentence naming the missing
     // states is kept, because a short list reported as whole is the quiet wrong
     // answer this path refuses everywhere else.
-    if (said.answer !== 'answered' && said.answer !== 'partial') throw new Error(said.said);
-    const out = said.stdout;
-    const partialSaid = said.answer === 'partial' ? said.said : null;
+    if (said.answer !== 'answered' && said.answer !== 'partial') {
+      refused = said.refusal;
+      throw new Error(said.refusal?.said ?? 'pr-list failed and said nothing');
+    }
+    const partialSaid = said.answer === 'partial' ? said.refusal?.said ?? 'a host state did not answer' : null;
     const map = new Map<string, PrRecord>();
     const byNumber = new Map<number, PrRecord>();
     const byHead = new Map<string, PrRecord>();
@@ -1466,9 +1480,8 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // a branch's several PRs into its newest, which is the `--limit 1` defect
     // `plot-pr-merged.sh` measured.
     const rows: PrIndexRow[] = [];
-    for (const line of out.split('\n')) {
-      if (!line.trim()) continue;
-      const pr = JSON.parse(line) as PrRecord;
+    for (const listed of said.rows) {
+      const pr = { ...listed } as unknown as PrRecord;
       // `url` is new to --rich. An older shipped adapter omits it, so it is
       // normalized to "" here rather than left undefined — one absent-value
       // shape for every consumer to check.
@@ -1560,10 +1573,10 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
           // THE LOOKUPS GO TO THE ASKED ROWS: every other open row ranks as
           // bound, and an asked row holding a carried colour ranks first, so a
           // carried `pending` is read again rather than carried on every re-ask.
-          const reaskArgs = ['pr-list', '--rich', '--state', 'open'];
+          const reaskQuery: PrListingQuery = { state: 'open', rich: true };
           const reaskBound = boundShasFor(stored, new Set(askable));
-          if (Object.keys(reaskBound).length > 0) reaskArgs.push('--bound-shas', JSON.stringify(reaskBound));
-          const reasked = await withHostSlot(entry, () => scripts.hostSaid(reaskArgs));
+          if (Object.keys(reaskBound).length > 0) reaskQuery.boundShas = reaskBound;
+          const reasked = await withHostSlot(entry, () => host.prListing(reaskQuery));
           // A REFUSAL OR A PARTIAL ANSWER IS TREATED AS NO ANSWER HERE, not as
           // the outer catch's failure. The primary call already answered this
           // pass; a re-ask that cannot be trusted simply leaves the stored
@@ -1571,9 +1584,8 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
           // not see" rule carries them forward unchanged.
           if (reasked.answer === 'answered') {
             const stillPending = new Set(askable);
-            for (const line of reasked.stdout.split('\n')) {
-              if (!line.trim()) continue;
-              const pr = JSON.parse(line) as PrRecord;
+            for (const listed of reasked.rows) {
+              const pr = { ...listed } as unknown as PrRecord;
               if (!stillPending.has(pr.number)) continue;
               if (typeof pr.url !== 'string') pr.url = '';
               if (typeof pr.mergeable !== 'string' || !pr.mergeable) pr.mergeable = 'unknown';
@@ -1687,7 +1699,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // partial answer is not a refusal (the rows it carries are kept and
       // served), but a throttled state behind it is still a throttled state.
       const partialFullReadReaction = partialFullRead
-        ? hostReaction(partialSaid, rate?.resetAt ?? null)
+        ? hostReaction(partialSaid, rate?.resetAt ?? null, Date.now(), said.refusal)
         : null;
       // THE SERVED MAPS COME FROM THE FOLD, NOT FROM THIS PASS'S ROWS. A
       // delta's window returns the rows that changed — 3 on a quiet estate —
@@ -1798,7 +1810,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // THE RESET COMES FROM THE RECORD. `gh api rate_limit` was measured
     // 2026-09-01 reporting 5000 while the response headers read 0, so the free
     // endpoint is the wrong authority; the record holds what the headers said.
-    const reaction = hostReaction(message, rate?.resetAt ?? null);
+    const reaction = hostReaction(message, rate?.resetAt ?? null, Date.now(), refused);
     // A SECONDARY LIMIT LOWERS CONCURRENCY AND NEVER FREQUENCY. The interval is
     // untouched by every branch here — see `scheduleNextPr`, which stamps
     // `prIntervalMs` from the ordinary cadence whatever the wait.

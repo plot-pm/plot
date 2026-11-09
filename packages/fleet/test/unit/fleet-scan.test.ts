@@ -25,6 +25,7 @@ import {
   withinBudget,
 } from '../../src/shared/fleet-scan.js';
 import { emptyWalk, withWalkRefs } from './walk-fake.js';
+import { saidListingWorld } from './listing-over-said.js';
 import { removeTree } from '../rm-tree.mjs';
 
 const READING: FleetReading = {
@@ -48,7 +49,7 @@ const refsFake = {
 } as unknown as Refs;
 const refsFakeW = withWalkRefs(refsFake as unknown as Partial<Refs>);
 
-const worldWith = (stream: Scripts['stream']): ScanWorld => ({
+const worldWith = (stream: Scripts['stream']): ScanWorld => saidListingWorld({
   repoRoot: '/repo',
   scripts: {
     stream,
@@ -59,7 +60,7 @@ const worldWith = (stream: Scripts['stream']): ScanWorld => ({
   refs: refsFakeW,
   backend: async () => 'github',
   walk: emptyWalk(),
-});
+} as ScanWorld);
 
 const OPTIONS: ScanOptions = { record: false };
 
@@ -198,7 +199,7 @@ describe('scanOnce reads the GitHub listing through plot-host.sh and records it'
       args[0] === 'spend-rate'
         ? { answer: 'unaskable', said: 'no rate in this sandbox' }
         : real.hostSaid(args, { ...options, env: { ...options?.env, ...env } });
-    return { ...worldWith(stream), scripts: { ...worldWith(stream).scripts, hostSaid } as unknown as Scripts };
+    return saidListingWorld({ ...worldWith(stream), scripts: { ...worldWith(stream).scripts, hostSaid } as unknown as Scripts });
   };
 
   /** A scan that records the env it was handed and streams no `listing:` lines, as a carried listing makes it. */
