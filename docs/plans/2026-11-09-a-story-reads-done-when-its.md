@@ -40,14 +40,14 @@ Measured 2026-11-09 on the board, three stories read Done and the Active lane wa
 
 ### Open Questions
 
-- [ ] Does `STANDING_RANK` in `story.ts` still need the `done` and `archived` ranks once `derivedStanding` stops producing them?
-- [ ] Does any other reader of `derivedStanding` (`board.ts`, `entry/standing.ts`) depend on the `done` answer?
+- [x] Does `STANDING_RANK` in `story.ts` still need the `done` and `archived` ranks once `derivedStanding` stops producing them? → Yes. `derivedStanding` keeps producing them (see the next answer), and `statusBehind` and `statusDrift` still rank them.
+- [x] Does any other reader of `derivedStanding` (`board.ts`, `entry/standing.ts`) depend on the `done` answer? → Yes, three readers. `story-card-facts.ts:102` feeds the "status behind" hint through `statusBehind`; `entry/standing.ts:82` reports drift to the shell through `statusDrift`; `board.ts:2189` places the lane. The first two need `done` and `archived` as *what the plans prove*. So `derivedStanding` keeps its answers, and only the lane changes: a new domain rule `laneStanding(declared, derived)` answers `derived` capped at `active`, unless `declared` is `done` or `archived`, which it keeps. `board.ts:2189` calls `laneStanding` for the lane.
 
 ## Slices
 
 ### Lane and progress
 
-- `bug/a-story-reads-done-when-its` — derivedStanding stops answering done and archived, the progress denominator takes the plan table's slugs, and the status-behind hint changes its wording
+- `bug/a-story-reads-done-when-its` — a new domain rule `laneStanding(declared, derived)` caps the lane at Active unless the story declares `done` or `archived`, and `board.ts` places the lane with it; `derivedStanding`, `statusBehind` and `statusDrift` keep their answers; the progress denominator takes the union of the story's plan-table slugs and the plan files that name the story; the status-behind hint for `done`/`archived` reads as a hint ("all plans so far delivered"), not as a proven state
 
 ## Notes
 
