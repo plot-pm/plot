@@ -1,13 +1,8 @@
-// The launch stamp: one contract, two implementations.
+// The launch stamp: one implementation.
 //
-// A worker's pid is stamped into its manifest by whichever path launched it —
-// the dispatcher's detached `sh -c` (inline `awk`, because a fresh shell cannot
-// reach a bash function) or `/api/continue` (this TypeScript helper). The two
-// MUST produce a byte-identical manifest for the same inputs, or the board reads
-// one shape from a dispatched worker and another from a continued one. That is
-// the `plot-worker-state.sh` lesson: five of six states drifted while the same
-// computation was held in two copies. The cross-implementation identity is
-// asserted in `manifest-stamp-parity.test.ts`; this file pins the TS side.
+// A worker's pid is stamped into its manifest by `stampManifest`, whichever
+// path launched it: the dispatcher through `plot-worker-wrapper.mjs`, or
+// `/api/continue`. This file pins that function.
 //
 // THE DEFECT THIS FIXES: the old stamp fired once per manifest, matching only
 // the empty placeholder `  "pid": "",`. A relaunch found a filled pid, matched

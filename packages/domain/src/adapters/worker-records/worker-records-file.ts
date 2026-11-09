@@ -66,7 +66,11 @@ export const workerRecordsFile = (files: LaunchRecordFiles): LaunchRecords => ({
 });
 
 /**
- * Starts the agent as `sh -c <command>`, attached and with inherited stdio.
+ * Starts the agent as `bash -c <command>`, attached and with inherited stdio.
+ *
+ * `bash` and not `sh`: bash replaces itself with the command's last simple
+ * command, so `.plot-worker.pid` names the command's own process, as the
+ * `( $cmd )` subshell of the `sh` wrapper did. Ubuntu's `dash -c` forks it.
  *
  * `ended` resolves with the exit code, or with the signal's number where a
  * signal ended the agent.
@@ -75,7 +79,7 @@ export const workerRecordsFile = (files: LaunchRecordFiles): LaunchRecords => ({
  */
 export const agentStartShell = (): AgentStart => ({
   start: (command, env): StartedAgent | null => {
-    const child = spawn('sh', ['-c', command], { stdio: 'inherit', env });
+    const child = spawn('bash', ['-c', command], { stdio: 'inherit', env });
     if (child.pid === undefined) return null;
     const ended = new Promise<AgentEndReading>((resolve) => {
       child.once('exit', (code, signal) => {

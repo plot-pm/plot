@@ -24,6 +24,7 @@ import {
   deskLoopArtifact,
   prReaderArtifact,
   workerWrapperArtifact,
+  workerStartArtifact,
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -404,6 +405,12 @@ const shippedWorkerWrapper = path.join(here, '../../skills/plot/scripts/board/pl
 
 fs.copyFileSync(workerWrapperArtifact, shippedWorkerWrapper);
 fs.chmodSync(shippedWorkerWrapper, 0o755);
+
+// The detached start of that wrapper, which `start_worker` calls once per launch.
+const shippedWorkerStart = path.join(here, '../../skills/plot/scripts/board/plot-worker-start.mjs');
+
+fs.copyFileSync(workerStartArtifact, shippedWorkerStart);
+fs.chmodSync(shippedWorkerStart, 0o755);
 
 // The task state, reachable from the classifier that answers it.
 //

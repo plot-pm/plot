@@ -1,7 +1,7 @@
 // The worker wrapper: `plot-worker-wrapper.mjs`, one process per agent launch.
 //
-// It starts the `Worker command` as `sh -c`, outlives it, and leaves the records
-// `start_worker`'s inline `sh -c` wrapper leaves: `.plot-worker.wrapper.pid`,
+// It starts the `Worker command` as `bash -c`, outlives it, and leaves the records
+// `start_worker`'s inline `sh -c` wrapper left: `.plot-worker.wrapper.pid`,
 // `.plot-worker.pid`, `.plot-worker.pid.startedAt`, the manifest stamp, one
 // WorkerMonitor line, and `.plot-worker.exit`. It reads the environment that
 // `start_worker` exports and takes the command as its one argument.
@@ -140,7 +140,7 @@ export const runWorkerWrapper = async (input: WrapperInput, deps: WrapperDeps): 
 };
 
 /**
- * The production ports: the desk files `start_worker` names, an `sh -c` agent
+ * The production ports: the desk files `start_worker` names, a `bash -c` agent
  * start, the AgentMonitor through `deskMonitorsShell`, and the manifest stamp.
  *
  * @param env - the process environment.
