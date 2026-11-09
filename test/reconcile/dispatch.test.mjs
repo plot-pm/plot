@@ -4989,6 +4989,9 @@ function pluginInstall(label) {
   const scripts = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.dirname(scripts), { recursive: true });
   fs.cpSync(scriptsDir, scripts, { recursive: true });
+  // A plugin install ships Plot's `.nvmrc` at its root, and `plot-worker-start.mjs`
+  // refuses a launch without the pin it names.
+  fs.copyFileSync(path.join(scriptsDir, '..', '..', '..', '.nvmrc'), path.join(root, '.nvmrc'));
   return { root, scripts };
 }
 
