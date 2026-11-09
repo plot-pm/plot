@@ -30,6 +30,7 @@
 // So the stub is not a shortcut here; it is the only way to exercise the
 // branch. It is a real executable on PATH, not a shell function, because
 // `pr_merged` gates on `command -v gh` before calling it.
+import { restPullsStubSource } from './rest-pulls-shim.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -90,8 +91,9 @@ function stubGh(tmp, prs) {
   const gh = path.join(bin, 'gh');
   fs.writeFileSync(gh, `#!/usr/bin/env node
 const argv = process.argv.slice(2);
-if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const table = ${JSON.stringify(prs)};
+${restPullsStubSource('(h) => table[h] || []')}
+if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const head = argv[argv.indexOf('--head') + 1];
 const li = argv.indexOf('--limit');
 const limit = li === -1 ? 30 : Number(argv[li + 1]);

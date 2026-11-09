@@ -8,6 +8,7 @@
 // A failing shell reading is made by COPYING the shipped scripts directory and
 // overriding one function at the end of the copy. The checkout's own scripts
 // are never edited or linked.
+import { restPullsStubSource } from './rest-pulls-shim.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -60,8 +61,14 @@ if (argv[0] === 'repo' && argv[1] === 'view' && ${JSON.stringify(defaultBranch)}
   process.stdout.write(${JSON.stringify(defaultBranch)} + '\\n');
   process.exit(0);
 }
-if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const table = ${JSON.stringify(prs)};
+if (argv[0] === 'api' && !/\\/pulls\\?/.test(argv[1] || '')) {
+  if (${JSON.stringify(defaultBranch)} === '') { process.exit(1); }
+  process.stdout.write('HTTP/2 200\\r\\n\\n' + JSON.stringify({ default_branch: ${JSON.stringify(defaultBranch)} }));
+  process.exit(0);
+}
+${restPullsStubSource('(h) => table[h] || []')}
+if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const head = argv[argv.indexOf('--head') + 1];
 const state = argv[argv.indexOf('--state') + 1];
 let all = table[head] || [];

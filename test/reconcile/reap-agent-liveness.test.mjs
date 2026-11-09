@@ -22,6 +22,7 @@
 //
 // `PLOT_AGENT_PROCESS=sleep` names the agent, as in `workerstate.test.mjs`, and
 // `PLOT_AGENT_GRACE_SECONDS=0` makes a milliseconds-old wrapper askable.
+import { restPullsStubSource } from './rest-pulls-shim.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
@@ -118,10 +119,20 @@ const stubGh = (tmp, prs, { failHeads = false, log = '' } = {}) => {
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
 const argv = process.argv.slice(2);
 if (${JSON.stringify(log)}) { require('node:fs').appendFileSync(${JSON.stringify(log)}, argv.join(' ') + '\\n'); }
-if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
-const json = argv[argv.indexOf('--json') + 1] || '';
-if (${failHeads} && json.includes('headRefOid')) { process.exit(1); }
 const table = ${JSON.stringify(prs)};
+// The merged answer and the merged-heads answer are one REST read now: with
+// failHeads the first pulls read of each pass answers and every later one fails.
+// The default-branch read opens a pass.
+if (${failHeads} && argv[0] === 'api') {
+  const fs = require('node:fs');
+  const counter = ${JSON.stringify(path.join(tmp, 'api-calls'))};
+  const pulls = /\\/pulls\\?/.test(argv[1]);
+  const n = pulls ? (fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0) + 1 : 0;
+  fs.writeFileSync(counter, String(n));
+  if (n > 1) { process.exit(1); }
+}
+${restPullsStubSource('(h) => table[h] || []')}
+if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const head = argv[argv.indexOf('--head') + 1];
 const state = argv[argv.indexOf('--state') + 1];
 let all = table[head] || [];
@@ -399,7 +410,7 @@ test('the patch-id reading asks the host nothing the merged-head reading does no
     const log = path.join(tmp, `gh-${branch.replace(/\//g, '-')}.log`);
     const bin = stubGh(tmp, prs, { log });
     runReap(repo, bin, '--dry-run');
-    return fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.includes(`--head ${branch}`)).length;
+    return fs.readFileSync(log, 'utf8').split('\n').filter((l) => (l.includes(`--head ${branch}`) || l.includes(`:${branch}&`))).length;
   };
   const cherryCalls = count(viaCherry, { ...squashed(viaCherry), ...merged(viaHead, held.head) });
   const headCalls = count(viaHead, { ...squashed(viaCherry), ...merged(viaHead, held.head) });
