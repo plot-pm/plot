@@ -126,6 +126,29 @@ test('plot_pid_is_current: with no per-pid start, a startedAt 60s before the chi
     'a startedAt that predates a slow-starting worker must still read current');
 }));
 
+test('plot_pid_is_current: a startedAt that is not the dispatcher\'s ISO stamp reads stale, whatever `date` makes of it', () => withChild((child) => {
+  // A `date` that reads `yesterday` and any other free text as epoch 0, as
+  // GNU `date -d` does for the words it knows, and runs the real `date`
+  // otherwise. Without the ISO guard every stamp below reads current.
+  const bin = tmpDir('plot-pid-date-');
+  const realDate = execFileSync('bash', ['-c', 'command -v date'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(bin, 'date'), [
+    '#!/usr/bin/env bash',
+    'for a in "$@"; do case "$a" in yesterday|"2026-11-09 08:42:51"|"last week") echo 0; exit 0 ;; esac; done',
+    `exec ${JSON.stringify(realDate)} "$@"`,
+  ].join('\n'));
+  fs.chmodSync(path.join(bin, 'date'), 0o755);
+  const script = (startedAt) => `PATH=${JSON.stringify(bin)}:$PATH; source ${JSON.stringify(shared)}; plot_pid_is_current ${child.pid} ${JSON.stringify(startedAt)} ''; echo $?`;
+  for (const startedAt of ['yesterday', '2026-11-09 08:42:51', 'last week']) {
+    const code = Number(execFileSync('bash', ['-c', script(startedAt)], { encoding: 'utf8', timeout: 30_000 }).trim());
+    assert.equal(code, 1, `startedAt ${JSON.stringify(startedAt)} must read stale`);
+  }
+  // The guard leaves the dispatcher's own stamp to `date`, as before.
+  const iso = isoShifted(child.pid, -60);
+  assert.equal(Number(execFileSync('bash', ['-c', script(iso)], { encoding: 'utf8', timeout: 30_000 }).trim()), 0,
+    'an ISO stamp 60 s before the child still reads current');
+}));
+
 test('plot_pid_is_current: a dead pid reads stale, with or without a recorded start', () => {
   assert.equal(isCurrent(DEAD, '', ''), 1, 'a dead pid with nothing recorded reads stale');
   assert.equal(isCurrent(DEAD, '2026-01-01T00:00:00Z', 'Mon Jan  1 00:00:00 2026'), 1,
