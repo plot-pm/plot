@@ -1678,6 +1678,14 @@ jobs:
       - name: One place talks to the host
         run: ./scripts/check-host-cli-callers.sh
 
+      # The in-process GitHub client in `packages/domain/src/adapters/host/`
+      # is the one place that opens an HTTPS connection to a git host; it
+      # charges the shared ledger and takes a host slot. This refuses
+      # `node:https`, `undici`, `api.github.com`, `GITHUB_API_URL` and a global
+      # `fetch(` anywhere else in `packages/*/src` and the shipped scripts.
+      - name: One place reaches the host over HTTPS
+        run: ./scripts/check-host-https-callers.sh
+
       # SHIPPED SHELL MUST RUN ON BASH 3.2, THE VERSION MACOS SHIPS. PR #2659
       # added `${1^^}` to `bb_query_state` in `plot-host.sh`; every job here
       # runs `ubuntu-latest` with bash 5, and `bash -n` passed on the broken
