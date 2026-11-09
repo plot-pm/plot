@@ -50,7 +50,7 @@ Source: review of PR #3292 (`feature/state-branch-sync`), MEDIUM 1, on head 3a01
 
 ### Count rule
 
-- `bug/the-state-branch-ahead-count-grows` — one ahead-count rule in `packages/domain`, read by the lag line, the sync PR body, `syncPrDecision` and `recordsAhead`. Tests: a state branch squash-merged into the default branch and given two new commits reports 2 ahead; a state branch whose tip tree equals the default tree reports 0; a state branch with no tree-equal commit reports the merge-base count. <!-- builds: aheadSinceTreeEqual, the one ahead-count rule for the state branch -->
+- `bug/the-state-branch-ahead-count-grows` — one ahead-count rule in `packages/domain`, read by the lag line, the sync PR body, `syncPrDecision` and `recordsAhead`. Tests: a state branch squash-merged into the default branch and given two new commits reports 2 ahead; a state branch whose tip tree equals the default tree reports 0; a state branch with no tree-equal commit reports the merge-base count. <!-- builds: aheadSinceTreeEqual, the one ahead-count rule for the state branch --> → #3333
 
 ## Notes
 
