@@ -11,7 +11,7 @@ const cellsOf = (line: string): string[] => line.trim().replace(/^\|/, '').repla
 const slugOfCell = (cell: string): string | null => {
   const link = /^\[[^\]]*\]\(([^)\s]+)\)$/.exec(cell);
   const raw = link !== null
-    ? (link[1].split('#')[0].split('/').pop() ?? '').replace(/\.md$/, '').replace(DATE_PREFIX, '')
+    ? link[1].replace(/^.*\//, '').replace(/\.md$/, '').replace(DATE_PREFIX, '')
     : cell.replace(/^`|`$/g, '');
   return SLUG.test(raw) ? raw : null;
 };
@@ -47,7 +47,7 @@ export const storyPlanTableSlugs = (text: string): string[] => {
     rowInTable += 1;
     // Row 1 is the header and row 2 the separator.
     if (rowInTable <= 2) continue;
-    const slug = slugOfCell(cellsOf(line)[0] ?? '');
+    const slug = slugOfCell(cellsOf(line)[0]);
     if (slug !== null && !slugs.includes(slug)) slugs.push(slug);
   }
   return slugs;

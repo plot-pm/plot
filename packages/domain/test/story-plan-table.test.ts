@@ -47,4 +47,14 @@ describe('storyPlanTableSlugs', () => {
   it('reads zero slugs where the story has no plan table', () => {
     expect(storyPlanTableSlugs('# S\n\n## Design\n\nsome-slug here\n')).toEqual([]);
   });
+
+  it('skips a first-column cell that names no plan, and a row repeated', () => {
+    const text = '## Plans\n\n| Plan | State |\n|---|---|\n| Free text here | x |\n| `a-plan` | x |\n| a-plan | x |\n';
+    expect(storyPlanTableSlugs(text)).toEqual(['a-plan']);
+  });
+
+  it('ends a table at a blank line and reads the next table as a fresh one', () => {
+    const text = '## Plans\n\n| Plan |\n|---|\n| one |\n\n| Plan |\n|---|\n| two |\n';
+    expect(storyPlanTableSlugs(text)).toEqual(['one', 'two']);
+  });
 });
