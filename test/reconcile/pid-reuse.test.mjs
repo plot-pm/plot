@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { restPullsStubSource } from './rest-pulls-shim.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -242,8 +243,9 @@ const reapFixture = (manifest, { unreadableStart = false, ignoreWorkerFiles = tr
   const merged = { [branch]: [{ mergedAt: '2026-10-27T10:00:00Z', number: 900, headRefOid: head }] };
   fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
 const argv = process.argv.slice(2);
-if (argv[0] !== 'pr' || argv[1] !== 'list') process.exit(1);
 const table = ${JSON.stringify(merged)};
+${restPullsStubSource("(head) => (table[head] || []).map((p) => ({ ...p, state: 'MERGED' }))")}
+if (argv[0] !== 'pr' || argv[1] !== 'list') process.exit(1);
 const head = argv[argv.indexOf('--head') + 1];
 const state = argv[argv.indexOf('--state') + 1];
 let all = table[head] || [];
