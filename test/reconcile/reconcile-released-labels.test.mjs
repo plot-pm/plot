@@ -37,11 +37,15 @@ const stubGh = (labels) => {
     number: 7, title: 'Seven', url: '', createdAt: '', assignees: [],
     closedAt: '2026-01-02T00:00:00Z', labels: labels.map((name) => ({ name })),
   }]);
+  const restIssue = JSON.stringify([{
+    number: 7, title: 'Seven', html_url: '', created_at: '', state: 'closed', assignees: [],
+    updated_at: '2026-01-02T00:00:00Z', closed_at: '2026-01-02T00:00:00Z', labels: labels.map((name) => ({ name })),
+  }]);
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 case "$*" in
-  *"issue list"*) printf '%s' '${issue}' ;;
-  *"pr list"*)    printf '%s' '[]' ;;
+  *"api repos/"*"/issues?"*) printf 'HTTP/2 200\\r\\n\\n%s' '${restIssue}' ;;
+  *"api repos/"*"/pulls?"*)  printf 'HTTP/2 200\\r\\n\\n%s' '[]' ;;
 esac
 exit 0
 `);

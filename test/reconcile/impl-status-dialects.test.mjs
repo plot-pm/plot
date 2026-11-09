@@ -51,6 +51,10 @@ function stubGh(mergedHeads = []) {
   const rows = JSON.stringify(mergedHeads.map((h, i) => ({
     number: 900 + i, headRefName: h, state: 'MERGED', title: h,
   })));
+  const restRows = JSON.stringify(mergedHeads.map((h, i) => ({
+    number: 900 + i, title: h, state: 'closed', merged_at: '2026-01-01T00:00:00Z', html_url: '',
+    updated_at: '2026-01-01T00:00:00Z', user: { login: '' }, head: { ref: h, sha: null }, base: { ref: 'main' },
+  })));
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 # The number is echoed back from the argv so a test can assert WHICH pr resolved.
 if [[ "$*" == *"pr view"* ]]; then
@@ -59,6 +63,7 @@ if [[ "$*" == *"pr view"* ]]; then
   printf '{"number":%s,"state":"MERGED","isDraft":false,"url":"https://example.test/pr/%s","mergeCommit":{"oid":"abc"}}' "\${n:-0}" "\${n:-0}"
   exit 0
 fi
+if [[ "$1" == api && "$2" == *"/pulls?"* ]]; then printf 'HTTP/2 200\\r\\n\\n%s' '${restRows.replace(/'/g, `'\\''`)}'; exit 0; fi
 if [[ "$*" == *"pr list"* ]]; then printf '%s' '${rows.replace(/'/g, `'\\''`)}'; exit 0; fi
 printf '%s' '{}'
 `);
